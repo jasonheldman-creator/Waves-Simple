@@ -4,132 +4,264 @@ import numpy as np
 import plotly.express as px
 
 # --------------------------------------------------------------------
-# Page config
+# PAGE CONFIG
 # --------------------------------------------------------------------
 st.set_page_config(
-    page_title="WAVES Simple Console",
-    layout="wide",
+    page_title="WAVES Intelligence – Mini Bloomberg Console",
+    layout="wide"
 )
 
 # --------------------------------------------------------------------
-# Dark theme + branding
+# WAVES DEFINITIONS (15 Waves)
 # --------------------------------------------------------------------
-CUSTOM_CSS = """
+WAVES = {
+    "sp500": {
+        "label": "S&P 500 Wave (LIVE Demo)",
+        "benchmark": "S&P 500 Index",
+        "style": "Core · Large Cap",
+        "wave_type": "AI-Managed Wave"
+    },
+    "us_growth": {
+        "label": "US Growth Wave",
+        "benchmark": "Russell 1000 Growth",
+        "style": "Growth · Large Cap",
+        "wave_type": "AI-Managed Wave"
+    },
+    "us_value": {
+        "label": "US Value Wave",
+        "benchmark": "Russell 1000 Value",
+        "style": "Value · Large Cap",
+        "wave_type": "AI-Managed Wave"
+    },
+    "sm_mid_growth": {
+        "label": "Small–Mid Cap Growth Wave",
+        "benchmark": "SMID Growth Composite",
+        "style": "Growth · SMID",
+        "wave_type": "AI-Managed Wave"
+    },
+    "income": {
+        "label": "Equity Income Wave",
+        "benchmark": "US Dividend Composite",
+        "style": "Income · Factor",
+        "wave_type": "Income Wave"
+    },
+    "future_power": {
+        "label": "Future Power & Energy Wave",
+        "benchmark": "Clean Energy / Infrastructure",
+        "style": "Thematic · Energy & Infra",
+        "wave_type": "Thematic Wave"
+    },
+    "tech_leaders": {
+        "label": "Tech Leaders Wave",
+        "benchmark": "NASDAQ 100",
+        "style": "Tech · Mega Cap",
+        "wave_type": "AI-Managed Wave"
+    },
+    "ai_wave": {
+        "label": "AI & Automation Wave",
+        "benchmark": "AI / Robotics Composite",
+        "style": "AI & Robotics",
+        "wave_type": "Thematic Wave"
+    },
+    "quality_core": {
+        "label": "Quality Core Wave",
+        "benchmark": "Global Quality Composite",
+        "style": "Quality · Core",
+        "wave_type": "Core Wave"
+    },
+    "us_core": {
+        "label": "US Core Equity Wave",
+        "benchmark": "Total US Market",
+        "style": "Core · Broad Market",
+        "wave_type": "Core Wave"
+    },
+    "intl_dev": {
+        "label": "International Developed Wave",
+        "benchmark": "MSCI EAFE",
+        "style": "Developed ex-US",
+        "wave_type": "Core Wave"
+    },
+    "emerging": {
+        "label": "Emerging Markets Wave",
+        "benchmark": "MSCI EM",
+        "style": "Emerging Markets",
+        "wave_type": "Core Wave"
+    },
+    "div_growth": {
+        "label": "Dividend Growth Wave",
+        "benchmark": "US Dividend Growth Index",
+        "style": "Dividend Growth",
+        "wave_type": "Income Wave"
+    },
+    "sector_rotation": {
+        "label": "Sector Rotation Wave",
+        "benchmark": "Sector-Neutral Composite",
+        "style": "Sector Rotation",
+        "wave_type": "Tactical Wave"
+    },
+    "crypto_income": {
+        "label": "Crypto Income Wave",
+        "benchmark": "Crypto Yield Composite",
+        "style": "Digital Assets · Income",
+        "wave_type": "Crypto Wave"
+    },
+}
+
+WAVE_KEYS = list(WAVES.keys())
+
+# --------------------------------------------------------------------
+# BRANDING CSS – DARK MINI-BLOOMBERG LOOK
+# --------------------------------------------------------------------
+CSS = """
 <style>
-/* Overall app background */
+/* App background */
 [data-testid="stAppViewContainer"] {
-    background: radial-gradient(circle at top, #0f172a 0%, #020617 55%);
+    background: radial-gradient(circle at top, #0b1220 0%, #020617 50%, #000000 100%);
     color: #e5e7eb;
 }
 
 /* Sidebar */
 [data-testid="stSidebar"] {
-    background-color: #020617;
-    border-right: 1px solid #1f2937;
+    background: linear-gradient(180deg, #020617 0%, #020617 65%, #030712 100%);
+    border-right: 1px solid #111827;
 }
 
-/* Remove default padding at top */
+/* Main padding */
 .block-container {
-    padding-top: 1.0rem;
-    padding-bottom: 1.5rem;
-    max-width: 1450px;
+    padding-top: 0.6rem;
+    padding-bottom: 0.4rem;
+    max-width: 1500px;
 }
 
-/* Headings & text */
+/* Typography */
 h1, h2, h3, h4, h5, h6, label, p, span {
-    color: #e5e7eb !important;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #e5e7eb;
 }
 
-/* Metric strip */
-.metric-row {
-    display: flex;
-    gap: 0.8rem;
-    margin: 0.75rem 0 0.25rem 0;
+/* Title gradient */
+.wave-title {
+    font-size: 1.85rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    background: linear-gradient(90deg, #38bdf8, #60a5fa, #a855f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
-.metric-card {
-    flex: 1;
-    background: radial-gradient(circle at top left, #0f172a, #020617);
-    border-radius: 12px;
-    padding: 0.7rem 0.9rem;
-    border: 1px solid #1f2937;
-    box-shadow: 0 16px 32px rgba(0,0,0,0.55);
-}
-
-.metric-label {
-    font-size: 0.68rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #9ca3af;
-}
-
-.metric-value {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-top: 2px;
-}
-
-/* Section cards (Bloomberg-style panels) */
-.section-card {
-    background: rgba(15,23,42,0.92);
-    border-radius: 14px;
-    padding: 0.75rem 0.9rem 0.8rem 0.9rem;
-    border: 1px solid #1f2937;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.65);
-}
-
-.section-header {
-    display:flex;
-    justify-content:space-between;
+/* Sub badges */
+.badge {
+    display:inline-flex;
     align-items:center;
+    padding: 0.25rem 0.55rem;
+    border-radius:999px;
+    font-size:0.68rem;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    border:1px solid #1f2937;
+    background: radial-gradient(circle at top left, rgba(56,189,248,0.25), rgba(15,23,42,0.96));
+    color:#e5e7eb;
+}
+.badge-soft {
+    background: rgba(15,23,42,0.88);
+}
+
+/* Metric row */
+.metric-row {
+    display:flex;
+    gap:0.75rem;
+    margin-top:0.55rem;
     margin-bottom:0.35rem;
 }
+.metric-card {
+    flex:1;
+    background: radial-gradient(circle at top left, #0f172a, #020617);
+    border-radius:12px;
+    border:1px solid #1f2937;
+    padding:0.55rem 0.75rem 0.55rem 0.75rem;
+    box-shadow:0 18px 40px rgba(0,0,0,0.8);
+}
+.metric-label {
+    font-size:0.64rem;
+    letter-spacing:0.15em;
+    text-transform:uppercase;
+    color:#9ca3af;
+}
+.metric-value {
+    font-size:1.2rem;
+    font-weight:600;
+    margin-top:1px;
+}
+.metric-sub {
+    font-size:0.7rem;
+    color:#9ca3af;
+    margin-top:0.1rem;
+}
 
+/* Panel cards */
+.section-card {
+    background: rgba(15,23,42,0.96);
+    border-radius:14px;
+    padding:0.7rem 0.8rem 0.75rem 0.85rem;
+    border:1px solid #111827;
+    box-shadow:0 22px 60px rgba(0,0,0,0.9);
+}
 .section-title {
-    font-size: 0.92rem;
-    font-weight: 600;
+    font-size:0.88rem;
+    font-weight:600;
 }
-
 .section-caption {
-    font-size: 0.75rem;
-    color: #9ca3af;
+    font-size:0.72rem;
+    color:#9ca3af;
 }
 
-/* Dataframe tweaks */
+/* Dataframe styling */
 .dataframe thead tr th {
-    background-color: #020617 !important;
-    color: #e5e7eb !important;
+    background-color:#020617 !important;
+    color:#e5e7eb !important;
+    font-size:0.72rem;
 }
 .dataframe tbody tr:nth-child(even) {
-    background-color: rgba(15,23,42,0.6) !important;
+    background-color:rgba(15,23,42,0.7) !important;
 }
-
-/* Links inside table */
+.dataframe tbody tr td {
+    font-size:0.75rem;
+}
 table.dataframe a {
-    color: #38bdf8;
-    text-decoration: none;
-    font-weight: 500;
+    color:#38bdf8;
+    text-decoration:none;
+    font-weight:500;
 }
 table.dataframe a:hover {
-    text-decoration: underline;
+    text-decoration:underline;
+}
+
+/* Small footer strip */
+.footer-note {
+    font-size:0.72rem;
+    color:#9ca3af;
+}
+
+/* Make headers compact */
+header[data-testid="stHeader"] {
+    height: 0rem;
+    min-height: 0rem;
 }
 </style>
 """
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+st.markdown(CSS, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# Helpers
+# HELPER FUNCTIONS
 # --------------------------------------------------------------------
-def find_column(df, candidates):
-    """Return the first existing column from candidates (case-insensitive), else None."""
+def find_column(df: pd.DataFrame, candidates):
     cols = {c.lower(): c for c in df.columns}
     for c in candidates:
         if c.lower() in cols:
             return cols[c.lower()]
     return None
 
-def clean_columns(df):
+def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [c.strip() for c in df.columns]
     return df
@@ -145,149 +277,184 @@ def format_bps(x):
     return f"{x:,.0f} bps"
 
 # --------------------------------------------------------------------
-# Sidebar (controls)
+# SIDEBAR – WAVE, MODE, INFO
 # --------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### Controls")
+    st.markdown("### 🌊 WAVES Console")
+    st.caption("Mini-Bloomberg view for WAVES Intelligence™.")
 
-    smart_mode = st.radio(
-        "SmartSafe™ mode",
-        ["Neutral", "Defensive", "Max Safe"],
+    wave_key = st.selectbox(
+        "Select Wave",
+        options=WAVE_KEYS,
+        format_func=lambda k: WAVES[k]["label"],
+        index=0
+    )
+    wave_meta = WAVES[wave_key]
+
+    mode = st.radio(
+        "Mode",
+        options=["Standard", "Private Logic™"],
         index=0,
-        help="Read-only demo: these do not place any trades."
+        help="Standard = disciplined, benchmark-linked. Private Logic™ = higher-octane, proprietary logic."
     )
 
-    st.markdown("#### Human overrides")
+    st.markdown("---")
+    st.markdown("**Wave profile**")
+    st.markdown(f"- Benchmark: `{wave_meta['benchmark']}`")
+    st.markdown(f"- Style: `{wave_meta['style']}`")
+    st.markdown(f"- Type: `{wave_meta['wave_type']}`")
 
-    equity_tilt = st.slider(
-        "Equity tilt (human override, %)",
-        min_value=-30, max_value=30, value=0, step=1,
+    st.markdown("---")
+    st.caption(
+        "Upload any Wave snapshot CSV on the right. "
+        "Console is read-only – no live trades are placed."
     )
-
-    growth_tilt = st.slider(
-        "Growth style tilt (bps)",
-        min_value=-300, max_value=300, value=0, step=10,
-    )
-
-    value_tilt = st.slider(
-        "Value style tilt (bps)",
-        min_value=-300, max_value=300, value=0, step=10,
-    )
-
-    st.caption("This console is read-only — no live orders are placed.")
 
 # --------------------------------------------------------------------
-# Header strip
+# HEADER STRIP (TOP OF SCREEN)
 # --------------------------------------------------------------------
-st.markdown(
-    """
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+col_l, col_r = st.columns([1.8, 1.0])
+
+with col_l:
+    st.markdown(
+        f"""
         <div>
-            <div style="font-size:0.78rem; letter-spacing:0.22em; text-transform:uppercase; color:#60a5fa;">
-                WAVES INTELLIGENCE™ · LIVE DEMO
+            <div style="font-size:0.78rem; letter-spacing:0.22em; text-transform:uppercase; color:#9ca3af;">
+                WAVES INTELLIGENCE™ · PORTFOLIO WAVE CONSOLE
             </div>
-            <div style="font-size:2.0rem; font-weight:720; margin-top:0.15rem;">
-                WAVES SIMPLE CONSOLE
+            <div class="wave-title">
+                {wave_meta["label"]}
             </div>
-            <div style="font-size:0.9rem; color:#9ca3af; margin-top:0.1rem;">
-                Bloomberg-style Wave dashboard · one screen · instant CSV analytics.
+            <div style="font-size:0.84rem; color:#9ca3af; margin-top:0.12rem;">
+                Benchmark-aware, AI-directed Wave – rendered in a single screen, Bloomberg-style.
             </div>
         </div>
-        <div style="
-            padding:0.45rem 0.9rem;
-            border-radius:999px;
-            border:1px solid #1f2937;
-            background:rgba(15,23,42,0.95);
-            font-size:0.78rem;
-            color:#9ca3af;">
-            AI-managed Wave · CSV-driven · No external data calls
+        """,
+        unsafe_allow_html=True,
+    )
+
+with col_r:
+    st.markdown(
+        f"""
+        <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.1rem;">
+            <div class="badge-soft">
+                Mode · <b>{mode}</b>
+            </div>
+            <div class="badge-soft">
+                Benchmark · <b>{wave_meta["benchmark"]}</b>
+            </div>
+            <div class="badge">
+                LIVE DEMO
+            </div>
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --------------------------------------------------------------------
-# File upload
+# FILE UPLOAD
 # --------------------------------------------------------------------
-uploaded_file = st.file_uploader(
-    "Upload a Wave snapshot CSV",
-    type=["csv"],
-    help="Use your Google Sheets / Wave snapshot export.",
-)
+st.markdown("")
+upload_col, _ = st.columns([1.8, 1.0])
 
-if not uploaded_file:
-    st.info("Upload a CSV file to begin.")
+with upload_col:
+    uploaded_file = st.file_uploader(
+        "Upload a Wave snapshot CSV",
+        type=["csv"],
+        help="Use your latest Wave snapshot export from Google Sheets or your data engine."
+    )
+
+if uploaded_file is None:
+    st.info("Upload a CSV file to activate the console.")
     st.stop()
 
 # --------------------------------------------------------------------
-# Data handling
+# DATA PREP
 # --------------------------------------------------------------------
-raw_df = pd.read_csv(uploaded_file)
-raw_df = clean_columns(raw_df)
+df_raw = pd.read_csv(uploaded_file)
+df_raw = clean_columns(df_raw)
 
-ticker_col = find_column(raw_df, ["Ticker", "Symbol"])
-name_col = find_column(raw_df, ["Name", "Security", "Company Name"])
-sector_col = find_column(raw_df, ["Sector"])
-weight_col = find_column(raw_df, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
-dollar_col = find_column(raw_df, ["Dollar_Amount", "Position Value", "Market Value", "Value"])
+ticker_col = find_column(df_raw, ["Ticker", "Symbol"])
+name_col = find_column(df_raw, ["Name", "Security", "Company Name"])
+sector_col = find_column(df_raw, ["Sector"])
+weight_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
+dollar_col = find_column(df_raw, ["Dollar_Amount", "Position Value", "Market Value", "Value"])
+alpha_bps_col = find_column(df_raw, ["Alpha_bps", "Alpha (bps)", "Alpha_bps_12m"])
 
-df = raw_df.copy()
+df = df_raw.copy()
 
-# Fallback weights if none supplied
 if weight_col is None:
-    df["__weight__"] = 1.0 / len(df)
+    df["__weight__"] = 1.0 / max(len(df), 1)
     weight_col = "__weight__"
 
 weights = df[weight_col].astype(float)
 total_weight = weights.sum() if weights.sum() > 0 else 1.0
 weights_norm = weights / total_weight
 
+# TOP 10 HOLDINGS
+df["__w_norm__"] = weights_norm
+df_sorted = df.sort_values("__w_norm__", ascending=False)
+top10 = df_sorted.head(10).copy()
+
 # --------------------------------------------------------------------
-# Key stats strip (top of screen)
+# METRIC STRIP
 # --------------------------------------------------------------------
 n_holdings = len(df)
-equity_weight = 1.00  # demo assumption
-cash_weight = 0.00
+equity_weight = 1.0
+cash_weight = 0.0
 largest_pos = float(weights_norm.max()) if len(weights_norm) > 0 else 0.0
+
+if alpha_bps_col and alpha_bps_col in df.columns:
+    alpha_est = float(df[alpha_bps_col].mean())
+else:
+    alpha_est = np.nan
 
 st.markdown('<div class="metric-row">', unsafe_allow_html=True)
 
+# Total holdings
 st.markdown(
     f"""
     <div class="metric-card">
-        <div class="metric-label">Total holdings</div>
+        <div class="metric-label">TOTAL HOLDINGS</div>
         <div class="metric-value">{n_holdings:,}</div>
+        <div class="metric-sub">Underlying positions in the selected Wave</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+# Equity / cash
 st.markdown(
     f"""
     <div class="metric-card">
-        <div class="metric-label">Equity weight</div>
-        <div class="metric-value">{format_pct(equity_weight)}</div>
+        <div class="metric-label">EQUITY VS CASH</div>
+        <div class="metric-value">{format_pct(equity_weight)} / {format_pct(cash_weight)}</div>
+        <div class="metric-sub">Wave-level risk budget (demo assumes fully invested)</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+# Largest weight
 st.markdown(
     f"""
     <div class="metric-card">
-        <div class="metric-label">Cash weight</div>
-        <div class="metric-value">{format_pct(cash_weight)}</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    f"""
-    <div class="metric-card">
-        <div class="metric-label">Largest position</div>
+        <div class="metric-label">LARGEST POSITION</div>
         <div class="metric-value">{format_pct(largest_pos)}</div>
+        <div class="metric-sub">Single-name concentration vs diversified Wave</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Alpha estimate
+alpha_text = format_bps(alpha_est) if not np.isnan(alpha_est) else "N/A"
+st.markdown(
+    f"""
+    <div class="metric-card">
+        <div class="metric-label">ALPHA CAPTURE (EST)</div>
+        <div class="metric-value">{alpha_text}</div>
+        <div class="metric-sub">If alpha column exists in CSV, this shows Wave-average alpha</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -295,182 +462,213 @@ st.markdown(
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("")
-
 # --------------------------------------------------------------------
-# Main terminal layout (Preview left, Charts right)
+# MAIN TERMINAL LAYOUT – ONE SCREEN
+# Left: Top 10 Table
+# Right: Charts stack
 # --------------------------------------------------------------------
-left, right = st.columns([1.45, 1.1])
+left, right = st.columns([1.5, 1.25])
 
-# ---- LEFT: Portfolio preview table ---------------------------------
+# ---------- LEFT PANEL: TOP 10 HOLDINGS TABLE -----------------------
 with left:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
         """
-        <div class="section-header">
-            <div class="section-title">Portfolio preview</div>
-            <div class="section-caption">Snapshot of all holdings with quick links</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+            <div class="section-title">Top 10 holdings</div>
+            <div class="section-caption">Ranked by final Wave weight</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     display_cols = []
+
     if ticker_col:
         display_cols.append(ticker_col)
     if name_col and name_col not in display_cols:
         display_cols.append(name_col)
     if sector_col and sector_col not in display_cols:
         display_cols.append(sector_col)
-    if weight_col and weight_col not in display_cols:
-        display_cols.append(weight_col)
+
+    display_cols.append("__w_norm__")
     if dollar_col and dollar_col not in display_cols:
         display_cols.append(dollar_col)
 
-    preview_df = df[display_cols].copy() if display_cols else df.copy()
+    top_view = top10[display_cols].copy()
+    top_view.rename(
+        columns={
+            "__w_norm__": "Weight",
+        },
+        inplace=True,
+    )
 
-    # Hyperlink column
+    # Hyperlink ticker column
     if ticker_col:
-        preview_df["Link"] = preview_df[ticker_col].apply(
+        link_col = "Link"
+        top_view[link_col] = top_view[ticker_col].apply(
             lambda t: f'<a href="https://finance.yahoo.com/quote/{t}" target="_blank">Quote</a>'
             if pd.notna(t) else ""
         )
+        # Format weight as %
+        if "Weight" in top_view.columns:
+            top_view["Weight"] = top_view["Weight"].astype(float).apply(format_pct)
+
         st.markdown(
-            preview_df.to_html(escape=False, index=False),
+            top_view.to_html(escape=False, index=False),
             unsafe_allow_html=True,
         )
     else:
-        st.dataframe(preview_df, use_container_width=True, height=450)
+        if "Weight" in top_view.columns:
+            top_view["Weight"] = top_view["Weight"].astype(float).apply(format_pct)
+        st.dataframe(top_view, use_container_width=True, height=420)
 
     st.markdown(
-        f"""
-        <div style="font-size:0.8rem; color:#9ca3af; margin-top:0.4rem;">
-            Wave snapshot: <b>{n_holdings:,}</b> holdings · equity {format_pct(equity_weight)},
-            cash {format_pct(cash_weight)}, largest position {format_pct(largest_pos)}.
+        """
+        <div class="footer-note" style="margin-top:0.35rem;">
+            Tip: click <b>Quote</b> to jump to live market data for any ticker
+            while keeping the Wave console pinned.
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---- RIGHT: Charts panel -------------------------------------------
+# ---------- RIGHT PANEL: CHARTS STACK --------------------------------
 with right:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
         """
-        <div class="section-header">
-            <div class="section-title">Analytics</div>
-            <div class="section-caption">Sector allocation & top holdings (weight)</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
+            <div class="section-title">Wave analytics</div>
+            <div class="section-caption">Top-10 profile · Sector mix · Weight distribution</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    c1, c2 = st.columns(1)
-
-    # Sector chart
-    if sector_col:
-        sector_data = (
-            pd.DataFrame({
-                "Sector": df[sector_col],
-                "Weight": weights_norm
-            })
-            .groupby("Sector", as_index=False)["Weight"]
-            .sum()
-            .sort_values("Weight", ascending=False)
-        )
-        fig_sector = px.bar(
-            sector_data,
-            x="Sector",
-            y="Weight",
-            title="Sector allocation",
-        )
-        fig_sector.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#e5e7eb",
-            xaxis_title="",
-            yaxis_title="Weight",
-            margin=dict(l=10, r=10, t=40, b=10),
-            height=250,
-            yaxis_tickformat=".0%",
-        )
-        st.plotly_chart(fig_sector, use_container_width=True)
-    else:
-        st.info("No 'Sector' column detected — add one to see sector allocation.", icon="ℹ️")
-
-    # Top holdings chart
+    # Row 1: Top-10 bar chart
     if ticker_col:
-        top_n = 15
-        top_data = (
-            pd.DataFrame({
-                "Ticker": df[ticker_col],
-                "Weight": weights_norm
-            })
-            .sort_values("Weight", ascending=False)
-            .head(top_n)
+        bar_data = pd.DataFrame({
+            "Ticker": top10[ticker_col],
+            "Weight": top10["__w_norm__"].astype(float),
+        })
+        fig_bar = px.bar(
+            bar_data,
+            x="Weight",
+            y="Ticker",
+            orientation="h",
+            title="Top-10 by Wave weight",
         )
-        fig_top = px.bar(
-            top_data,
-            x="Ticker",
-            y="Weight",
-            title=f"Top {top_n} holdings",
-        )
-        fig_top.update_layout(
+        fig_bar.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             font_color="#e5e7eb",
-            xaxis_title="",
+            xaxis_title="Weight",
+            yaxis_title="",
+            margin=dict(l=10, r=10, t=32, b=10),
+            height=230,
+            xaxis_tickformat=".0%",
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+    else:
+        st.info("No ticker column found – add a Ticker/Symbol column for holdings charts.", icon="ℹ️")
+
+    # Row 2: Sector donut + distribution mini-chart
+    c1, c2 = st.columns([1.2, 1.0])
+
+    # Sector donut
+    with c1:
+        if sector_col:
+            sec_data = (
+                df.groupby(df[sector_col])["__w_norm__"]
+                .sum()
+                .reset_index()
+                .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
+                .sort_values("Weight", ascending=False)
+            )
+
+            fig_sect = px.pie(
+                sec_data,
+                values="Weight",
+                names="Sector",
+                hole=0.55,
+                title="Sector mix (full Wave)",
+            )
+            fig_sect.update_layout(
+                showlegend=True,
+                legend_orientation="v",
+                legend_y=0.5,
+                legend_x=1.05,
+                margin=dict(l=0, r=60, t=40, b=0),
+                height=260,
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font_color="#e5e7eb",
+            )
+            st.plotly_chart(fig_sect, use_container_width=True)
+        else:
+            st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
+
+    # Weight distribution mini-chart
+    with c2:
+        dist_data = df_sorted[["__w_norm__"]].copy()
+        dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
+
+        fig_line = px.area(
+            dist_data,
+            x="Rank",
+            y="__w_norm__",
+            title="Weight decay curve",
+        )
+        fig_line.update_traces(mode="lines", line_shape="spline")
+        fig_line.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#e5e7eb",
+            xaxis_title="Holding rank",
             yaxis_title="Weight",
             margin=dict(l=10, r=10, t=40, b=10),
             height=260,
-            yaxis_tickformat=".0%",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, tickformat=".0%"),
         )
-        st.plotly_chart(fig_top, use_container_width=True)
-    else:
-        st.info("No 'Ticker' column detected — add one to see top holdings.", icon="ℹ️")
+        st.plotly_chart(fig_line, use_container_width=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# Bottom strip: SmartSafe + overrides (compact)
+# BOTTOM STRIP – MODE EXPLANATION (STILL SAME SCREEN)
 # --------------------------------------------------------------------
 st.markdown("")
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.markdown(
-    """
-    <div class="section-header">
-        <div class="section-title">SmartSafe™ & human override status</div>
-        <div class="section-caption">Read-only demo of the Waves Intelligence™ control layer</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-col_a, col_b, col_c, col_d = st.columns([1.2, 1, 1, 1])
-
-with col_a:
-    st.markdown("**SmartSafe™ mode**")
-    st.markdown(f"`{smart_mode}`")
-
-with col_b:
-    st.markdown("**Equity tilt override**")
-    st.markdown(f"{equity_tilt:+d}%")
-
-with col_c:
-    st.markdown("**Growth style tilt**")
-    st.markdown(format_bps(growth_tilt))
-
-with col_d:
-    st.markdown("**Value style tilt**")
-    st.markdown(format_bps(value_tilt))
-
-st.markdown(
-    """
-    <div style="font-size:0.78rem; color:#9ca3af; margin-top:0.5rem;">
-        In the full WAVES Intelligence™ stack, these controls would adjust Wave-level risk targets,
-        apply style tilts inside guardrails, and stream updated targets into the trading engine.
-        In this demo, settings are informational only and do not modify the uploaded CSV.
+    f"""
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.5rem;">
+        <div style="flex:1;">
+            <div class="section-title">Mode overview</div>
+            <div class="section-caption">
+                How <b>{mode}</b> would steer the {wave_meta["label"]} Wave in production.
+            </div>
+            <div class="footer-note" style="margin-top:0.4rem;">
+                <b>Standard mode</b> keeps the Wave tightly aligned to its benchmark
+                (<code>{wave_meta['benchmark']}</code>) with controlled tracking error,
+                strict beta discipline, and lower turnover.
+                <br/><br/>
+                <b>Private Logic™</b> layers in proprietary leadership, regime-switching,
+                and SmartSafe™ overlays to push harder for risk-adjusted alpha while still
+                staying within institutional guardrails. This demo only changes the
+                narrative – live Waves would change exposures and trading plans behind the scenes.
+            </div>
+        </div>
+        <div style="flex:0.9;">
+            <div class="section-title">Console status</div>
+            <ul class="footer-note">
+                <li>Read-only: no real orders are routed from this screen.</li>
+                <li>All analytics calculated directly from the uploaded CSV snapshot.</li>
+                <li>Every Wave and mode can be exported to a full institutional console.</li>
+            </ul>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
