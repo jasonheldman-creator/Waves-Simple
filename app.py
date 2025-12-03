@@ -4,31 +4,27 @@ import numpy as np
 import plotly.express as px
 
 # ==================================================
-# PAGE SETUP – DARK MODE
+# PAGE SETUP – DARK SINGLE-SCREEN CONSOLE
 # ==================================================
 st.set_page_config(
     page_title="🌊 Waves Simple Console",
     layout="wide"
 )
 
-DARK_BG = "#0d1117"
-CARD_BG = "#111827"
+DARK_BG = "#020617"
+CARD_BG = "#0b1120"
 ACCENT = "#3b82f6"
 TEXT_MAIN = "#e5e7eb"
 TEXT_MUTED = "#9ca3af"
 
 custom_css = f"""
 <style>
-    body {{
-        background-color: {DARK_BG};
-        color: {TEXT_MAIN};
-    }}
     .stApp {{
         background-color: {DARK_BG};
     }}
     .block-container {{
-        padding-top: 2rem;
-        padding-bottom: 2.5rem;
+        padding-top: 1.8rem;
+        padding-bottom: 1.8rem;
     }}
     h1, h2, h3, h4, h5, h6, label {{
         color: {TEXT_MAIN} !important;
@@ -36,54 +32,38 @@ custom_css = f"""
     .metric-card {{
         background: radial-gradient(circle at top left, #1f2937, #020617);
         border-radius: 14px;
-        padding: 1rem 1.3rem;
-        border: 1px solid #1f2937;
-        box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+        padding: 0.9rem 1.1rem;
+        border: 1px solid #111827;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6);
     }}
     .metric-label {{
-        font-size: 0.78rem;
-        letter-spacing: .12em;
+        font-size: 0.72rem;
+        letter-spacing: .14em;
         text-transform: uppercase;
         color: {TEXT_MUTED};
     }}
     .metric-value {{
-        font-size: 1.7rem;
+        font-size: 1.5rem;
         font-weight: 600;
         margin-top: 4px;
         color: {TEXT_MAIN};
     }}
     .metric-sub {{
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         color: {TEXT_MUTED};
-        margin-top: 0.15rem;
+        margin-top: 0.1rem;
     }}
     .stDataFrame table {{
         background-color: #020617 !important;
         color: {TEXT_MAIN} !important;
-        border-radius: 6px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        font-size: 1rem;
-        color: {TEXT_MAIN};
-        padding: 0.7rem 1.2rem;
-    }}
-    .stTabs [aria-selected="true"] {{
-        background-color: #111827 !important;
-        border-bottom: 2px solid {ACCENT} !important;
     }}
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==================================================
-# HEADER & SIDEBAR
+# SIDEBAR – MODES & SLIDERS
 # ==================================================
-st.title("🌊 WAVES SIMPLE CONSOLE")
-st.markdown(
-    "Upload a **Wave snapshot CSV** to explore the portfolio, "
-    "visualize exposures, and preview SmartSafe™ & human overrides."
-)
-
 st.sidebar.header("⚙️ Console Controls")
 
 smartsafe_mode = st.sidebar.radio(
@@ -92,31 +72,28 @@ smartsafe_mode = st.sidebar.radio(
     index=0
 )
 
-# Recommended cash based on mode
-mode_to_cash = {
-    "Neutral": 0,
-    "Defensive": 15,
-    "Max Safe": 30,
-}
-recommended_cash = mode_to_cash[smartsafe_mode]
+mode_to_cash = {"Neutral": 0, "Defensive": 15, "Max Safe": 30}
+default_cash = mode_to_cash[smartsafe_mode]
 
 cash_override = st.sidebar.slider(
-    "Cash buffer (SmartSafe™ %, removes from equities)",
-    0, 50, recommended_cash, step=1
+    "Cash buffer (SmartSafe™ %)",
+    0, 50, default_cash, step=1
 )
 
 st.sidebar.caption(
-    "SmartSafe™ creates a portfolio-level cash buffer and "
-    "scales down all holdings proportionally. This console is read-only; "
-    "no live trades are placed."
+    "SmartSafe™ creates a portfolio-level cash slice and scales down "
+    "all positions proportionally. This console is read-only; no live trades."
 )
 
-equity_tilt = st.sidebar.slider("Equity tilt (bps – informational only)", -300, 300, 0, step=25)
-growth_tilt = st.sidebar.slider("Growth vs Value tilt (bps – informational only)", -300, 300, 0, step=25)
+# ==================================================
+# HEADER
+# ==================================================
+st.title("🌊 WAVES SIMPLE CONSOLE")
+st.markdown(
+    "Upload a **Wave snapshot CSV** to view the portfolio, charts, and "
+    "SmartSafe™-adjusted weights on a single institutional-style screen."
+)
 
-# ==================================================
-# FILE UPLOAD
-# ==================================================
 uploaded_file = st.file_uploader("Upload your Wave snapshot CSV", type=["csv"])
 
 if uploaded_file is None:
@@ -126,7 +103,7 @@ if uploaded_file is None:
 df_raw = pd.read_csv(uploaded_file)
 
 # ==================================================
-# COLUMN DETECTION HELPERS
+# COLUMN DETECTION
 # ==================================================
 def detect_columns(df: pd.DataFrame):
     cols = df.columns
@@ -139,7 +116,7 @@ def detect_columns(df: pd.DataFrame):
 
     ticker = pick("Ticker", "Symbol", default=cols[0])
     sector = pick("Sector", "GICS_Sector", default=None)
-    weight = pick("Wave_Wt_Final", "Weight", "Weight_%", default=None)
+    weight = pick("Wave_Wt_Final", "Weight", "Weight_%", "Index_Weight", default=None)
     dollar = pick("Dollar_Amount", "Position_Dollar", "Dollar", default=None)
     price = pick("Price", default=None)
     score = pick("Momentum_Score", "Score", default=None)
@@ -155,266 +132,208 @@ def detect_columns(df: pd.DataFrame):
 
 colmap = detect_columns(df_raw)
 
-# Base weight series
+ticker_col = colmap["ticker"]
+sector_col = colmap["sector"]
+
+# ==================================================
+# BASE & ADJUSTED WEIGHTS
+# ==================================================
 if colmap["weight"] is not None:
     base_w = df_raw[colmap["weight"]].astype(float)
-    # If not roughly in [0,1], normalise
-    if base_w.sum() > 1.5:
+    if base_w.sum() > 1.5:  # looks like percent, normalize
         base_w = base_w / base_w.sum()
 else:
     if colmap["dollar"] is not None:
         base_w = df_raw[colmap["dollar"]].astype(float)
         base_w = base_w / base_w.sum()
     else:
-        # Equal weight fallback
         base_w = pd.Series(np.ones(len(df_raw)) / len(df_raw), index=df_raw.index)
 
 df = df_raw.copy()
-df["__Base_Weight__"] = base_w
+df["Base_Weight"] = base_w
 
-# Apply SmartSafe cash override: shrink remaining weights
 cash_pct = cash_override / 100.0
-scaled_w = df["__Base_Weight__"] * (1 - cash_pct)
-if scaled_w.sum() > 0:
-    scaled_w = scaled_w / scaled_w.sum() * (1 - cash_pct)  # keep explicit cash slice
-df["__Adj_Weight__"] = scaled_w
+adj_w = df["Base_Weight"] * (1 - cash_pct)
+if adj_w.sum() > 0:
+    adj_w = adj_w / adj_w.sum() * (1 - cash_pct)
+
+df["Adj_Weight"] = adj_w
 
 # ==================================================
-# SUMMARY METRICS
+# SUMMARY NUMBERS
 # ==================================================
 total_holdings = len(df)
-total_equity_weight = (1 - cash_pct) * 100
-top_idx = df["__Base_Weight__"].idxmax()
-top_name = df.loc[top_idx, colmap["ticker"]]
-top_weight = df.loc[top_idx, "__Base_Weight__"] * 100
+equity_weight = (1 - cash_pct) * 100
+
+top_idx = df["Base_Weight"].idxmax()
+top_ticker = df.loc[top_idx, ticker_col]
+top_weight = df.loc[top_idx, "Base_Weight"] * 100
 
 if colmap["dollar"] is not None:
-    total_dollar = df[colmap["dollar"]].sum()
+    total_notional = df[colmap["dollar"]].sum()
     largest_pos = df[colmap["dollar"]].max()
 else:
-    total_dollar = None
+    total_notional = None
     largest_pos = None
 
 # ==================================================
-# LAYOUT – SUMMARY ROW
+# HYPERLINKS TO QUOTES
 # ==================================================
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">TOTAL HOLDINGS</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{total_holdings}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-sub">Unique tickers in this Wave</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with c2:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">EQUITY ALLOCATION</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{total_equity_weight:0.1f}%</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-sub">Cash buffer: {cash_override:.0f}% via SmartSafe™</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with c3:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">TOP HOLDING</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{top_name}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-sub">Base weight: {top_weight:0.2f}%</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with c4:
-    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">STYLE SIGNALS</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="metric-value">{equity_tilt:+.0f} / {growth_tilt:+.0f}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="metric-sub">Equity / Growth tilts (bps, informational)</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("---")
-
-# ==================================================
-# TABS
-# ==================================================
-tab_overview, tab_charts, tab_overrides, tab_diag = st.tabs(
-    ["📊 Overview", "📈 Charts", "🛡 SmartSafe & Overrides", "🔍 Diagnostics"]
+df["Quote_Link"] = df[ticker_col].apply(
+    lambda t: f"https://finance.yahoo.com/quote/{str(t).strip()}"
 )
 
 # ==================================================
-# OVERVIEW TAB
+# LAYOUT – ALL ON ONE SCREEN
 # ==================================================
-with tab_overview:
-    st.subheader("Portfolio preview")
 
-    # Show main table with base & adjusted weights
-    display_cols = [colmap["ticker"]]
+# --------- ROW 1: METRIC CARDS + TOP-10 BAR CHART ----------
+top_left, top_right = st.columns([2, 3])
+
+with top_left:
+    m1, m2 = st.columns(2)
+    m3, m4 = st.columns(2)
+
+    with m1:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">TOTAL HOLDINGS</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{total_holdings}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-sub">Tickers in this Wave</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with m2:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">EQUITY ALLOCATION</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{equity_weight:0.1f}%</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="metric-sub">Cash buffer via SmartSafe™: {cash_override:.0f}%</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with m3:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">TOP HOLDING</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{top_ticker}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-sub">Base weight: {top_weight:0.2f}%</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with m4:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">SMARTSAFE™ MODE</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{smartsafe_mode}</div>', unsafe_allow_html=True)
+        sub = "Preview only – no live orders placed."
+        st.markdown(f'<div class="metric-sub">{sub}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+with top_right:
+    st.subheader("Top 10 holdings (SmartSafe™-adjusted)")
+    top10 = df.nlargest(10, "Adj_Weight")
+    fig_top10 = px.bar(
+        top10,
+        x="Adj_Weight",
+        y=ticker_col,
+        orientation="h",
+        text="Adj_Weight",
+        height=360,
+    )
+    fig_top10.update_traces(texttemplate="%{text:.2%}")
+    fig_top10.update_layout(
+        template="plotly_dark",
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis_title="Weight",
+        yaxis_title="",
+    )
+    st.plotly_chart(fig_top10, use_container_width=True)
+
+st.markdown("---")
+
+# --------- ROW 2: TABLE + CHART PANEL ----------
+bottom_left, bottom_right = st.columns([3, 2])
+
+with bottom_left:
+    st.subheader("Portfolio table (with live quote links)")
+
+    # Build compact view
+    view_cols = [ticker_col]
     for key in ["sector", "price", "dollar", "score"]:
-        if colmap[key] is not None:
-            display_cols.append(colmap[key])
+        c = colmap[key]
+        if c is not None and c not in view_cols:
+            view_cols.append(c)
 
-    display_cols = list(dict.fromkeys(display_cols))  # dedupe
-    df_view = df[display_cols].copy()
-    df_view["Base_Wt_%"] = df["__Base_Weight__"] * 100
-    df_view["Adj_Wt_%"] = df["__Adj_Weight__"] * 100
+    df_view = df[view_cols + ["Base_Weight", "Adj_Weight", "Quote_Link"]].copy()
+    df_view["Base_Wt_%"] = df_view["Base_Weight"] * 100
+    df_view["Adj_Wt_%"] = df_view["Adj_Weight"] * 100
+    df_view = df_view.drop(columns=["Base_Weight", "Adj_Weight"])
 
     st.dataframe(
-        df_view.sort_values("Base_Wt_%", ascending=False),
+        df_view.sort_values("Adj_Wt_%", ascending=False),
         use_container_width=True,
-        height=420
+        height=430,
+        column_config={
+            "Quote_Link": st.column_config.LinkColumn(
+                "Quote",
+                help="Open Yahoo Finance for this ticker",
+                display_text="Open"
+            ),
+            "Base_Wt_%": st.column_config.NumberColumn("Base Wt (%)", format="%.2f"),
+            "Adj_Wt_%": st.column_config.NumberColumn("Adj Wt (%)", format="%.2f"),
+        },
     )
 
-    st.subheader("Key stats")
-    k1, k2, k3 = st.columns(3)
+with bottom_right:
+    st.subheader("Exposures & distribution")
 
-    if total_dollar is not None:
-        k1.metric("Total portfolio notional", f"${total_dollar:,.0f}")
-        k2.metric("Largest position (notional)", f"${largest_pos:,.0f}")
-    else:
-        k1.metric("Total portfolio weight", "100.0%")
-        k2.metric("Largest position weight", f"{top_weight:0.2f}%")
-
-    if colmap["sector"] is not None:
-        sector_counts = df[colmap["sector"]].nunique()
-        k3.metric("Distinct sectors", sector_counts)
-    else:
-        k3.metric("Distinct sectors", "N/A")
-
-# ==================================================
-# CHARTS TAB
-# ==================================================
-with tab_charts:
-    st.subheader("Portfolio charts")
-
-    chart_choice = st.selectbox(
-        "Choose a chart",
-        ["Top 10 Holdings (bar)", "Weight Distribution (pie)", "Sector Exposure", "Position Size Distribution"]
-    )
-
-    ticker_col = colmap["ticker"]
-    sector_col = colmap["sector"]
-
-    # Top 10 holdings by adjusted weight
-    if chart_choice == "Top 10 Holdings (bar)":
-        top10 = df.nlargest(10, "__Adj_Weight__")
-        fig = px.bar(
-            top10,
-            x="__Adj_Weight__",
-            y=ticker_col,
+    if sector_col is not None:
+        sector_df = (
+            df.groupby(sector_col)["Adj_Weight"]
+            .sum()
+            .reset_index()
+            .sort_values("Adj_Weight", ascending=True)
+        )
+        fig_sector = px.bar(
+            sector_df,
+            x="Adj_Weight",
+            y=sector_col,
             orientation="h",
-            text="__Adj_Weight__",
-            title="Top 10 Holdings – Adjusted for SmartSafe™"
+            text="Adj_Weight",
+            height=260,
         )
-        fig.update_traces(texttemplate="%{text:.2%}")
-        fig.update_layout(template="plotly_dark", height=520, margin=dict(l=20, r=20, t=60, b=20))
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Pie chart – adjusted weights
-    if chart_choice == "Weight Distribution (pie)":
-        fig = px.pie(
-            df,
-            names=ticker_col,
-            values="__Adj_Weight__",
-            title="Weight Distribution (post-SmartSafe™)"
-        )
-        fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Sector exposure
-    if chart_choice == "Sector Exposure":
-        if sector_col is None:
-            st.error("No Sector column found in the CSV.")
-        else:
-            sector_df = (
-                df.groupby(sector_col)["__Adj_Weight__"]
-                .sum()
-                .reset_index()
-                .sort_values("__Adj_Weight__", ascending=True)
-            )
-            fig = px.bar(
-                sector_df,
-                x="__Adj_Weight__",
-                y=sector_col,
-                orientation="h",
-                text="__Adj_Weight__",
-                title="Sector Exposure – Adjusted Weights"
-            )
-            fig.update_traces(texttemplate="%{text:.2%}")
-            fig.update_layout(template="plotly_dark", height=560, margin=dict(l=20, r=20, t=60, b=20))
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Position size distribution
-    if chart_choice == "Position Size Distribution":
-        fig = px.histogram(
-            df,
-            x="__Adj_Weight__",
-            nbins=30,
-            title="Distribution of Position Sizes (Adjusted Weights)"
-        )
-        fig.update_layout(
+        fig_sector.update_traces(texttemplate="%{text:.2%}")
+        fig_sector.update_layout(
             template="plotly_dark",
+            margin=dict(l=10, r=10, t=10, b=10),
             xaxis_title="Weight",
-            yaxis_title="Count of positions",
-            height=520
+            yaxis_title="",
+            title="Sector exposure (Adj.)",
+            title_x=0.0,
+            title_y=0.98,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_sector, use_container_width=True)
+    else:
+        st.info("No sector column detected in this CSV.")
 
-# ==================================================
-# SMARTSAFE & OVERRIDES TAB
-# ==================================================
-with tab_overrides:
-    st.subheader("SmartSafe™ & human override preview")
-
-    st.markdown(
-        f"""
-        **Mode:** `{smartsafe_mode}`  
-        **Cash buffer in use:** **{cash_override:.0f}%**  
-        Equity holdings are scaled down proportionally; this is a **preview only**,  
-        no live orders are placed.
-        """
+    fig_hist = px.histogram(
+        df,
+        x="Adj_Weight",
+        nbins=30,
+        height=220,
     )
-
-    # Show top 15 with base vs adjusted comparison
-    comp = df[[ticker_col]].copy()
-    comp["Base_Wt_%"] = df["__Base_Weight__"] * 100
-    comp["Adj_Wt_%"] = df["__Adj_Weight__"] * 100
-    comp = comp.sort_values("Base_Wt_%", ascending=False).head(15)
-
-    st.markdown("#### Top 15 holdings – base vs SmartSafe™ adjusted")
-    st.dataframe(comp, use_container_width=True, height=420)
-
-    fig = px.bar(
-        comp.melt(id_vars=[ticker_col], value_vars=["Base_Wt_%", "Adj_Wt_%"],
-                  var_name="Type", value_name="Weight"),
-        x="Weight",
-        y=ticker_col,
-        color="Type",
-        barmode="group",
-        orientation="h",
-        title="Base vs Adjusted Weights (Top 15)"
+    fig_hist.update_layout(
+        template="plotly_dark",
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis_title="Adjusted weight",
+        yaxis_title="Count of positions",
+        title="Position size distribution",
+        title_x=0.0,
+        title_y=0.98,
     )
-    fig.update_layout(template="plotly_dark", height=560, margin=dict(l=20, r=20, t=60, b=20))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_hist, use_container_width=True)
 
-    st.markdown("---")
-    st.markdown(
-        "➡️ In a later version, this tab can be wired to **order simulation**, "
-        "**risk bands**, and **WaveScore™** thresholds. For now, it serves as a "
-        "transparent, auditable override layer for institutionals."
-    )
-
-# ==================================================
-# DIAGNOSTICS TAB
-# ==================================================
-with tab_diag:
-    st.subheader("Diagnostics & column mapping")
-
-    st.write("**Detected columns** (based on your CSV header names):")
+# --------- DIAGNOSTICS (COLLAPSIBLE BUT SAME SCREEN) ----------
+with st.expander("🔍 Diagnostics (for you / Franklin)"):
+    st.write("**Detected column mapping:**")
     st.json(colmap)
-
-    st.markdown("#### Raw columns")
-    st.write(list(df_raw.columns))
-
-    st.markdown("#### First 10 rows (raw)")
-    st.dataframe(df_raw.head(10), use_container_width=True)
-
-    st.caption(
-        "Use this tab if something isn’t rendering correctly. "
-        "Franklin (or any acquirer) can see exactly how the console is reading their CSV."
-    )
+    st.write("Raw columns:", list(df_raw.columns))
+    st.write("First 8 rows:")
+    st.dataframe(df_raw.head(8), use_container_width=True)
