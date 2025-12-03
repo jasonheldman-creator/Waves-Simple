@@ -251,7 +251,7 @@ body {
     display: flex;
     gap: 50px;
     white-space: nowrap;
-    animation: scroll 45s linear infinite;
+    animation: scroll 30s linear infinite;
     padding: 10px 0;
 }
 

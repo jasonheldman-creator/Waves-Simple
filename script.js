@@ -24,9 +24,9 @@ function simulateDataUpdate() {
         
         if (priceElement && changeElement) {
             const currentPrice = parseFloat(priceElement.textContent.replace(/,/g, ''));
-            const randomChange = (Math.random() - 0.5) * 0.5; // Small random change
+            const randomChange = (Math.random() - 0.5) * 0.5; // Small random change percentage
             const newPrice = (currentPrice * (1 + randomChange / 100)).toFixed(2);
-            const changePercent = ((newPrice - currentPrice) / currentPrice * 100).toFixed(2);
+            const changePercent = randomChange.toFixed(2);
             
             priceElement.textContent = parseFloat(newPrice).toLocaleString('en-US', {
                 minimumFractionDigits: 2,
