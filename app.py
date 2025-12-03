@@ -2,8 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import yfinance as yf
 import os
+
+# yfinance is optional – app should still run without it
+try:
+    import yfinance as yf
+    YF_AVAILABLE = True
+except ImportError:
+    YF_AVAILABLE = False
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
