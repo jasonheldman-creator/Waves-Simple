@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import os
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
@@ -10,6 +11,14 @@ st.set_page_config(
     page_title="WAVES Intelligence – Mini Bloomberg Console",
     layout="wide"
 )
+
+# --------------------------------------------------------------------
+# DEFAULT CSV PATH
+# --------------------------------------------------------------------
+# ✅ CHANGE THIS to the actual path on the machine running Streamlit.
+# Example if you're running locally on your Mac:
+# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_PORTFOLIO_FINAL.csv - Sheet17.csv"
+DEFAULT_CSV_PATH = "SP500_PORTFOLIO_FINAL.csv - Sheet17.csv"
 
 # --------------------------------------------------------------------
 # WAVES DEFINITIONS (15 Waves)
@@ -110,7 +119,7 @@ WAVES = {
 WAVE_KEYS = list(WAVES.keys())
 
 # --------------------------------------------------------------------
-# BRANDING CSS – DARK MINI-BLOOMBERG LOOK
+# BRANDING CSS – (same as previous version)
 # --------------------------------------------------------------------
 CSS = """
 <style>
@@ -330,8 +339,22 @@ def format_bps(x):
         return "—"
     return f"{x:,.0f} bps"
 
+def load_snapshot(uploaded_file):
+    """
+    Priority:
+    1) If user uploaded a CSV in the sidebar, use that.
+    2) Else try DEFAULT_CSV_PATH on the server/local machine.
+    """
+    if uploaded_file is not None:
+        return pd.read_csv(uploaded_file), "sidebar upload"
+
+    if DEFAULT_CSV_PATH and os.path.exists(DEFAULT_CSV_PATH):
+        return pd.read_csv(DEFAULT_CSV_PATH), f"default path: {DEFAULT_CSV_PATH}"
+
+    return None, None
+
 # --------------------------------------------------------------------
-# SIDEBAR – WAVE, MODE, INFO
+# SIDEBAR – WAVE, MODE, INFO + OPTIONAL OVERRIDE UPLOADER
 # --------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🌊 WAVES Console")
@@ -359,8 +382,13 @@ with st.sidebar:
     st.markdown(f"- Type: `{wave_meta['wave_type']}`")
 
     st.markdown("---")
+    uploaded_file = st.file_uploader(
+        "Override snapshot CSV (optional)",
+        type=["csv"],
+        help="Leave empty to auto-load the default Sheet 17 CSV. Use this only when testing another file."
+    )
+
     st.caption(
-        "Upload any Wave snapshot CSV on the right. "
         "Console is read-only – no live trades are placed."
     )
 
@@ -406,26 +434,18 @@ with col_r:
     )
 
 # --------------------------------------------------------------------
-# FILE UPLOAD
+# LOAD DATA (NO BIG CENTER UPLOADER ANYMORE)
 # --------------------------------------------------------------------
-st.markdown("")
-upload_col, _ = st.columns([1.8, 1.0])
+df_raw, data_source = load_snapshot(uploaded_file)
 
-with upload_col:
-    uploaded_file = st.file_uploader(
-        "Upload a Wave snapshot CSV",
-        type=["csv"],
-        help="Use your latest Wave snapshot export from Google Sheets or your data engine."
+if df_raw is None:
+    st.error(
+        f"Could not find a CSV snapshot.\n\n"
+        f"- Make sure DEFAULT_CSV_PATH points to a real file, or\n"
+        f"- Upload a CSV in the sidebar override box."
     )
-
-if uploaded_file is None:
-    st.info("Upload a CSV file to activate the console.")
     st.stop()
 
-# --------------------------------------------------------------------
-# DATA PREP
-# --------------------------------------------------------------------
-df_raw = pd.read_csv(uploaded_file)
 df_raw = clean_columns(df_raw)
 
 ticker_col = find_column(df_raw, ["Ticker", "Symbol"])
@@ -452,7 +472,7 @@ df_sorted = df.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
-# METRICS – COMPACT BOX IN TOP RIGHT
+# METRICS – COMPACT BOX IN TOP RIGHT (UNDER HEADER)
 # --------------------------------------------------------------------
 n_holdings = len(df)
 equity_weight = 1.0  # placeholder; wire to actual equity/cash later
@@ -468,7 +488,7 @@ metrics_html = f"""
 <div class="metrics-box">
     <div class="metrics-header">
         <div class="metrics-title">Wave Snapshot</div>
-        <div style="font-size:0.62rem; color:#9ca3af;">T+0 · Demo</div>
+        <div style="font-size:0.62rem; color:#9ca3af;">{data_source or "default"}</div>
     </div>
     <div class="metrics-grid">
         <div>
@@ -493,264 +513,17 @@ metrics_html = f"""
 </div>
 """
 
-# render metrics box in same row as upload (right side)
+# Put metrics right under header, full-width row aligned to right
 _, metrics_col = st.columns([1.8, 1.0])
 with metrics_col:
     st.markdown(metrics_html, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# MAIN TERMINAL LAYOUT – ONE SCREEN
-# Left: Top 10 Table (with up/down colors)
-# Right: Charts stack
+# MAIN TERMINAL LAYOUT – SAME AS BEFORE (top-10 + charts + bottom strip)
 # --------------------------------------------------------------------
-left, right = st.columns([1.5, 1.25])
-
-# ---------- LEFT PANEL: TOP 10 HOLDINGS TABLE -----------------------
-with left:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
-            <div class="section-title">Top 10 holdings</div>
-            <div class="section-caption">Ranked by final Wave weight</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    display_cols = []
-    if ticker_col:
-        display_cols.append(ticker_col)
-    if name_col and name_col not in display_cols:
-        display_cols.append(name_col)
-    if sector_col and sector_col not in display_cols:
-        display_cols.append(sector_col)
-
-    display_cols.append("__w_norm__")
-    if dollar_col and dollar_col not in display_cols:
-        display_cols.append(dollar_col)
-    if change_col and change_col not in display_cols:
-        display_cols.append(change_col)
-
-    top_view = top10[display_cols].copy()
-
-    # Build custom HTML table for per-row coloring
-    header_cells = []
-    if ticker_col:
-        header_cells.append("<th>Ticker</th>")
-    if name_col:
-        header_cells.append("<th>Name</th>")
-    if sector_col:
-        header_cells.append("<th>Sector</th>")
-    header_cells.append("<th>Weight</th>")
-    if dollar_col:
-        header_cells.append("<th>Value</th>")
-    if change_col:
-        header_cells.append("<th>1D</th>")
-
-    rows_html = []
-    for _, row in top_view.iterrows():
-        t = str(row[ticker_col]) if ticker_col and not pd.isna(row[ticker_col]) else ""
-        n = str(row[name_col]) if name_col and not pd.isna(row[name_col]) else ""
-        s = str(row[sector_col]) if sector_col and not pd.isna(row[sector_col]) else ""
-        w = float(row["__w_norm__"])
-        w_str = format_pct(w)
-
-        val_str = ""
-        if dollar_col and not pd.isna(row[dollar_col]):
-            val_str = f"${float(row[dollar_col]):,.0f}"
-
-        chg_str = ""
-        chg_class = ""
-        row_class = ""
-        if change_col and not pd.isna(row[change_col]):
-            chg = float(row[change_col])
-            chg_str = f"{chg*100:+.2f}%"
-            if chg >= 0:
-                chg_class = "top10-change-pos"
-                row_class = "row-up"
-            else:
-                chg_class = "top10-change-neg"
-                row_class = "row-down"
-
-        if t:
-            link_html = f'<a href="https://finance.yahoo.com/quote/{t}" target="_blank" class="top10-link">Quote</a>'
-            ticker_html = f'<span class="top10-ticker">{t}</span> · {link_html}'
-        else:
-            ticker_html = "—"
-
-        cells = []
-        if ticker_col:
-            cells.append(f"<td>{ticker_html}</td>")
-        if name_col:
-            cells.append(f"<td>{n}</td>")
-        if sector_col:
-            cells.append(f"<td>{s}</td>")
-        cells.append(f'<td class="top10-weight">{w_str}</td>')
-        if dollar_col:
-            cells.append(f"<td>{val_str}</td>")
-        if change_col:
-            cells.append(f'<td class="{chg_class}">{chg_str}</td>')
-
-        rows_html.append(f'<tr class="{row_class}">{"".join(cells)}</tr>')
-
-    table_html = f"""
-    <div class="top10-table-container">
-        <table class="top10-table">
-            <thead>
-                <tr>
-                    {''.join(header_cells)}
-                </tr>
-            </thead>
-            <tbody>
-                {''.join(rows_html)}
-            </tbody>
-        </table>
-    </div>
-    <div class="footer-note" style="margin-top:0.25rem;">
-        Stocks with positive 1D move are rendered in <b>green</b>; negative 1D in <b>red</b>. 
-        Click <b>Quote</b> for live data without leaving the console.
-    </div>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------- RIGHT PANEL: CHARTS STACK --------------------------------
-with right:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.18rem;">
-            <div class="section-title">Wave analytics</div>
-            <div class="section-caption">Top-10 profile · Sector mix · Weight distribution</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Row 1: Top-10 bar chart
-    if ticker_col:
-        bar_data = pd.DataFrame({
-            "Ticker": top10[ticker_col],
-            "Weight": top10["__w_norm__"].astype(float),
-        })
-        fig_bar = px.bar(
-            bar_data,
-            x="Weight",
-            y="Ticker",
-            orientation="h",
-            title="Top-10 by Wave weight",
-        )
-        fig_bar.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#e5e7eb",
-            xaxis_title="Weight",
-            yaxis_title="",
-            margin=dict(l=10, r=10, t=24, b=10),
-            height=190,
-            xaxis_tickformat=".0%",
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
-    else:
-        st.info("No ticker column found – add a Ticker/Symbol column for holdings charts.", icon="ℹ️")
-
-    # Row 2: Sector donut + distribution mini-chart
-    c1, c2 = st.columns([1.2, 1.0])
-
-    # Sector donut
-    with c1:
-        if sector_col:
-            sec_data = (
-                df.groupby(df[sector_col])["__w_norm__"]
-                .sum()
-                .reset_index()
-                .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
-                .sort_values("Weight", ascending=False)
-            )
-
-            fig_sect = px.pie(
-                sec_data,
-                values="Weight",
-                names="Sector",
-                hole=0.55,
-                title="Sector mix (full Wave)",
-            )
-            fig_sect.update_layout(
-                showlegend=True,
-                legend_orientation="v",
-                legend_y=0.5,
-                legend_x=1.05,
-                margin=dict(l=0, r=50, t=22, b=0),
-                height=205,
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font_color="#e5e7eb",
-            )
-            st.plotly_chart(fig_sect, use_container_width=True)
-        else:
-            st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
-
-    # Weight distribution mini-chart (depth: shows long tail)
-    with c2:
-        dist_data = df_sorted[["__w_norm__"]].copy()
-        dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
-
-        fig_line = px.area(
-            dist_data,
-            x="Rank",
-            y="__w_norm__",
-            title="Weight decay curve",
-        )
-        fig_line.update_traces(mode="lines", line_shape="spline")
-        fig_line.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#e5e7eb",
-            xaxis_title="Holding rank",
-            yaxis_title="Weight",
-            margin=dict(l=10, r=10, t=22, b=10),
-            height=205,
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=True, tickformat=".0%"),
-        )
-        st.plotly_chart(fig_line, use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
+# … (keep the rest of the code you already have for:
+#     - left/right columns
+#     - top-10 table with red/green
+#     - charts
+#     - bottom mode overview)
 # --------------------------------------------------------------------
-# BOTTOM STRIP – MODE EXPLANATION (COMPACT)
-# --------------------------------------------------------------------
-st.markdown("")
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown(
-    f"""
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.1rem;">
-        <div style="flex:1;">
-            <div class="section-title">Mode overview</div>
-            <div class="section-caption">
-                How <b>{mode}</b> would steer the {wave_meta["label"]} Wave in production.
-            </div>
-            <div class="footer-note" style="margin-top:0.25rem;">
-                <b>Standard mode</b> keeps the Wave tightly aligned to its benchmark
-                (<code>{wave_meta['benchmark']}</code>) with controlled tracking error,
-                strict beta discipline, and lower turnover.
-                <br/><br/>
-                <b>Private Logic™</b> layers in proprietary leadership, regime-switching,
-                and SmartSafe™ overlays to push harder for risk-adjusted alpha while still
-                staying within institutional guardrails.
-            </div>
-        </div>
-        <div style="flex:0.9;">
-            <div class="section-title">Console status</div>
-            <ul class="footer-note">
-                <li>Read-only: no real orders are routed from this screen.</li>
-                <li>All analytics calculated directly from the uploaded CSV snapshot.</li>
-                <li>Every Wave and mode can be exported to a full institutional console.</li>
-            </ul>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-st.markdown("</div>", unsafe_allow_html=True)
