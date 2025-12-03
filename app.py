@@ -4,35 +4,24 @@ import numpy as np
 import plotly.express as px
 import os
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import os
-
-# optional – only if you installed it
+# --------------------------------------------------------------------
+# OPTIONAL: yfinance for S&P / VIX
+# --------------------------------------------------------------------
 try:
     import yfinance as yf
     YF_AVAILABLE = True
 except ImportError:
     YF_AVAILABLE = False
 
-# 🔁 AUTO-REFRESH EVERY 60 SECONDS
+# --------------------------------------------------------------------
+# OPTIONAL: auto-refresh (every 60 seconds)
+# --------------------------------------------------------------------
 try:
     from streamlit_autorefresh import st_autorefresh
-
-    # rerun the script every 60,000 ms
     st_autorefresh(interval=60_000, key="waves_live_refresh")
 except ImportError:
-    # if the component isn't installed, app still runs – just refresh manually
+    # If not installed, app still runs; refresh manually
     pass
-
-# yfinance is optional – app should still run without it
-try:
-    import yfinance as yf
-    YF_AVAILABLE = True
-except ImportError:
-    YF_AVAILABLE = False
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
@@ -43,12 +32,12 @@ st.set_page_config(
 )
 
 # --------------------------------------------------------------------
-# DEFAULT CSV PATH
+# DEFAULT CSV PATH  (LIVE SNAPSHOT)
 # --------------------------------------------------------------------
 # 🔁 CHANGE THIS to the actual path on the machine running Streamlit.
-# Example on your Mac:
-# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_PORTFOLIO_FINAL - Sheet17.csv"
-DEFAULT_CSV_PATH = "SP500_PORTFOLIO_FINAL - Sheet17.csv"
+# Example (Mac):
+# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_WAVE_LIVE.csv"
+DEFAULT_CSV_PATH = "SP500_WAVE_LIVE.csv"
 
 # --------------------------------------------------------------------
 # WAVES DEFINITIONS (15 Waves)
@@ -145,7 +134,6 @@ WAVES = {
         "wave_type": "Crypto Wave"
     },
 }
-
 WAVE_KEYS = list(WAVES.keys())
 
 # --------------------------------------------------------------------
@@ -345,7 +333,7 @@ header[data-testid="stHeader"] {
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# HELPERS
+# HELPER FUNCTIONS
 # --------------------------------------------------------------------
 def find_column(df: pd.DataFrame, candidates):
     cols = {c.lower(): c for c in df.columns}
@@ -372,8 +360,8 @@ def format_bps(x):
 def load_snapshot(uploaded_file):
     """
     Priority:
-    1) If user uploaded a CSV in the sidebar, use that.
-    2) Else try DEFAULT_CSV_PATH on the server/local machine.
+    1) Sidebar upload (override)
+    2) DEFAULT_CSV_PATH (live file written by engine)
     """
     if uploaded_file is not None:
         return pd.read_csv(uploaded_file), "sidebar upload"
@@ -384,10 +372,9 @@ def load_snapshot(uploaded_file):
     return None, None
 
 def load_index_series(symbol: str, period: str = "6mo"):
-    """
-    Fetch a simple OHLCV series from yfinance and return a DataFrame
-    with Date + Close. If anything fails, return None.
-    """
+    """Fetch Date + Close from yfinance; return None if unavailable."""
+    if not YF_AVAILABLE:
+        return None
     try:
         data = yf.download(symbol, period=period, auto_adjust=True, progress=False)
         if data.empty:
@@ -416,7 +403,7 @@ with st.sidebar:
         "Mode",
         options=["Standard", "Private Logic™"],
         index=0,
-        help="Standard = disciplined, benchmark-linked. Private Logic™ = higher-octane, proprietary logic."
+        help="Standard = benchmark-linked. Private Logic™ = higher-octane, proprietary logic."
     )
 
     st.markdown("---")
@@ -429,7 +416,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Override snapshot CSV (optional)",
         type=["csv"],
-        help="Leave empty to auto-load the default Sheet 17 CSV. Use this only when testing another file."
+        help="Leave empty to auto-load the live Wave CSV."
     )
 
     st.caption("Console is read-only – no live trades are placed.")
@@ -476,15 +463,15 @@ with col_r:
     )
 
 # --------------------------------------------------------------------
-# LOAD DATA
+# LOAD WAVE SNAPSHOT
 # --------------------------------------------------------------------
 df_raw, data_source = load_snapshot(uploaded_file)
 
 if df_raw is None:
     st.error(
-        "Could not find a CSV snapshot.\n\n"
-        "• Make sure DEFAULT_CSV_PATH points to your Sheet 17 file, or\n"
-        "• Upload a CSV in the sidebar override box."
+        "No Wave snapshot found.\n\n"
+        "• Set DEFAULT_CSV_PATH to your live CSV, or\n"
+        "• Upload a CSV using the sidebar override."
     )
     st.stop()
 
@@ -508,16 +495,15 @@ weights = df[weight_col].astype(float)
 total_weight = weights.sum() if weights.sum() > 0 else 1.0
 weights_norm = weights / total_weight
 
-# TOP 10 HOLDINGS
 df["__w_norm__"] = weights_norm
 df_sorted = df.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
-# METRICS – COMPACT BOX IN TOP RIGHT
+# METRICS BOX
 # --------------------------------------------------------------------
 n_holdings = len(df)
-equity_weight = 1.0   # placeholder; wire to equity/cash columns later
+equity_weight = 1.0   # placeholder until wired to real equity/cash split
 cash_weight = 0.0
 largest_pos = float(weights_norm.max()) if len(weights_norm) > 0 else 0.0
 
@@ -560,7 +546,7 @@ with metrics_col:
     st.markdown(metrics_html, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# ROW 1 – MARKET CHARTS: S&P 500 + VIX
+# ROW 1 – S&P 500 + VIX
 # --------------------------------------------------------------------
 sp_col, vix_col = st.columns([1.6, 1.0])
 
@@ -570,19 +556,14 @@ with sp_col:
         """
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.15rem;">
             <div class="section-title">S&P 500 Index</div>
-            <div class="section-caption">^GSPC · Last 6 months</div>
+            <div class="section-caption">^GSPC · last 6 months</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     sp_df = load_index_series("^GSPC", period="6mo")
     if sp_df is not None:
-        fig_sp = px.area(
-            sp_df,
-            x="Date",
-            y="Close",
-            title="",
-        )
+        fig_sp = px.area(sp_df, x="Date", y="Close", title="")
         fig_sp.update_traces(mode="lines", line_shape="spline")
         fig_sp.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
@@ -597,7 +578,7 @@ with sp_col:
         )
         st.plotly_chart(fig_sp, use_container_width=True)
     else:
-        st.info("Unable to load ^GSPC data (check yfinance or internet connection).", icon="ℹ️")
+        st.info("Install `yfinance` (and ensure internet access) to view the live S&P 500 chart.", icon="ℹ️")
     st.markdown("</div>", unsafe_allow_html=True)
 
 with vix_col:
@@ -606,19 +587,14 @@ with vix_col:
         """
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.15rem;">
             <div class="section-title">VIX Volatility Index</div>
-            <div class="section-caption">^VIX · Last 6 months</div>
+            <div class="section-caption">^VIX · last 6 months</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     vix_df = load_index_series("^VIX", period="6mo")
     if vix_df is not None:
-        fig_vix = px.line(
-            vix_df,
-            x="Date",
-            y="Close",
-            title="",
-        )
+        fig_vix = px.line(vix_df, x="Date", y="Close", title="")
         fig_vix.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -632,11 +608,11 @@ with vix_col:
         )
         st.plotly_chart(fig_vix, use_container_width=True)
     else:
-        st.info("Unable to load ^VIX data (check yfinance or internet connection).", icon="ℹ️")
+        st.info("Install `yfinance` (and ensure internet access) to view the live VIX chart.", icon="ℹ️")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# ROW 2 – TOP 10 TABLE (LEFT) + ANALYTICS (RIGHT)
+# ROW 2 – TOP 10 TABLE + ANALYTICS
 # --------------------------------------------------------------------
 left, right = st.columns([1.5, 1.25])
 
@@ -669,7 +645,6 @@ with left:
 
     top_view = top10[display_cols].copy()
 
-    # Build custom HTML table for per-row coloring
     header_cells = []
     if ticker_col:
         header_cells.append("<th>Ticker</th>")
@@ -709,8 +684,10 @@ with left:
                 row_class = "row-down"
 
         if t:
-            link_html = f'<a href="https://finance.yahoo.com/quote/{t}' \
-                        f'" target="_blank" class="top10-link">Quote</a>'
+            link_html = (
+                f'<a href="https://finance.yahoo.com/quote/{t}" '
+                f'target="_blank" class="top10-link">Quote</a>'
+            )
             ticker_html = f'<span class="top10-ticker">{t}</span> · {link_html}'
         else:
             ticker_html = "—"
@@ -734,13 +711,9 @@ with left:
     <div class="top10-table-container">
         <table class="top10-table">
             <thead>
-                <tr>
-                    {''.join(header_cells)}
-                </tr>
+                <tr>{''.join(header_cells)}</tr>
             </thead>
-            <tbody>
-                {''.join(rows_html)}
-            </tbody>
+            <tbody>{''.join(rows_html)}</tbody>
         </table>
     </div>
     <div class="footer-note" style="margin-top:0.25rem;">
@@ -751,7 +724,7 @@ with left:
     st.markdown(table_html, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------- RIGHT: ANALYTICS STACK ----------------------------------
+# ---------- RIGHT: WAVE ANALYTICS -----------------------------------
 with right:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
@@ -770,12 +743,7 @@ with right:
             "Ticker": top10[ticker_col],
             "Weight": top10["__w_norm__"].astype(float),
         })
-        fig_bar = px.bar(
-            bar_data,
-            x="Weight",
-            y="Ticker",
-            orientation="h",
-        )
+        fig_bar = px.bar(bar_data, x="Weight", y="Ticker", orientation="h")
         fig_bar.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -790,7 +758,7 @@ with right:
     else:
         st.info("No ticker column found – add a Ticker/Symbol column for holdings charts.", icon="ℹ️")
 
-    # Sector + weight decay row
+    # Sector donut + weight decay
     c1, c2 = st.columns([1.2, 1.0])
 
     with c1:
@@ -802,13 +770,8 @@ with right:
                 .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
                 .sort_values("Weight", ascending=False)
             )
-            fig_sect = px.pie(
-                sec_data,
-                values="Weight",
-                names="Sector",
-                hole=0.55,
-            )
-            fig_sect.update_layout(
+            fig_sec = px.pie(sec_data, values="Weight", names="Sector", hole=0.55)
+            fig_sec.update_layout(
                 showlegend=True,
                 legend_orientation="v",
                 legend_y=0.5,
@@ -819,18 +782,14 @@ with right:
                 paper_bgcolor="rgba(0,0,0,0)",
                 font_color="#e5e7eb",
             )
-            st.plotly_chart(fig_sect, use_container_width=True)
+            st.plotly_chart(fig_sec, use_container_width=True)
         else:
             st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
 
     with c2:
         dist_data = df_sorted[["__w_norm__"]].copy()
         dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
-        fig_line = px.area(
-            dist_data,
-            x="Rank",
-            y="__w_norm__",
-        )
+        fig_line = px.area(dist_data, x="Rank", y="__w_norm__")
         fig_line.update_traces(mode="lines", line_shape="spline")
         fig_line.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
@@ -874,7 +833,7 @@ st.markdown(
             <div class="section-title">Console status</div>
             <ul class="footer-note">
                 <li>Read-only: no real orders are routed from this screen.</li>
-                <li>All analytics calculated directly from the uploaded CSV snapshot.</li>
+                <li>All analytics calculated directly from the live Wave snapshot.</li>
                 <li>Every Wave and mode can be exported to a full institutional console.</li>
             </ul>
         </div>
