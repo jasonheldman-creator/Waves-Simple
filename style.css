@@ -253,6 +253,7 @@ body {
     white-space: nowrap;
     animation: scroll 30s linear infinite;
     padding: 10px 0;
+    will-change: transform;
 }
 
 @keyframes scroll {
