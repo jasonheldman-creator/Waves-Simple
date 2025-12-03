@@ -1,16 +1,208 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import altair as alt
 
-st.set_page_config(page_title="Waves Simple Console", layout="wide")
+# -----------------------------------------------------------------------------
+# Page config
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Waves Intelligence – Simple Wave Console",
+    layout="wide",
+)
 
-st.title("🌊 WAVES INTELLIGENCE — Simple Console")
-st.write("Upload a CSV and view the data instantly. This is the clean base version.")
+# -----------------------------------------------------------------------------
+# Sidebar – upload only
+# -----------------------------------------------------------------------------
+st.sidebar.title("Waves Simple Console")
 
-uploaded_file = st.file_uploader("Upload Wave Snapshot (.csv)", type=["csv"])
+uploaded_file = st.sidebar.file_uploader(
+    "Upload latest Wave snapshot (.csv)",
+    type=["csv"],
+    help="Use your Google Sheets export for the selected Wave.",
+)
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.success("File loaded successfully!")
-    st.dataframe(df)
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "Tip: re-export from Google Sheets just before your meeting for the freshest data."
+)
+
+# -----------------------------------------------------------------------------
+# Main header
+# -----------------------------------------------------------------------------
+st.title("WAVES INTELLIGENCE\u2122")
+st.subheader("Simple Wave Console (CSV-driven demo)")
+
+st.markdown(
+    "Upload a Wave snapshot CSV in the left sidebar to render positions, weights, "
+    "and basic analytics. This version is intentionally minimal and stable so we "
+    "can build the advanced institutional console on top of it."
+)
+
+# If no file yet, show instructions and stop
+if uploaded_file is None:
+    st.info(
+        "⬅️ **Step 1:** Upload the latest Wave snapshot CSV using the sidebar.\n\n"
+        "Once the file is loaded, you'll see exposure, top positions, and charts here."
+    )
+    st.stop()
+
+# -----------------------------------------------------------------------------
+# Load & normalize CSV
+# -----------------------------------------------------------------------------
+try:
+    raw_df = pd.read_csv(uploaded_file)
+except Exception as e:
+    st.error(f"Could not read CSV: `{e}`")
+    st.stop()
+
+if raw_df.empty:
+    st.warning("The uploaded CSV appears to be empty. Please check the export and try again.")
+    st.stop()
+
+# Make a working copy and normalize column names
+df = raw_df.copy()
+df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+
+def pick_column(candidates):
+    """Pick the first column name that exists in the dataframe."""
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+ticker_col = pick_column(["ticker", "symbol"])
+name_col   = pick_column(["name", "security_name", "company"])
+sector_col = pick_column(["sector", "gics_sector"])
+weight_col = pick_column(["weight_pct", "weight_%", "weight"])
+value_col  = pick_column(["market_value", "value_usd", "value"])
+
+# Must have some kind of ticker column
+if ticker_col is None:
+    st.error(
+        "I couldn't find a **Ticker** column in your CSV.\n\n"
+        "Please make sure your export includes a column named one of: `Ticker`, `Symbol`."
+    )
+    st.dataframe(raw_df.head())
+    st.stop()
+
+# If no weight column, assume equal-weight
+if weight_col is None:
+    df["weight_pct"] = 100.0 / len(df)
+    weight_col = "weight_pct"
+
+# If no value column, synthesize a fake value from weights
+if value_col is None:
+    df["market_value"] = df[weight_col] / df[weight_col].sum()
+    value_col = "market_value"
+
+# Clean up numeric types
+df[weight_col] = pd.to_numeric(df[weight_col], errors="coerce").fillna(0.0)
+df[value_col]  = pd.to_numeric(df[value_col], errors="coerce").fillna(0.0)
+
+# -----------------------------------------------------------------------------
+# High-level summary
+# -----------------------------------------------------------------------------
+total_positions = len(df)
+top_row = df.sort_values(weight_col, ascending=False).iloc[0]
+
+top_ticker = str(top_row[ticker_col])
+top_weight = float(top_row[weight_col])
+
+total_value = float(df[value_col].sum())
+if total_value == 0:
+    total_value_display = "N/A"
 else:
-    st.info("Please upload a CSV file.")
+    total_value_display = f"${total_value:,.0f}"
+
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.metric("Total positions", f"{total_positions}")
+with c2:
+    st.metric("Top holding", top_ticker, f"{top_weight:.2f}%")
+with c3:
+    st.metric("Total value (from CSV)", total_value_display)
+
+st.markdown("---")
+
+# -----------------------------------------------------------------------------
+# Top 10 holdings table
+# -----------------------------------------------------------------------------
+st.subheader("Top 10 holdings")
+
+sort_col = weight_col if weight_col in df.columns else value_col
+top10 = df.sort_values(sort_col, ascending=False).head(10)
+
+display_cols = [c for c in [ticker_col, name_col, sector_col, weight_col, value_col] if c is not None]
+pretty = top10[display_cols].copy()
+
+rename_map = {}
+if ticker_col in pretty.columns:
+    rename_map[ticker_col] = "Ticker"
+if name_col and name_col in pretty.columns:
+    rename_map[name_col] = "Name"
+if sector_col and sector_col in pretty.columns:
+    rename_map[sector_col] = "Sector"
+if weight_col in pretty.columns:
+    rename_map[weight_col] = "Weight %"
+if value_col in pretty.columns:
+    rename_map[value_col] = "Value"
+
+pretty = pretty.rename(columns=rename_map)
+
+st.dataframe(pretty, use_container_width=True)
+
+# -----------------------------------------------------------------------------
+# Charts – weights and sectors
+# -----------------------------------------------------------------------------
+left, right = st.columns(2)
+
+with left:
+    st.markdown("#### Weight by holding (Top 15)")
+
+    chart_df = df.sort_values(weight_col, ascending=False).head(15)
+    chart_df = chart_df[[ticker_col, weight_col]].copy()
+    chart_df.rename(columns={ticker_col: "Ticker", weight_col: "Weight"}, inplace=True)
+
+    weight_chart = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Weight:Q", title="Weight %"),
+            y=alt.Y("Ticker:N", sort="-x", title=""),
+            tooltip=["Ticker", alt.Tooltip("Weight:Q", format=".2f")],
+        )
+        .properties(height=350)
+    )
+
+    st.altair_chart(weight_chart, use_container_width=True)
+
+with right:
+    st.markdown("#### Sector allocation")
+    if sector_col is not None and sector_col in df.columns:
+        sector_df = (
+            df.groupby(sector_col, as_index=False)[weight_col]
+            .sum()
+            .rename(columns={sector_col: "Sector", weight_col: "Weight"})
+        )
+
+        sector_chart = (
+            alt.Chart(sector_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Weight:Q", title="Weight %"),
+                y=alt.Y("Sector:N", sort="-x", title=""),
+                tooltip=["Sector", alt.Tooltip("Weight:Q", format=".2f")],
+            )
+            .properties(height=350)
+        )
+
+        st.altair_chart(sector_chart, use_container_width=True)
+    else:
+        st.info("No `Sector` column was found, so a sector chart is not available.")
+
+# -----------------------------------------------------------------------------
+# Raw data expander
+# -----------------------------------------------------------------------------
+with st.expander("View raw CSV data"):
+    st.dataframe(raw_df, use_container_width=True)
