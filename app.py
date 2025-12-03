@@ -4,6 +4,29 @@ import numpy as np
 import plotly.express as px
 import os
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import os
+
+# optional – only if you installed it
+try:
+    import yfinance as yf
+    YF_AVAILABLE = True
+except ImportError:
+    YF_AVAILABLE = False
+
+# 🔁 AUTO-REFRESH EVERY 60 SECONDS
+try:
+    from streamlit_autorefresh import st_autorefresh
+
+    # rerun the script every 60,000 ms
+    st_autorefresh(interval=60_000, key="waves_live_refresh")
+except ImportError:
+    # if the component isn't installed, app still runs – just refresh manually
+    pass
+
 # yfinance is optional – app should still run without it
 try:
     import yfinance as yf
