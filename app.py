@@ -110,7 +110,7 @@ WAVES = {
 WAVE_KEYS = list(WAVES.keys())
 
 # --------------------------------------------------------------------
-# BRANDING CSS – DARK MINI-BLOOMBERG LOOK (COMPRESSED)
+# BRANDING CSS – DARK MINI-BLOOMBERG LOOK
 # --------------------------------------------------------------------
 CSS = """
 <style>
@@ -129,7 +129,7 @@ CSS = """
 /* Main padding */
 .block-container {
     padding-top: 0.35rem;
-    padding-bottom: 0.1rem;
+    padding-bottom: 0.05rem;
     max-width: 1500px;
 }
 
@@ -166,36 +166,46 @@ h1, h2, h3, h4, h5, h6, label, p, span {
     background: rgba(15,23,42,0.88);
 }
 
-/* Metric row */
-.metric-row {
+/* Compact metrics box (top-right) */
+.metrics-box {
+    background: radial-gradient(circle at top left, #022c22 0%, #020617 55%);
+    border-radius: 10px;
+    border: 1px solid rgba(45,212,191,0.7);
+    box-shadow: 0 0 24px rgba(45,212,191,0.3);
+    padding: 0.45rem 0.55rem 0.5rem 0.6rem;
+    font-size: 0.7rem;
+}
+.metrics-header {
     display:flex;
-    gap:0.6rem;
-    margin-top:0.35rem;
+    justify-content:space-between;
+    align-items:center;
     margin-bottom:0.25rem;
 }
-.metric-card {
-    flex:1;
-    background: radial-gradient(circle at top left, #0f172a, #020617);
-    border-radius:10px;
-    border:1px solid #1f2937;
-    padding:0.4rem 0.6rem 0.42rem 0.6rem;
-    box-shadow:0 14px 32px rgba(0,0,0,0.8);
+.metrics-title {
+    font-size:0.68rem;
+    text-transform:uppercase;
+    letter-spacing:0.16em;
+    color:#a5b4fc;
 }
-.metric-label {
+.metrics-grid {
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column-gap:0.5rem;
+    grid-row-gap:0.25rem;
+}
+.metric-label-mini {
     font-size:0.6rem;
-    letter-spacing:0.15em;
+    letter-spacing:0.14em;
     text-transform:uppercase;
     color:#9ca3af;
 }
-.metric-value {
-    font-size:1.05rem;
+.metric-value-mini {
+    font-size:0.95rem;
     font-weight:600;
-    margin-top:1px;
 }
-.metric-sub {
-    font-size:0.68rem;
-    color:#9ca3af;
-    margin-top:0.08rem;
+.metric-sub-mini {
+    font-size:0.64rem;
+    color:#6ee7b7;
 }
 
 /* Panel cards */
@@ -215,25 +225,69 @@ h1, h2, h3, h4, h5, h6, label, p, span {
     color:#9ca3af;
 }
 
-/* Dataframe styling */
-.dataframe thead tr th {
-    background-color:#020617 !important;
-    color:#e5e7eb !important;
-    font-size:0.7rem;
+/* Top-10 table */
+.top10-table-container {
+    margin-top:0.15rem;
+    border-radius:8px;
+    border:1px solid #1f2937;
+    overflow:hidden;
 }
-.dataframe tbody tr:nth-child(even) {
-    background-color:rgba(15,23,42,0.7) !important;
+.top10-table {
+    width:100%;
+    border-collapse:collapse;
+    font-size:0.74rem;
 }
-.dataframe tbody tr td {
-    font-size:0.72rem;
+.top10-table thead {
+    background:#020617;
 }
-table.dataframe a {
+.top10-table th,
+.top10-table td {
+    padding:0.25rem 0.4rem;
+    text-align:left;
+    white-space:nowrap;
+}
+.top10-table th {
+    font-size:0.65rem;
+    text-transform:uppercase;
+    letter-spacing:0.11em;
+    color:#9ca3af;
+    border-bottom:1px solid #111827;
+}
+.top10-table tbody tr:nth-child(even) {
+    background:rgba(15,23,42,0.9);
+}
+.top10-table tbody tr:nth-child(odd) {
+    background:rgba(15,23,42,0.7);
+}
+.top10-table tbody tr:hover {
+    background:#101827;
+}
+.top10-ticker {
+    font-weight:600;
+}
+.top10-link {
     color:#38bdf8;
     text-decoration:none;
-    font-weight:500;
 }
-table.dataframe a:hover {
+.top10-link:hover {
     text-decoration:underline;
+}
+.top10-weight {
+    font-variant-numeric:tabular-nums;
+}
+.top10-change-pos {
+    color:#22c55e;
+}
+.top10-change-neg {
+    color:#fb7185;
+}
+
+/* Row color for up/down */
+.row-up td {
+    color:#22c55e;
+}
+.row-down td {
+    color:#fb7185;
 }
 
 /* Small footer strip */
@@ -281,7 +335,7 @@ def format_bps(x):
 # --------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🌊 WAVES Console")
-    st.caption("Mini-Bloomberg view for WAVES Intelligence™.")
+    st.caption("Mini-Bloomberg view for WAVES Intelligence™ · W.A.V.E. Engine")
 
     wave_key = st.selectbox(
         "Select Wave",
@@ -380,6 +434,7 @@ sector_col = find_column(df_raw, ["Sector"])
 weight_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
 dollar_col = find_column(df_raw, ["Dollar_Amount", "Position Value", "Market Value", "Value"])
 alpha_bps_col = find_column(df_raw, ["Alpha_bps", "Alpha (bps)", "Alpha_bps_12m"])
+change_col = find_column(df_raw, ["Change_1d", "Return_1d", "1D Return", "Today_Return", "Day_Change"])
 
 df = df_raw.copy()
 
@@ -397,10 +452,10 @@ df_sorted = df.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
-# METRIC STRIP (COMPACT)
+# METRICS – COMPACT BOX IN TOP RIGHT
 # --------------------------------------------------------------------
 n_holdings = len(df)
-equity_weight = 1.0  # placeholder; wire this to equity/cash later
+equity_weight = 1.0  # placeholder; wire to actual equity/cash later
 cash_weight = 0.0
 largest_pos = float(weights_norm.max()) if len(weights_norm) > 0 else 0.0
 
@@ -409,62 +464,43 @@ if alpha_bps_col and alpha_bps_col in df.columns:
 else:
     alpha_est = np.nan
 
-st.markdown('<div class="metric-row">', unsafe_allow_html=True)
-
-# Total holdings
-st.markdown(
-    f"""
-    <div class="metric-card">
-        <div class="metric-label">TOTAL HOLDINGS</div>
-        <div class="metric-value">{n_holdings:,}</div>
-        <div class="metric-sub">Underlying positions in the selected Wave</div>
+metrics_html = f"""
+<div class="metrics-box">
+    <div class="metrics-header">
+        <div class="metrics-title">Wave Snapshot</div>
+        <div style="font-size:0.62rem; color:#9ca3af;">T+0 · Demo</div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Equity / cash
-st.markdown(
-    f"""
-    <div class="metric-card">
-        <div class="metric-label">EQUITY VS CASH</div>
-        <div class="metric-value">{format_pct(equity_weight)} / {format_pct(cash_weight)}</div>
-        <div class="metric-sub">Wave-level risk budget (demo assumes fully invested)</div>
+    <div class="metrics-grid">
+        <div>
+            <div class="metric-label-mini">Total holdings</div>
+            <div class="metric-value-mini">{n_holdings:,}</div>
+        </div>
+        <div>
+            <div class="metric-label-mini">Largest position</div>
+            <div class="metric-value-mini">{format_pct(largest_pos)}</div>
+        </div>
+        <div>
+            <div class="metric-label-mini">Equity vs cash</div>
+            <div class="metric-value-mini">{format_pct(equity_weight)} / {format_pct(cash_weight)}</div>
+            <div class="metric-sub-mini">Wave-level risk budget</div>
+        </div>
+        <div>
+            <div class="metric-label-mini">Alpha capture (est)</div>
+            <div class="metric-value-mini">{format_bps(alpha_est) if not np.isnan(alpha_est) else "N/A"}</div>
+            <div class="metric-sub-mini">Wave-average vs benchmark</div>
+        </div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+</div>
+"""
 
-# Largest weight
-st.markdown(
-    f"""
-    <div class="metric-card">
-        <div class="metric-label">LARGEST POSITION</div>
-        <div class="metric-value">{format_pct(largest_pos)}</div>
-        <div class="metric-sub">Single-name concentration vs diversified Wave</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Alpha estimate
-alpha_text = format_bps(alpha_est) if not np.isnan(alpha_est) else "N/A"
-st.markdown(
-    f"""
-    <div class="metric-card">
-        <div class="metric-label">ALPHA CAPTURE (EST)</div>
-        <div class="metric-value">{alpha_text}</div>
-        <div class="metric-sub">If alpha column exists, this is Wave-average alpha</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown("</div>", unsafe_allow_html=True)
+# render metrics box in same row as upload (right side)
+_, metrics_col = st.columns([1.8, 1.0])
+with metrics_col:
+    st.markdown(metrics_html, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
 # MAIN TERMINAL LAYOUT – ONE SCREEN
-# Left: Top 10 Table
+# Left: Top 10 Table (with up/down colors)
 # Right: Charts stack
 # --------------------------------------------------------------------
 left, right = st.columns([1.5, 1.25])
@@ -483,7 +519,6 @@ with left:
     )
 
     display_cols = []
-
     if ticker_col:
         display_cols.append(ticker_col)
     if name_col and name_col not in display_cols:
@@ -494,44 +529,90 @@ with left:
     display_cols.append("__w_norm__")
     if dollar_col and dollar_col not in display_cols:
         display_cols.append(dollar_col)
+    if change_col and change_col not in display_cols:
+        display_cols.append(change_col)
 
     top_view = top10[display_cols].copy()
-    top_view.rename(
-        columns={
-            "__w_norm__": "Weight",
-        },
-        inplace=True,
-    )
 
-    # Hyperlink ticker column
+    # Build custom HTML table for per-row coloring
+    header_cells = []
     if ticker_col:
-        link_col = "Link"
-        top_view[link_col] = top_view[ticker_col].apply(
-            lambda t: f'<a href="https://finance.yahoo.com/quote/{t}" target="_blank">Quote</a>'
-            if pd.notna(t) else ""
-        )
-        # Format weight as %
-        if "Weight" in top_view.columns:
-            top_view["Weight"] = top_view["Weight"].astype(float).apply(format_pct)
+        header_cells.append("<th>Ticker</th>")
+    if name_col:
+        header_cells.append("<th>Name</th>")
+    if sector_col:
+        header_cells.append("<th>Sector</th>")
+    header_cells.append("<th>Weight</th>")
+    if dollar_col:
+        header_cells.append("<th>Value</th>")
+    if change_col:
+        header_cells.append("<th>1D</th>")
 
-        st.markdown(
-            top_view.to_html(escape=False, index=False),
-            unsafe_allow_html=True,
-        )
-    else:
-        if "Weight" in top_view.columns:
-            top_view["Weight"] = top_view["Weight"].astype(float).apply(format_pct)
-        st.dataframe(top_view, use_container_width=True, height=340)
+    rows_html = []
+    for _, row in top_view.iterrows():
+        t = str(row[ticker_col]) if ticker_col and not pd.isna(row[ticker_col]) else ""
+        n = str(row[name_col]) if name_col and not pd.isna(row[name_col]) else ""
+        s = str(row[sector_col]) if sector_col and not pd.isna(row[sector_col]) else ""
+        w = float(row["__w_norm__"])
+        w_str = format_pct(w)
 
-    st.markdown(
-        """
-        <div class="footer-note" style="margin-top:0.25rem;">
-            Tip: click <b>Quote</b> to jump to live market data for any ticker
-            while keeping the Wave console pinned.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        val_str = ""
+        if dollar_col and not pd.isna(row[dollar_col]):
+            val_str = f"${float(row[dollar_col]):,.0f}"
+
+        chg_str = ""
+        chg_class = ""
+        row_class = ""
+        if change_col and not pd.isna(row[change_col]):
+            chg = float(row[change_col])
+            chg_str = f"{chg*100:+.2f}%"
+            if chg >= 0:
+                chg_class = "top10-change-pos"
+                row_class = "row-up"
+            else:
+                chg_class = "top10-change-neg"
+                row_class = "row-down"
+
+        if t:
+            link_html = f'<a href="https://finance.yahoo.com/quote/{t}" target="_blank" class="top10-link">Quote</a>'
+            ticker_html = f'<span class="top10-ticker">{t}</span> · {link_html}'
+        else:
+            ticker_html = "—"
+
+        cells = []
+        if ticker_col:
+            cells.append(f"<td>{ticker_html}</td>")
+        if name_col:
+            cells.append(f"<td>{n}</td>")
+        if sector_col:
+            cells.append(f"<td>{s}</td>")
+        cells.append(f'<td class="top10-weight">{w_str}</td>')
+        if dollar_col:
+            cells.append(f"<td>{val_str}</td>")
+        if change_col:
+            cells.append(f'<td class="{chg_class}">{chg_str}</td>')
+
+        rows_html.append(f'<tr class="{row_class}">{"".join(cells)}</tr>')
+
+    table_html = f"""
+    <div class="top10-table-container">
+        <table class="top10-table">
+            <thead>
+                <tr>
+                    {''.join(header_cells)}
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(rows_html)}
+            </tbody>
+        </table>
+    </div>
+    <div class="footer-note" style="margin-top:0.25rem;">
+        Stocks with positive 1D move are rendered in <b>green</b>; negative 1D in <b>red</b>. 
+        Click <b>Quote</b> for live data without leaving the console.
+    </div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------- RIGHT PANEL: CHARTS STACK --------------------------------
@@ -566,7 +647,7 @@ with right:
             font_color="#e5e7eb",
             xaxis_title="Weight",
             yaxis_title="",
-            margin=dict(l=10, r=10, t=26, b=10),
+            margin=dict(l=10, r=10, t=24, b=10),
             height=190,
             xaxis_tickformat=".0%",
         )
@@ -600,7 +681,7 @@ with right:
                 legend_orientation="v",
                 legend_y=0.5,
                 legend_x=1.05,
-                margin=dict(l=0, r=50, t=24, b=0),
+                margin=dict(l=0, r=50, t=22, b=0),
                 height=205,
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -610,7 +691,7 @@ with right:
         else:
             st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
 
-    # Weight distribution mini-chart
+    # Weight distribution mini-chart (depth: shows long tail)
     with c2:
         dist_data = df_sorted[["__w_norm__"]].copy()
         dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
@@ -628,7 +709,7 @@ with right:
             font_color="#e5e7eb",
             xaxis_title="Holding rank",
             yaxis_title="Weight",
-            margin=dict(l=10, r=10, t=24, b=10),
+            margin=dict(l=10, r=10, t=22, b=10),
             height=205,
             xaxis=dict(showgrid=False),
             yaxis=dict(showgrid=True, tickformat=".0%"),
@@ -638,13 +719,13 @@ with right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# BOTTOM STRIP – MODE EXPLANATION (STILL SAME SCREEN, VERY COMPACT)
+# BOTTOM STRIP – MODE EXPLANATION (COMPACT)
 # --------------------------------------------------------------------
 st.markdown("")
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.markdown(
     f"""
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.15rem;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.1rem;">
         <div style="flex:1;">
             <div class="section-title">Mode overview</div>
             <div class="section-caption">
@@ -657,8 +738,7 @@ st.markdown(
                 <br/><br/>
                 <b>Private Logic™</b> layers in proprietary leadership, regime-switching,
                 and SmartSafe™ overlays to push harder for risk-adjusted alpha while still
-                staying within institutional guardrails. This demo only changes the
-                narrative – live Waves would change exposures and trading plans behind the scenes.
+                staying within institutional guardrails.
             </div>
         </div>
         <div style="flex:0.9;">
