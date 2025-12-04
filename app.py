@@ -17,30 +17,71 @@ def find_col(df: pd.DataFrame, *candidates):
 
 
 @st.cache_data
-def load_default_snapshot() -> pd.DataFrame | None:
+def load_universe() -> pd.DataFrame | None:
     """
-    Try to load a default snapshot from the repo.
-    You can rename your master file to one of these.
+    Load the master 5,000-stock universe from Master_Stock_Sheet5.csv.
+    Expected columns (flexible): Ticker, Company, Weight, Sector, Market Value, Price, ...
     """
-    candidates = [
-        "live_snapshot.csv",
-        "snapshot.csv",
-        "SP500_PORTFOLIO_FINAL - Sheet17.csv",
-        "SP500_PORTFOLIO_FINAL.csv",
-    ]
-    for name in candidates:
-        p = Path(name)
-        if p.exists():
-            try:
-                return pd.read_csv(p)
-            except Exception:
-                continue
+    p = Path("Master_Stock_Sheet5.csv")
+    if not p.exists():
+        return None
+
+    df = pd.read_csv(p)
+
+    # Normalize key columns
+    col_ticker = find_col(df, "Ticker", "Symbol")
+    col_name   = find_col(df, "Company", "Name", "Security")
+    col_sector = find_col(df, "Sector")
+    col_price  = find_col(df, "Price")
+    col_mktval = find_col(df, "Market Value", "MarketValue", "MktValue")
+    col_weight = find_col(df, "Weight")  # benchmark / index weight, not Wave weight
+
+    # Rename for clearer use downstream
+    rename_map = {}
+    if col_ticker: rename_map[col_ticker] = "Ticker"
+    if col_name:   rename_map[col_name]   = "Company"
+    if col_sector: rename_map[col_sector] = "Sector"
+    if col_price:  rename_map[col_price]  = "Price"
+    if col_mktval: rename_map[col_mktval] = "MarketValue"
+    if col_weight: rename_map[col_weight] = "BenchmarkWeight"
+
+    df = df.rename(columns=rename_map)
+
+    # Keep only the most relevant columns for now
+    keep_cols = []
+    for c in ["Ticker", "Company", "Sector", "Price", "MarketValue", "BenchmarkWeight"]:
+        if c in df.columns:
+            keep_cols.append(c)
+    df = df[keep_cols].dropna(subset=["Ticker"]).drop_duplicates(subset=["Ticker"])
+
+    return df
+
+
+@st.cache_data
+def load_wave_weights(uploaded_file: pd.io.common.FilePath | None) -> pd.DataFrame | None:
+    """
+    Load wave definitions (Wave / Ticker / Weight).
+    If user uploads a CSV, use that; otherwise fall back to wave_weights.csv in repo.
+    """
+    if uploaded_file is not None:
+        try:
+            return pd.read_csv(uploaded_file)
+        except Exception:
+            return None
+
+    p = Path("wave_weights.csv")
+    if p.exists():
+        try:
+            return pd.read_csv(p)
+        except Exception:
+            return None
+
     return None
 
 
 def percent(x):
     try:
-        return f"{float(x):.1f}%"
+        return f"{float(x) * 100:.1f}%"
     except Exception:
         return ""
 
@@ -62,78 +103,120 @@ st.caption("Equity Waves only – benchmark-aware, AI-directed, multi-mode demo.
 st.write("")
 
 # =========================================================
-# Data source (snapshot file)
+# Sidebar data source controls
 # =========================================================
 
-st.sidebar.header("Data source")
+st.sidebar.header("Data sources")
 
-uploaded = st.sidebar.file_uploader(
-    "Upload Wave snapshot CSV (equity holdings)",
+uploaded_wave_file = st.sidebar.file_uploader(
+    "Upload wave_weights.csv (optional)",
     type=["csv"],
     help=(
-        "Rows = holdings. Columns like Wave, Ticker, Name, Weight, Sector, "
-        "AssetClass, IsCash, Alpha are supported."
+        "Columns: Wave, Ticker, Weight (0–1). "
+        "Optional: Alpha, IsCash, any other metrics."
     ),
 )
 
-if uploaded is not None:
-    df = pd.read_csv(uploaded)
-    source_label = "Uploaded CSV"
+universe_df = load_universe()
+waves_df = load_wave_weights(uploaded_wave_file)
+
+# Universe status
+if universe_df is None or universe_df.empty:
+    st.sidebar.error("Universe file Master_Stock_Sheet5.csv not found or empty.")
+    st.error(
+        "Cannot find Master_Stock_Sheet5.csv in the app folder. "
+        "Export Sheet5 from your Google Sheet as CSV and add it to the repo root."
+    )
+    st.stop()
 else:
-    df = load_default_snapshot()
-    source_label = "Default snapshot from repo"
+    st.sidebar.success("Universe loaded (Master_Stock_Sheet5.csv)")
 
-st.sidebar.caption(f"Snapshot source: **{source_label}**")
-
-if df is None or df.empty:
+# Wave weights status
+if waves_df is None or waves_df.empty:
+    st.sidebar.warning(
+        "No wave_weights.csv found or it is empty. "
+        "Create wave_weights.csv with columns Wave, Ticker, Weight."
+    )
     st.warning(
-        "No snapshot data loaded. Upload a CSV in the sidebar or place "
-        "`live_snapshot.csv` (or SP500_PORTFOLIO_FINAL.csv) in the repo root."
+        "No Wave definitions loaded. The console needs a wave_weights.csv file "
+        "with at least Wave, Ticker, and Weight columns."
+    )
+    st.stop()
+else:
+    st.sidebar.success("Wave definitions loaded")
+
+# =========================================================
+# Normalize wave_weights columns
+# =========================================================
+
+col_wave   = find_col(waves_df, "Wave")
+col_ticker = find_col(waves_df, "Ticker", "Symbol")
+col_wgt    = find_col(waves_df, "Weight", "WaveWeight", "Wgt")
+col_alpha  = find_col(waves_df, "Alpha", "AlphaCapture", "Alpha_Capture")
+col_is_cash = find_col(waves_df, "IsCash", "CashFlag", "Is_Cash")
+
+if not col_wave or not col_ticker or not col_wgt:
+    st.error(
+        "wave_weights.csv must contain at least these columns: Wave, Ticker, Weight."
     )
     st.stop()
 
-# =========================================================
-# Column detection and cleaning
-# =========================================================
+waves_df = waves_df.rename(columns={
+    col_wave: "Wave",
+    col_ticker: "Ticker",
+    col_wgt: "WaveWeight"
+})
+if col_alpha:
+    waves_df = waves_df.rename(columns={col_alpha: "Alpha"})
+if col_is_cash:
+    waves_df = waves_df.rename(columns={col_is_cash: "IsCash"})
 
-col_wave    = find_col(df, "Wave", "WaveName", "Portfolio")
-col_ticker  = find_col(df, "Ticker", "Symbol")
-col_name    = find_col(df, "Name", "Security", "Holding")
-col_weight  = find_col(df, "Weight", "Weight %", "Weight(%)", "PctWeight", "WeightPct")
-col_sector  = find_col(df, "Sector")
-col_alpha   = find_col(df, "Alpha", "AlphaCapture", "Alpha_Capture")
-col_asset   = find_col(df, "AssetClass", "Type", "Asset_Type")
-col_is_cash = find_col(df, "IsCash", "CashFlag", "Is_Cash")
+waves_df["WaveWeight"] = pd.to_numeric(waves_df["WaveWeight"], errors="coerce")
 
-if col_weight:
-    df[col_weight] = pd.to_numeric(df[col_weight], errors="coerce")
+# Drop rows with no ticker or weight
+waves_df = waves_df.dropna(subset=["Ticker", "WaveWeight"])
 
-# Filter to equities only if we can detect an AssetClass / Type column
-if col_asset:
-    mask_equity = df[col_asset].astype(str).str.contains("equity", case=False, na=False)
-    df_equity = df[mask_equity].copy()
-else:
-    df_equity = df.copy()
-
-if df_equity.empty:
-    st.error("Snapshot loaded, but no equity rows detected. Check your AssetClass / Type column.")
+if waves_df.empty:
+    st.error("After cleaning, no valid Wave rows remain. Check wave_weights.csv.")
     st.stop()
 
-# If there is no Wave column, treat everything as one Wave (e.g., S&P 500 Wave)
-if not col_wave:
-    col_wave = "Wave"
-    df_equity[col_wave] = "S&P 500 Wave"
+# =========================================================
+# Join waves with universe on Ticker
+# =========================================================
 
-waves = sorted(df_equity[col_wave].dropna().unique().tolist())
+joined_df = waves_df.merge(
+    universe_df,
+    on="Ticker",
+    how="left",
+    suffixes=("", "_universe"),
+)
+
+# We keep all wave rows even if some tickers are missing in the universe
+missing_universe = joined_df["Company"].isna().sum()
+if missing_universe > 0:
+    st.sidebar.warning(
+        f"{missing_universe} Wave holdings are missing from the universe file "
+        "(Ticker not found in Master_Stock_Sheet5.csv)."
+    )
+
+# =========================================================
+# Wave selector
+# =========================================================
+
+waves = sorted(joined_df["Wave"].dropna().unique().tolist())
+if not waves:
+    st.error("No Waves found in wave_weights.csv.")
+    st.stop()
+
 selected_wave = st.sidebar.selectbox("Select Wave", waves)
 
-wave_df = df_equity[df_equity[col_wave] == selected_wave].copy()
+wave_df = joined_df[joined_df["Wave"] == selected_wave].copy()
 if wave_df.empty:
     st.error("No holdings found for the selected Wave.")
     st.stop()
 
 # =========================================================
-# Mode selector (Standard / Alpha-Minus-Beta / Private Logic)
+# Mode selector
 # =========================================================
 
 mode = st.sidebar.radio(
@@ -141,18 +224,17 @@ mode = st.sidebar.radio(
     ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
 )
 
-# Simple demo scaling for effective weights
 mode_scale = {
     "Standard": 1.00,
-    "Alpha-Minus-Beta": 0.80,   # net exposure dialed down
+    "Alpha-Minus-Beta": 0.80,   # lower net equity exposure
     "Private Logic™": 1.20,     # more aggressive expression
 }.get(mode, 1.00)
 
-if col_weight:
-    wave_df["EffectiveWeight"] = wave_df[col_weight] * mode_scale
-    eff_col = "EffectiveWeight"
-else:
-    eff_col = None
+wave_df["EffectiveWeight"] = wave_df["WaveWeight"] * mode_scale
+
+# optional alpha / cash flags
+has_alpha = "Alpha" in wave_df.columns
+has_cash  = "IsCash" in wave_df.columns
 
 # =========================================================
 # Header
@@ -163,7 +245,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    f"Mode: **{mode}** – equities only. In production this mode flag would drive "
+    f"Mode: **{mode}** – equities only. In production, this mode flag would drive "
     "risk overlays, SmartSafe™, and rebalancing."
 )
 st.write("")
@@ -177,78 +259,59 @@ left, right = st.columns([1.3, 1.2])
 # ---------- Left: Top-10 table ----------
 with left:
     st.subheader("Top 10 holdings")
-    if eff_col:
-        wave_sorted = wave_df.sort_values(eff_col, ascending=False)
-    elif col_weight:
-        wave_sorted = wave_df.sort_values(col_weight, ascending=False)
-    else:
-        wave_sorted = wave_df.copy()
 
+    wave_sorted = wave_df.sort_values("EffectiveWeight", ascending=False)
     top10 = wave_sorted.head(10).copy()
 
     table = {}
+    if "Company" in top10.columns:
+        table["Name"] = top10["Company"]
+    table["Ticker"] = top10["Ticker"]
+    table["Base weight"] = top10["WaveWeight"].apply(percent)
+    table["Mode weight"] = top10["EffectiveWeight"].apply(percent)
+    if "Sector" in top10.columns:
+        table["Sector"] = top10["Sector"]
 
-    if col_name and col_name in top10.columns:
-        table["Name"] = top10[col_name]
-    if col_ticker and col_ticker in top10.columns:
-        table["Ticker"] = top10[col_ticker]
-    if col_weight:
-        table["Base weight"] = top10[col_weight].apply(percent)
-    if eff_col:
-        table["Mode weight"] = top10[eff_col].apply(percent)
-    if col_sector and col_sector in top10.columns:
-        table["Sector"] = top10[col_sector]
-
-    if table:
-        st.caption("Ranked by Wave weight (mode-adjusted).")
-        st.dataframe(pd.DataFrame(table), use_container_width=True)
-    else:
-        st.info("Add at least Ticker, Name, and Weight columns to see the Top-10 table.")
+    st.caption("Ranked by Wave weight (mode-adjusted).")
+    st.dataframe(pd.DataFrame(table), use_container_width=True)
 
 # ---------- Right: chart + metrics ----------
 with right:
     st.subheader("Top-10 by Wave weight")
-    weight_for_chart = eff_col or col_weight
 
-    if weight_for_chart and col_ticker and col_ticker in top10.columns:
-        chart_data = top10[[col_ticker, weight_for_chart]].set_index(col_ticker)
-        st.bar_chart(chart_data)
-    else:
-        st.info("Need Ticker and Weight columns to show the Top-10 chart.")
+    chart_data = (
+        top10[["Ticker", "EffectiveWeight"]]
+        .set_index("Ticker")
+    )
+    st.bar_chart(chart_data)
 
     total_holdings = len(wave_df)
+    largest_weight = wave_df["EffectiveWeight"].max()
 
-    largest_weight = None
-    if weight_for_chart:
-        largest_weight = wave_df[weight_for_chart].max()
-
-    equity_weight = None
-    cash_weight = None
-    if col_is_cash and col_weight:
-        cash_mask = wave_df[col_is_cash] == True
-        cash_weight = wave_df.loc[cash_mask, col_weight].sum()
-        equity_weight = wave_df[col_weight].sum() - cash_weight
+    equity_weight = wave_df["WaveWeight"].sum()
+    cash_weight = 0.0
+    if has_cash:
+        cash_mask = wave_df["IsCash"] == True
+        cash_weight = wave_df.loc[cash_mask, "WaveWeight"].sum()
+        equity_weight = wave_df["WaveWeight"].sum() - cash_weight
 
     alpha_capture = None
-    if col_alpha and col_alpha in wave_df.columns:
-        alpha_capture = wave_df[col_alpha].mean()
+    if has_alpha:
+        alpha_capture = wave_df["Alpha"].mean()
 
     c1, c2, c3 = st.columns(3)
     with c1:
         st.metric("TOTAL HOLDINGS", f"{total_holdings}")
     with c2:
-        if equity_weight is not None and cash_weight is not None:
+        if equity_weight or cash_weight:
             st.metric(
                 "EQUITY vs CASH (base)",
-                f"{equity_weight:.0f}% / {cash_weight:.0f}%",
+                f"{equity_weight * 100:.0f}% / {cash_weight * 100:.0f}%",
             )
         else:
             st.metric("EQUITY vs CASH", "n/a")
     with c3:
-        if largest_weight is not None:
-            st.metric("LARGEST POSITION (mode)", percent(largest_weight))
-        else:
-            st.metric("LARGEST POSITION (mode)", "n/a")
+        st.metric("LARGEST POSITION (mode)", percent(largest_weight))
 
     c4, c5 = st.columns(2)
     with c4:
@@ -266,11 +329,11 @@ sec_col, decay_col = st.columns(2)
 
 with sec_col:
     st.subheader("Sector allocation")
-    if col_sector and weight_for_chart and col_sector in wave_df.columns:
+    if "Sector" in wave_df.columns:
         sector_data = (
             wave_df
-            .dropna(subset=[col_sector, weight_for_chart])
-            .groupby(col_sector)[weight_for_chart]
+            .dropna(subset=["Sector"])
+            .groupby("Sector")["EffectiveWeight"]
             .sum()
             .sort_values(ascending=False)
         )
@@ -279,21 +342,18 @@ with sec_col:
         else:
             st.info("No sector distribution available for this Wave.")
     else:
-        st.info("Add Sector and Weight columns to your snapshot to see sector allocation.")
+        st.info("Sector column not present in universe; cannot show sector allocation.")
 
 with decay_col:
     st.subheader("Weight decay curve")
-    if weight_for_chart:
-        decay_data = (
-            wave_sorted[[weight_for_chart]]
-            .reset_index(drop=True)
-            .rename(columns={weight_for_chart: "Weight"})
-        )
-        decay_data["Rank"] = decay_data.index + 1
-        decay_data = decay_data.set_index("Rank")
-        st.line_chart(decay_data)
-    else:
-        st.info("Need a Weight column to show weight-decay.")
+    decay_data = (
+        wave_sorted[["EffectiveWeight"]]
+        .reset_index(drop=True)
+        .rename(columns={"EffectiveWeight": "Weight"})
+    )
+    decay_data["Rank"] = decay_data.index + 1
+    decay_data = decay_data.set_index("Rank")
+    st.line_chart(decay_data)
 
 # =========================================================
 # Mode overview / console status
@@ -303,13 +363,13 @@ st.markdown("---")
 st.subheader("Mode overview")
 st.write(
     """
-**Standard** – Wave aligned tightly to its benchmark with controlled tracking error
+**Standard** – Wave aligned tightly to its benchmark with controlled tracking error  
 and strict beta discipline.
 
-**Alpha-Minus-Beta** – same selection logic, but effective equity exposure dialed
+**Alpha-Minus-Beta** – same selection logic, but effective equity exposure dialed  
 down (e.g., 80%) to make room for SmartSafe™ / hedging overlays.
 
-**Private Logic™** – proprietary overlays for leadership, momentum, and SmartSafe™,
+**Private Logic™** – proprietary overlays for leadership, momentum, and SmartSafe™,  
 allowing equity exposure to expand or contract more aggressively.
 """
 )
@@ -318,8 +378,8 @@ st.subheader("Console status")
 st.write(
     """
 - This is a **read-only** demo – no real orders are routed.  
-- All analytics are calculated directly from the loaded snapshot CSV.  
-- **Equities only** in this version (crypto and income Waves can be added later).  
-- Wave + Mode selections are exactly how the production engine will be driven.
+- All analytics are calculated directly from the loaded Wave definitions and universe.  
+- **Equities only** in this version (crypto and income Waves will be layered later).  
+- Wave + Mode selections match how the production engine will be driven.
 """
 )
