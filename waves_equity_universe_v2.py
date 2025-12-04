@@ -1,4 +1,9 @@
 # waves_equity_universe_v2.py
+"""
+Minimal wave engine helpers for the Equity Waves Console.
+More advanced NAV / alpha logic can be plugged in later.
+"""
+
 import io
 import requests
 import pandas as pd
