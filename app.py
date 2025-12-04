@@ -1,328 +1,254 @@
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
-from waves_equity_universe_v2 import run_equity_waves, WAVES_CONFIG
-
-
-# -------------------------------------------------------------------
-# Static documentation for how each Wave is managed
-# (You can tweak wording any time without touching the engine.)
-# -------------------------------------------------------------------
-
-WAVE_DOCS = {
-    "SPX": {
-        "objective": "Track the S&P 500 with extremely tight tracking error while harvesting small, persistent alpha from better execution and rebalancing.",
-        "benchmark": "SPY (S&P 500 ETF)",
-        "universe": "Current S&P 500 constituents (large-cap US equities).",
-        "management": [
-            "Maintain broad, diversified exposure to all S&P 500 names.",
-            "Allow small over/under-weights vs SPY where there is strong leadership or momentum evidence.",
-            "Stay fully invested in equities except in extreme volatility regimes (handled at the SmartSafe/Vector layer).",
-        ],
-        "rebalancing": [
-            "Baseline: align with index quarterly or when cumulative drift > 2–3% at the Wave level.",
-            "Opportunistic: rebalance earlier when leadership rotation is detected (e.g., sector/factor leaders breaking out).",
-            "Minimize turnover; favor partial, incremental trades over full resets.",
-        ],
-        "alpha_drivers": [
-            "Smoother and slightly faster rebalancing than the underlying ETF.",
-            "Avoiding forced-seller behavior around index reconstitutions where spreads/impact are wide.",
-            "Small tilts toward persistent quality, profitability, and strong balance sheets.",
-        ],
-        "risk": [
-            "Target beta ≈ 1.0 vs S&P 500.",
-            "No single stock > 8% of Wave NAV; flag if index weight exceeds that.",
-            "Sector weights stay within ±5% of benchmark, unless explicitly overridden by Private Logic mode.",
-        ],
-    },
-    "USMKT": {
-        "objective": "Own the full US equity market from mega-cap to micro-cap with simple, rules-based tilts toward quality and profitability.",
-        "benchmark": "VTI (Total US Market ETF)",
-        "universe": "Total US equity universe, anchored to broad-market ETFs or CRSP/FTSE indices.",
-        "management": [
-            "Blend S&P 500, mid-cap, small-cap, and micro-cap exposures using your master stock sheet.",
-            "Overweight persistent quality names; underweight highly distressed or structurally impaired names.",
-            "Maintain liquidity discipline; cap allocation to very illiquid names.",
-        ],
-        "rebalancing": [
-            "Quarterly baseline rebalance; monthly light drift corrections.",
-            "Lift weights slowly in segments showing improving breadth and leadership.",
-        ],
-        "alpha_drivers": [
-            "Better handling of small-cap and micro-cap liquidity than vanilla index funds.",
-            "Avoidance of names with elevated bankruptcy/earnings blow-up risk.",
-        ],
-        "risk": [
-            "Target beta ≈ 1.0 vs total-market benchmark.",
-            "Guardrails on small-cap and micro-cap exposure to avoid liquidity traps.",
-        ],
-    },
-    "LGRW": {
-        "objective": "Concentrated exposure to large-cap growth leaders (software, platforms, compounders) with risk-aware drawdown controls.",
-        "benchmark": "QQQ or similar large-growth ETF.",
-        "universe": "Large-cap US growth stocks; tech, communications, consumer growth leaders.",
-        "management": [
-            "Focus on durable revenue growth, strong balance sheets, and network effects.",
-            "Allow more concentrated positions in top 25–40 names.",
-        ],
-        "rebalancing": [
-            "Faster response to trend and leadership changes than a static growth ETF.",
-            "Trim extended winners on parabolic moves; add on controlled pullbacks.",
-        ],
-        "alpha_drivers": [
-            "Momentum/leadership continuation overlays.",
-            "Faster removal of broken stories vs index methodology.",
-        ],
-        "risk": [
-            "Beta can run > 1.0 vs S&P 500 but is monitored vs growth benchmark.",
-            "Explicit drawdown monitoring; throttle position size after large adverse moves.",
-        ],
-    },
-    "SCG": {
-        "objective": "Capture the small-cap growth premium while aggressively filtering out junk and low-quality names.",
-        "benchmark": "IWO (Russell 2000 Growth) or similar.",
-        "universe": "US small-cap growth stocks, initially seeded from Russell 2000 and related indices.",
-        "management": [
-            "Favor profitable or near-profitable small caps with real businesses.",
-            "Systematically underweight highly dilutive, structurally unprofitable names.",
-        ],
-        "rebalancing": [
-            "Higher turnover allowed versus large-cap Waves; small caps move faster.",
-            "Rotate away from deteriorating balance sheets and broken price structures quickly.",
-        ],
-        "alpha_drivers": [
-            "Quality and survivorship screening inside the small-cap growth universe.",
-            "Avoidance of the worst “lottery ticket” names that drag index returns.",
-        ],
-        "risk": [
-            "Position-size limits to respect liquidity (e.g., max % of average daily volume).",
-            "Wave-level volatility expected to be higher; monitored and throttled by Vector/SmartSafe.",
-        ],
-    },
-    "SMID": {
-        "objective": "Bridge small and mid-cap growth exposures with smoother volatility and broader diversification than pure small-cap growth.",
-        "benchmark": "IJT or similar small/mid growth ETF.",
-        "universe": "US small-mid growth stocks, tilted slightly up-cap from SCG.",
-        "management": [
-            "Blend higher-quality small caps with stronger, more established mid-caps.",
-            "Use this Wave as the core growth complement to SPX and USMKT.",
-        ],
-        "rebalancing": [
-            "Moderate turnover; react when leadership clearly shifts between small and mid-cap cohorts.",
-        ],
-        "alpha_drivers": [
-            "Dynamic tilt between small and mid depending on breadth and factor regimes.",
-        ],
-        "risk": [
-            "Beta around 1.05–1.15 vs S&P 500; watched closely vs growth benchmarks.",
-        ],
-    },
-    "AITECH": {
-        "objective": "High-conviction exposure to AI, cloud, data, and next-gen compute leaders.",
-        "benchmark": "QQQ or specialized AI/tech ETF basket.",
-        "universe": "AI-linked semis, cloud platforms, infra software, data/analytics leaders.",
-        "management": [
-            "Concentrated portfolio of 20–40 names with strong secular AI tailwinds.",
-            "Allow thematic concentration but enforce single-name limits.",
-        ],
-        "rebalancing": [
-            "Aggressive response to regime changes (hardware vs software leadership, etc.).",
-        ],
-        "alpha_drivers": [
-            "Faster capture of new leaders than slow-moving index methodologies.",
-        ],
-        "risk": [
-            "High volatility by design; vector-level controls will cap portfolio-wide exposure to this Wave.",
-        ],
-    },
-    "ROBO": {
-        "objective": "Robotics, automation, industrial AI, and advanced manufacturing equities.",
-        "benchmark": "BOTZ or similar robotics ETF.",
-        "universe": "Robotics, sensors, automation OEMs, enabling software.",
-        "management": [
-            "Diversify across hardware, software, and enabling supply-chain vendors.",
-        ],
-        "rebalancing": [
-            "Monitor capex cycles and industrial order books; de-risk when macro turns sharply down.",
-        ],
-        "alpha_drivers": [
-            "Avoid overcrowded single-theme baskets; mix cyclical and secular stories.",
-        ],
-        "risk": [
-            "Cyclical drawdown risk; position size scaled based on macro and earnings volatility.",
-        ],
-    },
-    "ENERGYF": {
-        "objective": "Future power, clean energy, grid infra, and transition-linked equities.",
-        "benchmark": "ICLN or similar clean-energy ETF.",
-        "universe": "Renewables developers, grid and storage companies, enabling tech.",
-        "management": [
-            "Blend volatile pure-play names with more stable grid and infra names.",
-        ],
-        "rebalancing": [
-            "Scale risk up/down based on policy, rate environment, and factor regimes.",
-        ],
-        "alpha_drivers": [
-            "Dynamic sizing across sub-themes (solar, wind, storage, grid, etc.) instead of static weights.",
-        ],
-        "risk": [
-            "High single-name and regulatory risk; tight position limits and stop-loss logic.",
-        ],
-    },
-    "EQINC": {
-        "objective": "High-quality global equity income with a focus on dividend growth and resilience.",
-        "benchmark": "SCHD or similar dividend-equity ETF.",
-        "universe": "Dividend-paying global large/mid-cap stocks with sustainable payout ratios.",
-        "management": [
-            "Emphasize dividend growth and balance-sheet strength over raw yield.",
-            "Underweight yield traps and structurally impaired high-yield names.",
-        ],
-        "rebalancing": [
-            "Gradual re-optimization as dividend cuts, hikes, or buyback policies change.",
-        ],
-        "alpha_drivers": [
-            "Quality screen and dividend-safety overlay vs yield-only strategies.",
-        ],
-        "risk": [
-            "Lower beta target than broad equity (≈0.8–0.9 vs S&P).",
-        ],
-    },
-    "INTL": {
-        "objective": "International developed + EM equity exposure with smart country/sector tilts.",
-        "benchmark": "VEA + EM blend or a global ex-US ETF basket.",
-        "universe": "Non-US equities: developed markets plus selectively EM.",
-        "management": [
-            "Avoid structurally impaired markets/currencies; overweight higher-quality regimes.",
-            "Blend country, sector, and currency views into a coherent global ex-US sleeve.",
-        ],
-        "rebalancing": [
-            "Adjust regional weights as macro, FX, and policy regimes evolve.",
-        ],
-        "alpha_drivers": [
-            "Country/sector selection alpha, not just stock-picking inside a static ex-US index.",
-        ],
-        "risk": [
-            "Explicit tracking of FX and political risk; cap exposure to fragile regimes.",
-        ],
-    },
-}
+from waves_equity_universe_v2 import (
+    WAVES_CONFIG,
+    load_holdings_from_csv,
+    compute_wave_nav,
+)
 
 
-# -------------------------------------------------------------------
-# STREAMLIT APP
-# -------------------------------------------------------------------
+# --------- HELPERS --------- #
+
+def get_wave_config_by_code(code: str):
+    for w in WAVES_CONFIG:
+        if w.code == code:
+            return w
+    return None
+
+
+def add_quote_links(df: pd.DataFrame, ticker_col: str = "Ticker") -> pd.DataFrame:
+    df = df.copy()
+    df["Quote"] = df[ticker_col].apply(
+        lambda x: f"https://www.google.com/finance/quote/{x}:NASDAQ"
+    )
+    return df
+
+
+# --------- PAGE SETUP --------- #
 
 st.set_page_config(
-    page_title="WAVES Intelligence – Equity Waves Console",
+    page_title="WAVES Intelligence – Portfolio Wave Console",
     layout="wide",
 )
 
-st.title("🌊 Equity Waves Console")
-st.caption("Live view of all 10 Equity Waves (prototype)")
-
-st.divider()
-
-col_left, col_right = st.columns([1, 2])
-
-with col_left:
-    st.subheader("Controls")
-    if st.button("🔁 Run Equity Waves", use_container_width=True):
-        with st.spinner("Running WAVES engine…"):
-            df_result = run_equity_waves()
-        st.session_state["equity_waves_df"] = df_result
-        st.success("Run complete.")
-    else:
-        df_result = st.session_state.get("equity_waves_df")
-
-with col_right:
-    st.subheader("Status")
-    configured = [w for w in WAVES_CONFIG if w.holdings_csv_url]
-    missing = [w for w in WAVES_CONFIG if not w.holdings_csv_url]
-
-    st.markdown(f"**Configured Waves:** {len(configured)} / {len(WAVES_CONFIG)}")
-    if configured:
-        st.markdown(
-            "- " + "\n- ".join(f"`{w.code}` – {w.name} (bench: `{w.benchmark}`)" for w in configured)
-        )
-    if missing:
-        st.markdown("**Missing holdings URLs (not yet live):**")
-        st.markdown(
-            "- " + "\n- ".join(f"`{w.code}` – {w.name}" for w in missing)
-        )
-
-st.divider()
-
-# -------------------------------------------------------------------
-# SUMMARY TABLE + ALPHA CHART
-# -------------------------------------------------------------------
-
-if df_result is not None and isinstance(df_result, pd.DataFrame) and not df_result.empty:
-    # Format for display
-    df_disp = df_result.copy()
-    for col in ["wave_return", "benchmark_return", "alpha"]:
-        if col in df_disp.columns:
-            df_disp[col] = (df_disp[col] * 100).round(2)
-
-    df_disp.rename(
-        columns={
-            "code": "Wave",
-            "name": "Name",
-            "benchmark": "Benchmark",
-            "nav": "NAV ($)",
-            "wave_return": "Wave Return (%)",
-            "benchmark_return": "Benchmark Return (%)",
-            "alpha": "Alpha (%)",
-        },
-        inplace=True,
-    )
-
-    st.subheader("Wave Performance Snapshot")
-    st.dataframe(df_disp, use_container_width=True)
-
-    if "alpha" in df_result.columns:
-        st.subheader("Alpha by Wave")
-        alpha_series = df_result.set_index("code")["alpha"]
-        st.bar_chart(alpha_series)
-else:
-    st.info("No results yet. Click **Run Equity Waves** to generate a snapshot.")
-
-
-st.divider()
-
-# -------------------------------------------------------------------
-# DETAILED MANAGEMENT RULES / PLAYBOOK SECTION
-# -------------------------------------------------------------------
-
-st.header("📘 Wave Playbooks – How Each Wave Is Managed")
-
-st.write(
-    "Below are the management rules, objectives, and risk constraints for each Equity Wave. "
-    "These are the human-readable playbooks that sit on top of the engine logic."
+# Custom dark background to feel closer to your old UI
+st.markdown(
+    """
+    <style>
+    body { background-color: #040816; }
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-for wave in WAVES_CONFIG:
-    docs = WAVE_DOCS.get(wave.code, {})
-    with st.expander(f"{wave.code} — {wave.name}", expanded=False):
-        st.markdown(f"**Benchmark:** `{wave.benchmark}`")
+# --------- SIDEBAR: WAVE + MODE CONTROLS --------- #
 
-        if "objective" in docs:
-            st.markdown(f"**Objective**  \n{docs['objective']}")
+st.sidebar.title("🌊 WAVES Console")
 
-        if "universe" in docs:
-            st.markdown(f"**Universe**  \n{docs['universe']}")
+wave_codes = [w.code for w in WAVES_CONFIG if w.holdings_csv_url]
+if not wave_codes:
+    st.sidebar.error("No Waves configured with holdings_csv_url yet.")
+    st.stop()
 
-        def bullet_section(title: str, key: str):
-            items = docs.get(key, [])
-            if items:
-                st.markdown(f"**{title}**")
-                st.markdown("- " + "\n- ".join(items))
+selected_wave_code = st.sidebar.selectbox(
+    "Select Wave",
+    wave_codes,
+    index=wave_codes.index("SPX") if "SPX" in wave_codes else 0,
+)
 
-        bullet_section("Management Style", "management")
-        bullet_section("Rebalancing Rules", "rebalancing")
-        bullet_section("Alpha Drivers", "alpha_drivers")
-        bullet_section("Risk & Guardrails", "risk")
+mode = st.sidebar.radio("Mode", ["Standard", "Private Logic™"])
 
-        if not docs:
-            st.info("No detailed playbook written yet for this Wave. We can add it anytime.")
+benchmark_override = st.sidebar.selectbox(
+    "Benchmark",
+    ["Use Wave benchmark"] + [w.benchmark for w in WAVES_CONFIG],
+    index=0,
+)
 
-st.caption("Prototype console – not investment advice. For internal WAVES Intelligence™ use only.")
+style_profile = st.sidebar.selectbox("Style", ["Core – Large Cap", "Growth", "Income", "Global"])
+type_profile = st.sidebar.selectbox("Type", ["AI-Managed Wave", "Hybrid", "Passive"])
+
+st.sidebar.markdown("### Override snapshot CSV (optional)")
+override_file = st.sidebar.file_uploader(
+    "Drop CSV here to override holdings for this session only", type=["csv"], label_visibility="collapsed"
+)
+
+st.sidebar.caption("Console is read-only – no live trades are placed.")
+
+
+# --------- LOAD DATA FOR SELECTED WAVE --------- #
+
+wave = get_wave_config_by_code(selected_wave_code)
+if wave is None:
+    st.error(f"Wave {selected_wave_code} not found in config.")
+    st.stop()
+
+if override_file is not None:
+    holdings_raw = pd.read_csv(override_file)
+else:
+    holdings_raw = load_holdings_from_csv(wave.holdings_csv_url)
+
+# holdings_raw already normalized to Weight in waves_equity_universe_v2
+holdings = holdings_raw.copy()
+holdings["Ticker"] = holdings["Ticker"].astype(str).str.upper()
+holdings = holdings.sort_values("Weight", ascending=False).reset_index(drop=True)
+
+top10 = holdings.head(10)
+top10 = add_quote_links(top10)
+
+# Compute snapshot stats (returns, alpha, nav)
+stats = compute_wave_nav(wave, holdings)
+
+wave_return = stats.get("wave_return", float("nan"))
+bench_return = stats.get("benchmark_return", float("nan"))
+alpha = stats.get("alpha", float("nan"))
+nav = stats.get("nav", float("nan"))
+total_holdings = len(holdings)
+largest_pos = top10["Weight"].iloc[0] if not top10.empty else 0.0
+
+# For now, assume fully invested (you can wire in SmartSafe later)
+equity_pct = 1.0
+cash_pct = 0.0
+
+
+# --------- HEADER --------- #
+
+title_text = f"{wave.name} (LIVE Demo)"
+st.markdown(
+    f"""
+    <h2 style="color:#E2ECFF;margin-bottom:0.2rem;">WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE</h2>
+    <h1 style="color:#4DB8FF;margin-top:0rem;">{title_text}</h1>
+    <p style="color:#9BA7C7;">Benchmark-aware, AI-directed Wave – rendered in a single screen, Bloomberg-style.</p>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown("---")
+
+
+# --------- TOP GRID: HOLDINGS TABLE + SNAPSHOT CARD --------- #
+
+col_left, col_right = st.columns([2.2, 1])
+
+with col_left:
+    st.subheader("Top 10 holdings")
+    display_top10 = top10[["Ticker", "Weight"]].copy()
+    display_top10["Weight"] = (display_top10["Weight"] * 100).round(2).astype(str) + "%"
+    st.dataframe(
+        display_top10,
+        hide_index=True,
+        use_container_width=True,
+    )
+    st.caption("Positive 1D moves render in green, negatives in red. (Price-move overlay coming next.)")
+
+with col_right:
+    st.subheader("Wave snapshot")
+    bench_label = benchmark_override if benchmark_override != "Use Wave benchmark" else wave.benchmark
+
+    snapshot_html = f"""
+    <div style="background:#050C24;border-radius:12px;padding:16px;color:#E2ECFF;border:1px solid #1A2A4A;">
+      <div style="font-size:0.85rem;text-transform:uppercase;color:#7C8BB5;">Mode:</div>
+      <div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">{mode} – Benchmark: {bench_label}</div>
+      <hr style="border-color:#1A2A4A;" />
+      <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+        <div>
+          <div style="color:#7C8BB5;">Total holdings</div>
+          <div style="font-size:1.2rem;font-weight:600;">{total_holdings}</div>
+        </div>
+        <div>
+          <div style="color:#7C8BB5;">Equity vs Cash</div>
+          <div style="font-size:1.2rem;font-weight:600;">{equity_pct*100:.0f}% / {cash_pct*100:.0f}%</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.9rem;margin-top:12px;">
+        <div>
+          <div style="color:#7C8BB5;">Largest position</div>
+          <div style="font-size:1.2rem;font-weight:600;">{largest_pos*100:.1f}%</div>
+        </div>
+        <div>
+          <div style="color:#7C8BB5;">Wave NAV (sim)</div>
+          <div style="font-size:1.2rem;font-weight:600;">${nav:,.0f}</div>
+        </div>
+      </div>
+      <hr style="border-color:#1A2A4A;margin-top:12px;margin-bottom:8px;" />
+      <div style="font-size:0.9rem;">
+        <span style="color:#7C8BB5;">1-day Wave / Benchmark / Alpha:</span><br/>
+        <span style="font-weight:600;">{wave_return*100:.2f}%</span> /
+        <span style="font-weight:600;">{bench_return*100:.2f}%</span> /
+        <span style="font-weight:600;color:{'#4AE17C' if alpha>=0 else '#FF5C7B'};">{alpha*100:.2f}%</span>
+      </div>
+    </div>
+    """
+    st.markdown(snapshot_html, unsafe_allow_html=True)
+
+
+# --------- SECOND GRID: WEIGHT BARS / SECTOR / HOLDING RANK --------- #
+
+col_a, col_b, col_c = st.columns([1.4, 1.4, 1.2])
+
+with col_a:
+    st.subheader("Top 10 profile – Wave weight distribution")
+    if not top10.empty:
+        chart_df = top10.set_index("Ticker")["Weight"] * 100
+        st.bar_chart(chart_df)
+    else:
+        st.info("No holdings found for this Wave.")
+
+with col_b:
+    st.subheader("Top 10 pre-sector view – Weight distribution")
+    if "Sector" in holdings.columns:
+        sector_df = (
+            holdings.groupby("Sector")["Weight"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(10)
+            * 100
+        )
+        st.bar_chart(sector_df)
+    else:
+        st.info("No 'Sector' column detected – add one to holdings to see sector allocation.")
+
+with col_c:
+    st.subheader("Holding rank")
+    weights_sorted = holdings["Weight"].sort_values(ascending=False).reset_index(drop=True)
+    weights_sorted.index = weights_sorted.index + 1  # rank
+    st.line_chart(weights_sorted)
+
+
+# --------- BOTTOM TEXT PANELS --------- #
+
+st.markdown("---")
+
+col_bottom_left, col_bottom_right = st.columns(2)
+
+with col_bottom_left:
+    st.subheader("Mode overview")
+    st.markdown(
+        """
+        **Standard mode** steers the Wave tightly around its benchmark with controlled tracking error,
+        strict beta discipline, and lower turnover.
+
+        **Private Logic™ mode** layers on proprietary leadership, regime-switching, and SmartSafe™ overlays
+        to push risk-adjusted alpha while staying within institutional guardrails.
+        """.strip()
+    )
+
+with col_bottom_right:
+    st.subheader("Wave internals (from holdings snapshot)")
+    st.markdown(
+        """
+        Breadth & movement detection will plug into this panel:
+
+        - 1-day gain/loss breadth (advancers vs decliners)
+        - % of holdings above / below key moving-average bands
+        - Concentration metrics (top 5 / top 10 weight share)
+        - Regime flags (risk-on / risk-off overlays)
+
+        Add an explicit 1-day change column (or Change_ID / Return_1D column)
+        in the source sheet to unlock full breadth analytics here.
+        """.strip()
+    )
+
+st.caption("Console is read-only – no live trades are placed. Prototype for internal WAVES Intelligence™ demos.")
