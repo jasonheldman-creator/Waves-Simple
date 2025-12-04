@@ -31,6 +31,7 @@ def load_universe():
 
     try:
         df = pd.read_csv(CSV_FILE)
+        print(f"DEBUG: Loaded DataFrame columns: {list(df.columns)}")
     except Exception as e:
         print(f"ERROR: Failed to read {CSV_FILE}: {e}")
         sys.exit(1)
@@ -118,6 +119,7 @@ def pause():
 def view_sample(df, symbol_col, name_col, ex_col):
     clear_screen()
     print_header()
+    print("DEBUG: Attempting to sample up to 25 rows.")
     try:
         sample = df.sample(n=min(25, len(df)), random_state=None)
     except ValueError:
@@ -145,6 +147,7 @@ def lookup_symbol(df, symbol_col, name_col, ex_col):
     clear_screen()
     print_header()
     user_symbol = input("Enter a symbol (e.g. AAPL): ").strip()
+    print(f"DEBUG: User entered symbol: {user_symbol}")
     if not user_symbol:
         print("No symbol entered.")
         pause()
@@ -152,6 +155,7 @@ def lookup_symbol(df, symbol_col, name_col, ex_col):
 
     mask = df[symbol_col].astype(str).str.upper() == user_symbol.upper()
     matches = df[mask]
+    print(f"DEBUG: Found {len(matches)} matches for symbol '{user_symbol}'.")
 
     if matches.empty:
         print(f"No exact match found for symbol '{user_symbol}'.")
@@ -198,6 +202,7 @@ def search_by_name(df, symbol_col, name_col, ex_col):
         return
 
     text = input("Enter part of the company name (e.g. 'apple', 'energy'): ").strip()
+    print(f"DEBUG: User entered search text: {text}")
     if not text:
         print("No text entered.")
         pause()
@@ -205,6 +210,7 @@ def search_by_name(df, symbol_col, name_col, ex_col):
 
     mask = df[name_col].astype(str).str.contains(text, case=False, na=False)
     results = df[mask]
+    print(f"DEBUG: Search found {len(results)} matches containing '{text}'.")
 
     if results.empty:
         print(f"No matches found containing '{text}'.")
@@ -248,6 +254,7 @@ def main():
 
         show_menu()
         choice = input("Enter choice (1-4): ").strip()
+        print(f"DEBUG: User entered choice: {choice}")
 
         if choice == "1":
             view_sample(df, symbol_col, name_col, ex_col)
@@ -261,6 +268,10 @@ def main():
             print()
             break
         else:
+            if not choice:
+                print("DEBUG: User entered nothing. Showing error message for empty input.")
+            else:
+                print(f"DEBUG: Invalid choice '{choice}'. Showing error message.")
             print("Invalid choice. Please enter 1, 2, 3, or 4.")
             pause()
 
