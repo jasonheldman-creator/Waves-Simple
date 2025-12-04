@@ -1,354 +1,313 @@
-"""
-waves_equity_universe_v2.py
-WAVES Intelligence™ – Equity Waves Engine (10 equity waves)
-
-This module is used both:
-- directly from the command line, and
-- as the backend engine for the Streamlit app (app.py).
-
-Each Wave:
-- Has its own holdings source (Google Sheets CSV URL or local CSV path)
-- Uses 'Ticker' and either 'Weight'/'Weight (%)' or 'Market Value' to derive weights
-- Computes a simple 1-day Wave return vs benchmark ETF
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import List, Optional
-import datetime as dt
-import io
-import os
-from urllib.parse import urlparse
-
+import streamlit as st
 import pandas as pd
-import yfinance as yf
-import requests
+
+from waves_equity_universe_v2 import (
+    WAVES_CONFIG,
+    load_holdings_from_csv,
+    compute_wave_nav,
+)
 
 
-# -------------------------------------------------------------------
-# CONFIG
-# -------------------------------------------------------------------
+# ----------------- Helpers ----------------- #
+
+def get_wave_config_by_code(code: str):
+    for w in WAVES_CONFIG:
+        if w.code == code:
+            return w
+    return None
 
 
-@dataclass
-class WaveConfig:
-    """Configuration for a single Equity Wave."""
-    code: str                 # short ID (e.g., "SPX")
-    name: str                 # human-readable Wave name
-    benchmark: str            # benchmark ETF ticker (SPY, QQQ, etc.)
-    holdings_src: str         # Google Sheets CSV URL OR local CSV path
-    default_notional: float = 1_000_000.0  # hypothetical capital for NAV calc
-
-
-# 👇 EDIT THESE paths/URLs as you build each Wave.
-
-# NOTE: SPX is already wired to your Master_Stock_Sheet published CSV.
-# The others are placeholders: fill them in with each Wave's own CSV later.
-WAVES_CONFIG: List[WaveConfig] = [
-    WaveConfig(
-        code="SPX",
-        name="S&P 500 Core Equity Wave",
-        benchmark="SPY",
-        holdings_src=(
-            "https://docs.google.com/spreadsheets/d/e/"
-            "2PACX-1vT7VpPdWSUSyZP9CVXZwTgqx7a7mMD2aQMRqSESqZgiagh8wSeEm3RAWHvLlWmJtLqYrqj7UVjQIpq9/"
-            "pub?gid=711820877&single=true&output=csv"
-        ),
-    ),
-    WaveConfig(
-        code="USMKT",
-        name="Total US Market Equity Wave",
-        benchmark="VTI",
-        holdings_src="",  # TODO: set a CSV URL/path for this Wave
-    ),
-    WaveConfig(
-        code="LGRW",
-        name="US Large Growth Equity Wave",
-        benchmark="QQQ",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="SCG",
-        name="US Small Cap Growth Wave",
-        benchmark="IWO",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="SMID",
-        name="US Small–Mid Growth Wave",
-        benchmark="IJT",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="AITECH",
-        name="AI & Innovation Equity Wave",
-        benchmark="QQQ",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="ROBO",
-        name="Automation & Robotics Equity Wave",
-        benchmark="BOTZ",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="ENERGYF",
-        name="Future Power & Energy Wave",
-        benchmark="ICLN",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="EQINC",
-        name="Global Equity Income Wave",
-        benchmark="SCHD",
-        holdings_src="",  # TODO
-    ),
-    WaveConfig(
-        code="INTL",
-        name="International + EM Equity Wave",
-        benchmark="VEA",
-        holdings_src="",  # TODO
-    ),
-]
-
-
-# -------------------------------------------------------------------
-# LOADING + NORMALIZATION
-# -------------------------------------------------------------------
-
-
-def _is_url(path_or_url: str) -> bool:
-    parsed = urlparse(path_or_url)
-    return parsed.scheme in ("http", "https")
-
-
-def _read_csv(path_or_url: str) -> pd.DataFrame:
-    if _is_url(path_or_url):
-        resp = requests.get(path_or_url)
-        resp.raise_for_status()
-        return pd.read_csv(io.StringIO(resp.text))
-    else:
-        if not os.path.exists(path_or_url):
-            raise FileNotFoundError(f"CSV file not found: {path_or_url}")
-        return pd.read_csv(path_or_url)
-
-
-def load_holdings(path_or_url: str) -> pd.DataFrame:
-    """
-    Load holdings from a CSV (URL or local path).
-
-    Requirements:
-    - Must contain a ticker column:
-        'Ticker', 'Symbol', 'ticker', 'symbol', 'TICKER', or 'SYMBOL'
-    - EITHER:
-        - 'Weight' or 'Weight (%)' column, OR
-        - 'Market Value' column to compute weights from.
-
-    Returns:
-        DataFrame with at least ['Ticker', 'Weight'].
-        Weights are normalized to sum to 1.0.
-    """
-    if not path_or_url:
-        raise ValueError("holdings_src is empty – set it in WAVES_CONFIG.")
-
-    df = _read_csv(path_or_url)
-    original_cols = list(df.columns)
-    # Keep a copy of the unmodified columns for charts
-    df.columns = [c.strip() for c in df.columns]
-
-    # ---- Ticker detection ---- #
-    ticker_col: Optional[str] = None
-    for candidate in ("Ticker", "Symbol", "ticker", "symbol", "TICKER", "SYMBOL"):
-        if candidate in df.columns:
-            ticker_col = candidate
-            break
-    if ticker_col is None:
-        raise ValueError(
-            f"No Ticker/Symbol column found in holdings CSV. Columns seen: {original_cols}"
-        )
-
-    df.rename(columns={ticker_col: "Ticker"}, inplace=True)
-    df["Ticker"] = df["Ticker"].astype(str).str.upper()
-
-    # ---- Weight detection ---- #
-    weight_col: Optional[str] = None
-    for candidate in ("Weight", "Weight (%)", "Weight%", "Index Weight"):
-        if candidate in df.columns:
-            weight_col = candidate
-            break
-
-    if weight_col is not None:
-        w = df[weight_col].astype(str).str.replace("%", "", regex=False)
-        w = w.replace("", "0").astype(float)
-        if w.max() > 1.5:  # treat as percent if larger than 150 bps
-            w = w / 100.0
-        df["Weight"] = w
-    else:
-        # Fall back to Market Value
-        if "Market Value" not in df.columns:
-            raise ValueError(
-                "No Weight/Weight (%) or Market Value column found in holdings CSV."
-            )
-        mv = df["Market Value"].astype(str).str.replace(",", "", regex=False)
-        mv = mv.replace("", "0").astype(float)
-        total_mv = mv.sum()
-        if total_mv <= 0:
-            raise ValueError("Total Market Value <= 0; cannot derive weights.")
-        df["Weight"] = mv / total_mv
-
-    # Normalize weights
-    total_w = df["Weight"].sum()
-    if total_w <= 0:
-        raise ValueError("Total portfolio weight <= 0 after normalization.")
-    df["Weight"] = df["Weight"] / total_w
-
+def add_quote_links(df: pd.DataFrame, ticker_col: str = "Ticker") -> pd.DataFrame:
+    """Add a Google Finance quote URL for each ticker (for display / clicking)."""
+    df = df.copy()
+    df["Quote"] = df[ticker_col].apply(
+        lambda x: f"https://www.google.com/finance/quote/{x}:NASDAQ"
+    )
     return df
 
 
-# -------------------------------------------------------------------
-# PRICING + RETURNS
-# -------------------------------------------------------------------
+# ----------------- Page setup ----------------- #
 
+st.set_page_config(
+    page_title="WAVES Intelligence – Portfolio Wave Console",
+    layout="wide",
+)
 
-def _download_close_prices(tickers: List[str]) -> pd.DataFrame:
+# Simple dark styling so it feels closer to your old Bloomberg-style console
+st.markdown(
     """
-    Download recent adjusted close prices for a list of tickers.
-    Returns last 2 rows of Close prices (index=date, columns=tickers).
-    """
-    unique_tickers = sorted(set(tickers))
-    if not unique_tickers:
-        raise ValueError("No tickers provided to _download_close_prices().")
+    <style>
+    body { background-color: #040816; }
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-    data = yf.download(
-        tickers=" ".join(unique_tickers),
-        period="5d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=True,
+# ----------------- Sidebar ----------------- #
+
+st.sidebar.title("🌊 WAVES Console")
+
+configured_waves = [w for w in WAVES_CONFIG if w.holdings_csv_url]
+if not configured_waves:
+    st.sidebar.error("No Waves configured with holdings_csv_url yet.")
+    st.stop()
+
+wave_codes = [w.code for w in configured_waves]
+
+selected_wave_code = st.sidebar.selectbox(
+    "Select Wave",
+    wave_codes,
+    index=wave_codes.index("SPX") if "SPX" in wave_codes else 0,
+)
+
+mode = st.sidebar.radio("Mode", ["Standard", "Private Logic™"])
+
+benchmark_override = st.sidebar.selectbox(
+    "Benchmark",
+    ["Use Wave benchmark"] + [w.benchmark for w in configured_waves],
+    index=0,
+)
+
+style_profile = st.sidebar.selectbox(
+    "Style",
+    ["Core – Large Cap", "Growth", "Income", "Global"],
+)
+
+type_profile = st.sidebar.selectbox(
+    "Type",
+    ["AI-Managed Wave", "Hybrid", "Passive"],
+)
+
+st.sidebar.markdown("### Override snapshot CSV (optional)")
+override_file = st.sidebar.file_uploader(
+    "Drop CSV here to override holdings for this session only",
+    type=["csv"],
+    label_visibility="collapsed",
+)
+
+st.sidebar.caption("Console is read-only – no live trades are placed.")
+
+
+# ----------------- Load data for selected Wave ----------------- #
+
+wave = get_wave_config_by_code(selected_wave_code)
+if wave is None:
+    st.error(f"Wave {selected_wave_code} not found in config.")
+    st.stop()
+
+# Use uploaded CSV if provided, otherwise source from URL
+if override_file is not None:
+    raw = pd.read_csv(override_file)
+    # Try to normalize CSV if user drops something slightly different
+    cols = [c.strip() for c in raw.columns]
+    raw.columns = cols
+
+    # Find ticker column
+    ticker_col = None
+    for candidate in ("Ticker", "Symbol", "ticker", "symbol", "TICKER", "SYMBOL"):
+        if candidate in raw.columns:
+            ticker_col = candidate
+            break
+    if ticker_col is None:
+        st.error("Override CSV must contain a Ticker or Symbol column.")
+        st.stop()
+    raw.rename(columns={ticker_col: "Ticker"}, inplace=True)
+
+    # Find weight column
+    weight_col = None
+    for candidate in ("Weight", "Weight (%)", "Weight%", "Index Weight"):
+        if candidate in raw.columns:
+            weight_col = candidate
+            break
+
+    if weight_col is None:
+        st.error("Override CSV must contain a Weight / Weight (%) column.")
+        st.stop()
+
+    weights = raw[weight_col].astype(str).str.replace("%", "", regex=False)
+    weights = weights.replace("", "0").astype(float)
+    if weights.max() > 1.5:
+        weights = weights / 100.0
+    raw["Weight"] = weights / weights.sum()
+    holdings = raw[["Ticker", "Weight"] + [c for c in raw.columns if c not in ("Ticker", "Weight")]]
+else:
+    # Normal path: use engine loader (already normalizes Weight)
+    holdings = load_holdings_from_csv(wave.holdings_csv_url)
+
+# Normalize and sort
+holdings["Ticker"] = holdings["Ticker"].astype(str).str.upper()
+holdings = holdings.sort_values("Weight", ascending=False).reset_index(drop=True)
+
+top10 = holdings.head(10)
+top10 = add_quote_links(top10)
+
+total_holdings = len(holdings)
+largest_pos = float(top10["Weight"].iloc[0]) if not top10.empty else 0.0
+
+# Assume fully invested for now; SmartSafe layer can override later
+equity_pct = 1.0
+cash_pct = 0.0
+
+# Compute returns / alpha / NAV
+try:
+    stats = compute_wave_nav(wave, holdings)
+    wave_return = float(stats.get("wave_return", float("nan")))
+    bench_return = float(stats.get("benchmark_return", float("nan")))
+    alpha = float(stats.get("alpha", float("nan")))
+    nav = float(stats.get("nav", float("nan")))
+except Exception as e:
+    # If anything fails (e.g., yfinance hiccup), degrade gracefully
+    wave_return = bench_return = alpha = float("nan")
+    nav = wave.default_notional
+    st.warning(f"Price/return computation issue: {e}")
+
+
+# ----------------- Header ----------------- #
+
+bench_label = benchmark_override if benchmark_override != "Use Wave benchmark" else wave.benchmark
+
+title_text = f"{wave.name} (LIVE Demo)"
+st.markdown(
+    f"""
+    <h2 style="color:#E2ECFF;margin-bottom:0.2rem;">WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE</h2>
+    <h1 style="color:#4DB8FF;margin-top:0rem;">{title_text}</h1>
+    <p style="color:#9BA7C7;">
+        Mode: <b>{mode}</b> · Benchmark: <b>{bench_label}</b> · Style: <b>{style_profile}</b> · Type: <b>{type_profile}</b>
+    </p>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown("---")
+
+
+# ----------------- Top grid: Top 10 + Snapshot card ----------------- #
+
+col_left, col_right = st.columns([2.2, 1])
+
+with col_left:
+    st.subheader("Top 10 holdings")
+    display_top10 = top10[["Ticker", "Weight"]].copy()
+    display_top10["Weight"] = (display_top10["Weight"] * 100).round(2).astype(str) + "%"
+    st.dataframe(
+        display_top10,
+        hide_index=True,
+        use_container_width=True,
+    )
+    st.caption("Positive 1D moves will render in green, negatives in red once price overlay is wired in.")
+
+with col_right:
+    st.subheader("Wave snapshot")
+    wave_ret_str = f"{wave_return*100:.2f}%" if pd.notna(wave_return) else "N/A"
+    bench_ret_str = f"{bench_return*100:.2f}%" if pd.notna(bench_return) else "N/A"
+    alpha_str = f"{alpha*100:.2f}%" if pd.notna(alpha) else "N/A"
+    nav_str = f"${nav:,.0f}" if pd.notna(nav) else "N/A"
+
+    alpha_color = "#4AE17C" if pd.notna(alpha) and alpha >= 0 else "#FF5C7B"
+
+    snapshot_html = f"""
+    <div style="background:#050C24;border-radius:12px;padding:16px;color:#E2ECFF;border:1px solid #1A2A4A;">
+      <div style="font-size:0.85rem;text-transform:uppercase;color:#7C8BB5;">Wave Snapshot</div>
+      <div style="font-size:1.1rem;font-weight:600;margin-bottom:4px;">{wave.code} – {wave.name}</div>
+      <hr style="border-color:#1A2A4A;" />
+      <div style="display:flex;justify-content:space-between;font-size:0.9rem;">
+        <div>
+          <div style="color:#7C8BB5;">Total holdings</div>
+          <div style="font-size:1.2rem;font-weight:600;">{total_holdings}</div>
+        </div>
+        <div>
+          <div style="color:#7C8BB5;">Equity vs Cash</div>
+          <div style="font-size:1.2rem;font-weight:600;">{equity_pct*100:.0f}% / {cash_pct*100:.0f}%</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.9rem;margin-top:12px;">
+        <div>
+          <div style="color:#7C8BB5;">Largest position</div>
+          <div style="font-size:1.2rem;font-weight:600;">{largest_pos*100:.1f}%</div>
+        </div>
+        <div>
+          <div style="color:#7C8BB5;">Wave NAV (sim)</div>
+          <div style="font-size:1.2rem;font-weight:600;">{nav_str}</div>
+        </div>
+      </div>
+      <hr style="border-color:#1A2A4A;margin-top:12px;margin-bottom:8px;" />
+      <div style="font-size:0.9rem;">
+        <span style="color:#7C8BB5;">1-day Wave / Benchmark / Alpha:</span><br/>
+        <span style="font-weight:600;">{wave_ret_str}</span> /
+        <span style="font-weight:600;">{bench_ret_str}</span> /
+        <span style="font-weight:600;color:{alpha_color};">{alpha_str}</span>
+      </div>
+    </div>
+    """
+    st.markdown(snapshot_html, unsafe_allow_html=True)
+
+
+# ----------------- Second grid: charts ----------------- #
+
+col_a, col_b, col_c = st.columns([1.4, 1.4, 1.2])
+
+with col_a:
+    st.subheader("Top 10 profile – Wave weight distribution")
+    if not top10.empty:
+        chart_df = top10.set_index("Ticker")["Weight"] * 100
+        st.bar_chart(chart_df)
+    else:
+        st.info("No holdings found for this Wave.")
+
+with col_b:
+    st.subheader("Sector allocation (if available)")
+    if "Sector" in holdings.columns:
+        sector_df = (
+            holdings.groupby("Sector")["Weight"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(10)
+            * 100
+        )
+        st.bar_chart(sector_df)
+    else:
+        st.info("No 'Sector' column detected – add one to see sector allocation.")
+
+with col_c:
+    st.subheader("Holding rank")
+    weights_sorted = holdings["Weight"].sort_values(ascending=False).reset_index(drop=True)
+    weights_sorted.index = weights_sorted.index + 1  # rank
+    st.line_chart(weights_sorted)
+
+
+# ----------------- Bottom text panels ----------------- #
+
+st.markdown("---")
+
+col_bottom_left, col_bottom_right = st.columns(2)
+
+with col_bottom_left:
+    st.subheader("Mode overview")
+    st.markdown(
+        """
+        **Standard mode** keeps the Wave tightly aligned with its benchmark with controlled tracking error,
+        strict beta discipline, and lower turnover.
+
+        **Private Logic™ mode** layers on proprietary leadership, regime-switching, and SmartSafe™ overlays
+        to push risk-adjusted alpha while staying within institutional guardrails.
+        """.strip()
     )
 
-    if isinstance(data.columns, pd.MultiIndex):
-        close = data["Close"]
-    else:
-        if "Close" not in data.columns:
-            raise ValueError("No 'Close' column found in price data.")
-        close = data[["Close"]]
-        close.columns = [unique_tickers[0]]
+with col_bottom_right:
+    st.subheader("Wave internals (from holdings snapshot)")
+    st.markdown(
+        """
+        Breadth & movement detection will plug into this panel:
 
-    return close.tail(2)
+        - 1-day gain/loss breadth (advancers vs decliners)
+        - % of holdings above / below key moving-average bands
+        - Concentration metrics (top 5 / top 10 weight share)
+        - Regime flags (risk-on / risk-off overlays)
 
+        Add an explicit 1-day change column (e.g., `Change_1D` / `Return_1D`)
+        in the source sheet to unlock full breadth analytics here.
+        """.strip()
+    )
 
-def compute_wave_nav(wave: WaveConfig, holdings: pd.DataFrame) -> dict:
-    """
-    Compute a simple Wave NAV and 1-day return vs benchmark.
-
-    Wave return = sum(weight_i * daily_return_i)
-    NAV = default_notional * (1 + wave_return)
-    Alpha = wave_return - benchmark_return
-    """
-    tickers = holdings["Ticker"].tolist()
-    weights = holdings["Weight"].values
-
-    prices = _download_close_prices(tickers)
-    last = prices.iloc[-1]
-    prev = prices.iloc[-2]
-    rets = (last - prev) / prev
-    rets.index = [t.upper() for t in prices.columns]
-
-    # Align returns with holdings
-    returns_vec = rets.reindex(holdings["Ticker"]).fillna(0.0).values
-    wave_ret = float((weights * returns_vec).sum())
-    nav = wave.default_notional * (1.0 + wave_ret)
-
-    # Benchmark
-    bench_prices = _download_close_prices([wave.benchmark])
-    b_last = bench_prices.iloc[-1, 0]
-    b_prev = bench_prices.iloc[-2, 0]
-    bench_ret = float((b_last - b_prev) / b_prev)
-
-    return {
-        "code": wave.code,
-        "name": wave.name,
-        "benchmark": wave.benchmark,
-        "nav": nav,
-        "wave_return": wave_ret,
-        "benchmark_return": bench_ret,
-        "alpha": wave_ret - bench_ret,
-    }
-
-
-# -------------------------------------------------------------------
-# PUBLIC ENTRYPOINT
-# -------------------------------------------------------------------
-
-
-def run_equity_waves() -> pd.DataFrame:
-    """
-    Run all Waves that have holdings_src configured and return a summary DataFrame.
-
-    Columns:
-        code, name, benchmark, nav, wave_return, benchmark_return, alpha, run_date, error?
-    """
-    results = []
-    run_date = dt.date.today().isoformat()
-
-    for wave in WAVES_CONFIG:
-        if not wave.holdings_src:
-            continue
-
-        try:
-            holdings = load_holdings(wave.holdings_src)
-            stats = compute_wave_nav(wave, holdings)
-            stats["run_date"] = run_date
-            results.append(stats)
-        except Exception as e:
-            results.append({
-                "code": wave.code,
-                "name": wave.name,
-                "benchmark": wave.benchmark,
-                "nav": float("nan"),
-                "wave_return": float("nan"),
-                "benchmark_return": float("nan"),
-                "alpha": float("nan"),
-                "run_date": run_date,
-                "error": str(e),
-            })
-
-    if not results:
-        return pd.DataFrame(
-            columns=[
-                "code",
-                "name",
-                "benchmark",
-                "nav",
-                "wave_return",
-                "benchmark_return",
-                "alpha",
-                "run_date",
-            ]
-        )
-
-    df = pd.DataFrame(results)
-    base_cols = ["code", "name", "benchmark", "nav",
-                 "wave_return", "benchmark_return", "alpha", "run_date"]
-    extra_cols = [c for c in df.columns if c not in base_cols]
-    return df[base_cols + extra_cols].sort_values("code")
-
-
-# -------------------------------------------------------------------
-# CLI MODE
-# -------------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    print("WAVES Intelligence™ – Equity Waves Engine")
-    print(f"Run date: {dt.date.today().isoformat()}\n")
-
-    summary = run_equity_waves()
-    if summary.empty:
-        print("No waves processed – set holdings_src URLs/paths in WAVES_CONFIG.")
-    else:
-        pd.set_option("display.float_format", lambda x: f"{x:,.4f}")
-        print(summary.to_string(index=False))
+st.caption("Prototype console – not investment advice. For internal WAVES Intelligence™ use only. Console is read-only; no live trades are placed.")
