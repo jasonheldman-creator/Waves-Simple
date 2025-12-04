@@ -1,61 +1,54 @@
 import streamlit as st
-import openai
+import pandas as pd
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get "
-    "[here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by "
-    "[following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+# Basic page setup
+st.set_page_config(
+    page_title="WAVES Simple Dashboard",
+    layout="wide"
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
+st.title("🌊 WAVES Simple Dashboard")
+st.write(
+    """
+    This is a lightweight version of your WAVES dashboard running on Streamlit.  
+    If you can see this screen, the app is deployed and working correctly.
 
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
-    # Configure OpenAI
-    openai.api_key = openai_api_key
+    Next step: we can wire this to your live holdings / benchmark data.
+    """
+)
 
-    # Create a session state variable to store the chat messages.
-    # This ensures that the messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# Sidebar info
+st.sidebar.header("Status")
+st.sidebar.success("App is running without OpenAI or infinite loops ✅")
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+st.sidebar.markdown("---")
+st.sidebar.write(
+    "You can upload a CSV below to preview your wave holdings or any market data."
+)
 
-    # Create a chat input field to allow the user to enter a message.
-    # This will display automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+# CSV uploader
+st.subheader("Upload a CSV file (optional)")
+uploaded_file = st.file_uploader(
+    "Upload a CSV file with your data (e.g., holdings, prices, or benchmark series).",
+    type=["csv"]
+)
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        st.write("### Preview of uploaded data")
+        st.dataframe(df, use_container_width=True)
 
-        # Generate a response using the OpenAI API (no streaming for simplicity).
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-        )
+        # Some simple summary stats
+        st.write("### Summary statistics")
+        st.write(df.describe(include="all"))
+    except Exception as e:
+        st.error(f"Couldn't read the CSV file: {e}")
 
-        response = completion["choices"][0]["message"]["content"]
+st.markdown("---")
+st.caption(
+    "WAVES Simple • This is a placeholder dashboard. "
+    "We can replace this with your full performance engine once everything is stable."
+)
 
-        # Display the assistant's response and store it in session state.
-        with st.chat_message("assistant"):
-            st.markdown(response)
-
-        st.session_state.messages.append(
-            {"role": "assistant", "content": response}
-        )
+  
