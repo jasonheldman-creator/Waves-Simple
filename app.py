@@ -1,234 +1,269 @@
+#!/usr/bin/env python3
 """
-app.py
+Waves-Simple Console
 
-WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE
-Streamlit UI that sits on top of waves_equity_universe_v2.py.
+Simple text-based console to explore the Master_Stock_Sheet.cvs.csv universe
+and generate Google Finance links for any symbol.
 """
 
-from __future__ import annotations
-
+import sys
+import os
 import textwrap
-
 import pandas as pd
-import streamlit as st
 
-from waves_equity_universe_v2 import (
-    WAVES_CONFIG,
-    get_wave_config,
-    load_wave_holdings_and_stats,
-)
+CSV_FILE = "Master_Stock_Sheet.cvs.csv"
+
+# Default exchange to use in Google Finance URL if we don't have one in the CSV
+DEFAULT_EXCHANGE = "NASDAQ"  # change to "NYSE" or others if you prefer
 
 
-# ---------------------------------------------------------------------------
-#  Page config / theme
-# ---------------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="WAVES Intelligence – Portfolio Wave Console",
-    page_icon="🌊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def clear_screen():
+    """Clear the terminal screen (works on Mac, Linux, Windows)."""
+    os.system("cls" if os.name == "nt" else "clear")
 
 
-# ---------------------------------------------------------------------------
-#  Sidebar – wave selector & controls
-# ---------------------------------------------------------------------------
+def load_universe():
+    """Load the stock universe CSV with basic error handling."""
+    if not os.path.exists(CSV_FILE):
+        print(f"ERROR: Could not find '{CSV_FILE}' in the current folder.")
+        print("Make sure the file is in the root of the repo next to app.py.")
+        sys.exit(1)
 
-st.sidebar.title("🌊 WAVES Console")
+    try:
+        df = pd.read_csv(CSV_FILE)
+    except Exception as e:
+        print(f"ERROR: Failed to read {CSV_FILE}: {e}")
+        sys.exit(1)
 
-# Build selectbox options like: "SPX – S&P 500 Core Equity Wave"
-options = [f"{cfg.wave_id} – {cfg.name}" for cfg in WAVES_CONFIG]
-default_index = 0  # SPX at top
+    # Try to detect the symbol and name columns
+    symbol_col = None
+    name_col = None
 
-selected_label = st.sidebar.selectbox("Select Wave", options, index=default_index)
-selected_wave_id = selected_label.split("–")[0].strip()
+    possible_symbol_cols = ["Symbol", "Ticker", "symbol", "ticker", "SYMBOL"]
+    possible_name_cols = ["Name", "Company", "Security Name", "name", "company"]
 
-cfg = get_wave_config(selected_wave_id)
+    for c in possible_symbol_cols:
+        if c in df.columns:
+            symbol_col = c
+            break
 
-st.sidebar.markdown("---")
-st.sidebar.caption("Mode: **Standard**  ·  Type: **AI-Managed Wave**")
-st.sidebar.caption("Console is read-only – no live trades are placed.")
+    for c in possible_name_cols:
+        if c in df.columns:
+            name_col = c
+            break
 
+    if symbol_col is None:
+        print("ERROR: Could not find a symbol column in the CSV.")
+        print("Look for a column like 'Symbol' or 'Ticker' and update the code.")
+        print("Columns found:", list(df.columns))
+        sys.exit(1)
 
-# ---------------------------------------------------------------------------
-#  Main header
-# ---------------------------------------------------------------------------
+    if name_col is None:
+        # Not critical, we can still run without a name column
+        print("WARNING: Could not find a company name column.")
+        print("I will show symbols only. Columns found:", list(df.columns))
 
-st.markdown(
-    "<h2 style='color:#9AE6FF; margin-bottom:0;'>"
-    "WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE"
-    "</h2>",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    f"<h1 style='color:#4FD1FF; margin-top:0.25rem;'>"
-    f"{cfg.name} (LIVE Demo)"
-    "</h1>",
-    unsafe_allow_html=True,
-)
-
-subheader = (
-    f"Mode: **Standard**  ·  Benchmark: **{cfg.benchmark}**  ·  "
-    f"Style: **{cfg.style}**  ·  Type: **{cfg.wave_type}**"
-)
-st.markdown(subheader)
-
-st.caption(
-    "Below is a live rendering of the selected Wave’s holdings, concentration, "
-    "and basic risk profile – using the same data Franklin uses, but managed by "
-    "a small AI-augmented team instead of hundreds of humans."
-)
+    return df, symbol_col, name_col
 
 
-# ---------------------------------------------------------------------------
-#  Load holdings / stats
-# ---------------------------------------------------------------------------
-
-try:
-    holdings, stats = load_wave_holdings_and_stats(selected_wave_id)
-    load_error = None
-except Exception as exc:  # noqa: BLE001
-    holdings = pd.DataFrame()
-    stats = {"num_holdings": 0, "largest_weight": None, "top10_weight": None}
-    load_error = str(exc)
-
-if load_error:
-    st.error(
-        "Wave engine import failed – see details below.\n\n"
-        f"```text\n{load_error}\n```"
-    )
-    st.stop()
-
-if holdings.empty:
-    st.warning(
-        f"Holdings for {cfg.wave_id} – {cfg.name} are currently empty. "
-        "This can happen if the Wave filters select no names from the master universe."
-    )
-    st.stop()
+def get_exchange_col(df):
+    """Try to detect an exchange column (optional)."""
+    possible_ex_cols = ["Exchange", "Primary Exchange", "exchange", "EXCHANGE"]
+    for c in possible_ex_cols:
+        if c in df.columns:
+            return c
+    return None
 
 
-# ---------------------------------------------------------------------------
-#  Top section – Top 10 + Snapshot
-# ---------------------------------------------------------------------------
-
-col_left, col_right = st.columns([2.2, 1.1])
-
-with col_left:
-    st.subheader("Top 10 holdings")
-
-    top10 = holdings.sort_values("weight", ascending=False).head(10).copy()
-    top10["Weight %"] = (top10["weight"] * 100).round(2)
-
-    display_cols = ["ticker", "name", "Weight %"]
-    display_df = top10[display_cols].rename(
-        columns={"ticker": "Ticker", "name": "Name"}
-    )
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-with col_right:
-    st.subheader("Wave snapshot")
-
-    num_holdings = stats.get("num_holdings") or 0
-    largest_weight = stats.get("largest_weight") or 0.0
-    top10_weight = stats.get("top10_weight") or 0.0
-
-    st.markdown(
-        f"""
-        **{cfg.wave_id} – {cfg.name}**
-
-        • **Total holdings:** {num_holdings:,}  
-        • **Largest position:** {largest_weight*100:0.2f}%  
-        • **Top-10 weight:** {top10_weight*100:0.2f}%  
-        • **Equity vs Cash:** 100% / 0% (demo)  
-        """
-    )
-
-
-# ---------------------------------------------------------------------------
-#  Second row – charts
-# ---------------------------------------------------------------------------
-
-c1, c2, c3 = st.columns(3)
-
-# Ensure we have numeric weights
-weights = pd.to_numeric(holdings["weight"], errors="coerce").fillna(0)
-sorted_holdings = holdings.assign(weight=weights).sort_values("weight", ascending=False)
-
-with c1:
-    st.markdown("#### Top-10 profile – Wave weight distribution")
-
-    chart_df = sorted_holdings.head(10)[["ticker", "weight"]].copy()
-    chart_df["Weight %"] = chart_df["weight"] * 100
-
-    st.bar_chart(
-        chart_df.set_index("ticker")["Weight %"],
-        use_container_width=True,
-    )
-
-with c2:
-    st.markdown("#### Sector allocation")
-
-    if "sector" in holdings.columns:
-        sector_series = (
-            holdings["sector"]
-            .astype(str)
-            .replace({"": "Unclassified", "nan": "Unclassified"})
-        )
-        sector_weights = (
-            pd.DataFrame({"sector": sector_series, "weight": weights})
-            .groupby("sector")["weight"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-
-        if not sector_weights.empty:
-            sector_chart = (sector_weights * 100).to_frame("Weight %")
-            st.bar_chart(sector_chart, use_container_width=True)
-        else:
-            st.info("No sector data populated yet in the master sheet.")
-    else:
-        st.info("No sector column found in the master sheet – add one to unlock this view.")
-
-with c3:
-    st.markdown("#### Holding rank curve")
-
-    rank_df = sorted_holdings.reset_index(drop=True)
-    rank_df["Rank"] = rank_df.index + 1
-    rank_df["Weight %"] = rank_df["weight"] * 100
-
-    st.line_chart(
-        rank_df.set_index("Rank")["Weight %"],
-        use_container_width=True,
-    )
-
-
-# ---------------------------------------------------------------------------
-#  Bottom – Mode overview narrative
-# ---------------------------------------------------------------------------
-
-st.markdown("---")
-
-overview = textwrap.dedent(
-    f"""
-    **Mode overview**
-
-    • **Standard mode** shows how the {cfg.name} Wave would be managed in production:  
-      benchmark-aware, risk-controlled, and designed to express the Wave’s mandate using
-      the same holdings data Franklin relies on today.
-
-    • The **AI-Managed Wave** design lets a small, augmented team oversee thousands of
-      securities and dozens of Waves simultaneously – instead of hundreds of siloed
-      analysts and PMs – while still operating inside institutional guardrails.
-
-    • Each Wave is carved from a single **Master_Stock_Sheet** universe, which can be
-      swapped to Franklin’s internal data feeds without changing the console.
+def google_finance_url(symbol, exchange=None):
     """
-).strip()
+    Build a Google Finance URL.
 
-st.markdown(overview)
+    If we know the exchange, we use SYMBOL:EXCHANGE format.
+    Otherwise we use the DEFAULT_EXCHANGE as a fallback.
+    """
+    symbol = str(symbol).strip().upper()
+    if not symbol:
+        return None
+
+    if exchange:
+        ex = str(exchange).strip().upper()
+    else:
+        ex = DEFAULT_EXCHANGE
+
+    # You can tweak this if your exchanges are different
+    return f"https://www.google.com/finance/quote/{symbol}:{ex}"
+
+
+def print_header():
+    print("=" * 70)
+    print("              WAVES-SIMPLE CONSOLE (Stock Universe)           ")
+    print("=" * 70)
+    print()
+
+
+def show_menu():
+    print("Choose an option:")
+    print("  1) View a random sample of symbols")
+    print("  2) Look up a symbol (exact match)")
+    print("  3) Search by company name (contains text)")
+    print("  4) Quit")
+    print()
+
+
+def pause():
+    input("\nPress Enter to continue...")
+
+
+def view_sample(df, symbol_col, name_col, ex_col):
+    clear_screen()
+    print_header()
+    try:
+        sample = df.sample(n=min(25, len(df)), random_state=None)
+    except ValueError:
+        print("No data available in the CSV.")
+        return
+
+    print(f"Showing a random sample of up to 25 symbols out of {len(df):,} rows:\n")
+    for _, row in sample.iterrows():
+        symbol = row[symbol_col]
+        name = row[name_col] if name_col else ""
+        exchange = row[ex_col] if ex_col else None
+        url = google_finance_url(symbol, exchange)
+
+        line = f"{str(symbol):<10}"
+        if name:
+            line += f" | {name}"
+        print(line)
+        if url:
+            print(f"      Google Finance: {url}")
+
+    pause()
+
+
+def lookup_symbol(df, symbol_col, name_col, ex_col):
+    clear_screen()
+    print_header()
+    user_symbol = input("Enter a symbol (e.g. AAPL): ").strip()
+    if not user_symbol:
+        print("No symbol entered.")
+        pause()
+        return
+
+    mask = df[symbol_col].astype(str).str.upper() == user_symbol.upper()
+    matches = df[mask]
+
+    if matches.empty:
+        print(f"No exact match found for symbol '{user_symbol}'.")
+        pause()
+        return
+
+    print(f"\nFound {len(matches)} match(es) for '{user_symbol}':\n")
+
+    for _, row in matches.iterrows():
+        symbol = row[symbol_col]
+        name = row[name_col] if name_col else ""
+        exchange = row[ex_col] if ex_col else None
+        url = google_finance_url(symbol, exchange)
+
+        print("-" * 70)
+        print(f"Symbol   : {symbol}")
+        if name:
+            print(f"Name     : {name}")
+        if ex_col:
+            print(f"Exchange : {row[ex_col]}")
+        if url:
+            print(f"Google   : {url}")
+
+        # Show any other interesting columns
+        for col in df.columns:
+            if col in (symbol_col, name_col, ex_col):
+                continue
+            value = row[col]
+            if pd.isna(value) or value == "":
+                continue
+            print(f"{col:<9}: {value}")
+
+    pause()
+
+
+def search_by_name(df, symbol_col, name_col, ex_col):
+    clear_screen()
+    print_header()
+
+    if name_col is None:
+        print("This CSV does not have a company name column I can detect.")
+        print("Search by name is disabled.")
+        pause()
+        return
+
+    text = input("Enter part of the company name (e.g. 'apple', 'energy'): ").strip()
+    if not text:
+        print("No text entered.")
+        pause()
+        return
+
+    mask = df[name_col].astype(str).str.contains(text, case=False, na=False)
+    results = df[mask]
+
+    if results.empty:
+        print(f"No matches found containing '{text}'.")
+        pause()
+        return
+
+    print(f"\nFound {len(results)} match(es) containing '{text}':\n")
+
+    # Show up to 30 matches
+    for _, row in results.head(30).iterrows():
+        symbol = row[symbol_col]
+        name = row[name_col]
+        exchange = row[ex_col] if ex_col else None
+        url = google_finance_url(symbol, exchange)
+
+        print("-" * 70)
+        print(f"{symbol:<10} | {name}")
+        if url:
+            print(f"Google: {url}")
+
+    if len(results) > 30:
+        print(f"\n... and {len(results) - 30} more results.")
+
+    pause()
+
+
+def main():
+    df, symbol_col, name_col = load_universe()
+    ex_col = get_exchange_col(df)
+
+    while True:
+        clear_screen()
+        print_header()
+        print(f"Loaded rows : {len(df):,}")
+        print(f"Symbol col  : {symbol_col}")
+        if name_col:
+            print(f"Name col    : {name_col}")
+        if ex_col:
+            print(f"Exchange col: {ex_col}")
+        print()
+
+        show_menu()
+        choice = input("Enter choice (1-4): ").strip()
+
+        if choice == "1":
+            view_sample(df, symbol_col, name_col, ex_col)
+        elif choice == "2":
+            lookup_symbol(df, symbol_col, name_col, ex_col)
+        elif choice == "3":
+            search_by_name(df, symbol_col, name_col, ex_col)
+        elif choice == "4":
+            clear_screen()
+            print("Goodbye from Waves-Simple Console.")
+            print()
+            break
+        else:
+            print("Invalid choice. Please enter 1, 2, 3, or 4.")
+            pause()
+
+
+if __name__ == "__main__":
+    main()
