@@ -24,16 +24,34 @@ def find_col(df: pd.DataFrame, *candidates):
 
 
 @st.cache_data
-def load_universe() -> pd.DataFrame | None:
+def load_universe():
     """
-    Load the master 5,000-stock universe from Master_Stock_Sheet5.csv.
+    Load the master equity universe from one of several candidate CSVs.
+    Try in order:
+      1) Master_Stock_Sheet17.csv
+      2) Master_Stock_Sheet5.csv
+      3) Master_Stock_Sheet.csv
+    Returns (df, filename) or (None, None) if nothing found.
     """
-    p = Path("Master_Stock_Sheet5.csv")
-    if not p.exists():
-        return None
+    candidates = [
+        "Master_Stock_Sheet17.csv",
+        "Master_Stock_Sheet5.csv",
+        "Master_Stock_Sheet.csv",
+    ]
 
-    df = pd.read_csv(p)
+    chosen = None
+    for name in candidates:
+        p = Path(name)
+        if p.exists():
+            chosen = name
+            break
 
+    if chosen is None:
+        return None, None
+
+    df = pd.read_csv(chosen)
+
+    # Normalize key columns
     col_ticker = find_col(df, "Ticker", "Symbol")
     col_name   = find_col(df, "Company", "Name", "Security")
     col_sector = find_col(df, "Sector")
@@ -51,16 +69,20 @@ def load_universe() -> pd.DataFrame | None:
 
     df = df.rename(columns=rename_map)
 
-    keep_cols = [c for c in ["Ticker", "Company", "Sector", "Price", "MarketValue", "BenchmarkWeight"] if c in df.columns]
+    keep_cols = [c for c in ["Ticker", "Company", "Sector",
+                             "Price", "MarketValue", "BenchmarkWeight"]
+                 if c in df.columns]
+
     df = df[keep_cols].dropna(subset=["Ticker"]).drop_duplicates(subset=["Ticker"])
 
-    return df
+    return df, chosen
 
 
 @st.cache_data
-def load_wave_weights() -> pd.DataFrame | None:
+def load_wave_weights():
     """
-    Load wave definitions (Wave / Ticker / Weight) from wave_weights.csv in repo.
+    Load wave definitions (Wave / Ticker / Weight) from wave_weights.csv.
+    Returns df or None.
     """
     p = Path("wave_weights.csv")
     if not p.exists():
@@ -74,7 +96,7 @@ def load_wave_weights() -> pd.DataFrame | None:
     return df
 
 
-def percent(x):
+def pct(x):
     try:
         return f"{float(x) * 100:.1f}%"
     except Exception:
@@ -101,20 +123,33 @@ st.write("")
 # Load data
 # =========================================================
 
-universe_df = load_universe()
+universe_df, universe_file = load_universe()
 waves_df = load_wave_weights()
 
-if universe_df is None or universe_df.empty:
+if universe_df is None or universe_file is None:
     st.error(
-        "Universe file **Master_Stock_Sheet5.csv** not found or empty.\n\n"
-        "Export Sheet5 from your Google Sheet as CSV and add it to the repo root."
+        "Universe file not found.\n\n"
+        "Place one of these CSVs in the app folder (repo root):\n"
+        "- Master_Stock_Sheet17.csv\n"
+        "- Master_Stock_Sheet5.csv\n"
+        "- Master_Stock_Sheet.csv\n\n"
+        "Export your master Sheet (Sheet5) from Google Sheets as CSV and name it "
+        "`Master_Stock_Sheet17.csv` for best results."
     )
     st.stop()
+
+st.sidebar.success(f"Universe loaded from **{universe_file}**")
 
 if waves_df is None or waves_df.empty:
     st.error(
         "Wave definitions file **wave_weights.csv** not found or empty.\n\n"
-        "Create wave_weights.csv with columns: Wave, Ticker, Weight."
+        "Create wave_weights.csv in the repo root with at least these columns:\n"
+        "- Wave\n- Ticker\n- Weight (0–1, not %)\n\n"
+        "Example:\n"
+        "Wave,Ticker,Weight\n"
+        "S&P 500 Wave,NVDA,0.061\n"
+        "S&P 500 Wave,AAPL,0.033\n"
+        "S&P 500 Wave,MSFT,0.052\n"
     )
     st.stop()
 
@@ -122,20 +157,20 @@ if waves_df is None or waves_df.empty:
 # Clean wave_weights
 # =========================================================
 
-col_wave   = find_col(waves_df, "Wave")
-col_ticker = find_col(waves_df, "Ticker", "Symbol")
-col_wgt    = find_col(waves_df, "Weight", "WaveWeight", "Wgt")
-col_alpha  = find_col(waves_df, "Alpha", "AlphaCapture", "Alpha_Capture")
+col_wave    = find_col(waves_df, "Wave")
+col_ticker  = find_col(waves_df, "Ticker", "Symbol")
+col_weight  = find_col(waves_df, "Weight", "WaveWeight", "Wgt")
+col_alpha   = find_col(waves_df, "Alpha", "AlphaCapture", "Alpha_Capture")
 col_is_cash = find_col(waves_df, "IsCash", "CashFlag", "Is_Cash")
 
-if not col_wave or not col_ticker or not col_wgt:
-    st.error("wave_weights.csv must contain at least these columns: Wave, Ticker, Weight.")
+if not col_wave or not col_ticker or not col_weight:
+    st.error("wave_weights.csv must contain at least Wave, Ticker, and Weight columns.")
     st.stop()
 
 waves_df = waves_df.rename(columns={
-    col_wave: "Wave",
+    col_wave:   "Wave",
     col_ticker: "Ticker",
-    col_wgt: "WaveWeight"
+    col_weight: "WaveWeight",
 })
 if col_alpha:
     waves_df = waves_df.rename(columns={col_alpha: "Alpha"})
@@ -160,10 +195,10 @@ joined_df = waves_df.merge(
     suffixes=("", "_universe"),
 )
 
-missing_universe = joined_df["Company"].isna().sum()
-if missing_universe > 0:
+missing = joined_df["Company"].isna().sum()
+if missing > 0:
     st.sidebar.warning(
-        f"{missing_universe} holdings in wave_weights.csv are missing from Master_Stock_Sheet5.csv."
+        f"{missing} holdings in wave_weights.csv have no match in {universe_file}."
     )
 
 # =========================================================
@@ -171,6 +206,10 @@ if missing_universe > 0:
 # =========================================================
 
 waves = sorted(joined_df["Wave"].dropna().unique().tolist())
+if not waves:
+    st.error("No Waves found in wave_weights.csv.")
+    st.stop()
+
 selected_wave = st.sidebar.selectbox("Select Wave", waves)
 
 mode = st.sidebar.radio(
@@ -185,6 +224,10 @@ mode_scale = {
 }.get(mode, 1.00)
 
 wave_df = joined_df[joined_df["Wave"] == selected_wave].copy()
+if wave_df.empty:
+    st.error("No holdings found for the selected Wave.")
+    st.stop()
+
 wave_df["EffectiveWeight"] = wave_df["WaveWeight"] * mode_scale
 
 has_alpha = "Alpha" in wave_df.columns
@@ -219,8 +262,8 @@ with left:
     if "Company" in top10.columns:
         table["Name"] = top10["Company"]
     table["Ticker"] = top10["Ticker"]
-    table["Base weight"] = top10["WaveWeight"].apply(percent)
-    table["Mode weight"] = top10["EffectiveWeight"].apply(percent)
+    table["Base weight"] = top10["WaveWeight"].apply(pct)
+    table["Mode weight"] = top10["EffectiveWeight"].apply(pct)
     if "Sector" in top10.columns:
         table["Sector"] = top10["Sector"]
 
@@ -259,7 +302,7 @@ with right:
         else:
             st.metric("EQUITY vs CASH", "n/a")
     with c3:
-        st.metric("LARGEST POSITION (mode)", percent(largest_weight))
+        st.metric("LARGEST POSITION (mode)", pct(largest_weight))
 
     c4, c5 = st.columns(2)
     with c4:
@@ -325,7 +368,8 @@ st.subheader("Console status")
 st.write(
     """
 - **Read-only demo** – no real orders are routed.  
-- All analytics are calculated from Master_Stock_Sheet5.csv + wave_weights.csv.  
-- Equities only in this version; crypto & income Waves can be added later.
+- All analytics are calculated from **Master_Stock_SheetXX.csv** (your universe) 
+  plus **wave_weights.csv** (your Waves).  
+- Equities only in this version; crypto & income Waves can be layered later.
 """
 )
