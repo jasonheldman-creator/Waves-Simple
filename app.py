@@ -256,11 +256,7 @@ def main():
         choice = input("Enter choice (1-4): ").strip()
         print(f"DEBUG: User entered choice: {choice}")
 
-        if not choice:
-            print("DEBUG: User entered nothing. Showing error message for empty input.")
-            print("Invalid choice. Please enter 1, 2, 3, or 4.")
-            pause()
-        elif choice == "1":
+        if choice == "1":
             view_sample(df, symbol_col, name_col, ex_col)
         elif choice == "2":
             lookup_symbol(df, symbol_col, name_col, ex_col)
@@ -272,6 +268,8 @@ def main():
             print()
             break
         else:
+            if not choice:
+                print("DEBUG: User entered nothing. Showing error message for empty input.")
             print("Invalid choice. Please enter 1, 2, 3, or 4.")
             pause()
 
