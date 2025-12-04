@@ -257,7 +257,7 @@ def main():
         print(f"DEBUG: User entered choice: {choice}")
 
         if not choice:
-            print("DEBUG: User entered nothing. Prompting again.")
+            print("DEBUG: User entered nothing. Showing error message for empty input.")
             print("Invalid choice. Please enter 1, 2, 3, or 4.")
             pause()
         elif choice == "1":
