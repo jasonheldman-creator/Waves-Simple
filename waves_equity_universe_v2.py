@@ -304,3 +304,46 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # ... keep all your existing imports, WaveConfig, WAVES_CONFIG, etc ...
+
+import pandas as pd
+import datetime as dt
+
+
+def run_equity_waves() -> pd.DataFrame:
+    """
+    Run all configured equity waves and return a summary DataFrame.
+    This is what the Streamlit app will call.
+    """
+    results = []
+    run_date = dt.date.today().isoformat()
+
+    for wave in WAVES_CONFIG:
+        if not wave.holdings_csv_url:
+            # Skip waves without a holdings URL configured
+            continue
+
+        holdings = load_holdings_from_csv(wave.holdings_csv_url)
+        stats = compute_wave_nav(wave, holdings, None)
+        stats["run_date"] = run_date
+        results.append(stats)
+
+    if not results:
+        return pd.DataFrame(
+            columns=["code", "name", "benchmark", "nav", "wave_return", "benchmark_return", "alpha", "run_date"]
+        )
+
+    df = pd.DataFrame(results)
+    df = df[
+        ["code", "name", "benchmark", "nav", "wave_return", "benchmark_return", "alpha", "run_date"]
+    ].sort_values("code")
+    return df
+
+
+if __name__ == "__main__":
+    # Keep a CLI runner for debugging
+    df = run_equity_waves()
+    if df.empty:
+        print("No waves processed – check holdings_csv_url in WAVES_CONFIG.")
+    else:
+        print(df.to_string(index=False, float_format=lambda x: f"{x:,.4f}"))
