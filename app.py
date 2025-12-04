@@ -1,11 +1,8 @@
-# --------------------------------------------------------------------
-# WAVES Intelligence™ – Mini Bloomberg Console (Sheet17-only, deduped)
-# --------------------------------------------------------------------
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import os
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
@@ -14,14 +11,6 @@ st.set_page_config(
     page_title="WAVES Intelligence – Mini Bloomberg Console",
     layout="wide"
 )
-
-# --------------------------------------------------------------------
-# DEFAULT CSV PATH  (LIVE SNAPSHOT)
-# --------------------------------------------------------------------
-# 🔁 CHANGE THIS to the actual path on the machine running Streamlit.
-# Example (Mac):
-# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_PORTFOLIO_FINAL_Sheet17.csv"
-DEFAULT_CSV_PATH = "SP500_PORTFOLIO_FINAL_Sheet17.csv"
 
 # --------------------------------------------------------------------
 # WAVES DEFINITIONS (15 Waves)
@@ -120,6 +109,9 @@ WAVES = {
 }
 WAVE_KEYS = list(WAVES.keys())
 
+# Default snapshot CSV path (adjust name if needed)
+DEFAULT_SNAPSHOT_PATH = "SP500_PORTFOLIO_FINAL_Sheet17.csv"
+
 # --------------------------------------------------------------------
 # BRANDING CSS – DARK MINI-BLOOMBERG LOOK
 # --------------------------------------------------------------------
@@ -139,8 +131,8 @@ CSS = """
 
 /* Main padding */
 .block-container {
-    padding-top: 0.35rem;
-    padding-bottom: 0.05rem;
+    padding-top: 0.6rem;
+    padding-bottom: 0.4rem;
     max-width: 1500px;
 }
 
@@ -152,7 +144,7 @@ h1, h2, h3, h4, h5, h6, label, p, span {
 
 /* Title gradient */
 .wave-title {
-    font-size: 1.7rem;
+    font-size: 1.85rem;
     font-weight: 750;
     letter-spacing: 0.04em;
     background: linear-gradient(90deg, #38bdf8, #60a5fa, #a855f7);
@@ -164,9 +156,9 @@ h1, h2, h3, h4, h5, h6, label, p, span {
 .badge {
     display:inline-flex;
     align-items:center;
-    padding: 0.2rem 0.5rem;
+    padding: 0.25rem 0.55rem;
     border-radius:999px;
-    font-size:0.64rem;
+    font-size:0.68rem;
     letter-spacing:0.12em;
     text-transform:uppercase;
     border:1px solid #1f2937;
@@ -174,136 +166,112 @@ h1, h2, h3, h4, h5, h6, label, p, span {
     color:#e5e7eb;
 }
 .badge-soft {
+    display:inline-flex;
+    align-items:center;
+    padding: 0.18rem 0.45rem;
+    border-radius:999px;
+    font-size:0.64rem;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    border:1px solid #111827;
     background: rgba(15,23,42,0.88);
+    color:#e5e7eb;
 }
 
-/* Compact metrics box (top-right) */
-.metrics-box {
-    background: radial-gradient(circle at top left, #022c22 0%, #020617 55%);
-    border-radius: 10px;
-    border: 1px solid rgba(45,212,191,0.7);
-    box-shadow: 0 0 24px rgba(45,212,191,0.3);
-    padding: 0.45rem 0.55rem 0.5rem 0.6rem;
-    font-size: 0.7rem;
+/* Metric row */
+.metric-strip {
+    position:absolute;
+    top:0.2rem;
+    right:0rem;
 }
-.metrics-header {
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:0.25rem;
-}
-.metrics-title {
-    font-size:0.68rem;
-    text-transform:uppercase;
-    letter-spacing:0.16em;
-    color:#a5b4fc;
-}
-.metrics-grid {
+.metric-grid {
     display:grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-column-gap:0.5rem;
-    grid-row-gap:0.25rem;
+    gap:0.4rem;
 }
-.metric-label-mini {
-    font-size:0.6rem;
-    letter-spacing:0.14em;
+.metric-card {
+    background: radial-gradient(circle at top left, #0f172a, #020617);
+    border-radius:14px;
+    border:1px solid #22c55e33;
+    padding:0.5rem 0.75rem;
+    box-shadow:0 18px 40px rgba(0,0,0,0.8);
+}
+.metric-label {
+    font-size:0.62rem;
+    letter-spacing:0.18em;
     text-transform:uppercase;
     color:#9ca3af;
 }
-.metric-value-mini {
-    font-size:0.95rem;
+.metric-value {
+    font-size:1.05rem;
     font-weight:600;
+    margin-top:0.08rem;
 }
-.metric-sub-mini {
-    font-size:0.64rem;
-    color:#6ee7b7;
+.metric-sub {
+    font-size:0.68rem;
+    color:#9ca3af;
+    margin-top:0.08rem;
 }
 
 /* Panel cards */
 .section-card {
     background: rgba(15,23,42,0.96);
-    border-radius:12px;
-    padding:0.55rem 0.7rem 0.6rem 0.7rem;
+    border-radius:14px;
+    padding:0.7rem 0.8rem 0.75rem 0.85rem;
     border:1px solid #111827;
-    box-shadow:0 18px 48px rgba(0,0,0,0.9);
+    box-shadow:0 22px 60px rgba(0,0,0,0.9);
 }
 .section-title {
-    font-size:0.84rem;
+    font-size:0.88rem;
     font-weight:600;
 }
 .section-caption {
-    font-size:0.7rem;
+    font-size:0.72rem;
     color:#9ca3af;
 }
 
-/* Top-10 table */
-.top10-table-container {
-    margin-top:0.15rem;
-    border-radius:8px;
-    border:1px solid #1f2937;
-    overflow:hidden;
+/* Dataframe / table */
+table.dataframe {
+    width: 100%;
+    border-collapse: collapse;
 }
-.top10-table {
-    width:100%;
-    border-collapse:collapse;
-    font-size:0.74rem;
-}
-.top10-table thead {
-    background:#020617;
-}
-.top10-table th,
-.top10-table td {
-    padding:0.25rem 0.4rem;
-    text-align:left;
-    white-space:nowrap;
-}
-.top10-table th {
-    font-size:0.65rem;
-    text-transform:uppercase;
-    letter-spacing:0.11em;
-    color:#9ca3af;
+table.dataframe thead tr th {
+    background-color:#020617 !important;
+    color:#e5e7eb !important;
+    font-size:0.72rem;
+    padding:0.3rem 0.35rem;
     border-bottom:1px solid #111827;
 }
-.top10-table tbody tr:nth-child(even) {
-    background:rgba(15,23,42,0.9);
+table.dataframe tbody tr:nth-child(even) {
+    background-color:rgba(15,23,42,0.7) !important;
 }
-.top10-table tbody tr:nth-child(odd) {
-    background:rgba(15,23,42,0.7);
+table.dataframe tbody tr td {
+    font-size:0.75rem;
+    padding:0.26rem 0.35rem;
+    border-bottom:1px solid #020617;
 }
-.top10-table tbody tr:hover {
-    background:#101827;
-}
-.top10-ticker {
-    font-weight:600;
-}
-.top10-link {
+table.dataframe a {
     color:#38bdf8;
     text-decoration:none;
+    font-weight:500;
 }
-.top10-link:hover {
+table.dataframe a:hover {
     text-decoration:underline;
 }
-.top10-weight {
-    font-variant-numeric:tabular-nums;
-}
-.top10-change-pos {
-    color:#22c55e;
-}
-.top10-change-neg {
-    color:#fb7185;
-}
 
-/* Row color for up/down */
-.row-up td {
+/* Change cell colors (positive / negative) */
+span.change-pos {
     color:#22c55e;
+    font-weight:500;
 }
-.row-down td {
-    color:#fb7185;
+span.change-neg {
+    color:#ef4444;
+    font-weight:500;
 }
 
 /* Small footer strip */
 .footer-note {
-    font-size:0.7rem;
+    font-size:0.72rem;
     color:#9ca3af;
 }
 
@@ -317,7 +285,7 @@ header[data-testid="stHeader"] {
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# HELPERS
+# HELPER FUNCTIONS
 # --------------------------------------------------------------------
 def find_column(df: pd.DataFrame, candidates):
     cols = {c.lower(): c for c in df.columns}
@@ -341,20 +309,49 @@ def format_bps(x):
         return "—"
     return f"{x:,.0f} bps"
 
+def format_change_html(x):
+    if pd.isna(x):
+        return "—"
+    # Try to interpret as decimal if small
+    val = float(x)
+    if abs(val) < 1.5:
+        pct = val * 100.0
+    else:
+        pct = val
+    sign = "+" if pct > 0 else ""
+    cls = "change-pos" if pct > 0 else "change-neg" if pct < 0 else ""
+    return f'<span class="{cls}">{sign}{pct:.2f}%</span>' if cls else f"{pct:.2f}%"
+
+def google_finance_link(ticker: str) -> str:
+    """
+    Build a Google Finance URL.
+    For demo we assume US listed; Google usually resolves even without exchange suffix.
+    """
+    if not isinstance(ticker, str) or ticker.strip() == "":
+        return ""
+    t = ticker.strip().upper()
+    # Crypto style like BTC-USD works without suffix
+    if "-" in t:
+        return f"https://www.google.com/finance/quote/{t}"
+    # Default: let Google resolve by ticker
+    return f"https://www.google.com/finance/quote/{t}:NASDAQ"
+
 def load_snapshot(uploaded_file):
     """
     Priority:
-    1) Sidebar upload (override)
-    2) DEFAULT_CSV_PATH (live file written by engine)
+    1) Sidebar uploaded CSV (override)
+    2) Default snapshot CSV on disk
     """
     if uploaded_file is not None:
         return pd.read_csv(uploaded_file), "sidebar upload"
-    if DEFAULT_CSV_PATH and os.path.exists(DEFAULT_CSV_PATH):
-        return pd.read_csv(DEFAULT_CSV_PATH), f"default: {os.path.basename(DEFAULT_CSV_PATH)}"
+
+    if os.path.exists(DEFAULT_SNAPSHOT_PATH):
+        return pd.read_csv(DEFAULT_SNAPSHOT_PATH), DEFAULT_SNAPSHOT_PATH
+
     return None, None
 
 # --------------------------------------------------------------------
-# SIDEBAR – WAVE, MODE, INFO + OPTIONAL OVERRIDE UPLOADER
+# SIDEBAR – WAVE, MODE, INFO
 # --------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🌊 WAVES Console")
@@ -372,7 +369,7 @@ with st.sidebar:
         "Mode",
         options=["Standard", "Private Logic™"],
         index=0,
-        help="Standard = benchmark-linked. Private Logic™ = higher-octane, proprietary logic."
+        help="Standard = disciplined, benchmark-linked. Private Logic™ = higher-octane, proprietary logic."
     )
 
     st.markdown("---")
@@ -382,30 +379,32 @@ with st.sidebar:
     st.markdown(f"- Type: `{wave_meta['wave_type']}`")
 
     st.markdown("---")
+    st.markdown("**Override snapshot CSV (optional)**")
     uploaded_file = st.file_uploader(
-        "Override snapshot CSV (optional)",
+        "Drag and drop file here",
         type=["csv"],
-        help="Leave empty to auto-load the live Wave CSV."
+        label_visibility="collapsed",
+        help="Leave empty to use the default live snapshot file."
     )
 
     st.caption("Console is read-only – no live trades are placed.")
 
 # --------------------------------------------------------------------
-# HEADER STRIP
+# HEADER STRIP (TOP OF SCREEN)
 # --------------------------------------------------------------------
 col_l, col_r = st.columns([1.8, 1.0])
 
 with col_l:
     st.markdown(
         f"""
-        <div>
-            <div style="font-size:0.7rem; letter-spacing:0.22em; text-transform:uppercase; color:#9ca3af;">
+        <div style="position:relative; padding-right:14rem;">
+            <div style="font-size:0.78rem; letter-spacing:0.22em; text-transform:uppercase; color:#9ca3af;">
                 WAVES INTELLIGENCE™ · PORTFOLIO WAVE CONSOLE
             </div>
             <div class="wave-title">
                 {wave_meta["label"]}
             </div>
-            <div style="font-size:0.8rem; color:#9ca3af; margin-top:0.08rem;">
+            <div style="font-size:0.84rem; color:#9ca3af; margin-top:0.12rem;">
                 Benchmark-aware, AI-directed Wave – rendered in a single screen, Bloomberg-style.
             </div>
         </div>
@@ -416,7 +415,7 @@ with col_l:
 with col_r:
     st.markdown(
         f"""
-        <div style="display:flex; justify-content:flex-end; gap:0.35rem; margin-top:0.05rem;">
+        <div style="display:flex; justify-content:flex-end; gap:0.4rem; margin-top:0.1rem;">
             <div class="badge-soft">
                 Mode · <b>{mode}</b>
             </div>
@@ -432,233 +431,180 @@ with col_r:
     )
 
 # --------------------------------------------------------------------
-# LOAD WAVE SNAPSHOT
+# LOAD DATA
 # --------------------------------------------------------------------
 df_raw, data_source = load_snapshot(uploaded_file)
-
 if df_raw is None:
-    st.error(
-        "No Wave snapshot found.\n\n"
-        "• Set DEFAULT_CSV_PATH to your live CSV, or\n"
-        "• Upload a CSV using the sidebar override."
+    st.warning(
+        "No snapshot CSV found. Upload a file in the sidebar or place "
+        f"`{DEFAULT_SNAPSHOT_PATH}` next to `app.py`.",
+        icon="⚠️",
     )
     st.stop()
 
 df_raw = clean_columns(df_raw)
 
+# Column detection
 ticker_col = find_column(df_raw, ["Ticker", "Symbol"])
 name_col = find_column(df_raw, ["Name", "Security", "Company Name"])
 sector_col = find_column(df_raw, ["Sector"])
-weight_src_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
+weight_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
 dollar_col = find_column(df_raw, ["Dollar_Amount", "Position Value", "Market Value", "Value"])
 alpha_bps_col = find_column(df_raw, ["Alpha_bps", "Alpha (bps)", "Alpha_bps_12m"])
-change_col = find_column(df_raw, ["Change_1d", "Return_1d", "1D Return", "Today_Return", "Day_Change"])
+change_col = find_column(df_raw, ["Change_1d", "1D Change", "Return_1d", "1D_Return", "Change"])
 
-# --------------------------------------------------------------------
-# BUILD POSITION-LEVEL DATA (DE-DUPLICATE BY TICKER)
-# --------------------------------------------------------------------
 df = df_raw.copy()
 
-# Raw weight column to aggregate
-if weight_src_col is None:
-    df["__weight_raw__"] = 1.0 / max(len(df), 1)
-else:
-    df["__weight_raw__"] = pd.to_numeric(df[weight_src_col], errors="coerce").fillna(0.0)
-
-# Aggregate by ticker if we have one
-if ticker_col:
-    agg_dict = {"__weight_raw__": "sum"}
-
-    if sector_col:
-        agg_dict[sector_col] = "first"
+# If we have ticker + weight, collapse duplicates by ticker
+if ticker_col and weight_col:
+    group_keys = [ticker_col]
     if name_col:
-        agg_dict[name_col] = "first"
+        group_keys.append(name_col)
+    if sector_col:
+        group_keys.append(sector_col)
+
+    agg_map = {weight_col: "sum"}
     if dollar_col:
-        agg_dict[dollar_col] = "sum"
+        agg_map[dollar_col] = "sum"
     if alpha_bps_col:
-        agg_dict[alpha_bps_col] = "mean"
+        agg_map[alpha_bps_col] = "mean"
     if change_col:
-        agg_dict[change_col] = "mean"
+        agg_map[change_col] = "mean"
 
-    df_pos = df.groupby(ticker_col, as_index=False).agg(agg_dict)
-else:
-    df_pos = df.copy()
+    df = df.groupby(group_keys, as_index=False).agg(agg_map)
 
-# Normalize weights
-total_weight = df_pos["__weight_raw__"].sum()
-if total_weight <= 0:
-    total_weight = 1.0
-df_pos["__w_norm__"] = df_pos["__weight_raw__"] / total_weight
+# Ensure weight exists
+if weight_col is None:
+    df["__weight__"] = 1.0 / max(len(df), 1)
+    weight_col = "__weight__"
 
-# Sort & top 10
-df_sorted = df_pos.sort_values("__w_norm__", ascending=False)
+weights = df[weight_col].astype(float)
+total_weight = weights.sum() if weights.sum() > 0 else 1.0
+weights_norm = weights / total_weight
+
+df["__w_norm__"] = weights_norm
+df_sorted = df.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
-# METRICS BOX (TOP RIGHT)
+# METRIC STRIP (COMPACT, TOP-RIGHT)
 # --------------------------------------------------------------------
-n_holdings = len(df_pos)
-largest_pos = float(df_pos["__w_norm__"].max()) if n_holdings > 0 else 0.0
-
-equity_weight = 1.0  # placeholder; wire to real equity/cash when we add that split
+n_holdings = len(df)
+equity_weight = 1.0  # demo assumes fully invested
 cash_weight = 0.0
+largest_pos = float(weights_norm.max()) if len(weights_norm) > 0 else 0.0
+alpha_est = float(df[alpha_bps_col].mean()) if alpha_bps_col and alpha_bps_col in df.columns else np.nan
+alpha_text = format_bps(alpha_est) if not np.isnan(alpha_est) else "N/A"
 
-if alpha_bps_col and alpha_bps_col in df_pos.columns:
-    alpha_est = float(df_pos[alpha_bps_col].mean())
-else:
-    alpha_est = np.nan
-
-metrics_html = f"""
-<div class="metrics-box">
-    <div class="metrics-header">
-        <div class="metrics-title">Wave Snapshot</div>
-        <div style="font-size:0.62rem; color:#9ca3af;">{data_source or "snapshot"}</div>
+metric_html = f"""
+<div class="metric-strip">
+  <div class="metric-grid">
+    <div class="metric-card">
+      <div class="metric-label">TOTAL HOLDINGS</div>
+      <div class="metric-value">{n_holdings:,}</div>
+      <div class="metric-sub">Positions in the selected Wave</div>
     </div>
-    <div class="metrics-grid">
-        <div>
-            <div class="metric-label-mini">Total holdings</div>
-            <div class="metric-value-mini">{n_holdings:,}</div>
-        </div>
-        <div>
-            <div class="metric-label-mini">Largest position</div>
-            <div class="metric-value-mini">{format_pct(largest_pos)}</div>
-        </div>
-        <div>
-            <div class="metric-label-mini">Equity vs cash</div>
-            <div class="metric-value-mini">{format_pct(equity_weight)} / {format_pct(cash_weight)}</div>
-            <div class="metric-sub-mini">Wave-level risk budget</div>
-        </div>
-        <div>
-            <div class="metric-label-mini">Alpha capture (est)</div>
-            <div class="metric-value-mini">{format_bps(alpha_est) if not np.isnan(alpha_est) else "N/A"}</div>
-            <div class="metric-sub-mini">Wave-average vs benchmark</div>
-        </div>
+    <div class="metric-card">
+      <div class="metric-label">EQUITY VS CASH</div>
+      <div class="metric-value">{format_pct(equity_weight)} / {format_pct(cash_weight)}</div>
+      <div class="metric-sub">Wave-level risk budget (demo)</div>
     </div>
+    <div class="metric-card">
+      <div class="metric-label">LARGEST POSITION</div>
+      <div class="metric-value">{format_pct(largest_pos)}</div>
+      <div class="metric-sub">Single-name concentration</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">ALPHA CAPTURE (EST)</div>
+      <div class="metric-value">{alpha_text}</div>
+      <div class="metric-sub">If alpha column exists in CSV</div>
+    </div>
+  </div>
 </div>
 """
+st.markdown(metric_html, unsafe_allow_html=True)
 
-_, metrics_col = st.columns([1.8, 1.0])
-with metrics_col:
-    st.markdown(metrics_html, unsafe_allow_html=True)
+st.markdown("")  # tiny spacer
 
 # --------------------------------------------------------------------
-# MAIN ROW – LEFT: TOP 10 TABLE · RIGHT: ANALYTICS
+# MAIN TERMINAL LAYOUT – ONE SCREEN
+# Left: Top 10 Table
+# Right: Charts stack
 # --------------------------------------------------------------------
 left, right = st.columns([1.5, 1.25])
 
-# ---------- LEFT: TOP 10 HOLDINGS TABLE -----------------------------
+# ---------- LEFT PANEL: TOP 10 HOLDINGS TABLE -----------------------
 with left:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
         """
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
             <div class="section-title">Top 10 holdings</div>
-            <div class="section-caption">One line per security · ranked by Wave weight</div>
+            <div class="section-caption">Ranked by final Wave weight</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     display_cols = []
+
     if ticker_col:
         display_cols.append(ticker_col)
-    if name_col and name_col in df_pos.columns and name_col not in display_cols:
+    if name_col and name_col not in display_cols:
         display_cols.append(name_col)
-    if sector_col and sector_col in df_pos.columns and sector_col not in display_cols:
+    if sector_col and sector_col not in display_cols:
         display_cols.append(sector_col)
+
     display_cols.append("__w_norm__")
-    if dollar_col and dollar_col in df_pos.columns and dollar_col not in display_cols:
+    if dollar_col and dollar_col not in display_cols:
         display_cols.append(dollar_col)
-    if change_col and change_col in df_pos.columns and change_col not in display_cols:
+    if change_col and change_col not in display_cols:
         display_cols.append(change_col)
 
     top_view = top10[display_cols].copy()
+    rename_map = {"__w_norm__": "Weight"}
+    if change_col:
+        rename_map[change_col] = "1D Change"
+    top_view.rename(columns=rename_map, inplace=True)
 
-    header_cells = []
-    if ticker_col:
-        header_cells.append("<th>Ticker</th>")
-    if name_col and name_col in top_view.columns:
-        header_cells.append("<th>Name</th>")
-    if sector_col and sector_col in top_view.columns:
-        header_cells.append("<th>Sector</th>")
-    header_cells.append("<th>Weight</th>")
+    # Format columns
+    if "Weight" in top_view.columns:
+        top_view["Weight"] = top_view["Weight"].astype(float).apply(format_pct)
     if dollar_col and dollar_col in top_view.columns:
-        header_cells.append("<th>Value</th>")
-    if change_col and change_col in top_view.columns:
-        header_cells.append("<th>1D</th>")
+        top_view[dollar_col] = top_view[dollar_col].astype(float).map(lambda x: f"${x:,.0f}")
+    if "1D Change" in top_view.columns:
+        top_view["1D Change"] = top_view["1D Change"].apply(format_change_html)
 
-    rows_html = []
-    for _, row in top_view.iterrows():
-        t = str(row[ticker_col]) if ticker_col and ticker_col in top_view.columns and not pd.isna(row[ticker_col]) else ""
-        n = str(row[name_col]) if name_col and name_col in top_view.columns and not pd.isna(row.get(name_col, "")) else ""
-        s = str(row[sector_col]) if sector_col and sector_col in top_view.columns and not pd.isna(row.get(sector_col, "")) else ""
-        w = float(row["__w_norm__"])
-        w_str = format_pct(w)
+    # Add Google Finance link column
+    if ticker_col:
+        link_col = "Link"
+        top_view[link_col] = top_view[ticker_col].apply(
+            lambda t: f'<a href="{google_finance_link(t)}" target="_blank">Google</a>'
+            if pd.notna(t) else ""
+        )
 
-        val_str = ""
-        if dollar_col and dollar_col in top_view.columns and not pd.isna(row.get(dollar_col, np.nan)):
-            val_str = f"${float(row[dollar_col]):,.0f}"
+    st.markdown(
+        top_view.to_html(escape=False, index=False),
+        unsafe_allow_html=True,
+    )
 
-        chg_str = ""
-        chg_class = ""
-        row_class = ""
-        if change_col and change_col in top_view.columns and not pd.isna(row.get(change_col, np.nan)):
-            chg = float(row[change_col])
-            chg_str = f"{chg*100:+.2f}%"
-            if chg >= 0:
-                chg_class = "top10-change-pos"
-                row_class = "row-up"
-            else:
-                chg_class = "top10-change-neg"
-                row_class = "row-down"
-
-        if t:
-            link_html = (
-                f'<a href="https://finance.yahoo.com/quote/{t}" '
-                f'target="_blank" class="top10-link">Quote</a>'
-            )
-            ticker_html = f'<span class="top10-ticker">{t}</span> · {link_html}'
-        else:
-            ticker_html = "—"
-
-        cells = []
-        if ticker_col:
-            cells.append(f"<td>{ticker_html}</td>")
-        if name_col and name_col in top_view.columns:
-            cells.append(f"<td>{n}</td>")
-        if sector_col and sector_col in top_view.columns:
-            cells.append(f"<td>{s}</td>")
-        cells.append(f'<td class="top10-weight">{w_str}</td>')
-        if dollar_col and dollar_col in top_view.columns:
-            cells.append(f"<td>{val_str}</td>")
-        if change_col and change_col in top_view.columns:
-            cells.append(f'<td class="{chg_class}">{chg_str}</td>')
-
-        rows_html.append(f'<tr class="{row_class}">{"".join(cells)}</tr>')
-
-    table_html = f"""
-    <div class="top10-table-container">
-        <table class="top10-table">
-            <thead>
-                <tr>{''.join(header_cells)}</tr>
-            </thead>
-            <tbody>{''.join(rows_html)}</tbody>
-        </table>
-    </div>
-    <div class="footer-note" style="margin-top:0.25rem;">
-        Positive 1D moves render in <b>green</b>, negatives in <b>red</b>. 
-        Click <b>Quote</b> for live market data without leaving the console.
-    </div>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="footer-note" style="margin-top:0.35rem;">
+            Positive 1D moves render in green; negative in red.
+            Click <b>Google</b> for a full Google Finance profile without leaving the console.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------- RIGHT: WAVE ANALYTICS (ALL FROM Sheet17) ----------------
+# ---------- RIGHT PANEL: CHARTS STACK --------------------------------
 with right:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
         """
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.18rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
             <div class="section-title">Wave analytics</div>
             <div class="section-caption">Top-10 profile · Sector mix · Weight distribution</div>
         </div>
@@ -666,59 +612,80 @@ with right:
         unsafe_allow_html=True,
     )
 
-    # Top-10 bar chart (deduped positions)
+    # Row 1: Top-10 bar chart
     if ticker_col:
         bar_data = pd.DataFrame({
             "Ticker": top10[ticker_col],
             "Weight": top10["__w_norm__"].astype(float),
         })
-        fig_bar = px.bar(bar_data, x="Weight", y="Ticker", orientation="h")
+        fig_bar = px.bar(
+            bar_data,
+            x="Weight",
+            y="Ticker",
+            orientation="h",
+            title="Top-10 by Wave weight",
+        )
         fig_bar.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             font_color="#e5e7eb",
             xaxis_title="Weight",
             yaxis_title="",
-            margin=dict(l=10, r=10, t=4, b=10),
-            height=170,
+            margin=dict(l=10, r=10, t=32, b=10),
+            height=230,
             xaxis_tickformat=".0%",
         )
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No ticker column found – add a Ticker/Symbol column for holdings charts.", icon="ℹ️")
 
-    # Sector donut + weight decay
+    # Row 2: Sector donut + distribution mini-chart
     c1, c2 = st.columns([1.2, 1.0])
 
+    # Sector donut
     with c1:
-        if sector_col and sector_col in df_pos.columns:
+        if sector_col:
             sec_data = (
-                df_pos.groupby(df_pos[sector_col])["__w_norm__"]
+                df.groupby(df[sector_col])["__w_norm__"]
                 .sum()
                 .reset_index()
                 .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
                 .sort_values("Weight", ascending=False)
             )
-            fig_sec = px.pie(sec_data, values="Weight", names="Sector", hole=0.55)
-            fig_sec.update_layout(
+
+            fig_sect = px.pie(
+                sec_data,
+                values="Weight",
+                names="Sector",
+                hole=0.55,
+                title="Sector mix (full Wave)",
+            )
+            fig_sect.update_layout(
                 showlegend=True,
                 legend_orientation="v",
                 legend_y=0.5,
                 legend_x=1.05,
-                margin=dict(l=0, r=50, t=4, b=0),
-                height=190,
+                margin=dict(l=0, r=60, t=40, b=0),
+                height=260,
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 font_color="#e5e7eb",
             )
-            st.plotly_chart(fig_sec, use_container_width=True)
+            st.plotly_chart(fig_sect, use_container_width=True)
         else:
             st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
 
+    # Weight distribution mini-chart
     with c2:
         dist_data = df_sorted[["__w_norm__"]].copy()
         dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
-        fig_line = px.area(dist_data, x="Rank", y="__w_norm__")
+
+        fig_line = px.area(
+            dist_data,
+            x="Rank",
+            y="__w_norm__",
+            title="Weight decay curve",
+        )
         fig_line.update_traces(mode="lines", line_shape="spline")
         fig_line.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
@@ -726,8 +693,8 @@ with right:
             font_color="#e5e7eb",
             xaxis_title="Holding rank",
             yaxis_title="Weight",
-            margin=dict(l=10, r=10, t=4, b=10),
-            height=190,
+            margin=dict(l=10, r=10, t=40, b=10),
+            height=260,
             xaxis=dict(showgrid=False),
             yaxis=dict(showgrid=True, tickformat=".0%"),
         )
@@ -736,66 +703,40 @@ with right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# BOTTOM STRIP – MODE / INTERNAL INDICATORS (Sheet17-driven)
+# BOTTOM STRIP – MODE EXPLANATION (STILL SAME SCREEN)
 # --------------------------------------------------------------------
 st.markdown("")
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
-
-# Breadth / Wave move from aggregated change column if available
-breadth_html = ""
-if change_col and change_col in df_pos.columns:
-    change_series = pd.to_numeric(df_pos[change_col], errors="coerce").fillna(0.0)
-    adv = int((change_series > 0).sum())
-    dec = int((change_series < 0).sum())
-    flat = int((change_series == 0).sum())
-
-    # Weighted 1D move using normalized weights
-    wave_move = float((change_series * df_pos["__w_norm__"]).sum())
-    breadth = adv / max(adv + dec, 1) if (adv + dec) > 0 else 0.0
-
-    breadth_html = f"""
-        <div class="footer-note" style="margin-top:0.3rem;">
-            <b>Wave 1D move:</b> {wave_move*100:+.2f}% (weight-averaged)<br/>
-            <b>Advance/decline:</b> {adv} up · {dec} down · {flat} flat
-            ({breadth*100:,.1f}% adv breadth on signaled names)
-        </div>
-    """
-else:
-    breadth_html = """
-        <div class="footer-note" style="margin-top:0.3rem;">
-            1-day change column not found – add a Change_1d / Return_1d column
-            in Sheet17 to unlock Wave breadth analytics here.
-        </div>
-    """
-
 st.markdown(
     f"""
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.1rem;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.5rem;">
         <div style="flex:1;">
             <div class="section-title">Mode overview</div>
             <div class="section-caption">
                 How <b>{mode}</b> would steer the {wave_meta["label"]} Wave in production.
             </div>
-            <div class="footer-note" style="margin-top:0.25rem;">
+            <div class="footer-note" style="margin-top:0.4rem;">
                 <b>Standard mode</b> keeps the Wave tightly aligned to its benchmark
                 (<code>{wave_meta['benchmark']}</code>) with controlled tracking error,
                 strict beta discipline, and lower turnover.
                 <br/><br/>
                 <b>Private Logic™</b> layers in proprietary leadership, regime-switching,
                 and SmartSafe™ overlays to push harder for risk-adjusted alpha while still
-                staying within institutional guardrails.
+                staying within institutional guardrails. This demo only changes the
+                narrative – live Waves would change exposures and trading plans behind the scenes.
             </div>
         </div>
         <div style="flex:0.9;">
-            <div class="section-title">Wave internals (from Sheet17)</div>
-            <div class="section-caption">
-                Breadth &amp; movement calculated directly from the uploaded snapshot.
-            </div>
-            {breadth_html}
+            <div class="section-title">Console status</div>
+            <ul class="footer-note">
+                <li>Read-only: no real orders are routed from this screen.</li>
+                <li>All analytics calculated directly from the uploaded or live snapshot CSV.</li>
+                <li>Every Wave and mode can be exported to a full institutional console.</li>
+                <li>Quote links now open in <b>Google Finance</b> for a cleaner research view.</li>
+            </ul>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
-
 st.markdown("</div>", unsafe_allow_html=True)
