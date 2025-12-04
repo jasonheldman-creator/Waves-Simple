@@ -1,29 +1,58 @@
 import streamlit as st
 import pandas as pd
 import traceback
+from dataclasses import dataclass
 
 # ---------------------------------------------------------
-# Attempt to import the Wave engine. If anything fails here
-# we capture the exception and still let the app render so
-# we can see the REAL error message (not Streamlit's redacted
-# ImportError).
+# Attempt to import the Wave engine pieces that actually exist.
+# We *do not* import WAVES_CONFIG from there anymore.
 # ---------------------------------------------------------
 
 IMPORT_ERROR = None
 
 try:
     from waves_equity_universe_v2 import (
-        WAVES_CONFIG,
         load_holdings_from_csv,
         compute_wave_nav,
     )
-except Exception as e:  # catches ImportError *and* errors inside that module
+except Exception as e:  # catches ImportError and any error inside that module
     IMPORT_ERROR = e
-    WAVES_CONFIG = []
+
     def load_holdings_from_csv(*args, **kwargs):
         raise IMPORT_ERROR
+
     def compute_wave_nav(*args, **kwargs):
         raise IMPORT_ERROR
+
+
+# ---------------------------------------------------------
+# Local Wave config (instead of importing WAVES_CONFIG)
+# ---------------------------------------------------------
+
+@dataclass
+class WaveConfig:
+    code: str
+    name: str
+    benchmark: str
+    holdings_csv_url: str
+    default_notional: float = 100_000.0
+
+
+# 🔗 You can change / add more Waves here
+WAVES_CONFIG = [
+    WaveConfig(
+        code="SPX",
+        name="S&P 500 Core Equity Wave",
+        benchmark="SPY",
+        holdings_csv_url=(
+            "https://docs.google.com/spreadsheets/d/"
+            "e/2PACX-1vT7VpPdWSUSyZP9CVXZwTgqx7a7mMD2aQMRqSESqZgiagh8wSeEm3RAWHvLlWmJtLqYrqj7UVjQIpq9"
+            "/pub?gid=711820877&single=true&output=csv"
+        ),
+    ),
+    # Example: add more Waves here later:
+    # WaveConfig(code="R2K", name="Russell 2000 Wave", benchmark="IWM", holdings_csv_url="..."),
+]
 
 
 # ---------------------------------------------------------
@@ -38,7 +67,6 @@ def get_wave_config_by_code(code: str):
 
 
 def add_quote_links(df: pd.DataFrame, ticker_col: str = "Ticker") -> pd.DataFrame:
-    """Add a Google Finance quote URL column (for reference)."""
     df = df.copy()
     if ticker_col in df.columns:
         df["Quote"] = df[ticker_col].astype(str).apply(
@@ -73,7 +101,11 @@ st.markdown(
 if IMPORT_ERROR is not None:
     st.error("Wave engine import failed – see details below.")
     st.code(
-        "".join(traceback.format_exception(type(IMPORT_ERROR), IMPORT_ERROR, IMPORT_ERROR.__traceback__)),
+        "".join(
+            traceback.format_exception(
+                type(IMPORT_ERROR), IMPORT_ERROR, IMPORT_ERROR.__traceback__
+            )
+        ),
         language="text",
     )
     st.stop()
@@ -174,7 +206,6 @@ top10 = holdings.head(10)
 total_holdings = len(holdings)
 largest_pos = float(top10["Weight"].iloc[0]) if not top10.empty else 0.0
 
-# For now assume fully invested; SmartSafe overlay later
 equity_pct = 1.0
 cash_pct = 0.0
 
@@ -185,7 +216,7 @@ cash_pct = 0.0
 try:
     stats = compute_wave_nav(wave, holdings)
 except Exception as e:
-    st.warning(f"NAV/return computation failed; showing holdings only. Details:")
+    st.warning("NAV/return computation failed; showing holdings only.")
     st.code(
         "".join(traceback.format_exception(type(e), e, e.__traceback__)),
         language="text",
