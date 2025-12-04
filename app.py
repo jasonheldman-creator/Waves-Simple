@@ -1,20 +1,11 @@
 # --------------------------------------------------------------------
-# WAVES Intelligence™ – Mini Bloomberg Console (One-Screen Layout)
+# WAVES Intelligence™ – Mini Bloomberg Console (Sheet17-only, one screen)
 # --------------------------------------------------------------------
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import os
-
-# --------------------------------------------------------------------
-# OPTIONAL: yfinance for S&P / VIX (safe if missing)
-# --------------------------------------------------------------------
-try:
-    import yfinance as yf
-    YF_AVAILABLE = True
-except ImportError:
-    YF_AVAILABLE = False
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
@@ -29,8 +20,8 @@ st.set_page_config(
 # --------------------------------------------------------------------
 # 🔁 CHANGE THIS to the actual path on the machine running Streamlit.
 # Example (Mac):
-# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_PORTFOLIO_FINAL.csv"
-DEFAULT_CSV_PATH = "SP500_PORTFOLIO_FINAL.csv"
+# DEFAULT_CSV_PATH = "/Users/jason/Downloads/SP500_PORTFOLIO_FINAL_Sheet17.csv"
+DEFAULT_CSV_PATH = "SP500_PORTFOLIO_FINAL_Sheet17.csv"
 
 # --------------------------------------------------------------------
 # WAVES DEFINITIONS (15 Waves)
@@ -358,24 +349,9 @@ def load_snapshot(uploaded_file):
     """
     if uploaded_file is not None:
         return pd.read_csv(uploaded_file), "sidebar upload"
-
     if DEFAULT_CSV_PATH and os.path.exists(DEFAULT_CSV_PATH):
         return pd.read_csv(DEFAULT_CSV_PATH), f"default: {os.path.basename(DEFAULT_CSV_PATH)}"
-
     return None, None
-
-def load_index_series(symbol: str, period: str = "6mo"):
-    """Fetch Date + Close from yfinance; return None safely if unavailable."""
-    if not YF_AVAILABLE:
-        return None
-    try:
-        data = yf.download(symbol, period=period, auto_adjust=True, progress=False)
-        if data is None or data.empty:
-            return None
-        data = data.reset_index()[["Date", "Close"]]
-        return data
-    except Exception:
-        return None
 
 # --------------------------------------------------------------------
 # SIDEBAR – WAVE, MODE, INFO + OPTIONAL OVERRIDE UPLOADER
@@ -493,7 +469,7 @@ df_sorted = df.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
-# METRICS BOX
+# METRICS BOX (TOP RIGHT)
 # --------------------------------------------------------------------
 n_holdings = len(df)
 equity_weight = 1.0   # placeholder until wired to real equity/cash split
@@ -539,65 +515,260 @@ with metrics_col:
     st.markdown(metrics_html, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# ROW 1 – S&P 500 + VIX (SAFE)
+# MAIN ROW – LEFT: TOP 10 TABLE · RIGHT: ANALYTICS
 # --------------------------------------------------------------------
-sp_col, vix_col = st.columns([1.6, 1.0])
+left, right = st.columns([1.5, 1.25])
 
-# ----- S&P 500 -----
-with sp_col:
+# ---------- LEFT: TOP 10 HOLDINGS TABLE -----------------------------
+with left:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
         """
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.15rem;">
-            <div class="section-title">S&P 500 Index</div>
-            <div class="section-caption">^GSPC · last 6 months</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
+            <div class="section-title">Top 10 holdings</div>
+            <div class="section-caption">Ranked by final Wave weight</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    sp_df = load_index_series("^GSPC", period="6mo")
+    display_cols = []
+    if ticker_col:
+        display_cols.append(ticker_col)
+    if name_col and name_col not in display_cols:
+        display_cols.append(name_col)
+    if sector_col and sector_col not in display_cols:
+        display_cols.append(sector_col)
+    display_cols.append("__w_norm__")
+    if dollar_col and dollar_col not in display_cols:
+        display_cols.append(dollar_col)
+    if change_col and change_col not in display_cols:
+        display_cols.append(change_col)
 
-    if sp_df is None or len(sp_df) == 0:
-        st.warning("Live S&P data unavailable (no internet / blocked / yfinance missing).", icon="⚠️")
+    top_view = top10[display_cols].copy()
+
+    header_cells = []
+    if ticker_col:
+        header_cells.append("<th>Ticker</th>")
+    if name_col:
+        header_cells.append("<th>Name</th>")
+    if sector_col:
+        header_cells.append("<th>Sector</th>")
+    header_cells.append("<th>Weight</th>")
+    if dollar_col:
+        header_cells.append("<th>Value</th>")
+    if change_col:
+        header_cells.append("<th>1D</th>")
+
+    rows_html = []
+    for _, row in top_view.iterrows():
+        t = str(row[ticker_col]) if ticker_col and not pd.isna(row[ticker_col]) else ""
+        n = str(row[name_col]) if name_col and not pd.isna(row[name_col]) else ""
+        s = str(row[sector_col]) if sector_col and not pd.isna(row[sector_col]) else ""
+        w = float(row["__w_norm__"])
+        w_str = format_pct(w)
+
+        val_str = ""
+        if dollar_col and not pd.isna(row[dollar_col]):
+            val_str = f"${float(row[dollar_col]):,.0f}"
+
+        chg_str = ""
+        chg_class = ""
+        row_class = ""
+        if change_col and not pd.isna(row[change_col]):
+            chg = float(row[change_col])
+            chg_str = f"{chg*100:+.2f}%"
+            if chg >= 0:
+                chg_class = "top10-change-pos"
+                row_class = "row-up"
+            else:
+                chg_class = "top10-change-neg"
+                row_class = "row-down"
+
+        if t:
+            link_html = (
+                f'<a href="https://finance.yahoo.com/quote/{t}" '
+                f'target="_blank" class="top10-link">Quote</a>'
+            )
+            ticker_html = f'<span class="top10-ticker">{t}</span> · {link_html}'
+        else:
+            ticker_html = "—"
+
+        cells = []
+        if ticker_col:
+            cells.append(f"<td>{ticker_html}</td>")
+        if name_col:
+            cells.append(f"<td>{n}</td>")
+        if sector_col:
+            cells.append(f"<td>{s}</td>")
+        cells.append(f'<td class="top10-weight">{w_str}</td>')
+        if dollar_col:
+            cells.append(f"<td>{val_str}</td>")
+        if change_col:
+            cells.append(f'<td class="{chg_class}">{chg_str}</td>')
+
+        rows_html.append(f'<tr class="{row_class}">{"".join(cells)}</tr>')
+
+    table_html = f"""
+    <div class="top10-table-container">
+        <table class="top10-table">
+            <thead>
+                <tr>{''.join(header_cells)}</tr>
+            </thead>
+            <tbody>{''.join(rows_html)}</tbody>
+        </table>
+    </div>
+    <div class="footer-note" style="margin-top:0.25rem;">
+        Positive 1D moves render in <b>green</b>, negatives in <b>red</b>. 
+        Click <b>Quote</b> for live market data without leaving the console.
+    </div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------- RIGHT: WAVE ANALYTICS (ALL FROM Sheet17) ----------------
+with right:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.18rem;">
+            <div class="section-title">Wave analytics</div>
+            <div class="section-caption">Top-10 profile · Sector mix · Weight distribution</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Top-10 bar chart
+    if ticker_col:
+        bar_data = pd.DataFrame({
+            "Ticker": top10[ticker_col],
+            "Weight": top10["__w_norm__"].astype(float),
+        })
+        fig_bar = px.bar(bar_data, x="Weight", y="Ticker", orientation="h")
+        fig_bar.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#e5e7eb",
+            xaxis_title="Weight",
+            yaxis_title="",
+            margin=dict(l=10, r=10, t=4, b=10),
+            height=170,
+            xaxis_tickformat=".0%",
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
     else:
-        try:
-            fig_sp = px.area(sp_df, x="Date", y="Close")
-            fig_sp.update_traces(mode="lines", line_shape="spline")
-            fig_sp.update_layout(
+        st.info("No ticker column found – add a Ticker/Symbol column for holdings charts.", icon="ℹ️")
+
+    # Sector donut + weight decay
+    c1, c2 = st.columns([1.2, 1.0])
+
+    with c1:
+        if sector_col:
+            sec_data = (
+                df.groupby(df[sector_col])["__w_norm__"]
+                .sum()
+                .reset_index()
+                .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
+                .sort_values("Weight", ascending=False)
+            )
+            fig_sec = px.pie(sec_data, values="Weight", names="Sector", hole=0.55)
+            fig_sec.update_layout(
+                showlegend=True,
+                legend_orientation="v",
+                legend_y=0.5,
+                legend_x=1.05,
+                margin=dict(l=0, r=50, t=4, b=0),
+                height=190,
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 font_color="#e5e7eb",
-                margin=dict(l=10, r=10, t=5, b=10),
-                height=200,
             )
-            st.plotly_chart(fig_sp, use_container_width=True)
-        except Exception:
-            st.warning("Unable to render S&P chart (Plotly error).", icon="⚠️")
+            st.plotly_chart(fig_sec, use_container_width=True)
+        else:
+            st.info("No 'Sector' column detected – add one to see sector allocation.", icon="ℹ️")
+
+    with c2:
+        dist_data = df_sorted[["__w_norm__"]].copy()
+        dist_data["Rank"] = np.arange(1, len(dist_data) + 1)
+        fig_line = px.area(dist_data, x="Rank", y="__w_norm__")
+        fig_line.update_traces(mode="lines", line_shape="spline")
+        fig_line.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#e5e7eb",
+            xaxis_title="Holding rank",
+            yaxis_title="Weight",
+            margin=dict(l=10, r=10, t=4, b=10),
+            height=190,
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, tickformat=".0%"),
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----- VIX -----
-with vix_col:
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.15rem;">
-            <div class="section-title">VIX Volatility Index</div>
-            <div class="section-caption">^VIX · last 6 months</div>
+# --------------------------------------------------------------------
+# BOTTOM STRIP – MODE / INTERNAL INDICATORS (Sheet17-driven)
+# --------------------------------------------------------------------
+st.markdown("")
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+
+# Breadth / Wave move from 1D change column if available
+breadth_html = ""
+if change_col and change_col in df.columns:
+    change_series = df[change_col].astype(float)
+    adv = int((change_series > 0).sum())
+    dec = int((change_series < 0).sum())
+    flat = int((change_series == 0).sum())
+    total_signaled = max(adv + dec + flat, 1)
+
+    wave_move = float((change_series * weights_norm).sum())
+    breadth = adv / max(adv + dec, 1)
+
+    breadth_html = f"""
+        <div class="footer-note" style="margin-top:0.3rem;">
+            <b>Wave 1D move:</b> {wave_move*100:+.2f}% (weight-averaged)<br/>
+            <b>Advance/decline:</b> {adv} up · {dec} down · {flat} flat
+            ({breadth*100:,.1f}% adv breadth on signaled names)
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
+else:
+    breadth_html = """
+        <div class="footer-note" style="margin-top:0.3rem;">
+            1-day change column not found – add a Change_1d / Return_1d column
+            in Sheet17 to unlock Wave breadth analytics here.
+        </div>
+    """
 
-    vix_df = load_index_series("^VIX", period="6mo")
+st.markdown(
+    f"""
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1.1rem;">
+        <div style="flex:1;">
+            <div class="section-title">Mode overview</div>
+            <div class="section-caption">
+                How <b>{mode}</b> would steer the {wave_meta["label"]} Wave in production.
+            </div>
+            <div class="footer-note" style="margin-top:0.25rem;">
+                <b>Standard mode</b> keeps the Wave tightly aligned to its benchmark
+                (<code>{wave_meta['benchmark']}</code>) with controlled tracking error,
+                strict beta discipline, and lower turnover.
+                <br/><br/>
+                <b>Private Logic™</b> layers in proprietary leadership, regime-switching,
+                and SmartSafe™ overlays to push harder for risk-adjusted alpha while still
+                staying within institutional guardrails.
+            </div>
+        </div>
+        <div style="flex:0.9;">
+            <div class="section-title">Wave internals (from Sheet17)</div>
+            <div class="section-caption">
+                Breadth &amp; movement calculated directly from the uploaded snapshot.
+            </div>
+            {breadth_html}
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-    if vix_df is None or len(vix_df) == 0:
-        st.warning("Live VIX data unavailable (no internet / blocked / yfinance missing).", icon="⚠️")
-    else:
-        try:
-            fig_vix = px.line(vix_df, x="Date", y="Close")
-            fig_vix.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font_color="#
+st.markdown("</div>", unsafe_allow_html=True)
