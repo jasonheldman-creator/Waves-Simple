@@ -270,6 +270,8 @@ def main():
         else:
             if not choice:
                 print("DEBUG: User entered nothing. Showing error message for empty input.")
+            else:
+                print(f"DEBUG: Invalid choice '{choice}'. Showing error message.")
             print("Invalid choice. Please enter 1, 2, 3, or 4.")
             pause()
 
