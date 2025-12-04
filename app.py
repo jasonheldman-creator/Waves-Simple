@@ -1,11 +1,12 @@
 # app.py
-import streamlit as st
-import pandas as pd
 import traceback
 from dataclasses import dataclass
 
+import pandas as pd
+import streamlit as st
+
 # ---------------------------------------------------------
-# Import only the engine helpers (NO WAVES_CONFIG import)
+# Import engine helpers (no WAVES_CONFIG import here)
 # ---------------------------------------------------------
 
 IMPORT_ERROR = None
@@ -15,7 +16,7 @@ try:
         load_holdings_from_csv,
         compute_wave_nav,
     )
-except Exception as e:  # catches ImportError and any error inside that module
+except Exception as e:
     IMPORT_ERROR = e
 
     def load_holdings_from_csv(*args, **kwargs):
@@ -26,7 +27,7 @@ except Exception as e:  # catches ImportError and any error inside that module
 
 
 # ---------------------------------------------------------
-# Local Wave config – lives ONLY in this file
+# Local Wave config – all in THIS file
 # ---------------------------------------------------------
 
 @dataclass
@@ -38,7 +39,9 @@ class WaveConfig:
     default_notional: float = 100_000.0
 
 
-# 🔗 SPX Wave is fully wired. Others can be filled in as URLs are ready.
+# NOTE:
+# - SPX is fully wired to your Master Stock Sheet (published CSV link).
+# - The other 9 Waves are visible but "not wired yet" until you add URLs.
 WAVES_CONFIG = [
     WaveConfig(
         code="SPX",
@@ -54,55 +57,55 @@ WAVES_CONFIG = [
         code="GROW",
         name="US Growth & Innovation Wave",
         benchmark="QQQ",
-        holdings_csv_url="<GROWTH_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="SMGX",
         name="Small–Mid Cap Growth Wave",
         benchmark="VXF",
-        holdings_csv_url="<SMALL_MID_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="R2K",
         name="Small Cap Core Wave",
         benchmark="IWM",
-        holdings_csv_url="<RUSSELL_2000_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="DIV",
         name="Equity Income Wave",
         benchmark="SCHD",
-        holdings_csv_url="<EQUITY_INCOME_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="PWR",
         name="Future Power & Energy Wave",
         benchmark="XLE",
-        holdings_csv_url="<FUTURE_POWER_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="FIN",
         name="Financials & Fintech Wave",
         benchmark="XLF",
-        holdings_csv_url="<FINANCIALS_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="HLTH",
         name="Health & Biotech Wave",
         benchmark="XLV",
-        holdings_csv_url="<HEALTH_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="GLB",
         name="Global ex-US Core Wave",
         benchmark="ACWX",
-        holdings_csv_url="<GLOBAL_EX_US_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
     WaveConfig(
         code="CORE",
         name="Total Market Core Equity Wave",
         benchmark="VTI",
-        holdings_csv_url="<TOTAL_MARKET_WAVE_CSV_URL>",
+        holdings_csv_url="",  # TODO: plug in CSV URL
     ),
 ]
 
@@ -127,6 +130,29 @@ def add_quote_links(df: pd.DataFrame, ticker_col: str = "Ticker") -> pd.DataFram
     return df
 
 
+def normalize_weights(df: pd.DataFrame, weight_col: str = "Weight") -> pd.DataFrame:
+    """
+    Normalize Weight column to fraction-of-1.
+
+    If max weight > 1.5 we assume the sheet stores percentages (e.g., 6.59)
+    and we divide by 100. Otherwise we assume already in 0.0–1.0 form.
+    """
+    df = df.copy()
+    if weight_col not in df.columns:
+        return df
+
+    try:
+        df[weight_col] = pd.to_numeric(df[weight_col], errors="coerce")
+    except Exception:
+        return df
+
+    max_w = df[weight_col].max()
+    if pd.notna(max_w) and max_w > 1.5:  # 6.59, 2.35, etc.
+        df[weight_col] = df[weight_col] / 100.0
+
+    return df
+
+
 # ---------------------------------------------------------
 # Page config & WAVES dark theme
 # ---------------------------------------------------------
@@ -136,6 +162,7 @@ st.set_page_config(
     layout="wide",
 )
 
+# Extra dark styling – works best when Streamlit theme is dark.
 st.markdown(
     """
     <style>
@@ -165,27 +192,19 @@ if IMPORT_ERROR is not None:
 
 
 # ---------------------------------------------------------
-# Sidebar – Wave selection & mode controls
+# Sidebar – Wave selection & controls
 # ---------------------------------------------------------
 
 st.sidebar.title("🌊 WAVES Console")
 
-# Only Waves with a real CSV URL should be selectable
-configured_waves = [
-    w for w in WAVES_CONFIG if w.holdings_csv_url and w.holdings_csv_url.startswith("http")
-]
-
-if not configured_waves:
-    st.sidebar.warning("No Waves configured with holdings_csv_url yet.")
-    st.stop()
-
-wave_codes = [w.code for w in configured_waves]
+wave_codes = [w.code for w in WAVES_CONFIG]
 default_index = wave_codes.index("SPX") if "SPX" in wave_codes else 0
 
 selected_wave_code = st.sidebar.selectbox(
     "Select Wave",
     wave_codes,
     index=default_index,
+    help="All 10 Equity Waves. SPX is fully wired; others show their slots.",
 )
 
 mode = st.sidebar.radio("Mode", ["Standard", "Private Logic™"], index=0)
@@ -222,68 +241,32 @@ st.sidebar.caption("Console is read-only – no live trades are placed.")
 
 
 # ---------------------------------------------------------
-# Load selected Wave config & holdings
+# Quick roster view – all 10 Waves
+# ---------------------------------------------------------
+
+with st.expander("Wave roster (all 10 Equity Waves)", expanded=False):
+    roster_df = pd.DataFrame(
+        [
+            {
+                "Wave": w.code,
+                "Name": w.name,
+                "Benchmark": w.benchmark,
+                "Data wired": "Yes" if w.holdings_csv_url else "Coming soon",
+            }
+            for w in WAVES_CONFIG
+        ]
+    )
+    st.dataframe(roster_df, hide_index=True, use_container_width=True)
+
+
+# ---------------------------------------------------------
+# Load selected Wave config
 # ---------------------------------------------------------
 
 wave = get_wave_config_by_code(selected_wave_code)
 if wave is None:
     st.error(f"Wave '{selected_wave_code}' not found in WAVES_CONFIG.")
     st.stop()
-
-try:
-    if override_file is not None:
-        holdings_raw = pd.read_csv(override_file)
-    else:
-        holdings_raw = load_holdings_from_csv(wave.holdings_csv_url)
-except Exception as e:
-    st.error(f"Error loading holdings for Wave {wave.code}: {e}")
-    st.code(
-        "".join(traceback.format_exception(type(e), e, e.__traceback__)),
-        language="text",
-    )
-    st.stop()
-
-if "Ticker" not in holdings_raw.columns:
-    st.error("Holdings CSV must contain a 'Ticker' column.")
-    st.write("Columns found:", list(holdings_raw.columns))
-    st.stop()
-
-if "Weight" not in holdings_raw.columns:
-    st.error("Holdings CSV must contain a 'Weight' column.")
-    st.write("Columns found:", list(holdings_raw.columns))
-    st.stop()
-
-holdings = holdings_raw.copy()
-holdings["Ticker"] = holdings["Ticker"].astype(str).str.upper()
-holdings = holdings.sort_values("Weight", ascending=False).reset_index(drop=True)
-
-holdings = add_quote_links(holdings)
-top10 = holdings.head(10)
-
-total_holdings = len(holdings)
-largest_pos = float(top10["Weight"].iloc[0]) if not top10.empty else 0.0
-
-equity_pct = 1.0
-cash_pct = 0.0
-
-# ---------------------------------------------------------
-# Compute NAV/returns/alpha via engine (placeholder)
-# ---------------------------------------------------------
-
-try:
-    stats = compute_wave_nav(wave, holdings)
-except Exception as e:
-    st.warning("NAV/return computation failed; showing holdings only.")
-    st.code(
-        "".join(traceback.format_exception(type(e), e, e.__traceback__)),
-        language="text",
-    )
-    stats = {}
-
-wave_return = float(stats.get("wave_return", float("nan")))
-bench_return = float(stats.get("benchmark_return", float("nan")))
-alpha = float(stats.get("alpha", float("nan")))
-nav = float(stats.get("nav", float("nan")))
 
 bench_label = (
     benchmark_choice
@@ -324,6 +307,82 @@ st.markdown(
 )
 
 st.markdown("---")
+
+
+# ---------------------------------------------------------
+# If Wave is not wired yet, show placeholder message
+# ---------------------------------------------------------
+
+if not wave.holdings_csv_url:
+    st.warning(
+        f"Holdings for **{wave.code} – {wave.name}** "
+        "haven’t been wired in yet. SPX is live today; "
+        "this Wave slot is ready for its CSV link next."
+    )
+    st.stop()
+
+
+# ---------------------------------------------------------
+# Load holdings snapshot for the selected Wave
+# ---------------------------------------------------------
+
+try:
+    if override_file is not None:
+        holdings_raw = pd.read_csv(override_file)
+    else:
+        holdings_raw = load_holdings_from_csv(wave.holdings_csv_url)
+except Exception as e:
+    st.error(f"Error loading holdings for Wave {wave.code}: {e}")
+    st.code(
+        "".join(traceback.format_exception(type(e), e, e.__traceback__)),
+        language="text",
+    )
+    st.stop()
+
+if "Ticker" not in holdings_raw.columns:
+    st.error("Holdings CSV must contain a 'Ticker' column.")
+    st.write("Columns found:", list(holdings_raw.columns))
+    st.stop()
+
+if "Weight" not in holdings_raw.columns:
+    st.error("Holdings CSV must contain a 'Weight' column.")
+    st.write("Columns found:", list(holdings_raw.columns))
+    st.stop()
+
+holdings = holdings_raw.copy()
+holdings["Ticker"] = holdings["Ticker"].astype(str).str.upper()
+holdings = normalize_weights(holdings, "Weight")
+holdings = holdings.sort_values("Weight", ascending=False).reset_index(drop=True)
+
+holdings = add_quote_links(holdings)
+top10 = holdings.head(10)
+
+total_holdings = len(holdings)
+largest_pos = float(top10["Weight"].iloc[0]) if not top10.empty else 0.0
+
+equity_pct = 1.0
+cash_pct = 0.0
+
+
+# ---------------------------------------------------------
+# Compute NAV/returns/alpha via engine (placeholder)
+# ---------------------------------------------------------
+
+try:
+    stats = compute_wave_nav(wave, holdings)
+except Exception as e:
+    st.warning("NAV/return computation failed; showing holdings only.")
+    st.code(
+        "".join(traceback.format_exception(type(e), e, e.__traceback__)),
+        language="text",
+    )
+    stats = {}
+
+wave_return = float(stats.get("wave_return", float("nan")))
+bench_return = float(stats.get("benchmark_return", float("nan")))
+alpha = float(stats.get("alpha", float("nan")))
+nav = float(stats.get("nav", float("nan")))
+
 
 # ---------------------------------------------------------
 # Top grid – Top 10 table + snapshot
@@ -406,6 +465,7 @@ with col_right:
     """
     st.markdown(snapshot_html, unsafe_allow_html=True)
 
+
 # ---------------------------------------------------------
 # Second grid – weight bars, sector view, rank curve
 # ---------------------------------------------------------
@@ -439,6 +499,7 @@ with col_c:
     weights_sorted = holdings["Weight"].sort_values(ascending=False).reset_index(drop=True)
     weights_sorted.index = weights_sorted.index + 1  # rank
     st.line_chart(weights_sorted)
+
 
 # ---------------------------------------------------------
 # Bottom panels – explanation for Franklin
