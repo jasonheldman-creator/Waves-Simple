@@ -1,11 +1,11 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import traceback
 from dataclasses import dataclass
 
 # ---------------------------------------------------------
-# Attempt to import the Wave engine pieces that actually exist.
-# We *do not* import WAVES_CONFIG from there anymore.
+# Import just the engine functions (no WAVES_CONFIG here)
 # ---------------------------------------------------------
 
 IMPORT_ERROR = None
@@ -26,7 +26,7 @@ except Exception as e:  # catches ImportError and any error inside that module
 
 
 # ---------------------------------------------------------
-# Local Wave config (instead of importing WAVES_CONFIG)
+# Local Wave config – lives ONLY in this file
 # ---------------------------------------------------------
 
 @dataclass
@@ -38,7 +38,7 @@ class WaveConfig:
     default_notional: float = 100_000.0
 
 
-# 🔗 You can change / add more Waves here
+# 🔗 SPX Wave – hooked to your Master Stock Sheet export
 WAVES_CONFIG = [
     WaveConfig(
         code="SPX",
@@ -50,8 +50,7 @@ WAVES_CONFIG = [
             "/pub?gid=711820877&single=true&output=csv"
         ),
     ),
-    # Example: add more Waves here later:
-    # WaveConfig(code="R2K", name="Russell 2000 Wave", benchmark="IWM", holdings_csv_url="..."),
+    # Later: add the other 9 equity Waves here with their CSV URLs.
 ]
 
 
@@ -210,7 +209,7 @@ equity_pct = 1.0
 cash_pct = 0.0
 
 # ---------------------------------------------------------
-# Compute NAV/returns/alpha via engine
+# Compute NAV/returns/alpha via engine (placeholder)
 # ---------------------------------------------------------
 
 try:
