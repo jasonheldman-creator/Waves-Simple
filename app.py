@@ -1,5 +1,5 @@
 # --------------------------------------------------------------------
-# WAVES Intelligence™ – Mini Bloomberg Console (Sheet17-only, one screen)
+# WAVES Intelligence™ – Mini Bloomberg Console (Sheet17-only, deduped)
 # --------------------------------------------------------------------
 import streamlit as st
 import pandas as pd
@@ -449,35 +449,62 @@ df_raw = clean_columns(df_raw)
 ticker_col = find_column(df_raw, ["Ticker", "Symbol"])
 name_col = find_column(df_raw, ["Name", "Security", "Company Name"])
 sector_col = find_column(df_raw, ["Sector"])
-weight_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
+weight_src_col = find_column(df_raw, ["Wave_Wt_Final", "Weight", "Portfolio Weight", "Target Weight"])
 dollar_col = find_column(df_raw, ["Dollar_Amount", "Position Value", "Market Value", "Value"])
 alpha_bps_col = find_column(df_raw, ["Alpha_bps", "Alpha (bps)", "Alpha_bps_12m"])
 change_col = find_column(df_raw, ["Change_1d", "Return_1d", "1D Return", "Today_Return", "Day_Change"])
 
+# --------------------------------------------------------------------
+# BUILD POSITION-LEVEL DATA (DE-DUPLICATE BY TICKER)
+# --------------------------------------------------------------------
 df = df_raw.copy()
 
-if weight_col is None:
-    df["__weight__"] = 1.0 / max(len(df), 1)
-    weight_col = "__weight__"
+# Raw weight column to aggregate
+if weight_src_col is None:
+    df["__weight_raw__"] = 1.0 / max(len(df), 1)
+else:
+    df["__weight_raw__"] = pd.to_numeric(df[weight_src_col], errors="coerce").fillna(0.0)
 
-weights = df[weight_col].astype(float)
-total_weight = weights.sum() if weights.sum() > 0 else 1.0
-weights_norm = weights / total_weight
+# Aggregate by ticker if we have one
+if ticker_col:
+    agg_dict = {"__weight_raw__": "sum"}
 
-df["__w_norm__"] = weights_norm
-df_sorted = df.sort_values("__w_norm__", ascending=False)
+    if sector_col:
+        agg_dict[sector_col] = "first"
+    if name_col:
+        agg_dict[name_col] = "first"
+    if dollar_col:
+        agg_dict[dollar_col] = "sum"
+    if alpha_bps_col:
+        agg_dict[alpha_bps_col] = "mean"
+    if change_col:
+        agg_dict[change_col] = "mean"
+
+    df_pos = df.groupby(ticker_col, as_index=False).agg(agg_dict)
+else:
+    df_pos = df.copy()
+
+# Normalize weights
+total_weight = df_pos["__weight_raw__"].sum()
+if total_weight <= 0:
+    total_weight = 1.0
+df_pos["__w_norm__"] = df_pos["__weight_raw__"] / total_weight
+
+# Sort & top 10
+df_sorted = df_pos.sort_values("__w_norm__", ascending=False)
 top10 = df_sorted.head(10).copy()
 
 # --------------------------------------------------------------------
 # METRICS BOX (TOP RIGHT)
 # --------------------------------------------------------------------
-n_holdings = len(df)
-equity_weight = 1.0   # placeholder until wired to real equity/cash split
-cash_weight = 0.0
-largest_pos = float(weights_norm.max()) if len(weights_norm) > 0 else 0.0
+n_holdings = len(df_pos)
+largest_pos = float(df_pos["__w_norm__"].max()) if n_holdings > 0 else 0.0
 
-if alpha_bps_col and alpha_bps_col in df.columns:
-    alpha_est = float(df[alpha_bps_col].mean())
+equity_weight = 1.0  # placeholder; wire to real equity/cash when we add that split
+cash_weight = 0.0
+
+if alpha_bps_col and alpha_bps_col in df_pos.columns:
+    alpha_est = float(df_pos[alpha_bps_col].mean())
 else:
     alpha_est = np.nan
 
@@ -526,7 +553,7 @@ with left:
         """
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
             <div class="section-title">Top 10 holdings</div>
-            <div class="section-caption">Ranked by final Wave weight</div>
+            <div class="section-caption">One line per security · ranked by Wave weight</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -535,14 +562,14 @@ with left:
     display_cols = []
     if ticker_col:
         display_cols.append(ticker_col)
-    if name_col and name_col not in display_cols:
+    if name_col and name_col in df_pos.columns and name_col not in display_cols:
         display_cols.append(name_col)
-    if sector_col and sector_col not in display_cols:
+    if sector_col and sector_col in df_pos.columns and sector_col not in display_cols:
         display_cols.append(sector_col)
     display_cols.append("__w_norm__")
-    if dollar_col and dollar_col not in display_cols:
+    if dollar_col and dollar_col in df_pos.columns and dollar_col not in display_cols:
         display_cols.append(dollar_col)
-    if change_col and change_col not in display_cols:
+    if change_col and change_col in df_pos.columns and change_col not in display_cols:
         display_cols.append(change_col)
 
     top_view = top10[display_cols].copy()
@@ -550,32 +577,32 @@ with left:
     header_cells = []
     if ticker_col:
         header_cells.append("<th>Ticker</th>")
-    if name_col:
+    if name_col and name_col in top_view.columns:
         header_cells.append("<th>Name</th>")
-    if sector_col:
+    if sector_col and sector_col in top_view.columns:
         header_cells.append("<th>Sector</th>")
     header_cells.append("<th>Weight</th>")
-    if dollar_col:
+    if dollar_col and dollar_col in top_view.columns:
         header_cells.append("<th>Value</th>")
-    if change_col:
+    if change_col and change_col in top_view.columns:
         header_cells.append("<th>1D</th>")
 
     rows_html = []
     for _, row in top_view.iterrows():
-        t = str(row[ticker_col]) if ticker_col and not pd.isna(row[ticker_col]) else ""
-        n = str(row[name_col]) if name_col and not pd.isna(row[name_col]) else ""
-        s = str(row[sector_col]) if sector_col and not pd.isna(row[sector_col]) else ""
+        t = str(row[ticker_col]) if ticker_col and ticker_col in top_view.columns and not pd.isna(row[ticker_col]) else ""
+        n = str(row[name_col]) if name_col and name_col in top_view.columns and not pd.isna(row.get(name_col, "")) else ""
+        s = str(row[sector_col]) if sector_col and sector_col in top_view.columns and not pd.isna(row.get(sector_col, "")) else ""
         w = float(row["__w_norm__"])
         w_str = format_pct(w)
 
         val_str = ""
-        if dollar_col and not pd.isna(row[dollar_col]):
+        if dollar_col and dollar_col in top_view.columns and not pd.isna(row.get(dollar_col, np.nan)):
             val_str = f"${float(row[dollar_col]):,.0f}"
 
         chg_str = ""
         chg_class = ""
         row_class = ""
-        if change_col and not pd.isna(row[change_col]):
+        if change_col and change_col in top_view.columns and not pd.isna(row.get(change_col, np.nan)):
             chg = float(row[change_col])
             chg_str = f"{chg*100:+.2f}%"
             if chg >= 0:
@@ -597,14 +624,14 @@ with left:
         cells = []
         if ticker_col:
             cells.append(f"<td>{ticker_html}</td>")
-        if name_col:
+        if name_col and name_col in top_view.columns:
             cells.append(f"<td>{n}</td>")
-        if sector_col:
+        if sector_col and sector_col in top_view.columns:
             cells.append(f"<td>{s}</td>")
         cells.append(f'<td class="top10-weight">{w_str}</td>')
-        if dollar_col:
+        if dollar_col and dollar_col in top_view.columns:
             cells.append(f"<td>{val_str}</td>")
-        if change_col:
+        if change_col and change_col in top_view.columns:
             cells.append(f'<td class="{chg_class}">{chg_str}</td>')
 
         rows_html.append(f'<tr class="{row_class}">{"".join(cells)}</tr>')
@@ -639,7 +666,7 @@ with right:
         unsafe_allow_html=True,
     )
 
-    # Top-10 bar chart
+    # Top-10 bar chart (deduped positions)
     if ticker_col:
         bar_data = pd.DataFrame({
             "Ticker": top10[ticker_col],
@@ -664,9 +691,9 @@ with right:
     c1, c2 = st.columns([1.2, 1.0])
 
     with c1:
-        if sector_col:
+        if sector_col and sector_col in df_pos.columns:
             sec_data = (
-                df.groupby(df[sector_col])["__w_norm__"]
+                df_pos.groupby(df_pos[sector_col])["__w_norm__"]
                 .sum()
                 .reset_index()
                 .rename(columns={sector_col: "Sector", "__w_norm__": "Weight"})
@@ -714,17 +741,17 @@ with right:
 st.markdown("")
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 
-# Breadth / Wave move from 1D change column if available
+# Breadth / Wave move from aggregated change column if available
 breadth_html = ""
-if change_col and change_col in df.columns:
-    change_series = df[change_col].astype(float)
+if change_col and change_col in df_pos.columns:
+    change_series = pd.to_numeric(df_pos[change_col], errors="coerce").fillna(0.0)
     adv = int((change_series > 0).sum())
     dec = int((change_series < 0).sum())
     flat = int((change_series == 0).sum())
-    total_signaled = max(adv + dec + flat, 1)
 
-    wave_move = float((change_series * weights_norm).sum())
-    breadth = adv / max(adv + dec, 1)
+    # Weighted 1D move using normalized weights
+    wave_move = float((change_series * df_pos["__w_norm__"]).sum())
+    breadth = adv / max(adv + dec, 1) if (adv + dec) > 0 else 0.0
 
     breadth_html = f"""
         <div class="footer-note" style="margin-top:0.3rem;">
