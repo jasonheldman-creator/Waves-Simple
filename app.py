@@ -1,3 +1,8 @@
+import pandas as pd
+import streamlit as st
+
+# Set correct weights CSV name
+WEIGHTS_FILE = "WaveWeight-Sheet1.csv - Sheet1.csv"
 # -------------------------------------------------------------------
 # LOAD WAVE WEIGHTS (auto-fix malformed CSV)
 # -------------------------------------------------------------------
