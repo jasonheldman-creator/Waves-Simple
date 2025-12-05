@@ -1,3 +1,14 @@
+with st.expander("SHOW RAW FILE CONTENTS"):
+    try:
+        st.code(Path("Master_Stock_Sheet.csv").read_text()[:2000])
+    except:
+        st.write("Could not read Master_Stock_Sheet.csv")
+
+    try:
+        st.code(Path("wave_weights.csv").read_text()[:2000])
+    except:
+        st.write("Could not read wave_weights.csv")
+
 import streamlit as st
 import pandas as pd
 import numpy as np
