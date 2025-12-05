@@ -1,12 +1,16 @@
-# app.py — WAVES Intelligence™ Live Engine Console (Bloomberg-style + VIX)
+# app.py — WAVES Intelligence™ Multi-Wave Console (9 Waves + VIX)
 #
-# Requirements (already in your requirements.txt):
+# Files expected in this folder:
+#   - list.csv            (universe: Ticker, Name, Sector, etc.)
+#   - wave_weights.csv    (allocations: either long format or wide format)
+#
+# Requirements (in requirements.txt):
 #   streamlit
 #   pandas
 #   yfinance
 #   plotly
 #
-# Run (locally):
+# Run locally:
 #   streamlit run app.py
 
 import os
@@ -19,7 +23,7 @@ import streamlit as st
 import plotly.express as px
 
 # ------------------------------------------------------------
-# STREAMLIT PAGE CONFIG (must be at top level)
+# STREAMLIT CONFIG
 # ------------------------------------------------------------
 st.set_page_config(
     page_title="WAVES Intelligence Console",
@@ -30,14 +34,15 @@ st.set_page_config(
 # CONFIG
 # ------------------------------------------------------------
 
-UNIVERSE_CSV = "list.csv"  # matches your file name
+UNIVERSE_CSV = "list.csv"
+WAVE_WEIGHTS_CSV = "wave_weights.csv"
 
 DEFAULT_TICKER_COLS = ["symbol", "ticker", "Symbol", "Ticker"]
 DEFAULT_NAME_COLS = ["name", "Name", "company", "Company"]
 DEFAULT_WEIGHT_COLS = ["weight", "Weight", "weight_pct", "Weight %", "Weight%"]
 SECTOR_COL_NAMES = ["sector", "Sector", "SECTOR"]
 
-REFRESH_SECONDS = 60  # console rerun cadence
+REFRESH_SECONDS = 60
 VIX_SYMBOL = "^VIX"
 VIX_PERIOD = "6mo"
 VIX_INTERVAL = "1d"
@@ -49,9 +54,9 @@ VIX_INTERVAL = "1d"
 
 @st.cache_data(show_spinner=True)
 def load_universe():
-    """Load the universe from list.csv in the current folder."""
+    """Load security universe from list.csv."""
     if not os.path.exists(UNIVERSE_CSV):
-        return None, f"[UNIVERSE ERROR] '{UNIVERSE_CSV}' not found in current directory."
+        return None, f"[UNIVERSE ERROR] '{UNIVERSE_CSV}' not found."
 
     try:
         df = pd.read_csv(UNIVERSE_CSV)
@@ -63,13 +68,12 @@ def load_universe():
 
     ticker_col = next((c for c in DEFAULT_TICKER_COLS if c in df.columns), None)
     name_col = next((c for c in DEFAULT_NAME_COLS if c in df.columns), None)
-    weight_col = next((c for c in DEFAULT_WEIGHT_COLS if c in df.columns), None)
     sector_col = next((c for c in SECTOR_COL_NAMES if c in df.columns), None)
 
     if ticker_col is None:
         return None, (
             f"[UNIVERSE WARNING] Could not find a ticker/symbol column in '{UNIVERSE_CSV}'. "
-            f"Columns found: {list(df.columns)}"
+            f"Columns: {list(df.columns)}"
         )
 
     df = df.copy()
@@ -80,23 +84,82 @@ def load_universe():
     else:
         df["Name"] = df["Ticker"]
 
-    if weight_col:
-        df.rename(columns={weight_col: "Weight"}, inplace=True)
-    else:
-        df["Weight"] = 1 / len(df)
-
     if sector_col:
         df.rename(columns={sector_col: "Sector"}, inplace=True)
     else:
         df["Sector"] = "Unclassified"
 
-    # normalize weights
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
-    total_w = df["Weight"].sum()
-    if total_w > 0:
-        df["Weight"] = df["Weight"] / total_w
-
     return df, None
+
+
+@st.cache_data(show_spinner=True)
+def load_wave_weights():
+    """
+    Load Wave allocations from wave_weights.csv.
+
+    Supports:
+    1) Long format:
+        Wave, Ticker, Weight
+    2) Wide format:
+        Ticker, Wave1, Wave2, ..., WaveN  (weights per column)
+    """
+    if not os.path.exists(WAVE_WEIGHTS_CSV):
+        return None, f"[WAVE ERROR] '{WAVE_WEIGHTS_CSV}' not found."
+
+    try:
+        df = pd.read_csv(WAVE_WEIGHTS_CSV)
+    except Exception as e:
+        return None, f"[WAVE ERROR] Failed to read '{WAVE_WEIGHTS_CSV}': {e}"
+
+    if df.empty:
+        return None, f"[WAVE ERROR] '{WAVE_WEIGHTS_CSV}' is empty."
+
+    # Case 1: long format with explicit Wave column
+    if "Wave" in df.columns and any(c in df.columns for c in DEFAULT_TICKER_COLS):
+        ticker_col = next((c for c in DEFAULT_TICKER_COLS if c in df.columns), None)
+        df_long = df.copy()
+        df_long.rename(columns={ticker_col: "Ticker"}, inplace=True)
+        if "Weight" not in df_long.columns:
+            return None, (
+                f"[WAVE ERROR] Long format detected in '{WAVE_WEIGHTS_CSV}' "
+                f"but no 'Weight' column found."
+            )
+        df_long["Weight"] = pd.to_numeric(df_long["Weight"], errors="coerce").fillna(0.0)
+
+    else:
+        # Case 2: wide format — first column is ticker, remaining columns are waves
+        ticker_col = next((c for c in DEFAULT_TICKER_COLS if c in df.columns), None)
+        if ticker_col is None:
+            # assume first column is ticker if not labelled
+            ticker_col = df.columns[0]
+
+        df_wide = df.copy()
+        df_wide.rename(columns={ticker_col: "Ticker"}, inplace=True)
+
+        wave_cols = [c for c in df_wide.columns if c != "Ticker"]
+        if not wave_cols:
+            return None, (
+                f"[WAVE ERROR] Could not find any wave columns in '{WAVE_WEIGHTS_CSV}'."
+            )
+
+        df_long = df_wide.melt(
+            id_vars=["Ticker"],
+            value_vars=wave_cols,
+            var_name="Wave",
+            value_name="Weight",
+        )
+        df_long["Weight"] = pd.to_numeric(df_long["Weight"], errors="coerce").fillna(0.0)
+
+        # drop zero-weight rows
+        df_long = df_long[df_long["Weight"] > 0]
+
+    # Normalize weights within each wave
+    df_long = df_long.copy()
+    total_by_wave = df_long.groupby("Wave")["Weight"].transform("sum")
+    total_by_wave = total_by_wave.replace(0, 1.0)
+    df_long["Weight"] = df_long["Weight"] / total_by_wave
+
+    return df_long, None
 
 
 @st.cache_data(show_spinner=False)
@@ -131,8 +194,7 @@ def fetch_live_prices(tickers):
     if not data:
         return pd.DataFrame()
 
-    prices_df = pd.DataFrame(data).set_index("Ticker")
-    return prices_df
+    return pd.DataFrame(data).set_index("Ticker")
 
 
 @st.cache_data(show_spinner=False)
@@ -175,7 +237,7 @@ def apply_global_style():
     )
 
 
-def render_header(active_mode: str, equity_exposure: float):
+def render_header(active_wave: str, active_mode: str, equity_exposure: float):
     st.markdown(
         """
         <h1 style="color:#18FFB2; text-align:center; font-family:system-ui; margin-bottom:0;">
@@ -186,7 +248,7 @@ def render_header(active_mode: str, equity_exposure: float):
     )
 
     subtitle = (
-        f"Mode: <b>{active_mode}</b> • "
+        f"Wave: <b>{active_wave}</b> • Mode: <b>{active_mode}</b> • "
         "Alpha-Minus-Beta Discipline • Vector-Driven Allocation"
     )
     st.markdown(
@@ -200,9 +262,9 @@ def render_header(active_mode: str, equity_exposure: float):
     )
 
 
-def show_universe_summary(df: pd.DataFrame, equity_exposure: float):
-    total_names = len(df)
-    top10_weight = df.sort_values("Weight", ascending=False)["Weight"].head(10).sum()
+def show_wave_snapshot(df_wave: pd.DataFrame, equity_exposure: float):
+    total_names = len(df_wave)
+    top10_weight = df_wave.sort_values("Weight", ascending=False)["Weight"].head(10).sum()
     last_refresh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     st.subheader("Wave Snapshot")
@@ -214,10 +276,10 @@ def show_universe_summary(df: pd.DataFrame, equity_exposure: float):
     col4.metric("Last Refresh", last_refresh)
 
 
-def show_top_holdings(df: pd.DataFrame, prices_df: pd.DataFrame):
+def show_top_holdings(df_wave: pd.DataFrame, prices_df: pd.DataFrame):
     st.subheader("Top 10 Positions")
 
-    top = df.sort_values("Weight", ascending=False).head(10).copy()
+    top = df_wave.sort_values("Weight", ascending=False).head(10).copy()
 
     if not prices_df.empty:
         top = top.merge(prices_df.reset_index(), on="Ticker", how="left")
@@ -237,8 +299,7 @@ def show_top_holdings(df: pd.DataFrame, prices_df: pd.DataFrame):
         hide_index=True,
     )
 
-    # bar chart
-    chart_df = df.sort_values("Weight", ascending=False).head(10).copy()
+    chart_df = df_wave.sort_values("Weight", ascending=False).head(10).copy()
     chart_df["Weight %"] = chart_df["Weight"] * 100
     fig = px.bar(
         chart_df,
@@ -258,13 +319,13 @@ def show_top_holdings(df: pd.DataFrame, prices_df: pd.DataFrame):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def show_sector_breakdown(df: pd.DataFrame):
-    if "Sector" not in df.columns:
+def show_sector_breakdown(df_wave: pd.DataFrame):
+    if "Sector" not in df_wave.columns:
         st.info("No 'Sector' column found in list.csv — sector breakdown not available.")
         return
 
     sector_df = (
-        df.groupby("Sector")["Weight"]
+        df_wave.groupby("Sector")["Weight"]
         .sum()
         .reset_index()
         .sort_values("Weight", ascending=False)
@@ -334,10 +395,25 @@ def show_alpha_placeholder():
 def main():
     apply_global_style()
 
+    # Load data
+    universe_df, uni_err = load_universe()
+    wave_weights_df, wave_err = load_wave_weights()
+
+    if uni_err:
+        st.error(uni_err)
+        return
+    if wave_err:
+        st.error(wave_err)
+        return
+
+    # Determine list of Waves
+    waves = sorted(wave_weights_df["Wave"].unique().tolist())
+
     # Sidebar controls
     with st.sidebar:
         st.markdown("### Engine Controls")
 
+        active_wave = st.selectbox("Wave", options=waves, index=0)
         mode = st.radio(
             "Wave Mode",
             options=["Standard", "Alpha-Minus-Beta", "Private Logic"],
@@ -356,45 +432,44 @@ def main():
         auto_refresh = st.checkbox("Auto-refresh console", value=True)
         st.caption(f"Console will rerun every {REFRESH_SECONDS} seconds when enabled.")
 
-    df, error_msg = load_universe()
-    if error_msg:
-        st.error(error_msg)
-        return
-    if df is None or df.empty:
-        st.error("[UNIVERSE ERROR] No data available from list.csv.")
-        return
+    # Build the active Wave holdings
+    wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
+    df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
 
-    render_header(mode, float(equity_exposure))
-    show_universe_summary(df, float(equity_exposure))
+    # If any tickers didn't match universe, keep them but fallback values
+    df_wave["Name"] = df_wave["Name"].fillna(df_wave["Ticker"])
+    if "Sector" not in df_wave.columns:
+        df_wave["Sector"] = "Unclassified"
 
-    tickers = df["Ticker"].dropna().unique().tolist()
+    render_header(active_wave, mode, float(equity_exposure))
+    show_wave_snapshot(df_wave, float(equity_exposure))
+
+    tickers = df_wave["Ticker"].dropna().unique().tolist()
     prices_df = fetch_live_prices(tickers)
     vix_df = fetch_vix_series()
 
-    # Layout: left = positions, right = sectors/VIX
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        show_top_holdings(df, prices_df)
+        show_top_holdings(df_wave, prices_df)
 
     with col_right:
         tabs = st.tabs(["Sectors", "VIX"])
         with tabs[0]:
             st.subheader("Sector View")
-            show_sector_breakdown(df)
+            show_sector_breakdown(df_wave)
         with tabs[1]:
             st.subheader("Volatility (VIX)")
             show_vix_chart(vix_df)
 
     show_alpha_placeholder()
 
-    with st.expander("View Full Universe (raw)"):
+    with st.expander("View Full Wave Holdings (raw)"):
         st.dataframe(
-            df[["Ticker", "Name", "Sector", "Weight"]],
+            df_wave[["Ticker", "Name", "Sector", "Weight"]],
             use_container_width=True,
         )
 
-    # Auto-refresh loop
     if auto_refresh:
         st.markdown(
             f"<p style='color:#888888; font-size:12px;'>"
