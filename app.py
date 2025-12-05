@@ -19,7 +19,7 @@ import streamlit as st
 # CONFIG
 # ============================================================
 
-UNIVERSE_CSV = "List.csv"        # <-- THIS IS THE ONLY CSV WE USE
+UNIVERSE_CSV = "list.csv"        # <-- THIS IS THE ONLY CSV WE USE
 DEFAULT_TICKER_COLS = ["symbol", "ticker", "Symbol", "Ticker"]
 DEFAULT_NAME_COLS = ["name", "Name", "company", "Company"]
 DEFAULT_WEIGHT_COLS = ["weight", "Weight", "weight_pct", "Weight %"]
