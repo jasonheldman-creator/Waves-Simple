@@ -6,14 +6,13 @@ from datetime import datetime
 import yfinance as yf
 
 # ------------------------------------------------------------
-# PAGE SETUP
+# PAGE SETUP & BRANDING
 # ------------------------------------------------------------
 st.set_page_config(
-    page_title="WAVES Intelligence – S&P Wave Console",
+    page_title="WAVES Intelligence – Wave Engine Console",
     layout="wide"
 )
 
-# --- WAVES BRANDING & THEME ---
 BRAND_BG = "#07072C"       # deep navy
 BRAND_CARD = "#111133"     # card background
 BRAND_ACCENT = "#30F2A0"   # neon green/teal
@@ -100,22 +99,33 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("WAVES Intelligence – S&P Wave Console")
+# Header / title
 st.markdown(
-    "<div style='margin-top:-0.75rem;margin-bottom:0.5rem;color:#B7BAFF;font-size:0.85rem;'>"
-    "AI-driven Wave engine • Live pricing • Transparent trade suggestions"
-    "</div>",
+    """
+    <div style="display:flex;align-items:baseline;gap:0.6rem;margin-bottom:0.2rem;">
+        <div style="font-size:1.5rem;font-weight:650;color:#FFFFFF;">
+            WAVES Intelligence&trade; – Wave Engine Console
+        </div>
+        <div style="font-size:0.9rem;color:#7F84FF;">
+            Live multi-wave portfolio engine • Demo view
+        </div>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
-# Manual refresh so you can click it during the demo
-if st.button("🔄 Refresh live data"):
-    st.experimental_rerun()
-
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# Manual refresh for live prices
+cols_top = st.columns([1, 2, 2])
+with cols_top[0]:
+    if st.button("🔄 Refresh live data"):
+        st.experimental_rerun()
+with cols_top[1]:
+    st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+with cols_top[2]:
+    st.caption("Note: Prices via Yahoo Finance – demo only, not for trading.")
 
 # ------------------------------------------------------------
-# SAFE CSV READER
+# HELPERS
 # ------------------------------------------------------------
 def safe_read_csv(path: Path) -> pd.DataFrame:
     """Forgiving CSV reader that won't crash on bad lines."""
@@ -126,10 +136,8 @@ def safe_read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-# ------------------------------------------------------------
-# LOAD MASTER UNIVERSE (Master_Stock_Sheet.csv)
-# ------------------------------------------------------------
 def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
+    """Load and normalize the master stock universe."""
     df = safe_read_csv(path)
     if df.empty:
         return df
@@ -160,10 +168,9 @@ def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
 
     df = df.rename(columns=rename_map)
 
-    # Ensure required columns exist
+    # Ensure required columns
     if "Ticker" not in df.columns:
         df["Ticker"] = np.nan
-
     if "Company" not in df.columns:
         df["Company"] = df["Ticker"]
     if "Sector" not in df.columns:
@@ -183,7 +190,6 @@ def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
     df["MarketValue"] = pd.to_numeric(df["MarketValue"], errors="coerce")
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
 
-    # Drop empty tickers
     df = df[df["Ticker"] != ""]
     df = df.dropna(subset=["Ticker"])
 
@@ -191,10 +197,8 @@ def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
     return df
 
 
-# ------------------------------------------------------------
-# LOAD WAVE WEIGHTS (wave_weights.csv)
-# ------------------------------------------------------------
 def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
+    """Load and normalize wave weight definitions."""
     df = safe_read_csv(path)
     if df.empty:
         return df
@@ -231,7 +235,7 @@ def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
     df = df[(df["Ticker"] != "") & df["Ticker"].notna()]
     df = df.dropna(subset=["Weight_wave"])
 
-    # Normalize within each wave
+    # Normalize within each wave so they sum to 1.0
     df["Weight_wave"] = df.groupby("Wave")["Weight_wave"].transform(
         lambda x: x / x.sum() if x.sum() else x
     )
@@ -240,12 +244,9 @@ def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
     return df
 
 
-# ------------------------------------------------------------
-# LIVE PRICE FETCH
-# ------------------------------------------------------------
-def fetch_live_prices(tickers: list[str]) -> dict:
-    """Fetch live last prices from Yahoo. If something fails, we just skip it."""
-    prices: dict[str, float] = {}
+def fetch_live_prices(tickers) -> dict:
+    """Fetch live prices from Yahoo Finance. If it fails for a ticker, we skip it."""
+    prices = {}
     for t in tickers:
         try:
             hist = yf.Ticker(t).history(period="1d", interval="1m")
@@ -275,14 +276,14 @@ if universe_df.empty or weights_df.empty:
     st.stop()
 
 # ------------------------------------------------------------
-# SIDEBAR – WAVE / MODE / CASH CONTROLS
+# SIDEBAR – CONTROLS
 # ------------------------------------------------------------
 waves = sorted(weights_df["Wave"].unique())
 selected_wave = st.sidebar.selectbox("Choose Wave", waves, index=0)
 
 risk_mode = st.sidebar.selectbox(
     "Risk Mode",
-    ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+    ["Standard", "Alpha-Minus-Beta", "Private Logic"],
 )
 
 cash_buffer_pct = st.sidebar.slider(
@@ -312,19 +313,14 @@ st.sidebar.markdown(
 wave_slice = weights_df[weights_df["Wave"] == selected_wave].copy()
 merged = wave_slice.merge(universe_df, on="Ticker", how="left")
 
-# Fill missing sectors for charts
 merged["Sector"] = merged["Sector"].fillna("").replace("", "Unknown")
-
-# ------------------------------------------------------------
-# LIVE PRICING & “TRADES”
-# ------------------------------------------------------------
 merged["Price"] = pd.to_numeric(merged["Price"], errors="coerce")
 
+# Live prices
 live_price_map = fetch_live_prices(merged["Ticker"].unique().tolist())
 merged["LivePrice"] = merged["Ticker"].map(live_price_map)
 merged["LivePrice"] = merged["LivePrice"].fillna(merged["Price"])
 
-# Assume demo notional portfolio
 PORTFOLIO_NOTIONAL = 1_000_000.0
 
 valid_price_mask = merged["Price"] > 0
@@ -355,142 +351,180 @@ total_wave_weight = float(merged["Weight_wave"].sum()) if not merged.empty else 
 cash_exposure = cash_buffer_pct / 100.0
 equity_exposure = max(0.0, 1.0 - cash_exposure) * total_wave_weight
 
+# Concentration stats
+top5_weight = merged["Weight_wave"].nlargest(5).sum() if not merged.empty else 0.0
+top10_weight = merged["Weight_wave"].nlargest(10).sum() if not merged.empty else 0.0
+top_holding = (
+    merged.sort_values("Weight_wave", ascending=False).iloc[0]
+    if not merged.empty
+    else None
+)
+
 # ------------------------------------------------------------
 # TOP SUMMARY STRIP
 # ------------------------------------------------------------
 st.subheader(f"Wave: {selected_wave}")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Holdings", len(merged))
-c2.metric("Total Wave Weight", f"{total_wave_weight:.4f}")
-c3.metric("Equity Exposure", f"{equity_exposure * 100:,.1f}%")
-c4.metric("Cash Buffer", f"{cash_buffer_pct:.1f}%")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Holdings", len(merged))
+m2.metric("Total Wave Weight", f"{total_wave_weight:.4f}")
+m3.metric("Equity Exposure", f"{equity_exposure * 100:,.1f}%")
+m4.metric("Cash Buffer", f"{cash_buffer_pct:.1f}%")
 
-if not merged.empty:
-    sorted_by_weight = merged.sort_values("Weight_wave", ascending=False)
-    top1 = sorted_by_weight.iloc[0]
-    top5_weight = sorted_by_weight["Weight_wave"].head(5).sum()
-    top10_weight = sorted_by_weight["Weight_wave"].head(10).sum()
-
-    c5, c6, c7 = st.columns(3)
-    c5.metric("Top Holding", f"{top1['Ticker']} – {top1['Company']}")
-    c6.metric("Top 5 Concentration", f"{top5_weight * 100:,.1f}%")
-    c7.metric("Top 10 Concentration", f"{top10_weight * 100:,.1f}%")
+if top_holding is not None:
+    m5, m6, m7 = st.columns(3)
+    m5.metric("Top Holding", f"{top_holding['Ticker']} – {top_holding['Company']}")
+    m6.metric("Top 5 Concentration", f"{top5_weight * 100:,.1f}%")
+    m7.metric("Top 10 Concentration", f"{top10_weight * 100:,.1f}%")
 
 # ------------------------------------------------------------
-# HOLDINGS TABLE (WITH LIVE PRICES)
+# TABS: OVERVIEW / HOLDINGS / TRADES / ANALYTICS
 # ------------------------------------------------------------
-st.markdown(
-    "<h3 style='margin-top:1.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Holdings (Live)</h3>",
-    unsafe_allow_html=True,
+tab_overview, tab_holdings, tab_trades, tab_analytics = st.tabs(
+    ["📊 Overview", "📋 Holdings", "📝 Trades", "📈 Analytics"]
 )
 
 display_df = merged.copy()
 display_df["TargetWeight"] = display_df["Weight_wave"]
 display_df["CurrentWeight"] = display_df["LiveWeight"]
 
-display_cols = [
-    "Ticker",
-    "Company",
-    "Sector",
-    "TargetWeight",
-    "CurrentWeight",
-    "Drift",
-    "Price",
-    "LivePrice",
-    "Shares",
-    "LiveValue",
-]
-display_cols = [c for c in display_cols if c in display_df.columns]
+# ---------------- OVERVIEW TAB ----------------
+with tab_overview:
+    st.markdown(
+        "<h4 style='margin-top:0.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Wave Snapshot</h4>",
+        unsafe_allow_html=True,
+    )
 
-st.dataframe(
-    display_df[display_cols].sort_values("CurrentWeight", ascending=False),
-    use_container_width=True,
-)
+    o1, o2 = st.columns(2)
 
-# ------------------------------------------------------------
-# TRADE SUGGESTIONS
-# ------------------------------------------------------------
-st.markdown(
-    "<h3 style='margin-top:1.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Trade Suggestions (Engine Output – Demo Only)</h3>",
-    unsafe_allow_html=True,
-)
+    with o1:
+        st.markdown(
+            "<div style='font-size:0.8rem;color:#B6B9FF;margin-bottom:0.3rem;'>Top 10 by Target Weight</div>",
+            unsafe_allow_html=True,
+        )
+        if not display_df.empty:
+            top10 = (
+                display_df.sort_values("TargetWeight", ascending=False)
+                .head(10)[["Ticker", "Company", "Sector", "TargetWeight"]]
+            )
+            st.dataframe(top10, use_container_width=True, height=280)
 
-trades = merged[merged["TradeAction"] != ""].copy()
-if trades.empty:
-    st.write("No trades required – Wave is within drift thresholds.")
-else:
-    trade_cols = [
+    with o2:
+        st.markdown(
+            "<div style='font-size:0.8rem;color:#B6B9FF;margin-bottom:0.3rem;'>Top 10 by Current Weight</div>",
+            unsafe_allow_html=True,
+        )
+        if not display_df.empty:
+            top10_live = (
+                display_df.sort_values("CurrentWeight", ascending=False)
+                .head(10)[["Ticker", "Company", "Sector", "CurrentWeight", "Drift"]]
+            )
+            st.dataframe(top10_live, use_container_width=True, height=280)
+
+    st.markdown(
+        "<h4 style='margin-top:1.2rem;margin-bottom:0.4rem;color:#E3E5FF;'>Mode Explanation</h4>",
+        unsafe_allow_html=True,
+    )
+
+    if risk_mode == "Standard":
+        st.write(
+            "In **Standard** mode, the Wave targets full beta to its benchmark with "
+            "disciplined rebalancing and tax-efficient execution. The cash buffer is "
+            "minimal and primarily operational."
+        )
+    elif risk_mode == "Alpha-Minus-Beta":
+        st.write(
+            "In **Alpha-Minus-Beta** mode, the Wave dials down market beta (using the cash "
+            "buffer and defensive tilts) while preserving as much stock-selection alpha "
+            "as possible. This is the capital-preservation profile."
+        )
+    else:
+        st.write(
+            "In **Private Logic** mode, the Wave applies more aggressive adaptive logic "
+            "within guardrails, allowing higher turnover and more dynamic tilts, while "
+            "keeping full transparency on every position and trade."
+        )
+
+# ---------------- HOLDINGS TAB ----------------
+with tab_holdings:
+    st.markdown(
+        "<h4 style='margin-top:0.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Holdings (Live)</h4>",
+        unsafe_allow_html=True,
+    )
+
+    holdings_cols = [
         "Ticker",
         "Company",
-        "TradeAction",
+        "Sector",
+        "TargetWeight",
+        "CurrentWeight",
         "Drift",
-        "TradeShares",
-        "TradeSize_$",
+        "Price",
         "LivePrice",
+        "Shares",
+        "LiveValue",
     ]
-    trade_cols = [c for c in trade_cols if c in trades.columns]
+    holdings_cols = [c for c in holdings_cols if c in display_df.columns]
+
     st.dataframe(
-        trades[trade_cols].sort_values(
-            "TradeSize_$", key=lambda s: s.abs(), ascending=False
-        ),
+        display_df[holdings_cols].sort_values("CurrentWeight", ascending=False),
         use_container_width=True,
     )
 
-# ------------------------------------------------------------
-# CHARTS – TOP 10 & SECTOR ALLOCATION
-# ------------------------------------------------------------
-chart_col1, chart_col2 = st.columns(2)
-
-with chart_col1:
+# ---------------- TRADES TAB ----------------
+with tab_trades:
     st.markdown(
-        "<h4 style='margin-top:1.0rem;margin-bottom:0.4rem;color:#E3E5FF;'>Top 10 Holdings by Current Weight</h4>",
+        "<h4 style='margin-top:0.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Trade Suggestions (Demo Engine Output)</h4>",
         unsafe_allow_html=True,
     )
-    if not display_df.empty:
-        top10 = (
-            display_df.sort_values("CurrentWeight", ascending=False)
-            .head(10)
-            .set_index("Ticker")["CurrentWeight"]
+
+    trades = merged[merged["TradeAction"] != ""].copy()
+    if trades.empty:
+        st.write("No trades required – Wave is within drift thresholds.")
+    else:
+        trade_cols = [
+            "Ticker",
+            "Company",
+            "TradeAction",
+            "Drift",
+            "TradeShares",
+            "TradeSize_$",
+            "LivePrice",
+        ]
+        trade_cols = [c for c in trade_cols if c in trades.columns]
+        st.dataframe(
+            trades[trade_cols].sort_values(
+                "TradeSize_$", key=lambda s: s.abs(), ascending=False
+            ),
+            use_container_width=True,
         )
-        st.bar_chart(top10)
 
-with chart_col2:
-    st.markdown(
-        "<h4 style='margin-top:1.0rem;margin-bottom:0.4rem;color:#E3E5FF;'>Sector Allocation (Current Weights)</h4>",
-        unsafe_allow_html=True,
-    )
-    if "Sector" in display_df.columns and not display_df.empty:
-        sector_weights = (
-            display_df.groupby("Sector")["CurrentWeight"]
-            .sum()
-            .sort_values(ascending=False)
+# ---------------- ANALYTICS TAB ----------------
+with tab_analytics:
+    a1, a2 = st.columns(2)
+
+    with a1:
+        st.markdown(
+            "<h4 style='margin-top:0.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Top 10 by Current Weight</h4>",
+            unsafe_allow_html=True,
         )
-        st.bar_chart(sector_weights)
+        if not display_df.empty:
+            top10_chart = (
+                display_df.sort_values("CurrentWeight", ascending=False)
+                .head(10)
+                .set_index("Ticker")["CurrentWeight"]
+            )
+            st.bar_chart(top10_chart)
 
-# ------------------------------------------------------------
-# RISK MODE EXPLANATION (for the demo narrative)
-# ------------------------------------------------------------
-st.markdown(
-    "<h3 style='margin-top:1.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Mode Explanation (for Franklin demo)</h3>",
-    unsafe_allow_html=True,
-)
-
-if risk_mode == "Standard":
-    st.write(
-        "In **Standard** mode, the Wave targets full beta to its benchmark with "
-        "disciplined rebalancing and tax-efficient execution. The cash buffer is "
-        "minimal and primarily operational."
-    )
-elif risk_mode == "Alpha-Minus-Beta":
-    st.write(
-        "In **Alpha-Minus-Beta** mode, the Wave dials down market beta (using the cash "
-        "buffer and defensive tilts) while preserving as much stock-selection alpha "
-        "as possible. This is the capital-preservation profile."
-    )
-else:
-    st.write(
-        "In **Private Logic** mode, the Wave applies more aggressive adaptive logic "
-        "within guardrails, allowing higher turnover and more dynamic tilts, while "
-        "keeping full transparency on every position and trade."
-    )
+    with a2:
+        st.markdown(
+            "<h4 style='margin-top:0.5rem;margin-bottom:0.4rem;color:#E3E5FF;'>Sector Allocation (Current Weights)</h4>",
+            unsafe_allow_html=True,
+        )
+        if "Sector" in display_df.columns and not display_df.empty:
+            sector_weights = (
+                display_df.groupby("Sector")["CurrentWeight"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+            st.bar_chart(sector_weights)
