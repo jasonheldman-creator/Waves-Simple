@@ -1,159 +1,215 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+st.set_page_config(page_title="WAVES Intelligence – S&P Wave Console", layout="wide")
+st.title("WAVES Intelligence – S&P Wave Console")
+
 # ------------------------------------------------------------
-# MAIN APP
+# Helpers
 # ------------------------------------------------------------
 
-def main():
-    st.title("WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE")
-
-    st.caption("Equity Waves only – benchmark-aware, AI-directed, multi-mode demo.")
-
-    # Try to load the universe file
+def safe_read_csv(path: Path) -> pd.DataFrame:
+    """Very forgiving CSV reader for messy Google Sheets exports."""
     try:
-        universe = load_universe(UNIVERSE_FILE)
-    except FileNotFoundError:
-        st.error(
-            f"Universe file **{UNIVERSE_FILE}** not found in the repo root.\n\n"
-            "Make sure that exact CSV is uploaded to the GitHub repository."
+        return pd.read_csv(
+            path,
+            engine="python",       # more tolerant
+            on_bad_lines="skip",   # skip malformed rows
         )
-        st.stop()
-    except ValueError as e:
-        st.error(
-            f"Unable to use universe file **{UNIVERSE_FILE}**.\n\nError: {e}"
-        )
-        st.stop()
     except Exception as e:
-        st.error(
-            f"Unexpected error loading **{UNIVERSE_FILE}**.\n\nError: {e}"
-        )
-        st.stop()
+        st.error(f"Unable to read CSV '{path.name}': {e}")
+        return pd.DataFrame()
 
-    # Sidebar controls
-    st.sidebar.header("Wave controls")
 
-    # For tomorrow's demo we run a single S&P Wave from this universe
-    wave_name = st.sidebar.selectbox(
-        "Select Wave",
-        options=["S&P 500 Wave"],
-        index=0,
+def find_csv(hints) -> Path | None:
+    """
+    Find the first .csv file in the folder whose name contains ALL hint strings.
+    Example: hints=['master','stock'] will match 'Master_Stock_Sheet.csv'.
+    """
+    hints = [h.lower() for h in hints]
+    candidates = []
+    for p in Path(".").glob("*.csv"):
+        name = p.name.lower()
+        if all(h in name for h in hints):
+            candidates.append(p)
+    if not candidates:
+        return None
+    return sorted(candidates)[0]
+
+
+# ------------------------------------------------------------
+# Load master universe
+# ------------------------------------------------------------
+
+def load_universe() -> pd.DataFrame:
+    path = find_csv(["master", "stock"])
+    if path is None:
+        st.error("Could not find your master stock CSV (expecting something like 'Master_Stock_Sheet.csv').")
+        return pd.DataFrame()
+
+    df = safe_read_csv(path)
+    if df.empty:
+        st.error(f"Master stock file '{path.name}' loaded but has 0 rows.")
+        return df
+
+    # Normalize columns
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"[^a-z0-9]+", "_", regex=True)
     )
 
-    mode = st.sidebar.radio(
-        "Mode",
-        options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-        index=0,
+    rename_map = {}
+    for col in df.columns:
+        if col in ["ticker", "symbol"]:
+            rename_map[col] = "Ticker"
+        elif col in ["company", "company_name", "security", "name"]:
+            rename_map[col] = "Company"
+        elif col in ["weight", "index_weight", "wgt"]:
+            rename_map[col] = "Weight"
+        elif col in ["sector", "gics_sector"]:
+            rename_map[col] = "Sector"
+        elif col in ["market_value", "marketvalue", "mv"]:
+            rename_map[col] = "MarketValue"
+        elif col in ["price", "last_price"]:
+            rename_map[col] = "Price"
+
+    df = df.rename(columns=rename_map)
+
+    # Ensure required + optional columns exist
+    for col in ["Ticker", "Company", "Weight"]:
+        if col not in df.columns:
+            df[col] = np.nan
+    for col in ["Sector", "MarketValue", "Price"]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    # Clean types
+    df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
+    df["Company"] = df["Company"].astype(str).str.strip()
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
+    df["MarketValue"] = pd.to_numeric(df["MarketValue"], errors="coerce")
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
+
+    # Drop bad rows
+    df = df.dropna(subset=["Ticker", "Weight"])
+    df = df[df["Ticker"] != ""]
+
+    # Final column order
+    keep = ["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]
+    df = df[keep]
+
+    return df
+
+
+# ------------------------------------------------------------
+# Load wave weights
+# ------------------------------------------------------------
+
+def load_wave_weights() -> pd.DataFrame:
+    # Try to find anything with "wave" and "weight" in the name
+    path = find_csv(["wave", "weight"])
+    if path is None:
+        st.error("Could not find your wave weights CSV (expecting something like 'wave_weights.csv').")
+        return pd.DataFrame()
+
+    df = safe_read_csv(path)
+    if df.empty:
+        st.error(f"Wave weights file '{path.name}' loaded but has 0 rows.")
+        return df
+
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"[^a-z0-9]+", "_", regex=True)
     )
 
-    st.markdown(
-        f"### {wave_name} (LIVE Demo)\n"
-        f"**Mode:** {mode} – equities only; "
-        f"in production this mode flag would drive overlays, SmartSafe™, and rebalancing."
+    rename_map = {}
+    for col in df.columns:
+        if col in ["ticker", "symbol"]:
+            rename_map[col] = "Ticker"
+        elif col in ["wave", "portfolio", "strategy"]:
+            rename_map[col] = "Wave"
+        elif col in ["weight", "wgt", "alloc"]:
+            rename_map[col] = "Weight"
+
+    df = df.rename(columns=rename_map)
+
+    # Handle missing columns
+    if "Ticker" not in df.columns:
+        df["Ticker"] = np.nan
+    if "Weight" not in df.columns:
+        df["Weight"] = np.nan
+
+    # If there is no Wave column at all, assume the whole file is one wave: SP500_Wave
+    if "Wave" not in df.columns:
+        df["Wave"] = "SP500_Wave"
+
+    df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
+    df["Wave"] = df["Wave"].astype(str).str.strip()
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
+
+    df = df.dropna(subset=["Ticker", "Wave", "Weight"])
+    df = df[df["Ticker"] != ""]
+
+    # Normalize weights within each wave (so they sum to 1)
+    df["Weight"] = df.groupby("Wave")["Weight"].transform(
+        lambda x: x / x.sum() if x.sum() else x
     )
 
-    wave_df = universe.copy()
-
-    # --------------------------------------------------------
-    # METRICS
-    # --------------------------------------------------------
-    total_holdings = len(wave_df)
-    top10_weight = wave_df.nlargest(10, "NormWeight")["NormWeight"].sum() * 100
-    largest_weight = wave_df["NormWeight"].max() * 100
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total holdings", f"{total_holdings:,}")
-    c2.metric("Weight in Top-10", f"{top10_weight:.1f}%")
-    c3.metric("Largest single position", f"{largest_weight:.2f}%")
-
-    # --------------------------------------------------------
-    # TOP-10 HOLDINGS TABLE & CHART
-    # --------------------------------------------------------
-    st.markdown("#### Top 10 holdings – ranked by Wave weight")
-
-    top10 = wave_df.nlargest(10, "NormWeight").copy()
-
-    # Build a clean table with no duplicate column names
-    cols = []
-    for c in ["Ticker", "Company", "Sector", "Price"]:
-        if c in top10.columns:
-            cols.append(c)
-
-    top10["Weight %"] = (top10["NormWeight"] * 100).round(2)
-    cols.append("Weight %")
-
-    top10_display = top10[cols].copy()
-
-    tcol, ccol = st.columns([2, 3])
-
-    with tcol:
-        st.dataframe(top10_display, use_container_width=True)
-
-    with ccol:
-        fig_top = px.bar(
-            top10,
-            x="Ticker",
-            y="NormWeight",
-            title="Top-10 by Wave weight",
-        )
-        fig_top.update_layout(
-            xaxis_title="Ticker",
-            yaxis_title="Weight",
-            showlegend=False,
-        )
-        fig_top.update_traces(hovertemplate="%{x}: %{y:.4f}")
-        st.plotly_chart(fig_top, use_container_width=True)
-
-    # --------------------------------------------------------
-    # SECTOR ALLOCATION
-    # --------------------------------------------------------
-    st.markdown("#### Sector allocation")
-
-    sector_weights = (
-        wave_df.groupby("Sector", as_index=False)["NormWeight"].sum()
-    )
-    sector_weights["Weight %"] = (sector_weights["NormWeight"] * 100).round(2)
-
-    if len(sector_weights) > 1:
-        fig_sector = px.bar(
-            sector_weights.sort_values("NormWeight", ascending=False),
-            x="Sector",
-            y="NormWeight",
-            title="Sector allocation by Wave weight",
-        )
-        fig_sector.update_layout(
-            xaxis_title="Sector",
-            yaxis_title="Weight",
-            showlegend=False,
-        )
-        fig_sector.update_traces(hovertemplate="%{x}: %{y:.4f}")
-        st.plotly_chart(fig_sector, use_container_width=True)
-    else:
-        st.info("Sector information not available in the universe file.")
-
-    # --------------------------------------------------------
-    # WEIGHT DECAY CURVE
-    # --------------------------------------------------------
-    st.markdown("#### Weight decay curve")
-
-    weight_series = (
-        wave_df["NormWeight"].sort_values(ascending=False).reset_index(drop=True)
-    )
-    weight_df = pd.DataFrame(
-        {"Rank": np.arange(1, len(weight_series) + 1), "Weight": weight_series}
-    )
-
-    fig_decay = px.line(
-        weight_df,
-        x="Rank",
-        y="Weight",
-        title="Weight decay (position rank vs. weight)",
-    )
-    fig_decay.update_layout(
-        xaxis_title="Position rank (1 = largest)",
-        yaxis_title="Weight",
-        showlegend=False,
-    )
-    fig_decay.update_traces(hovertemplate="Rank %{x}: %{y:.6f}")
-    st.plotly_chart(fig_decay, use_container_width=True)
+    df = df[["Ticker", "Wave", "Weight"]]
+    return df
 
 
-if __name__ == "__main__":
-    main()
+# ------------------------------------------------------------
+# Load data
+# ------------------------------------------------------------
+
+universe_df = load_universe()
+weights_df = load_wave_weights()
+
+with st.expander("Debug: CSV status"):
+    st.write("Universe file rows:", len(universe_df))
+    st.write("Wave weights file rows:", len(weights_df))
+    st.write("Universe columns:", list(universe_df.columns))
+    st.write("Wave weights columns:", list(weights_df.columns))
+
+if universe_df.empty or weights_df.empty:
+    st.stop()
+
+# ------------------------------------------------------------
+# App UI
+# ------------------------------------------------------------
+
+waves = sorted(weights_df["Wave"].unique())
+selected_wave = st.sidebar.selectbox("Choose Wave", waves)
+
+wave_slice = weights_df[weights_df["Wave"] == selected_wave]
+merged = wave_slice.merge(universe_df, on="Ticker", how="left")
+
+st.subheader(f"Wave: {selected_wave}")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Holdings", len(merged))
+c2.metric("Total Weight", f"{merged['Weight'].sum():.4f}")
+c3.metric("Missing company info", int(merged["Company"].isna().sum()))
+
+st.markdown("### Holdings")
+cols = ["Ticker", "Company", "Sector", "Weight", "Price", "MarketValue"]
+cols = [c for c in cols if c in merged.columns]
+st.dataframe(
+    merged[cols].sort_values("Weight", ascending=False),
+    use_container_width=True,
+)
+
+st.markdown("### Top 20 by Weight")
+top20 = (
+    merged.sort_values("Weight", ascending=False)
+    .head(20)
+    .set_index("Ticker")["Weight"]
+)
+st.bar_chart(top20)
