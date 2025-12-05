@@ -1,234 +1,404 @@
-"""
-app.py
+import os
+import glob
 
-WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE
-Streamlit UI that sits on top of waves_equity_universe_v2.py.
-"""
-
-from __future__ import annotations
-
-import textwrap
-
+import numpy as np
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
-from waves_equity_universe_v2 import (
-    WAVES_CONFIG,
-    get_wave_config,
-    load_wave_holdings_and_stats,
-)
 
-
-# ---------------------------------------------------------------------------
-#  Page config / theme
-# ---------------------------------------------------------------------------
-
+# ------------------------------------------------------------
+# Page config
+# ------------------------------------------------------------
 st.set_page_config(
-    page_title="WAVES Intelligence – Portfolio Wave Console",
-    page_icon="🌊",
+    page_title="WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
 
-# ---------------------------------------------------------------------------
-#  Sidebar – wave selector & controls
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
 
-st.sidebar.title("🌊 WAVES Console")
+def _find_column(df: pd.DataFrame, candidates):
+    """
+    Given a DataFrame and a list of candidate column names,
+    return the first match (case-insensitive), or None.
+    """
+    lower_map = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        col = lower_map.get(cand.lower())
+        if col is not None:
+            return col
+    return None
 
-# Build selectbox options like: "SPX – S&P 500 Core Equity Wave"
-options = [f"{cfg.wave_id} – {cfg.name}" for cfg in WAVES_CONFIG]
-default_index = 0  # SPX at top
 
-selected_label = st.sidebar.selectbox("Select Wave", options, index=default_index)
-selected_wave_id = selected_label.split("–")[0].strip()
+@st.cache_data
+def load_universe(universe_path: str = "Master_Stock_Sheet5.csv"):
+    """
+    Load the master equity universe (S&P 500 + others) from CSV.
 
-cfg = get_wave_config(selected_wave_id)
+    Expected columns (case-insensitive):
+      - Ticker / Symbol
+      - Company / Name
+      - Sector
+      - Weight (optional)
+    """
+    if not os.path.exists(universe_path):
+        st.error(
+            f"Universe file **{universe_path}** not found in the repo root.\n\n"
+            f"Make sure `Master_Stock_Sheet5.csv` is uploaded to the **Waves-Simple** "
+            f"repository beside `app.py`."
+        )
+        return None
+
+    df = pd.read_csv(universe_path)
+
+    # Normalise column names
+    ticker_col = _find_column(df, ["Ticker", "Symbol"])
+    name_col = _find_column(df, ["Company", "Name"])
+    sector_col = _find_column(df, ["Sector"])
+    weight_col = _find_column(df, ["Weight", "IndexWeight", "Index Weight"])
+
+    if ticker_col is None:
+        st.error("Could not find a **Ticker** column in Master_Stock_Sheet5.csv.")
+        return None
+
+    # Build a cleaned view
+    clean = pd.DataFrame()
+    clean["Ticker"] = df[ticker_col].astype(str).str.strip()
+
+    if name_col is not None:
+        clean["Company"] = df[name_col].astype(str).str.strip()
+    else:
+        clean["Company"] = ""
+
+    if sector_col is not None:
+        clean["Sector"] = df[sector_col].astype(str).str.strip()
+    else:
+        clean["Sector"] = "Other"
+
+    if weight_col is not None:
+        # Universe / index weight (not the Wave weight)
+        clean["UniverseWeight"] = pd.to_numeric(
+            df[weight_col], errors="coerce"
+        ).fillna(0.0)
+    else:
+        clean["UniverseWeight"] = 0.0
+
+    # Add an equal-weight fallback if universe weights are missing
+    if clean["UniverseWeight"].sum() <= 0:
+        n = len(clean)
+        if n > 0:
+            clean["UniverseWeight"] = 1.0 / n
+
+    return clean
+
+
+@st.cache_data
+def load_wave_weights():
+    """
+    Load the Wave → Ticker → Weight mapping from any CSV
+    whose filename starts with 'WaveWeight' and ends with '.csv'.
+
+    This is designed to catch Google Sheets exports like:
+      - WaveWeight-Sheet1.csv
+      - WaveWeight-Sheet1.csv - Sheet1.csv
+    """
+    candidates = sorted(glob.glob("WaveWeight*.csv"))
+    if not candidates:
+        st.error(
+            "No **WaveWeight** CSV found in the repo root.\n\n"
+            "Expected a file whose name starts with `WaveWeight` and ends with `.csv`, "
+            "for example: `WaveWeight-Sheet1.csv` or `WaveWeight-Sheet1.csv - Sheet1.csv`."
+        )
+        return None, None
+
+    path = candidates[0]
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        st.error(f"Failed to read WaveWeight file `{path}`: {e}")
+        return None, None
+
+    # Normalise expected columns
+    wave_col = _find_column(df, ["Wave", "Wave Name"])
+    ticker_col = _find_column(df, ["Ticker", "Symbol"])
+    weight_col = _find_column(df, ["Weight", "WaveWeight"])
+
+    if wave_col is None or ticker_col is None or weight_col is None:
+        st.error(
+            f"Wave weight file `{path}` must contain at least these columns: "
+            f"`Wave`, `Ticker`, `Weight` (case-insensitive)."
+        )
+        return None, None
+
+    wf = pd.DataFrame()
+    wf["Wave"] = df[wave_col].astype(str).str.strip()
+    wf["Ticker"] = df[ticker_col].astype(str).str.strip()
+    wf["Weight"] = pd.to_numeric(df[weight_col], errors="coerce")
+
+    # Drop rows with missing ticker or wave
+    wf = wf.dropna(subset=["Wave", "Ticker"]).copy()
+
+    # Replace any invalid weights with equal-weight per Wave
+    for wave_name, group in wf.groupby("Wave"):
+        mask = wf["Wave"] == wave_name
+        # Any non-positive or NaN weights?
+        bad = (wf.loc[mask, "Weight"].isna()) | (wf.loc[mask, "Weight"] <= 0)
+        if bad.any():
+            count = mask.sum()
+            wf.loc[mask, "Weight"] = 1.0 / count
+        else:
+            # Normalise weights per wave
+            total = wf.loc[mask, "Weight"].sum()
+            if total > 0:
+                wf.loc[mask, "Weight"] = wf.loc[mask, "Weight"] / total
+
+    wave_names = sorted(wf["Wave"].unique().tolist())
+    return wf, wave_names
+
+
+def apply_mode_weights(base_weights: pd.Series, mode: str) -> pd.Series:
+    """
+    Apply a simple, deterministic transformation to base Wave weights
+    depending on the selected mode.
+    """
+    w = base_weights.clip(lower=0.0).astype(float)
+
+    if w.sum() == 0:
+        return w
+
+    if mode == "Standard":
+        adj = w.values
+    elif mode == "Alpha-Minus-Beta":
+        # Slightly flatten extremes to reduce concentration risk
+        adj = np.sqrt(w.values)
+    elif mode == "Private Logic™":
+        # Slightly accentuate conviction names
+        adj = np.power(w.values, 1.2)
+    else:
+        adj = w.values
+
+    adj = adj / np.sum(adj)
+    return pd.Series(adj, index=w.index)
+
+
+def build_wave_holdings(universe_df: pd.DataFrame,
+                        weights_df: pd.DataFrame,
+                        wave_name: str,
+                        mode: str) -> pd.DataFrame:
+    """
+    Merge Wave-specific weights with the master universe to get
+    a clean holdings table for that Wave in the selected mode.
+    """
+    wave_weights = weights_df[weights_df["Wave"] == wave_name].copy()
+    if wave_weights.empty:
+        return pd.DataFrame()
+
+    merged = pd.merge(
+        wave_weights,
+        universe_df,
+        on="Ticker",
+        how="left",
+        suffixes=("", "_universe"),
+    )
+
+    # Base wave weights
+    merged["BaseWeight"] = pd.to_numeric(
+        merged["Weight"], errors="coerce"
+    ).fillna(0.0)
+
+    # Apply the mode transform
+    merged["WaveWeight"] = apply_mode_weights(merged["BaseWeight"], mode)
+
+    # Clean columns for display
+    cols = ["Ticker", "Company", "Sector", "WaveWeight"]
+    for c in cols:
+        if c not in merged.columns:
+            merged[c] = "" if c in ["Company", "Sector"] else 0.0
+
+    merged = merged[cols].copy()
+    merged = merged.sort_values("WaveWeight", ascending=False)
+
+    return merged
+
+
+def format_pct(x):
+    try:
+        return f"{100 * float(x):.2f}%"
+    except Exception:
+        return ""
+
+
+# ------------------------------------------------------------
+# Main UI
+# ------------------------------------------------------------
+
+universe = load_universe()
+weights, wave_names = load_wave_weights()
+
+if universe is None or weights is None or not wave_names:
+    st.stop()
+
+# Sidebar
+st.sidebar.header("Data source & mode")
+
+st.sidebar.success(
+    "Universe: **Master_Stock_Sheet5.csv**\n\n"
+    f"Wave weights file detected: **{sorted(glob.glob('WaveWeight*.csv'))[0]}**"
+)
+
+selected_wave = st.sidebar.selectbox(
+    "Select Wave",
+    options=wave_names,
+    index=0,
+)
+
+mode = st.sidebar.radio(
+    "Mode",
+    options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+    index=0,
+)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Mode: **Standard**  ·  Type: **AI-Managed Wave**")
-st.sidebar.caption("Console is read-only – no live trades are placed.")
+st.sidebar.caption(
+    "All Waves share the **same 5,000-stock equity universe**. "
+    "Each Wave selects a different subset with different weights."
+)
 
-
-# ---------------------------------------------------------------------------
-#  Main header
-# ---------------------------------------------------------------------------
-
+# Main header
+st.markdown("### WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE")
 st.markdown(
-    "<h2 style='color:#9AE6FF; margin-bottom:0;'>"
-    "WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE"
-    "</h2>",
-    unsafe_allow_html=True,
+    f"#### {selected_wave} (LIVE Demo) &nbsp;&nbsp;·&nbsp;&nbsp; Mode: **{mode}**"
 )
 
-st.markdown(
-    f"<h1 style='color:#4FD1FF; margin-top:0.25rem;'>"
-    f"{cfg.name} (LIVE Demo)"
-    "</h1>",
-    unsafe_allow_html=True,
-)
-
-subheader = (
-    f"Mode: **Standard**  ·  Benchmark: **{cfg.benchmark}**  ·  "
-    f"Style: **{cfg.style}**  ·  Type: **{cfg.wave_type}**"
-)
-st.markdown(subheader)
-
-st.caption(
-    "Below is a live rendering of the selected Wave’s holdings, concentration, "
-    "and basic risk profile – using the same data Franklin uses, but managed by "
-    "a small AI-augmented team instead of hundreds of humans."
-)
-
-
-# ---------------------------------------------------------------------------
-#  Load holdings / stats
-# ---------------------------------------------------------------------------
-
-try:
-    holdings, stats = load_wave_holdings_and_stats(selected_wave_id)
-    load_error = None
-except Exception as exc:  # noqa: BLE001
-    holdings = pd.DataFrame()
-    stats = {"num_holdings": 0, "largest_weight": None, "top10_weight": None}
-    load_error = str(exc)
-
-if load_error:
-    st.error(
-        "Wave engine import failed – see details below.\n\n"
-        f"```text\n{load_error}\n```"
-    )
-    st.stop()
+holdings = build_wave_holdings(universe, weights, selected_wave, mode)
 
 if holdings.empty:
     st.warning(
-        f"Holdings for {cfg.wave_id} – {cfg.name} are currently empty. "
-        "This can happen if the Wave filters select no names from the master universe."
+        f"No holdings found for Wave **{selected_wave}**. "
+        f"Check your WaveWeight CSV for that Wave name."
     )
     st.stop()
 
+# --- Key stats
+total_holdings = len(holdings)
+largest_position = holdings["WaveWeight"].max()
+top10 = holdings.head(10).copy()
 
-# ---------------------------------------------------------------------------
-#  Top section – Top 10 + Snapshot
-# ---------------------------------------------------------------------------
+alpha_capture_est = 0.0  # placeholder until we plug in performance engine
 
-col_left, col_right = st.columns([2.2, 1.1])
+# Layout: 2 columns for Top-10 table & chart
+col1, col2 = st.columns([1.1, 1.2])
 
-with col_left:
+with col1:
     st.subheader("Top 10 holdings")
-
-    top10 = holdings.sort_values("weight", ascending=False).head(10).copy()
-    top10["Weight %"] = (top10["weight"] * 100).round(2)
-
-    display_cols = ["ticker", "name", "Weight %"]
-    display_df = top10[display_cols].rename(
-        columns={"ticker": "Ticker", "name": "Name"}
-    )
+    display_top10 = top10.copy()
+    display_top10["Weight"] = display_top10["WaveWeight"].apply(format_pct)
+    display_top10 = display_top10.drop(columns=["WaveWeight"])
     st.dataframe(
-        display_df,
+        display_top10,
         use_container_width=True,
         hide_index=True,
     )
 
-with col_right:
-    st.subheader("Wave snapshot")
-
-    num_holdings = stats.get("num_holdings") or 0
-    largest_weight = stats.get("largest_weight") or 0.0
-    top10_weight = stats.get("top10_weight") or 0.0
-
-    st.markdown(
-        f"""
-        **{cfg.wave_id} – {cfg.name}**
-
-        • **Total holdings:** {num_holdings:,}  
-        • **Largest position:** {largest_weight*100:0.2f}%  
-        • **Top-10 weight:** {top10_weight*100:0.2f}%  
-        • **Equity vs Cash:** 100% / 0% (demo)  
-        """
+with col2:
+    st.subheader("Top-10 by Wave weight")
+    fig_top = px.bar(
+        top10,
+        x="Ticker",
+        y="WaveWeight",
+        hover_data=["Company", "Sector"],
+        labels={"WaveWeight": "Weight"},
     )
-
-
-# ---------------------------------------------------------------------------
-#  Second row – charts
-# ---------------------------------------------------------------------------
-
-c1, c2, c3 = st.columns(3)
-
-# Ensure we have numeric weights
-weights = pd.to_numeric(holdings["weight"], errors="coerce").fillna(0)
-sorted_holdings = holdings.assign(weight=weights).sort_values("weight", ascending=False)
-
-with c1:
-    st.markdown("#### Top-10 profile – Wave weight distribution")
-
-    chart_df = sorted_holdings.head(10)[["ticker", "weight"]].copy()
-    chart_df["Weight %"] = chart_df["weight"] * 100
-
-    st.bar_chart(
-        chart_df.set_index("ticker")["Weight %"],
-        use_container_width=True,
+    fig_top.update_layout(
+        xaxis_title="Ticker",
+        yaxis_title="Wave weight",
+        margin=dict(l=10, r=10, t=30, b=30),
     )
+    st.plotly_chart(fig_top, use_container_width=True)
 
-with c2:
-    st.markdown("#### Sector allocation")
-
-    if "sector" in holdings.columns:
-        sector_series = (
-            holdings["sector"]
-            .astype(str)
-            .replace({"": "Unclassified", "nan": "Unclassified"})
-        )
-        sector_weights = (
-            pd.DataFrame({"sector": sector_series, "weight": weights})
-            .groupby("sector")["weight"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-
-        if not sector_weights.empty:
-            sector_chart = (sector_weights * 100).to_frame("Weight %")
-            st.bar_chart(sector_chart, use_container_width=True)
-        else:
-            st.info("No sector data populated yet in the master sheet.")
-    else:
-        st.info("No sector column found in the master sheet – add one to unlock this view.")
-
-with c3:
-    st.markdown("#### Holding rank curve")
-
-    rank_df = sorted_holdings.reset_index(drop=True)
-    rank_df["Rank"] = rank_df.index + 1
-    rank_df["Weight %"] = rank_df["weight"] * 100
-
-    st.line_chart(
-        rank_df.set_index("Rank")["Weight %"],
-        use_container_width=True,
-    )
-
-
-# ---------------------------------------------------------------------------
-#  Bottom – Mode overview narrative
-# ---------------------------------------------------------------------------
+# --- Metrics row
+m1, m2, m3, m4 = st.columns(4)
+with m1:
+    st.metric("Total holdings", f"{total_holdings:,}")
+with m2:
+    st.metric("Largest position (est.)", format_pct(largest_position))
+with m3:
+    st.metric("Equity vs cash", "100% / 0%")  # demo: fully invested
+with m4:
+    st.metric("Alpha capture (est.)", "n/a")
 
 st.markdown("---")
 
-overview = textwrap.dedent(
-    f"""
-    **Mode overview**
+# --- Sector allocation and weight decay
+c1, c2 = st.columns(2)
 
-    • **Standard mode** shows how the {cfg.name} Wave would be managed in production:  
-      benchmark-aware, risk-controlled, and designed to express the Wave’s mandate using
-      the same holdings data Franklin relies on today.
+with c1:
+    st.subheader("Sector allocation")
+    if "Sector" in holdings.columns:
+        sector_alloc = (
+            holdings.groupby("Sector")["WaveWeight"]
+            .sum()
+            .reset_index()
+            .sort_values("WaveWeight", ascending=False)
+        )
+        fig_sector = px.bar(
+            sector_alloc,
+            x="Sector",
+            y="WaveWeight",
+            labels={"WaveWeight": "Weight"},
+        )
+        fig_sector.update_layout(
+            xaxis_title="Sector",
+            yaxis_title="Wave weight",
+            margin=dict(l=10, r=10, t=30, b=30),
+        )
+        st.plotly_chart(fig_sector, use_container_width=True)
+    else:
+        st.info("No **Sector** column available in the universe file.")
 
-    • The **AI-Managed Wave** design lets a small, augmented team oversee thousands of
-      securities and dozens of Waves simultaneously – instead of hundreds of siloed
-      analysts and PMs – while still operating inside institutional guardrails.
+with c2:
+    st.subheader("Weight decay curve")
+    decay = holdings.copy()
+    decay["Rank"] = np.arange(1, len(decay) + 1)
+    fig_decay = px.line(
+        decay,
+        x="Rank",
+        y="WaveWeight",
+        labels={"Rank": "Holding rank (largest to smallest)",
+                "WaveWeight": "Weight"},
+    )
+    fig_decay.update_layout(
+        margin=dict(l=10, r=10, t=30, b=30),
+    )
+    st.plotly_chart(fig_decay, use_container_width=True)
 
-    • Each Wave is carved from a single **Master_Stock_Sheet** universe, which can be
-      swapped to Franklin’s internal data feeds without changing the console.
-    """
-).strip()
+st.markdown("---")
 
-st.markdown(overview)
+# --- Console status / narrative
+st.subheader("Mode overview & console status")
+
+mode_notes = {
+    "Standard": (
+        "Mode **Standard** – equities only. In production, this mode would keep "
+        "the Wave tightly aligned to its benchmark with controlled tracking error."
+    ),
+    "Alpha-Minus-Beta": (
+        "Mode **Alpha-Minus-Beta** – de-emphasizes single-name concentration, "
+        "targeting smoother risk with a focus on benchmark-aware alpha."
+    ),
+    "Private Logic™": (
+        "Mode **Private Logic™** – proprietary leadership, regime-switching, and "
+        "SmartSafe™ overlays tuned for institutional-grade alpha at higher risk."
+    ),
+}
+
+st.write(mode_notes.get(mode, ""))
+
+st.info(
+    "This is a **demo console**. No real orders are routed from this screen. "
+    "All analytics are calculated from the uploaded universe and WaveWeight CSVs. "
+    "Every Wave and mode can be exported to a full institutional console."
+)
