@@ -1,284 +1,227 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 
-# ---------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------
+# -------------------------------------------------------------------
+# FILE NAMES – must match EXACTLY what you see in the repo
+# -------------------------------------------------------------------
+UNIVERSE_FILE = "Master_Stock_Sheet.csv - Sheet5.csv"
+WEIGHTS_FILE = "WaveWeight-Sheet1.csv - Sheet1.csv"
+
 st.set_page_config(
     page_title="WAVES Intelligence – Portfolio Wave Console",
     layout="wide",
 )
 
-# These MUST match the filenames in your GitHub repo root exactly
-UNIVERSE_FILE = "Master_Stock_Sheet.csv - Sheet5.csv"
-WEIGHTS_FILE = "WaveWeight-Sheet1.csv - Sheet1.csv"
-
-# ---------------------------------------------------------------------
+# -------------------------------------------------------------------
 # DATA LOADERS
-# ---------------------------------------------------------------------
+# -------------------------------------------------------------------
 @st.cache_data
-def load_universe(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    # Try to normalize column names a bit
-    cols = {c.strip(): c.strip() for c in df.columns}
-    df.rename(columns=cols, inplace=True)
-    # Make sure key columns exist
-    required = ["Ticker"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Universe missing columns: {missing}")
-    return df
+def load_universe() -> pd.DataFrame:
+    """Load the master stock universe (Sheet5)."""
+    df = pd.read_csv(UNIVERSE_FILE)
 
-
-@st.cache_data
-def load_wave_weights(path: str) -> pd.DataFrame:
-    # Some exports quote the whole line – let pandas figure it out
-    df = pd.read_csv(path)
-    # Try to handle both "Wave" and "Wave Name" header variants
-    rename_map = {}
-    for col in df.columns:
-        col_stripped = str(col).strip()
-        if col_stripped.lower() in ("wave", "wave name"):
-            rename_map[col] = "Wave"
-        elif col_stripped.lower() == "ticker":
-            rename_map[col] = "Ticker"
-        elif col_stripped.lower() == "weight":
-            rename_map[col] = "Weight"
-    df.rename(columns=rename_map, inplace=True)
-
-    required = ["Wave", "Ticker", "Weight"]
-    missing = [c for c in required if c not in df.columns]
+    # Basic sanity check
+    required_cols = ["Ticker", "Weight"]
+    missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(
-            f"Wave weights file must contain columns {required}. "
-            f"Found: {list(df.columns)}"
+            f"Universe file `{UNIVERSE_FILE}` is missing columns: {missing}"
         )
 
-    # Clean up values
-    df["Wave"] = df["Wave"].astype(str).str.strip().str.replace('"', "")
-    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.replace('"', "")
-    # Convert weight like "0.10" or "0,10" to float
-    df["Weight"] = (
-        df["Weight"]
-        .astype(str)
-        .str.replace('"', "")
-        .str.replace(",", ".", regex=False)
-        .astype(float)
-    )
     return df
 
 
-def get_wave_holdings(universe: pd.DataFrame,
-                      weights: pd.DataFrame,
-                      wave_name: str) -> pd.DataFrame:
-    w = weights[weights["Wave"] == wave_name].copy()
-    if w.empty:
-        return pd.DataFrame()
+@st.cache_data
+def load_weights() -> pd.DataFrame:
+    """
+    Load the wave weights file.
 
-    # Normalise to 100% inside the Wave
-    w["Weight"] = w["Weight"].astype(float)
-    total = w["Weight"].sum()
-    if total == 0:
-        w["NormWeight"] = 0.0
-    else:
-        w["NormWeight"] = w["Weight"] / total
+    Handles two formats:
 
-    # Merge with universe to pull in Sector / Company / etc if present
-    u = universe.copy()
-    # Try to standardise a couple of common columns
-    # (from your master sheet screenshots)
-    if "Company" not in u.columns and "Name" in u.columns:
-        u.rename(columns={"Name": "Company"}, inplace=True)
+    1) Proper CSV:
+        Wave,Ticker,Weight
+        S&P 500 Wave,NVDA,0.10
+        ...
 
-    merged = pd.merge(
-        w,
-        u,
+    2) "Single column" CSV (what you have now):
+        "Wave,Ticker,Weight"
+        "S&P 500 Wave,NVDA,0.10"
+        ...
+
+       In this case, everything is in one column and we need to split it.
+    """
+    df = pd.read_csv(WEIGHTS_FILE)
+    expected = ["Wave", "Ticker", "Weight"]
+
+    # Case 1: already a clean CSV
+    if all(col in df.columns for col in expected):
+        weights = df[expected].copy()
+        weights["Weight"] = pd.to_numeric(weights["Weight"], errors="coerce")
+        weights = weights.dropna(subset=["Ticker", "Weight"])
+        return weights
+
+    # Case 2: single column like "Wave,Ticker,Weight"
+    if len(df.columns) == 1:
+        # Re-read with no header so we can see every row
+        raw = pd.read_csv(WEIGHTS_FILE, header=None, names=["raw"])
+        raw = raw.dropna()
+
+        # Strip quotes and whitespace
+        raw["raw"] = raw["raw"].astype(str).str.strip().str.replace('"', "")
+
+        # Drop the header row "Wave,Ticker,Weight"
+        raw = raw[raw["raw"] != "Wave,Ticker,Weight"]
+
+        # Split into three parts
+        parts = raw["raw"].str.split(",", expand=True)
+
+        if parts.shape[1] != 3:
+            raise ValueError(
+                f"Could not split weights into 3 columns. Got {parts.shape[1]} columns."
+            )
+
+        parts.columns = expected
+        parts["Weight"] = pd.to_numeric(parts["Weight"], errors="coerce")
+        parts = parts.dropna(subset=["Ticker", "Weight"])
+        return parts
+
+    # Anything else: tell us what went wrong
+    raise ValueError(
+        f"Wave weights file must contain columns {expected}. "
+        f"Found: {list(df.columns)}"
+    )
+
+
+# -------------------------------------------------------------------
+# MAIN APP
+# -------------------------------------------------------------------
+def main():
+    st.markdown(
+        "## WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE\n"
+        "Equity Waves only – benchmark-aware, AI-directed, multi-mode demo."
+    )
+
+    # Try loading data with friendly error messages
+    try:
+        universe = load_universe()
+    except Exception as e:
+        st.error(
+            f"❌ Cannot load universe file `{UNIVERSE_FILE}`.\n\n"
+            f"Error: {e}"
+        )
+        st.stop()
+
+    try:
+        weights = load_weights()
+    except Exception as e:
+        st.error(
+            f"❌ Cannot load weights file `{WEIGHTS_FILE}`.\n\n"
+            f"Make sure it has Wave / Ticker / Weight data.\n\n"
+            f"Error: {e}"
+        )
+        st.stop()
+
+    # ----------------------------------------------------------------
+    # SIDEBAR – wave selector + mode
+    # ----------------------------------------------------------------
+    st.sidebar.header("Data source")
+    st.sidebar.write(f"Universe file: `{UNIVERSE_FILE}`")
+    st.sidebar.write(f"Weights file: `{WEIGHTS_FILE}`")
+
+    wave_names = sorted(weights["Wave"].unique())
+    selected_wave = st.sidebar.selectbox("Select Wave", wave_names)
+
+    mode = st.sidebar.radio(
+        "Mode",
+        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+        index=0,
+    )
+
+    # ----------------------------------------------------------------
+    # FILTER FOR SELECTED WAVE
+    # ----------------------------------------------------------------
+    wave_positions = weights[weights["Wave"] == selected_wave].copy()
+
+    if wave_positions.empty:
+        st.warning(f"No holdings found in weights file for **{selected_wave}**.")
+        st.stop()
+
+    # Join to universe for company / sector / price info
+    wave_positions = wave_positions.merge(
+        universe,
         on="Ticker",
         how="left",
         suffixes=("", "_universe"),
     )
-    return merged
 
-
-# ---------------------------------------------------------------------
-# MAIN APP
-# ---------------------------------------------------------------------
-def main():
-    st.markdown(
-        "<h1 style='margin-bottom:0.25rem;'>WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE</h1>",
-        unsafe_allow_html=True,
+    # Normalise weights to 100%
+    wave_positions["Weight"] = pd.to_numeric(
+        wave_positions["Weight"], errors="coerce"
     )
-    st.caption("Equity Waves only – benchmark-aware, AI-directed, multi-mode demo.")
-
-    # ----------------- Load data with friendly errors -----------------
-    try:
-        universe = load_universe(UNIVERSE_FILE)
-    except Exception as e:
-        st.error(
-            f"❌ Universe file not found or invalid.\n\n"
-            f"Expected file: **{UNIVERSE_FILE}** in the repo root.\n\n"
-            f"Error: `{e}`"
-        )
+    wave_positions = wave_positions.dropna(subset=["Weight"])
+    total_w = wave_positions["Weight"].sum()
+    if total_w == 0:
+        st.error(f"All weights are zero for **{selected_wave}**.")
         st.stop()
 
-    try:
-        wave_weights = load_wave_weights(WEIGHTS_FILE)
-    except Exception as e:
-        st.error(
-            f"❌ Cannot load weights file **{WEIGHTS_FILE}**.\n\n"
-            f"Make sure it’s a clean CSV with columns `Wave, Ticker, Weight`.\n\n"
-            f"Error: `{e}`"
-        )
-        st.stop()
+    wave_positions["NormWeight"] = wave_positions["Weight"] / total_w
 
-    # If we got here, both files loaded
-    wave_names = sorted(wave_weights["Wave"].unique())
-
-    # ----------------------- Sidebar controls -------------------------
-    with st.sidebar:
-        st.subheader("Data source")
-
-        st.write("Universe file:")
-        st.code(UNIVERSE_FILE, language="text")
-
-        st.write("Wave weights file:")
-        st.code(WEIGHTS_FILE, language="text")
-
-        st.markdown("---")
-
-        selected_wave = st.selectbox("Select Wave", wave_names)
-
-        st.subheader("Mode")
-        mode = st.radio(
-            "Mode",
-            options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-            index=0,
-        )
-
-    # ------------------ Compute current Wave view ---------------------
-    holdings = get_wave_holdings(universe, wave_weights, selected_wave)
-
-    if holdings.empty:
-        st.warning(
-            f"No holdings found for Wave **{selected_wave}** "
-            f"in weights file **{WEIGHTS_FILE}**."
-        )
-        st.stop()
-
-    # Convenience columns
-    if "Sector" not in holdings.columns:
-        holdings["Sector"] = "Unknown"
-
-    # Sort by weight
-    holdings_sorted = holdings.sort_values("NormWeight", ascending=False)
-
-    # Summary stats
-    total_holdings = len(holdings_sorted)
-    largest_w = holdings_sorted["NormWeight"].max()
-    largest_ticker = holdings_sorted.iloc[0]["Ticker"]
-
-    # Just placeholders for now – we’ll wire real alpha/cash later
-    equity_vs_cash = "100% / 0%"
-    alpha_capture = "n/a"
-
-    # ------------------------- Headline block -------------------------
+    # ----------------------------------------------------------------
+    # HEADER
+    # ----------------------------------------------------------------
     st.markdown(
-        f"### {selected_wave} (LIVE Demo)  \n"
-        f"*Mode: **{mode}*** – equities only."
+        f"### {selected_wave} (LIVE Demo)\n"
+        f"Mode: **{mode}** – equities only; in production this flag would drive overlays, "
+        f"SmartSafe™, and rebalancing."
     )
 
-    # --------------------- Top-10 & chart row -------------------------
-    left, right = st.columns([1.1, 1.4])
+    # ----------------------------------------------------------------
+    # TOP-10 TABLE
+    # ----------------------------------------------------------------
+    st.markdown("#### Top 10 holdings – ranked by Wave weight")
 
-    with left:
-        st.markdown("#### Top 10 holdings")
-        top10 = holdings_sorted.head(10).copy()
-        top10_display = top10[["Ticker", "Company", "Sector", "NormWeight"]].copy()
-        top10_display["Weight %"] = (top10_display["NormWeight"] * 100).round(2)
-        top10_display = top10_display.drop(columns=["NormWeight"])
-        st.dataframe(
-            top10_display,
-            use_container_width=True,
-            hide_index=True,
-        )
+    top10 = wave_positions.nlargest(10, "NormWeight").copy()
 
-    with right:
-        st.markdown("#### Top-10 by Wave weight")
-        fig_top10 = px.bar(
-            top10,
+    # Columns to show if present
+    display_cols = []
+    for col in ["Ticker", "Company", "Sector", "Price", "NormWeight"]:
+        if col in top10.columns:
+            display_cols.append(col)
+
+    if "NormWeight" in display_cols:
+        top10["Weight %"] = (top10["NormWeight"] * 100).round(2)
+        display_cols = [
+            col if col != "NormWeight" else "Weight %"
+            for col in display_cols
+        ]
+
+    # Rename NormWeight column for display
+    rename_map = {"NormWeight": "Weight %"}
+    top10 = top10.rename(columns=rename_map)
+
+    st.dataframe(top10[display_cols], use_container_width=True)
+
+    # ----------------------------------------------------------------
+    # TOP-10 BAR CHART
+    # ----------------------------------------------------------------
+    if {"Ticker", "NormWeight"} <= set(wave_positions.columns):
+        chart_data = top10.sort_values("NormWeight", ascending=False)
+        fig = px.bar(
+            chart_data,
             x="Ticker",
             y="NormWeight",
             labels={"NormWeight": "Weight"},
         )
-        fig_top10.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            yaxis_tickformat=".1%",
-        )
-        st.plotly_chart(fig_top10, use_container_width=True)
+        fig.update_yaxes(tickformat=".0%")
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Quick numeric stats under the chart
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Total holdings", f"{total_holdings}")
-        with c2:
-            st.metric("Largest position", f"{largest_ticker} – {largest_w:0.2%}")
-        with c3:
-            st.metric("Equity vs Cash", equity_vs_cash)
-
-    # ---------------------- Sector allocation row ---------------------
-    st.markdown("---")
-    col1, col2 = st.columns([1.3, 1])
-
-    with col1:
-        st.markdown("#### Sector allocation")
-        sector = (
-            holdings_sorted.groupby("Sector")["NormWeight"]
-            .sum()
-            .reset_index()
-            .sort_values("NormWeight", ascending=False)
-        )
-        fig_sector = px.bar(
-            sector,
-            x="Sector",
-            y="NormWeight",
-            labels={"NormWeight": "Weight"},
-        )
-        fig_sector.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            yaxis_tickformat=".1%",
-        )
-        st.plotly_chart(fig_sector, use_container_width=True)
-
-    with col2:
-        st.markdown("#### Mode overview")
-        if mode == "Standard":
-            st.write(
-                "- Target: benchmark-aware, fully invested.\n"
-                "- Uses raw Wave weights from the master stock universe.\n"
-                "- In production, this mode would control risk overlays and rebalancing."
-            )
-        elif mode == "Alpha-Minus-Beta":
-            st.write(
-                "- Target: reduced beta with downside protection.\n"
-                "- In production, this mode would dial back equity exposure and "
-                "increase SmartSafe / cash.\n"
-                "- Top-line view is the same here; risk engine would live behind it."
-            )
-        else:  # Private Logic™
-            st.write(
-                "- Proprietary leadership / momentum logic.\n"
-                "- In production, this mode would rotate into leaders and manage "
-                "position sizes more aggressively.\n"
-                "- Console here focuses on holdings; trade engine would run off-screen."
-            )
-
-    st.markdown("---")
-    st.caption(
-        "Demo only – no orders are routed from this console.  "
-        "All analytics are calculated from the uploaded universe and Wave weights CSVs."
-    )
+    # ----------------------------------------------------------------
+    # SUMMARY STATS
+    # ----------------------------------------------------------------
+    st.markdown("#### Wave stats")
+    st.write(f"Positions in this Wave: **{len(wave_positions)}**")
+    st.write(f"Unique tickers: **{wave_positions['Ticker'].nunique()}**")
 
 
 if __name__ == "__main__":
