@@ -4,47 +4,27 @@ import numpy as np
 from pathlib import Path
 
 # ------------------------------------------------------------
-# BASIC PAGE SETUP
+# PAGE SETUP
 # ------------------------------------------------------------
 st.set_page_config(page_title="WAVES Intelligence – S&P Wave Console", layout="wide")
 st.title("WAVES Intelligence – S&P Wave Console")
 
-
 # ------------------------------------------------------------
-# HELPER: very forgiving CSV reader
+# SAFE CSV READER
 # ------------------------------------------------------------
 def safe_read_csv(path: Path) -> pd.DataFrame:
-    """
-    Try hard to read a CSV even if it has weird delimiters or bad rows.
-    """
-    if not path.exists():
-        st.error(f"CSV file not found: {path.name}")
+    """Forgiving CSV reader that won't crash on bad lines."""
+    try:
+        return pd.read_csv(path, engine="python", on_bad_lines="skip")
+    except Exception as e:
+        st.error(f"Error reading {path.name}: {e}")
         return pd.DataFrame()
 
-    # Try automatic delimiter detection first
-    for params in [
-        {"sep": None, "engine": "python"},  # auto-detect delimiter
-        {"sep": ",", "engine": "python"},   # fallback: standard comma CSV
-    ]:
-        try:
-            df = pd.read_csv(
-                path,
-                on_bad_lines="skip",  # skip malformed lines instead of crashing
-                **params,
-            )
-            return df
-        except Exception:
-            continue
-
-    st.error(f"Could not read CSV: {path.name}")
-    return pd.DataFrame()
-
 
 # ------------------------------------------------------------
-# LOAD MASTER UNIVERSE
+# LOAD MASTER UNIVERSE (Master_Stock_Sheet.csv)
 # ------------------------------------------------------------
-def load_universe() -> pd.DataFrame:
-    path = Path("Master_Stock_Sheet.csv")
+def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
     df = safe_read_csv(path)
     if df.empty:
         return df
@@ -57,17 +37,17 @@ def load_universe() -> pd.DataFrame:
         .str.replace(r"[^a-z0-9]+", "_", regex=True)
     )
 
-    # Map columns to standard names
+    # Map to standard names
     rename_map = {}
     for col in df.columns:
         if col in ["ticker", "symbol"]:
             rename_map[col] = "Ticker"
-        elif col in ["company", "company_name", "security", "name"]:
+        elif col in ["company", "company_name", "name", "security"]:
             rename_map[col] = "Company"
-        elif col in ["weight", "index_weight", "wgt"]:
-            rename_map[col] = "Weight"
         elif col in ["sector", "gics_sector"]:
             rename_map[col] = "Sector"
+        elif col in ["weight", "index_weight", "wgt"]:
+            rename_map[col] = "Weight_universe"
         elif col in ["market_value", "marketvalue", "mv"]:
             rename_map[col] = "MarketValue"
         elif col in ["price", "last_price"]:
@@ -75,47 +55,48 @@ def load_universe() -> pd.DataFrame:
 
     df = df.rename(columns=rename_map)
 
-    # Ensure columns exist
-    if "Ticker" not in df.columns:
-        df["Ticker"] = np.nan
+    # Ensure required columns exist
+    for col in ["Ticker"]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    # Optional but nice to have
     if "Company" not in df.columns:
-        df["Company"] = ""
-    if "Weight" not in df.columns:
-        df["Weight"] = np.nan
+        df["Company"] = df["Ticker"]
     if "Sector" not in df.columns:
         df["Sector"] = ""
+    if "Weight_universe" not in df.columns:
+        df["Weight_universe"] = np.nan
     if "MarketValue" not in df.columns:
         df["MarketValue"] = np.nan
     if "Price" not in df.columns:
         df["Price"] = np.nan
 
-    # Clean values
+    # Clean types
     df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
     df["Company"] = df["Company"].astype(str).str.strip()
     df["Sector"] = df["Sector"].astype(str).str.strip()
-
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
+    df["Weight_universe"] = pd.to_numeric(df["Weight_universe"], errors="coerce")
     df["MarketValue"] = pd.to_numeric(df["MarketValue"], errors="coerce")
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
 
-    # Keep rows with a ticker (even if weight is missing)
+    # Drop empty tickers
     df = df[df["Ticker"] != ""]
+    df = df.dropna(subset=["Ticker"])
 
     # Final column order
-    df = df[["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]]
+    df = df[["Ticker", "Company", "Sector", "Weight_universe", "MarketValue", "Price"]]
     return df
 
 
 # ------------------------------------------------------------
-# LOAD WAVE WEIGHTS
+# LOAD WAVE WEIGHTS (wave_weights.csv)
 # ------------------------------------------------------------
-def load_wave_weights() -> pd.DataFrame:
-    path = Path("wave_weights.csv")
+def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
     df = safe_read_csv(path)
     if df.empty:
         return df
 
-    # Normalize column names
     df.columns = (
         df.columns.astype(str)
         .str.strip()
@@ -130,33 +111,31 @@ def load_wave_weights() -> pd.DataFrame:
         elif col in ["wave", "portfolio", "strategy"]:
             rename_map[col] = "Wave"
         elif col in ["weight", "wgt", "alloc"]:
-            rename_map[col] = "Weight"
+            rename_map[col] = "Weight_wave"
 
     df = df.rename(columns=rename_map)
 
     # Ensure required columns
     if "Ticker" not in df.columns:
         df["Ticker"] = np.nan
-    if "Weight" not in df.columns:
-        df["Weight"] = np.nan
     if "Wave" not in df.columns:
-        # If no wave column, assume everything is the S&P wave
         df["Wave"] = "SP500_Wave"
+    if "Weight_wave" not in df.columns:
+        df["Weight_wave"] = 1.0
 
     df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
     df["Wave"] = df["Wave"].astype(str).str.strip()
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
+    df["Weight_wave"] = pd.to_numeric(df["Weight_wave"], errors="coerce")
 
-    # Keep rows with a ticker + weight
-    df = df.dropna(subset=["Ticker", "Weight"])
-    df = df[df["Ticker"] != ""]
+    df = df[(df["Ticker"] != "") & df["Ticker"].notna()]
+    df = df.dropna(subset=["Weight_wave"])
 
-    # Normalize weights within each wave so they sum to 1.0
-    df["Weight"] = df.groupby("Wave")["Weight"].transform(
+    # Normalize weights within each wave
+    df["Weight_wave"] = df.groupby("Wave")["Weight_wave"].transform(
         lambda x: x / x.sum() if x.sum() else x
     )
 
-    df = df[["Ticker", "Wave", "Weight"]]
+    df = df[["Ticker", "Wave", "Weight_wave"]]
     return df
 
 
@@ -171,42 +150,56 @@ with st.expander("Debug: CSV status"):
     st.write("Wave weights file rows:", len(weights_df))
     st.write("Universe columns:", list(universe_df.columns))
     st.write("Wave weights columns:", list(weights_df.columns))
-    st.write("Universe preview:", universe_df.head(5))
-    st.write("Weights preview:", weights_df.head(5))
+    st.write("Universe preview:", universe_df.head())
+    st.write("Weights preview:", weights_df.head())
 
-# If either is empty, stop so we don't crash
 if universe_df.empty or weights_df.empty:
-    st.warning("One or both CSV files have no usable data rows. Check the debug box above.")
+    st.error("One or both CSV files have no usable data rows.")
     st.stop()
 
+# ------------------------------------------------------------
+# APP UI – WAVE VIEW
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------
-# APP UI
-# ------------------------------------------------------------
+# Wave selector
 waves = sorted(weights_df["Wave"].unique())
-selected_wave = st.sidebar.selectbox("Choose Wave", waves)
+selected_wave = st.sidebar.selectbox("Choose Wave", waves, index=0)
 
-wave_slice = weights_df[weights_df["Wave"] == selected_wave]
+# Filter weights for selected wave
+wave_slice = weights_df[weights_df["Wave"] == selected_wave].copy()
+
+# Merge with universe; we already separated column names to avoid clashes
 merged = wave_slice.merge(universe_df, on="Ticker", how="left")
 
 st.subheader(f"Wave: {selected_wave}")
 
+# Metrics
 c1, c2, c3 = st.columns(3)
 c1.metric("Holdings", len(merged))
-c2.metric("Total Weight", f"{merged['Weight'].sum():.4f}")
-c3.metric("Missing company info", int(merged["Company"].isna().sum()))
 
+total_weight = float(merged["Weight_wave"].sum()) if not merged.empty else 0.0
+c2.metric("Total Wave Weight", f"{total_weight:.4f}")
+
+missing_info = merged["Company"].isna().sum()
+c3.metric("Tickers Missing Company Data", int(missing_info))
+
+# Holdings table
 st.markdown("### Holdings")
-cols = ["Ticker", "Company", "Sector", "Weight", "Price", "MarketValue"]
-cols = [c for c in cols if c in merged.columns]
+display_df = merged.copy()
+display_df["Weight"] = display_df["Weight_wave"]
+
+display_cols = ["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]
+display_cols = [c for c in display_cols if c in display_df.columns]
+
 st.dataframe(
-    merged[cols].sort_values("Weight", ascending=False),
+    display_df[display_cols].sort_values("Weight", ascending=False),
     use_container_width=True,
 )
 
+# Top 20 chart
 st.markdown("### Top 20 by Weight")
 top20 = (
-    merged.sort_values("Weight", ascending=False)
+    display_df.sort_values("Weight", ascending=False)
     .head(20)
     .set_index("Ticker")["Weight"]
 )
