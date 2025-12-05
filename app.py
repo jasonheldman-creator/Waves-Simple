@@ -1,71 +1,55 @@
-with st.expander("SHOW RAW FILE CONTENTS"):
-    try:
-        st.code(Path("Master_Stock_Sheet.csv").read_text()[:2000])
-    except:
-        st.write("Could not read Master_Stock_Sheet.csv")
-
-    try:
-        st.code(Path("wave_weights.csv").read_text()[:2000])
-    except:
-        st.write("Could not read wave_weights.csv")
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
+# ------------------------------------------------------------
+# BASIC PAGE SETUP
+# ------------------------------------------------------------
 st.set_page_config(page_title="WAVES Intelligence – S&P Wave Console", layout="wide")
 st.title("WAVES Intelligence – S&P Wave Console")
 
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# HELPER: very forgiving CSV reader
+# ------------------------------------------------------------
 def safe_read_csv(path: Path) -> pd.DataFrame:
-    """Very forgiving CSV reader for messy Google Sheets exports."""
-    try:
-        return pd.read_csv(
-            path,
-            engine="python",       # more tolerant
-            on_bad_lines="skip",   # skip malformed rows
-        )
-    except Exception as e:
-        st.error(f"Unable to read CSV '{path.name}': {e}")
+    """
+    Try hard to read a CSV even if it has weird delimiters or bad rows.
+    """
+    if not path.exists():
+        st.error(f"CSV file not found: {path.name}")
         return pd.DataFrame()
 
+    # Try automatic delimiter detection first
+    for params in [
+        {"sep": None, "engine": "python"},  # auto-detect delimiter
+        {"sep": ",", "engine": "python"},   # fallback: standard comma CSV
+    ]:
+        try:
+            df = pd.read_csv(
+                path,
+                on_bad_lines="skip",  # skip malformed lines instead of crashing
+                **params,
+            )
+            return df
+        except Exception:
+            continue
 
-def find_csv(hints) -> Path | None:
-    """
-    Find the first .csv file in the folder whose name contains ALL hint strings.
-    Example: hints=['master','stock'] will match 'Master_Stock_Sheet.csv'.
-    """
-    hints = [h.lower() for h in hints]
-    candidates = []
-    for p in Path(".").glob("*.csv"):
-        name = p.name.lower()
-        if all(h in name for h in hints):
-            candidates.append(p)
-    if not candidates:
-        return None
-    return sorted(candidates)[0]
+    st.error(f"Could not read CSV: {path.name}")
+    return pd.DataFrame()
 
 
 # ------------------------------------------------------------
-# Load master universe
+# LOAD MASTER UNIVERSE
 # ------------------------------------------------------------
-
 def load_universe() -> pd.DataFrame:
-    path = find_csv(["master", "stock"])
-    if path is None:
-        st.error("Could not find your master stock CSV (expecting something like 'Master_Stock_Sheet.csv').")
-        return pd.DataFrame()
-
+    path = Path("Master_Stock_Sheet.csv")
     df = safe_read_csv(path)
     if df.empty:
-        st.error(f"Master stock file '{path.name}' loaded but has 0 rows.")
         return df
 
-    # Normalize columns
+    # Normalize column names
     df.columns = (
         df.columns.astype(str)
         .str.strip()
@@ -73,6 +57,7 @@ def load_universe() -> pd.DataFrame:
         .str.replace(r"[^a-z0-9]+", "_", regex=True)
     )
 
+    # Map columns to standard names
     rename_map = {}
     for col in df.columns:
         if col in ["ticker", "symbol"]:
@@ -90,48 +75,47 @@ def load_universe() -> pd.DataFrame:
 
     df = df.rename(columns=rename_map)
 
-    # Ensure required + optional columns exist
-    for col in ["Ticker", "Company", "Weight"]:
-        if col not in df.columns:
-            df[col] = np.nan
-    for col in ["Sector", "MarketValue", "Price"]:
-        if col not in df.columns:
-            df[col] = np.nan
+    # Ensure columns exist
+    if "Ticker" not in df.columns:
+        df["Ticker"] = np.nan
+    if "Company" not in df.columns:
+        df["Company"] = ""
+    if "Weight" not in df.columns:
+        df["Weight"] = np.nan
+    if "Sector" not in df.columns:
+        df["Sector"] = ""
+    if "MarketValue" not in df.columns:
+        df["MarketValue"] = np.nan
+    if "Price" not in df.columns:
+        df["Price"] = np.nan
 
-    # Clean types
+    # Clean values
     df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
     df["Company"] = df["Company"].astype(str).str.strip()
+    df["Sector"] = df["Sector"].astype(str).str.strip()
+
     df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
     df["MarketValue"] = pd.to_numeric(df["MarketValue"], errors="coerce")
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
 
-    # Drop bad rows
-    df = df.dropna(subset=["Ticker", "Weight"])
+    # Keep rows with a ticker (even if weight is missing)
     df = df[df["Ticker"] != ""]
 
     # Final column order
-    keep = ["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]
-    df = df[keep]
-
+    df = df[["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]]
     return df
 
 
 # ------------------------------------------------------------
-# Load wave weights
+# LOAD WAVE WEIGHTS
 # ------------------------------------------------------------
-
 def load_wave_weights() -> pd.DataFrame:
-    # Try to find anything with "wave" and "weight" in the name
-    path = find_csv(["wave", "weight"])
-    if path is None:
-        st.error("Could not find your wave weights CSV (expecting something like 'wave_weights.csv').")
-        return pd.DataFrame()
-
+    path = Path("wave_weights.csv")
     df = safe_read_csv(path)
     if df.empty:
-        st.error(f"Wave weights file '{path.name}' loaded but has 0 rows.")
         return df
 
+    # Normalize column names
     df.columns = (
         df.columns.astype(str)
         .str.strip()
@@ -150,24 +134,24 @@ def load_wave_weights() -> pd.DataFrame:
 
     df = df.rename(columns=rename_map)
 
-    # Handle missing columns
+    # Ensure required columns
     if "Ticker" not in df.columns:
         df["Ticker"] = np.nan
     if "Weight" not in df.columns:
         df["Weight"] = np.nan
-
-    # If there is no Wave column at all, assume the whole file is one wave: SP500_Wave
     if "Wave" not in df.columns:
+        # If no wave column, assume everything is the S&P wave
         df["Wave"] = "SP500_Wave"
 
     df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
     df["Wave"] = df["Wave"].astype(str).str.strip()
     df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
 
-    df = df.dropna(subset=["Ticker", "Wave", "Weight"])
+    # Keep rows with a ticker + weight
+    df = df.dropna(subset=["Ticker", "Weight"])
     df = df[df["Ticker"] != ""]
 
-    # Normalize weights within each wave (so they sum to 1)
+    # Normalize weights within each wave so they sum to 1.0
     df["Weight"] = df.groupby("Wave")["Weight"].transform(
         lambda x: x / x.sum() if x.sum() else x
     )
@@ -177,9 +161,8 @@ def load_wave_weights() -> pd.DataFrame:
 
 
 # ------------------------------------------------------------
-# Load data
+# LOAD DATA
 # ------------------------------------------------------------
-
 universe_df = load_universe()
 weights_df = load_wave_weights()
 
@@ -188,14 +171,18 @@ with st.expander("Debug: CSV status"):
     st.write("Wave weights file rows:", len(weights_df))
     st.write("Universe columns:", list(universe_df.columns))
     st.write("Wave weights columns:", list(weights_df.columns))
+    st.write("Universe preview:", universe_df.head(5))
+    st.write("Weights preview:", weights_df.head(5))
 
+# If either is empty, stop so we don't crash
 if universe_df.empty or weights_df.empty:
+    st.warning("One or both CSV files have no usable data rows. Check the debug box above.")
     st.stop()
 
-# ------------------------------------------------------------
-# App UI
-# ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# APP UI
+# ------------------------------------------------------------
 waves = sorted(weights_df["Wave"].unique())
 selected_wave = st.sidebar.selectbox("Choose Wave", waves)
 
