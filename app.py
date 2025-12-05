@@ -100,6 +100,19 @@ def load_weights():
         )
 
     df = pd.read_csv(weights_file)
+    
+    # Handle case where CSV has all columns quoted as a single field
+    # (e.g., "Wave,Ticker,Weight" as one column)
+    if len(df.columns) == 1 and ',' in df.columns[0]:
+        # The header and data are in a single quoted column, need to re-parse
+        col_name = df.columns[0]
+        if ',' in col_name:
+            # Split the header to get proper column names
+            new_cols = [c.strip() for c in col_name.split(',')]
+            # Split each row's data
+            split_data = df[col_name].str.split(',', expand=True)
+            split_data.columns = new_cols
+            df = split_data
 
     # Normalize column names
     norm_map = {c: c.strip().lower().replace(" ", "") for c in df.columns}
