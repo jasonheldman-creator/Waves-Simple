@@ -1,12 +1,12 @@
-# app.py  — WAVES Intelligence™ Live Engine Console (Bloomberg-ish + VIX)
+# app.py — WAVES Intelligence™ Live Engine Console (Bloomberg-style + VIX)
 #
-# Requirements (in requirements.txt):
+# Requirements (already in your requirements.txt):
 #   streamlit
 #   pandas
 #   yfinance
 #   plotly
 #
-# Run:
+# Run (locally):
 #   streamlit run app.py
 
 import os
@@ -18,26 +18,34 @@ import yfinance as yf
 import streamlit as st
 import plotly.express as px
 
-# ============================================================
-# CONFIG
-# ============================================================
+# ------------------------------------------------------------
+# STREAMLIT PAGE CONFIG (must be at top level)
+# ------------------------------------------------------------
+st.set_page_config(
+    page_title="WAVES Intelligence Console",
+    layout="wide",
+)
 
-UNIVERSE_CSV = "list.csv"        # <-- matches your filename
+# ------------------------------------------------------------
+# CONFIG
+# ------------------------------------------------------------
+
+UNIVERSE_CSV = "list.csv"  # matches your file name
 
 DEFAULT_TICKER_COLS = ["symbol", "ticker", "Symbol", "Ticker"]
-DEFAULT_NAME_COLS   = ["name", "Name", "company", "Company"]
+DEFAULT_NAME_COLS = ["name", "Name", "company", "Company"]
 DEFAULT_WEIGHT_COLS = ["weight", "Weight", "weight_pct", "Weight %", "Weight%"]
-SECTOR_COL_NAMES    = ["sector", "Sector", "SECTOR"]
+SECTOR_COL_NAMES = ["sector", "Sector", "SECTOR"]
 
-REFRESH_SECONDS = 60             # live price refresh cadence
+REFRESH_SECONDS = 60  # console rerun cadence
 VIX_SYMBOL = "^VIX"
 VIX_PERIOD = "6mo"
 VIX_INTERVAL = "1d"
 
 
-# ============================================================
+# ------------------------------------------------------------
 # DATA LOADERS
-# ============================================================
+# ------------------------------------------------------------
 
 @st.cache_data(show_spinner=True)
 def load_universe():
@@ -54,9 +62,9 @@ def load_universe():
         return None, f"[UNIVERSE ERROR] '{UNIVERSE_CSV}' is empty."
 
     ticker_col = next((c for c in DEFAULT_TICKER_COLS if c in df.columns), None)
-    name_col   = next((c for c in DEFAULT_NAME_COLS   if c in df.columns), None)
+    name_col = next((c for c in DEFAULT_NAME_COLS if c in df.columns), None)
     weight_col = next((c for c in DEFAULT_WEIGHT_COLS if c in df.columns), None)
-    sector_col = next((c for c in SECTOR_COL_NAMES    if c in df.columns), None)
+    sector_col = next((c for c in SECTOR_COL_NAMES if c in df.columns), None)
 
     if ticker_col is None:
         return None, (
@@ -82,6 +90,7 @@ def load_universe():
     else:
         df["Sector"] = "Unclassified"
 
+    # normalize weights
     df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
     total_w = df["Weight"].sum()
     if total_w > 0:
@@ -108,12 +117,14 @@ def fetch_live_prices(tickers):
             open_price = float(last_row.get("Open", price))
             change = price - open_price
             change_pct = (change / open_price) * 100 if open_price != 0 else 0.0
-            data.append({
-                "Ticker": t,
-                "Price": price,
-                "Change": change,
-                "Change %": change_pct
-            })
+            data.append(
+                {
+                    "Ticker": t,
+                    "Price": price,
+                    "Change": change,
+                    "Change %": change_pct,
+                }
+            )
         except Exception:
             continue
 
@@ -126,7 +137,7 @@ def fetch_live_prices(tickers):
 
 @st.cache_data(show_spinner=False)
 def fetch_vix_series():
-    """Fetch VIX history for a small chart."""
+    """Fetch VIX history for mini-volatility chart."""
     try:
         vix = yf.Ticker(VIX_SYMBOL)
         hist = vix.history(period=VIX_PERIOD, interval=VIX_INTERVAL)
@@ -139,38 +150,28 @@ def fetch_vix_series():
         return pd.DataFrame()
 
 
-# ============================================================
+# ------------------------------------------------------------
 # UI HELPERS
-# ============================================================
+# ------------------------------------------------------------
 
-def google_finance_link(ticker: str) -> str:
-    base = "https://www.google.com/finance/quote/"
-    return f"{base}{ticker}"
-
-
-def style_page():
-    st.set_page_config(
-        page_title="WAVES Intelligence Console",
-        layout="wide",
-    )
-
-    # Dark terminal-style tweaks
+def apply_global_style():
     st.markdown(
         """
         <style>
         .main {
             background-color: #050608;
         }
-        .stMetric label, .stMetric span {
-            font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        }
         .block-container {
             padding-top: 1.5rem;
             padding-bottom: 1.5rem;
         }
+        .stMetric label, .stMetric span {
+            font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono",
+                         "Courier New", monospace;
+        }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 
@@ -181,7 +182,7 @@ def render_header(active_mode: str, equity_exposure: float):
             WAVES Intelligence™ — Live Engine Console
         </h1>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     subtitle = (
@@ -195,7 +196,7 @@ def render_header(active_mode: str, equity_exposure: float):
             Equity Exposure: <b>{equity_exposure:.0f}%</b> • Cash Buffer: <b>{100-equity_exposure:.0f}%</b>
         </p>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 
@@ -219,37 +220,33 @@ def show_top_holdings(df: pd.DataFrame, prices_df: pd.DataFrame):
     top = df.sort_values("Weight", ascending=False).head(10).copy()
 
     if not prices_df.empty:
-        top = top.merge(
-            prices_df.reset_index(),
-            on="Ticker",
-            how="left"
-        )
+        top = top.merge(prices_df.reset_index(), on="Ticker", how="left")
 
-    # Show ticker + name; keep it clean & terminal-ish
     top["Weight %"] = (top["Weight"] * 100).round(2)
 
     display_cols = ["Ticker", "Name", "Weight %"]
     if "Price" in top.columns:
-        display_cols += ["Price"]
+        display_cols.append("Price")
     if "Change %" in top.columns:
         top["Change %"] = top["Change %"].round(2)
-        display_cols += ["Change %"]
+        display_cols.append("Change %")
 
     st.dataframe(
         top[display_cols],
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
     )
 
-    # Horizontal bar chart of top 10 weights
+    # bar chart
     chart_df = df.sort_values("Weight", ascending=False).head(10).copy()
     chart_df["Weight %"] = chart_df["Weight"] * 100
     fig = px.bar(
         chart_df,
-        x="Weight %", y="Ticker",
+        x="Weight %",
+        y="Ticker",
         orientation="h",
         title="Top 10 Weight Allocation",
-        labels={"Weight %": "Weight (%)", "Ticker": "Ticker"}
+        labels={"Weight %": "Weight (%)", "Ticker": "Ticker"},
     )
     fig.update_layout(
         title_x=0.0,
@@ -276,10 +273,11 @@ def show_sector_breakdown(df: pd.DataFrame):
 
     fig = px.bar(
         sector_df,
-        x="Weight %", y="Sector",
+        x="Weight %",
+        y="Sector",
         orientation="h",
         title="Sector Allocation",
-        labels={"Weight %": "Weight (%)", "Sector": "Sector"}
+        labels={"Weight %": "Weight (%)", "Sector": "Sector"},
     )
     fig.update_layout(
         title_x=0.0,
@@ -298,9 +296,10 @@ def show_vix_chart(vix_df: pd.DataFrame):
 
     fig = px.line(
         vix_df,
-        x="Date", y="VIX",
+        x="Date",
+        y="VIX",
         title=f"VIX ({VIX_PERIOD} • {VIX_INTERVAL})",
-        labels={"VIX": "Index Level", "Date": ""}
+        labels={"VIX": "Index Level", "Date": ""},
     )
     fig.update_traces(line_width=2)
     fig.update_layout(
@@ -324,25 +323,25 @@ def show_alpha_placeholder():
         a next step for institutional partners.
         </p>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 
-# ============================================================
+# ------------------------------------------------------------
 # MAIN APP
-# ============================================================
+# ------------------------------------------------------------
 
 def main():
-    style_page()
+    apply_global_style()
 
-    # Sidebar: controls
+    # Sidebar controls
     with st.sidebar:
         st.markdown("### Engine Controls")
 
         mode = st.radio(
             "Wave Mode",
             options=["Standard", "Alpha-Minus-Beta", "Private Logic"],
-            index=0
+            index=0,
         )
 
         equity_exposure = st.slider(
@@ -351,21 +350,19 @@ def main():
             max_value=100,
             value=90,
             step=1,
-            help="Represents current net equity vs SmartSafe™ / cash."
+            help="Represents current net equity vs SmartSafe™ / cash.",
         )
 
-        auto_refresh = st.checkbox("Auto-refresh prices", value=True)
+        auto_refresh = st.checkbox("Auto-refresh console", value=True)
         st.caption(f"Console will rerun every {REFRESH_SECONDS} seconds when enabled.")
 
     df, error_msg = load_universe()
-
     if error_msg:
         st.error(error_msg)
-        st.stop()
-
+        return
     if df is None or df.empty:
         st.error("[UNIVERSE ERROR] No data available from list.csv.")
-        st.stop()
+        return
 
     render_header(mode, float(equity_exposure))
     show_universe_summary(df, float(equity_exposure))
@@ -374,7 +371,7 @@ def main():
     prices_df = fetch_live_prices(tickers)
     vix_df = fetch_vix_series()
 
-    # Layout rows
+    # Layout: left = positions, right = sectors/VIX
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
@@ -394,18 +391,19 @@ def main():
     with st.expander("View Full Universe (raw)"):
         st.dataframe(
             df[["Ticker", "Name", "Sector", "Weight"]],
-            use_container_width=True
+            use_container_width=True,
         )
 
+    # Auto-refresh loop
     if auto_refresh:
         st.markdown(
             f"<p style='color:#888888; font-size:12px;'>"
             f"Auto-refresh active — console will rerun every {REFRESH_SECONDS} seconds."
             f"</p>",
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         time.sleep(REFRESH_SECONDS)
-        st.experimental_rerun()
+        st.rerun()
 
 
 if __name__ == "__main__":
