@@ -6,7 +6,10 @@ from pathlib import Path
 # ------------------------------------------------------------
 # PAGE SETUP
 # ------------------------------------------------------------
-st.set_page_config(page_title="WAVES Intelligence – S&P Wave Console", layout="wide")
+st.set_page_config(
+    page_title="WAVES Intelligence – S&P Wave Console",
+    layout="wide"
+)
 st.title("WAVES Intelligence – S&P Wave Console")
 
 # ------------------------------------------------------------
@@ -56,9 +59,8 @@ def load_universe(path: Path = Path("Master_Stock_Sheet.csv")) -> pd.DataFrame:
     df = df.rename(columns=rename_map)
 
     # Ensure required columns exist
-    for col in ["Ticker"]:
-        if col not in df.columns:
-            df[col] = np.nan
+    if "Ticker" not in df.columns:
+        df["Ticker"] = np.nan
 
     # Optional but nice to have
     if "Company" not in df.columns:
@@ -158,33 +160,67 @@ if universe_df.empty or weights_df.empty:
     st.stop()
 
 # ------------------------------------------------------------
-# APP UI – WAVE VIEW
+# SIDEBAR – WAVE / MODE / CASH CONTROLS
 # ------------------------------------------------------------
-
-# Wave selector
 waves = sorted(weights_df["Wave"].unique())
 selected_wave = st.sidebar.selectbox("Choose Wave", waves, index=0)
 
-# Filter weights for selected wave
-wave_slice = weights_df[weights_df["Wave"] == selected_wave].copy()
+risk_mode = st.sidebar.selectbox(
+    "Risk Mode",
+    ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+)
 
-# Merge with universe; we already separated column names to avoid clashes
+cash_buffer_pct = st.sidebar.slider(
+    "Cash Buffer (%)",
+    min_value=0,
+    max_value=50,
+    value=5,
+    step=1,
+    help="Demo control: simulates how much of the Wave is held in SmartSafe / cash."
+)
+
+# ------------------------------------------------------------
+# BUILD CURRENT WAVE VIEW
+# ------------------------------------------------------------
+wave_slice = weights_df[weights_df["Wave"] == selected_wave].copy()
 merged = wave_slice.merge(universe_df, on="Ticker", how="left")
 
+# If sectors missing, label as Unknown for charts
+merged["Sector"] = merged["Sector"].fillna("").replace("", "Unknown")
+
+# Effective equity/cash exposures
+total_wave_weight = float(merged["Weight_wave"].sum()) if not merged.empty else 0.0
+cash_exposure = cash_buffer_pct / 100.0
+equity_exposure = max(0.0, 1.0 - cash_exposure) * total_wave_weight
+
+# ------------------------------------------------------------
+# TOP SUMMARY STRIP
+# ------------------------------------------------------------
 st.subheader(f"Wave: {selected_wave}")
 
-# Metrics
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("Holdings", len(merged))
+c2.metric("Total Wave Weight", f"{total_wave_weight:.4f}")
+c3.metric("Equity Exposure", f"{equity_exposure * 100:,.1f}%")
+c4.metric("Cash Buffer", f"{cash_buffer_pct:.1f}%")
 
-total_weight = float(merged["Weight_wave"].sum()) if not merged.empty else 0.0
-c2.metric("Total Wave Weight", f"{total_weight:.4f}")
+# Secondary summary – concentration & top names
+if not merged.empty:
+    sorted_by_weight = merged.sort_values("Weight_wave", ascending=False)
+    top1 = sorted_by_weight.iloc[0]
+    top5_weight = sorted_by_weight["Weight_wave"].head(5).sum()
+    top10_weight = sorted_by_weight["Weight_wave"].head(10).sum()
 
-missing_info = merged["Company"].isna().sum()
-c3.metric("Tickers Missing Company Data", int(missing_info))
+    c5, c6, c7 = st.columns(3)
+    c5.metric("Top Holding", f"{top1['Ticker']} – {top1['Company']}")
+    c6.metric("Top 5 Concentration", f"{top5_weight * 100:,.1f}%")
+    c7.metric("Top 10 Concentration", f"{top10_weight * 100:,.1f}%")
 
-# Holdings table
+# ------------------------------------------------------------
+# HOLDINGS TABLE
+# ------------------------------------------------------------
 st.markdown("### Holdings")
+
 display_df = merged.copy()
 display_df["Weight"] = display_df["Weight_wave"]
 
@@ -196,11 +232,51 @@ st.dataframe(
     use_container_width=True,
 )
 
-# Top 20 chart
-st.markdown("### Top 20 by Weight")
-top20 = (
-    display_df.sort_values("Weight", ascending=False)
-    .head(20)
-    .set_index("Ticker")["Weight"]
-)
-st.bar_chart(top20)
+# ------------------------------------------------------------
+# CHARTS – TOP 10 & SECTOR ALLOCATION
+# ------------------------------------------------------------
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.markdown("#### Top 10 Holdings by Weight")
+    if not display_df.empty:
+        top10 = (
+            display_df.sort_values("Weight", ascending=False)
+            .head(10)
+            .set_index("Ticker")["Weight"]
+        )
+        st.bar_chart(top10)
+
+with chart_col2:
+    st.markdown("#### Sector Allocation (Wave Weights)")
+    if "Sector" in display_df.columns and not display_df.empty:
+        sector_weights = (
+            display_df.groupby("Sector")["Weight"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+        st.bar_chart(sector_weights)
+
+# ------------------------------------------------------------
+# RISK MODE EXPLANATION (for the demo narrative)
+# ------------------------------------------------------------
+st.markdown("### Mode Explanation (for Franklin demo)")
+
+if risk_mode == "Standard":
+    st.write(
+        "In **Standard** mode, the Wave targets full beta to its benchmark with "
+        "disciplined rebalancing and tax-efficient execution. The cash buffer is "
+        "minimal and primarily operational."
+    )
+elif risk_mode == "Alpha-Minus-Beta":
+    st.write(
+        "In **Alpha-Minus-Beta** mode, the Wave dials down market beta (using the cash "
+        "buffer and defensive tilts) while preserving as much stock-selection alpha "
+        "as possible. This is the capital-preservation profile."
+    )
+else:
+    st.write(
+        "In **Private Logic** mode, the Wave applies more aggressive adaptive logic "
+        "within guardrails, allowing higher turnover and more dynamic tilts, while "
+        "keeping full transparency on every position and trade."
+    )
