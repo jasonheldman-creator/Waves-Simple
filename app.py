@@ -1,167 +1,159 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-from pathlib import Path
+# ------------------------------------------------------------
+# MAIN APP
+# ------------------------------------------------------------
 
-# ------------------------------------------------------------
-# SAFE CSV READER (bulletproof for messy Google Sheets exports)
-# ------------------------------------------------------------
-def safe_read_csv(path: Path) -> pd.DataFrame:
+def main():
+    st.title("WAVES INTELLIGENCE™ – PORTFOLIO WAVE CONSOLE")
+
+    st.caption("Equity Waves only – benchmark-aware, AI-directed, multi-mode demo.")
+
+    # Try to load the universe file
     try:
-        return pd.read_csv(
-            path,
-            engine="python",       # handles misaligned rows
-            on_bad_lines="skip",   # prevents crashes
+        universe = load_universe(UNIVERSE_FILE)
+    except FileNotFoundError:
+        st.error(
+            f"Universe file **{UNIVERSE_FILE}** not found in the repo root.\n\n"
+            "Make sure that exact CSV is uploaded to the GitHub repository."
         )
+        st.stop()
+    except ValueError as e:
+        st.error(
+            f"Unable to use universe file **{UNIVERSE_FILE}**.\n\nError: {e}"
+        )
+        st.stop()
     except Exception as e:
-        st.error(f"Unable to read CSV '{path}': {e}")
-        return pd.DataFrame()
+        st.error(
+            f"Unexpected error loading **{UNIVERSE_FILE}**.\n\nError: {e}"
+        )
+        st.stop()
 
+    # Sidebar controls
+    st.sidebar.header("Wave controls")
 
-# ------------------------------------------------------------
-# LOAD MASTER STOCK SHEET
-# ------------------------------------------------------------
-def load_universe(path: Path) -> pd.DataFrame:
-    df = safe_read_csv(path)
-
-    if df.empty:
-        st.error("Master_Stock_Sheet.csv could not be loaded.")
-        return df
-
-    # Normalize columns
-    df.columns = (
-        df.columns.astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"[^a-z0-9]+", "_", regex=True)
+    # For tomorrow's demo we run a single S&P Wave from this universe
+    wave_name = st.sidebar.selectbox(
+        "Select Wave",
+        options=["S&P 500 Wave"],
+        index=0,
     )
 
-    # Rename columns safely
-    rename_map = {}
-    for col in df.columns:
-        if col in ["ticker", "symbol"]:
-            rename_map[col] = "Ticker"
-        elif col in ["company", "name", "security"]:
-            rename_map[col] = "Company"
-        elif col in ["weight", "index_weight", "wgt"]:
-            rename_map[col] = "Weight"
-        elif col in ["sector", "gics_sector"]:
-            rename_map[col] = "Sector"
-        elif col in ["market_value", "marketvalue", "mv"]:
-            rename_map[col] = "MarketValue"
-        elif col in ["price", "last_price"]:
-            rename_map[col] = "Price"
-
-    df = df.rename(columns=rename_map)
-
-    # Ensure required fields exist
-    for col in ["Ticker", "Company", "Weight"]:
-        if col not in df.columns:
-            df[col] = np.nan
-
-    # Optional fields
-    for col in ["Sector", "MarketValue", "Price"]:
-        if col not in df.columns:
-            df[col] = np.nan
-
-    # Clean types
-    df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
-
-    # Drop rows missing ticker or weight
-    df = df.dropna(subset=["Ticker", "Weight"])
-
-    # Final order
-    keep = ["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]
-    df = df[[c for c in keep if c in df.columns]]
-
-    return df
-
-
-# ------------------------------------------------------------
-# LOAD WAVE WEIGHTS
-# ------------------------------------------------------------
-def load_wave_weights(path: Path) -> pd.DataFrame:
-    df = safe_read_csv(path)
-
-    if df.empty:
-        st.error("wave_weights.csv could not be loaded.")
-        return df
-
-    df.columns = (
-        df.columns.astype(str)
-        .str.lower()
-        .str.strip()
-        .str.replace(r"[^a-z0-9]+", "_", regex=True)
+    mode = st.sidebar.radio(
+        "Mode",
+        options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+        index=0,
     )
 
-    rename_map = {}
-    for col in df.columns:
-        if col in ["ticker", "symbol"]:
-            rename_map[col] = "Ticker"
-        elif col == "wave":
-            rename_map[col] = "Wave"
-        elif col in ["weight", "wgt", "alloc"]:
-            rename_map[col] = "Weight"
-
-    df = df.rename(columns=rename_map)
-
-    # Ensure required columns
-    for col in ["Ticker", "Wave", "Weight"]:
-        if col not in df.columns:
-            df[col] = np.nan
-
-    df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
-    df["Wave"] = df["Wave"].astype(str).str.strip()
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
-
-    df = df.dropna(subset=["Ticker", "Wave", "Weight"])
-
-    # Normalize weights within wave
-    df["Weight"] = df.groupby("Wave")["Weight"].transform(
-        lambda x: x / x.sum() if x.sum() else x
+    st.markdown(
+        f"### {wave_name} (LIVE Demo)\n"
+        f"**Mode:** {mode} – equities only; "
+        f"in production this mode flag would drive overlays, SmartSafe™, and rebalancing."
     )
 
-    return df
+    wave_df = universe.copy()
+
+    # --------------------------------------------------------
+    # METRICS
+    # --------------------------------------------------------
+    total_holdings = len(wave_df)
+    top10_weight = wave_df.nlargest(10, "NormWeight")["NormWeight"].sum() * 100
+    largest_weight = wave_df["NormWeight"].max() * 100
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total holdings", f"{total_holdings:,}")
+    c2.metric("Weight in Top-10", f"{top10_weight:.1f}%")
+    c3.metric("Largest single position", f"{largest_weight:.2f}%")
+
+    # --------------------------------------------------------
+    # TOP-10 HOLDINGS TABLE & CHART
+    # --------------------------------------------------------
+    st.markdown("#### Top 10 holdings – ranked by Wave weight")
+
+    top10 = wave_df.nlargest(10, "NormWeight").copy()
+
+    # Build a clean table with no duplicate column names
+    cols = []
+    for c in ["Ticker", "Company", "Sector", "Price"]:
+        if c in top10.columns:
+            cols.append(c)
+
+    top10["Weight %"] = (top10["NormWeight"] * 100).round(2)
+    cols.append("Weight %")
+
+    top10_display = top10[cols].copy()
+
+    tcol, ccol = st.columns([2, 3])
+
+    with tcol:
+        st.dataframe(top10_display, use_container_width=True)
+
+    with ccol:
+        fig_top = px.bar(
+            top10,
+            x="Ticker",
+            y="NormWeight",
+            title="Top-10 by Wave weight",
+        )
+        fig_top.update_layout(
+            xaxis_title="Ticker",
+            yaxis_title="Weight",
+            showlegend=False,
+        )
+        fig_top.update_traces(hovertemplate="%{x}: %{y:.4f}")
+        st.plotly_chart(fig_top, use_container_width=True)
+
+    # --------------------------------------------------------
+    # SECTOR ALLOCATION
+    # --------------------------------------------------------
+    st.markdown("#### Sector allocation")
+
+    sector_weights = (
+        wave_df.groupby("Sector", as_index=False)["NormWeight"].sum()
+    )
+    sector_weights["Weight %"] = (sector_weights["NormWeight"] * 100).round(2)
+
+    if len(sector_weights) > 1:
+        fig_sector = px.bar(
+            sector_weights.sort_values("NormWeight", ascending=False),
+            x="Sector",
+            y="NormWeight",
+            title="Sector allocation by Wave weight",
+        )
+        fig_sector.update_layout(
+            xaxis_title="Sector",
+            yaxis_title="Weight",
+            showlegend=False,
+        )
+        fig_sector.update_traces(hovertemplate="%{x}: %{y:.4f}")
+        st.plotly_chart(fig_sector, use_container_width=True)
+    else:
+        st.info("Sector information not available in the universe file.")
+
+    # --------------------------------------------------------
+    # WEIGHT DECAY CURVE
+    # --------------------------------------------------------
+    st.markdown("#### Weight decay curve")
+
+    weight_series = (
+        wave_df["NormWeight"].sort_values(ascending=False).reset_index(drop=True)
+    )
+    weight_df = pd.DataFrame(
+        {"Rank": np.arange(1, len(weight_series) + 1), "Weight": weight_series}
+    )
+
+    fig_decay = px.line(
+        weight_df,
+        x="Rank",
+        y="Weight",
+        title="Weight decay (position rank vs. weight)",
+    )
+    fig_decay.update_layout(
+        xaxis_title="Position rank (1 = largest)",
+        yaxis_title="Weight",
+        showlegend=False,
+    )
+    fig_decay.update_traces(hovertemplate="Rank %{x}: %{y:.6f}")
+    st.plotly_chart(fig_decay, use_container_width=True)
 
 
-# ------------------------------------------------------------
-# STREAMLIT APP
-# ------------------------------------------------------------
-st.set_page_config(page_title="WAVES Intelligence – S&P Wave Console", layout="wide")
-st.title("WAVES Intelligence – S&P Wave Console")
-
-# Load CSVs
-universe = load_universe(Path("Master_Stock_Sheet.csv"))
-weights = load_wave_weights(Path("wave_weights.csv"))
-
-if universe.empty or weights.empty:
-    st.stop()
-
-# Wave selection
-waves = sorted(weights["Wave"].unique())
-selected_wave = st.sidebar.selectbox("Choose Wave", waves)
-
-wave_df = weights[weights["Wave"] == selected_wave]
-merged = wave_df.merge(universe, on="Ticker", how="left")
-
-st.subheader(f"Wave: {selected_wave}")
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Holdings", len(merged))
-col2.metric("Total Weight", f"{merged['Weight'].sum():.4f}")
-col3.metric("Missing Universe Rows", merged['Company'].isna().sum())
-
-st.write("### Holdings")
-st.dataframe(
-    merged[["Ticker", "Company", "Sector", "Weight", "Price", "MarketValue"]],
-    use_container_width=True,
-)
-
-st.write("### Top 20 Holdings")
-top20 = (
-    merged.sort_values("Weight", ascending=False)
-    .head(20)
-    .set_index("Ticker")["Weight"]
-)
-st.bar_chart(top20)
+if __name__ == "__main__":
+    main()
