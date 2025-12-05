@@ -88,9 +88,7 @@ st.markdown(
     button[kind="primary"]:hover {{
         filter: brightness(1.08);
     }}
-    footer {{
-        visibility: hidden;
-    }}
+    footer {{ visibility: hidden; }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -118,7 +116,6 @@ st.sidebar.markdown("### Live Engine")
 auto_refresh = st.sidebar.checkbox("Auto-refresh every 30s (demo)", value=False)
 
 if auto_refresh and HAS_AUTOREFRESH:
-    # Will re-run this script every 30 seconds
     st_autorefresh(interval=30_000, limit=None, key="auto_refresh")
 elif auto_refresh and not HAS_AUTOREFRESH:
     st.sidebar.info("Auto-refresh component not installed; using manual refresh only.")
@@ -247,8 +244,9 @@ def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
     return df[["Ticker", "Wave", "Weight_wave"]]
 
 
+@st.cache_data(ttl=900)
 def fetch_live_prices(tickers) -> dict:
-    """Fetch live prices from Yahoo Finance. If it fails for a ticker, we skip it."""
+    """Fetch live prices from Yahoo Finance. Cached for 15 minutes."""
     prices = {}
     for t in tickers:
         try:
@@ -260,11 +258,27 @@ def fetch_live_prices(tickers) -> dict:
     return prices
 
 
+@st.cache_data(ttl=3600)
+def get_sector_from_yf(ticker: str) -> str:
+    """Fetch sector from Yahoo Finance for a single ticker, cached for 1 hour."""
+    try:
+        t = yf.Ticker(ticker)
+        try:
+            info = t.get_info()
+        except Exception:
+            info = getattr(t, "info", {}) or {}
+        sector = info.get("sector") or info.get("industry") or ""
+        if not sector:
+            return "Unknown"
+        return str(sector)
+    except Exception:
+        return "Unknown"
+
+
 def simulate_nav_series(wave_name: str, days: int = 60) -> pd.Series:
     """Simulate a NAV history (for demo charts)."""
     seed = abs(hash(wave_name)) % (2**32)
     rng = np.random.default_rng(seed)
-    # Slight positive drift, realistic-ish volatility
     rets = rng.normal(loc=0.0004, scale=0.012, size=days)
     nav = 100 * np.cumprod(1 + rets)
     idx = pd.date_range(end=datetime.now(), periods=days, freq="B")
@@ -341,7 +355,7 @@ def run_stress_test(df: pd.DataFrame, scenario: str) -> tuple[str, float]:
             f"Shock: **top holding {top['Ticker']} down 8%** with others unchanged."
         )
 
-    return description, impact * 100  # return percent move in Wave
+    return description, impact * 100  # percent move in Wave
 
 # ------------------------------------------------------------
 # LOAD DATA
@@ -399,7 +413,26 @@ st.sidebar.markdown(
 wave_slice = weights_df[weights_df["Wave"] == selected_wave].copy()
 merged = wave_slice.merge(universe_df, on="Ticker", how="left")
 
-merged["Sector"] = merged["Sector"].fillna("").replace("", "Unknown")
+# Basic cleanup
+merged["Sector"] = merged["Sector"].astype(str)
+merged["Sector"] = merged["Sector"].replace(["", "nan", "NaN", "None"], "")
+
+# Fill missing sectors via Yahoo Finance
+missing_mask = merged["Sector"].str.strip() == ""
+missing_tickers = (
+    merged.loc[missing_mask, "Ticker"]
+    .dropna()
+    .astype(str)
+    .str.upper()
+    .unique()
+    .tolist()
+)
+sector_map = {t: get_sector_from_yf(t) for t in missing_tickers} if missing_tickers else {}
+merged.loc[missing_mask, "Sector"] = (
+    merged.loc[missing_mask, "Ticker"].map(sector_map).fillna("Unknown")
+)
+
+merged["Sector"] = merged["Sector"].replace(["", "nan", "NaN", "None"], "Unknown")
 merged["Price"] = pd.to_numeric(merged["Price"], errors="coerce")
 
 # Live prices
