@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from datetime import datetime
+import yfinance as yf
 
 # ------------------------------------------------------------
 # PAGE SETUP
@@ -11,6 +13,12 @@ st.set_page_config(
     layout="wide"
 )
 st.title("WAVES Intelligence – S&P Wave Console")
+
+# Simple manual refresh so you can hit it during the demo
+if st.button("🔄 Refresh live data"):
+    st.experimental_rerun()
+
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # ------------------------------------------------------------
 # SAFE CSV READER
@@ -142,6 +150,23 @@ def load_wave_weights(path: Path = Path("wave_weights.csv")) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------
+# LIVE PRICE FETCH
+# ------------------------------------------------------------
+def fetch_live_prices(tickers: list[str]) -> dict:
+    """Fetch live last prices from Yahoo. Falls back silently if anything fails."""
+    prices = {}
+    for t in tickers:
+        try:
+            hist = yf.Ticker(t).history(period="1d", interval="1m")
+            if not hist.empty:
+                prices[t] = float(hist["Close"].iloc[-1])
+        except Exception:
+            # If anything fails for a ticker, we just skip it
+            continue
+    return prices
+
+
+# ------------------------------------------------------------
 # LOAD DATA
 # ------------------------------------------------------------
 universe_df = load_universe()
@@ -176,7 +201,7 @@ cash_buffer_pct = st.sidebar.slider(
     max_value=50,
     value=5,
     step=1,
-    help="Demo control: simulates how much of the Wave is held in SmartSafe / cash."
+    help="Simulated cash held in SmartSafe / money market."
 )
 
 # ------------------------------------------------------------
@@ -187,6 +212,49 @@ merged = wave_slice.merge(universe_df, on="Ticker", how="left")
 
 # If sectors missing, label as Unknown for charts
 merged["Sector"] = merged["Sector"].fillna("").replace("", "Unknown")
+
+# ------------------------------------------------------------
+# LIVE PRICING & “TRADES”
+# ------------------------------------------------------------
+# Treat universe Price as "reference" price
+merged["Price"] = pd.to_numeric(merged["Price"], errors="coerce")
+
+# Fetch live prices
+live_price_map = fetch_live_prices(merged["Ticker"].unique().tolist())
+merged["LivePrice"] = merged["Ticker"].map(live_price_map)
+# Fallback to static price if live not available
+merged["LivePrice"] = merged["LivePrice"].fillna(merged["Price"])
+
+# Assume a notional portfolio value for demo (e.g., $1,000,000)
+PORTFOLIO_NOTIONAL = 1_000_000.0
+
+# Shares based on target weights & reference price
+valid_price_mask = merged["Price"] > 0
+merged["Shares"] = 0.0
+merged.loc[valid_price_mask, "Shares"] = (
+    merged.loc[valid_price_mask, "Weight_wave"] * PORTFOLIO_NOTIONAL
+) / merged.loc[valid_price_mask, "Price"]
+
+# Current market value based on LIVE prices
+merged["LiveValue"] = merged["Shares"] * merged["LivePrice"]
+
+total_live_value = merged["LiveValue"].sum()
+if total_live_value > 0:
+    merged["LiveWeight"] = merged["LiveValue"] / total_live_value
+else:
+    merged["LiveWeight"] = merged["Weight_wave"]
+
+# Drift vs target
+merged["Drift"] = merged["LiveWeight"] - merged["Weight_wave"]
+
+# Simple trade suggestion: if drift > +0.5% → sell, < -0.5% → buy
+THRESH = 0.005
+merged["TradeAction"] = ""
+merged.loc[merged["Drift"] > THRESH, "TradeAction"] = "Sell"
+merged.loc[merged["Drift"] < -THRESH, "TradeAction"] = "Buy"
+
+merged["TradeSize_$"] = merged["Drift"] * PORTFOLIO_NOTIONAL
+merged["TradeShares"] = merged["TradeSize_$"] / merged["LivePrice"].replace(0, np.nan)
 
 # Effective equity/cash exposures
 total_wave_weight = float(merged["Weight_wave"].sum()) if not merged.empty else 0.0
@@ -217,20 +285,56 @@ if not merged.empty:
     c7.metric("Top 10 Concentration", f"{top10_weight * 100:,.1f}%")
 
 # ------------------------------------------------------------
-# HOLDINGS TABLE
+# HOLDINGS TABLE (WITH LIVE PRICES)
 # ------------------------------------------------------------
-st.markdown("### Holdings")
+st.markdown("### Holdings (Live)")
 
 display_df = merged.copy()
-display_df["Weight"] = display_df["Weight_wave"]
+display_df["TargetWeight"] = display_df["Weight_wave"]
+display_df["CurrentWeight"] = display_df["LiveWeight"]
 
-display_cols = ["Ticker", "Company", "Sector", "Weight", "MarketValue", "Price"]
+display_cols = [
+    "Ticker",
+    "Company",
+    "Sector",
+    "TargetWeight",
+    "CurrentWeight",
+    "Drift",
+    "Price",
+    "LivePrice",
+    "Shares",
+    "LiveValue",
+]
 display_cols = [c for c in display_cols if c in display_df.columns]
 
 st.dataframe(
-    display_df[display_cols].sort_values("Weight", ascending=False),
+    display_df[display_cols].sort_values("CurrentWeight", ascending=False),
     use_container_width=True,
 )
+
+# ------------------------------------------------------------
+# TRADE SUGGESTIONS
+# ------------------------------------------------------------
+st.markdown("### Trade Suggestions (Engine Output – Demo Only)")
+
+trades = merged[merged["TradeAction"] != ""].copy()
+if trades.empty:
+    st.write("No trades required – Wave is within drift thresholds.")
+else:
+    trade_cols = [
+        "Ticker",
+        "Company",
+        "TradeAction",
+        "Drift",
+        "TradeShares",
+        "TradeSize_$",
+        "LivePrice",
+    ]
+    trade_cols = [c for c in trade_cols if c in trades.columns]
+    st.dataframe(
+        trades[trade_cols].sort_values("TradeSize_$", key=lambda s: s.abs(), ascending=False),
+        use_container_width=True,
+    )
 
 # ------------------------------------------------------------
 # CHARTS – TOP 10 & SECTOR ALLOCATION
@@ -238,20 +342,20 @@ st.dataframe(
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    st.markdown("#### Top 10 Holdings by Weight")
+    st.markdown("#### Top 10 Holdings by Current Weight")
     if not display_df.empty:
         top10 = (
-            display_df.sort_values("Weight", ascending=False)
+            display_df.sort_values("CurrentWeight", ascending=False)
             .head(10)
-            .set_index("Ticker")["Weight"]
+            .set_index("Ticker")["CurrentWeight"]
         )
         st.bar_chart(top10)
 
 with chart_col2:
-    st.markdown("#### Sector Allocation (Wave Weights)")
+    st.markdown("#### Sector Allocation (Current Weights)")
     if "Sector" in display_df.columns and not display_df.empty:
         sector_weights = (
-            display_df.groupby("Sector")["Weight"]
+            display_df.groupby("Sector")["CurrentWeight"]
             .sum()
             .sort_values(ascending=False)
         )
