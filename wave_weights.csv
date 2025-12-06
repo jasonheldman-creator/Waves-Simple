@@ -1,179 +1,104 @@
-Ticker,Wave,Weight
-# --------------------------
-# S&P 500 WAVE (Core Index)
-# --------------------------
-NVDA,SP500_Wave,0.1486
-AAPL,SP500_Wave,0.1388
-MSFT,SP500_Wave,0.1291
-GOOGL,SP500_Wave,0.1208
-META,SP500_Wave,0.1051
-TSLA,SP500_Wave,0.1004
-BRK.B,SP500_Wave,0.0932
-LLY,SP500_Wave,0.0931
-WMT,SP500_Wave,0.0931
-JPM,SP500_Wave,0.0889
-ORCL,SP500_Wave,0.0829
-JNJ,SP500_Wave,0.0816
-MA,SP500_Wave,0.0808
-XOM,SP500_Wave,0.0804
-NFLX,SP500_Wave,0.0795
-COST,SP500_Wave,0.0784
-ABBV,SP500_Wave,0.0733
-PLTR,SP500_Wave,0.0711
-BAC,SP500_Wave,0.0632
-HD,SP500_Wave,0.0612
+Wave,Ticker,Weight
+AI_Wave,NVDA,0.12
+AI_Wave,MSFT,0.11
+AI_Wave,META,0.10
+AI_Wave,GOOGL,0.09
+AI_Wave,AMZN,0.08
+AI_Wave,TSLA,0.07
+AI_Wave,AVGO,0.06
+AI_Wave,CRM,0.05
+AI_Wave,PLTR,0.05
+AI_Wave,AMD,0.04
+AI_Wave,SNOW,0.04
+AI_Wave,NOW,0.04
 
-# --------------------------
-# GROWTH WAVE
-# --------------------------
-AAPL,Growth_Wave,0.10
-MSFT,Growth_Wave,0.10
-NVDA,Growth_Wave,0.10
-GOOGL,Growth_Wave,0.09
-META,Growth_Wave,0.09
-TSLA,Growth_Wave,0.08
-AMZN,Growth_Wave,0.08
-NFLX,Growth_Wave,0.07
-PLTR,Growth_Wave,0.06
-CRM,Growth_Wave,0.06
-ADBE,Growth_Wave,0.05
-AMD,Growth_Wave,0.05
-AVGO,Growth_Wave,0.04
-CDNS,Growth_Wave,0.03
-PANW,Growth_Wave,0.03
+Growth_Wave,AAPL,0.12
+Growth_Wave,MSFT,0.11
+Growth_Wave,NVDA,0.10
+Growth_Wave,META,0.09
+Growth_Wave,AMZN,0.08
+Growth_Wave,TSLA,0.07
+Growth_Wave,AVGO,0.06
+Growth_Wave,CRM,0.05
+Growth_Wave,AMD,0.05
+Growth_Wave,GOOGL,0.05
+Growth_Wave,ADBE,0.04
+Growth_Wave,ISRG,0.03
 
-# --------------------------
-# INCOME WAVE
-# --------------------------
-JNJ,Income_Wave,0.10
-XOM,Income_Wave,0.08
-CVX,Income_Wave,0.07
-WMT,Income_Wave,0.08
-HD,Income_Wave,0.07
-PG,Income_Wave,0.07
-KO,Income_Wave,0.06
-PEP,Income_Wave,0.06
-ABBV,Income_Wave,0.08
-BRK.B,Income_Wave,0.07
-BAC,Income_Wave,0.06
-JPM,Income_Wave,0.06
-SO,Income_Wave,0.04
-DUK,Income_Wave,0.04
-T,Income_Wave,0.06
+Income_Wave,JNJ,0.10
+Income_Wave,PG,0.09
+Income_Wave,KO,0.08
+Income_Wave,PEP,0.08
+Income_Wave,ABBV,0.09
+Income_Wave,LLY,0.08
+Income_Wave,WMT,0.07
+Income_Wave,HD,0.07
+Income_Wave,RTX,0.06
+Income_Wave,SO,0.05
+Income_Wave,DUK,0.05
+Income_Wave,VZ,0.05
 
-# --------------------------
-# FUTURE ENERGY WAVE
-# --------------------------
-TSLA,Future_Energy_Wave,0.12
-NEE,Future_Energy_Wave,0.10
-ENPH,Future_Energy_Wave,0.08
-SEDG,Future_Energy_Wave,0.07
-PLUG,Future_Energy_Wave,0.05
-FSLR,Future_Energy_Wave,0.07
-RUN,Future_Energy_Wave,0.05
-XOM,Future_Energy_Wave,0.06
-CVX,Future_Energy_Wave,0.06
-BP,Future_Energy_Wave,0.05
-SHEL,Future_Energy_Wave,0.05
-GE,Future_Energy_Wave,0.04
-BLDP,Future_Energy_Wave,0.04
-LIN,Future_Energy_Wave,0.04
+Future_Energy_Wave,TSLA,0.10
+Future_Energy_Wave,ENPH,0.09
+Future_Energy_Wave,FSLR,0.09
+Future_Energy_Wave,SEDG,0.08
+Future_Energy_Wave,PLUG,0.08
+Future_Energy_Wave,BLDP,0.07
+Future_Energy_Wave,NXPI,0.07
+Future_Energy_Wave,ON,0.07
+Future_Energy_Wave,ALB,0.06
+Future_Energy_Wave,LAC,0.06
+Future_Energy_Wave,QS,0.05
+Future_Energy_Wave,CHPT,0.05
 
-# --------------------------
-# AI WAVE
-# --------------------------
-NVDA,AI_Wave,0.15
-MSFT,AI_Wave,0.12
-GOOGL,AI_Wave,0.12
-META,AI_Wave,0.10
-AMD,AI_Wave,0.08
-AVGO,AI_Wave,0.07
-TSLA,AI_Wave,0.06
-PLTR,AI_Wave,0.06
-SNOW,AI_Wave,0.05
-DDOG,AI_Wave,0.05
-CRWD,AI_Wave,0.04
-NET,AI_Wave,0.04
-RBLX,AI_Wave,0.03
-AI,AI_Wave,0.03
+CleanTransitInfra_Wave,TSLA,0.10
+CleanTransitInfra_Wave,NIO,0.09
+CleanTransitInfra_Wave,LI,0.09
+CleanTransitInfra_Wave,RIVN,0.08
+CleanTransitInfra_Wave,BLNK,0.07
+CleanTransitInfra_Wave,CHPT,0.07
+CleanTransitInfra_Wave,CAT,0.08
+CleanTransitInfra_Wave,DE,0.08
+CleanTransitInfra_Wave,VOLVY,0.06
+CleanTransitInfra_Wave,PANW,0.05
+CleanTransitInfra_Wave,UBER,0.06
+CleanTransitInfra_Wave,LYFT,0.05
 
-# --------------------------
-# SMALL CAP GROWTH WAVE
-# --------------------------
-PLTR,SmallCap_Growth_Wave,0.10
-UPST,SmallCap_Growth_Wave,0.08
-AFRM,SmallCap_Growth_Wave,0.08
-ROKU,SmallCap_Growth_Wave,0.07
-MSTR,SmallCap_Growth_Wave,0.06
-SMCI,SmallCap_Growth_Wave,0.08
-CRWD,SmallCap_Growth_Wave,0.07
-DDOG,SmallCap_Growth_Wave,0.06
-ZS,SmallCap_Growth_Wave,0.06
-NET,SmallCap_Growth_Wave,0.06
-CELH,SmallCap_Growth_Wave,0.05
-LW,SmallCap_Growth_Wave,0.04
-MNDY,SmallCap_Growth_Wave,0.04
+RWA_Income_Wave,O,0.10
+RWA_Income_Wave,SPG,0.09
+RWA_Income_Wave,VNQ,0.09
+RWA_Income_Wave,PLD,0.08
+RWA_Income_Wave,DLR,0.08
+RWA_Income_Wave,AMT,0.08
+RWA_Income_Wave,NEE,0.08
+RWA_Income_Wave,DUK,0.07
+RWA_Income_Wave,SO,0.07
+RWA_Income_Wave,XLU,0.06
+RWA_Income_Wave,BIP,0.05
+RWA_Income_Wave,BEPC,0.05
 
-# --------------------------
-# SMALL–MID CAP GROWTH WAVE
-# --------------------------
-TTD,SmallMid_Growth_Wave,0.10
-PATH,SmallMid_Growth_Wave,0.08
-TEAM,SmallMid_Growth_Wave,0.08
-OKTA,SmallMid_Growth_Wave,0.07
-ZS,SmallMid_Growth_Wave,0.07
-MDB,SmallMid_Growth_Wave,0.07
-SNOW,SmallMid_Growth_Wave,0.08
-PANW,SmallMid_Growth_Wave,0.08
-CRWD,SmallMid_Growth_Wave,0.08
-NET,SmallMid_Growth_Wave,0.06
-DDOG,SmallMid_Growth_Wave,0.06
-FSLY,SmallMid_Growth_Wave,0.04
-ROKU,SmallMid_Growth_Wave,0.03
+SmallMidValue_Wave,CROX,0.09
+SmallMidValue_Wave,DKNG,0.08
+SmallMidValue_Wave,CPRT,0.08
+SmallMidValue_Wave,ULTA,0.08
+SmallMidValue_Wave,URI,0.08
+SmallMidValue_Wave,DECK,0.08
+SmallMidValue_Wave,BOOT,0.07
+SmallMidValue_Wave,SIGI,0.07
+SmallMidValue_Wave,TRN,0.07
+SmallMidValue_Wave,ITRI,0.07
+SmallMidValue_Wave,CECO,0.06
+SmallMidValue_Wave,MHK,0.06
 
-# --------------------------
-# EQUITY INCOME WAVE
-# --------------------------
-JNJ,Equity_Income_Wave,0.12
-KO,Equity_Income_Wave,0.08
-PEP,Equity_Income_Wave,0.08
-XOM,Equity_Income_Wave,0.08
-CVX,Equity_Income_Wave,0.07
-PG,Equity_Income_Wave,0.08
-T,Equity_Income_Wave,0.06
-VZ,Equity_Income_Wave,0.06
-SO,Equity_Income_Wave,0.06
-DUK,Equity_Income_Wave,0.05
-WMT,Equity_Income_Wave,0.06
-ABBV,Equity_Income_Wave,0.06
-HD,Equity_Income_Wave,0.06
-JPM,Equity_Income_Wave,0.06
-
-# --------------------------
-# RWA INCOME WAVE
-# --------------------------
-SCHP,RWA_Income_Wave,0.15
-TIP,RWA_Income_Wave,0.15
-MBB,RWA_Income_Wave,0.10
-SHY,RWA_Income_Wave,0.10
-TLT,RWA_Income_Wave,0.08
-HYG,RWA_Income_Wave,0.08
-LQD,RWA_Income_Wave,0.08
-AGG,RWA_Income_Wave,0.08
-VCIT,RWA_Income_Wave,0.06
-BIL,RWA_Income_Wave,0.06
-# ----------------------------
-# CLEAN TRANSIT & INFRA WAVE
-# ----------------------------
-TSLA,CleanTransitInfra_Wave,0.10
-GM,CleanTransitInfra_Wave,0.08
-F,CleanTransitInfra_Wave,0.08
-NVDA,CleanTransitInfra_Wave,0.08
-GE,CleanTransitInfra_Wave,0.08
-CAT,CleanTransitInfra_Wave,0.08
-RTX,CleanTransitInfra_Wave,0.08
-TMUS,CleanTransitInfra_Wave,0.08
-ORCL,CleanTransitInfra_Wave,0.06
-AMZN,CleanTransitInfra_Wave,0.06
-MSFT,CleanTransitInfra_Wave,0.06
-AAPL,CleanTransitInfra_Wave,0.06
+Quantum_Wave,IBM,0.12
+Quantum_Wave,IONQ,0.12
+Quantum_Wave,RIGL,0.10
+Quantum_Wave,CGNX,0.10
+Quantum_Wave,AAPL,0.09
+Quantum_Wave,NVDA,0.09
+Quantum_Wave,SMCI,0.09
+Quantum_Wave,ACLS,0.08
+Quantum_Wave,AMAT,0.07
+Quantum_Wave,LRCX,0.07
+Quantum_Wave,ASML,0.05
+Quantum_Wave,KLAC,0.05
