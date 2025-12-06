@@ -10,7 +10,6 @@ import pandas as pd
 import yfinance as yf
 import streamlit as st
 
-
 # -------------------------------------------------------------------
 # PATHS & CONSTANTS
 # -------------------------------------------------------------------
@@ -249,7 +248,6 @@ def fetch_index_snapshot(ticker: str):
         last = data.iloc[-1]
         close = float(last["Close"])
 
-        # Use previous close as reference if available
         info = yf.Ticker(ticker).info or {}
         if "previousClose" in info:
             prev = float(info["previousClose"])
@@ -286,69 +284,18 @@ def format_bps(x):
         return "—"
 
 
-def discover_waves_from_perf_logs():
-    waves = set()
-    if not os.path.isdir(LOGS_PERF_DIR):
-        return []
-    pattern = os.path.join(LOGS_PERF_DIR, "*_performance_*.csv")
-    for f in glob.glob(pattern):
-        base = os.path.basename(f)
-        if "_performance_" in base:
-            wave = base.split("_performance_")[0]
-            if wave:
-                waves.add(wave)
-    return sorted(waves)
-
-
-def discover_waves_from_pos_logs():
-    """NEW: discover waves from positions logs in logs/positions."""
-    waves = set()
-    if not os.path.isdir(LOGS_POS_DIR):
-        return []
-    pattern = os.path.join(LOGS_POS_DIR, "*_positions_*.csv")
-    for f in glob.glob(pattern):
-        base = os.path.basename(f)
-        if "_positions_" in base:
-            wave = base.split("_positions_")[0]
-            if wave:
-                waves.add(wave)
-    return sorted(waves)
-
-
 def discover_waves_from_weights():
+    """Wave list from wave_weights.csv only."""
     if not os.path.exists(WAVE_WEIGHTS_FILE):
         return []
     try:
         df = pd.read_csv(WAVE_WEIGHTS_FILE)
     except Exception:
         return []
-
     for candidate in ["Wave", "wave", "WaveName", "wave_name"]:
         if candidate in df.columns:
             return sorted(df[candidate].dropna().unique().tolist())
     return []
-
-
-def get_wave_universe_source():
-    """
-    Order of precedence:
-    1) positions logs
-    2) performance logs
-    3) wave_weights.csv
-    """
-    waves_pos = discover_waves_from_pos_logs()
-    if waves_pos:
-        return waves_pos, "positions logs"
-
-    waves_perf = discover_waves_from_perf_logs()
-    if waves_perf:
-        return waves_perf, "performance logs"
-
-    waves_weights = discover_waves_from_weights()
-    if waves_weights:
-        return waves_weights, "wave_weights.csv"
-
-    return [], "none"
 
 
 def get_latest_performance_file(wave_name: str):
@@ -642,7 +589,7 @@ def render_performance_curve(wave_name, wave_metrics, df_perf):
     if wave_metrics is None or df_perf is None:
         st.info(
             "No performance log found yet for this Wave. "
-            "Once the live engine writes CSVs into `logs/performance/`, "
+            "Once the live engine writes CSVs into logs/performance/, "
             "the performance curve will plot here."
         )
         return
@@ -692,72 +639,142 @@ def render_exposure_cards(exposure_pct: int, mode: str):
 
 
 def render_top_positions(selected_wave: str, top_n: int = 10):
+    """
+    1) Try latest positions log: logs/positions/<Wave>_positions_*.csv
+    2) If none, fall back to wave_weights.csv for that Wave.
+    """
+    # 1) Try positions log
     latest_file = get_latest_positions_file(selected_wave)
-    if latest_file is None:
+    if latest_file is not None:
+        try:
+            df = pd.read_csv(latest_file)
+        except Exception as e:
+            st.markdown("### Top 10 Positions — Google Finance Links")
+            st.error(f"Could not read positions file for {selected_wave}: {e}")
+            return
+
+        ticker_col = None
+        for c in ["ticker", "Ticker", "symbol", "Symbol"]:
+            if c in df.columns:
+                ticker_col = c
+                break
+
+        if ticker_col is None:
+            st.markdown("### Top 10 Positions — Google Finance Links")
+            st.warning("No ticker/symbol column found in positions file.")
+            st.dataframe(df.head(20))
+            return
+
+        weight_col = None
+        for c in ["weight", "Weight", "target_weight", "TargetWeight", "position_weight", "PositionWeight"]:
+            if c in df.columns:
+                weight_col = c
+                break
+
+        value_col = None
+        for c in ["value", "Value", "market_value", "MarketValue"]:
+            if c in df.columns:
+                value_col = c
+                break
+
+        df_sorted = df.copy()
+        if value_col:
+            df_sorted = df_sorted.sort_values(by=value_col, ascending=False)
+        elif weight_col:
+            df_sorted = df_sorted.sort_values(by=weight_col, ascending=False)
+        else:
+            df_sorted = df_sorted.sort_values(by=ticker_col)
+
+        top = df_sorted.head(top_n).copy()
+
+        def google_link(t):
+            t = str(t).strip().upper()
+            return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
+
+        top["Ticker"] = top[ticker_col].apply(google_link)
+
+        display_cols = ["Ticker"]
+        if weight_col:
+            top["Weight %"] = (top[weight_col].astype(float) * 100).round(2)
+            display_cols.append("Weight %")
+        if value_col:
+            top["Value"] = top[value_col]
+            display_cols.append("Value")
+
         st.markdown("### Top 10 Positions — Google Finance Links")
+        st.caption(f"From latest engine positions log: `{os.path.basename(latest_file)}`")
+        st.table(top[display_cols])
+        return
+
+    # 2) Fallback: wave_weights.csv
+    st.markdown("### Top 10 Positions — Google Finance Links")
+
+    if not os.path.exists(WAVE_WEIGHTS_FILE):
         st.info(
-            f"No positions log found yet for **{selected_wave}** in `logs/positions/`.\n\n"
-            "Once the engine writes positions CSVs, this panel will show live top holdings."
+            "No positions log found, and `wave_weights.csv` is missing. "
+            "Add either positions logs or a weights file to see holdings."
         )
         return
 
     try:
-        df = pd.read_csv(latest_file)
+        dfw = pd.read_csv(WAVE_WEIGHTS_FILE)
     except Exception as e:
-        st.markdown("### Top 10 Positions — Google Finance Links")
-        st.error(f"Could not read positions file for {selected_wave}: {e}")
+        st.error(f"Could not read wave_weights.csv: {e}")
+        return
+
+    wave_col = None
+    for c in ["Wave", "wave", "WaveName", "wave_name"]:
+        if c in dfw.columns:
+            wave_col = c
+            break
+    if wave_col is None:
+        st.warning("wave_weights.csv does not have a Wave name column.")
+        st.dataframe(dfw.head(20))
         return
 
     ticker_col = None
     for c in ["ticker", "Ticker", "symbol", "Symbol"]:
-        if c in df.columns:
+        if c in dfw.columns:
             ticker_col = c
             break
-
     if ticker_col is None:
-        st.markdown("### Top 10 Positions — Google Finance Links")
-        st.warning("No ticker/symbol column found in positions file.")
-        st.dataframe(df.head(20))
+        st.warning("wave_weights.csv does not have a ticker/symbol column.")
+        st.dataframe(dfw.head(20))
         return
 
     weight_col = None
-    for c in ["weight", "Weight", "target_weight", "TargetWeight", "position_weight", "PositionWeight"]:
-        if c in df.columns:
+    for c in ["weight", "Weight", "target_weight", "TargetWeight"]:
+        if c in dfw.columns:
             weight_col = c
             break
 
-    value_col = None
-    for c in ["value", "Value", "market_value", "MarketValue"]:
-        if c in df.columns:
-            value_col = c
-            break
+    sub = dfw[dfw[wave_col] == selected_wave].copy()
+    if sub.empty:
+        st.info(
+            f"No rows in wave_weights.csv for Wave `{selected_wave}`. "
+            "Update that file so the console can infer holdings."
+        )
+        return
 
-    df_sorted = df.copy()
-    if value_col:
-        df_sorted = df_sorted.sort_values(by=value_col, ascending=False)
-    elif weight_col:
-        df_sorted = df_sorted.sort_values(by=weight_col, ascending=False)
+    if weight_col:
+        sub = sub.sort_values(by=weight_col, ascending=False)
     else:
-        df_sorted = df_sorted.sort_values(by=ticker_col)
+        sub = sub.sort_values(by=ticker_col)
 
-    top = df_sorted.head(top_n).copy()
+    top = sub.head(top_n).copy()
 
-    def google_link(t):
+    def google_link2(t):
         t = str(t).strip().upper()
         return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
 
-    top["Ticker"] = top[ticker_col].apply(google_link)
+    top["Ticker"] = top[ticker_col].apply(google_link2)
 
     display_cols = ["Ticker"]
     if weight_col:
         top["Weight %"] = (top[weight_col].astype(float) * 100).round(2)
         display_cols.append("Weight %")
-    if value_col:
-        top["Value"] = top[value_col]
-        display_cols.append("Value")
 
-    st.markdown("### Top 10 Positions — Google Finance Links")
-    st.caption(f"From latest engine positions log: `{os.path.basename(latest_file)}`")
+    st.caption("From `wave_weights.csv` (fallback, no positions log yet).")
     st.table(top[display_cols])
 
 
@@ -802,21 +819,17 @@ def render_alpha_dashboard(df_perf):
     st.caption("Rolling 30-day alpha, in percentage points vs benchmark.")
 
 
-def render_engine_logs_tab(waves, source_label):
+def render_engine_logs_tab(waves):
     st.markdown("### Engine Logs & Discovery")
 
-    st.markdown("#### Discovered Waves")
+    st.markdown("#### Discovered Waves (from wave_weights.csv)")
     if not waves:
         st.warning(
             "No Waves discovered yet. "
-            "Create performance logs in `logs/performance/` or positions logs in `logs/positions/`, "
-            "or provide `wave_weights.csv`."
+            "Populate `wave_weights.csv` with a Wave name column to drive the console."
         )
     else:
         st.write(", ".join(waves))
-
-    st.markdown("#### Source of Wave List")
-    st.info(f"Wave universe discovered from **{source_label}**.")
 
     st.markdown("#### Performance Logs (logs/performance/)")
     if os.path.isdir(LOGS_PERF_DIR):
@@ -846,19 +859,15 @@ def render_engine_logs_tab(waves, source_label):
 # SIDEBAR / ENGINE CONTROLS
 # -------------------------------------------------------------------
 
-waves, source_label = get_wave_universe_source()
+waves = discover_waves_from_weights()
 
 with st.sidebar:
     st.markdown("### ⚙️ Engine Controls")
 
-    if source_label == "positions logs":
-        st.success("Using Wave list discovered from `logs/positions/`.")
-    elif source_label == "performance logs":
-        st.success("Using Wave list discovered from `logs/performance/`.")
-    elif source_label == "wave_weights.csv":
-        st.warning("Using Wave list from `wave_weights.csv` (no logs found yet).")
+    if waves:
+        st.success("Using Wave list from `wave_weights.csv`.")
     else:
-        st.error("No Wave universe detected. Please add logs or `wave_weights.csv`.")
+        st.error("No Wave universe detected in `wave_weights.csv`.")
         st.stop()
 
     selected_wave = st.selectbox("Select Wave", options=waves, index=0 if waves else None)
@@ -918,4 +927,4 @@ with tab_alpha:
     render_alpha_dashboard(perf_df)
 
 with tab_logs:
-    render_engine_logs_tab(waves, source_label)
+    render_engine_logs_tab(waves)
