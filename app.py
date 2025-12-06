@@ -1,5 +1,13 @@
 # app.py
 # WAVES INSTITUTIONAL CONSOLE — LIVE ENGINE · MULTI-WAVE
+#
+# Uses `wave_weights.csv` as the master source of truth for:
+#   - Wave list
+#   - Primary / Secondary baskets
+#   - Full holdings + top 10 with Google Finance links
+#
+# If performance logs exist in logs/performance/, we show returns & curves.
+# Otherwise we still show full holdings, baskets, and SPX/VIX dashboard.
 
 import os
 import glob
@@ -16,29 +24,26 @@ import streamlit as st
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_PERF_DIR = os.path.join(BASE_DIR, "logs", "performance")
-LOGS_POS_DIR = os.path.join(BASE_DIR, "logs", "positions")
 WAVE_WEIGHTS_FILE = os.path.join(BASE_DIR, "wave_weights.csv")
-LIST_FILE = os.path.join(BASE_DIR, "list.csv")
 
-SPX_TICKER = "^GSPC"   # S&P 500 index
-VIX_TICKER = "^VIX"    # VIX index
+SPX_TICKER = "^GSPC"
+VIX_TICKER = "^VIX"
 
-BETA_TARGET = 0.90      # Target beta for Standard mode
-DEFAULT_EXPOSURE = 90   # Default equity exposure %
+BETA_TARGET = 0.90
+DEFAULT_EXPOSURE = 90
 
 
 # -------------------------------------------------------------------
-# STREAMLIT PAGE CONFIG & GLOBAL STYLE
+# PAGE CONFIG & THEME
 # -------------------------------------------------------------------
 
 st.set_page_config(
     page_title="WAVES Institutional Console",
     page_icon="🌊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Global CSS for dark institutional look, header, tiles & ticker tape
 st.markdown(
     """
     <style>
@@ -46,13 +51,11 @@ st.markdown(
         background-color: #050510;
         color: #f5f7ff;
     }
-
     .block-container {
         padding-top: 0.75rem;
         padding-bottom: 0.75rem;
     }
-
-    /* Header shell */
+    /* Header */
     .waves-header {
         border: 1px solid #0b7736;
         box-shadow: 0 0 18px rgba(0, 255, 120, 0.25);
@@ -61,7 +64,6 @@ st.markdown(
         background: radial-gradient(circle at top left, #06263b 0, #02020a 45%, #000000 100%);
         margin-bottom: 0.75rem;
     }
-
     .waves-header-title {
         font-size: 1.05rem;
         font-weight: 700;
@@ -70,12 +72,10 @@ st.markdown(
         color: #f5f7ff;
         margin-bottom: 0.25rem;
     }
-
     .waves-header-subtitle {
         font-size: 0.85rem;
         color: #cde8ff;
     }
-
     .waves-header-pill {
         display: inline-block;
         font-size: 0.7rem;
@@ -86,14 +86,12 @@ st.markdown(
         color: #9fffbf;
         border: 1px solid rgba(0, 255, 120, 0.35);
     }
-
     .index-row {
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
         margin-top: 0.5rem;
     }
-
     .index-tile {
         min-width: 120px;
         padding: 0.4rem 0.6rem;
@@ -102,40 +100,28 @@ st.markdown(
         background: rgba(1, 12, 20, 0.85);
         font-size: 0.75rem;
     }
-
     .index-tile-label {
         font-weight: 600;
         color: #c7e9ff;
         margin-bottom: 0.1rem;
     }
-
     .index-tile-value {
         font-size: 0.9rem;
         font-weight: 700;
     }
-
-    .index-up {
-        color: #4bff9a;
-    }
-
-    .index-down {
-        color: #ff5d73;
-    }
-
+    .index-up { color: #4bff9a; }
+    .index-down { color: #ff5d73; }
+    .index-flat { color: #e0e0e0; }
     .index-tile-change {
         font-size: 0.7rem;
         opacity: 0.9;
     }
-
     .waves-meta {
         text-align: right;
         font-size: 0.75rem;
         color: #c0d8ff;
     }
-
-    .waves-meta strong {
-        color: #ffffff;
-    }
+    .waves-meta strong { color: #ffffff; }
 
     /* Ticker tape */
     .ticker-bar {
@@ -147,43 +133,29 @@ st.markdown(
         overflow: hidden;
         background: linear-gradient(90deg, #050810 0, #041018 50%, #050810 100%);
     }
-
     .ticker-track {
         display: inline-block;
         white-space: nowrap;
         animation: tickerMove 22s linear infinite;
     }
-
     .ticker-item {
         display: inline-block;
         margin-right: 2.5rem;
         font-size: 0.78rem;
         letter-spacing: 0.04em;
     }
-
     .ticker-label {
         color: #c7e9ff;
         font-weight: 600;
         margin-right: 0.25rem;
     }
-
     .ticker-value {
         font-weight: 700;
         margin-right: 0.25rem;
     }
-
-    .ticker-up {
-        color: #3dff96;
-    }
-
-    .ticker-down {
-        color: #ff4d6a;
-    }
-
-    .ticker-flat {
-        color: #e0e0e0;
-    }
-
+    .ticker-up { color: #3dff96; }
+    .ticker-down { color: #ff4d6a; }
+    .ticker-flat { color: #e0e0e0; }
     @keyframes tickerMove {
         0% { transform: translate3d(0, 0, 0); }
         100% { transform: translate3d(-50%, 0, 0); }
@@ -233,7 +205,7 @@ st.markdown(
 
 
 # -------------------------------------------------------------------
-# UTILITIES
+# HELPERS
 # -------------------------------------------------------------------
 
 @st.cache_data(ttl=60)
@@ -244,10 +216,8 @@ def fetch_index_snapshot(ticker: str):
             data = yf.Ticker(ticker).history(period="5d", interval="1d")
         if data.empty:
             return None
-
         last = data.iloc[-1]
         close = float(last["Close"])
-
         info = yf.Ticker(ticker).info or {}
         if "previousClose" in info:
             prev = float(info["previousClose"])
@@ -256,16 +226,9 @@ def fetch_index_snapshot(ticker: str):
                 prev = float(data["Close"].iloc[-2])
             else:
                 prev = close
-
         change = close - prev
-        pct = (change / prev) * 100 if prev != 0 else 0.0
-
-        return {
-            "last": close,
-            "change": change,
-            "pct": pct,
-            "series": data["Close"],
-        }
+        pct = (change / prev) * 100 if prev else 0.0
+        return {"last": close, "change": change, "pct": pct}
     except Exception:
         return None
 
@@ -284,22 +247,67 @@ def format_bps(x):
         return "—"
 
 
-def discover_waves_from_weights():
-    """Wave list from wave_weights.csv only."""
+@st.cache_data(ttl=60)
+def load_wave_weights():
     if not os.path.exists(WAVE_WEIGHTS_FILE):
-        return []
-    try:
-        df = pd.read_csv(WAVE_WEIGHTS_FILE)
-    except Exception:
-        return []
-    for candidate in ["Wave", "wave", "WaveName", "wave_name"]:
-        if candidate in df.columns:
-            return sorted(df[candidate].dropna().unique().tolist())
-    return []
+        st.error("wave_weights.csv not found in repo root.")
+        st.stop()
+    df = pd.read_csv(WAVE_WEIGHTS_FILE)
+
+    # Normalize column names
+    cols = {c.lower(): c for c in df.columns}
+    wave_col = cols.get("wave") or cols.get("wavename") or cols.get("wave_name")
+    ticker_col = cols.get("ticker") or cols.get("symbol")
+    weight_col = cols.get("weight") or cols.get("target_weight")
+    basket_col = cols.get("basket")  # optional
+
+    if not wave_col or not ticker_col:
+        st.error("wave_weights.csv must have at least Wave and Ticker columns.")
+        st.write(df.head())
+        st.stop()
+
+    df["__wave"] = df[wave_col].astype(str).str.strip()
+    df["__ticker"] = df[ticker_col].astype(str).str.strip().str.upper()
+
+    if weight_col:
+        df["__weight"] = pd.to_numeric(df[weight_col], errors="coerce").fillna(0.0)
+    else:
+        df["__weight"] = 1.0  # equal weights if none provided
+
+    if basket_col:
+        df["__basket"] = df[basket_col].astype(str).str.strip().str.title()
+    else:
+        df["__basket"] = "Primary"
+
+    return df
 
 
-def get_latest_performance_file(wave_name: str):
-    pattern = os.path.join(LOGS_PERF_DIR, f"{wave_name}_performance_*.csv")
+def discover_waves(df_weights: pd.DataFrame):
+    return sorted(df_weights["__wave"].unique().tolist())
+
+
+def get_basket(df_weights: pd.DataFrame, wave: str, basket: str):
+    sub = df_weights[(df_weights["__wave"] == wave) &
+                     (df_weights["__basket"] == basket)].copy()
+    if sub.empty:
+        return sub
+    # normalize weights within this basket
+    total = sub["__weight"].sum()
+    if total <= 0:
+        sub["Weight %"] = np.nan
+    else:
+        sub["Weight %"] = sub["__weight"] / total * 100.0
+    sub = sub.sort_values("Weight %", ascending=False)
+    return sub
+
+
+def google_link(ticker: str):
+    t = str(ticker).strip().upper()
+    return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
+
+
+def get_latest_perf_file(wave: str):
+    pattern = os.path.join(LOGS_PERF_DIR, f"{wave}_performance_*.csv")
     files = glob.glob(pattern)
     if not files:
         return None
@@ -307,40 +315,31 @@ def get_latest_performance_file(wave_name: str):
     return files[-1]
 
 
-def get_latest_positions_file(wave_name: str):
-    pattern = os.path.join(LOGS_POS_DIR, f"{wave_name}_positions_*.csv")
-    files = glob.glob(pattern)
-    if not files:
-        return None
-    files.sort()
-    return files[-1]
-
-
-def load_performance_df(wave_name: str):
-    latest = get_latest_performance_file(wave_name)
-    if latest is None:
+def load_performance_df(wave: str):
+    latest = get_latest_perf_file(wave)
+    if not latest:
         return None, None
     try:
         df = pd.read_csv(latest)
     except Exception as e:
-        st.error(f"Could not read performance file for {wave_name}: {e}")
+        st.error(f"Could not read performance file for {wave}: {e}")
         return None, latest
 
-    date_col = None
+    # find a datetime column
+    dt_col = None
     for c in ["timestamp", "Timestamp", "datetime", "Datetime", "date", "Date"]:
         if c in df.columns:
-            date_col = c
+            dt_col = c
             break
 
-    if date_col is not None:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-        df = df.dropna(subset=[date_col]).sort_values(by=date_col)
-        df = df.set_index(date_col)
+    if dt_col:
+        df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+        df = df.dropna(subset=[dt_col]).sort_values(dt_col).set_index(dt_col)
 
     return df, latest
 
 
-def compute_wave_metrics(df: pd.DataFrame):
+def compute_metrics(df: pd.DataFrame):
     if df is None or df.empty:
         return None
 
@@ -402,14 +401,14 @@ def compute_wave_metrics(df: pd.DataFrame):
 
 
 # -------------------------------------------------------------------
-# RENDER HELPERS
+# RENDERERS
 # -------------------------------------------------------------------
 
-def render_header(selected_wave: str, selected_mode: str):
+def render_header(selected_wave: str, mode: str):
     spx = fetch_index_snapshot(SPX_TICKER)
     vix = fetch_index_snapshot(VIX_TICKER)
 
-    def index_tile(label, snap):
+    def tile(label, snap):
         if snap is None:
             return f"""
             <div class="index-tile">
@@ -433,35 +432,33 @@ def render_header(selected_wave: str, selected_mode: str):
 
     header_html = f"""
     <div class="waves-header">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
-            <div style="flex:2;">
-                <div class="waves-header-title">
-                    WAVES INSTITUTIONAL CONSOLE
-                </div>
-                <div class="waves-header-subtitle">
-                    <span class="waves-header-pill">LIVE ENGINE</span>
-                    <span class="waves-header-pill">MULTI-WAVE</span>
-                    <span class="waves-header-pill">ADAPTIVE INDEX WAVES™</span>
-                    <span style="margin-left:0.3rem; opacity:0.9;">Mini Bloomberg-style terminal for WAVES Intelligence™</span>
-                </div>
-                <div class="index-row">
-                    {index_tile("SPX", spx)}
-                    {index_tile("VIX", vix)}
-                </div>
-            </div>
-            <div style="flex:1;" class="waves-meta">
-                <div><strong>Selected Wave:</strong> {selected_wave if selected_wave else "—"}</div>
-                <div><strong>Mode:</strong> {selected_mode}</div>
-                <div><strong>Console Time:</strong> {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC</div>
-            </div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem;">
+        <div style="flex:2;">
+          <div class="waves-header-title">WAVES INSTITUTIONAL CONSOLE</div>
+          <div class="waves-header-subtitle">
+            <span class="waves-header-pill">LIVE ENGINE</span>
+            <span class="waves-header-pill">MULTI-WAVE</span>
+            <span class="waves-header-pill">ADAPTIVE INDEX WAVES™</span>
+            <span style="margin-left:0.3rem; opacity:0.9;">Mini Bloomberg-style terminal for WAVES Intelligence™</span>
+          </div>
+          <div class="index-row">
+            {tile("SPX", spx)}
+            {tile("VIX", vix)}
+          </div>
         </div>
+        <div style="flex:1;" class="waves-meta">
+          <div><strong>Selected Wave:</strong> {selected_wave}</div>
+          <div><strong>Mode:</strong> {mode}</div>
+          <div><strong>Console Time:</strong> {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC</div>
+        </div>
+      </div>
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
     return spx, vix
 
 
-def render_ticker(spx_snap, vix_snap, wave_name, wave_metrics):
+def render_ticker(spx_snap, vix_snap, wave_name, metrics):
     items = []
 
     def add_item(label, snap):
@@ -478,14 +475,14 @@ def render_ticker(spx_snap, vix_snap, wave_name, wave_metrics):
             f'<span class="ticker-label">{label}</span>'
             f'<span class="ticker-value {cls}">{snap["last"]:.2f}</span>'
             f'<span class="{cls}">{format_pct(pct)}</span>'
-            f"</span>"
+            f'</span>'
         )
 
     add_item("SPX", spx_snap)
     add_item("VIX", vix_snap)
 
-    if wave_name and wave_metrics is not None and wave_metrics.get("today") is not None:
-        today = wave_metrics["today"] * 100
+    if metrics and metrics.get("today") is not None:
+        today = metrics["today"] * 100
         cls = "ticker-flat"
         if today > 0.05:
             cls = "ticker-up"
@@ -496,30 +493,28 @@ def render_ticker(spx_snap, vix_snap, wave_name, wave_metrics):
             f'<span class="ticker-label">{wave_name}</span>'
             f'<span class="ticker-value {cls}">{format_pct(today)}</span>'
             f'<span class="{cls}">today</span>'
-            f"</span>"
+            f'</span>'
         )
 
     ticker_html = (
-        '<div class="ticker-bar">'
-        '<div class="ticker-track">'
+        '<div class="ticker-bar"><div class="ticker-track">'
         + " ".join(items) +
         "</div></div>"
     )
     st.markdown(ticker_html, unsafe_allow_html=True)
 
 
-def render_metric_strip(wave_metrics):
-    col1, col2, col3, col4 = st.columns(4)
-
-    if wave_metrics is None:
+def render_metric_strip(metrics):
+    c1, c2, c3, c4 = st.columns(4)
+    if metrics is None:
         labels = [
             "Total Return (live)",
             "Today",
             "Max Drawdown",
             "Alpha Captured vs Benchmark",
         ]
-        for col, label in zip([col1, col2, col3, col4], labels):
-            with col:
+        for c, label in zip([c1, c2, c3, c4], labels):
+            with c:
                 st.markdown(
                     f"""
                     <div class="metric-card">
@@ -532,12 +527,12 @@ def render_metric_strip(wave_metrics):
                 )
         return
 
-    total = wave_metrics.get("total_return")
-    today = wave_metrics.get("today")
-    max_dd = wave_metrics.get("max_dd")
-    alpha_bps = wave_metrics.get("alpha_bps")
+    total = metrics.get("total_return")
+    today = metrics.get("today")
+    max_dd = metrics.get("max_dd")
+    alpha_bps = metrics.get("alpha_bps")
 
-    with col1:
+    with c1:
         st.markdown(
             f"""
             <div class="metric-card">
@@ -548,7 +543,7 @@ def render_metric_strip(wave_metrics):
             """,
             unsafe_allow_html=True,
         )
-    with col2:
+    with c2:
         st.markdown(
             f"""
             <div class="metric-card">
@@ -559,7 +554,7 @@ def render_metric_strip(wave_metrics):
             """,
             unsafe_allow_html=True,
         )
-    with col3:
+    with c3:
         st.markdown(
             f"""
             <div class="metric-card">
@@ -570,7 +565,7 @@ def render_metric_strip(wave_metrics):
             """,
             unsafe_allow_html=True,
         )
-    with col4:
+    with c4:
         st.markdown(
             f"""
             <div class="metric-card">
@@ -583,25 +578,20 @@ def render_metric_strip(wave_metrics):
         )
 
 
-def render_performance_curve(wave_name, wave_metrics, df_perf):
+def render_perf_curve(metrics, df_perf):
     st.markdown("### Performance Curve")
-
-    if wave_metrics is None or df_perf is None:
+    if metrics is None or df_perf is None:
         st.info(
-            "No performance log found yet for this Wave. "
-            "Once the live engine writes CSVs into logs/performance/, "
-            "the performance curve will plot here."
+            "No performance log found yet for this Wave. Once the live engine writes CSVs "
+            "into logs/performance/, the performance curve will plot here."
         )
         return
-
-    curve = wave_metrics["curve"]
-    perf_df = pd.DataFrame({"Performance": curve})
-    st.line_chart(perf_df)
+    curve = metrics["curve"]
+    st.line_chart(pd.DataFrame({"Performance": curve}))
 
 
 def render_exposure_cards(exposure_pct: int, mode: str):
     st.markdown("### Exposure & Risk")
-
     cash_pct = 100 - exposure_pct
 
     st.markdown(
@@ -614,7 +604,6 @@ def render_exposure_cards(exposure_pct: int, mode: str):
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown(
         f"""
         <div class="mini-card">
@@ -625,7 +614,6 @@ def render_exposure_cards(exposure_pct: int, mode: str):
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown(
         f"""
         <div class="mini-card">
@@ -638,152 +626,40 @@ def render_exposure_cards(exposure_pct: int, mode: str):
     )
 
 
-def render_top_positions(selected_wave: str, top_n: int = 10):
-    """
-    1) Try latest positions log: logs/positions/<Wave>_positions_*.csv
-    2) If none, fall back to wave_weights.csv for that Wave.
-    """
-    # 1) Try positions log
-    latest_file = get_latest_positions_file(selected_wave)
-    if latest_file is not None:
-        try:
-            df = pd.read_csv(latest_file)
-        except Exception as e:
-            st.markdown("### Top 10 Positions — Google Finance Links")
-            st.error(f"Could not read positions file for {selected_wave}: {e}")
-            return
-
-        ticker_col = None
-        for c in ["ticker", "Ticker", "symbol", "Symbol"]:
-            if c in df.columns:
-                ticker_col = c
-                break
-
-        if ticker_col is None:
-            st.markdown("### Top 10 Positions — Google Finance Links")
-            st.warning("No ticker/symbol column found in positions file.")
-            st.dataframe(df.head(20))
-            return
-
-        weight_col = None
-        for c in ["weight", "Weight", "target_weight", "TargetWeight", "position_weight", "PositionWeight"]:
-            if c in df.columns:
-                weight_col = c
-                break
-
-        value_col = None
-        for c in ["value", "Value", "market_value", "MarketValue"]:
-            if c in df.columns:
-                value_col = c
-                break
-
-        df_sorted = df.copy()
-        if value_col:
-            df_sorted = df_sorted.sort_values(by=value_col, ascending=False)
-        elif weight_col:
-            df_sorted = df_sorted.sort_values(by=weight_col, ascending=False)
-        else:
-            df_sorted = df_sorted.sort_values(by=ticker_col)
-
-        top = df_sorted.head(top_n).copy()
-
-        def google_link(t):
-            t = str(t).strip().upper()
-            return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
-
-        top["Ticker"] = top[ticker_col].apply(google_link)
-
-        display_cols = ["Ticker"]
-        if weight_col:
-            top["Weight %"] = (top[weight_col].astype(float) * 100).round(2)
-            display_cols.append("Weight %")
-        if value_col:
-            top["Value"] = top[value_col]
-            display_cols.append("Value")
-
-        st.markdown("### Top 10 Positions — Google Finance Links")
-        st.caption(f"From latest engine positions log: `{os.path.basename(latest_file)}`")
-        st.table(top[display_cols])
+def render_basket_table(title: str, df_basket: pd.DataFrame):
+    st.markdown(f"#### {title}")
+    if df_basket.empty:
+        st.info("No holdings in this basket yet.")
         return
 
-    # 2) Fallback: wave_weights.csv
+    df = df_basket.copy()
+    df["Ticker"] = df["__ticker"].apply(google_link)
+    df["Weight %"] = df["Weight %"].round(2)
+
+    cols = ["Ticker", "Weight %"]
+    extra = [c for c in df.columns if c not in cols and not c.startswith("__")]
+    cols.extend(extra)
+
+    st.dataframe(df[cols], use_container_width=True)
+
+
+def render_top10(df_primary: pd.DataFrame, df_secondary: pd.DataFrame):
     st.markdown("### Top 10 Positions — Google Finance Links")
-
-    if not os.path.exists(WAVE_WEIGHTS_FILE):
-        st.info(
-            "No positions log found, and `wave_weights.csv` is missing. "
-            "Add either positions logs or a weights file to see holdings."
-        )
+    combined = pd.concat([df_primary, df_secondary], ignore_index=True)
+    if combined.empty:
+        st.info("No holdings defined for this Wave in wave_weights.csv.")
         return
-
-    try:
-        dfw = pd.read_csv(WAVE_WEIGHTS_FILE)
-    except Exception as e:
-        st.error(f"Could not read wave_weights.csv: {e}")
-        return
-
-    wave_col = None
-    for c in ["Wave", "wave", "WaveName", "wave_name"]:
-        if c in dfw.columns:
-            wave_col = c
-            break
-    if wave_col is None:
-        st.warning("wave_weights.csv does not have a Wave name column.")
-        st.dataframe(dfw.head(20))
-        return
-
-    ticker_col = None
-    for c in ["ticker", "Ticker", "symbol", "Symbol"]:
-        if c in dfw.columns:
-            ticker_col = c
-            break
-    if ticker_col is None:
-        st.warning("wave_weights.csv does not have a ticker/symbol column.")
-        st.dataframe(dfw.head(20))
-        return
-
-    weight_col = None
-    for c in ["weight", "Weight", "target_weight", "TargetWeight"]:
-        if c in dfw.columns:
-            weight_col = c
-            break
-
-    sub = dfw[dfw[wave_col] == selected_wave].copy()
-    if sub.empty:
-        st.info(
-            f"No rows in wave_weights.csv for Wave `{selected_wave}`. "
-            "Update that file so the console can infer holdings."
-        )
-        return
-
-    if weight_col:
-        sub = sub.sort_values(by=weight_col, ascending=False)
-    else:
-        sub = sub.sort_values(by=ticker_col)
-
-    top = sub.head(top_n).copy()
-
-    def google_link2(t):
-        t = str(t).strip().upper()
-        return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
-
-    top["Ticker"] = top[ticker_col].apply(google_link2)
-
-    display_cols = ["Ticker"]
-    if weight_col:
-        top["Weight %"] = (top[weight_col].astype(float) * 100).round(2)
-        display_cols.append("Weight %")
-
-    st.caption("From `wave_weights.csv` (fallback, no positions log yet).")
-    st.table(top[display_cols])
+    combined = combined.sort_values("Weight %", ascending=False).head(10).copy()
+    combined["Ticker"] = combined["__ticker"].apply(google_link)
+    combined["Weight %"] = combined["Weight %"].round(2)
+    st.table(combined[["Ticker", "Weight %"]])
 
 
 def render_alpha_dashboard(df_perf):
     st.markdown("### Alpha Dashboard")
-
     if df_perf is None or df_perf.empty:
         st.info(
-            "No performance log with benchmark columns detected yet. "
+            "No performance log with benchmark returns yet. "
             "When the engine logs `return` and `benchmark_return`, "
             "a rolling alpha chart will appear here."
         )
@@ -794,42 +670,34 @@ def render_alpha_dashboard(df_perf):
         if c in df_perf.columns:
             ret_col = c
             break
-
-    bench_ret_col = None
+    bench_col = None
     for c in ["benchmark_return", "bench_return", "BenchmarkReturn"]:
         if c in df_perf.columns:
-            bench_ret_col = c
+            bench_col = c
             break
-
-    if ret_col is None or bench_ret_col is None:
+    if not ret_col or not bench_col:
         st.info(
-            "This performance file does not contain both strategy and benchmark return columns. "
-            "Rolling alpha requires `return` and `benchmark_return`."
+            "This performance file does not include both strategy and benchmark return columns."
         )
-        st.dataframe(df_perf.head(20))
+        st.dataframe(df_perf.head())
         return
 
     r = df_perf[ret_col].astype(float).fillna(0.0)
-    rb = df_perf[bench_ret_col].astype(float).fillna(0.0)
+    rb = df_perf[bench_col].astype(float).fillna(0.0)
     alpha_daily = r - rb
-    alpha_30d = alpha_daily.rolling(window=30).sum()
+    alpha_30 = alpha_daily.rolling(30).sum()
 
-    alpha_df = pd.DataFrame({"30-day Rolling Alpha": alpha_30d * 100})
-    st.line_chart(alpha_df)
-    st.caption("Rolling 30-day alpha, in percentage points vs benchmark.")
+    st.line_chart(pd.DataFrame({"30-day Rolling Alpha": alpha_30 * 100}))
+    st.caption("Rolling 30-day alpha in percentage points vs benchmark.")
 
 
-def render_engine_logs_tab(waves):
+def render_engine_logs_tab(wave_list):
     st.markdown("### Engine Logs & Discovery")
-
     st.markdown("#### Discovered Waves (from wave_weights.csv)")
-    if not waves:
-        st.warning(
-            "No Waves discovered yet. "
-            "Populate `wave_weights.csv` with a Wave name column to drive the console."
-        )
+    if not wave_list:
+        st.warning("No Waves discovered. Check the Wave column in wave_weights.csv.")
     else:
-        st.write(", ".join(waves))
+        st.write(", ".join(wave_list))
 
     st.markdown("#### Performance Logs (logs/performance/)")
     if os.path.isdir(LOGS_PERF_DIR):
@@ -838,39 +706,30 @@ def render_engine_logs_tab(waves):
     else:
         st.write("_folder not found_")
 
-    st.markdown("#### Positions Logs (logs/positions/)")
-    if os.path.isdir(LOGS_POS_DIR):
-        files = sorted(glob.glob(os.path.join(LOGS_POS_DIR, "*.csv")))
-        st.write("\n".join(os.path.basename(f) for f in files) if files else "_(none yet)_")
-    else:
-        st.write("_folder not found_")
-
     st.markdown("#### Base Paths")
     st.code(
-        f"BASE_DIR        = {BASE_DIR}\n"
-        f"LOGS_PERF_DIR   = {LOGS_PERF_DIR}\n"
-        f"LOGS_POS_DIR    = {LOGS_POS_DIR}\n"
-        f"WAVE_WEIGHTS    = {WAVE_WEIGHTS_FILE}\n"
-        f"LIST_FILE       = {LIST_FILE}"
+        f"BASE_DIR      = {BASE_DIR}\n"
+        f"LOGS_PERF_DIR = {LOGS_PERF_DIR}\n"
+        f"WAVE_WEIGHTS  = {WAVE_WEIGHTS_FILE}"
     )
 
 
 # -------------------------------------------------------------------
-# SIDEBAR / ENGINE CONTROLS
+# MAIN APP FLOW
 # -------------------------------------------------------------------
 
-waves = discover_waves_from_weights()
+weights_df = load_wave_weights()
+wave_list = discover_waves(weights_df)
 
 with st.sidebar:
     st.markdown("### ⚙️ Engine Controls")
-
-    if waves:
-        st.success("Using Wave list from `wave_weights.csv`.")
+    if wave_list:
+        st.success("Using Wave universe from wave_weights.csv.")
     else:
-        st.error("No Wave universe detected in `wave_weights.csv`.")
+        st.error("No Waves discovered in wave_weights.csv.")
         st.stop()
 
-    selected_wave = st.selectbox("Select Wave", options=waves, index=0 if waves else None)
+    selected_wave = st.selectbox("Select Wave", options=wave_list, index=0)
 
     st.markdown("#### Mode")
     mode = st.radio(
@@ -892,23 +751,17 @@ with st.sidebar:
         f"**Target β ≈ {BETA_TARGET:.2f}** · Cash buffer: **{100 - exposure}%**",
     )
 
-
-# -------------------------------------------------------------------
-# MAIN LAYOUT
-# -------------------------------------------------------------------
-
+# Header + ticker strip
 spx_snap, vix_snap = render_header(selected_wave, mode)
 
 perf_df, perf_file = load_performance_df(selected_wave)
-wave_metrics = compute_wave_metrics(perf_df)
+metrics = compute_metrics(perf_df)
 
-render_ticker(spx_snap, vix_snap, selected_wave, wave_metrics)
+render_ticker(spx_snap, vix_snap, selected_wave, metrics)
 
 st.markdown("#### WAVES Engine Dashboard")
 st.caption("Live / demo console for WAVES Intelligence™ — Adaptive Index Waves™")
-
-render_metric_strip(wave_metrics)
-
+render_metric_strip(metrics)
 st.markdown("---")
 
 tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Engine Logs"])
@@ -916,15 +769,27 @@ tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Eng
 with tab_overview:
     col_left, col_right = st.columns([2, 1])
     with col_left:
-        render_performance_curve(selected_wave, wave_metrics, perf_df)
+        render_perf_curve(metrics, perf_df)
     with col_right:
         render_exposure_cards(exposure, mode)
 
     st.markdown("---")
-    render_top_positions(selected_wave)
+
+    # baskets
+    col_p, col_s = st.columns(2)
+    primary_df = get_basket(weights_df, selected_wave, "Primary")
+    secondary_df = get_basket(weights_df, selected_wave, "Secondary")
+
+    with col_p:
+        render_basket_table("Primary Basket", primary_df)
+    with col_s:
+        render_basket_table("Secondary Basket", secondary_df)
+
+    st.markdown("---")
+    render_top10(primary_df, secondary_df)
 
 with tab_alpha:
     render_alpha_dashboard(perf_df)
 
 with tab_logs:
-    render_engine_logs_tab(waves)
+    render_engine_logs_tab(wave_list)
