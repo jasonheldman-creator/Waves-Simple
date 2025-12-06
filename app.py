@@ -3,7 +3,7 @@
 
 import os
 import glob
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -190,7 +190,6 @@ st.markdown(
         100% { transform: translate3d(-50%, 0, 0); }
     }
 
-    /* Metric strip card */
     .metric-card {
         border-radius: 8px;
         border: 1px solid rgba(120, 255, 190, 0.2);
@@ -211,7 +210,6 @@ st.markdown(
         color: #9faad0;
     }
 
-    /* Exposure/Risk cards */
     .mini-card {
         border-radius: 8px;
         border: 1px solid rgba(120, 255, 190, 0.2);
@@ -229,15 +227,6 @@ st.markdown(
         font-size: 0.9rem;
         font-weight: 700;
     }
-
-    /* Streamlit tweaks */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.25rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 0.25rem 0.6rem;
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -261,8 +250,9 @@ def fetch_index_snapshot(ticker: str):
         close = float(last["Close"])
 
         # Use previous close as reference if available
-        if "Previous Close" in yf.Ticker(ticker).info:
-            prev = float(yf.Ticker(ticker).info["Previous Close"])
+        info = yf.Ticker(ticker).info or {}
+        if "previousClose" in info:
+            prev = float(info["previousClose"])
         else:
             if len(data) >= 2:
                 prev = float(data["Close"].iloc[-2])
@@ -296,20 +286,33 @@ def format_bps(x):
         return "—"
 
 
-def discover_waves_from_logs():
+def discover_waves_from_perf_logs():
     waves = set()
     if not os.path.isdir(LOGS_PERF_DIR):
         return []
-
     pattern = os.path.join(LOGS_PERF_DIR, "*_performance_*.csv")
-    files = glob.glob(pattern)
-    for f in files:
+    for f in glob.glob(pattern):
         base = os.path.basename(f)
         if "_performance_" in base:
             wave = base.split("_performance_")[0]
             if wave:
                 waves.add(wave)
-    return sorted(list(waves))
+    return sorted(waves)
+
+
+def discover_waves_from_pos_logs():
+    """NEW: discover waves from positions logs in logs/positions."""
+    waves = set()
+    if not os.path.isdir(LOGS_POS_DIR):
+        return []
+    pattern = os.path.join(LOGS_POS_DIR, "*_positions_*.csv")
+    for f in glob.glob(pattern):
+        base = os.path.basename(f)
+        if "_positions_" in base:
+            wave = base.split("_positions_")[0]
+            if wave:
+                waves.add(wave)
+    return sorted(waves)
 
 
 def discover_waves_from_weights():
@@ -322,19 +325,29 @@ def discover_waves_from_weights():
 
     for candidate in ["Wave", "wave", "WaveName", "wave_name"]:
         if candidate in df.columns:
-            waves = sorted(df[candidate].dropna().unique().tolist())
-            return waves
+            return sorted(df[candidate].dropna().unique().tolist())
     return []
 
 
 def get_wave_universe_source():
-    """Return (waves, source_label)."""
-    waves_logs = discover_waves_from_logs()
-    if waves_logs:
-        return waves_logs, "performance logs"
+    """
+    Order of precedence:
+    1) positions logs
+    2) performance logs
+    3) wave_weights.csv
+    """
+    waves_pos = discover_waves_from_pos_logs()
+    if waves_pos:
+        return waves_pos, "positions logs"
+
+    waves_perf = discover_waves_from_perf_logs()
+    if waves_perf:
+        return waves_perf, "performance logs"
+
     waves_weights = discover_waves_from_weights()
     if waves_weights:
         return waves_weights, "wave_weights.csv"
+
     return [], "none"
 
 
@@ -366,7 +379,6 @@ def load_performance_df(wave_name: str):
         st.error(f"Could not read performance file for {wave_name}: {e}")
         return None, latest
 
-    # Detect datetime column
     date_col = None
     for c in ["timestamp", "Timestamp", "datetime", "Datetime", "date", "Date"]:
         if c in df.columns:
@@ -385,7 +397,6 @@ def compute_wave_metrics(df: pd.DataFrame):
     if df is None or df.empty:
         return None
 
-    # Try to infer key columns
     nav_col = None
     for c in ["nav", "NAV", "equity_curve", "portfolio_value", "value", "Value"]:
         if c in df.columns:
@@ -404,7 +415,6 @@ def compute_wave_metrics(df: pd.DataFrame):
             bench_ret_col = c
             break
 
-    # Build equity curve
     if nav_col is not None:
         curve = df[nav_col].astype(float)
     elif ret_col is not None:
@@ -418,17 +428,14 @@ def compute_wave_metrics(df: pd.DataFrame):
 
     total_return = curve.iloc[-1] / curve.iloc[0] - 1.0
 
-    # “Today” = last period return if we have it
     today_ret = None
     if ret_col is not None:
         today_ret = float(df[ret_col].iloc[-1])
 
-    # Max drawdown
     running_max = curve.cummax()
     drawdown = curve / running_max - 1.0
     max_dd = float(drawdown.min())
 
-    # Alpha vs benchmark (simple: diff of cumulative return)
     alpha_bps = None
     if bench_ret_col is not None and ret_col is not None:
         r = df[ret_col].astype(float).fillna(0.0)
@@ -436,7 +443,7 @@ def compute_wave_metrics(df: pd.DataFrame):
         my_curve = (1 + r).cumprod()
         bench_curve = (1 + rb).cumprod()
         alpha = my_curve.iloc[-1] - bench_curve.iloc[-1]
-        alpha_bps = float((alpha - 1.0) * 10_000)  # difference in bps vs bench
+        alpha_bps = float((alpha - 1.0) * 10_000)
 
     return {
         "curve": curve,
@@ -504,7 +511,6 @@ def render_header(selected_wave: str, selected_mode: str):
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
-
     return spx, vix
 
 
@@ -546,13 +552,12 @@ def render_ticker(spx_snap, vix_snap, wave_name, wave_metrics):
             f"</span>"
         )
 
-    ticker_html = """
-    <div class="ticker-bar">
-        <div class="ticker-track">
-            """ + " ".join(items) + """
-        </div>
-    </div>
-    """
+    ticker_html = (
+        '<div class="ticker-bar">'
+        '<div class="ticker-track">'
+        + " ".join(items) +
+        "</div></div>"
+    )
     st.markdown(ticker_html, unsafe_allow_html=True)
 
 
@@ -560,10 +565,13 @@ def render_metric_strip(wave_metrics):
     col1, col2, col3, col4 = st.columns(4)
 
     if wave_metrics is None:
-        for col, label in zip(
-            [col1, col2, col3, col4],
-            ["Total Return (live)", "Today", "Max Drawdown", "Alpha Captured vs Benchmark"],
-        ):
+        labels = [
+            "Total Return (live)",
+            "Today",
+            "Max Drawdown",
+            "Alpha Captured vs Benchmark",
+        ]
+        for col, label in zip([col1, col2, col3, col4], labels):
             with col:
                 st.markdown(
                     f"""
@@ -700,7 +708,6 @@ def render_top_positions(selected_wave: str, top_n: int = 10):
         st.error(f"Could not read positions file for {selected_wave}: {e}")
         return
 
-    # Detect columns
     ticker_col = None
     for c in ["ticker", "Ticker", "symbol", "Symbol"]:
         if c in df.columns:
@@ -725,7 +732,6 @@ def render_top_positions(selected_wave: str, top_n: int = 10):
             value_col = c
             break
 
-    # Sort by value or weight if available
     df_sorted = df.copy()
     if value_col:
         df_sorted = df_sorted.sort_values(by=value_col, ascending=False)
@@ -743,11 +749,9 @@ def render_top_positions(selected_wave: str, top_n: int = 10):
     top["Ticker"] = top[ticker_col].apply(google_link)
 
     display_cols = ["Ticker"]
-
     if weight_col:
         top["Weight %"] = (top[weight_col].astype(float) * 100).round(2)
         display_cols.append("Weight %")
-
     if value_col:
         top["Value"] = top[value_col]
         display_cols.append("Value")
@@ -768,7 +772,6 @@ def render_alpha_dashboard(df_perf):
         )
         return
 
-    # Detect columns
     ret_col = None
     for c in ["return", "Return", "daily_return", "strategy_return"]:
         if c in df_perf.columns:
@@ -784,7 +787,7 @@ def render_alpha_dashboard(df_perf):
     if ret_col is None or bench_ret_col is None:
         st.info(
             "This performance file does not contain both strategy and benchmark return columns. "
-            "Rolling alpha requires `return` and `benchmark_return` (or close variants)."
+            "Rolling alpha requires `return` and `benchmark_return`."
         )
         st.dataframe(df_perf.head(20))
         return
@@ -806,7 +809,8 @@ def render_engine_logs_tab(waves, source_label):
     if not waves:
         st.warning(
             "No Waves discovered yet. "
-            "Create performance logs in `logs/performance/` or provide `wave_weights.csv`."
+            "Create performance logs in `logs/performance/` or positions logs in `logs/positions/`, "
+            "or provide `wave_weights.csv`."
         )
     else:
         st.write(", ".join(waves))
@@ -817,20 +821,14 @@ def render_engine_logs_tab(waves, source_label):
     st.markdown("#### Performance Logs (logs/performance/)")
     if os.path.isdir(LOGS_PERF_DIR):
         files = sorted(glob.glob(os.path.join(LOGS_PERF_DIR, "*.csv")))
-        if files:
-            st.write("\n".join(os.path.basename(f) for f in files))
-        else:
-            st.write("_(none yet)_")
+        st.write("\n".join(os.path.basename(f) for f in files) if files else "_(none yet)_")
     else:
         st.write("_folder not found_")
 
     st.markdown("#### Positions Logs (logs/positions/)")
     if os.path.isdir(LOGS_POS_DIR):
         files = sorted(glob.glob(os.path.join(LOGS_POS_DIR, "*.csv")))
-        if files:
-            st.write("\n".join(os.path.basename(f) for f in files))
-        else:
-            st.write("_(none yet)_")
+        st.write("\n".join(os.path.basename(f) for f in files) if files else "_(none yet)_")
     else:
         st.write("_folder not found_")
 
@@ -853,10 +851,12 @@ waves, source_label = get_wave_universe_source()
 with st.sidebar:
     st.markdown("### ⚙️ Engine Controls")
 
-    if source_label == "performance logs":
+    if source_label == "positions logs":
+        st.success("Using Wave list discovered from `logs/positions/`.")
+    elif source_label == "performance logs":
         st.success("Using Wave list discovered from `logs/performance/`.")
     elif source_label == "wave_weights.csv":
-        st.warning("Using Wave list from `wave_weights.csv` (no performance logs found yet).")
+        st.warning("Using Wave list from `wave_weights.csv` (no logs found yet).")
     else:
         st.error("No Wave universe detected. Please add logs or `wave_weights.csv`.")
         st.stop()
@@ -890,7 +890,6 @@ with st.sidebar:
 
 spx_snap, vix_snap = render_header(selected_wave, mode)
 
-# Load performance df + metrics for selected wave
 perf_df, perf_file = load_performance_df(selected_wave)
 wave_metrics = compute_wave_metrics(perf_df)
 
@@ -907,10 +906,8 @@ tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Eng
 
 with tab_overview:
     col_left, col_right = st.columns([2, 1])
-
     with col_left:
         render_performance_curve(selected_wave, wave_metrics, perf_df)
-
     with col_right:
         render_exposure_cards(exposure, mode)
 
