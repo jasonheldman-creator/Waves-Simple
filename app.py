@@ -1,34 +1,23 @@
-# app.py — WAVES Intelligence™ Multi-Wave Console (with VIX)
+# app.py — WAVES Intelligence™ Console (Multi-Wave, Joined in Code)
 #
-# Expected files in this folder:
-#   - list.csv          (universe: tickers, names, sectors, etc.)
-#   - wave_weights.csv  (long format: Ticker,Wave,Weight + optional # comments)
+# Files expected in this folder:
+#   - list.csv          (universe: Ticker, Company, Weight, Sector, Market Value, Price)
+#   - wave_weights.csv  (Ticker, Wave, Weight  + optional '#' comment lines)
 #
-# Requirements (in requirements.txt):
-#   streamlit
-#   pandas
-#   yfinance
-#   plotly
-#
-# Run locally:
-#   streamlit run app.py
+# This app:
+#   • Uses list.csv as the master universe
+#   • Uses wave_weights.csv to define non-core Waves
+#   • Treats SP500_Wave as "full index": all rows from list.csv
+#   • Joins wave_weights.csv to list.csv INSIDE the app (you never touch list.csv)
 
 import os
 import time
 from datetime import datetime
 
 import pandas as pd
-import yfinance as yf
 import streamlit as st
+import yfinance as yf
 import plotly.express as px
-
-# ------------------------------------------------------------
-# STREAMLIT PAGE CONFIG
-# ------------------------------------------------------------
-st.set_page_config(
-    page_title="WAVES Intelligence Console",
-    layout="wide",
-)
 
 # ------------------------------------------------------------
 # CONFIG
@@ -37,15 +26,12 @@ st.set_page_config(
 UNIVERSE_CSV = "list.csv"
 WAVE_WEIGHTS_CSV = "wave_weights.csv"
 
-# Likely column names in list.csv
-DEFAULT_TICKER_COLS = ["Ticker", "ticker", "Symbol", "symbol"]
-DEFAULT_NAME_COLS = ["Name", "name", "Company", "company"]
-SECTOR_COL_NAMES = ["Sector", "sector", "SECTOR"]
-
-REFRESH_SECONDS = 60           # console rerun cadence
+REFRESH_SECONDS = 60
 VIX_SYMBOL = "^VIX"
 VIX_PERIOD = "6mo"
 VIX_INTERVAL = "1d"
+
+st.set_page_config(page_title="WAVES Intelligence Console", layout="wide")
 
 
 # ------------------------------------------------------------
@@ -55,8 +41,8 @@ VIX_INTERVAL = "1d"
 @st.cache_data(show_spinner=True)
 def load_universe():
     """
-    Load security universe from list.csv and normalize to:
-    columns: Ticker, Name, Sector (Sector optional).
+    Load security universe from list.csv and normalize columns to:
+        Ticker, Name, Sector, IndexWeight, MarketValue, Price
     """
     if not os.path.exists(UNIVERSE_CSV):
         return None, f"[UNIVERSE ERROR] '{UNIVERSE_CSV}' not found."
@@ -69,29 +55,38 @@ def load_universe():
     if df.empty:
         return None, f"[UNIVERSE ERROR] '{UNIVERSE_CSV}' is empty."
 
-    # Ticker
-    ticker_col = next((c for c in DEFAULT_TICKER_COLS if c in df.columns), None)
-    if ticker_col is None:
-        return None, (
-            f"[UNIVERSE ERROR] Could not find ticker column in '{UNIVERSE_CSV}'. "
-            f"Columns: {list(df.columns)}"
-        )
-    df = df.copy()
-    df.rename(columns={ticker_col: "Ticker"}, inplace=True)
+    # Expecting: Ticker,Company,Weight,Sector,Market Value,Price
+    # Rename into cleaner names
+    col_map = {}
+    if "Company" in df.columns:
+        col_map["Company"] = "Name"
+    if "Weight" in df.columns:
+        col_map["Weight"] = "IndexWeight"
+    if "Market Value" in df.columns:
+        col_map["Market Value"] = "MarketValue"
 
-    # Name
-    name_col = next((c for c in DEFAULT_NAME_COLS if c in df.columns), None)
-    if name_col:
-        df.rename(columns={name_col: "Name"}, inplace=True)
-    else:
-        df["Name"] = df["Ticker"]
+    df = df.rename(columns=col_map)
 
-    # Sector
-    sector_col = next((c for c in SECTOR_COL_NAMES if c in df.columns), None)
-    if sector_col:
-        df.rename(columns={sector_col: "Sector"}, inplace=True)
-    else:
-        df["Sector"] = "Unclassified"
+    # Ensure required columns exist
+    required = ["Ticker", "Name", "Sector", "IndexWeight", "MarketValue", "Price"]
+    for col in required:
+        if col not in df.columns:
+            # Allow missing Sector / MarketValue / Price gracefully
+            if col == "Sector":
+                df["Sector"] = "Unclassified"
+            elif col == "MarketValue":
+                df["MarketValue"] = 0.0
+            elif col == "Price":
+                df["Price"] = 0.0
+            else:
+                return None, (
+                    f"[UNIVERSE ERROR] Missing column '{col}' in '{UNIVERSE_CSV}'. "
+                    f"Found columns: {list(df.columns)}"
+                )
+
+    # Clean up datatypes
+    df["IndexWeight"] = pd.to_numeric(df["IndexWeight"], errors="coerce").fillna(0.0)
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
 
     return df, None
 
@@ -101,20 +96,19 @@ def load_wave_weights():
     """
     Load Wave allocations from wave_weights.csv.
 
-    Expected format (long, with # comments allowed):
+    Expected format (long):
 
         Ticker,Wave,Weight
-        NVDA,SP500_Wave,0.1486
-        AAPL,SP500_Wave,0.1388
+        NVDA,SP500_Wave,0.01486
+        AAPL,Growth_Wave,0.10
         ...
 
-    Comment lines starting with '#' are ignored.
+    Lines starting with '#' are treated as comments.
     """
     if not os.path.exists(WAVE_WEIGHTS_CSV):
         return None, f"[WAVE ERROR] '{WAVE_WEIGHTS_CSV}' not found."
 
     try:
-        # 'comment' tells pandas to ignore lines starting with '#'
         df = pd.read_csv(WAVE_WEIGHTS_CSV, comment="#")
     except Exception as e:
         return None, f"[WAVE ERROR] Failed to read '{WAVE_WEIGHTS_CSV}': {e}"
@@ -130,20 +124,20 @@ def load_wave_weights():
             f"Found columns: {list(df.columns)}"
         )
 
-    df_long = df.copy()
-    df_long["Weight"] = pd.to_numeric(df_long["Weight"], errors="coerce").fillna(0.0)
+    df = df.copy()
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
 
-    # Drop zero/negative weights
-    df_long = df_long[df_long["Weight"] > 0]
-
-    if df_long.empty:
+    # Drop zero / negative weights
+    df = df[df["Weight"] > 0]
+    if df.empty:
         return None, f"[WAVE ERROR] All weights in '{WAVE_WEIGHTS_CSV}' are zero."
 
-    # Normalize weights within each Wave so each sums to 1.0
-    totals = df_long.groupby("Wave")["Weight"].transform("sum").replace(0, 1.0)
-    df_long["Weight"] = df_long["Weight"] / totals
+    # Normalize within each Wave so weights sum to 1.0
+    totals = df.groupby("Wave")["Weight"].transform("sum").replace(0, 1.0)
+    df["Weight"] = df["Weight"] / totals
 
-    return df_long, None
+    df = df.rename(columns={"Weight": "WaveWeight"})
+    return df, None
 
 
 @st.cache_data(show_spinner=False)
@@ -167,9 +161,9 @@ def fetch_live_prices(tickers):
             data.append(
                 {
                     "Ticker": t,
-                    "Price": price,
-                    "Change": change,
-                    "Change %": change_pct,
+                    "LivePrice": price,
+                    "LiveChange": change,
+                    "LiveChangePct": change_pct,
                 }
             )
         except Exception:
@@ -183,7 +177,7 @@ def fetch_live_prices(tickers):
 
 @st.cache_data(show_spinner=False)
 def fetch_vix_series():
-    """Fetch VIX history for mini-volatility chart."""
+    """Fetch VIX timeseries for small volatility chart."""
     try:
         vix = yf.Ticker(VIX_SYMBOL)
         hist = vix.history(period=VIX_PERIOD, interval=VIX_INTERVAL)
@@ -204,17 +198,8 @@ def apply_global_style():
     st.markdown(
         """
         <style>
-        .main {
-            background-color: #050608;
-        }
-        .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 1.5rem;
-        }
-        .stMetric label, .stMetric span {
-            font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono",
-                         "Courier New", monospace;
-        }
+        .main { background-color: #050608; }
+        .block-container { padding-top: 1.4rem; padding-bottom: 1.4rem; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -230,7 +215,6 @@ def render_header(active_wave: str, active_mode: str, equity_exposure: float):
         """,
         unsafe_allow_html=True,
     )
-
     subtitle = (
         f"Wave: <b>{active_wave}</b> • Mode: <b>{active_mode}</b> • "
         "Alpha-Minus-Beta Discipline • Vector-Driven Allocation"
@@ -248,11 +232,12 @@ def render_header(active_wave: str, active_mode: str, equity_exposure: float):
 
 def show_wave_snapshot(df_wave: pd.DataFrame, equity_exposure: float):
     total_names = len(df_wave)
-    top10_weight = df_wave.sort_values("Weight", ascending=False)["Weight"].head(10).sum()
+    top10_weight = (
+        df_wave.sort_values("WaveWeight", ascending=False)["WaveWeight"].head(10).sum()
+    )
     last_refresh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     st.subheader("Wave Snapshot")
-
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Holdings", f"{total_names:,}")
     col2.metric("Top 10 Weight", f"{top10_weight*100:0.1f}%")
@@ -263,28 +248,24 @@ def show_wave_snapshot(df_wave: pd.DataFrame, equity_exposure: float):
 def show_top_holdings(df_wave: pd.DataFrame, prices_df: pd.DataFrame):
     st.subheader("Top 10 Positions")
 
-    top = df_wave.sort_values("Weight", ascending=False).head(10).copy()
-
+    top = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
     if not prices_df.empty:
         top = top.merge(prices_df.reset_index(), on="Ticker", how="left")
 
-    top["Weight %"] = (top["Weight"] * 100).round(2)
+    top["Weight %"] = (top["WaveWeight"] * 100).round(2)
 
-    display_cols = ["Ticker", "Name", "Weight %"]
-    if "Price" in top.columns:
-        display_cols.append("Price")
-    if "Change %" in top.columns:
-        top["Change %"] = top["Change %"].round(2)
-        display_cols.append("Change %")
+    display_cols = ["Ticker", "Name", "Sector", "Weight %"]
+    if "LivePrice" in top.columns:
+        display_cols.append("LivePrice")
+    if "LiveChangePct" in top.columns:
+        top["LiveChangePct"] = top["LiveChangePct"].round(2)
+        display_cols.append("LiveChangePct")
 
-    st.dataframe(
-        top[display_cols],
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(top[display_cols], use_container_width=True, hide_index=True)
 
-    chart_df = df_wave.sort_values("Weight", ascending=False).head(10).copy()
-    chart_df["Weight %"] = chart_df["Weight"] * 100
+    chart_df = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
+    chart_df["Weight %"] = chart_df["WaveWeight"] * 100
+
     fig = px.bar(
         chart_df,
         x="Weight %",
@@ -309,12 +290,12 @@ def show_sector_breakdown(df_wave: pd.DataFrame):
         return
 
     sector_df = (
-        df_wave.groupby("Sector")["Weight"]
+        df_wave.groupby("Sector")["WaveWeight"]
         .sum()
         .reset_index()
-        .sort_values("Weight", ascending=False)
+        .sort_values("WaveWeight", ascending=False)
     )
-    sector_df["Weight %"] = sector_df["Weight"] * 100
+    sector_df["Weight %"] = sector_df["WaveWeight"] * 100
 
     fig = px.bar(
         sector_df,
@@ -389,14 +370,23 @@ def main():
         st.error(wave_err)
         return
 
-    # All available Waves from the weights file
-    waves = sorted(wave_weights_df["Wave"].unique().tolist())
+    # Build list of available Waves from weights file
+    waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
+
+    # Ensure SP500_Wave is always present as core index
+    if "SP500_Wave" not in waves:
+        waves.insert(0, "SP500_Wave")
 
     # Sidebar controls
     with st.sidebar:
         st.markdown("### Engine Controls")
 
-        active_wave = st.selectbox("Wave", options=waves, index=0)
+        # Try to default to SP500_Wave if available
+        default_index = 0
+        if "SP500_Wave" in waves:
+            default_index = waves.index("SP500_Wave")
+
+        active_wave = st.selectbox("Wave", options=waves, index=default_index)
 
         mode = st.radio(
             "Wave Mode",
@@ -416,14 +406,32 @@ def main():
         auto_refresh = st.checkbox("Auto-refresh console", value=True)
         st.caption(f"Console will rerun every {REFRESH_SECONDS} seconds when enabled.")
 
-    # Build active Wave snapshot
-    wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
-    df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
+    # Build active Wave holdings
+    if active_wave == "SP500_Wave":
+        # Core index uses the full universe with IndexWeight
+        df_wave = universe_df.copy()
+        total_index_weight = df_wave["IndexWeight"].sum()
+        if total_index_weight <= 0:
+            df_wave["WaveWeight"] = 1.0 / len(df_wave)
+        else:
+            df_wave["WaveWeight"] = df_wave["IndexWeight"] / total_index_weight
+        df_wave["Wave"] = "SP500_Wave"
+    else:
+        wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
+        if wave_slice.empty:
+            st.error(
+                f"[WAVE ERROR] No holdings found for '{active_wave}' in wave_weights.csv."
+            )
+            return
 
-    # Fallbacks if universe is missing metadata
-    df_wave["Name"] = df_wave["Name"].fillna(df_wave["Ticker"])
-    if "Sector" not in df_wave.columns:
-        df_wave["Sector"] = "Unclassified"
+        df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
+        df_wave = df_wave.dropna(subset=["Name"])
+        if df_wave.empty:
+            st.error(
+                f"[WAVE ERROR] After joining with list.csv, "
+                f"no valid universe rows found for '{active_wave}'."
+            )
+            return
 
     render_header(active_wave, mode, float(equity_exposure))
     show_wave_snapshot(df_wave, float(equity_exposure))
@@ -449,10 +457,17 @@ def main():
     show_alpha_placeholder()
 
     with st.expander("View Full Wave Holdings (raw)"):
-        st.dataframe(
-            df_wave[["Ticker", "Name", "Sector", "Weight"]],
-            use_container_width=True,
-        )
+        display_cols = [
+            "Ticker",
+            "Name",
+            "Sector",
+            "WaveWeight",
+            "IndexWeight",
+            "MarketValue",
+            "Price",
+        ]
+        display_cols = [c for c in display_cols if c in df_wave.columns]
+        st.dataframe(df_wave[display_cols], use_container_width=True)
 
     if auto_refresh:
         st.markdown(
