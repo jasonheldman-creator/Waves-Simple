@@ -1,7 +1,9 @@
-# app.py — WAVES Intelligence™ Console
+# app.py — WAVES Intelligence™ Console (Premium UI)
 # - Dedupes tickers per Wave
-# - Upgraded header (logo-style)
-# - Right panel: S&P 500 (SPY) + VIX charts
+# - Removes Equity_Income_Wave from the dropdown
+# - Supports Quantum_*_Wave if present in wave_weights.csv
+# - Premium header + nav-style tabs
+# - Right panel: S&P 500 (SPY) + VIX charts for every wave
 
 import os
 import time
@@ -45,27 +47,32 @@ def apply_global_style():
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
         .block-container {
-            padding-top: 0.8rem;
+            padding-top: 0.6rem;
             padding-bottom: 1.4rem;
+        }
+        .waves-header-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            margin-bottom: 0.55rem;
         }
         .waves-header {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.75rem;
-            margin-bottom: 0.4rem;
         }
         .waves-logo-pill {
-            width: 40px;
-            height: 40px;
+            width: 42px;
+            height: 42px;
             border-radius: 999px;
             background: conic-gradient(from 160deg, #18ffb2, #25b6ff, #18ffb2);
-            box-shadow: 0 0 18px rgba(24,255,178,0.6);
+            box-shadow: 0 0 22px rgba(24,255,178,0.7);
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 800;
-            font-size: 20px;
+            font-size: 22px;
             color: #05070f;
         }
         .waves-title-text {
@@ -75,22 +82,54 @@ def apply_global_style():
         }
         .waves-title-main {
             font-size: 26px;
-            font-weight: 720;
+            font-weight: 740;
             color: #e9fdfc;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
         }
         .waves-title-sub {
             font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.16em;
             color: #8ea0c2;
+        }
+        .waves-header-badges {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .waves-badge {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            padding: 0.25rem 0.7rem;
+            border-radius: 999px;
+            border: 1px solid rgba(24,255,178,0.4);
+            background: rgba(8,18,28,0.85);
+            color: #cdeff5;
+        }
+        .waves-badge-live {
+            border-color: rgba(255,77,77,0.7);
+            color: #ffdede;
+        }
+        .waves-badge-live::before {
+            content: "";
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #ff4d4d;
+            margin-right: 6px;
+            box-shadow: 0 0 12px rgba(255,77,77,0.9);
         }
         .waves-subtitle {
             font-size: 13px;
             text-align: center;
             color: #b3b9cc;
-            margin-bottom: 0.8rem;
+            margin-bottom: 0.6rem;
+        }
+        .waves-subtitle b {
+            color: #e9fdfc;
         }
         .metric-card {
             background: linear-gradient(145deg, #111421, #05070f);
@@ -131,6 +170,12 @@ def apply_global_style():
             font-weight: 600;
             font-size: 15px;
             margin-bottom: 0.5rem;
+        }
+        /* Tabs styling */
+        button[data-baseweb="tab"] {
+            font-size: 12px !important;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
         }
         </style>
         """,
@@ -300,11 +345,18 @@ def fetch_history(symbol: str):
 def render_header(active_wave: str, active_mode: str, equity_exposure: float):
     st.markdown(
         """
-        <div class="waves-header">
-          <div class="waves-logo-pill">W</div>
-          <div class="waves-title-text">
-            <div class="waves-title-main">WAVES Intelligence™</div>
-            <div class="waves-title-sub">Live Engine Console</div>
+        <div class="waves-header-wrap">
+          <div class="waves-header">
+            <div class="waves-logo-pill">W</div>
+            <div class="waves-title-text">
+              <div class="waves-title-main">WAVES Intelligence™</div>
+              <div class="waves-title-sub">LIVE ENGINE CONSOLE</div>
+            </div>
+          </div>
+          <div class="waves-header-badges">
+            <div class="waves-badge waves-badge-live">Live</div>
+            <div class="waves-badge">Vector-Driven Allocation</div>
+            <div class="waves-badge">Alpha-Minus-Beta Discipline</div>
           </div>
         </div>
         """,
@@ -313,7 +365,7 @@ def render_header(active_wave: str, active_mode: str, equity_exposure: float):
     subtitle = (
         f"Wave: <b>{active_wave}</b> &nbsp;•&nbsp; "
         f"Mode: <b>{active_mode}</b> &nbsp;•&nbsp; "
-        "Alpha-Minus-Beta Discipline &nbsp;•&nbsp; Vector-Driven Allocation<br/>"
+        "Universe & Exposure Layer<br/>"
         f"Equity Exposure: <b>{equity_exposure:.0f}%</b> &nbsp;•&nbsp; "
         f"Cash Buffer: <b>{100 - equity_exposure:.0f}%</b>"
     )
@@ -441,14 +493,32 @@ def show_vix_chart(vix_df: pd.DataFrame):
 
 
 def show_alpha_placeholder():
-    st.markdown('<div class="section-header">Alpha Capture (Preview)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Alpha Dashboard (Preview)</div>', unsafe_allow_html=True)
     st.markdown(
         """
         <p style="color:#b3b9cc; font-size:13px;">
-        This terminal is currently wired to the <b>universe &amp; exposure</b> layer.
-        Live alpha capture (WaveScore™, benchmark-relative returns, stress periods)
-        runs in the WAVES performance engine, which can be plugged into this console
-        as the next step for Franklin or any institutional partner.
+        This tab is reserved for <b>WAVESCORE™</b>, benchmark-relative Wave alpha,
+        and risk diagnostics. For the Franklin / institutional view, this will show:
+        </p>
+        <ul style="color:#b3b9cc; font-size:13px; margin-top:-0.35rem;">
+          <li>WaveScore (0–100) and letter grade</li>
+          <li>Alpha vs benchmark by horizon (3m / 1y / 3y)</li>
+          <li>Max drawdown vs benchmark and stress-period behavior</li>
+          <li>Turnover, fee-drag, and SmartSafe™ utilization</li>
+        </ul>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def show_engine_placeholder():
+    st.markdown('<div class="section-header">Engine Logs (Preview)</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <p style="color:#b3b9cc; font-size:13px;">
+        This tab will surface <b>engine telemetry</b> for institutional partners:
+        allocation changes, Vector OS decisions, risk-mode toggles, and compliance logs.
+        The live console you see on the Overview tab is wired into this engine.
         </p>
         """,
         unsafe_allow_html=True,
@@ -471,8 +541,15 @@ def main():
         st.error(wave_err)
         return
 
-    # Wave list
-    waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
+    # Wave list with exclusions
+    available_waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
+    exclude_waves = {
+        "Equity_Income_Wave",
+        "EquityIncome_Wave",
+        "Equity_Income",
+    }
+    waves = [w for w in available_waves if w not in exclude_waves]
+
     if "SP500_Wave" not in waves:
         waves.insert(0, "SP500_Wave")
     else:
@@ -503,113 +580,126 @@ def main():
         auto_refresh = st.checkbox("Auto-refresh console", value=True)
         st.caption(f"Console will rerun every {REFRESH_SECONDS} seconds when enabled.")
 
-    # ----- Build active Wave dataframe -----
-    if active_wave == "SP500_Wave":
-        df_wave = universe_df.copy()
-
-        # In case of any ticker duplication in the universe, collapse it
-        df_wave = (
-            df_wave.groupby("Ticker", as_index=False)
-            .agg({
-                "Name": "first",
-                "Sector": "first",
-                "IndexWeight": "sum",
-                "MarketValue": "sum",
-                "Price": "first",
-            })
-        )
-
-        total_index_weight = df_wave["IndexWeight"].sum()
-        if total_index_weight <= 0:
-            df_wave["WaveWeight"] = 1.0 / len(df_wave)
-        else:
-            df_wave["WaveWeight"] = df_wave["IndexWeight"] / total_index_weight
-
-        df_wave["Wave"] = "SP500_Wave"
-
-    else:
-        wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
-        if wave_slice.empty:
-            st.error(f"[WAVE ERROR] No holdings found for '{active_wave}' in wave_weights.csv.")
-            return
-
-        df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
-        df_wave = df_wave.dropna(subset=["Name"])
-        if df_wave.empty:
-            st.error(
-                f"[WAVE ERROR] After joining with list.csv, "
-                f"no valid universe rows found for '{active_wave}'."
-            )
-            return
-
-        # 🔹 FINAL DEDUPE LAYER: one row per Ticker in this wave
-        df_wave = (
-            df_wave.groupby("Ticker", as_index=False)
-            .agg({
-                "WaveWeight": "sum",
-                "Name": "first",
-                "Sector": "first",
-                "IndexWeight": "first",
-                "MarketValue": "first",
-                "Price": "first",
-            })
-        )
-
-        total = df_wave["WaveWeight"].sum()
-        if total > 0:
-            df_wave["WaveWeight"] = df_wave["WaveWeight"] / total
-
-        df_wave["Wave"] = active_wave
-
     render_header(active_wave, mode, float(equity_exposure))
-    show_wave_snapshot(df_wave, float(equity_exposure))
 
-    tickers = df_wave["Ticker"].dropna().unique().tolist()
-    prices_df = fetch_live_prices(tickers)
-    spy_df = fetch_history(SPY_SYMBOL)
-    vix_df = fetch_history(VIX_SYMBOL)
+    # Top-level nav tabs
+    tab_overview, tab_alpha, tab_engine = st.tabs(
+        ["Overview", "Alpha Dashboard", "Engine Logs"]
+    )
 
-    # Layout: Top 10 + SPY/VIX
-    st.markdown("<hr/>", unsafe_allow_html=True)
-    col_left, col_right = st.columns([2.1, 1.0])
+    # ----- OVERVIEW TAB -----
+    with tab_overview:
+        # Build active Wave dataframe
+        if active_wave == "SP500_Wave":
+            df_wave = universe_df.copy()
 
-    with col_left:
-        show_top_holdings(df_wave, prices_df)
+            # Collapse any accidental duplicates in the universe
+            df_wave = (
+                df_wave.groupby("Ticker", as_index=False)
+                .agg({
+                    "Name": "first",
+                    "Sector": "first",
+                    "IndexWeight": "sum",
+                    "MarketValue": "sum",
+                    "Price": "first",
+                })
+            )
 
-    with col_right:
-        tabs = st.tabs(["S&P 500 (SPY)", "VIX"])
-        with tabs[0]:
-            show_spy_chart(spy_df)
-        with tabs[1]:
-            show_vix_chart(vix_df)
+            total_index_weight = df_wave["IndexWeight"].sum()
+            if total_index_weight <= 0:
+                df_wave["WaveWeight"] = 1.0 / len(df_wave)
+            else:
+                df_wave["WaveWeight"] = df_wave["IndexWeight"] / total_index_weight
 
-    st.markdown("<hr/>", unsafe_allow_html=True)
+            df_wave["Wave"] = "SP500_Wave"
 
-    show_alpha_placeholder()
+        else:
+            wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
+            if wave_slice.empty:
+                st.error(f"[WAVE ERROR] No holdings found for '{active_wave}' in wave_weights.csv.")
+                return
 
-    with st.expander("View Full Wave Holdings (raw)"):
-        display_cols = [
-            "Ticker",
-            "Name",
-            "Sector",
-            "Wave",
-            "WaveWeight",
-            "IndexWeight",
-            "MarketValue",
-            "Price",
-        ]
-        existing = [c for c in display_cols if c in df_wave.columns]
-        st.dataframe(df_wave[existing], use_container_width=True)
+            df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
+            df_wave = df_wave.dropna(subset=["Name"])
+            if df_wave.empty:
+                st.error(
+                    f"[WAVE ERROR] After joining with list.csv, "
+                    f"no valid universe rows found for '{active_wave}'."
+                )
+                return
 
-    if auto_refresh:
-        st.markdown(
-            f"<p style='color:#8e94a8; font-size:11px; margin-top:6px;'>"
-            f"Auto-refresh active — console will rerun every {REFRESH_SECONDS} seconds."
-            f"</p>",
-            unsafe_allow_html=True,
-        )
-        time.sleep(REFRESH_SECONDS)
-        st.rerun()
+            # FINAL DEDUPE LAYER: one row per Ticker in this wave
+            df_wave = (
+                df_wave.groupby("Ticker", as_index=False)
+                .agg({
+                    "WaveWeight": "sum",
+                    "Name": "first",
+                    "Sector": "first",
+                    "IndexWeight": "first",
+                    "MarketValue": "first",
+                    "Price": "first",
+                })
+            )
+
+            total = df_wave["WaveWeight"].sum()
+            if total > 0:
+                df_wave["WaveWeight"] = df_wave["WaveWeight"] / total
+
+            df_wave["Wave"] = active_wave
+
+        show_wave_snapshot(df_wave, float(equity_exposure))
+
+        tickers = df_wave["Ticker"].dropna().unique().tolist()
+        prices_df = fetch_live_prices(tickers)
+        spy_df = fetch_history(SPY_SYMBOL)
+        vix_df = fetch_history(VIX_SYMBOL)
+
+        st.markdown("<hr/>", unsafe_allow_html=True)
+        col_left, col_right = st.columns([2.1, 1.0])
+
+        with col_left:
+            show_top_holdings(df_wave, prices_df)
+
+        with col_right:
+            tabs = st.tabs(["S&P 500 (SPY)", "VIX"])
+            with tabs[0]:
+                show_spy_chart(spy_df)
+            with tabs[1]:
+                show_vix_chart(vix_df)
+
+        st.markdown("<hr/>", unsafe_allow_html=True)
+
+        with st.expander("View Full Wave Holdings (raw)"):
+            display_cols = [
+                "Ticker",
+                "Name",
+                "Sector",
+                "Wave",
+                "WaveWeight",
+                "IndexWeight",
+                "MarketValue",
+                "Price",
+            ]
+            existing = [c for c in display_cols if c in df_wave.columns]
+            st.dataframe(df_wave[existing], use_container_width=True)
+
+        if auto_refresh:
+            st.markdown(
+                f"<p style='color:#8e94a8; font-size:11px; margin-top:6px;'>"
+                f"Auto-refresh active — console will rerun every {REFRESH_SECONDS} seconds."
+                f"</p>",
+                unsafe_allow_html=True,
+            )
+            time.sleep(REFRESH_SECONDS)
+            st.rerun()
+
+    # ----- ALPHA TAB -----
+    with tab_alpha:
+        show_alpha_placeholder()
+
+    # ----- ENGINE LOGS TAB -----
+    with tab_engine:
+        show_engine_placeholder()
 
 
 if __name__ == "__main__":
