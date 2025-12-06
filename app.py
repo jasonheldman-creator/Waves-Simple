@@ -1,4 +1,7 @@
-# app.py — WAVES Intelligence™ Console (Deduped, Wave Lineup, Polished UI)
+# app.py — WAVES Intelligence™ Console
+# - Dedupes tickers per Wave
+# - Upgraded header (logo-style)
+# - Right panel: S&P 500 (SPY) + VIX charts
 
 import os
 import time
@@ -18,8 +21,9 @@ WAVE_WEIGHTS_CSV = "wave_weights.csv"
 
 REFRESH_SECONDS = 60
 VIX_SYMBOL = "^VIX"
-VIX_PERIOD = "6mo"
-VIX_INTERVAL = "1d"
+SPY_SYMBOL = "SPY"
+HISTORY_PERIOD = "6mo"
+HISTORY_INTERVAL = "1d"
 
 st.set_page_config(
     page_title="WAVES Intelligence Console",
@@ -41,23 +45,52 @@ def apply_global_style():
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
         .block-container {
-            padding-top: 1.1rem;
+            padding-top: 0.8rem;
             padding-bottom: 1.4rem;
         }
-        .waves-title {
-            font-size: 34px;
-            font-weight: 700;
-            text-align: center;
-            color: #18ffb2;
-            letter-spacing: 0.04em;
-            text-shadow: 0 0 18px rgba(24,255,178,0.35);
-            margin-bottom: 0.15rem;
+        .waves-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-bottom: 0.4rem;
+        }
+        .waves-logo-pill {
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            background: conic-gradient(from 160deg, #18ffb2, #25b6ff, #18ffb2);
+            box-shadow: 0 0 18px rgba(24,255,178,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 20px;
+            color: #05070f;
+        }
+        .waves-title-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .waves-title-main {
+            font-size: 26px;
+            font-weight: 720;
+            color: #e9fdfc;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+        .waves-title-sub {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #8ea0c2;
         }
         .waves-subtitle {
-            font-size: 14px;
+            font-size: 13px;
             text-align: center;
             color: #b3b9cc;
-            margin-bottom: 1.0rem;
+            margin-bottom: 0.8rem;
         }
         .metric-card {
             background: linear-gradient(145deg, #111421, #05070f);
@@ -152,6 +185,7 @@ def load_universe():
 
     df["Ticker"] = df["Ticker"].astype(str).str.strip()
     df["Sector"] = df["Sector"].astype(str).str.strip()
+    df["Name"] = df["Name"].astype(str)
 
     return df, None
 
@@ -196,7 +230,7 @@ def load_wave_weights():
     if df.empty:
         return None, f"[WAVE ERROR] All weights in '{WAVE_WEIGHTS_CSV}' are zero or invalid."
 
-    # 🔹 DEDUPE: one row per (Wave, Ticker)
+    # Deduplicate within each Wave / Ticker
     df = (
         df.groupby(["Wave", "Ticker"], as_index=False)["Weight"]
         .sum()
@@ -246,15 +280,15 @@ def fetch_live_prices(tickers):
 
 
 @st.cache_data(show_spinner=False)
-def fetch_vix_series():
-    """Fetch VIX history for mini volatility chart."""
+def fetch_history(symbol: str):
+    """Fetch historical close for SPY or VIX."""
     try:
-        vix = yf.Ticker(VIX_SYMBOL)
-        hist = vix.history(period=VIX_PERIOD, interval=VIX_INTERVAL)
+        tkr = yf.Ticker(symbol)
+        hist = tkr.history(period=HISTORY_PERIOD, interval=HISTORY_INTERVAL)
         if hist.empty:
             return pd.DataFrame()
         df = hist.reset_index()[["Date", "Close"]]
-        df.rename(columns={"Close": "VIX"}, inplace=True)
+        df.rename(columns={"Close": "Value"}, inplace=True)
         return df
     except Exception:
         return pd.DataFrame()
@@ -265,7 +299,15 @@ def fetch_vix_series():
 
 def render_header(active_wave: str, active_mode: str, equity_exposure: float):
     st.markdown(
-        '<div class="waves-title">WAVES Intelligence™ — Live Engine Console</div>',
+        """
+        <div class="waves-header">
+          <div class="waves-logo-pill">W</div>
+          <div class="waves-title-text">
+            <div class="waves-title-main">WAVES Intelligence™</div>
+            <div class="waves-title-sub">Live Engine Console</div>
+          </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
     subtitle = (
@@ -352,64 +394,50 @@ def show_top_holdings(df_wave: pd.DataFrame, prices_df: pd.DataFrame):
         st.error(f"Top holdings view unavailable: {e}")
 
 
-def show_sector_breakdown(df_wave: pd.DataFrame):
-    st.markdown('<div class="section-header">Sector Breakdown</div>', unsafe_allow_html=True)
-    try:
-        if "Sector" not in df_wave.columns:
-            st.info("No 'Sector' column found in list.csv — sector breakdown not available.")
-            return
+def show_spy_chart(spy_df: pd.DataFrame):
+    st.markdown('<div class="section-header">S&P 500 (SPY)</div>', unsafe_allow_html=True)
+    if spy_df.empty:
+        st.info("SPY data not available right now.")
+        return
 
-        sector_df = (
-            df_wave.groupby("Sector")["WaveWeight"]
-            .sum()
-            .reset_index()
-            .sort_values("WaveWeight", ascending=False)
-        )
-        sector_df["Weight %"] = sector_df["WaveWeight"] * 100
-
-        fig = px.bar(
-            sector_df,
-            x="Weight %",
-            y="Sector",
-            orientation="h",
-            labels={"Weight %": "Weight (%)", "Sector": "Sector"},
-        )
-        fig.update_layout(
-            title="",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#FFFFFF",
-            margin=dict(l=40, r=20, t=10, b=30),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"Sector breakdown unavailable: {e}")
+    fig = px.line(
+        spy_df,
+        x="Date",
+        y="Value",
+        labels={"Value": "Price", "Date": ""},
+    )
+    fig.update_traces(line_width=2)
+    fig.update_layout(
+        title="",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FFFFFF",
+        margin=dict(l=40, r=20, t=10, b=30),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def show_vix_chart(vix_df: pd.DataFrame):
     st.markdown('<div class="section-header">Volatility (VIX)</div>', unsafe_allow_html=True)
-    try:
-        if vix_df.empty:
-            st.info("VIX data not available right now.")
-            return
+    if vix_df.empty:
+        st.info("VIX data not available right now.")
+        return
 
-        fig = px.line(
-            vix_df,
-            x="Date",
-            y="VIX",
-            labels={"VIX": "Index Level", "Date": ""},
-        )
-        fig.update_traces(line_width=2)
-        fig.update_layout(
-            title="",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#FFFFFF",
-            margin=dict(l=40, r=20, t=10, b=30),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"VIX chart unavailable: {e}")
+    fig = px.line(
+        vix_df,
+        x="Date",
+        y="Value",
+        labels={"Value": "Index Level", "Date": ""},
+    )
+    fig.update_traces(line_width=2)
+    fig.update_layout(
+        title="",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#FFFFFF",
+        margin=dict(l=40, r=20, t=10, b=30),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def show_alpha_placeholder():
@@ -443,48 +471,19 @@ def main():
         st.error(wave_err)
         return
 
-    # ----- Wave list / ordering -----
-    available_waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
-
-    exclude_waves = {
-        "Equity_Income_Wave",
-        "EquityIncome_Wave",
-        "Equity_Income",
-    }
-
-    preferred_order = [
-        "SP500_Wave",
-        "AI_Wave",
-        "Growth_Wave",
-        "Income_Wave",
-        "Future_Energy_Wave",
-        "SmallMidCapValue_Wave",
-        "SmallCapGrowth_Wave",
-        "Crypto_Income_Wave",
-        "RWA_Income_Wave",
-        "CleanTransitInfra_Wave",
-        "Quantum_Computing_Wave",  # quantum stays IN if it exists
-    ]
-
-    waves = [w for w in preferred_order if w in available_waves]
-    extra_waves = [
-        w for w in available_waves
-        if w not in waves and w not in exclude_waves
-    ]
-    waves.extend(sorted(extra_waves))
-
+    # Wave list
+    waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
     if "SP500_Wave" not in waves:
+        waves.insert(0, "SP500_Wave")
+    else:
+        waves.remove("SP500_Wave")
         waves.insert(0, "SP500_Wave")
 
     # Sidebar
     with st.sidebar:
         st.markdown('<div class="sidebar-title">Engine Controls</div>', unsafe_allow_html=True)
 
-        default_index = 0
-        if "SP500_Wave" in waves:
-            default_index = waves.index("SP500_Wave")
-
-        active_wave = st.selectbox("Wave", options=waves, index=default_index)
+        active_wave = st.selectbox("Wave", options=waves, index=0)
 
         mode = st.radio(
             "Wave Mode",
@@ -507,12 +506,27 @@ def main():
     # ----- Build active Wave dataframe -----
     if active_wave == "SP500_Wave":
         df_wave = universe_df.copy()
+
+        # In case of any ticker duplication in the universe, collapse it
+        df_wave = (
+            df_wave.groupby("Ticker", as_index=False)
+            .agg({
+                "Name": "first",
+                "Sector": "first",
+                "IndexWeight": "sum",
+                "MarketValue": "sum",
+                "Price": "first",
+            })
+        )
+
         total_index_weight = df_wave["IndexWeight"].sum()
         if total_index_weight <= 0:
             df_wave["WaveWeight"] = 1.0 / len(df_wave)
         else:
             df_wave["WaveWeight"] = df_wave["IndexWeight"] / total_index_weight
+
         df_wave["Wave"] = "SP500_Wave"
+
     else:
         wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
         if wave_slice.empty:
@@ -528,9 +542,23 @@ def main():
             )
             return
 
+        # 🔹 FINAL DEDUPE LAYER: one row per Ticker in this wave
+        df_wave = (
+            df_wave.groupby("Ticker", as_index=False)
+            .agg({
+                "WaveWeight": "sum",
+                "Name": "first",
+                "Sector": "first",
+                "IndexWeight": "first",
+                "MarketValue": "first",
+                "Price": "first",
+            })
+        )
+
         total = df_wave["WaveWeight"].sum()
         if total > 0:
             df_wave["WaveWeight"] = df_wave["WaveWeight"] / total
+
         df_wave["Wave"] = active_wave
 
     render_header(active_wave, mode, float(equity_exposure))
@@ -538,9 +566,10 @@ def main():
 
     tickers = df_wave["Ticker"].dropna().unique().tolist()
     prices_df = fetch_live_prices(tickers)
-    vix_df = fetch_vix_series()
+    spy_df = fetch_history(SPY_SYMBOL)
+    vix_df = fetch_history(VIX_SYMBOL)
 
-    # Layout: Top 10 + Sectors/VIX
+    # Layout: Top 10 + SPY/VIX
     st.markdown("<hr/>", unsafe_allow_html=True)
     col_left, col_right = st.columns([2.1, 1.0])
 
@@ -548,9 +577,9 @@ def main():
         show_top_holdings(df_wave, prices_df)
 
     with col_right:
-        tabs = st.tabs(["Sector Breakdown", "VIX"])
+        tabs = st.tabs(["S&P 500 (SPY)", "VIX"])
         with tabs[0]:
-            show_sector_breakdown(df_wave)
+            show_spy_chart(spy_df)
         with tabs[1]:
             show_vix_chart(vix_df)
 
