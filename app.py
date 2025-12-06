@@ -1,11 +1,4 @@
-# app.py — WAVES Intelligence™ Console (Deduped, Polished UI)
-#
-# Uses:
-#   list.csv          → universe (Ticker, Company, Weight, Sector, Market Value, Price)
-#   wave_weights.csv  → wave definitions (Ticker, Wave, Weight)
-#
-# SP500_Wave uses the full universe; all other waves are defined in wave_weights.csv.
-# Each Wave is deduplicated so that a Ticker appears at most once per Wave.
+# app.py — WAVES Intelligence™ Console (Deduped, Wave Lineup, Polished UI)
 
 import os
 import time
@@ -157,7 +150,6 @@ def load_universe():
     df["IndexWeight"] = pd.to_numeric(df["IndexWeight"], errors="coerce").fillna(0.0)
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
 
-    # Normalize strings
     df["Ticker"] = df["Ticker"].astype(str).str.strip()
     df["Sector"] = df["Sector"].astype(str).str.strip()
 
@@ -168,13 +160,13 @@ def load_universe():
 def load_wave_weights():
     """
     Load Wave allocations from wave_weights.csv.
-    Format:
-        Ticker,Wave,Weight
-    Lines starting with '#' are ignored as comments.
 
-    IMPORTANT:
-    - We group by (Wave, Ticker) and sum weights so each pair is unique.
-    - Then normalize weights within each Wave so they sum to 1.0.
+    Expected columns:
+        Ticker,Wave,Weight
+
+    - Ignores lines starting with '#'
+    - Dedupes (Wave, Ticker) pairs by summing Weight
+    - Normalizes weights per Wave so they sum to 1.0
     """
     if not os.path.exists(WAVE_WEIGHTS_CSV):
         return None, f"[WAVE ERROR] '{WAVE_WEIGHTS_CSV}' not found."
@@ -200,7 +192,6 @@ def load_wave_weights():
     df["Wave"] = df["Wave"].astype(str).str.strip()
     df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
 
-    # Drop zeros / negatives
     df = df[df["Weight"] > 0]
     if df.empty:
         return None, f"[WAVE ERROR] All weights in '{WAVE_WEIGHTS_CSV}' are zero or invalid."
@@ -318,96 +309,107 @@ def show_wave_snapshot(df_wave: pd.DataFrame, equity_exposure: float):
 
 def show_top_holdings(df_wave: pd.DataFrame, prices_df: pd.DataFrame):
     st.markdown('<div class="section-header">Top 10 Positions</div>', unsafe_allow_html=True)
+    try:
+        top = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
+        if not prices_df.empty:
+            top = top.merge(prices_df.reset_index(), on="Ticker", how="left")
 
-    top = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
-    if not prices_df.empty:
-        top = top.merge(prices_df.reset_index(), on="Ticker", how="left")
+        top["Weight %"] = (top["WaveWeight"] * 100).round(2)
 
-    top["Weight %"] = (top["WaveWeight"] * 100).round(2)
+        display_cols = ["Ticker", "Name", "Sector", "Weight %"]
+        if "LivePrice" in top.columns:
+            display_cols.append("LivePrice")
+        if "LiveChangePct" in top.columns:
+            top["LiveChangePct"] = top["LiveChangePct"].round(2)
+            display_cols.append("LiveChangePct")
 
-    display_cols = ["Ticker", "Name", "Sector", "Weight %"]
-    if "LivePrice" in top.columns:
-        display_cols.append("LivePrice")
-    if "LiveChangePct" in top.columns:
-        top["LiveChangePct"] = top["LiveChangePct"].round(2)
-        display_cols.append("LiveChangePct")
+        st.dataframe(
+            top[display_cols],
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    st.dataframe(
-        top[display_cols],
-        use_container_width=True,
-        hide_index=True,
-    )
+        chart_df = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
+        chart_df["Weight %"] = chart_df["WaveWeight"] * 100
 
-    chart_df = df_wave.sort_values("WaveWeight", ascending=False).head(10).copy()
-    chart_df["Weight %"] = chart_df["WaveWeight"] * 100
+        fig = px.bar(
+            chart_df,
+            x="Weight %",
+            y="Ticker",
+            orientation="h",
+            labels={"Weight %": "Weight (%)", "Ticker": "Ticker"},
+        )
+        fig.update_layout(
+            title="",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#FFFFFF",
+            margin=dict(l=40, r=20, t=10, b=30),
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    fig = px.bar(
-        chart_df,
-        x="Weight %",
-        y="Ticker",
-        orientation="h",
-        labels={"Weight %": "Weight (%)", "Ticker": "Ticker"},
-    )
-    fig.update_layout(
-        title="",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#FFFFFF",
-        margin=dict(l=40, r=20, t=10, b=30),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Top holdings view unavailable: {e}")
 
 
 def show_sector_breakdown(df_wave: pd.DataFrame):
-    if "Sector" not in df_wave.columns:
-        st.info("No 'Sector' column found in list.csv — sector breakdown not available.")
-        return
+    st.markdown('<div class="section-header">Sector Breakdown</div>', unsafe_allow_html=True)
+    try:
+        if "Sector" not in df_wave.columns:
+            st.info("No 'Sector' column found in list.csv — sector breakdown not available.")
+            return
 
-    sector_df = (
-        df_wave.groupby("Sector")["WaveWeight"]
-        .sum()
-        .reset_index()
-        .sort_values("WaveWeight", ascending=False)
-    )
-    sector_df["Weight %"] = sector_df["WaveWeight"] * 100
+        sector_df = (
+            df_wave.groupby("Sector")["WaveWeight"]
+            .sum()
+            .reset_index()
+            .sort_values("WaveWeight", ascending=False)
+        )
+        sector_df["Weight %"] = sector_df["WaveWeight"] * 100
 
-    fig = px.bar(
-        sector_df,
-        x="Weight %",
-        y="Sector",
-        orientation="h",
-        labels={"Weight %": "Weight (%)", "Sector": "Sector"},
-    )
-    fig.update_layout(
-        title="",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#FFFFFF",
-        margin=dict(l=40, r=20, t=10, b=30),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        fig = px.bar(
+            sector_df,
+            x="Weight %",
+            y="Sector",
+            orientation="h",
+            labels={"Weight %": "Weight (%)", "Sector": "Sector"},
+        )
+        fig.update_layout(
+            title="",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FFFFFF",
+            margin=dict(l=40, r=20, t=10, b=30),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Sector breakdown unavailable: {e}")
 
 
 def show_vix_chart(vix_df: pd.DataFrame):
-    if vix_df.empty:
-        st.info("VIX data not available right now.")
-        return
+    st.markdown('<div class="section-header">Volatility (VIX)</div>', unsafe_allow_html=True)
+    try:
+        if vix_df.empty:
+            st.info("VIX data not available right now.")
+            return
 
-    fig = px.line(
-        vix_df,
-        x="Date",
-        y="VIX",
-        labels={"VIX": "Index Level", "Date": ""},
-    )
-    fig.update_traces(line_width=2)
-    fig.update_layout(
-        title="",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#FFFFFF",
-        margin=dict(l=40, r=20, t=10, b=30),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        fig = px.line(
+            vix_df,
+            x="Date",
+            y="VIX",
+            labels={"VIX": "Index Level", "Date": ""},
+        )
+        fig.update_traces(line_width=2)
+        fig.update_layout(
+            title="",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font_color="#FFFFFF",
+            margin=dict(l=40, r=20, t=10, b=30),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"VIX chart unavailable: {e}")
 
 
 def show_alpha_placeholder():
@@ -441,8 +443,36 @@ def main():
         st.error(wave_err)
         return
 
-    # Wave list
-    waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
+    # ----- Wave list / ordering -----
+    available_waves = sorted(wave_weights_df["Wave"].dropna().unique().tolist())
+
+    exclude_waves = {
+        "Equity_Income_Wave",
+        "EquityIncome_Wave",
+        "Equity_Income",
+    }
+
+    preferred_order = [
+        "SP500_Wave",
+        "AI_Wave",
+        "Growth_Wave",
+        "Income_Wave",
+        "Future_Energy_Wave",
+        "SmallMidCapValue_Wave",
+        "SmallCapGrowth_Wave",
+        "Crypto_Income_Wave",
+        "RWA_Income_Wave",
+        "CleanTransitInfra_Wave",
+        "Quantum_Computing_Wave",  # quantum stays IN if it exists
+    ]
+
+    waves = [w for w in preferred_order if w in available_waves]
+    extra_waves = [
+        w for w in available_waves
+        if w not in waves and w not in exclude_waves
+    ]
+    waves.extend(sorted(extra_waves))
+
     if "SP500_Wave" not in waves:
         waves.insert(0, "SP500_Wave")
 
@@ -474,7 +504,7 @@ def main():
         auto_refresh = st.checkbox("Auto-refresh console", value=True)
         st.caption(f"Console will rerun every {REFRESH_SECONDS} seconds when enabled.")
 
-    # Build active Wave dataframe
+    # ----- Build active Wave dataframe -----
     if active_wave == "SP500_Wave":
         df_wave = universe_df.copy()
         total_index_weight = df_wave["IndexWeight"].sum()
@@ -484,16 +514,12 @@ def main():
             df_wave["WaveWeight"] = df_wave["IndexWeight"] / total_index_weight
         df_wave["Wave"] = "SP500_Wave"
     else:
-        # slice weights for this wave (already deduped per (Wave, Ticker))
         wave_slice = wave_weights_df[wave_weights_df["Wave"] == active_wave].copy()
         if wave_slice.empty:
             st.error(f"[WAVE ERROR] No holdings found for '{active_wave}' in wave_weights.csv.")
             return
 
-        # join to universe
         df_wave = wave_slice.merge(universe_df, on="Ticker", how="left")
-
-        # drop tickers not found in universe
         df_wave = df_wave.dropna(subset=["Name"])
         if df_wave.empty:
             st.error(
@@ -502,7 +528,6 @@ def main():
             )
             return
 
-        # renormalize WaveWeight after join
         total = df_wave["WaveWeight"].sum()
         if total > 0:
             df_wave["WaveWeight"] = df_wave["WaveWeight"] / total
@@ -511,7 +536,6 @@ def main():
     render_header(active_wave, mode, float(equity_exposure))
     show_wave_snapshot(df_wave, float(equity_exposure))
 
-    # Live data
     tickers = df_wave["Ticker"].dropna().unique().tolist()
     prices_df = fetch_live_prices(tickers)
     vix_df = fetch_vix_series()
@@ -532,10 +556,8 @@ def main():
 
     st.markdown("<hr/>", unsafe_allow_html=True)
 
-    # Alpha placeholder
     show_alpha_placeholder()
 
-    # Raw holdings
     with st.expander("View Full Wave Holdings (raw)"):
         display_cols = [
             "Ticker",
@@ -550,7 +572,6 @@ def main():
         existing = [c for c in display_cols if c in df_wave.columns]
         st.dataframe(df_wave[existing], use_container_width=True)
 
-    # Auto-refresh
     if auto_refresh:
         st.markdown(
             f"<p style='color:#8e94a8; font-size:11px; margin-top:6px;'>"
