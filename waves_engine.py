@@ -1,274 +1,259 @@
-# waves_engine.py
-#
-# WAVES Intelligence™ Multi-Wave Engine v0.3
-# This version:
-#   • Loads all Waves from wave_weights.csv
-#   • Builds & logs EVERY wave EXCEPT SP500_Wave
-#   • Writes positions + daily performance per wave
-#
-# Later:
-#   • We'll add SP500_Wave as a special flagship engine
-#   • We'll add custom strategy logic (VIX ladder, secondary baskets, etc.)
+"""
+WAVES Intelligence™ - Multi-Wave Engine
+
+This script:
+  1) Loads wave_weights.csv (Wave, Ticker, Weight).
+  2) For EACH Wave:
+       - Fetches latest prices via yfinance
+       - Calculates position values & share counts for a notional portfolio
+       - Writes a daily positions log: logs/<Wave>_positions_YYYYMMDD.csv
+       - Appends daily summary row to logs/wave_performance_daily.csv
+  3) Provides a clean console audit of what was run.
+
+You can run it locally with:
+    python3 waves_engine.py
+"""
 
 import os
-from datetime import datetime, date
+import datetime as dt
+from typing import List, Dict, Any
 
 import pandas as pd
 import yfinance as yf
 
-# --------------- Config ---------------
+# ---------- CONFIGURABLE CONSTANTS ----------
 
-UNIVERSE_CSV = "list.csv"
-WAVE_WEIGHTS_CSV = "wave_weights.csv"
+# Notional portfolio size per Wave (for share calc / performance normalization)
+BASE_PORTFOLIO_VALUE = 1_000_000.0
 
+WEIGHTS_FILE = "wave_weights.csv"
 LOG_DIR = "logs"
-PERF_FILE = "wave_performance_daily.csv"
-
-# We'll skip this one for now and add it later as the flagship:
-SP500_WAVE_NAME = "SP500_Wave"
-
-# Default benchmark for now – we can customize per wave later
-DEFAULT_BENCHMARK = "SPY"
+PERF_LOG_FILE = os.path.join(LOG_DIR, "wave_performance_daily.csv")
 
 
-# --------------- Helpers ---------------
+# ---------- HELPER FUNCTIONS ----------
 
-def ensure_log_dir():
+def ensure_log_dir() -> None:
+    """Create logs/ directory if it does not exist."""
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR, exist_ok=True)
 
 
-def load_universe():
+def load_wave_weights(path: str) -> pd.DataFrame:
     """
-    Load the master universe from list.csv and normalize columns.
-    We mainly need Ticker / Name / Sector; Price helps as a fallback.
+    Load wave_weights.csv and normalize columns.
+
+    Expected columns: Wave,Ticker,Weight
     """
-    if not os.path.exists(UNIVERSE_CSV):
-        raise FileNotFoundError(f"Universe file '{UNIVERSE_CSV}' not found.")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Wave weights file not found: {path}")
 
-    df = pd.read_csv(UNIVERSE_CSV)
+    df = pd.read_csv(path)
 
-    # Map columns from your current sheet into standard names where needed
-    col_map = {}
-    if "Company" in df.columns:
-        col_map["Company"] = "Name"
-    if "Weight" in df.columns and "IndexWeight" not in df.columns:
-        col_map["Weight"] = "IndexWeight"
-    if "Market Value" in df.columns and "MarketValue" not in df.columns:
-        col_map["Market Value"] = "MarketValue"
+    # Normalize column names
+    df.columns = [c.strip() for c in df.columns]
 
-    df = df.rename(columns=col_map)
+    required = {"Wave", "Ticker", "Weight"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"wave_weights.csv missing required columns: {missing}")
 
-    # Ensure minimal required columns exist
-    required = ["Ticker", "Name", "Sector"]
-    for col in required:
-        if col not in df.columns:
-            if col == "Sector":
-                df["Sector"] = "Unclassified"
-            else:
-                raise ValueError(
-                    f"Missing column '{col}' in '{UNIVERSE_CSV}'. "
-                    f"Found columns: {list(df.columns)}"
-                )
+    # Clean strings / whitespace
+    df["Wave"] = df["Wave"].astype(str).str.strip()
+    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
 
-    # Optional numeric columns
-    if "Price" not in df.columns:
-        df["Price"] = 0.0
+    # Convert weights to float
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce")
 
-    df["Ticker"] = df["Ticker"].astype(str).str.strip()
-    df["Name"] = df["Name"].astype(str)
-    df["Sector"] = df["Sector"].astype(str).str.strip()
-    df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0.0)
+    # Drop rows with bad data
+    df = df.dropna(subset=["Wave", "Ticker", "Weight"])
 
     return df
 
 
-def load_all_wave_weights():
+def fetch_latest_prices(tickers: List[str]) -> Dict[str, float]:
     """
-    Load the full wave_weights.csv and return a cleaned DataFrame
-    with columns: Wave, Ticker, TargetWeight.
+    Fetch latest close price for each ticker using yfinance.
+
+    Returns: dict[ticker] = price (float)
     """
-    if not os.path.exists(WAVE_WEIGHTS_CSV):
-        raise FileNotFoundError(f"Wave weights file '{WAVE_WEIGHTS_CSV}' not found.")
+    prices: Dict[str, float] = {}
 
-    df = pd.read_csv(WAVE_WEIGHTS_CSV, comment="#")
-
-    required_cols = {"Ticker", "Wave", "Weight"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(
-            f"Missing column(s) {missing} in '{WAVE_WEIGHTS_CSV}'. "
-            f"Found columns: {list(df.columns)}"
-        )
-
-    df["Ticker"] = df["Ticker"].astype(str).str.strip()
-    df["Wave"] = df["Wave"].astype(str).str.strip()
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
-
-    # Drop zero / negative weights
-    df = df[df["Weight"] > 0.0]
-
-    if df.empty:
-        raise ValueError("wave_weights.csv has no positive weights.")
-
-    # Collapse duplicates within each Wave/Ticker
-    df = (
-        df.groupby(["Wave", "Ticker"], as_index=False)["Weight"]
-        .sum()
-    )
-
-    # Normalize weights *within each wave* to sum to 1.0
-    df["TargetWeight"] = df.groupby("Wave")["Weight"].transform(
-        lambda x: x / x.sum()
-    )
-    df = df.drop(columns=["Weight"])
-
-    return df  # columns: Wave, Ticker, TargetWeight
-
-
-def fetch_latest_prices(tickers, benchmark_symbol=DEFAULT_BENCHMARK):
-    """
-    Fetch latest close prices for a list of tickers via yfinance.
-    Returns: (prices_df, benchmark_price)
-    prices_df index is Ticker, column is Price.
-    """
-    prices = []
     for t in tickers:
         try:
-            yt = yf.Ticker(t)
-            hist = yt.history(period="1d")
+            hist = yf.Ticker(t).history(period="2d")
             if hist.empty:
                 continue
-            last_close = float(hist.iloc[-1]["Close"])
-            prices.append({"Ticker": t, "Price": last_close})
+            # use last available close
+            price = float(hist["Close"].iloc[-1])
+            prices[t] = price
         except Exception:
-            # If one symbol fails, we just skip it for now
+            # Skip problem tickers but continue engine
             continue
 
-    df_prices = pd.DataFrame(prices)
-    if not df_prices.empty:
-        df_prices.set_index("Ticker", inplace=True)
-
-    bench_price = None
-    try:
-        bh = yf.Ticker(benchmark_symbol).history(period="1d")
-        if not bh.empty:
-            bench_price = float(bh.iloc[-1]["Close"])
-    except Exception:
-        pass
-
-    return df_prices, bench_price
+    return prices
 
 
-def write_positions_log(wave_name: str, df_positions: pd.DataFrame):
+def compute_positions(
+    wave_name: str,
+    weights_df: pd.DataFrame,
+    prices: Dict[str, float],
+    as_of: dt.date,
+) -> pd.DataFrame:
     """
-    Save today's positions for a wave to logs/<Wave>_positions_YYYYMMDD.csv
+    Build a positions dataframe for a single Wave.
+
+    Columns:
+      Wave, Date, Ticker, Weight, Price, Shares, PositionValue
     """
-    today_str = date.today().strftime("%Y%m%d")
-    filename = f"{wave_name}_positions_{today_str}.csv"
-    path = os.path.join(LOG_DIR, filename)
-    df_positions.to_csv(path, index=False)
-    print(f"[{wave_name}] wrote positions log → {path}")
+    df = weights_df.copy()
+
+    df["Wave"] = wave_name
+    df["Date"] = as_of.isoformat()
+
+    df["Price"] = df["Ticker"].map(prices)
+
+    # Drop tickers with no price
+    df = df.dropna(subset=["Price"])
+
+    # Normalize total weight per wave (in case it doesn't sum exactly to 1)
+    total_weight = df["Weight"].sum()
+    if total_weight <= 0:
+        raise ValueError(f"Total weight for {wave_name} is non-positive.")
+
+    df["NormWeight"] = df["Weight"] / total_weight
+
+    df["PositionValue"] = df["NormWeight"] * BASE_PORTFOLIO_VALUE
+    df["Shares"] = df["PositionValue"] / df["Price"]
+
+    # Select and order columns for logging
+    df_out = df[
+        [
+            "Wave",
+            "Date",
+            "Ticker",
+            "NormWeight",
+            "Price",
+            "Shares",
+            "PositionValue",
+        ]
+    ].rename(columns={"NormWeight": "Weight"})
+
+    return df_out
 
 
-def append_performance_log(wave_name: str, nav: float, bench_nav: float,
-                           benchmark_symbol: str = DEFAULT_BENCHMARK):
+def append_performance_log(
+    wave_name: str,
+    as_of: dt.date,
+    positions_df: pd.DataFrame,
+) -> None:
     """
-    Append a row to logs/wave_performance_daily.csv for a given wave.
+    Append a summary row for this Wave to the combined performance log.
+
+    Columns:
+      Date, Wave, NumHoldings, TotalWeight, PortfolioValue
     """
-    today_str = date.today().isoformat()
+    if positions_df.empty:
+        return
+
+    total_weight = positions_df["Weight"].sum()
+    portfolio_value = positions_df["PositionValue"].sum()
+    num_holdings = len(positions_df)
+
     row = {
-        "date": today_str,
-        "wave": wave_name,
-        "nav": nav,
-        "benchmark": benchmark_symbol,
-        "benchmark_nav": bench_nav,
-        "timestamp": datetime.utcnow().isoformat(),
+        "Date": as_of.isoformat(),
+        "Wave": wave_name,
+        "NumHoldings": num_holdings,
+        "TotalWeight": float(total_weight),
+        "PortfolioValue": float(portfolio_value),
     }
-    path = os.path.join(LOG_DIR, PERF_FILE)
-    if os.path.exists(path):
-        df = pd.read_csv(path)
-        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+    # If log exists, append; otherwise create
+    if os.path.exists(PERF_LOG_FILE):
+        perf_df = pd.read_csv(PERF_LOG_FILE)
+        perf_df = pd.concat([perf_df, pd.DataFrame([row])], ignore_index=True)
     else:
-        df = pd.DataFrame([row])
-    df.to_csv(path, index=False)
-    print(f"[{wave_name}] appended performance row → {path}")
+        perf_df = pd.DataFrame([row])
+
+    perf_df.to_csv(PERF_LOG_FILE, index=False)
 
 
-# --------------- Core wave runner ---------------
-
-def run_wave(universe: pd.DataFrame, weights_df: pd.DataFrame, wave_name: str):
+def run_wave_engine_for(
+    wave_name: str, all_weights: pd.DataFrame, as_of: dt.date
+) -> None:
     """
-    Build & log a single wave using its weights in weights_df.
+    Run the engine for a single Wave:
+      - Filter weights
+      - Fetch prices
+      - Compute positions
+      - Write positions log
+      - Append performance log
     """
-    print(f"\n=== Running engine for {wave_name} ===")
+    print(f"\n=== WAVES {wave_name} Engine Run ===")
 
-    # Filter to this wave
-    subset = weights_df[weights_df["Wave"] == wave_name].copy()
-    if subset.empty:
-        print(f"[{wave_name}] No holdings found, skipping.")
+    wave_weights = all_weights[all_weights["Wave"] == wave_name]
+    if wave_weights.empty:
+        print(f"  Skipping {wave_name}: no weights found.")
         return
 
-    # Join with universe for names / sectors / base prices
-    df = subset.merge(universe, on="Ticker", how="left")
+    tickers = sorted(wave_weights["Ticker"].unique().tolist())
+    print(f"  Holdings in {wave_name}: {len(tickers)} symbols")
 
-    # Drop any rows we absolutely cannot resolve
-    df = df.dropna(subset=["Name"])
-    if df.empty:
-        print(f"[{wave_name}] No valid holdings after universe join, skipping.")
+    prices = fetch_latest_prices(tickers)
+    if not prices:
+        print(f"  No prices retrieved for {wave_name}. Skipping.")
         return
 
-    tickers = df["Ticker"].unique().tolist()
-    price_df, bench_price = fetch_latest_prices(tickers)
+    positions_df = compute_positions(wave_name, wave_weights, prices, as_of)
 
-    if not price_df.empty:
-        df = df.merge(price_df.reset_index(), on="Ticker", how="left")
-        # Price_x is from universe, Price_y from yfinance
-        df["LivePrice"] = df["Price_y"].fillna(df["Price_x"])
-        df = df.drop(columns=["Price_x", "Price_y"])
-    else:
-        df["LivePrice"] = df["Price"]
+    if positions_df.empty:
+        print(f"  No valid positions for {wave_name}. Skipping.")
+        return
 
-    # For now, NAV = 1.0 (we’ll evolve this over time)
-    nav = 1.0
-    df["DollarWeight"] = df["TargetWeight"] * nav
+    # Write positions log
+    date_str = as_of.strftime("%Y%m%d")
+    fname = f"{wave_name}_positions_{date_str}.csv"
+    pos_path = os.path.join(LOG_DIR, fname)
+    positions_df.to_csv(pos_path, index=False)
+    print(f"  Wrote positions log: {pos_path}")
 
-    positions_cols = [
-        "Ticker",
-        "Name",
-        "Sector",
-        "TargetWeight",
-        "LivePrice",
-        "DollarWeight",
-    ]
-    positions_log = df[positions_cols].copy()
-    write_positions_log(wave_name, positions_log)
+    # Append to performance log
+    append_performance_log(wave_name, as_of, positions_df)
+    print(f"  Appended performance log: {PERF_LOG_FILE}")
 
-    append_performance_log(wave_name, nav, bench_price or 0.0)
-    print(f"=== {wave_name} engine completed ===")
+    print(f"=== {wave_name} engine run completed. ===")
 
 
-# --------------- Main ---------------
+# ---------- MAIN ENTRYPOINT ----------
 
-def main():
-    print("=== WAVES Intelligence™ Multi-Wave Engine (non-SP500 waves) ===")
+def main() -> None:
+    print("== WAVES Intelligence™ Multi-Wave Engine ==")
+
     ensure_log_dir()
-    universe = load_universe()
-    all_weights = load_all_wave_weights()
 
-    waves = sorted(all_weights["Wave"].unique())
-    # Skip SP500_Wave for now; we’ll add a special engine for it later.
-    waves = [w for w in waves if w != SP500_WAVE_NAME]
+    today = dt.date.today()
 
-    print(f"Discovered waves in weights file: {waves}")
+    try:
+        weights_df = load_wave_weights(WEIGHTS_FILE)
+    except Exception as e:
+        print(f"Error loading weights file: {e}")
+        return
 
-    for w in waves:
+    waves = sorted(weights_df["Wave"].unique().tolist())
+    print(f"Discovered Waves in weights file: {waves}")
+
+    if not waves:
+        print("No waves found in weights file. Nothing to run.")
+        return
+
+    for wave_name in waves:
         try:
-            run_wave(universe, all_weights, w)
+            run_wave_engine_for(wave_name, weights_df, today)
         except Exception as e:
-            print(f"[{w}] ERROR while running engine: {e}")
+            # Keep running other waves even if one fails
+            print(f"  ERROR while running {wave_name}: {e}")
 
-    print("\nAll non-SP500 waves completed.\n")
+    print("\nAll wave engine runs completed.\n")
 
 
 if __name__ == "__main__":
