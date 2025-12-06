@@ -162,3 +162,18 @@ LQD,RWA_Income_Wave,0.08
 AGG,RWA_Income_Wave,0.08
 VCIT,RWA_Income_Wave,0.06
 BIL,RWA_Income_Wave,0.06
+# ----------------------------
+# CLEAN TRANSIT & INFRA WAVE
+# ----------------------------
+TSLA,CleanTransitInfra_Wave,0.10
+GM,CleanTransitInfra_Wave,0.08
+F,CleanTransitInfra_Wave,0.08
+NVDA,CleanTransitInfra_Wave,0.08
+GE,CleanTransitInfra_Wave,0.08
+CAT,CleanTransitInfra_Wave,0.08
+RTX,CleanTransitInfra_Wave,0.08
+TMUS,CleanTransitInfra_Wave,0.08
+ORCL,CleanTransitInfra_Wave,0.06
+AMZN,CleanTransitInfra_Wave,0.06
+MSFT,CleanTransitInfra_Wave,0.06
+AAPL,CleanTransitInfra_Wave,0.06
