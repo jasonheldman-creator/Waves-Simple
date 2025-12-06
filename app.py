@@ -1,571 +1,385 @@
-import os
-import glob
+# app.py
+# WAVES Intelligence™ Live Engine Console
+# Works both:
+#   - with real logs (logs/performance, logs/positions)
+#   - and without logs (falls back to wave_weights.csv for Wave list)
+
 from pathlib import Path
 from datetime import datetime
+import glob
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-# ============================================================
-# CONFIG & PATHS
-# ============================================================
-
+# ----------------------------------------------------
+# PATHS / FOLDERS
+# ----------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 LOGS_DIR = BASE_DIR / "logs"
-POSITIONS_DIR = LOGS_DIR / "positions"
 PERF_DIR = LOGS_DIR / "performance"
+POS_DIR = LOGS_DIR / "positions"
+WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
 
-st.set_page_config(
-    page_title="WAVES Intelligence™ Live Engine",
-    page_icon="🌊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ============================================================
-# BRANDING & DARK THEME CSS
-# ============================================================
-
-DARK_BG = "#050816"      # deep navy
-CARD_BG = "#0b1020"      # slightly lighter
-ACCENT = "#40e0d0"       # teal / WAVES accent
-ACCENT_SOFT = "#00b894"  # soft green
-TEXT_PRIMARY = "#f5f7ff"
-TEXT_MUTED = "#9aa4c6"
-
-CUSTOM_CSS = f"""
-<style>
-/* Global background */
-.stApp {{
-    background: radial-gradient(circle at top, #111933 0, {DARK_BG} 45%, #02040a 100%);
-    color: {TEXT_PRIMARY};
-    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}}
-
-.block-container {{
-    padding-top: 1.5rem;
-    padding-bottom: 1.5rem;
-    max-width: 1400px;
-}}
-
-.stSidebar {{
-    background: linear-gradient(180deg, #050816 0%, #02030a 100%);
-    border-right: 1px solid #151a2c;
-}}
-
-.stSidebar [data-testid="stMetricValue"],
-.stSidebar [data-testid="stMetricLabel"] {{
-    color: {TEXT_PRIMARY};
-}}
-
-h1, h2, h3, h4, h5, h6 {{
-    color: {TEXT_PRIMARY};
-    letter-spacing: 0.02em;
-}}
-
-.small-muted {{
-    font-size: 0.75rem;
-    color: {TEXT_MUTED};
-}}
-
-/* Top header */
-.wave-header {{
-    padding: 0.75rem 1rem 0.75rem 1.25rem;
-    border-radius: 14px;
-    background: linear-gradient(135deg, rgba(64,224,208,0.06), rgba(0,0,0,0.3));
-    border: 1px solid rgba(64,224,208,0.25);
-    box-shadow: 0 18px 40px rgba(0,0,0,0.45);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}}
-
-.wave-header-left {{
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-}}
-
-.wave-title {{
-    font-size: 1.3rem;
-    font-weight: 650;
-}}
-
-.wave-subtitle {{
-    font-size: 0.8rem;
-    color: {TEXT_MUTED};
-}}
-
-/* Badge styles */
-.badge {{
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.18rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.11em;
-    border: 1px solid rgba(255,255,255,0.2);
-}}
-
-.badge-live {{
-    background: rgba(0, 200, 120, 0.16);
-    border-color: rgba(0, 200, 120, 0.6);
-}}
-
-.badge-mode {{
-    background: rgba(111, 66, 193, 0.12);
-    border-color: rgba(132, 94, 247, 0.7);
-}}
-
-.badge-beta {{
-    background: rgba(64, 224, 208, 0.12);
-    border-color: rgba(64, 224, 208, 0.7);
-}}
-
-/* KPI cards */
-.kpi-card {{
-    background: radial-gradient(circle at top left, rgba(64,224,208,0.08), {CARD_BG});
-    border-radius: 14px;
-    padding: 0.8rem 0.9rem;
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 16px 35px rgba(0,0,0,0.5);
-}}
-
-.kpi-label {{
-    font-size: 0.75rem;
-    color: {TEXT_MUTED};
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-}}
-
-.kpi-value {{
-    font-size: 1.3rem;
-    font-weight: 650;
-    margin-top: 0.35rem;
-}}
-
-.kpi-delta-pos {{
-    font-size: 0.75rem;
-    color: {ACCENT_SOFT};
-}}
-
-.kpi-delta-neg {{
-    font-size: 0.75rem;
-    color: #ff7675;
-}}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {{
-    gap: 0.5rem;
-    border-bottom: 1px solid #192038;
-}}
-
-.stTabs [data-baseweb="tab"] {{
-    padding-top: 0.4rem;
-    padding-bottom: 0.5rem;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-}}
-
-.stTabs [data-baseweb="tab-highlight"] {{
-    background: linear-gradient(90deg, {ACCENT}, {ACCENT_SOFT});
-}}
-
-/* Tables */
-.dataframe {{
-    background: {CARD_BG} !important;
-    color: {TEXT_PRIMARY} !important;
-}}
-
-.dataframe td, .dataframe th {{
-    border-color: #1b2238 !important;
-}}
-
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def ensure_directories():
-    missing = []
-    if not LOGS_DIR.exists():
-        missing.append(str(LOGS_DIR))
-    if not POSITIONS_DIR.exists():
-        missing.append(str(POSITIONS_DIR))
-    if not PERF_DIR.exists():
-        missing.append(str(PERF_DIR))
-    return missing
-
-
-@st.cache_data
-def get_available_waves():
+# ----------------------------------------------------
+# DISCOVERY HELPERS
+# ----------------------------------------------------
+def discover_waves_from_logs() -> list[str]:
+    """
+    Look for performance CSVs named like:
+        <WaveName>_performance_YYYYMMDD_daily.csv
+    and extract WaveName.
+    """
     if not PERF_DIR.exists():
         return []
-    files = PERF_DIR.glob("*_performance_daily.csv")
-    waves = sorted(f.name.replace("_performance_daily.csv", "") for f in files)
-    return waves
+
+    perf_files = list(PERF_DIR.glob("*_performance_*.csv"))
+    waves = set()
+
+    for f in perf_files:
+        name = f.name
+        if "_performance_" in name:
+            wave_name = name.split("_performance_")[0]
+            if wave_name:
+                waves.add(wave_name)
+
+    return sorted(waves)
 
 
-@st.cache_data
+def discover_waves_from_weights() -> list[str]:
+    """
+    Fallback: read unique Wave names from wave_weights.csv
+    Expecting a column named 'Wave' (e.g. 'Growth_Wave', 'SP500_Wave').
+    """
+    if not WEIGHTS_PATH.exists():
+        return []
+
+    try:
+        df = pd.read_csv(WEIGHTS_PATH)
+    except Exception:
+        return []
+
+    # Try several likely column names
+    for col in ["Wave", "Wave_Name", "wave", "wave_name"]:
+        if col in df.columns:
+            waves = sorted(df[col].dropna().unique().tolist())
+            return waves
+
+    # If no obvious column, try to infer from first column
+    if len(df.columns) >= 1:
+        waves = sorted(df.iloc[:, 0].dropna().unique().tolist())
+        return waves
+
+    return []
+
+
+def discover_waves() -> tuple[list[str], str]:
+    """
+    Main discovery function.
+    Returns (waves, source) where source is 'logs' or 'weights' or 'none'.
+    """
+    waves_from_logs = discover_waves_from_logs()
+    if waves_from_logs:
+        return waves_from_logs, "logs"
+
+    waves_from_weights = discover_waves_from_weights()
+    if waves_from_weights:
+        return waves_from_weights, "weights"
+
+    return [], "none"
+
+
+# ----------------------------------------------------
+# DATA LOADERS
+# ----------------------------------------------------
 def load_performance(wave_name: str) -> pd.DataFrame | None:
-    path = PERF_DIR / f"{wave_name}_performance_daily.csv"
-    if not path.exists():
+    """
+    Load performance CSV for a given Wave.
+    If none exists, return None.
+    """
+    if not PERF_DIR.exists():
         return None
 
-    df = pd.read_csv(path)
+    pattern = str(PERF_DIR / f"{wave_name}_performance_*.csv")
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
 
-    # Date column detection
-    for cand in ["date", "Date", "timestamp", "Timestamp"]:
-        if cand in df.columns:
-            df["date"] = pd.to_datetime(df[cand])
+    # Use the latest file by modified time
+    latest_file = max(matches, key=lambda p: Path(p).stat().st_mtime)
+
+    try:
+        df = pd.read_csv(latest_file)
+    except Exception:
+        return None
+
+    # Try to parse date column if present
+    for col in ["date", "Date", "timestamp", "Timestamp"]:
+        if col in df.columns:
+            try:
+                df[col] = pd.to_datetime(df[col])
+                df = df.sort_values(col)
+            except Exception:
+                pass
             break
-    else:
-        df["date"] = pd.to_datetime(df.index)
-
-    df = df.sort_values("date").reset_index(drop=True)
-    df.columns = [c.lower() for c in df.columns]
-
-    # Cumulative return
-    if "cumulative_return" not in df.columns:
-        if "daily_return" in df.columns:
-            df["cumulative_return"] = (1 + df["daily_return"]).cumprod() - 1
-        elif "nav" in df.columns:
-            df["cumulative_return"] = df["nav"] / df["nav"].iloc[0] - 1
-
-    # Benchmark cumulative if available
-    if "benchmark_return" in df.columns and "benchmark_cumulative" not in df.columns:
-        df["benchmark_cumulative"] = (1 + df["benchmark_return"]).cumprod() - 1
 
     return df
 
 
-@st.cache_data
-def load_latest_positions(wave_name: str):
-    pattern = str(POSITIONS_DIR / f"{wave_name}_positions_*.csv")
-    files = sorted(glob.glob(pattern))
-    if not files:
-        return None, None
+def load_positions(wave_name: str) -> pd.DataFrame | None:
+    """
+    Load positions CSV for a given Wave.
+    """
+    if not POS_DIR.exists():
+        return None
 
-    latest_path = Path(files[-1])
-    df = pd.read_csv(latest_path)
-    df.columns = [c.strip() for c in df.columns]
+    pattern = str(POS_DIR / f"{wave_name}_positions_*.csv")
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
 
-    cols_lower = {c.lower(): c for c in df.columns}
+    latest_file = max(matches, key=lambda p: Path(p).stat().st_mtime)
 
-    # Try to compute Value / Weight if missing
-    if "value" not in cols_lower:
-        price_col = cols_lower.get("price")
-        qty_col = cols_lower.get("quantity") or cols_lower.get("shares")
-        if price_col and qty_col:
-            df["Value"] = df[price_col] * df[qty_col]
+    try:
+        df = pd.read_csv(latest_file)
+    except Exception:
+        return None
 
-    if "weight" not in cols_lower and "Value" in df.columns:
-        total_val = df["Value"].sum()
-        if total_val > 0:
-            df["Weight"] = df["Value"] / total_val
-
-    return df, latest_path.name
+    return df
 
 
-def format_pct(x):
-    if pd.isna(x):
-        return "—"
-    return f"{x*100:,.2f}%"
-
-
-def summarize_performance(df: pd.DataFrame):
-    if df is None or df.empty:
-        return {}
-
-    last_row = df.iloc[-1]
-
-    # Latest cumulative
-    cum = last_row.get("cumulative_return", np.nan)
-
-    # One-day change
-    daily = last_row.get("daily_return", np.nan)
-
-    # Simple drawdown calc
-    if "cumulative_return" in df.columns:
-        peak = df["cumulative_return"].cummax()
-        dd = df["cumulative_return"] - peak
-        max_dd = dd.min()
-    else:
-        max_dd = np.nan
-
-    # Alpha if we have benchmark
-    alpha = np.nan
-    if "benchmark_cumulative" in df.columns:
-        alpha = last_row["cumulative_return"] - last_row["benchmark_cumulative"]
-
-    return {
-        "cum": cum,
-        "daily": daily,
-        "max_dd": max_dd,
-        "alpha": alpha,
+# ----------------------------------------------------
+# METRIC HELPERS
+# ----------------------------------------------------
+def compute_summary_metrics(perf_df: pd.DataFrame | None) -> dict:
+    """
+    Compute total return, today return, max drawdown, alpha captured.
+    All metrics are optional if perf_df is None.
+    """
+    metrics = {
+        "total_return": None,
+        "today_return": None,
+        "max_drawdown": None,
+        "alpha_captured": None,
     }
 
+    if perf_df is None or perf_df.empty:
+        return metrics
 
-# ============================================================
-# SIDEBAR — ENGINE CONTROLS
-# ============================================================
+    # Generic column guesses
+    price_cols = [c for c in perf_df.columns if "nav" in c.lower() or "value" in c.lower()]
+    ret_cols = [c for c in perf_df.columns if "return" in c.lower() and "benchmark" not in c.lower()]
+    bench_cols = [c for c in perf_df.columns if "benchmark" in c.lower()]
 
-missing_dirs = ensure_directories()
-if missing_dirs:
-    st.error(
-        "⚠️ `logs/` folder not found.\n\n"
-        "Make sure `logs/performance` and `logs/positions` are in the **same folder as `app.py` and `waves_engine.py`.**"
-    )
-    st.stop()
+    # Daily return series
+    if ret_cols:
+        r = perf_df[ret_cols[0]].astype(float)
+    elif price_cols:
+        p = perf_df[price_cols[0]].astype(float)
+        r = p.pct_change().fillna(0.0)
+    else:
+        return metrics
 
-waves = get_available_waves()
-st.sidebar.markdown("### ⚙️ Engine Controls")
+    # Total return
+    metrics["total_return"] = (1 + r).prod() - 1
+
+    # Today
+    metrics["today_return"] = r.iloc[-1]
+
+    # Max drawdown
+    cum = (1 + r).cumprod()
+    peak = cum.cummax()
+    dd = (cum / peak) - 1
+    metrics["max_drawdown"] = dd.min()
+
+    # Alpha captured (vs benchmark) if available
+    if bench_cols:
+        br = perf_df[bench_cols[0]].astype(float)
+        # assume benchmark is daily return or percentage
+        if br.abs().max() > 5:  # probably percentage
+            br = br / 100.0
+        alpha = r - br
+        metrics["alpha_captured"] = alpha.mean()
+
+    return metrics
+
+
+def fmt_pct(x: float | None) -> str:
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x * 100:0.2f}%"
+
+
+# ----------------------------------------------------
+# STREAMLIT LAYOUT
+# ----------------------------------------------------
+st.set_page_config(
+    page_title="WAVES Engine Dashboard",
+    page_icon="🌊",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+    .main {
+        background: radial-gradient(circle at top left, #101725 0%, #050812 55%, #020308 100%);
+        color: #f5f7ff;
+    }
+    .stMetric {
+        background-color: #111827 !important;
+        border-radius: 10px;
+        padding: 12px;
+    }
+    .css-18ni7ap, .css-1d391kg {
+        background-color: transparent !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("🌊 WAVES Engine Dashboard")
+st.caption("Live / demo console for WAVES Intelligence™ – Adaptive Index Waves")
+
+# ----------------------------------------------------
+# SIDEBAR – ENGINE CONTROLS
+# ----------------------------------------------------
+st.sidebar.header("⚙️ Engine Controls")
+
+waves, source = discover_waves()
 
 if not waves:
-    st.sidebar.error("No Waves discovered in `logs/performance` yet.")
+    st.sidebar.error(
+        "No Waves discovered in `logs/performance` or `wave_weights.csv` yet.\n\n"
+        "• To see live data, run `waves_engine.py` to generate logs, or\n"
+        "• Ensure `wave_weights.csv` is present in the repo."
+    )
     st.stop()
 
-selected_wave = st.sidebar.selectbox("Wave", waves, index=0)
+if source == "logs":
+    st.sidebar.success("Waves discovered from engine logs ✅")
+elif source == "weights":
+    st.sidebar.warning("Using Wave list from wave_weights.csv (no performance logs found yet).")
 
-# Exposure slider (for demo — doesn’t change logs, just UI)
-exposure = st.sidebar.slider("Equity Exposure", min_value=0, max_value=100, value=90, step=5)
-
-mode = st.sidebar.radio(
-    "Mode",
-    ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-    index=1,
-)
-
-beta_target = 0.90 if mode == "Alpha-Minus-Beta" else 1.00
-st.sidebar.markdown(
-    f"<span class='small-muted'>Target β: <b>{beta_target:.2f}</b> · Cash buffer implied from exposure: <b>{100-exposure}%</b></span>",
-    unsafe_allow_html=True,
-)
+selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "<span class='small-muted'>WAVES Intelligence™ · Live Engine Console</span>",
-    unsafe_allow_html=True,
-)
+st.sidebar.subheader("Mode")
+st.sidebar.radio("Risk Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic™"], index=0)
+exposure = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
+st.sidebar.caption(f"Target β ~0.90 · Cash buffer: {100 - exposure}%")
 
-# ============================================================
-# MAIN LAYOUT
-# ============================================================
-
+# ----------------------------------------------------
+# LOAD DATA FOR SELECTED WAVE
+# ----------------------------------------------------
 perf_df = load_performance(selected_wave)
-pos_df, pos_filename = load_latest_positions(selected_wave)
+pos_df = load_positions(selected_wave)
+metrics = compute_summary_metrics(perf_df)
 
-perf_summary = summarize_performance(perf_df)
+# ----------------------------------------------------
+# TOP METRICS STRIP
+# ----------------------------------------------------
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Return (since inception)", fmt_pct(metrics["total_return"]))
+c2.metric("Today", fmt_pct(metrics["today_return"]))
+c3.metric("Max Drawdown", fmt_pct(metrics["max_drawdown"]))
+c4.metric("Alpha Captured vs Benchmark", fmt_pct(metrics["alpha_captured"]))
 
-# ---------- HEADER ----------
-col_header, col_header_right = st.columns([3, 2])
-
-with col_header:
-    st.markdown(
-        f"""
-        <div class="wave-header">
-            <div class="wave-header-left">
-                <div class="wave-title">🌊 {selected_wave}</div>
-                <div class="wave-subtitle">
-                    WAVES Intelligence™ • Adaptive Index Wave · Real-time console
-                </div>
-            </div>
-        """,
-        unsafe_allow_html=True,
+if perf_df is None:
+    st.info(
+        f"No performance log found yet for `{selected_wave}` in `logs/performance`.\n\n"
+        "The dashboard is running in **structure/demo mode**. "
+        "Run `waves_engine.py` locally and upload the resulting CSVs to see full live charts."
     )
 
-with col_header_right:
-    live_badge = """
-        <div style="display:flex; gap:0.4rem; justify-content:flex-end; align-items:center;">
-            <span class="badge badge-live">● Live Engine</span>
-            <span class="badge badge-mode">{mode}</span>
-            <span class="badge badge-beta">β Target {beta:.2f}</span>
-        </div>
-    """.format(mode=mode, beta=beta_target)
-    st.markdown(live_badge, unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)  # close header div
+# ----------------------------------------------------
+# MAIN LAYOUT – OVERVIEW TAB
+# ----------------------------------------------------
+tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Engine Logs"])
 
-st.markdown("")
-
-# ---------- KPI STRIP ----------
-k1, k2, k3, k4 = st.columns(4)
-
-cum = perf_summary.get("cum", np.nan)
-daily = perf_summary.get("daily", np.nan)
-max_dd = perf_summary.get("max_dd", np.nan)
-alpha = perf_summary.get("alpha", np.nan)
-
-with k1:
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Total Return (since inception)</div>
-            <div class="kpi-value">{format_pct(cum)}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with k2:
-    delta_class = "kpi-delta-pos" if (not pd.isna(daily) and daily >= 0) else "kpi-delta-neg"
-    daily_str = format_pct(daily)
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Today</div>
-            <div class="kpi-value">{daily_str}</div>
-            <div class="{delta_class}">vs prior close</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with k3:
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Max Drawdown</div>
-            <div class="kpi-value">{format_pct(max_dd)}</div>
-            <div class="small-muted">Rolling since inception</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with k4:
-    alpha_str = format_pct(alpha)
-    alpha_class = "kpi-delta-pos" if (not pd.isna(alpha) and alpha >= 0) else "kpi-delta-neg"
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">Alpha Captured</div>
-            <div class="kpi-value">{alpha_str}</div>
-            <div class="{alpha_class}">vs benchmark</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("")
-
-# ---------- TABS ----------
-tab_overview, tab_alpha, tab_logs = st.tabs(["OVERVIEW", "ALPHA DASHBOARD", "ENGINE LOGS"])
-
-# ------------------------------------------------------------
-# TAB 1 — OVERVIEW
-# ------------------------------------------------------------
 with tab_overview:
-    left, right = st.columns([2, 1.4])
+    left, right = st.columns([2, 1])
 
+    # Performance curve
     with left:
-        st.markdown("#### Performance Curve")
-
+        st.subheader("Performance Curve")
         if perf_df is not None and not perf_df.empty:
-            chart_df = perf_df.set_index("date")[["cumulative_return"]].copy()
-            chart_df.rename(columns={"cumulative_return": "Wave"}, inplace=True)
-            st.line_chart(chart_df)
+            # Try to find a cumulative value or NAV column
+            nav_cols = [c for c in perf_df.columns if "nav" in c.lower() or "value" in c.lower()]
+            date_cols = [c for c in perf_df.columns if "date" in c.lower() or "time" in c.lower()]
+
+            if date_cols and nav_cols:
+                df_plot = perf_df[[date_cols[0], nav_cols[0]]].copy()
+                df_plot = df_plot.rename(columns={date_cols[0]: "date", nav_cols[0]: "NAV"})
+                df_plot = df_plot.set_index("date")
+                st.line_chart(df_plot)
+            else:
+                st.info("Performance columns not in expected format; showing raw table instead.")
+                st.dataframe(perf_df.tail(30))
         else:
-            st.info("No performance history yet for this Wave.")
+            st.caption("No performance data yet – waiting for first engine logs.")
 
-        st.markdown("#### Positions Snapshot")
-
-        if pos_df is not None and not pos_df.empty:
-            show_cols = []
-            for col in ["Ticker", "Name", "Weight", "Value", "Sector"]:
-                if col in pos_df.columns:
-                    show_cols.append(col)
-            if not show_cols:
-                show_cols = pos_df.columns.tolist()
-
-            df_view = pos_df.copy()
-            if "Weight" in df_view.columns:
-                df_view["Weight"] = df_view["Weight"].apply(lambda x: f"{x*100:,.2f}%" if pd.notna(x) else "—")
-
-            st.dataframe(
-                df_view[show_cols].sort_values(
-                    by="Weight" if "Weight" in show_cols else show_cols[0],
-                    ascending=False
-                ),
-                use_container_width=True,
-                height=420,
-            )
-        else:
-            st.info("No positions log found yet for this Wave.")
-
+    # Exposure & risk
     with right:
-        st.markdown("#### Exposure & Risk")
-
+        st.subheader("Exposure & Risk")
         st.metric("Equity Exposure", f"{exposure}%")
         st.metric("Cash Buffer", f"{100 - exposure}%")
-        st.metric("β Target", f"{beta_target:.2f}")
-
-        st.markdown("---")
-        st.markdown("#### Benchmark Trace")
-
-        if perf_df is not None and "benchmark_cumulative" in perf_df.columns:
-            bench_df = perf_df.set_index("date")[["cumulative_return", "benchmark_cumulative"]].copy()
-            bench_df.rename(
-                columns={
-                    "cumulative_return": selected_wave,
-                    "benchmark_cumulative": "Benchmark",
-                },
-                inplace=True,
-            )
-            st.line_chart(bench_df)
-        else:
-            st.info("Benchmark series not available yet for this Wave.")
-
-# ------------------------------------------------------------
-# TAB 2 — ALPHA DASHBOARD
-# ------------------------------------------------------------
-with tab_alpha:
-    st.markdown("#### Alpha Capture Timeline")
-
-    if perf_df is not None and "benchmark_return" in perf_df.columns:
-        alpha_daily = perf_df.copy()
-        alpha_daily["alpha_daily"] = alpha_daily["daily_return"] - alpha_daily["benchmark_return"]
-        alpha_daily.set_index("date", inplace=True)
-
-        st.bar_chart(alpha_daily[["alpha_daily"]])
-
-        st.markdown("#### Rolling Alpha (30-day)")
-
-        alpha_daily["alpha_30d"] = alpha_daily["alpha_daily"].rolling(30).sum()
-        st.line_chart(alpha_daily[["alpha_30d"]])
-
-    else:
-        st.info("Alpha-vs-benchmark series not yet available for this Wave.")
-
-# ------------------------------------------------------------
-# TAB 3 — ENGINE LOGS
-# ------------------------------------------------------------
-with tab_logs:
-    st.markdown("#### Raw Engine Feeds")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.markdown("**Performance Feed (tail)**")
-        if perf_df is not None and not perf_df.empty:
-            st.dataframe(perf_df.tail(50), use_container_width=True, height=420)
-        else:
-            st.info("No performance feed found.")
-
-    with c2:
-        st.markdown("**Positions Feed (tail)**")
-        if pos_df is not None and not pos_df.empty:
-            st.dataframe(pos_df.tail(50), use_container_width=True, height=420)
-        else:
-            st.info("No positions feed found.")
+        st.metric("Target β", "0.90")
 
     st.markdown("---")
+
+    # Positions snapshot
+    st.subheader("Positions Snapshot")
+    if pos_df is not None and not pos_df.empty:
+        st.dataframe(pos_df.head(50), use_container_width=True)
+    else:
+        st.caption("No positions file found yet for this Wave in `logs/positions`.")
+
+with tab_alpha:
+    st.subheader("Alpha Dashboard")
+    if perf_df is None or perf_df.empty:
+        st.info("Alpha metrics will appear once performance logs are available.")
+    else:
+        # Simple rolling 30-day alpha illustration if benchmark column exists
+        bench_cols = [c for c in perf_df.columns if "benchmark" in c.lower()]
+        ret_cols = [c for c in perf_df.columns if "return" in c.lower() and "benchmark" not in c.lower()]
+
+        if bench_cols and ret_cols:
+            r = perf_df[ret_cols[0]].astype(float)
+            br = perf_df[bench_cols[0]].astype(float)
+            if br.abs().max() > 5:
+                br = br / 100.0
+            alpha = r - br
+            alpha_30 = alpha.rolling(30).mean()
+            st.line_chart(alpha_30, height=260)
+            st.caption("Rolling 30-day average alpha.")
+        else:
+            st.caption("Benchmark / return columns not found – alpha view is in placeholder mode.")
+
+with tab_logs:
+    st.subheader("Engine Logs (File Discovery)")
+    st.write("Base directory:", str(BASE_DIR))
+    st.write("Logs directory:", str(LOGS_DIR))
+
+    st.markdown("**Discovered Waves**")
+    st.json({"waves": waves, "source": source})
+
+    st.markdown("**Performance files**")
+    if PERF_DIR.exists():
+        perf_files = [p.name for p in PERF_DIR.glob("*.csv")]
+        st.write(perf_files if perf_files else "No CSV files in logs/performance.")
+    else:
+        st.write("logs/performance directory does not exist.")
+
+    st.markdown("**Position files**")
+    if POS_DIR.exists():
+        pos_files = [p.name for p in POS_DIR.glob("*.csv")]
+        st.write(pos_files if pos_files else "No CSV files in logs/positions.")
+    else:
+        st.write("logs/positions directory does not exist.")
+
     st.caption(
-        "All data sourced from WAVES Engine logs · LIVE/SANDBOX status inferred from underlying data regime."
+        "All data sourced from WAVES Engine logs when available. "
+        "If you see no files listed above, run `waves_engine.py` to generate them."
     )
