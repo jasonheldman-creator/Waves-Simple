@@ -1,13 +1,13 @@
 # app.py
 # WAVES INSTITUTIONAL CONSOLE — LIVE ENGINE · MULTI-WAVE
 #
-# Uses `wave_weights.csv` as the master source of truth for:
+# Single source of truth: wave_weights.csv
 #   - Wave list
 #   - Primary / Secondary baskets
-#   - Full holdings + top 10 with Google Finance links
+#   - Full holdings + Top 10 with Google Finance links
 #
-# If performance logs exist in logs/performance/, we show returns & curves.
-# Otherwise we still show full holdings, baskets, and SPX/VIX dashboard.
+# Optional: performance logs in logs/performance/<Wave>_performance_*.csv
+#   - Returns, performance curve, alpha dashboard
 
 import os
 import glob
@@ -32,9 +32,8 @@ VIX_TICKER = "^VIX"
 BETA_TARGET = 0.90
 DEFAULT_EXPOSURE = 90
 
-
 # -------------------------------------------------------------------
-# PAGE CONFIG & THEME
+# STREAMLIT PAGE CONFIG & STYLES
 # -------------------------------------------------------------------
 
 st.set_page_config(
@@ -44,6 +43,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Global CSS and layout styling
 st.markdown(
     """
     <style>
@@ -55,6 +55,7 @@ st.markdown(
         padding-top: 0.75rem;
         padding-bottom: 0.75rem;
     }
+
     /* Header */
     .waves-header {
         border: 1px solid #0b7736;
@@ -86,6 +87,7 @@ st.markdown(
         color: #9fffbf;
         border: 1px solid rgba(0, 255, 120, 0.35);
     }
+
     .index-row {
         display: flex;
         gap: 0.5rem;
@@ -116,6 +118,7 @@ st.markdown(
         font-size: 0.7rem;
         opacity: 0.9;
     }
+
     .waves-meta {
         text-align: right;
         font-size: 0.75rem;
@@ -161,6 +164,7 @@ st.markdown(
         100% { transform: translate3d(-50%, 0, 0); }
     }
 
+    /* Metric strip */
     .metric-card {
         border-radius: 8px;
         border: 1px solid rgba(120, 255, 190, 0.2);
@@ -203,13 +207,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # -------------------------------------------------------------------
-# HELPERS
+# UTILITY FUNCTIONS
 # -------------------------------------------------------------------
 
 @st.cache_data(ttl=60)
 def fetch_index_snapshot(ticker: str):
+    """Fetch latest price + % change for an index."""
     try:
         data = yf.Ticker(ticker).history(period="1d", interval="1m")
         if data.empty:
@@ -249,12 +253,13 @@ def format_bps(x):
 
 @st.cache_data(ttl=60)
 def load_wave_weights():
+    """Load wave_weights.csv and normalize internal column names."""
     if not os.path.exists(WAVE_WEIGHTS_FILE):
         st.error("wave_weights.csv not found in repo root.")
         st.stop()
+
     df = pd.read_csv(WAVE_WEIGHTS_FILE)
 
-    # Normalize column names
     cols = {c.lower(): c for c in df.columns}
     wave_col = cols.get("wave") or cols.get("wavename") or cols.get("wave_name")
     ticker_col = cols.get("ticker") or cols.get("symbol")
@@ -262,7 +267,7 @@ def load_wave_weights():
     basket_col = cols.get("basket")  # optional
 
     if not wave_col or not ticker_col:
-        st.error("wave_weights.csv must have at least Wave and Ticker columns.")
+        st.error("wave_weights.csv must have at least 'Wave' and 'Ticker' columns.")
         st.write(df.head())
         st.stop()
 
@@ -272,7 +277,7 @@ def load_wave_weights():
     if weight_col:
         df["__weight"] = pd.to_numeric(df[weight_col], errors="coerce").fillna(0.0)
     else:
-        df["__weight"] = 1.0  # equal weights if none provided
+        df["__weight"] = 1.0  # equal weights fallback
 
     if basket_col:
         df["__basket"] = df[basket_col].astype(str).str.strip().str.title()
@@ -282,26 +287,25 @@ def load_wave_weights():
     return df
 
 
-def discover_waves(df_weights: pd.DataFrame):
-    return sorted(df_weights["__wave"].unique().tolist())
+def discover_waves(weights_df: pd.DataFrame):
+    return sorted(weights_df["__wave"].unique().tolist())
 
 
-def get_basket(df_weights: pd.DataFrame, wave: str, basket: str):
-    sub = df_weights[(df_weights["__wave"] == wave) &
-                     (df_weights["__basket"] == basket)].copy()
+def get_basket(weights_df: pd.DataFrame, wave: str, basket: str):
+    sub = weights_df[(weights_df["__wave"] == wave) &
+                     (weights_df["__basket"] == basket)].copy()
     if sub.empty:
         return sub
-    # normalize weights within this basket
     total = sub["__weight"].sum()
-    if total <= 0:
-        sub["Weight %"] = np.nan
-    else:
+    if total > 0:
         sub["Weight %"] = sub["__weight"] / total * 100.0
+    else:
+        sub["Weight %"] = np.nan
     sub = sub.sort_values("Weight %", ascending=False)
     return sub
 
 
-def google_link(ticker: str):
+def google_link(ticker: str) -> str:
     t = str(ticker).strip().upper()
     return f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
 
@@ -325,13 +329,11 @@ def load_performance_df(wave: str):
         st.error(f"Could not read performance file for {wave}: {e}")
         return None, latest
 
-    # find a datetime column
     dt_col = None
     for c in ["timestamp", "Timestamp", "datetime", "Datetime", "date", "Date"]:
         if c in df.columns:
             dt_col = c
             break
-
     if dt_col:
         df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
         df = df.dropna(subset=[dt_col]).sort_values(dt_col).set_index(dt_col)
@@ -399,9 +401,8 @@ def compute_metrics(df: pd.DataFrame):
         "alpha_bps": alpha_bps,
     }
 
-
 # -------------------------------------------------------------------
-# RENDERERS
+# RENDER FUNCTIONS
 # -------------------------------------------------------------------
 
 def render_header(selected_wave: str, mode: str):
@@ -412,9 +413,9 @@ def render_header(selected_wave: str, mode: str):
         if snap is None:
             return f"""
             <div class="index-tile">
-                <div class="index-tile-label">{label}</div>
-                <div class="index-tile-value index-flat">—</div>
-                <div class="index-tile-change">no data</div>
+              <div class="index-tile-label">{label}</div>
+              <div class="index-tile-value index-flat">—</div>
+              <div class="index-tile-change">no data</div>
             </div>
             """
         cls = "index-flat"
@@ -424,9 +425,9 @@ def render_header(selected_wave: str, mode: str):
             cls = "index-down"
         return f"""
         <div class="index-tile">
-            <div class="index-tile-label">{label}</div>
-            <div class="index-tile-value {cls}">{snap['last']:.2f}</div>
-            <div class="index-tile-change {cls}">{format_pct(snap['pct'])}</div>
+          <div class="index-tile-label">{label}</div>
+          <div class="index-tile-value {cls}">{snap['last']:.2f}</div>
+          <div class="index-tile-change {cls}">{format_pct(snap['pct'])}</div>
         </div>
         """
 
@@ -461,7 +462,7 @@ def render_header(selected_wave: str, mode: str):
 def render_ticker(spx_snap, vix_snap, wave_name, metrics):
     items = []
 
-    def add_item(label, snap):
+    def add(label, snap):
         if snap is None:
             return
         pct = snap["pct"]
@@ -478,8 +479,8 @@ def render_ticker(spx_snap, vix_snap, wave_name, metrics):
             f'</span>'
         )
 
-    add_item("SPX", spx_snap)
-    add_item("VIX", vix_snap)
+    add("SPX", spx_snap)
+    add("VIX", vix_snap)
 
     if metrics and metrics.get("today") is not None:
         today = metrics["today"] * 100
@@ -496,12 +497,8 @@ def render_ticker(spx_snap, vix_snap, wave_name, metrics):
             f'</span>'
         )
 
-    ticker_html = (
-        '<div class="ticker-bar"><div class="ticker-track">'
-        + " ".join(items) +
-        "</div></div>"
-    )
-    st.markdown(ticker_html, unsafe_allow_html=True)
+    bar_html = '<div class="ticker-bar"><div class="ticker-track">' + " ".join(items) + "</div></div>"
+    st.markdown(bar_html, unsafe_allow_html=True)
 
 
 def render_metric_strip(metrics):
@@ -513,14 +510,14 @@ def render_metric_strip(metrics):
             "Max Drawdown",
             "Alpha Captured vs Benchmark",
         ]
-        for c, label in zip([c1, c2, c3, c4], labels):
-            with c:
+        for col, label in zip([c1, c2, c3, c4], labels):
+            with col:
                 st.markdown(
                     f"""
                     <div class="metric-card">
-                        <div class="metric-label">{label}</div>
-                        <div class="metric-value">—</div>
-                        <div class="metric-sub">waiting for first engine logs</div>
+                      <div class="metric-label">{label}</div>
+                      <div class="metric-value">—</div>
+                      <div class="metric-sub">waiting for first engine logs</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -536,9 +533,9 @@ def render_metric_strip(metrics):
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Total Return (live)</div>
-                <div class="metric-value">{format_pct(total * 100) if total is not None else "—"}</div>
-                <div class="metric-sub">from first log to latest</div>
+              <div class="metric-label">Total Return (live)</div>
+              <div class="metric-value">{format_pct(total * 100) if total is not None else "—"}</div>
+              <div class="metric-sub">from first log to latest</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -547,9 +544,9 @@ def render_metric_strip(metrics):
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Today</div>
-                <div class="metric-value">{format_pct(today * 100) if today is not None else "—"}</div>
-                <div class="metric-sub">last logged period</div>
+              <div class="metric-label">Today</div>
+              <div class="metric-value">{format_pct(today * 100) if today is not None else "—"}</div>
+              <div class="metric-sub">last logged period</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -558,9 +555,9 @@ def render_metric_strip(metrics):
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Max Drawdown</div>
-                <div class="metric-value">{format_pct(max_dd * 100) if max_dd is not None else "—"}</div>
-                <div class="metric-sub">peak-to-trough from logs</div>
+              <div class="metric-label">Max Drawdown</div>
+              <div class="metric-value">{format_pct(max_dd * 100) if max_dd is not None else "—"}</div>
+              <div class="metric-sub">peak-to-trough from logs</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -569,9 +566,9 @@ def render_metric_strip(metrics):
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Alpha Captured vs Benchmark</div>
-                <div class="metric-value">{format_bps(alpha_bps) if alpha_bps is not None else "—"}</div>
-                <div class="metric-sub">simple cumulative return differential</div>
+              <div class="metric-label">Alpha Captured vs Benchmark</div>
+              <div class="metric-value">{format_bps(alpha_bps) if alpha_bps is not None else "—"}</div>
+              <div class="metric-sub">simple cumulative return differential</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -597,9 +594,9 @@ def render_exposure_cards(exposure_pct: int, mode: str):
     st.markdown(
         f"""
         <div class="mini-card">
-            <div class="mini-label">Equity Exposure</div>
-            <div class="mini-value">{exposure_pct} %</div>
-            <div class="metric-sub">Target β ≈ {BETA_TARGET:.2f} in Standard mode</div>
+          <div class="mini-label">Equity Exposure</div>
+          <div class="mini-value">{exposure_pct} %</div>
+          <div class="metric-sub">Target β ≈ {BETA_TARGET:.2f} in Standard mode</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -607,9 +604,9 @@ def render_exposure_cards(exposure_pct: int, mode: str):
     st.markdown(
         f"""
         <div class="mini-card">
-            <div class="mini-label">Cash Buffer</div>
-            <div class="mini-value">{cash_pct} %</div>
-            <div class="metric-sub">dynamic SmartSafe™ allocation</div>
+          <div class="mini-label">Cash Buffer</div>
+          <div class="mini-value">{cash_pct} %</div>
+          <div class="metric-sub">dynamic SmartSafe™ allocation</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -617,9 +614,9 @@ def render_exposure_cards(exposure_pct: int, mode: str):
     st.markdown(
         f"""
         <div class="mini-card">
-            <div class="mini-label">Risk Mode</div>
-            <div class="mini-value">{mode}</div>
-            <div class="metric-sub">mode-aware engine parameters</div>
+          <div class="mini-label">Risk Mode</div>
+          <div class="mini-value">{mode}</div>
+          <div class="metric-sub">mode-aware engine parameters</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -631,15 +628,12 @@ def render_basket_table(title: str, df_basket: pd.DataFrame):
     if df_basket.empty:
         st.info("No holdings in this basket yet.")
         return
-
     df = df_basket.copy()
     df["Ticker"] = df["__ticker"].apply(google_link)
     df["Weight %"] = df["Weight %"].round(2)
-
     cols = ["Ticker", "Weight %"]
     extra = [c for c in df.columns if c not in cols and not c.startswith("__")]
     cols.extend(extra)
-
     st.dataframe(df[cols], use_container_width=True)
 
 
@@ -675,6 +669,7 @@ def render_alpha_dashboard(df_perf):
         if c in df_perf.columns:
             bench_col = c
             break
+
     if not ret_col or not bench_col:
         st.info(
             "This performance file does not include both strategy and benchmark return columns."
@@ -713,7 +708,6 @@ def render_engine_logs_tab(wave_list):
         f"WAVE_WEIGHTS  = {WAVE_WEIGHTS_FILE}"
     )
 
-
 # -------------------------------------------------------------------
 # MAIN APP FLOW
 # -------------------------------------------------------------------
@@ -721,6 +715,7 @@ def render_engine_logs_tab(wave_list):
 weights_df = load_wave_weights()
 wave_list = discover_waves(weights_df)
 
+# Sidebar controls
 with st.sidebar:
     st.markdown("### ⚙️ Engine Controls")
     if wave_list:
@@ -744,7 +739,7 @@ with st.sidebar:
         max_value=100,
         value=DEFAULT_EXPOSURE,
         step=5,
-        help="Target equity allocation; remaining % held in SmartSafe™ / cash."
+        help="Target equity allocation; remaining % held in SmartSafe™ / cash.",
     )
 
     st.markdown(
@@ -761,6 +756,7 @@ render_ticker(spx_snap, vix_snap, selected_wave, metrics)
 
 st.markdown("#### WAVES Engine Dashboard")
 st.caption("Live / demo console for WAVES Intelligence™ — Adaptive Index Waves™")
+
 render_metric_strip(metrics)
 st.markdown("---")
 
@@ -775,7 +771,6 @@ with tab_overview:
 
     st.markdown("---")
 
-    # baskets
     col_p, col_s = st.columns(2)
     primary_df = get_basket(weights_df, selected_wave, "Primary")
     secondary_df = get_basket(weights_df, selected_wave, "Secondary")
