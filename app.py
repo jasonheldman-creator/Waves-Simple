@@ -1,570 +1,852 @@
-import os
-from datetime import datetime, timedelta
+# app.py
+# WAVES Intelligence™ — Institutional Console
+# Mini Bloomberg-style terminal with LIVE-ONLY alpha engine (no backtest alpha).
+
+from pathlib import Path
+from datetime import datetime
+import glob
+from typing import List, Optional, Dict
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None  # Cloud/local env might not have it; we fail gracefully.
 
-# ============================
-# Data loading helpers
-# ============================
+# ----------------------------------------------------
+# PATHS / CONSTANTS
+# ----------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+LOGS_DIR = BASE_DIR / "logs"
+PERF_DIR = LOGS_DIR / "performance"
+POS_DIR = LOGS_DIR / "positions"
+WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
 
-@st.cache_data
-def load_market_history():
-    """
-    Load SPY/VIX history from market_history.csv.
-    Falls back to a synthetic 1Y series if the file is missing.
-    Expected columns: date, symbol, close
-    """
-    try:
-        df = pd.read_csv("market_history.csv", parse_dates=["date"])
-        return df, None
-    except Exception as e:
-        # Build a simple demo SPY/VIX series so the app still runs
-        today = datetime.today().date()
-        dates = pd.date_range(end=today, periods=365, freq="B")
+SPX_TICKER = "^GSPC"
+VIX_TICKER = "^VIX"
 
-        base_spy = 400
-        base_vix = 18
-        spy = base_spy + np.cumsum(np.random.normal(0, 1.0, len(dates)))
-        vix = np.clip(base_vix + np.cumsum(np.random.normal(0, 0.2, len(dates))), 10, 35)
-
-        demo = pd.DataFrame({
-            "date": list(dates) + list(dates),
-            "symbol": ["SPY"] * len(dates) + ["VIX"] * len(dates),
-            "close": list(spy) + list(vix),
-        })
-        return demo, e
-
-
-@st.cache_data
-def load_wave_history():
-    """
-    Load wave return history from wave_history.csv.
-    Expected columns: date, wave, portfolio_return, benchmark_return
-    """
-    try:
-        df = pd.read_csv("wave_history.csv", parse_dates=["date"])
-        return df, None
-    except Exception as e:
-        # Tiny demo history so UI still works
-        dates = pd.date_range(end=datetime.today().date(), periods=260, freq="B")
-        waves = [
-            "S&P Wave",
-            "Growth Wave",
-            "Quantum Computing Wave",
-            "Crypto Income Wave",
-        ]
-        records = []
-        rng = np.random.default_rng(42)
-        for wave in waves:
-            port_rets = rng.normal(0.0004, 0.01, len(dates))
-            bench_rets = rng.normal(0.0003, 0.009, len(dates))
-            for d, pr, br in zip(dates, port_rets, bench_rets):
-                records.append(
-                    {
-                        "date": d,
-                        "wave": wave,
-                        "portfolio_return": pr,
-                        "benchmark_return": br,
-                    }
-                )
-        df_demo = pd.DataFrame.from_records(records)
-        return df_demo, e
-
-
-@st.cache_data
-def load_wave_weights():
-    """
-    Load static holdings from wave_weights.csv.
-    Expected columns: wave, ticker, weight
-    """
-    try:
-        df = pd.read_csv("wave_weights.csv")
-        return df, None
-    except Exception as e:
-        return pd.DataFrame(columns=["wave", "ticker", "weight"]), e
-
-
-# ============================
-# Metrics & leadership
-# ============================
-
-WINDOWS = {
-    30: "alpha_30d",
-    60: "alpha_60d",
-    126: "alpha_6m",
-    252: "alpha_1y",
+WAVE_DISPLAY_NAMES: Dict[str, str] = {
+    "SP500_Wave": "S&P 500 Wave",
+    "Growth_Wave": "Growth Wave",
+    "Income_Wave": "Income Wave",
+    "AL_Wave": "AI Leaders Wave",
 }
 
+# Windows for alpha: trading days
+ALPHA_WINDOWS = {
+    "30d": 30,
+    "60d": 60,
+    "6m": 126,
+    "1y": 252,
+    "since_inception": None,
+}
 
-def annualize_alpha(alpha_daily: pd.Series) -> float:
-    """
-    Convert average daily excess return to annualized % alpha (≈ 252 trading days).
-    """
-    if alpha_daily.empty or alpha_daily.isna().all():
-        return np.nan
-    mu = alpha_daily.mean()
-    return float(252 * mu * 100.0)
+# ----------------------------------------------------
+# HELPERS: DISCOVER WAVES
+# ----------------------------------------------------
+def discover_waves_from_logs() -> List[str]:
+    """Find Waves from files like <Wave>_performance_YYYYMMDD.csv."""
+    if not PERF_DIR.exists():
+        return []
+
+    waves = set()
+    for path in PERF_DIR.glob("*_performance_*.csv"):
+        name = path.name
+        if "_performance_" in name:
+            wave_name = name.split("_performance_")[0]
+            if wave_name:
+                waves.add(wave_name)
+    return sorted(waves)
 
 
-def compute_wave_metrics(wave_hist: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute rolling annualized alpha windows + beta + a mode-independent leadership score.
-    """
-    rows = []
+def discover_waves_from_weights() -> List[str]:
+    """Fallback: read unique Wave names from wave_weights.csv."""
+    if not WEIGHTS_PATH.exists():
+        return []
 
-    for wave, g in wave_hist.groupby("wave"):
-        g = g.sort_values("date")
-        record = {"wave": wave}
+    try:
+        df = pd.read_csv(WEIGHTS_PATH)
+    except Exception:
+        return []
 
-        # rolling alpha windows
-        for window, col_name in WINDOWS.items():
-            if len(g) >= 5:
-                sub = g.tail(window)
-                alpha_daily = sub["portfolio_return"] - sub["benchmark_return"]
-                record[col_name] = annualize_alpha(alpha_daily)
-            else:
-                record[col_name] = np.nan
+    # Try common wave name columns
+    for col in ["Wave", "Wave_Name", "wave", "wave_name"]:
+        if col in df.columns:
+            return sorted(df[col].dropna().unique().tolist())
 
-        # 1Y alpha daily (252 trading days or all available if shorter)
-        last = g.tail(252)
-        alpha_daily_y = last["portfolio_return"] - last["benchmark_return"]
-        record["alpha_1y"] = annualize_alpha(alpha_daily_y)
+    # Otherwise just use first column
+    if len(df.columns) > 0:
+        return sorted(df.iloc[:, 0].dropna().unique().tolist())
 
-        # beta over last 252d
-        if len(last) > 10 and last["benchmark_return"].var() > 0:
-            cov = np.cov(last["portfolio_return"], last["benchmark_return"])[0, 1]
-            var_b = np.var(last["benchmark_return"])
-            record["beta_252d"] = float(cov / var_b)
-        else:
-            record["beta_252d"] = np.nan
+    return []
 
-        rows.append(record)
 
-    df = pd.DataFrame(rows)
+def discover_waves() -> (List[str], str):
+    """Return (waves, source) where source is 'logs', 'weights', or 'none'."""
+    from_logs = discover_waves_from_logs()
+    if from_logs:
+        return from_logs, "logs"
 
-    # Ensure columns exist
-    for col in ["alpha_30d", "alpha_60d", "alpha_6m", "alpha_1y"]:
-        if col not in df:
-            df[col] = np.nan
+    from_weights = discover_waves_from_weights()
+    if from_weights:
+        return from_weights, "weights"
 
-    # leadership score (mode-independent)
-    def norm(series: pd.Series) -> pd.Series:
-        s = series.copy()
-        if s.dropna().empty:
-            return pd.Series([0.5] * len(s), index=s.index)
-        # clip to [-20%, +40%] for scoring band
-        s = s.clip(-20, 40)
-        if s.max() == s.min():
-            return pd.Series([0.5] * len(s), index=s.index)
-        return (s - s.min()) / (s.max() - s.min())
+    return [], "none"
 
-    a30 = norm(df["alpha_30d"])
-    a60 = norm(df["alpha_60d"])
-    a6m = norm(df["alpha_6m"])
-    a1y = norm(df["alpha_1y"])
 
-    beta = df["beta_252d"].fillna(1.0)
-    beta_penalty = np.clip(np.abs(beta - 1.0), 0, 0.5)
+def wave_display_name(w: str) -> str:
+    return WAVE_DISPLAY_NAMES.get(w, w)
 
-    df["leadership_score"] = (
-        0.15 * a30 + 0.20 * a60 + 0.25 * a6m + 0.40 * a1y - 0.20 * beta_penalty
-    )
-    df["leadership_score"] = df["leadership_score"].clip(0, 1)
+# ----------------------------------------------------
+# HELPERS: LOAD DATA
+# ----------------------------------------------------
+def load_performance(wave_name: str) -> Optional[pd.DataFrame]:
+    """Load latest performance CSV for a Wave."""
+    if not PERF_DIR.exists():
+        return None
+
+    pattern = str(PERF_DIR / f"{wave_name}_performance_*.csv")
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
+
+    latest_path = max(matches, key=lambda p: Path(p).stat().st_mtime)
+    try:
+        df = pd.read_csv(latest_path)
+    except Exception:
+        return None
+
+    # Normalize date
+    date_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "date" in lc or "time" in lc or "timestamp" in lc:
+            date_col = c
+            break
+    if date_col is not None:
+        try:
+            df[date_col] = pd.to_datetime(df[date_col])
+            df = df.sort_values(date_col)
+        except Exception:
+            pass
 
     return df
 
 
-# ============================
-# Mode overlays
-# ============================
+def load_positions(wave_name: str) -> Optional[pd.DataFrame]:
+    """Load latest positions CSV for a Wave."""
+    if not POS_DIR.exists():
+        return None
 
-def compute_equity_target(mode: str, latest_vix):
-    """
-    Convert VIX + mode into a target equity % (0–1).
-    """
-    base_equity = 0.75
-    if latest_vix is not None:
-        base_equity = 0.8 - 0.025 * max(latest_vix - 15, 0)
-        base_equity = float(np.clip(base_equity, 0.35, 0.85))
+    pattern = str(POS_DIR / f"{wave_name}_positions_*.csv")
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
 
-    if mode == "Standard":
-        return base_equity
-    elif mode == "Alpha-Minus-Beta":
-        return float(np.clip(base_equity - 0.15, 0.25, 0.7))
-    elif mode == "Private Logic™":
-        return float(np.clip(base_equity + 0.10, 0.45, 0.95))
+    latest_path = max(matches, key=lambda p: Path(p).stat().st_mtime)
+    try:
+        df = pd.read_csv(latest_path)
+    except Exception:
+        return None
+
+    return df
+
+# ----------------------------------------------------
+# HELPERS: MARKET DATA (SPX / VIX)
+# ----------------------------------------------------
+def fetch_index_timeseries(ticker: str, days: int = 90) -> Optional[pd.DataFrame]:
+    """Download recent daily close series for ticker."""
+    if yf is None:
+        return None
+    try:
+        data = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
+    except Exception:
+        return None
+    if data is None or data.empty:
+        return None
+    out = data[["Close"]].rename(columns={"Close": "close"})
+    out.index.name = "date"
+    return out
+
+
+def fetch_index_snapshot(ticker: str) -> Optional[Dict[str, float]]:
+    """Latest price + daily change %."""
+    if yf is None:
+        return None
+    try:
+        data = yf.download(ticker, period="5d", interval="1d", progress=False)
+    except Exception:
+        return None
+    if data is None or data.empty:
+        return None
+
+    latest = float(data.iloc[-1]["Close"])
+    if len(data) > 1:
+        prev = float(data.iloc[-2]["Close"])
     else:
-        return base_equity
+        prev = latest
+    change = latest - prev
+    pct = change / prev if prev != 0 else 0.0
+    return {"last": latest, "change": change, "pct": pct}
+
+# ----------------------------------------------------
+# HELPERS: RETURNS & ALPHA (LIVE-ONLY)
+# ----------------------------------------------------
+def _normalize_return_series(raw: pd.Series) -> pd.Series:
+    """Ensure returns are in decimal form (0.01 = 1%)."""
+    s = pd.to_numeric(raw, errors="coerce").dropna()
+    if s.empty:
+        return s
+    # If it looks like percents (e.g. 1.5 = 1.5%), convert
+    if s.abs().median() > 0.5:  # crude but safe for our data
+        s = s / 100.0
+    return s
 
 
-def build_mode_allocation(metrics_df: pd.DataFrame, mode: str, latest_vix):
+def compute_return_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
     """
-    Apply mode-specific risk logic on top of leadership scores.
-    Returns:
-        alloc_df, eq_target, ss_target, portfolio_beta, beta_target, mode_score
+    Compute live-only total return, today's return, and max drawdown
+    from the engine log performance DataFrame.
     """
-    df = metrics_df.copy()
+    metrics = {
+        "total_return": None,
+        "today_return": None,
+        "max_drawdown": None,
+    }
+    if perf_df is None or perf_df.empty:
+        return metrics
 
-    beta = df["beta_252d"].fillna(1.0)
-    ls = df["leadership_score"].fillna(0.0)
+    # Find daily return or derive from NAV/value
+    ret_col = None
+    nav_col = None
+    for c in perf_df.columns:
+        lc = c.lower()
+        if "daily_return" in lc or (lc.startswith("return") and "benchmark" not in lc):
+            ret_col = c
+            break
+    if ret_col is None:
+        for c in perf_df.columns:
+            lc = c.lower()
+            if "nav" in lc or "value" in lc:
+                nav_col = c
+                break
 
-    if mode == "Standard":
-        # Reward strong leaders, mild discipline around β=1
-        risk_score = ls * (1.0 - 0.3 * np.abs(beta - 1.0))
-
-    elif mode == "Alpha-Minus-Beta":
-        # Stronger tilt to lower-beta Waves, especially when VIX is elevated
-        vix_level = latest_vix if latest_vix is not None else 18.0
-        vix_factor = 1.0 + 0.01 * max(vix_level - 18.0, 0)
-
-        low_beta_bonus = 1.0 + 0.5 * np.clip(1.0 - beta, 0, 0.5)
-        high_beta_penalty = 1.0 - 0.8 * np.clip(beta - 0.9, 0, 0.6) * vix_factor
-
-        risk_score = ls * low_beta_bonus * high_beta_penalty
-
-    elif mode == "Private Logic™":
-        # Slight tilt toward higher-beta leaders but still anchored in leadership
-        high_beta_bonus = 1.0 + 0.4 * np.clip(beta - 1.0, 0, 0.8)
-        risk_score = ls * high_beta_bonus
-
+    if ret_col:
+        r = _normalize_return_series(perf_df[ret_col])
+    elif nav_col:
+        p = pd.to_numeric(perf_df[nav_col], errors="coerce").dropna()
+        r = p.pct_change().fillna(0.0)
     else:
-        risk_score = ls
+        return metrics
 
-    risk_score = np.where(risk_score < 0, 0, risk_score)
+    if r.empty:
+        return metrics
 
-    if np.all(risk_score == 0):
-        weights = np.ones_like(risk_score) / max(len(risk_score), 1)
-    else:
-        weights = risk_score / risk_score.sum()
+    # total return
+    metrics["total_return"] = (1 + r).prod() - 1
+    # today
+    metrics["today_return"] = float(r.iloc[-1])
+    # max drawdown
+    cum = (1 + r).cumprod()
+    peak = cum.cummax()
+    dd = (cum / peak) - 1
+    metrics["max_drawdown"] = float(dd.min())
 
-    df["equity_weight"] = weights
-
-    equity_target = compute_equity_target(mode, latest_vix)
-    df["target_equity_pct"] = equity_target * 100.0
-    df["target_smartsafe_pct"] = (1.0 - equity_target) * 100.0
-
-    # Portfolio beta vs. target
-    portfolio_beta = float(np.nansum(df["equity_weight"] * beta))
-
-    if mode == "Standard":
-        beta_target = 1.0
-    elif mode == "Alpha-Minus-Beta":
-        beta_target = 0.8
-    elif mode == "Private Logic™":
-        beta_target = 1.1
-    else:
-        beta_target = 1.0
-
-    beta_error = abs(portfolio_beta - beta_target)
-    mode_score = max(0.0, 100.0 - 120.0 * beta_error)  # simple 0–100
-
-    df["portfolio_beta"] = portfolio_beta
-    df["beta_target"] = beta_target
-    df["mode_score"] = mode_score
-
-    # Alpha contribution (1Y alpha * equity weight)
-    df["alpha_1y_contrib"] = df["alpha_1y"] * df["equity_weight"]
-
-    return df, equity_target, 1.0 - equity_target, portfolio_beta, beta_target, mode_score
+    return metrics
 
 
-# ============================
-# Layout helpers
-# ============================
-
-def render_market_regime(market_df: pd.DataFrame):
+def compute_live_alpha_metrics(
+    perf_df: Optional[pd.DataFrame],
+    beta_default: float = 0.90,
+    min_days_threshold: int = 15,
+) -> Dict[str, Dict[str, Optional[float]]]:
     """
-    Show SPY & VIX over the last year and return latest values.
+    Compute live-only alpha metrics for multiple windows from a performance DataFrame.
+
+    Expected columns (case-insensitive search):
+        - date / timestamp (optional but recommended)
+        - daily_return (or 'return')
+        - benchmark_return
+        - beta_target (optional; if missing we use beta_default)
     """
-    import altair as alt
+    out: Dict[str, Dict[str, Optional[float]]] = {}
+    for key in ALPHA_WINDOWS:
+        out[key] = {"alpha": None, "wave_return": None, "bench_return": None, "days": 0}
 
-    one_year_ago = datetime.today() - timedelta(days=365)
-    m = market_df[market_df["date"] >= one_year_ago]
+    if perf_df is None or perf_df.empty:
+        return out
 
-    spy = m[m["symbol"] == "SPY"].copy()
-    vix = m[m["symbol"] == "VIX"].copy()
+    df = perf_df.copy()
 
-    if spy.empty or vix.empty:
-        st.info("Not enough SPY/VIX data to display the regime chart.")
-        return None, None
+    # Identify wave return column
+    wave_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "daily_return" in lc or (lc.startswith("return") and "benchmark" not in lc):
+            wave_col = c
+            break
+    if wave_col is None:
+        for c in df.columns:
+            if c.lower() == "return":
+                wave_col = c
+                break
+    if wave_col is None:
+        return out  # can't compute alpha without returns
 
-    spy = spy.sort_values("date")
-    vix = vix.sort_values("date")
+    # Identify benchmark return column
+    bench_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "benchmark_return" in lc or ("benchmark" in lc and "return" in lc):
+            bench_col = c
+            break
 
-    chart_spy = (
-        alt.Chart(spy)
-        .mark_line()
-        .encode(x="date:T", y=alt.Y("close:Q", title="SPY"))
-        .properties(height=260)
+    wave_r = _normalize_return_series(df[wave_col])
+    if bench_col is not None:
+        bench_r = _normalize_return_series(df[bench_col])
+    else:
+        # If we have no benchmark, alpha is vs 0 (so alpha = raw return)
+        bench_r = pd.Series(index=wave_r.index, data=0.0)
+
+    # align
+    aligned = pd.concat([wave_r, bench_r], axis=1, join="inner").dropna()
+    if aligned.empty:
+        return out
+
+    aligned.columns = ["wave_r", "bench_r"]
+
+    # Beta
+    if "beta_target" in df.columns:
+        beta_series = pd.to_numeric(df["beta_target"], errors="coerce").fillna(beta_default)
+        beta = float(beta_series.iloc[-1])
+    else:
+        beta = beta_default
+
+    # Compute per-window alpha
+    for label, window in ALPHA_WINDOWS.items():
+        if window is None:
+            window_df = aligned.copy()
+        else:
+            window_df = aligned.tail(window)
+
+        n_days = len(window_df)
+        out[label]["days"] = n_days
+
+        if window is not None and n_days < min_days_threshold:
+            continue  # leave as None with days count
+
+        w = window_df["wave_r"]
+        b = window_df["bench_r"]
+
+        cum_wave = (1.0 + w).prod()
+        cum_bench = (1.0 + beta * b).prod()
+
+        if cum_bench == 0:
+            alpha = None
+        else:
+            alpha = cum_wave / cum_bench - 1.0
+
+        wave_total = cum_wave - 1.0
+        bench_total = cum_bench - 1.0
+
+        out[label] = {
+            "alpha": float(alpha) if alpha is not None else None,
+            "wave_return": float(wave_total),
+            "bench_return": float(bench_total),
+            "days": int(n_days),
+        }
+
+    return out
+
+# ----------------------------------------------------
+# SMALL FORMAT HELPERS
+# ----------------------------------------------------
+def fmt_pct(x: Optional[float]) -> str:
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x * 100:0.2f}%"
+
+
+def sign_class(x: Optional[float]) -> str:
+    if x is None or pd.isna(x):
+        return "neutral"
+    return "pos" if x > 0 else ("neg" if x < 0 else "neutral")
+
+# ----------------------------------------------------
+# STREAMLIT CONFIG & GLOBAL CSS
+# ----------------------------------------------------
+st.set_page_config(
+    page_title="WAVES Institutional Console",
+    page_icon="💹",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+    .main {
+        background: radial-gradient(circle at top left, #0b1120 0%, #020617 45%, #000000 100%);
+        color: #f9fafb;
+    }
+    header[data-testid="stHeader"] {display: none;}
+
+    /* Top bar */
+    .waves-topbar {
+        background: linear-gradient(90deg, #020617 0%, #020617 40%, #022c22 100%);
+        border-bottom: 1px solid #111827;
+        padding: 0.6rem 1.5rem 0.4rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .waves-topbar-left {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+    }
+    .waves-title {
+        font-weight: 700;
+        font-size: 1.1rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #e5e7eb;
+    }
+    .waves-badge {
+        font-size: 0.70rem;
+        padding: 0.12rem 0.45rem;
+        border-radius: 0.25rem;
+        background: #020617;
+        border: 1px solid #1f2937;
+        color: #9ca3af;
+    }
+    .waves-subtitle {
+        font-size: 0.75rem;
+        color: #9ca3af;
+    }
+    .waves-topbar-right {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+    }
+    .index-tile {
+        padding: 0.35rem 0.6rem;
+        border-radius: 0.35rem;
+        background: #020617;
+        border: 1px solid #1f2937;
+        font-size: 0.75rem;
+        min-width: 135px;
+    }
+    .index-label { color: #9ca3af; font-size: 0.70rem; }
+    .index-value { font-weight: 600; }
+    .index-pct.pos { color: #4ade80; }
+    .index-pct.neg { color: #f97373; }
+    .index-pct.neutral { color: #e5e7eb; }
+
+    /* Ticker tape */
+    .ticker-tape {
+        background: #020617;
+        border-bottom: 1px solid #111827;
+        padding: 0.25rem 1.5rem;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    .ticker-inner {
+        display: inline-block;
+        animation: ticker-move 25s linear infinite;
+    }
+    .ticker-item {
+        display: inline-block;
+        margin-right: 1.75rem;
+    }
+    .ticker-symbol {
+        font-weight: 600;
+        margin-right: 0.35rem;
+    }
+    .ticker-pct.pos {
+        color: #22c55e;
+        animation: blink-pos 1.5s infinite;
+    }
+    .ticker-pct.neg {
+        color: #f97373;
+        animation: blink-neg 1.5s infinite;
+    }
+    .ticker-pct.neutral {
+        color: #e5e7eb;
+    }
+    @keyframes ticker-move {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+    @keyframes blink-pos {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+    @keyframes blink-neg {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+
+    /* Metric strip */
+    .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin: 0.9rem 0 0.25rem 0;
+    }
+    .metric-card {
+        background: #020617;
+        border-radius: 0.6rem;
+        padding: 0.65rem 0.8rem;
+        border: 1px solid #111827;
+        font-size: 0.8rem;
+    }
+    .metric-label {
+        color: #9ca3af;
+        font-size: 0.72rem;
+    }
+    .metric-value {
+        margin-top: 0.15rem;
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .metric-value.pos { color: #4ade80; }
+    .metric-value.neg { color: #f97373; }
+    .metric-value.neutral { color: #e5e7eb; }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: #020617;
+    }
+    section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] label {
+        color: #e5e7eb !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ----------------------------------------------------
+# TOP BAR: TITLE + INDEX SNAPSHOTS
+# ----------------------------------------------------
+spx_snap = fetch_index_snapshot(SPX_TICKER)
+vix_snap = fetch_index_snapshot(VIX_TICKER)
+
+def index_tile(label: str, snap: Optional[Dict[str, float]], flip_vix: bool = False) -> str:
+    if not snap:
+        return f"""
+        <div class="index-tile">
+          <div class="index-label">{label}</div>
+          <div class="index-value">—</div>
+        </div>
+        """
+    pct = snap["pct"]
+    if flip_vix and pct is not None and not pd.isna(pct):
+        pct = -pct  # lower VIX is "green"
+    cls = sign_class(pct)
+    return f"""
+    <div class="index-tile">
+      <div class="index-label">{label}</div>
+      <div class="index-value">{snap['last']:.2f}</div>
+      <div class="index-pct {cls}">{fmt_pct(pct)}</div>
+    </div>
+    """
+
+topbar_html = f"""
+<div class="waves-topbar">
+  <div class="waves-topbar-left">
+    <div class="waves-title">WAVES INSTITUTIONAL CONSOLE</div>
+    <div class="waves-badge">LIVE ENGINE · MULTI-WAVE</div>
+    <div class="waves-subtitle">Adaptive Index Waves · Mini Bloomberg-Style Terminal</div>
+  </div>
+  <div class="waves-topbar-right">
+    {index_tile("S&P 500", spx_snap)}
+    {index_tile("VIX (Risk Pulse)", vix_snap, flip_vix=True)}
+    <div class="waves-subtitle">{datetime.utcnow().strftime("%Y-%m-%d %H:%M")} UTC</div>
+  </div>
+</div>
+"""
+st.markdown(topbar_html, unsafe_allow_html=True)
+
+# ----------------------------------------------------
+# DISCOVER WAVES & SIDEBAR CONTROLS
+# ----------------------------------------------------
+st.sidebar.header("⚙️ Engine Controls")
+
+waves, source = discover_waves()
+if not waves:
+    st.sidebar.error(
+        "No Waves discovered in `logs/performance` or `wave_weights.csv`.\n\n"
+        "• To see live data, run `waves_engine.py` to generate logs, or\n"
+        "• Ensure `wave_weights.csv` is present in this folder."
     )
-    chart_vix = (
-        alt.Chart(vix)
-        .mark_line()
-        .encode(x="date:T", y=alt.Y("close:Q", title="VIX"))
-        .properties(height=260)
+    st.stop()
+
+# default wave preference
+default_wave = None
+for candidate in ["Growth_Wave", "SP500_Wave"]:
+    if candidate in waves:
+        default_wave = candidate
+        break
+if default_wave is None:
+    default_wave = waves[0]
+
+if source == "logs":
+    st.sidebar.success("Waves discovered from engine logs ✅")
+elif source == "weights":
+    st.sidebar.warning("Using Wave list from wave_weights.csv (no performance logs found yet).")
+
+selected_wave = st.sidebar.selectbox(
+    "Select Wave",
+    waves,
+    index=waves.index(default_wave),
+    format_func=wave_display_name,
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Mode")
+st.sidebar.radio("Risk Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic™"], index=0)
+equity_exposure = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
+st.sidebar.caption(f"Target β ≈ 0.90 · Cash buffer: {100 - equity_exposure}%")
+
+# ----------------------------------------------------
+# LOAD DATA FOR SELECTED WAVE
+# ----------------------------------------------------
+perf_df = load_performance(selected_wave)
+pos_df = load_positions(selected_wave)
+ret_metrics = compute_return_metrics(perf_df)
+alpha_metrics = compute_live_alpha_metrics(perf_df, beta_default=0.90)
+
+# pull a couple of windows
+alpha_30d = alpha_metrics["30d"]["alpha"]
+alpha_1y = alpha_metrics["1y"]["alpha"]
+
+# ----------------------------------------------------
+# TICKER TAPE
+# ----------------------------------------------------
+tape_items = []
+
+if spx_snap:
+    tape_items.append(
+        f'<span class="ticker-item">'
+        f'<span class="ticker-symbol">SPX</span>'
+        f'<span class="ticker-pct {sign_class(spx_snap["pct"])}">{fmt_pct(spx_snap["pct"])}</span>'
+        f'</span>'
     )
 
-    st.altair_chart(chart_spy, use_container_width=True)
-    st.altair_chart(chart_vix, use_container_width=True)
-
-    latest_spy = spy.iloc[-1]["close"]
-    latest_vix = vix.iloc[-1]["close"]
-
-    return float(latest_spy), float(latest_vix)
-
-
-def build_risk_alerts(mode: str, latest_vix, portfolio_beta, beta_target, eq_target):
-    alerts = []
-
-    if latest_vix is not None:
-        if latest_vix >= 28:
-            alerts.append("VIX elevated — engine tilted to risk-off / SmartSafe heavy.")
-        elif latest_vix <= 14:
-            alerts.append("VIX subdued — engine tilted slightly pro-risk.")
-
-    beta_diff = abs(portfolio_beta - beta_target)
-    if beta_diff > 0.10:
-        alerts.append(
-            f"Portfolio β {portfolio_beta:.2f} is off target ({beta_target:.2f}) by {beta_diff:.2f}."
-        )
-
-    if eq_target < 0.40:
-        alerts.append("Equity allocation < 40% — SmartSafe™ is dominant.")
-    elif eq_target > 0.80:
-        alerts.append("Equity allocation > 80% — engine is running hot; monitor drawdowns.")
-
-    if mode == "Private Logic™" and latest_vix is not None and latest_vix > 25:
-        alerts.append("Private Logic™ + high VIX — expect more aggressive alpha hunting with guardrails.")
-
-    if not alerts:
-        alerts.append("No critical risk alerts — engine operating within normal parameters.")
-
-    return alerts
-
-
-# ============================
-# Main app
-# ============================
-
-def main():
-    st.set_page_config(
-        page_title="WAVES Institutional Console",
-        page_icon="🌊",
-        layout="wide",
+if vix_snap:
+    vix_pct = vix_snap["pct"]
+    if vix_pct is not None and not pd.isna(vix_pct):
+        vix_pct = -vix_pct  # inverse risk
+    tape_items.append(
+        f'<span class="ticker-item">'
+        f'<span class="ticker-symbol">VIX</span>'
+        f'<span class="ticker-pct {sign_class(vix_pct)}">{fmt_pct(vix_pct)}</span>'
+        f'</span>'
     )
 
-    st.markdown(
-        "<h1 style='color:#f9f9fb;'>WAVES Institutional Console</h1>",
-        unsafe_allow_html=True,
+tape_items.append(
+    f'<span class="ticker-item">'
+    f'<span class="ticker-symbol">{wave_display_name(selected_wave)}</span>'
+    f'<span class="ticker-pct {sign_class(ret_metrics["today_return"])}">{fmt_pct(ret_metrics["today_return"])}</span>'
+    f'</span>'
+)
+
+tape_html = f"""
+<div class="ticker-tape">
+  <div class="ticker-inner">
+    {' '.join(tape_items)} {' '.join(tape_items)}
+  </div>
+</div>
+"""
+st.markdown(tape_html, unsafe_allow_html=True)
+
+# ----------------------------------------------------
+# MAIN HEADER + METRIC STRIP
+# ----------------------------------------------------
+st.markdown("### WAVES Engine Dashboard")
+st.caption("Live / demo console for WAVES Intelligence™ — Adaptive Index Waves (LIVE alpha only)")
+
+metric_html = f"""
+<div class="metric-strip">
+  <div class="metric-card">
+    <div class="metric-label">Total Return (since inception)</div>
+    <div class="metric-value {sign_class(ret_metrics['total_return'])}">{fmt_pct(ret_metrics['total_return'])}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Today</div>
+    <div class="metric-value {sign_class(ret_metrics['today_return'])}">{fmt_pct(ret_metrics['today_return'])}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Max Drawdown</div>
+    <div class="metric-value neg">{fmt_pct(ret_metrics['max_drawdown'])}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">30D Live Alpha vs Benchmark</div>
+    <div class="metric-value {sign_class(alpha_30d)}">{fmt_pct(alpha_30d)}</div>
+  </div>
+</div>
+"""
+st.markdown(metric_html, unsafe_allow_html=True)
+
+if perf_df is None:
+    st.info(
+        f"No performance log found yet for `{selected_wave}` in `logs/performance`.\n\n"
+        "The dashboard is running in **structure/demo mode**. "
+        "Run `waves_engine.py` locally and upload the resulting CSVs to see full live charts and alpha."
     )
-    st.caption("Adaptive Portfolio Waves™ • Single Truth Engine • Mode-Aware Risk Overlays")
 
-    # Sidebar — Modes
-    st.sidebar.markdown("### WAVES Mode")
-    mode = st.sidebar.radio(
-        "",
-        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-        index=0,
-    )
+# ----------------------------------------------------
+# TABS
+# ----------------------------------------------------
+tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Engine Logs"])
 
-    st.sidebar.markdown("---")
-    st.sidebar.caption(
-        "Leadership & alpha are mode-independent. Modes act as risk overlays: "
-        "equity vs. SmartSafe™, β discipline, and Wave weighting."
-    )
+# ----------------------------------------------------
+# TAB 1: OVERVIEW
+# ----------------------------------------------------
+with tab_overview:
+    left_col, right_col = st.columns([2.2, 1.3])
 
-    # Load data
-    market_df, market_err = load_market_history()
-    wave_hist, wave_hist_err = load_wave_history()
-    wave_weights, wave_weights_err = load_wave_weights()
+    # Performance curve
+    with left_col:
+        st.subheader("Performance Curve (Live Engine)")
+        if perf_df is not None and not perf_df.empty:
+            date_col = None
+            nav_col = None
+            for c in perf_df.columns:
+                lc = c.lower()
+                if date_col is None and ("date" in lc or "time" in lc or "timestamp" in lc):
+                    date_col = c
+                if nav_col is None and ("nav" in lc or "value" in lc):
+                    nav_col = c
+            if date_col and nav_col:
+                df_plot = perf_df[[date_col, nav_col]].copy()
+                df_plot = df_plot.rename(columns={date_col: "date", nav_col: "NAV"})
+                df_plot = df_plot.set_index("date")
+                st.line_chart(df_plot)
+            else:
+                st.info("Could not identify NAV/date columns — showing raw performance table.")
+                st.dataframe(perf_df.tail(50), use_container_width=True)
+        else:
+            st.caption("No performance data yet — waiting for first engine logs.")
 
-    if market_err is not None:
-        st.warning(
-            f"Using demo SPY/VIX series (reason: {market_err}). "
-            "Add 'market_history.csv' for full LIVE data."
-        )
-    if wave_hist_err is not None:
-        st.warning(
-            f"Using demo wave_history (reason: {wave_hist_err}). "
-            "Run build_wave_history_from_prices.py to generate full history."
-        )
-    if wave_weights_err is not None:
-        st.info("No wave_weights.csv found — holdings view will be empty until uploaded.")
+        st.markdown("#### Top 10 Positions — Google Finance Links")
+        if pos_df is not None and not pos_df.empty:
+            top10 = pos_df.head(10).copy()
+            ticker_col = None
+            for c in ["Ticker", "ticker", "Symbol", "symbol"]:
+                if c in top10.columns:
+                    ticker_col = c
+                    break
+            if ticker_col:
+                lines = []
+                for _, row in top10.iterrows():
+                    t = str(row[ticker_col]).strip()
+                    if not t:
+                        continue
+                    url = f"https://www.google.com/finance/quote/{t}:NASDAQ"
+                    weight_text = ""
+                    for w_col in ["Weight", "weight", "PortfolioWeight", "portfolio_weight"]:
+                        if w_col in top10.columns and not pd.isna(row[w_col]):
+                            try:
+                                w = float(row[w_col])
+                                if w > 1.5:
+                                    w = w / 100.0
+                                weight_text = f" · {w * 100:0.2f}%"
+                            except Exception:
+                                pass
+                            break
+                    lines.append(f"- [{t}]({url}){weight_text}")
+                st.markdown("\n".join(lines))
+            else:
+                st.caption("Ticker/Symbol column not found — cannot build Google links.")
+        else:
+            st.caption("No positions file yet for this Wave in `logs/positions`.")
 
-    col_left, col_right = st.columns([1.15, 1])
+    # Right column: risk + SPX/VIX charts
+    with right_col:
+        st.subheader("Exposure & Risk")
+        st.metric("Equity Exposure", f"{equity_exposure} %")
+        st.metric("Cash Buffer", f"{100 - equity_exposure} %")
+        st.metric("Target β", "0.90")
 
-    # -------- Left: Market regime --------
-    with col_left:
-        st.subheader("Market Regime — SPY & VIX")
-        latest_spy, latest_vix = render_market_regime(market_df)
+        st.markdown("#### S&P 500 & VIX")
+        if yf is None:
+            st.caption("`yfinance` not installed — market charts unavailable in this environment.")
+        else:
+            spx_hist = fetch_index_timeseries(SPX_TICKER, days=120)
+            vix_hist = fetch_index_timeseries(VIX_TICKER, days=120)
+            if spx_hist is not None:
+                st.line_chart(spx_hist["close"], height=150)
+            if vix_hist is not None:
+                st.line_chart(vix_hist["close"], height=120)
 
-        st.markdown("#### Latest Regime Snapshot")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.metric("Latest VIX", f"{latest_vix:.2f}" if latest_vix is not None else "—")
-        # placeholders for equity / SmartSafe that we fill after allocation
-        eq_placeholder = m2
-        ss_placeholder = m3
+# ----------------------------------------------------
+# TAB 2: ALPHA DASHBOARD (LIVE-ONLY)
+# ----------------------------------------------------
+with tab_alpha:
+    st.subheader("Live Alpha Dashboard (No Backtests)")
 
-    # -------- Right: Leadership & alpha --------
-    with col_right:
-        st.subheader("Wave Leadership & Alpha Snapshot")
+    if perf_df is None or perf_df.empty:
+        st.info("Alpha metrics will appear once performance logs are available for this Wave.")
+    else:
+        # Table of windows
+        rows = []
+        for label, window in ALPHA_WINDOWS.items():
+            m = alpha_metrics[label]
+            label_pretty = {
+                "30d": "30-Day",
+                "60d": "60-Day",
+                "6m": "6-Month",
+                "1y": "1-Year",
+                "since_inception": "Since Inception",
+            }.get(label, label)
+            rows.append({
+                "Window": label_pretty,
+                "Live Alpha vs Benchmark": fmt_pct(m["alpha"]),
+                "Wave Return": fmt_pct(m["wave_return"]),
+                "Benchmark Return (β-adjusted)": fmt_pct(m["bench_return"]),
+                "Days in Window": m["days"],
+            })
+        alpha_table = pd.DataFrame(rows)
+        st.dataframe(alpha_table, use_container_width=True)
 
-        metrics_df = compute_wave_metrics(wave_hist)
-        (
-            alloc_df,
-            eq_target,
-            ss_target,
-            portfolio_beta,
-            beta_target,
-            mode_score,
-        ) = build_mode_allocation(metrics_df, mode, latest_vix)
-
-        # Update regime equity / SmartSafe metrics
-        with eq_placeholder:
-            st.metric("Equity Sleeve %", f"{eq_target*100:.0f}%")
-        with ss_placeholder:
-            st.metric("SmartSafe™ %", f"{ss_target*100:.0f}%")
-
-        # Mode banner
-        st.markdown(
-            f"<div style='padding:6px 10px;border-radius:4px;background-color:#333333;'>"
-            f"<strong>DATA MODE:</strong> MIXED &nbsp;•&nbsp; "
-            f"<strong>Mode:</strong> {mode} &nbsp;•&nbsp; "
-            f"<strong>β target:</strong> {beta_target:.2f} &nbsp;•&nbsp; "
-            f"<strong>Mode score:</strong> {mode_score:.1f}/100"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
         st.caption(
-            "Annualized alpha windows are computed on LIVE/SANDBOX history. "
-            "Modes tilt risk around the same underlying performance engine."
+            "All alpha metrics are computed **only** from live engine logs, using:\n\n"
+            "  alpha_daily = Wave_return – β_target × Benchmark_return\n\n"
+            "Then compounded over each window. No backtests, no synthetic history."
         )
 
-        # Display leadership table
-        display_cols = [
-            "wave",
-            "alpha_30d",
-            "alpha_60d",
-            "alpha_6m",
-            "alpha_1y",
-            "alpha_1y_contrib",
-            "beta_252d",
-            "equity_weight",
-        ]
-        display_df = alloc_df[display_cols].copy()
+# ----------------------------------------------------
+# TAB 3: ENGINE LOGS / DEBUG
+# ----------------------------------------------------
+with tab_logs:
+    st.subheader("Engine Logs / Discovery Debug")
+    st.write("Base directory:", str(BASE_DIR))
+    st.write("Logs directory:", str(LOGS_DIR))
 
-        display_df["equity_weight"] = (display_df["equity_weight"] * 100.0).round(1)
-        display_df.rename(
-            columns={
-                "alpha_30d": "alpha_30d (%)",
-                "alpha_60d": "alpha_60d (%)",
-                "alpha_6m": "alpha_6m (%)",
-                "alpha_1y": "alpha_1y (%)",
-                "alpha_1y_contrib": "alpha_1y_contrib (pct-pts)",
-                "beta_252d": "beta_252d",
-                "equity_weight": "Wave equity weight %",
-            },
-            inplace=True,
-        )
+    st.markdown("**Discovered Waves**")
+    st.json({"waves": waves, "source": source})
 
-        st.dataframe(
-            display_df.sort_values("alpha_1y (%)", ascending=False).reset_index(drop=True),
-            use_container_width=True,
-            height=420,
-        )
-
-    # -------- Risk alerts row --------
-    st.markdown("---")
-    st.subheader("Mode-Aware Risk Alerts")
-
-    alerts = build_risk_alerts(mode, latest_vix, portfolio_beta, beta_target, eq_target)
-    for a in alerts:
-        st.write(f"- {a}")
-
-    # -------- Holdings / positions --------
-    st.markdown("---")
-    st.subheader("Wave Holdings & Effective Portfolio Weights")
-
-    if wave_weights.empty:
-        st.info("Upload wave_weights.csv to see holdings and effective portfolio weights.")
+    st.markdown("**Performance files**")
+    if PERF_DIR.exists():
+        perf_files = [p.name for p in PERF_DIR.glob('*.csv')]
+        st.write(perf_files if perf_files else "No CSV files in `logs/performance`.")
     else:
-        ww = wave_weights.copy()
+        st.write("`logs/performance` directory does not exist.")
 
-        # Normalize weights within each wave (in case they are not perfectly to 1.0)
-        ww["weight"] = ww["weight"].astype(float)
-        ww["norm_weight"] = ww.groupby("wave")["weight"].transform(
-            lambda x: x / x.abs().sum() if x.abs().sum() != 0 else x
-        )
+    st.markdown("**Position files**")
+    if POS_DIR.exists():
+        pos_files = [p.name for p in POS_DIR.glob('*.csv')]
+        st.write(pos_files if pos_files else "No CSV files in `logs/positions`.")
+    else:
+        st.write("`logs/positions` directory does not exist.")
 
-        # Join Wave-level equity weights from current mode
-        ww = ww.merge(
-            alloc_df[["wave", "equity_weight"]],
-            on="wave",
-            how="left",
-        )
-        ww["equity_weight"] = ww["equity_weight"].fillna(0.0)
-
-        # Effective portfolio weight = Wave equity weight * stock weight
-        ww["effective_portfolio_weight"] = ww["equity_weight"] * ww["norm_weight"]
-
-        ww_display = ww.copy()
-        ww_display["Wave equity %"] = (ww_display["equity_weight"] * 100.0).round(2)
-        ww_display["Stock in-Wave %"] = (ww_display["norm_weight"] * 100.0).round(2)
-        ww_display["Total portfolio %"] = (ww_display["effective_portfolio_weight"] * 100.0).round(2)
-
-        # Google Finance links
-        def make_link(ticker: str) -> str:
-            url = f"https://www.google.com/finance/quote/{ticker}:NYSE"
-            return f'<a href="{url}" target="_blank">{ticker}</a>'
-
-        ww_display["Ticker"] = ww_display["ticker"].astype(str)
-        ww_display["Google Quote"] = ww_display["Ticker"].apply(make_link)
-
-        cols_show = [
-            "wave",
-            "Ticker",
-            "Google Quote",
-            "Wave equity %",
-            "Stock in-Wave %",
-            "Total portfolio %",
-        ]
-        ww_display = ww_display[cols_show]
-
-        # Limit to top 50 by total portfolio weight for readability
-        ww_display = ww_display.sort_values("Total portfolio %", ascending=False).head(50)
-
-        st.write(
-            ww_display.to_html(escape=False, index=False),
-            unsafe_allow_html=True,
-        )
-
-    # -------- Downloads --------
-    st.markdown("---")
-    st.subheader("Downloads")
-
-    metrics_csv = alloc_df.to_csv(index=False)
-    st.download_button(
-        label=f"Download Wave metrics & mode weights ({mode})",
-        data=metrics_csv,
-        file_name=f"wave_metrics_{mode.replace(' ', '_')}.csv",
-        mime="text/csv",
+    st.caption(
+        "All live performance and alpha are sourced exclusively from WAVES Engine logs. "
+        "If you see no files above, run `waves_engine.py` to generate them."
     )
-
-    if not wave_hist.empty:
-        wave_hist_csv = wave_hist.to_csv(index=False)
-        st.download_button(
-            label="Download raw wave_history.csv",
-            data=wave_hist_csv,
-            file_name="wave_history.csv",
-            mime="text/csv",
-        )
-
-    st.caption("WAVES Intelligence™ • Single Truth Engine • For institutional demo use only.")
-
-
-if __name__ == "__main__":
-    main()
