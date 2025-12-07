@@ -901,7 +901,6 @@ with tab_std_matrix:
         for col in ["1D Return", "1D Alpha", "30D Alpha", "60D Alpha", "Max Drawdown"]:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
-        # Realized β as 2 decimals
         display_df["Realized β"] = display_df["Realized β"].apply(
             lambda x: f"{x:.2f}" if not np.isnan(x) else "—"
         )
