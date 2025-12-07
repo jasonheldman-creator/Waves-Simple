@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # CONFIG
 # ======================================================================
 
-TARGET_BETA = 0.90  # Alpha-Minus-Beta discipline anchor
+TARGET_BETA_DEFAULT = 0.90  # baseline, but each mode will override
 
 # Built-in default Waves + holdings (used if CSVs are missing or invalid)
 WAVE_TICKERS_DEFAULT = {
@@ -178,10 +178,10 @@ def load_or_build_wave_history():
 
 
 # ======================================================================
-# METRICS ENGINE (now includes 3-year alpha)
+# METRICS ENGINE (includes 3-year alpha, now mode-aware beta target)
 # ======================================================================
 
-def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
+def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float) -> pd.DataFrame:
     metrics_rows = []
 
     windows = {
@@ -220,7 +220,7 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
             beta = np.nan
 
         row["beta_252d"] = beta
-        row["beta_drift"] = beta - TARGET_BETA if not np.isnan(beta) else np.nan
+        row["beta_drift"] = beta - target_beta if not np.isnan(beta) else np.nan
 
         # Explicit 1Y alpha (absolute)
         port_cum_1y = (1 + pr).prod() - 1
@@ -232,7 +232,7 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
 
     metrics = pd.DataFrame(metrics_rows)
 
-    # Z-scored leadership composite (still using 30D–1Y)
+    # Z-scored leadership composite (still using 30D–1Y windows)
     for col in ["alpha_30d", "alpha_60d", "alpha_6m", "alpha_1y"]:
         mean = metrics[col].mean()
         std = metrics[col].std()
@@ -385,6 +385,7 @@ def style_wave_table(df: pd.DataFrame):
         "alpha_1y": "{:.2%}",
         "alpha_3y": "{:.2%}",
         "alpha_1y_abs": "{:.2%}",
+        "alpha_1y_contrib": "{:.2%}",
         "beta_252d": "{:.2f}",
         "beta_drift": "{:+.2f}",
         "leadership_score": "{:+.2f}",
@@ -412,18 +413,37 @@ def main():
         help="Choose the operating mode for allocation & risk behavior.",
     )
 
+    # Mode-specific beta targets
+    if mode == "Standard":
+        target_beta = 0.90
+    elif mode == "Alpha-Minus-Beta":
+        target_beta = 0.80
+    else:  # Private Logic™
+        target_beta = 1.05
+
     # Load data (LIVE or DEMO)
     wave_weights, ww_demo = load_or_build_wave_weights()
     wave_history, wh_demo = load_or_build_wave_history()
     market_history, mh_demo = load_or_build_market_history()
 
-    metrics = compute_wave_metrics(wave_history)
+    metrics = compute_wave_metrics(wave_history, target_beta)
 
     vix_df = market_history[market_history["symbol"].str.upper().isin(["^VIX", "VIX"])]
     spy_df = market_history[market_history["symbol"].str.upper().isin(["SPY"])]
     vix_latest = float(vix_df.sort_values("date")["close"].iloc[-1]) if not vix_df.empty else np.nan
 
     equity_pct, wave_allocs = build_suggested_allocations(metrics, vix_latest, mode)
+
+    # Merge allocations into metrics to compute alpha contribution
+    metrics = metrics.merge(
+        wave_allocs[["wave", "suggested_portfolio_weight"]],
+        on="wave",
+        how="left",
+    )
+    metrics["suggested_portfolio_weight"] = metrics["suggested_portfolio_weight"].fillna(0.0)
+    metrics["alpha_1y_contrib"] = metrics["alpha_1y_abs"] * metrics["suggested_portfolio_weight"]
+    total_alpha_1y = metrics["alpha_1y_contrib"].sum()
+
     position_allocs = build_position_allocations(wave_weights, wave_allocs)
 
     # Determine DATA MODE badge
@@ -469,7 +489,7 @@ def main():
                 font-weight:500;
                 font-size:13px;
             ">
-              Mode: {mode}
+              Mode: {mode} • Target β ≈ {target_beta:.2f}
             </span>
           </div>
         </div>
@@ -511,6 +531,7 @@ def main():
             "alpha_6m",
             "alpha_1y",
             "alpha_3y",
+            "alpha_1y_contrib",
             "beta_252d",
             "beta_drift",
             "leadership_score",
@@ -518,6 +539,10 @@ def main():
         ]
         snapshot_df = metrics[display_cols].copy()
         st.dataframe(style_wave_table(snapshot_df), use_container_width=True)
+        st.caption(
+            f"Estimated 1-Year alpha from current Wave mix: "
+            f"**{total_alpha_1y:.2%}** vs benchmark."
+        )
 
     st.markdown("---")
 
@@ -546,8 +571,10 @@ def main():
                 continue
             drift = row["beta_drift"]
             if abs(drift) > 0.07:
-                alerts.append(f"⚠️ {row['wave']}: Beta drift {drift:+.2f} vs target {TARGET_BETA:.2f}")
-            if beta > 1.10:
+                alerts.append(
+                    f"⚠️ {row['wave']}: Beta drift {drift:+.2f} vs target {target_beta:.2f}"
+                )
+            if beta > target_beta + 0.20:
                 alerts.append(f"🚨 {row['wave']}: High beta {beta:.2f}")
 
         if not np.isnan(vix_latest):
@@ -557,7 +584,7 @@ def main():
                 alerts.append(f"⚠️ Elevated VIX ({vix_latest:.2f}) — risk throttling partially engaged.")
 
         if not alerts:
-            st.success("No critical risk alerts. Data within parameters.")
+            st.success("No critical risk alerts. Data within parameters for this mode.")
         else:
             for a in alerts:
                 st.write(a)
