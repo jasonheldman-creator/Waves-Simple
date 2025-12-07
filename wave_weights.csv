@@ -1,9 +1,85 @@
-wave,ticker,weight
-AI_Wave,NVDA,0.14
-AI_Wave,MSFT,0.12
-AI_Wave,META,0.11
-Growth_Wave,AAPL,0.10
-Growth_Wave,TSLA,0.09
-CleanTransitInfra_Wave,TSLA,0.14
-CleanTransitInfra_Wave,NIO,0.10
-CleanTransitInfra_Wave,NEE,0.10
+# -------------------------------------------------------------------
+# FALLBACK: code-managed default weights (no CSV required)
+# -------------------------------------------------------------------
+DEFAULT_WEIGHTS = {
+    "AI_Wave": {
+        "NVDA": 0.32,
+        "MSFT": 0.32,
+        "META": 0.24,
+        "GOOGL": 0.12,
+    },
+    "Growth_Wave": {
+        "AAPL": 0.25,
+        "AMZN": 0.25,
+        "TSLA": 0.25,
+        "PLTR": 0.25,
+    },
+    "FuturePower_Wave": {
+        "ENPH": 0.25,
+        "FSLR": 0.25,
+        "SEDG": 0.25,
+        "NEE": 0.25,
+    },
+    "CleanTransitInfra_Wave": {
+        "TSLA": 0.25,
+        "NIO": 0.25,
+        "BLNK": 0.25,
+        "CHPT": 0.25,
+    },
+    "SmallCapGrowth_Wave": {
+        "UPST": 0.25,
+        "SOFI": 0.25,
+        "AFRM": 0.25,
+        "CELH": 0.25,
+    },
+    "SmallMidGrowth_Wave": {
+        "SHOP": 0.25,
+        "NET": 0.25,
+        "DDOG": 0.25,
+        "CRWD": 0.25,
+    },
+    "Quantum_Wave": {
+        "NVDA": 0.25,
+        "AMD": 0.25,
+        "IBM": 0.25,
+        "QCOM": 0.25,
+    },
+    "Crypto_Wave": {
+        "BTC-USD": 0.5,
+        "ETH-USD": 0.5,
+    },
+    "SP500_Wave": {
+        "SPY": 1.0,
+    },
+}
+
+@st.cache_data
+def load_weights(path: str | None = None) -> pd.DataFrame:
+    """
+    Fallback weight loader.
+
+    Completely ignores wave_weights.csv and uses the code-managed
+    DEFAULT_WEIGHTS dictionary above. This restores the last known
+    good behaviour of the console while GitHub/Copilot works on
+    a more flexible CSV-based loader in another branch.
+    """
+    rows: list[dict] = []
+    for wave_name, positions in DEFAULT_WEIGHTS.items():
+        for ticker, w in positions.items():
+            rows.append(
+                {
+                    "wave": wave_name,
+                    "ticker": str(ticker).strip().upper(),
+                    "weight": float(w),
+                }
+            )
+
+    df = pd.DataFrame(rows, columns=["wave", "ticker", "weight"])
+
+    # Safety: normalize within each wave to exactly 1.0
+    df["weight"] = df["weight"].astype(float)
+    df["weight"] = (
+        df["weight"] / df.groupby("wave")["weight"].transform("sum")
+    )
+
+    return df
