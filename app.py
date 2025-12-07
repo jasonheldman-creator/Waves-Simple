@@ -368,7 +368,8 @@ with col2:
 with col3:
     st.metric("Max Drawdown", f"{max_dd:0.2f}%")
 with col4:
-    st.metric("Alpha vs SPY", f"{alpha_total:0.2f}%")
+    alpha_display = f"{alpha_total:.2f}%"
+st.metric("Alpha vs SPY", alpha_display)
 
 st.caption(
     f"SPY (benchmark) over this window: {spy_total_ret:0.2f}%  "
