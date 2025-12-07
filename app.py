@@ -2,7 +2,7 @@
 #
 # WAVES Intelligence™ - Institutional Console
 # Per-Wave Benchmarks, VIX-gated exposure + SmartSafe™,
-# Alpha windows, Realized Beta, Momentum / Leadership Engine,
+# Excess return windows, Realized Beta, Momentum / Leadership Engine,
 # Beta Drift Alerts, Mode-Aware Suggested Allocation,
 # Position-Level Allocation, and "Mini Bloomberg" UI.
 #
@@ -31,7 +31,7 @@ WAVE_WEIGHTS_FILE = os.path.join(DATA_DIR, "wave_weights.csv")
 # Default benchmark if missing in config
 DEFAULT_BENCHMARK = "SPY"
 
-# Alpha windows in trading days (approx)
+# Excess return windows in trading days (approx)
 ALPHA_WINDOWS = {
     "30D": 30,
     "60D": 60,
@@ -231,25 +231,31 @@ def align_wave_and_benchmark(wave_series, bench_series):
 
 def compute_alpha_windows_series(wave_ret, bench_ret, windows):
     """
-    Compute annualized alpha over given windows for a single Wave vs its benchmark.
-    Returns dict window_label -> alpha.
+    Compute total excess return over each window for a single Wave vs its benchmark.
+    Returns dict window_label -> excess_return (Wave minus Benchmark), not annualized.
     """
     results = {}
     if wave_ret.empty or bench_ret.empty:
         return results
 
     for label, days in windows.items():
+        # Need some history to say anything meaningful
         if len(wave_ret) < 3:
             continue
+
         sub_w = wave_ret.iloc[-days:]
         sub_b = bench_ret.iloc[-days:]
         sub_w, sub_b = align_wave_and_benchmark(sub_w, sub_b)
         if sub_w.empty:
             continue
 
-        daily_excess = sub_w - sub_b
-        ann_alpha = daily_excess.mean() * 252.0
-        results[label] = ann_alpha
+        # Total period return for Wave and Benchmark over this window
+        wave_total = (1.0 + sub_w).prod() - 1.0
+        bench_total = (1.0 + sub_b).prod() - 1.0
+
+        # Excess return (Wave − Benchmark) for that period
+        period_excess = wave_total - bench_total
+        results[label] = period_excess
 
     return results
 
@@ -607,7 +613,7 @@ def main():
 
     # ===================== WAVE METRICS (PER-WAVE BENCHMARKS) =====================
 
-    st.markdown("## Wave-Level Summary (Per-Wave Benchmarks, Alpha, Beta, Momentum, Tilt)")
+    st.markdown("## Wave-Level Summary (Per-Wave Benchmarks, Excess Returns, Beta, Momentum, Tilt)")
 
     basic_rows = []
 
