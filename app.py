@@ -1,11 +1,11 @@
-# app.py – WAVES Institutional Console (Hybrid Mode, Mode-Aware Internal Alpha)
+# app.py – WAVES Institutional Console (Hybrid Mode, Mode-Aware Internal Alpha + Top 10 Tab)
 #
 # Features:
 # - Hybrid: uses real logs if available, otherwise generates demo data
 # - Internal, beta-adjusted alpha vs long-run drift (no benchmark index alpha)
 # - Intraday (1-Day), 30-Day, 60-Day internal alpha captures
 # - Performance curve, alpha charts
-# - Per-wave Top 10 positions with clickable Google Finance links
+# - Per-wave Top 10 positions with clickable Google Finance links (dedicated tab)
 # - SPX / VIX tiles and engine logs view
 # - Mode-aware logic: Standard, Alpha-Minus-Beta, Private Logic™ each have their own β and drift
 
@@ -525,7 +525,7 @@ def main():
     st.caption(
         "All alpha captures below are internal, β-adjusted vs long-run market drift. "
         f"Mode currently set to <b>{mode}</b> with β≈{beta_target:.2f} and "
-        f"{mu_annual*100:.1f}% long-run drift assumption."
+        f"{mu_annual*100:.1f}% long-run drift assumption.",
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -618,8 +618,10 @@ def main():
             icon="ℹ️",
         )
 
-    # TABS
-    tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Engine Logs"])
+    # TABS – now with dedicated Top 10 tab
+    tab_overview, tab_top10, tab_alpha, tab_logs = st.tabs(
+        ["Overview", "Top 10 Holdings", "Alpha Dashboard", "Engine Logs"]
+    )
 
     # OVERVIEW
     with tab_overview:
@@ -630,55 +632,6 @@ def main():
             perf_plot = perf_df.set_index("date")[["total_return"]]
             perf_plot.columns = ["Total Return"]
             st.line_chart(perf_plot)
-
-            st.markdown(
-                f"#### Top 10 Positions — {selected_wave}  \n"
-                "_Click any ticker to open its Google Finance quote_"
-            )
-            if pos_df is not None and not pos_df.empty:
-                dfp = pos_df.copy()
-                cols_lower = {c.lower(): c for c in dfp.columns}
-                ticker_col = cols_lower.get("ticker", list(dfp.columns)[0])
-                weight_col = cols_lower.get("weight", None)
-                name_col = cols_lower.get("name", None)
-                sector_col = cols_lower.get("sector", None)
-                value_col = cols_lower.get("value", None)
-
-                keep_cols = [ticker_col]
-                if name_col:
-                    keep_cols.append(name_col)
-                if weight_col:
-                    keep_cols.append(weight_col)
-                if value_col:
-                    keep_cols.append(value_col)
-                if sector_col:
-                    keep_cols.append(sector_col)
-
-                dfp = dfp[keep_cols].copy()
-
-                if weight_col and weight_col in dfp.columns:
-                    dfp = dfp.sort_values(weight_col, ascending=False)
-
-                dfp = dfp.head(10).reset_index(drop=True)
-
-                # Create link column
-                dfp["Ticker"] = dfp[ticker_col].apply(ticker_to_google_link)
-
-                rename = {ticker_col: "Ticker"}
-                if name_col:
-                    rename[name_col] = "Name"
-                if weight_col:
-                    rename[weight_col] = "Weight"
-                if value_col:
-                    rename[value_col] = "Value"
-                if sector_col:
-                    rename[sector_col] = "Sector"
-                dfp.rename(columns=rename, inplace=True)
-
-                table_md = dfp.to_markdown(index=False)
-                st.markdown(table_md)
-            else:
-                st.info("No positions file found yet in `logs/positions` for this Wave.")
 
         with right:
             st.markdown("#### Exposure & Risk Profile")
@@ -700,6 +653,58 @@ def main():
             drift_plot = perf_df.set_index("date")[["total_return", "expected_total"]]
             drift_plot.columns = ["Total Return", "Expected Drift"]
             st.line_chart(drift_plot)
+
+    # TOP 10 HOLDINGS TAB (DEDICATED WINDOW)
+    with tab_top10:
+        st.markdown(
+            f"### Top 10 Positions — {selected_wave}  \n"
+            "_Click any ticker to open its Google Finance quote_"
+        )
+
+        if pos_df is not None and not pos_df.empty:
+            dfp = pos_df.copy()
+            cols_lower = {c.lower(): c for c in dfp.columns}
+            ticker_col = cols_lower.get("ticker", list(dfp.columns)[0])
+            weight_col = cols_lower.get("weight", None)
+            name_col = cols_lower.get("name", None)
+            sector_col = cols_lower.get("sector", None)
+            value_col = cols_lower.get("value", None)
+
+            keep_cols = [ticker_col]
+            if name_col:
+                keep_cols.append(name_col)
+            if weight_col:
+                keep_cols.append(weight_col)
+            if value_col:
+                keep_cols.append(value_col)
+            if sector_col:
+                keep_cols.append(sector_col)
+
+            dfp = dfp[keep_cols].copy()
+
+            if weight_col and weight_col in dfp.columns:
+                dfp = dfp.sort_values(weight_col, ascending=False)
+
+            dfp = dfp.head(10).reset_index(drop=True)
+
+            # Create link column
+            dfp["Ticker"] = dfp[ticker_col].apply(ticker_to_google_link)
+
+            rename = {ticker_col: "Ticker"}
+            if name_col:
+                rename[name_col] = "Name"
+            if weight_col:
+                rename[weight_col] = "Weight"
+            if value_col:
+                rename[value_col] = "Value"
+            if sector_col:
+                rename[sector_col] = "Sector"
+            dfp.rename(columns=rename, inplace=True)
+
+            table_md = dfp.to_markdown(index=False)
+            st.markdown(table_md)
+        else:
+            st.info("No positions file found yet in `logs/positions` for this Wave.")
 
     # ALPHA DASHBOARD
     with tab_alpha:
