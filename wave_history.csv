@@ -1,10 +1,11 @@
-date,wave,portfolio_return,benchmark_return
-2024-12-01,S&P Wave,0.001,0.0008
-2024-12-01,Growth Wave,0.0012,0.0009
-2024-12-01,Future Power & Energy Wave,0.0011,0.0007
-2024-12-01,Small Cap Growth Wave,0.0013,0.0010
-2024-12-01,Clean Transit-Infrastructure Wave,0.0012,0.0006
-2024-12-01,Quantum Computing Wave,0.0015,0.0011
-2024-12-01,Crypto Income Wave,0.0020,0.0018
-2024-12-01,Small-Mid Cap Growth Wave,0.0012,0.0009
-2024-12-01,Income Wave,0.0006,0.0005
+date,symbol,close
+2024-06-01,SPY,425
+2024-06-01,VIX,16
+2024-06-02,SPY,426
+2024-06-02,VIX,17
+2024-06-03,SPY,427
+2024-06-03,VIX,18
+2024-06-04,SPY,430
+2024-06-04,VIX,19
+2024-06-05,SPY,433
+2024-06-05,VIX,20
