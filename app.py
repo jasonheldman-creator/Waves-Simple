@@ -206,6 +206,64 @@ def _normalize_return_series(raw: pd.Series) -> pd.Series:
     return s
 
 
+def _extract_wave_bench_series(
+    perf_df: Optional[pd.DataFrame],
+    beta_default: float = 0.90,
+) -> (Optional[pd.DataFrame], float):
+    """
+    From a performance DataFrame, extract aligned wave and benchmark daily returns
+    and return aligned DataFrame + beta.
+    """
+    if perf_df is None or perf_df.empty:
+        return None, beta_default
+
+    df = perf_df.copy()
+
+    # Wave return column
+    wave_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "daily_return" in lc or ("return" in lc and "benchmark" not in lc):
+            wave_col = c
+            break
+    if wave_col is None:
+        for c in df.columns:
+            if c.lower() == "return":
+                wave_col = c
+                break
+    if wave_col is None:
+        return None, beta_default
+
+    # Benchmark return column
+    bench_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "benchmark_return" in lc or ("benchmark" in lc and "return" in lc):
+            bench_col = c
+            break
+
+    wave_r = _normalize_return_series(df[wave_col])
+    if bench_col is not None:
+        bench_r = _normalize_return_series(df[bench_col])
+    else:
+        bench_r = pd.Series(index=wave_r.index, data=0.0)
+
+    aligned = pd.concat([wave_r, bench_r], axis=1, join="inner").dropna()
+    if aligned.empty:
+        return None, beta_default
+
+    aligned.columns = ["wave_r", "bench_r"]
+
+    # Beta
+    if "beta_target" in df.columns:
+        beta_series = pd.to_numeric(df["beta_target"], errors="coerce").fillna(beta_default)
+        beta = float(beta_series.iloc[-1])
+    else:
+        beta = beta_default
+
+    return aligned, beta
+
+
 def compute_return_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
     """
     Compute live-only total return, today's return, and max drawdown
@@ -219,12 +277,12 @@ def compute_return_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optiona
     if perf_df is None or perf_df.empty:
         return metrics
 
-    # Find daily return or derive from NAV/value
+    # Try to find daily return or derive from NAV/value
     ret_col = None
     nav_col = None
     for c in perf_df.columns:
         lc = c.lower()
-        if "daily_return" in lc or (lc.startswith("return") and "benchmark" not in lc):
+        if "daily_return" in lc or ("return" in lc and "benchmark" not in lc):
             ret_col = c
             break
     if ret_col is None:
@@ -267,65 +325,31 @@ def compute_live_alpha_metrics(
     Compute live-only alpha metrics for multiple windows from a performance DataFrame.
 
     Expected columns (case-insensitive search):
-        - date / timestamp (optional but recommended)
-        - daily_return (or 'return')
-        - benchmark_return
+        - daily_return / return (Wave)
+        - benchmark_return (Benchmark)
         - beta_target (optional; if missing we use beta_default)
+
+    Returns dict with:
+        windows (30d, 60d, 6m, 1y, since_inception)
+        plus key "_one_day_alpha" for last day's alpha.
     """
     out: Dict[str, Dict[str, Optional[float]]] = {}
     for key in ALPHA_WINDOWS:
         out[key] = {"alpha": None, "wave_return": None, "bench_return": None, "days": 0}
+    out["_one_day_alpha"] = None
 
-    if perf_df is None or perf_df.empty:
+    aligned, beta = _extract_wave_bench_series(perf_df, beta_default=beta_default)
+    if aligned is None or aligned.empty:
         return out
 
-    df = perf_df.copy()
+    w_full = aligned["wave_r"]
+    b_full = aligned["bench_r"]
 
-    # Identify wave return column
-    wave_col = None
-    for c in df.columns:
-        lc = c.lower()
-        if "daily_return" in lc or (lc.startswith("return") and "benchmark" not in lc):
-            wave_col = c
-            break
-    if wave_col is None:
-        for c in df.columns:
-            if c.lower() == "return":
-                wave_col = c
-                break
-    if wave_col is None:
-        return out  # can't compute alpha without returns
+    # 1-day alpha = last day’s return differential
+    one_day_alpha = float((w_full.iloc[-1] - beta * b_full.iloc[-1]))
+    out["_one_day_alpha"] = one_day_alpha
 
-    # Identify benchmark return column
-    bench_col = None
-    for c in df.columns:
-        lc = c.lower()
-        if "benchmark_return" in lc or ("benchmark" in lc and "return" in lc):
-            bench_col = c
-            break
-
-    wave_r = _normalize_return_series(df[wave_col])
-    if bench_col is not None:
-        bench_r = _normalize_return_series(df[bench_col])
-    else:
-        # If we have no benchmark, alpha is vs 0 (so alpha = raw return)
-        bench_r = pd.Series(index=wave_r.index, data=0.0)
-
-    # align
-    aligned = pd.concat([wave_r, bench_r], axis=1, join="inner").dropna()
-    if aligned.empty:
-        return out
-
-    aligned.columns = ["wave_r", "bench_r"]
-
-    # Beta
-    if "beta_target" in df.columns:
-        beta_series = pd.to_numeric(df["beta_target"], errors="coerce").fillna(beta_default)
-        beta = float(beta_series.iloc[-1])
-    else:
-        beta = beta_default
-
-    # Compute per-window alpha
+    # Per-window alpha
     for label, window in ALPHA_WINDOWS.items():
         if window is None:
             window_df = aligned.copy()
@@ -360,6 +384,22 @@ def compute_live_alpha_metrics(
         }
 
     return out
+
+
+def compute_daily_alpha_series(
+    perf_df: Optional[pd.DataFrame],
+    beta_default: float = 0.90,
+) -> Optional[pd.Series]:
+    """
+    Compute daily alpha time series (for charting).
+    alpha_daily = wave_r - beta * bench_r
+    """
+    aligned, beta = _extract_wave_bench_series(perf_df, beta_default=beta_default)
+    if aligned is None or aligned.empty:
+        return None
+    alpha = aligned["wave_r"] - beta * aligned["bench_r"]
+    alpha.name = "alpha_daily"
+    return alpha
 
 # ----------------------------------------------------
 # SMALL FORMAT HELPERS
@@ -620,8 +660,9 @@ perf_df = load_performance(selected_wave)
 pos_df = load_positions(selected_wave)
 ret_metrics = compute_return_metrics(perf_df)
 alpha_metrics = compute_live_alpha_metrics(perf_df, beta_default=0.90)
+alpha_daily_series = compute_daily_alpha_series(perf_df, beta_default=0.90)
 
-# pull a couple of windows
+one_day_alpha = alpha_metrics.get("_one_day_alpha")
 alpha_30d = alpha_metrics["30d"]["alpha"]
 alpha_1y = alpha_metrics["1y"]["alpha"]
 
@@ -651,8 +692,8 @@ if vix_snap:
 
 tape_items.append(
     f'<span class="ticker-item">'
-    f'<span class="ticker-symbol">{wave_display_name(selected_wave)}</span>'
-    f'<span class="ticker-pct {sign_class(ret_metrics["today_return"])}">{fmt_pct(ret_metrics["today_return"])}</span>'
+    f'<span class="ticker-symbol">{wave_display_name(selected_wave)} 1D α</span>'
+    f'<span class="ticker-pct {sign_class(one_day_alpha)}">{fmt_pct(one_day_alpha)}</span>'
     f'</span>'
 )
 
@@ -669,7 +710,7 @@ st.markdown(tape_html, unsafe_allow_html=True)
 # MAIN HEADER + METRIC STRIP
 # ----------------------------------------------------
 st.markdown("### WAVES Engine Dashboard")
-st.caption("Live / demo console for WAVES Intelligence™ — Adaptive Index Waves (LIVE alpha only)")
+st.caption("Live console for WAVES Intelligence™ — Adaptive Index Waves (LIVE alpha only — no backtest alpha)")
 
 metric_html = f"""
 <div class="metric-strip">
@@ -686,8 +727,8 @@ metric_html = f"""
     <div class="metric-value neg">{fmt_pct(ret_metrics['max_drawdown'])}</div>
   </div>
   <div class="metric-card">
-    <div class="metric-label">30D Live Alpha vs Benchmark</div>
-    <div class="metric-value {sign_class(alpha_30d)}">{fmt_pct(alpha_30d)}</div>
+    <div class="metric-label">1-Day Live Alpha vs Benchmark</div>
+    <div class="metric-value {sign_class(one_day_alpha)}">{fmt_pct(one_day_alpha)}</div>
   </div>
 </div>
 """
@@ -794,7 +835,7 @@ with tab_alpha:
     if perf_df is None or perf_df.empty:
         st.info("Alpha metrics will appear once performance logs are available for this Wave.")
     else:
-        # Table of windows
+        # Alpha windows table
         rows = []
         for label, window in ALPHA_WINDOWS.items():
             m = alpha_metrics[label]
@@ -814,6 +855,15 @@ with tab_alpha:
             })
         alpha_table = pd.DataFrame(rows)
         st.dataframe(alpha_table, use_container_width=True)
+
+        st.markdown("#### Daily Alpha Series")
+        if alpha_daily_series is not None and not alpha_daily_series.empty:
+            # Convert to DataFrame for chart
+            alpha_df = alpha_daily_series.to_frame()
+            st.line_chart(alpha_df, height=260)
+            st.caption("alpha_daily = Wave_return – β_target × Benchmark_return")
+        else:
+            st.caption("No daily alpha series available yet for this Wave.")
 
         st.caption(
             "All alpha metrics are computed **only** from live engine logs, using:\n\n"
