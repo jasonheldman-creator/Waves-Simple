@@ -178,9 +178,6 @@ def discover_waves_from_logs() -> list:
 def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
     """
     Find the latest positions file for a Wave, using a *loose* name match.
-
-    This fixes the common problem where display name = 'AI Wave'
-    but file prefix = 'AI_Wave'.
     """
     if not LOGS_POS_DIR.exists():
         return None
@@ -195,12 +192,10 @@ def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
 
     for f in files:
         base = os.path.basename(f)
-        # <prefix>_positions_YYYYMMDD.csv
         if "_positions_" not in base:
             continue
         prefix = base.split("_positions_")[0]
         if normalize_key(prefix) == target_key:
-            # Parse date for ordering
             try:
                 date_str = base.split("_positions_")[1].split(".csv")[0]
                 dt = datetime.strptime(date_str, "%Y%m%d")
@@ -219,13 +214,6 @@ def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
     """
     Load the latest positions file for a Wave and return the Top 10 holdings
     with clickable Google Finance ticker links.
-
-    Columns returned:
-      Ticker (plain)
-      Name
-      Sector
-      Weight% (string)
-      TickerLink (HTML anchor, used for rendering)
     """
     latest_file = get_latest_positions_file_for_wave(wave_name)
     if latest_file is None or not latest_file.exists():
@@ -278,7 +266,6 @@ def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
     out["Sector"] = df[sector_col].astype(str) if sector_col else ""
     out["Weight%"] = (df[weight_col].astype(float) * 100.0).round(2).astype(str) + "%"
 
-    # HTML anchor for clickable ticker
     out["TickerLink"] = out["Ticker"].apply(
         lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>' if t else ""
     )
@@ -482,6 +469,9 @@ def compute_alpha_summary_for_wave(
     wave_name: str,
     mode_label: str,
 ) -> dict:
+    """
+    Used for the 'Top Performers' table, using the selected mode.
+    """
     perf_df_raw, _live_flag = load_wave_performance(wave_name, mode_label)
     perf_df = compute_alpha_windows(perf_df_raw, mode_label)
 
@@ -518,6 +508,56 @@ def compute_alpha_summary_for_wave(
         "30D α": alpha_30d * 100.0,
         "60D α": alpha_60d * 100.0,
         "1Y α": alpha_1y * 100.0,
+    }
+
+
+def compute_standard_matrix_row(wave_name: str) -> dict:
+    """
+    Row for the Standard Mode Matrix:
+      Wave, 1D Return, 1D Alpha, 30D Alpha, 60D Alpha,
+      Realized β, Max Drawdown
+    Always uses Standard mode.
+    """
+    mode_label = "Standard"
+    perf_df_raw, _ = load_wave_performance(wave_name, mode_label)
+    perf_df = compute_alpha_windows(perf_df_raw, mode_label)
+
+    if perf_df.empty:
+        return {
+            "Wave": wave_name,
+            "1D Return": np.nan,
+            "1D Alpha": np.nan,
+            "30D Alpha": np.nan,
+            "60D Alpha": np.nan,
+            "Realized β": np.nan,
+            "Max Drawdown": np.nan,
+        }
+
+    perf_df = perf_df.sort_values("date").reset_index(drop=True)
+    latest = perf_df.iloc[-1]
+
+    one_day_ret = latest["portfolio_return"] * 100.0
+    one_day_alpha = latest["alpha_1d"] * 100.0
+    alpha_30d = latest["alpha_30d"] * 100.0
+    alpha_60d = latest["alpha_60d"] * 100.0
+
+    if np.var(perf_df["benchmark_return"]) > 0:
+        realized_beta = np.cov(
+            perf_df["portfolio_return"], perf_df["benchmark_return"]
+        )[0, 1] / np.var(perf_df["benchmark_return"])
+    else:
+        realized_beta = np.nan
+
+    max_dd, _ = compute_drawdown(perf_df)
+
+    return {
+        "Wave": wave_name,
+        "1D Return": one_day_ret,
+        "1D Alpha": one_day_alpha,
+        "30D Alpha": alpha_30d,
+        "60D Alpha": alpha_60d,
+        "Realized β": realized_beta,
+        "Max Drawdown": max_dd,
     }
 
 
@@ -683,8 +723,15 @@ with col_mode:
 # ================================
 # Tabs
 # ================================
-tab_overview, tab_alpha, tab_top_perf, tab_top10, tab_logs = st.tabs(
-    ["Overview", "Alpha Dashboard", "Top Performers", "Top 10 Holdings", "Engine Logs"]
+tab_overview, tab_alpha, tab_std_matrix, tab_top_perf, tab_top10, tab_logs = st.tabs(
+    [
+        "Overview",
+        "Alpha Dashboard",
+        "Standard Mode Matrix",
+        "Top Performers",
+        "Top 10 Holdings",
+        "Engine Logs",
+    ]
 )
 
 
@@ -737,6 +784,7 @@ with tab_overview:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # Performance curve
         st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Performance Curve</div>', unsafe_allow_html=True)
 
@@ -758,6 +806,7 @@ with tab_overview:
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_right:
+        # Risk & drawdown
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Risk & Drawdown</div>', unsafe_allow_html=True)
 
@@ -766,11 +815,14 @@ with tab_overview:
             st.markdown("**Max Drawdown**")
             st.markdown(format_pct(max_dd_pct))
         with col_r2:
-            realized_beta = np.cov(
-                perf_df["portfolio_return"], perf_df["benchmark_return"]
-            )[0, 1] / np.var(perf_df["benchmark_return"])
+            if np.var(perf_df["benchmark_return"]) > 0:
+                realized_beta_sel = np.cov(
+                    perf_df["portfolio_return"], perf_df["benchmark_return"]
+                )[0, 1] / np.var(perf_df["benchmark_return"])
+            else:
+                realized_beta_sel = np.nan
             st.markdown("**Realized β**")
-            st.markdown(f"{realized_beta:.2f}")
+            st.markdown(f"{realized_beta_sel:.2f}" if not np.isnan(realized_beta_sel) else "—")
 
         st.markdown("---", unsafe_allow_html=True)
 
@@ -790,6 +842,7 @@ with tab_overview:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # Data regime
         st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Data Regime</div>', unsafe_allow_html=True)
         regime = "LIVE (engine logs)" if is_live else "SANDBOX (synthetic demo)"
@@ -829,6 +882,57 @@ with tab_alpha:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+# ---------------- Standard Mode Matrix tab ----------------
+with tab_std_matrix:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="metric-label">Standard Mode Matrix &mdash; All Waves</div>',
+        unsafe_allow_html=True,
+    )
+
+    rows = [compute_standard_matrix_row(w) for w in waves]
+    matrix_df = pd.DataFrame(rows)
+
+    if not matrix_df.empty:
+        # Sort by 60D alpha, best to worst
+        matrix_df = matrix_df.sort_values("60D Alpha", ascending=False).reset_index(drop=True)
+
+        display_df = matrix_df.copy()
+        for col in ["1D Return", "1D Alpha", "30D Alpha", "60D Alpha", "Max Drawdown"]:
+            display_df[col] = display_df[col].apply(lambda x: format_pct(x))
+
+        # Realized β as 2 decimals
+        display_df["Realized β"] = display_df["Realized β"].apply(
+            lambda x: f"{x:.2f}" if not np.isnan(x) else "—"
+        )
+
+        st.markdown(
+            "<span style='font-size:0.8rem;color:#9fa6b2;'>"
+            "All metrics are computed in **Standard mode** (β≈0.90), regardless of the mode selected "
+            "in the sidebar. This gives a clean, apples-to-apples view across all Waves."
+            "</span>",
+            unsafe_allow_html=True,
+        )
+
+        st.dataframe(display_df, use_container_width=True)
+
+        # Optional quick visual: 60D alpha bar chart
+        bar_df = matrix_df[["Wave", "60D Alpha"]].set_index("Wave")
+        st.markdown("<br/>", unsafe_allow_html=True)
+        st.markdown(
+            "<span class='metric-label'>60D Alpha (Standard Mode, All Waves)</span>",
+            unsafe_allow_html=True,
+        )
+        st.bar_chart(bar_df)
+    else:
+        st.markdown(
+            "No data available yet. Once Standard-mode performance is available for each Wave, "
+            "this matrix will populate automatically."
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 # ---------------- Top Performers tab ----------------
 with tab_top_perf:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -845,7 +949,7 @@ with tab_top_perf:
 
         st.markdown(
             "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "All values are β-adjusted alpha captures in % terms for the selected mode "
+            "All values are β-adjusted alpha captures in % terms for the **selected mode** "
             f"(**{selected_mode}**). Intraday = latest; 1D = prior day when available; "
             "30D/60D = rolling sums; 1Y = sum of last 252 trading days."
             "</span>",
@@ -919,7 +1023,14 @@ with tab_logs:
             f"({'LIVE' if is_live else 'SANDBOX mirror from this file'})"
         )
 
-        display_cols = ["date", "portfolio_return", "benchmark_return", "alpha_1d", "alpha_30d", "alpha_60d"]
+        display_cols = [
+            "date",
+            "portfolio_return",
+            "benchmark_return",
+            "alpha_1d",
+            "alpha_30d",
+            "alpha_60d",
+        ]
         display_cols_existing = [c for c in display_cols if c in perf_df.columns]
         st.dataframe(perf_df[display_cols_existing].tail(75), use_container_width=True)
     else:
