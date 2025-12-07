@@ -3,7 +3,7 @@
 # WAVES Intelligence™ - Institutional Console
 # Per-Wave Benchmarks, VIX-gated exposure + SmartSafe™,
 # Alpha windows, Realized Beta, Momentum / Leadership Engine,
-# Beta Drift Alerts, Suggested Allocation, and "Mini Bloomberg" UI.
+# Beta Drift Alerts, Mode-Aware Suggested Allocation, and "Mini Bloomberg" UI.
 #
 # IMPORTANT:
 # - Keep your last fully-working app.py saved separately as app_fallback.py.
@@ -69,6 +69,15 @@ VIX_LADDER = [
 ]
 
 SMARTSAFE_NAME = "SmartSafe™"
+
+# Mode-aware tilt caps: (max_overweight, min_underweight)
+MODE_TILT_LIMITS = {
+    "Standard": (1.15, 0.85),
+    "Alpha-Minus-Beta": (1.10, 0.90),
+    "Alpha Minus Beta": (1.10, 0.90),  # just in case of slight naming
+    "Private Logic": (1.30, 0.70),
+    "Private Logic™": (1.30, 0.70),
+}
 
 # ============================================================
 # DATA LOADERS
@@ -567,7 +576,7 @@ def main():
 
     summary_df = pd.DataFrame(basic_rows)
 
-    # Momentum tiers + beta drift + tilt
+    # Momentum tiers + beta drift + tilt (now mode-aware)
     if not summary_df.empty:
         summary_df["Momentum_Rank"] = summary_df["Momentum_Score"].rank(
             ascending=False, method="min"
@@ -598,6 +607,7 @@ def main():
             beta_target = r["Beta_Target"]
             beta_val = r["Realized_Beta"]
             tier = r["Momentum_Tier"]
+            mode = r["Mode"]
 
             if pd.isna(beta_val):
                 beta_drift = np.nan
@@ -615,6 +625,13 @@ def main():
             elif tier == "Laggard":
                 tilt_label = "Underweight"
                 tilt_mult = 0.8
+
+            # Mode-aware caps
+            max_over, min_under = MODE_TILT_LIMITS.get(mode, (1.15, 0.85))
+            if tilt_mult > 1.0:
+                tilt_mult = min(tilt_mult, max_over)
+            elif tilt_mult < 1.0:
+                tilt_mult = max(tilt_mult, min_under)
 
             # If beta too high vs target, trim slightly
             if drift_flag and not pd.isna(beta_val) and beta_val > beta_target:
@@ -686,12 +703,14 @@ def main():
             **Momentum_Score** is a weighted blend of 30D / 60D / 6M excess returns
             vs each Wave's own benchmark.  
             **Momentum_Tier** buckets Waves into Leaders / Neutral / Laggards for capital rotation.
+            **Mode-aware tilt caps** keep Standard waves calmer than Private Logic™ waves.
             """
         )
         st.dataframe(
             summary_df[
                 [
                     "Wave",
+                    "Mode",
                     "Benchmark",
                     "Momentum_Score",
                     "Momentum_Rank",
@@ -744,8 +763,8 @@ def main():
         st.write(
             """
             Suggested allocation starts from **equal weight** across Waves, then **applies
-            leadership tilts (Tilt_Multiplier)** and normalizes to your current **Equity /
-            SmartSafe™ overlay** from the VIX regime.
+            mode-aware leadership tilts (Tilt_Multiplier)** and normalizes to your current
+            **Equity / SmartSafe™ overlay** from the VIX regime.
             """
         )
         # Format equity weights nicely
@@ -754,6 +773,15 @@ def main():
             lambda x: "" if pd.isna(x) else f"{x:,.1f}%"
         )
         st.dataframe(alloc_df_display, use_container_width=True)
+
+        # CSV download
+        csv_bytes = alloc_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Suggested Allocation CSV",
+            data=csv_bytes,
+            file_name="waves_suggested_allocation.csv",
+            mime="text/csv",
+        )
     else:
         st.info("Suggested allocation unavailable (missing tilt data).")
 
