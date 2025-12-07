@@ -1,8 +1,9 @@
 # app.py
 #
 # WAVES Intelligence™ - Institutional Console
-# VIX-gated exposure + SmartSafe™, Alpha windows, Realized Beta,
-# Momentum / Leadership Engine, Beta Drift Alerts, and "Mini Bloomberg" UI.
+# Per-Wave Benchmarks, VIX-gated exposure + SmartSafe™,
+# Alpha windows, Realized Beta, Momentum / Leadership Engine,
+# Beta Drift Alerts, and "Mini Bloomberg" UI.
 #
 # IMPORTANT:
 # - Keep your last fully-working app.py saved separately as app_fallback.py.
@@ -70,7 +71,7 @@ VIX_LADDER = [
 SMARTSAFE_NAME = "SmartSafe™"
 
 # ============================================================
-# UTILITIES
+# DATA LOADERS
 # ============================================================
 
 @st.cache_data(show_spinner=False)
@@ -182,134 +183,6 @@ def compute_portfolio_returns(weights_df, prices_df):
     return pd.DataFrame(wave_returns)
 
 
-def compute_alpha_beta(wave_returns, benchmark_returns, windows, beta_lookback):
-    """
-    Returns:
-      alpha_df: Wave x window alpha (annualized excess return)
-      beta_df: Wave x ['Realized_Beta'] from regression vs benchmark
-    """
-    if wave_returns.empty or benchmark_returns.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    both = wave_returns.join(benchmark_returns, how="inner", rsuffix="_bench")
-    bench_col = "Benchmark"
-
-    alpha_rows = []
-    beta_rows = []
-
-    for wave in wave_returns.columns:
-        if wave not in both.columns:
-            continue
-
-        wave_series = both[wave]
-        bench_series = both[bench_col]
-
-        # Alpha windows
-        for label, days in windows.items():
-            sub = both.iloc[-days:]
-            if sub.empty:
-                continue
-
-            wr = sub[wave]
-            br = sub[bench_col]
-            daily_excess = wr - br
-            ann_alpha = daily_excess.mean() * 252.0
-
-            alpha_rows.append(
-                {"Wave": wave, "Window": label, "Annualized_Alpha": ann_alpha}
-            )
-
-        # Realized beta (1-year lookback)
-        sub = both.iloc[-beta_lookback:]
-        if len(sub) >= 30:
-            wr = sub[wave]
-            br = sub[bench_col]
-            cov = np.cov(wr, br)[0, 1]
-            var_b = np.var(br)
-            beta = cov / var_b if var_b > 0 else np.nan
-        else:
-            beta = np.nan
-
-        beta_rows.append({"Wave": wave, "Realized_Beta": beta})
-
-    alpha_df = pd.DataFrame(alpha_rows)
-    beta_df = pd.DataFrame(beta_rows)
-
-    if not alpha_df.empty:
-        alpha_df = alpha_df.pivot(index="Wave", columns="Window", values="Annualized_Alpha")
-
-    return alpha_df, beta_df
-
-
-def compute_momentum_scores(wave_returns, benchmark_returns, windows, weights):
-    """
-    Momentum / leadership engine.
-    Momentum = weighted sum of excess returns over given windows.
-    Returns DataFrame: Wave, Momentum_Score, Tier
-    """
-    if wave_returns.empty or benchmark_returns.empty:
-        return pd.DataFrame()
-
-    both = wave_returns.join(benchmark_returns, how="inner", rsuffix="_bench")
-    bench_col = "Benchmark"
-
-    scores = []
-    for wave in wave_returns.columns:
-        if wave not in both.columns:
-            continue
-
-        total_score = 0.0
-        total_weight = 0.0
-
-        for label, days in windows.items():
-            w = weights.get(label, 0.0)
-            if w <= 0:
-                continue
-
-            sub = both.iloc[-days:]
-            if sub.empty:
-                continue
-
-            wr = sub[wave]
-            br = sub[bench_col]
-            excess = (1 + wr).prod() / (1 + br).prod() - 1.0
-            total_score += w * excess
-            total_weight += w
-
-        score = total_score / total_weight if total_weight > 0 else np.nan
-        scores.append({"Wave": wave, "Momentum_Score": score})
-
-    df = pd.DataFrame(scores).set_index("Wave")
-    if df.empty:
-        return df
-
-    df["Rank"] = df["Momentum_Score"].rank(ascending=False, method="min")
-
-    n = len(df)
-    if n > 0:
-        df["Tier"] = pd.qcut(
-            df["Rank"],
-            q=min(3, n),
-            labels=["Leader", "Neutral", "Laggard"][: min(3, n)],
-        )
-
-    return df.reset_index()
-
-
-def vix_to_exposure(vix_value):
-    """
-    Map VIX level to equity & SmartSafe exposures.
-    """
-    if vix_value is None or np.isnan(vix_value):
-        return 1.0, 0.0
-
-    for max_vix, eq, ss in VIX_LADDER:
-        if vix_value <= max_vix:
-            return eq, ss
-
-    return 1.0, 0.0
-
-
 @st.cache_data(show_spinner=False)
 def get_vix_and_spy_history(lookback_days=365):
     end_date = dt.date.today() + dt.timedelta(days=1)
@@ -331,6 +204,111 @@ def get_vix_and_spy_history(lookback_days=365):
 
     close = close.dropna(how="all")
     return close
+
+# ============================================================
+# METRIC HELPERS (per Wave, per Benchmark)
+# ============================================================
+
+def align_wave_and_benchmark(wave_series, bench_series):
+    """Align a Wave's return series with its benchmark."""
+    df = pd.concat(
+        [wave_series.rename("wave"), bench_series.rename("bench")],
+        axis=1,
+        join="inner",
+    ).dropna()
+    return df["wave"], df["bench"]
+
+
+def compute_alpha_windows_series(wave_ret, bench_ret, windows):
+    """
+    Compute annualized alpha over given windows for a single Wave vs its benchmark.
+    Returns dict window_label -> alpha.
+    """
+    results = {}
+    if wave_ret.empty or bench_ret.empty:
+        return results
+
+    for label, days in windows.items():
+        if len(wave_ret) < 3:
+            continue
+        sub_w = wave_ret.iloc[-days:]
+        sub_b = bench_ret.iloc[-days:]
+        sub_w, sub_b = align_wave_and_benchmark(sub_w, sub_b)
+        if sub_w.empty:
+            continue
+
+        daily_excess = sub_w - sub_b
+        ann_alpha = daily_excess.mean() * 252.0
+        results[label] = ann_alpha
+
+    return results
+
+
+def compute_beta_series(wave_ret, bench_ret, lookback_days):
+    """
+    Compute realized beta for a single Wave vs its benchmark.
+    """
+    if wave_ret.empty or bench_ret.empty:
+        return np.nan
+
+    sub_w = wave_ret.iloc[-lookback_days:]
+    sub_b = bench_ret.iloc[-lookback_days:]
+    sub_w, sub_b = align_wave_and_benchmark(sub_w, sub_b)
+
+    if len(sub_w) < 30:
+        return np.nan
+
+    cov = np.cov(sub_w, sub_b)[0, 1]
+    var_b = np.var(sub_b)
+    if var_b <= 0:
+        return np.nan
+    return cov / var_b
+
+
+def compute_momentum_series(wave_ret, bench_ret, windows, weights):
+    """
+    Momentum score: weighted blend of total excess returns over 30D / 60D / 6M.
+    """
+    if wave_ret.empty or bench_ret.empty:
+        return np.nan
+
+    total_score = 0.0
+    total_weight = 0.0
+
+    for label, days in windows.items():
+        w = weights.get(label, 0.0)
+        if w <= 0:
+            continue
+
+        sub_w = wave_ret.iloc[-days:]
+        sub_b = bench_ret.iloc[-days:]
+        sub_w, sub_b = align_wave_and_benchmark(sub_w, sub_b)
+        if sub_w.empty:
+            continue
+
+        # total excess return over the window
+        excess = (1 + sub_w).prod() / (1 + sub_b).prod() - 1.0
+        total_score += w * excess
+        total_weight += w
+
+    if total_weight <= 0:
+        return np.nan
+
+    return total_score / total_weight
+
+
+def vix_to_exposure(vix_value):
+    """
+    Map VIX level to equity & SmartSafe exposures.
+    """
+    if vix_value is None or np.isnan(vix_value):
+        return 1.0, 0.0
+
+    for max_vix, eq, ss in VIX_LADDER:
+        if vix_value <= max_vix:
+            return eq, ss
+
+    return 1.0, 0.0
 
 
 def style_wave_table(df):
@@ -364,7 +342,6 @@ def style_wave_table(df):
         df_fmt[c] = df_fmt[c].apply(lambda x: fmt(x, "beta"))
 
     return df_fmt
-
 
 # ============================================================
 # STREAMLIT UI
@@ -427,7 +404,7 @@ def main():
     # Tickers
     holding_tickers = sorted(weights["Ticker"].unique())
     benchmark_tickers = sorted(cfg["Benchmark"].unique())
-    all_tickers = list(set(holding_tickers + benchmark_tickers))
+    all_tickers = list(set(holding_tickers + benchmark_tickers + [DEFAULT_BENCHMARK, "SPY"]))
 
     price_start = dt.date.today() - dt.timedelta(days=lookback_days + 30)
     prices = download_price_history(tickers=all_tickers, start_date=price_start)
@@ -439,25 +416,11 @@ def main():
     # Wave returns
     wave_returns = compute_portfolio_returns(weights, prices)
 
-    # For now use a single benchmark (SPY) for alpha/momentum/beta
-    if DEFAULT_BENCHMARK not in prices.columns:
-        st.error(f"Default benchmark {DEFAULT_BENCHMARK} not found in price history.")
+    if wave_returns.empty:
+        st.error("Wave returns could not be computed. Check wave_weights.csv.")
         st.stop()
 
-    bench_px = prices[DEFAULT_BENCHMARK]
-    bench_ret = bench_px.pct_change().fillna(0.0)
-    benchmark_returns = pd.DataFrame({"Benchmark": bench_ret})
-
-    # Alpha, beta, momentum
-    alpha_df, beta_df = compute_alpha_beta(
-        wave_returns, benchmark_returns, ALPHA_WINDOWS, BETA_LOOKBACK_DAYS
-    )
-
-    momentum_df = compute_momentum_scores(
-        wave_returns, benchmark_returns, MOMENTUM_WINDOWS, MOMENTUM_WEIGHTS
-    )
-
-    # VIX + SPY
+    # VIX + SPY for regime strip & chart
     vs_hist = get_vix_and_spy_history(lookback_days=lookback_days)
     latest_vix = None
     if "^VIX" in vs_hist.columns:
@@ -510,85 +473,116 @@ def main():
     else:
         st.info("VIX or SPY history unavailable for chart.")
 
-    # ===================== WAVE SUMMARY TABLE =====================
+    # ===================== WAVE METRICS (PER-WAVE BENCHMARKS) =====================
 
-    st.markdown("## Wave-Level Summary (Alpha, Beta, Momentum, SmartSafe™, Tilt)")
+    st.markdown("## Wave-Level Summary (Per-Wave Benchmarks, Alpha, Beta, Momentum, Tilt)")
 
-    summary_rows = []
+    # First pass: compute alpha, beta, momentum per Wave vs its own benchmark
+    basic_rows = []
 
     for wave in waves:
         cfg_row = cfg[cfg["Wave"] == wave].iloc[0]
+        bench_ticker = cfg_row["Benchmark"] if cfg_row["Benchmark"] in prices.columns else DEFAULT_BENCHMARK
 
-        alpha_row = alpha_df.loc[wave] if (not alpha_df.empty and wave in alpha_df.index) else None
+        wave_ret = wave_returns[wave].dropna()
+        bench_px = prices[bench_ticker].dropna()
+        bench_ret = bench_px.pct_change().fillna(0.0)
 
-        beta_val = (
-            beta_df.set_index("Wave").loc[wave]["Realized_Beta"]
-            if (not beta_df.empty and wave in beta_df["Wave"].values)
-            else np.nan
-        )
-
-        mom_row = (
-            momentum_df.set_index("Wave").loc[wave]["Momentum_Score"]
-            if (momentum_df is not None and not momentum_df.empty and wave in momentum_df["Wave"].values)
-            else np.nan
-        )
-        tier = (
-            momentum_df.set_index("Wave").loc[wave]["Tier"]
-            if (momentum_df is not None and not momentum_df.empty and wave in momentum_df["Wave"].values)
-            else ""
-        )
-
-        # Beta drift & flag
-        beta_target = cfg_row["Beta_Target"]
-        if pd.isna(beta_val):
-            beta_drift = np.nan
-            drift_flag = False
-        else:
-            beta_drift = beta_val - beta_target
-            drift_flag = abs(beta_drift) > BETA_DRIFT_THRESHOLD
-
-        # Leadership tilt
-        tilt_label = "Neutral"
-        tilt_multiplier = 1.0
-
-        if tier == "Leader":
-            tilt_label = "Overweight"
-            tilt_multiplier = 1.2
-        elif tier == "Laggard":
-            tilt_label = "Underweight"
-            tilt_multiplier = 0.8
-
-        # If beta too high vs target, trim slightly
-        if drift_flag and not pd.isna(beta_val) and beta_val > beta_target:
-            tilt_label = tilt_label + " (Trim β)" if tilt_label != "Neutral" else "Neutral (Trim β)"
-            tilt_multiplier *= 0.9
+        alpha_dict = compute_alpha_windows_series(wave_ret, bench_ret, ALPHA_WINDOWS)
+        beta_val = compute_beta_series(wave_ret, bench_ret, BETA_LOOKBACK_DAYS)
+        momentum_score = compute_momentum_series(wave_ret, bench_ret, MOMENTUM_WINDOWS, MOMENTUM_WEIGHTS)
 
         row = {
             "Wave": wave,
             "Mode": cfg_row["Mode"],
-            "Benchmark": cfg_row["Benchmark"],
-            "Beta_Target": beta_target,
+            "Benchmark": bench_ticker,
+            "Beta_Target": cfg_row["Beta_Target"],
             "Realized_Beta": beta_val,
-            "Beta_Drift": beta_drift,
-            "Beta_Drift_Flag": drift_flag,
-            "Momentum_Score": mom_row,
-            "Momentum_Tier": tier,
-            "Tilt_Label": tilt_label,
-            "Tilt_Multiplier": tilt_multiplier,
-            "Equity_Alloc": equity_pct,
-            "SmartSafe_Alloc": smartsafe_pct,
+            "Momentum_Score": momentum_score,
         }
 
         for label in ALPHA_WINDOWS.keys():
             col_name = f"Alpha_{label}"
-            if alpha_row is not None and label in alpha_row.index:
-                row[col_name] = alpha_row[label]
+            row[col_name] = alpha_dict.get(label, np.nan)
+
+        basic_rows.append(row)
+
+    summary_df = pd.DataFrame(basic_rows)
+
+    # Momentum tiers
+    if not summary_df.empty:
+        # Rank by momentum (higher is better)
+        summary_df["Momentum_Rank"] = summary_df["Momentum_Score"].rank(
+            ascending=False, method="min"
+        )
+
+        n = len(summary_df)
+        if n >= 3:
+            summary_df["Momentum_Tier"] = pd.qcut(
+                summary_df["Momentum_Rank"],
+                q=3,
+                labels=["Leader", "Neutral", "Laggard"],
+            )
+        elif n == 2:
+            # Top is Leader, bottom is Laggard
+            summary_df["Momentum_Tier"] = np.where(
+                summary_df["Momentum_Rank"] == 1, "Leader", "Laggard"
+            )
+        elif n == 1:
+            summary_df["Momentum_Tier"] = "Leader"
+        else:
+            summary_df["Momentum_Tier"] = ""
+
+        # Beta drift & tilt
+        beta_drift_list = []
+        beta_flag_list = []
+        tilt_label_list = []
+        tilt_mult_list = []
+
+        for _, r in summary_df.iterrows():
+            beta_target = r["Beta_Target"]
+            beta_val = r["Realized_Beta"]
+            tier = r["Momentum_Tier"]
+
+            if pd.isna(beta_val):
+                beta_drift = np.nan
+                drift_flag = False
             else:
-                row[col_name] = np.nan
+                beta_drift = beta_val - beta_target
+                drift_flag = abs(beta_drift) > BETA_DRIFT_THRESHOLD
 
-        summary_rows.append(row)
+            # Base tilt by momentum tier
+            tilt_label = "Neutral"
+            tilt_mult = 1.0
+            if tier == "Leader":
+                tilt_label = "Overweight"
+                tilt_mult = 1.2
+            elif tier == "Laggard":
+                tilt_label = "Underweight"
+                tilt_mult = 0.8
 
-    summary_df = pd.DataFrame(summary_rows)
+            # If beta too high vs target, trim slightly
+            if drift_flag and not pd.isna(beta_val) and beta_val > beta_target:
+                tilt_label = (
+                    tilt_label + " (Trim β)" if tilt_label != "Neutral" else "Neutral (Trim β)"
+                )
+                tilt_mult *= 0.9
+
+            beta_drift_list.append(beta_drift)
+            beta_flag_list.append(drift_flag)
+            tilt_label_list.append(tilt_label)
+            tilt_mult_list.append(tilt_mult)
+
+        summary_df["Beta_Drift"] = beta_drift_list
+        summary_df["Beta_Drift_Flag"] = beta_flag_list
+        summary_df["Tilt_Label"] = tilt_label_list
+        summary_df["Tilt_Multiplier"] = tilt_mult_list
+
+        # Append global overlay
+        summary_df["Equity_Alloc"] = equity_pct
+        summary_df["SmartSafe_Alloc"] = smartsafe_pct
+
+    # Sort by momentum for display
     summary_df = summary_df.sort_values("Momentum_Score", ascending=False)
 
     st.dataframe(
@@ -633,14 +627,28 @@ def main():
 
     st.markdown("## Momentum / Leadership Engine — Detail")
 
-    if momentum_df is not None and not momentum_df.empty:
+    if not summary_df.empty:
         st.write(
             """
-            **Momentum_Score** is a weighted blend of 30D / 60D / 6M excess returns vs benchmark.  
-            **Tier** buckets Waves into Leaders / Neutral / Laggards for capital rotation.
+            **Momentum_Score** is a weighted blend of 30D / 60D / 6M excess returns
+            vs each Wave's own benchmark.  
+            **Momentum_Tier** buckets Waves into Leaders / Neutral / Laggards for capital rotation.
             """
         )
-        st.dataframe(momentum_df.set_index("Wave"), use_container_width=True)
+        st.dataframe(
+            summary_df[
+                [
+                    "Wave",
+                    "Benchmark",
+                    "Momentum_Score",
+                    "Momentum_Rank",
+                    "Momentum_Tier",
+                    "Tilt_Label",
+                    "Tilt_Multiplier",
+                ]
+            ].set_index("Wave"),
+            use_container_width=True,
+        )
     else:
         st.info("Momentum metrics not available yet (insufficient history).")
 
@@ -648,7 +656,7 @@ def main():
 
     st.markdown("## Risk Alerts — Beta Drift Discipline")
 
-    alert_df = summary_df[summary_df["Beta_Drift_Flag"] == True]
+    alert_df = summary_df[summary_df.get("Beta_Drift_Flag", False) == True]
 
     if not alert_df.empty:
         st.warning(
@@ -660,6 +668,7 @@ def main():
                 [
                     "Wave",
                     "Mode",
+                    "Benchmark",
                     "Beta_Target",
                     "Realized_Beta",
                     "Beta_Drift",
