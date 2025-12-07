@@ -1,761 +1,939 @@
-# app.py – WAVES Institutional Console (Hybrid Mode, Mode-Aware Internal Alpha + Top 10 Tab)
-#
-# Features:
-# - Hybrid: uses real logs if available, otherwise generates demo data
-# - Internal, beta-adjusted alpha vs long-run drift (no benchmark index alpha)
-# - Intraday (1-Day), 30-Day, 60-Day internal alpha captures
-# - Performance curve, alpha charts
-# - Per-wave Top 10 positions with clickable Google Finance links (dedicated tab)
-# - SPX / VIX tiles and engine logs view
-# - Mode-aware logic: Standard, Alpha-Minus-Beta, Private Logic™ each have their own β and drift
-
+import os
+import glob
+from datetime import datetime, timedelta
 from pathlib import Path
-from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-try:
-    import yfinance as yf  # optional; console still works without it
-except Exception:
-    yf = None
 
-# ---------------------------------------------------------------------
-# PATHS / CONSTANTS
-# ---------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-LOGS_DIR = BASE_DIR / "logs"
-PERF_DIR = LOGS_DIR / "performance"
-POS_DIR = LOGS_DIR / "positions"
-WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
+# ================================
+# High-level configuration
+# ================================
+st.set_page_config(
+    page_title="WAVES Intelligence™ Institutional Console",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-TRADING_DAYS = 252
-
-# Mode configuration: each mode gets its own beta target and annual drift assumption
-MODE_CONFIG = {
-    "Standard": {
-        "beta_target": 0.90,
-        "mu_annual": 0.07,  # 7% annual drift
-        "label": "Standard risk · β≈0.90 · 7% long-run drift",
-    },
-    "Alpha-Minus-Beta": {
-        "beta_target": 0.80,
-        "mu_annual": 0.06,  # 6% annual drift (more conservative)
-        "label": "Reduced beta overlay · β≈0.80 · 6% long-run drift",
-    },
-    "Private Logic™": {
-        "beta_target": 1.05,
-        "mu_annual": 0.09,  # 9% annual drift (more aggressive)
-        "label": "Private Logic™ enhanced risk · β≈1.05 · 9% long-run drift",
-    },
-}
-
-# ---------------------------------------------------------------------
-# STYLES
-# ---------------------------------------------------------------------
-st.set_page_config(page_title="WAVES Institutional Console", layout="wide")
-
+# Simple dark-mode theming via CSS injection.
+# (You can also use .streamlit/config.toml for a full theme; this just ensures
+#  the console never renders on a white background in case that file is missing.)
 st.markdown(
     """
     <style>
-    body { background-color: #020617; color: #e5e7eb; }
-
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #020617 0%, #020617 100%);
+    .stApp {
+        background-color: #050816;
+        color: #f5f6fa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-
-    .waves-hero {
-        background: radial-gradient(circle at 0% 0%, #0ea5e933, transparent 60%),
-                    radial-gradient(circle at 100% 100%, #22c55e33, transparent 60%),
-                    linear-gradient(90deg, #020617, #020617);
-        border-radius: 1rem;
-        padding: 1.35rem 1.6rem;
-        border: 1px solid #111827;
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        gap: 1.25rem;
-    }
-    .waves-hero-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-    }
-    .waves-hero-sub {
-        font-size: 0.9rem;
-        color: #9ca3af;
-        margin-top: 0.35rem;
-    }
-    .pill {
-        display: inline-block;
-        padding: 0.15rem 0.6rem;
-        font-size: 0.7rem;
-        border-radius: 999px;
-        margin-right: 0.25rem;
-        border: 1px solid #1f2937;
-        background-color: rgba(15,23,42,0.8);
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-    }
-    .pill-live { border-color: #22c55e; color: #22c55e; }
-    .pill-demo { border-color: #eab308; color: #facc15; }
-
-    .index-strip {
-        margin-top: 0.75rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.9rem;
-    }
-    .index-tile {
-        background: #020617;
-        border-radius: 0.7rem;
-        padding: 0.55rem 0.75rem;
-        border: 1px solid #111827;
-        min-width: 130px;
-    }
-    .index-label {
-        font-size: 0.72rem;
-        color: #9ca3af;
-    }
-    .index-value {
-        font-size: 0.95rem;
-        font-weight: 600;
-    }
-    .index-pct {
-        font-size: 0.8rem;
-    }
-    .index-pct.pos { color: #22c55e; }
-    .index-pct.neg { color: #f97373; }
-
-    .waves-metric {
-        padding: 0.7rem 0.8rem;
-        border-radius: 0.75rem;
-        background: #020617;
-        border: 1px solid #111827;
-        margin-bottom: 0.6rem;
-    }
-    .waves-metric-label {
-        font-size: 0.74rem;
+    .metric-label {
+        font-size: 0.85rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #9ca3af;
+        color: #9fa6b2 !important;
     }
-    .waves-metric-value {
-        font-size: 1.25rem;
+    .metric-value {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: #e5f9ff !important;
+    }
+    .section-card {
+        background: #0b1020;
+        border-radius: 12px;
+        padding: 1.1rem 1.2rem;
+        border: 1px solid #1f2937;
+        box-shadow: 0 0 25px rgba(0, 0, 0, 0.45);
+    }
+    .hero-title {
+        font-size: 1.7rem;
+        font-weight: 600;
+        color: #e5f9ff;
+    }
+    .hero-subtitle {
+        font-size: 0.95rem;
+        color: #9fa6b2;
+    }
+    .wave-badge {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        border: 1px solid #1f2937;
+        background: rgba(15,23,42,0.9);
+        color: #a5b4fc;
+    }
+    .mode-badge {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        border: 1px solid #1f2937;
+        margin-left: 0.4rem;
+        color: #6ee7b7;
+    }
+    .alpha-positive {
+        color: #22c55e !important;
         font-weight: 600;
     }
-    .waves-pos { color: #22c55e; }
-    .waves-neg { color: #f97373; }
-
-    .small-caption {
-        font-size: 0.72rem;
-        color: #9ca3af;
+    .alpha-negative {
+        color: #f97373 !important;
+        font-weight: 600;
+    }
+    .link-cell a {
+        color: #38bdf8 !important;
+        text-decoration: none;
+    }
+    .link-cell a:hover {
+        text-decoration: underline;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------------------------------------------------
-# SMALL UTILITIES
-# ---------------------------------------------------------------------
-def fmt_pct(x):
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x*100:0.2f}%"
+
+# ================================
+# Paths & constants
+# ================================
+BASE_DIR = Path(".")
+LOGS_PERF_DIR = BASE_DIR / "logs" / "performance"
+LOGS_POS_DIR = BASE_DIR / "logs" / "positions"
+
+# Mode configuration:
+# These are the "house rules" for each mode that everything else references.
+MODES = {
+    "Standard": {"beta_target": 0.90, "drift_annual": 0.07},
+    "Alpha-Minus-Beta": {"beta_target": 0.80, "drift_annual": 0.06},
+    "Private Logic™": {"beta_target": 1.05, "drift_annual": 0.09},
+}
+
+# ================================
+# Utility helpers
+# ================================
 
 
-def fmt_pct_signed(x):
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x*100:+0.2f}%"
+def discover_waves_from_logs() -> list:
+    """
+    Discover wave names based on the log file naming convention:
+    logs/performance/<Wave>_performance_daily.csv
 
+    Returns a sorted list of unique Wave names. If no logs are found,
+    we fall back to a static 9-Wave lineup so the console never comes up blank.
+    """
+    if LOGS_PERF_DIR.exists():
+        pattern = str(LOGS_PERF_DIR / "*_performance_daily.csv")
+        files = glob.glob(pattern)
+    else:
+        files = []
 
-def fmt_val(x):
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x:,.2f}"
-
-
-def ticker_to_google_link(ticker: str) -> str:
-    """Return a markdown link to Google Finance for this ticker."""
-    ticker = str(ticker).strip()
-    if not ticker:
-        return ""
-    url = f"https://www.google.com/finance/quote/{ticker}"
-    return f"[{ticker}]({url})"
-
-
-# ---------------------------------------------------------------------
-# DISCOVERY & LOADING
-# ---------------------------------------------------------------------
-def discover_waves():
-    """Discover Waves from logs/weights; default to 9 WAVES if nothing found."""
-    waves = set()
-
-    # from logs
-    if PERF_DIR.exists():
-        for p in PERF_DIR.glob("*_performance_daily*.csv"):
-            name = p.name.replace("_performance_daily", "").replace(".csv", "")
-            if name:
-                waves.add(name)
-
-    # from wave_weights
-    if WEIGHTS_PATH.exists():
-        try:
-            ww = pd.read_csv(WEIGHTS_PATH)
-            if "Wave" in ww.columns:
-                for w in ww["Wave"].dropna().unique():
-                    waves.add(str(w))
-        except Exception:
-            pass
-
-    # fallback: nine Waves (for demo / structure mode)
-    if not waves:
-        waves = {
-            "SP500_Wave",
-            "Growth_Wave",
-            "Income_Wave",
-            "Future_Power_Energy_Wave",
-            "Crypto_Wave",
-            "Crypto_Income_Wave",
-            "Quantum_Computing_Wave",
-            "Small_Cap_Growth_Wave",
-            "Clean_Transit_Infrastructure_Wave",
+    wave_names = sorted(
+        {
+            os.path.basename(f).replace("_performance_daily.csv", "")
+            for f in files
         }
+    )
 
-    return sorted(waves)
+    if wave_names:
+        return wave_names
+
+    # Fallback lineup (edit labels as desired; these are only used if logs are missing)
+    fallback_waves = [
+        "S&P 500 Wave",
+        "Growth Wave",
+        "Infinity Wave",
+        "Income Wave",
+        "Future Power & Energy Wave",
+        "Crypto Income Wave",
+        "Quantum Computing Wave",
+        "Clean Transit-Infrastructure Wave",
+        "Small/Mid Growth Wave",
+    ]
+    return fallback_waves
 
 
-def load_performance_from_logs(wave_name: str):
-    if not PERF_DIR.exists():
+def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
+    """
+    Locate the most recent positions log for a given Wave based on filename pattern:
+    logs/positions/<Wave>_positions_YYYYMMDD.csv
+
+    Returns a Path or None if nothing is found.
+    """
+    if not LOGS_POS_DIR.exists():
         return None
-    candidates = sorted(PERF_DIR.glob(f"{wave_name}_performance_daily*.csv"))
-    if not candidates:
+
+    pattern = str(LOGS_POS_DIR / f"{wave_name}_positions_*.csv")
+    files = glob.glob(pattern)
+    if not files:
         return None
-    path = candidates[-1]
+
+    # Parse dates from filenames and pick the latest
+    dated_files = []
+    for f in files:
+        base = os.path.basename(f)
+        try:
+            # Expected pattern: <Wave>_positions_YYYYMMDD.csv
+            date_str = base.split("_positions_")[1].split(".csv")[0]
+            dt = datetime.strptime(date_str, "%Y%m%d")
+        except Exception:
+            dt = datetime.min
+        dated_files.append((dt, f))
+
+    dated_files.sort(key=lambda x: x[0])
+    return Path(dated_files[-1][1])
+
+
+def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
+    """
+    Load the latest positions file for a Wave and return the Top 10 holdings,
+    sorted by descending weight.
+
+    We are intentionally flexible on column names so this keeps working as the
+    engine evolves.
+    """
+    latest_file = get_latest_positions_file_for_wave(wave_name)
+    if latest_file is None or not latest_file.exists():
+        return None
+
     try:
-        df = pd.read_csv(path)
+        df = pd.read_csv(latest_file)
     except Exception:
         return None
 
-    # normalize date
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
-    elif "Date" in df.columns:
-        df["date"] = pd.to_datetime(df["Date"])
-    else:
-        df["date"] = pd.to_datetime(df.index)
+    if df.empty:
+        return None
 
-    df = df.sort_values("date").reset_index(drop=True)
+    # Normalize column names to lower-case for matching
+    cols = {c.lower(): c for c in df.columns}
+
+    ticker_col = cols.get("ticker") or cols.get("symbol") or list(df.columns)[0]
+    weight_candidates = [
+        "weight",
+        "portfolio_weight",
+        "target_weight",
+        "actual_weight",
+    ]
+    weight_col = None
+    for cand in weight_candidates:
+        if cand in cols:
+            weight_col = cols[cand]
+            break
+
+    # Default weight to equal-weight if missing
+    if weight_col is None:
+        df["__weight__"] = 1.0 / len(df)
+        weight_col = "__weight__"
+
+    # Optional name / sector columns
+    name_col = cols.get("name") or cols.get("security_name")
+    sector_col = cols.get("sector")
+
+    df = df.copy()
+    df = df.sort_values(by=weight_col, ascending=False).head(10)
+
+    # Build Google Finance URLs (search-style URL works across venues)
+    def google_link(ticker: str) -> str:
+        t = str(ticker).strip().upper()
+        if not t or t == "NAN":
+            return ""
+        return f"https://www.google.com/finance/quote/{t}"
+
+    df_out = pd.DataFrame()
+    df_out["Ticker"] = df[ticker_col].astype(str).str.upper()
+    if name_col:
+        df_out["Name"] = df[name_col].astype(str)
+    else:
+        df_out["Name"] = ""
+    if sector_col:
+        df_out["Sector"] = df[sector_col].astype(str)
+    else:
+        df_out["Sector"] = ""
+
+    df_out["Weight"] = (df[weight_col].astype(float) * 100.0).round(2)
+
+    df_out["Google Finance"] = df_out["Ticker"].apply(
+        lambda t: f"[View]({google_link(t)})" if t else ""
+    )
+
+    return df_out
+
+
+def infer_return_and_benchmark_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
+    """
+    Try to infer which columns contain the portfolio & benchmark returns.
+
+    This is intentionally conservative and purely internal.
+    """
+    lower = {c.lower(): c for c in df.columns}
+
+    return_candidates = [
+        "daily_return",
+        "return",
+        "portfolio_return",
+        "pct_return",
+        "r",
+    ]
+    bench_candidates = [
+        "benchmark_return",
+        "spx_return",
+        "index_return",
+        "benchmark_pct_return",
+        "b",
+    ]
+
+    ret_col = None
+    bench_col = None
+
+    for cand in return_candidates:
+        if cand in lower:
+            ret_col = lower[cand]
+            break
+
+    for cand in bench_candidates:
+        if cand in lower:
+            bench_col = lower[cand]
+            break
+
+    return ret_col, bench_col
+
+
+def generate_demo_performance(
+    wave_name: str,
+    mode_label: str,
+    n_days: int = 120,
+) -> pd.DataFrame:
+    """
+    Generate synthetic demo performance so the UI never comes up blank.
+
+    The demo is internally consistent and tied to:
+      • Wave name (so each Wave feels different)
+      • Mode parameters (beta_target, drift_annual)
+
+    This is *only* used when we cannot find real logs.
+    """
+    mode_cfg = MODES.get(mode_label, MODES["Standard"])
+    beta_target = mode_cfg["beta_target"]
+    drift_annual = mode_cfg["drift_annual"]
+
+    # Seed based on wave + mode so results are stable across runs
+    seed = abs(hash((wave_name, mode_label))) % (2**32)
+    rng = np.random.default_rng(seed)
+
+    dates = pd.bdate_range(end=datetime.now(), periods=n_days)
+
+    # Simple market model
+    mu_bench_annual = 0.08
+    sigma_annual = 0.16
+
+    mu_bench_daily = mu_bench_annual / 252.0
+    sigma_daily = sigma_annual / np.sqrt(252.0)
+
+    bench_rets = rng.normal(loc=mu_bench_daily, scale=sigma_daily, size=len(dates))
+
+    # Wave return = beta * benchmark + alpha drift + idiosyncratic noise
+    alpha_drift_daily = drift_annual / 252.0
+    idio_vol = 0.07 / np.sqrt(252.0)
+
+    idio_noise = rng.normal(loc=0.0, scale=idio_vol, size=len(dates))
+
+    wave_rets = beta_target * bench_rets + alpha_drift_daily + idio_noise
+
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "benchmark_return": bench_rets,
+            "portfolio_return": wave_rets,
+        }
+    )
+
     return df
 
 
-def generate_demo_performance(wave_name: str, days: int = 260):
-    rng = np.random.default_rng(abs(hash(wave_name)) % (2**32))
-    dates = pd.date_range(end=pd.Timestamp.today(), periods=days, freq="B")
+def load_wave_performance(
+    wave_name: str,
+    mode_label: str,
+) -> tuple[pd.DataFrame, bool]:
+    """
+    Load performance history for a given Wave.
 
-    # mild drift, realistic vol
-    drift = 0.00035
-    vol = 0.012
-    shocks = rng.normal(loc=drift, scale=vol, size=len(dates))
-    daily = shocks
-    total = (1 + daily).cumprod() - 1
+    Priority:
+      1. Use logs/performance/<Wave>_performance_daily.csv if available.
+      2. If anything fails, generate a synthetic demo series instead.
 
-    return pd.DataFrame(
-        {
-            "date": dates,
-            "daily_return": daily,
-            "total_return": total,
-        }
+    Returns:
+      (df, is_live)
+        • df: DataFrame with at least: date, portfolio_return, benchmark_return
+        • is_live: True if sourced from real logs, False if synthetic/demo
+    """
+    is_live = False
+    perf_file = LOGS_PERF_DIR / f"{wave_name}_performance_daily.csv"
+
+    if perf_file.exists():
+        try:
+            df = pd.read_csv(perf_file)
+            if df.empty:
+                raise ValueError("Empty performance log")
+
+            # Normalize date column
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+            elif "Date" in df.columns:
+                df["date"] = pd.to_datetime(df["Date"])
+            else:
+                # If there's no date, synthesize one based on index
+                start_date = datetime.now() - timedelta(days=len(df))
+                df["date"] = pd.bdate_range(start=start_date, periods=len(df))
+
+            ret_col, bench_col = infer_return_and_benchmark_cols(df)
+
+            # If we can't infer returns, treat as unusable and fall back to demo
+            if ret_col is None or bench_col is None:
+                raise ValueError("Could not infer return/benchmark columns")
+
+            # Align to our internal naming
+            df = df.sort_values("date").reset_index(drop=True)
+            df["portfolio_return"] = df[ret_col].astype(float)
+            df["benchmark_return"] = df[bench_col].astype(float)
+
+            is_live = True
+            return df[["date", "portfolio_return", "benchmark_return"]], is_live
+        except Exception:
+            # Fall back to synthetic demo below
+            pass
+
+    # Synthetic/demo performance
+    df_demo = generate_demo_performance(wave_name, mode_label)
+    return df_demo, is_live
+
+
+def compute_alpha_windows(
+    df: pd.DataFrame,
+    mode_label: str,
+) -> pd.DataFrame:
+    """
+    Given a performance DataFrame with:
+        date, portfolio_return, benchmark_return
+    compute:
+        alpha_1d (beta-adjusted)
+        alpha_30d (rolling 30-day beta-adjusted excess)
+        alpha_60d (rolling 60-day beta-adjusted excess)
+
+    The rolling windows use a simple sum of daily alpha which is a very good
+    approximation for typical daily magnitudes and keeps the logic transparent.
+    """
+    mode_cfg = MODES.get(mode_label, MODES["Standard"])
+    beta_target = mode_cfg["beta_target"]
+
+    df = df.copy()
+    df = df.sort_values("date").reset_index(drop=True)
+
+    # Beta-adjusted daily alpha
+    df["alpha_1d"] = (
+        df["portfolio_return"] - beta_target * df["benchmark_return"]
     )
 
+    # Rolling alpha windows (internally consistent, time-additive approximation)
+    df["alpha_30d"] = df["alpha_1d"].rolling(window=30, min_periods=1).sum()
+    df["alpha_60d"] = df["alpha_1d"].rolling(window=60, min_periods=1).sum()
 
-def ensure_return_columns(df: pd.DataFrame):
-    df = df.copy()
-    # daily_return
-    if "daily_return" not in df.columns:
-        for c in ["return", "strategy_return", "day_return"]:
-            if c in df.columns:
-                df["daily_return"] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-                break
-    if "daily_return" not in df.columns:
-        # derive from value if possible
-        for c in ["nav", "portfolio_value", "total_value", "equity_curve"]:
-            if c in df.columns:
-                val = pd.to_numeric(df[c], errors="coerce")
-                df["daily_return"] = val.pct_change().fillna(0.0)
-                break
-    if "daily_return" not in df.columns:
-        df["daily_return"] = 0.0
+    # Rolling portfolio & benchmark windows for reference
+    df["ret_30d"] = (1.0 + df["portfolio_return"]).rolling(30, min_periods=1).apply(
+        lambda x: float(np.prod(x) - 1.0),
+        raw=True,
+    )
+    df["ret_60d"] = (1.0 + df["portfolio_return"]).rolling(60, min_periods=1).apply(
+        lambda x: float(np.prod(x) - 1.0),
+        raw=True,
+    )
 
-    # total_return
-    if "total_return" not in df.columns:
-        df = df.sort_values("date")
-        df["total_return"] = (1 + df["daily_return"]).cumprod() - 1
+    df["bench_30d"] = (1.0 + df["benchmark_return"]).rolling(30, min_periods=1).apply(
+        lambda x: float(np.prod(x) - 1.0),
+        raw=True,
+    )
+    df["bench_60d"] = (1.0 + df["benchmark_return"]).rolling(60, min_periods=1).apply(
+        lambda x: float(np.prod(x) - 1.0),
+        raw=True,
+    )
 
-    return df.sort_values("date").reset_index(drop=True)
-
-
-def load_positions(wave_name: str):
-    """Load the latest positions for this Wave (logs first, then wave_weights fallback)."""
-    # from logs
-    if POS_DIR.exists():
-        candidates = sorted(POS_DIR.glob(f"{wave_name}_positions_*.csv"))
-        if candidates:
-            path = candidates[-1]
-            try:
-                return pd.read_csv(path)
-            except Exception:
-                pass
-    # from wave_weights as fallback
-    if WEIGHTS_PATH.exists():
-        try:
-            ww = pd.read_csv(WEIGHTS_PATH)
-            if "Wave" in ww.columns and "Ticker" in ww.columns:
-                sub = ww[ww["Wave"] == wave_name].copy()
-                if sub.empty:
-                    return None
-                if "Weight" not in sub.columns:
-                    sub["Weight"] = 1.0 / len(sub)
-                sub["Name"] = ""
-                sub["Sector"] = ""
-                return sub[["Ticker", "Name", "Weight", "Sector"]]
-        except Exception:
-            return None
-    return None
+    return df
 
 
-# ---------------------------------------------------------------------
-# INTERNAL ALPHA (β-ADJUSTED vs DRIFT, MODE-AWARE)
-# ---------------------------------------------------------------------
-def compute_internal_alpha(
-    df: pd.DataFrame,
-    equity_exposure: float,
-    beta_target: float,
-    mu_annual: float,
-):
+def compute_drawdown(df: pd.DataFrame) -> tuple[float, pd.Series]:
     """
-    Internal alpha vs β-adjusted drift:
-        mu_daily = (1 + mu_annual)^(1/252) - 1
-        expected_daily = mu_daily * beta_target * equity_exposure
-        alpha_daily = daily_return - expected_daily
+    Compute max drawdown from cumulative portfolio value.
+
+    Returns:
+      (max_drawdown_pct, drawdown_series)
     """
-    df = ensure_return_columns(df)
-    mu_daily = (1.0 + mu_annual) ** (1.0 / TRADING_DAYS) - 1.0
-    expected_daily = mu_daily * beta_target * equity_exposure
-
-    df["expected_daily"] = expected_daily
-    df["expected_total"] = (1 + df["expected_daily"]).cumprod() - 1
-    df["alpha_daily"] = df["daily_return"] - df["expected_daily"]
-    df["alpha_total"] = df["total_return"] - df["expected_total"]
-
-    return df, expected_daily
+    df = df.copy().sort_values("date")
+    cum = (1.0 + df["portfolio_return"]).cumprod()
+    running_max = cum.cummax()
+    dd = cum / running_max - 1.0
+    max_dd = dd.min() * 100.0
+    return float(max_dd), dd
 
 
-def compute_window_alpha(df: pd.DataFrame, days: int, expected_daily: float):
-    if df.empty:
-        return None
-    df = df.sort_values("date")
-    tail = df.tail(days)
-    if tail.empty:
-        tail = df
-    realized = (1 + tail["daily_return"]).prod() - 1
-    expected = (1 + expected_daily) ** len(tail) - 1
-    return float(realized - expected)
+@st.cache_data(show_spinner=False)
+def get_spx_vix_tiles() -> dict:
+    """
+    Fetch SPX & VIX snapshot using yfinance if available.
 
-
-def compute_max_drawdown(total_return_series: pd.Series):
-    if total_return_series is None or total_return_series.empty:
-        return None
-    cum_curve = 1 + total_return_series
-    roll_max = cum_curve.cummax()
-    dd = (cum_curve / roll_max) - 1.0
-    return float(dd.min())
-
-
-# ---------------------------------------------------------------------
-# INDEX SNAPSHOT (SPX / VIX) WITH FALLBACK
-# ---------------------------------------------------------------------
-def get_index_snapshot():
-    out = {
-        "spx_value": 6870.40,
-        "spx_pct": 0.0019,
-        "vix_value": 15.41,
-        "vix_pct": 0.0234,
+    This is intentionally shallow (just price + 1d % change) and cached
+    to keep the console responsive. If anything fails, we fall back to
+    neutral placeholders so the layout never breaks.
+    """
+    data = {
+        "SPX": {"label": "S&P 500", "value": None, "change": None},
+        "VIX": {"label": "VIX", "value": None, "change": None},
     }
-    if yf is None:
-        return out
+
     try:
-        spx = yf.Ticker("^GSPC").history(period="2d", interval="1d")
-        vix = yf.Ticker("^VIX").history(period="2d", interval="1d")
-        if not spx.empty:
-            last = float(spx["Close"].iloc[-1])
-            prev = float(spx["Close"].iloc[-2]) if len(spx) > 1 else last
-            out["spx_value"] = last
-            out["spx_pct"] = (last / prev) - 1
-        if not vix.empty:
-            last = float(vix["Close"].iloc[-1])
-            prev = float(vix["Close"].iloc[-2]) if len(vix) > 1 else last
-            out["vix_value"] = last
-            out["vix_pct"] = (last / prev) - 1
+        import yfinance as yf
+
+        for symbol, key in [("^GSPC", "SPX"), ("^VIX", "VIX")]:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="5d")
+            if hist.empty:
+                continue
+            last_close = float(hist["Close"].iloc[-1])
+            if len(hist) >= 2:
+                prev_close = float(hist["Close"].iloc[-2])
+                change_pct = (last_close / prev_close - 1.0) * 100.0
+            else:
+                change_pct = 0.0
+            data[key]["value"] = last_close
+            data[key]["change"] = change_pct
+
     except Exception:
+        # Silent fall-back; we'll render neutral tiles below.
         pass
-    return out
+
+    return data
 
 
-# ---------------------------------------------------------------------
-# MAIN APP
-# ---------------------------------------------------------------------
-def main():
-    # Sidebar
-    st.sidebar.header("⚙️ Engine Controls")
-    waves = discover_waves()
-    selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
+def format_pct(x: float | None, decimals: int = 2) -> str:
+    if x is None or np.isnan(x):
+        return "—"
+    return f"{x:.{decimals}f}%"
 
-    st.sidebar.markdown("**Mode (drift & β logic)**")
-    mode = st.sidebar.radio(
-        "Risk Mode",
-        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-        label_visibility="collapsed",
+
+def format_mult(x: float | None, decimals: int = 2) -> str:
+    if x is None or np.isnan(x):
+        return "—"
+    return f"{x:.{decimals}f}x"
+
+
+# ================================
+# Sidebar controls
+# ================================
+waves = discover_waves_from_logs()
+
+with st.sidebar:
+    st.markdown("### WAVES Intelligence™")
+    st.markdown("#### Institutional Console")
+
+    selected_wave = st.selectbox(
+        "Select Wave",
+        options=waves,
         index=0,
     )
 
-    mode_cfg = MODE_CONFIG.get(mode, MODE_CONFIG["Standard"])
-    beta_target = mode_cfg["beta_target"]
-    mu_annual = mode_cfg["mu_annual"]
-
-    equity_exposure_pct = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
-    equity_exposure = equity_exposure_pct / 100.0
-    st.sidebar.caption(
-        f"Mode: {mode}  •  β target ≈ {beta_target:.2f}  •  Cash buffer: {100 - equity_exposure_pct}%"
+    selected_mode = st.radio(
+        "Mode",
+        options=list(MODES.keys()),
+        index=0,
+        help="Display logic adapts to Standard, Alpha-Minus-Beta, and Private Logic™ targets.",
     )
 
-    # Data: Hybrid
-    perf_logs = load_performance_from_logs(selected_wave)
-    using_logs = perf_logs is not None and not perf_logs.empty
-    if using_logs:
-        perf_df = perf_logs
-    else:
-        perf_df = generate_demo_performance(selected_wave)
-
-    perf_df, expected_daily = compute_internal_alpha(
-        perf_df,
-        equity_exposure=equity_exposure,
-        beta_target=beta_target,
-        mu_annual=mu_annual,
+    st.markdown("---")
+    st.markdown(
+        "This console is running in **Hybrid Mode**:\n"
+        "- Uses real engine logs when available\n"
+        "- Auto-generates synthetic demo performance when logs are missing\n"
+        "- Never renders a blank screen"
     )
 
-    perf_df = perf_df.sort_values("date").reset_index(drop=True)
-    latest = perf_df.iloc[-1]
 
-    total_return = float(latest["total_return"])
-    intraday_return = float(latest["daily_return"])
-    alpha_1d = float(latest["alpha_daily"])
-    max_dd = compute_max_drawdown(perf_df["total_return"])
+# ================================
+# Load data for the selected Wave/mode
+# ================================
+perf_df_raw, is_live = load_wave_performance(selected_wave, selected_mode)
+perf_df = compute_alpha_windows(perf_df_raw, selected_mode)
+max_dd_pct, dd_series = compute_drawdown(perf_df)
 
-    alpha_30d = compute_window_alpha(perf_df, 30, expected_daily)
-    alpha_60d = compute_window_alpha(perf_df, 60, expected_daily)
+# Extract headline metrics from the most recent row
+latest = perf_df.iloc[-1]
 
-    pos_df = load_positions(selected_wave)
-    idx = get_index_snapshot()
+mode_cfg = MODES[selected_mode]
+beta_target = mode_cfg["beta_target"]
+drift_annual = mode_cfg["drift_annual"]
+drift_daily = drift_annual / 252.0 * 100.0
 
-    # HERO
-    spx_pct = idx["spx_pct"]
-    vix_pct = idx["vix_pct"]
-    hero_html = f"""
-    <div class="waves-hero">
-      <div>
-        <div class="waves-hero-title">WAVES INSTITUTIONAL CONSOLE</div>
-        <div style="margin-top:0.35rem;">
-          <span class="pill pill-live">LIVE ENGINE</span>
-          <span class="pill">MULTI-WAVE</span>
-          <span class="pill">Internal Alpha · β-Adjusted Drift · {mode}</span>
+# 1-day & rolling windows
+one_day_ret = latest["portfolio_return"] * 100.0
+one_day_bench = latest["benchmark_return"] * 100.0
+one_day_alpha = latest["alpha_1d"] * 100.0
+
+alpha_30d = latest["alpha_30d"] * 100.0
+alpha_60d = latest["alpha_60d"] * 100.0
+ret_30d = latest["ret_30d"] * 100.0
+ret_60d = latest["ret_60d"] * 100.0
+bench_30d = latest["bench_30d"] * 100.0
+bench_60d = latest["bench_60d"] * 100.0
+
+# Since-inception (for context)
+cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
+cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
+since_inc_ret = (cum_port.iloc[-1] - 1.0) * 100.0
+since_inc_bench = (cum_bench.iloc[-1] - 1.0) * 100.0
+
+
+# ================================
+# Hero header & market tiles
+# ================================
+spx_vix = get_spx_vix_tiles()
+
+st.markdown(
+    f"""
+    <div class="section-card" style="margin-bottom: 0.8rem;">
+        <div class="hero-title">
+            WAVES Intelligence™ Institutional Console
         </div>
-        <div class="waves-hero-sub">
-          Live console for WAVES Intelligence™ — Adaptive Index Waves.<br/>
-          Mode: <b>{mode}</b> ({mode_cfg["label"]}).<br/>
-          All alpha metrics shown here are internal, live-only, and β-adjusted vs long-run drift
-          (no external benchmark alpha). Current view uses the WAVES internal engine as a sample
-          black box; any acquirer can plug in their own models into the same rails.
+        <div class="hero-subtitle">
+            Live multi-wave, mode-aware monitoring &mdash; engine output visualized for institutional use.
         </div>
-        <div class="index-strip">
-          <div class="index-tile">
-            <div class="index-label">Selected Wave 1D Internal Alpha</div>
-            <div class="index-value {'waves-pos' if (alpha_1d or 0) >= 0 else 'waves-neg'}">
-              {fmt_pct_signed(alpha_1d)}
-            </div>
-          </div>
-          <div class="index-tile">
-            <div class="index-label">S&P 500</div>
-            <div class="index-value">{fmt_val(idx['spx_value'])}</div>
-            <div class="index-pct {'pos' if spx_pct >= 0 else 'neg'}">{fmt_pct_signed(spx_pct)}</div>
-          </div>
-          <div class="index-tile">
-            <div class="index-label">VIX (Risk Pulse)</div>
-            <div class="index-value">{fmt_val(idx['vix_value'])}</div>
-            <div class="index-pct {'pos' if vix_pct >= 0 else 'neg'}">{fmt_pct_signed(vix_pct)}</div>
-          </div>
+        <div style="margin-top: 0.6rem;">
+            <span class="wave-badge">{selected_wave}</span>
+            <span class="mode-badge">{selected_mode}</span>
         </div>
-      </div>
-      <div style="min-width:230px;">
-        <div class="waves-metric">
-          <div class="waves-metric-label">Data Regime</div>
-          <div class="waves-metric-value">{'LIVE LOGS' if using_logs else 'STRUCTURE / DEMO'}</div>
-          <div class="small-caption">
-            {'Sourced from logs/performance & logs/positions.'
-             if using_logs
-             else 'Engine in demo mode — run waves_engine.py & upload CSVs to go fully live.'}
-          </div>
-        </div>
-        <div class="waves-metric">
-          <div class="waves-metric-label">Last Console Refresh (UTC)</div>
-          <div class="waves-metric-value">{datetime.utcnow().strftime("%Y-%m-%d %H:%M")}</div>
-          <div class="small-caption">Internal clock reference only</div>
-        </div>
-      </div>
     </div>
-    """
-    st.markdown(hero_html, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-    # TOP METRIC STRIP
-    st.markdown("### WAVES Engine Dashboard")
-    st.caption(
-        "All alpha captures below are internal, β-adjusted vs long-run market drift. "
-        f"Mode currently set to <b>{mode}</b> with β≈{beta_target:.2f} and "
-        f"{mu_annual*100:.1f}% long-run drift assumption.",
+col_spx, col_vix, col_mode = st.columns([1, 1, 1.2])
+
+with col_spx:
+    tile = spx_vix["SPX"]
+    label = tile["label"]
+    val = tile["value"]
+    chg = tile["change"]
+    chg_str = format_pct(chg) if chg is not None else "—"
+    chg_class = "alpha-positive" if (chg or 0) >= 0 else "alpha-negative"
+
+    st.markdown(
+        f"""
+        <div class="section-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">
+                {f"{val:,.0f}" if val is not None else "—"}
+            </div>
+            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">
+                {chg_str}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">Total Return (Since Inception)</div>
-              <div class="waves-metric-value {'waves-pos' if total_return >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(total_return)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">Intraday Return (Today)</div>
-              <div class="waves-metric-value {'waves-pos' if intraday_return >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(intraday_return)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c3:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">Max Drawdown</div>
-              <div class="waves-metric-value waves-neg">
-                {fmt_pct(max_dd)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c4:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">1-Day Internal Alpha</div>
-              <div class="waves-metric-value {'waves-pos' if (alpha_1d or 0) >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(alpha_1d)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c5:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">β-Adjusted Expected Drift (Daily)</div>
-              <div class="waves-metric-value">
-                {fmt_pct(expected_daily)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+with col_vix:
+    tile = spx_vix["VIX"]
+    label = tile["label"]
+    val = tile["value"]
+    chg = tile["change"]
+    chg_str = format_pct(chg) if chg is not None else "—"
+    chg_class = "alpha-positive" if (chg or 0) <= 0 else "alpha-negative"
 
-    # SECOND ROW: WINDOW ALPHAS (30D / 60D)
-    c6, c7 = st.columns(2)
-    with c6:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">30-Day Internal Alpha</div>
-              <div class="waves-metric-value {'waves-pos' if (alpha_30d or 0) >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(alpha_30d)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c7:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">60-Day Internal Alpha</div>
-              <div class="waves-metric-value {'waves-pos' if (alpha_60d or 0) >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(alpha_60d)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
-    if not using_logs:
-        st.info(
-            "No performance log found yet for this Wave in `logs/performance`.\n\n"
-            "The console is currently running in **structure/demo mode** using synthetic data. "
-            "Run `waves_engine.py` locally and sync its CSV logs to go fully live.",
-            icon="ℹ️",
-        )
-
-    # TABS – now with dedicated Top 10 tab
-    tab_overview, tab_top10, tab_alpha, tab_logs = st.tabs(
-        ["Overview", "Top 10 Holdings", "Alpha Dashboard", "Engine Logs"]
+    st.markdown(
+        f"""
+        <div class="section-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">
+                {f"{val:,.2f}" if val is not None else "—"}
+            </div>
+            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">
+                {chg_str}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    # OVERVIEW
-    with tab_overview:
-        left, right = st.columns([2.4, 1.6])
+with col_mode:
+    st.markdown(
+        f"""
+        <div class="section-card">
+            <div class="metric-label">Mode Parameters</div>
+            <div style="display:flex;gap:1.5rem;margin-top:0.3rem;">
+                <div>
+                    <div style="font-size:0.75rem;color:#9fa6b2;">β Target</div>
+                    <div class="metric-value">{beta_target:.2f}</div>
+                </div>
+                <div>
+                    <div style="font-size:0.75rem;color:#9fa6b2;">Drift (Annual)</div>
+                    <div class="metric-value">{drift_annual*100:.1f}%</div>
+                </div>
+                <div>
+                    <div style="font-size:0.75rem;color:#9fa6b2;">Expected Daily Drift</div>
+                    <div class="metric-value">{drift_daily:.2f}%</div>
+                </div>
+            </div>
+            <div style="font-size:0.75rem;color:#6b7280;margin-top:0.4rem;">
+                Internal targets only &mdash; used for beta-adjusted alpha and drift framing.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        with left:
-            st.markdown("#### Performance Curve (Live Engine / Demo)")
-            perf_plot = perf_df.set_index("date")[["total_return"]]
-            perf_plot.columns = ["Total Return"]
-            st.line_chart(perf_plot)
 
-        with right:
-            st.markdown("#### Exposure & Risk Profile")
-            risk_df = pd.DataFrame(
-                {
-                    "Metric": ["Mode", "Equity Exposure", "Cash Buffer", "Target β", "Long-Run Drift (Annual)"],
-                    "Value": [
-                        mode,
-                        f"{equity_exposure_pct}%",
-                        f"{100 - equity_exposure_pct}%",
-                        f"{beta_target:.2f}",
-                        f"{mu_annual*100:.1f}%",
-                    ],
-                }
-            ).set_index("Metric")
-            st.table(risk_df)
+# ================================
+# Top-level tabs
+# ================================
+tab_overview, tab_alpha, tab_top10, tab_logs = st.tabs(
+    ["Overview", "Alpha Dashboard", "Top 10 Holdings", "Engine Logs"]
+)
 
-            st.markdown("#### Total vs Expected Drift")
-            drift_plot = perf_df.set_index("date")[["total_return", "expected_total"]]
-            drift_plot.columns = ["Total Return", "Expected Drift"]
-            st.line_chart(drift_plot)
 
-    # TOP 10 HOLDINGS TAB (DEDICATED WINDOW)
-    with tab_top10:
-        st.markdown(
-            f"### Top 10 Positions — {selected_wave}  \n"
-            "_Click any ticker to open its Google Finance quote_"
-        )
+# ================================
+# Overview tab
+# ================================
+with tab_overview:
+    col_left, col_right = st.columns([1.6, 1.4])
 
-        if pos_df is not None and not pos_df.empty:
-            dfp = pos_df.copy()
-            cols_lower = {c.lower(): c for c in dfp.columns}
-            ticker_col = cols_lower.get("ticker", list(dfp.columns)[0])
-            weight_col = cols_lower.get("weight", None)
-            name_col = cols_lower.get("name", None)
-            sector_col = cols_lower.get("sector", None)
-            value_col = cols_lower.get("value", None)
+    with col_left:
+        # Return & alpha strip
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Return & Alpha Strip</div>', unsafe_allow_html=True)
 
-            keep_cols = [ticker_col]
-            if name_col:
-                keep_cols.append(name_col)
-            if weight_col:
-                keep_cols.append(weight_col)
-            if value_col:
-                keep_cols.append(value_col)
-            if sector_col:
-                keep_cols.append(sector_col)
-
-            dfp = dfp[keep_cols].copy()
-
-            if weight_col and weight_col in dfp.columns:
-                dfp = dfp.sort_values(weight_col, ascending=False)
-
-            dfp = dfp.head(10).reset_index(drop=True)
-
-            # Create link column
-            dfp["Ticker"] = dfp[ticker_col].apply(ticker_to_google_link)
-
-            rename = {ticker_col: "Ticker"}
-            if name_col:
-                rename[name_col] = "Name"
-            if weight_col:
-                rename[weight_col] = "Weight"
-            if value_col:
-                rename[value_col] = "Value"
-            if sector_col:
-                rename[sector_col] = "Sector"
-            dfp.rename(columns=rename, inplace=True)
-
-            table_md = dfp.to_markdown(index=False)
-            st.markdown(table_md)
-        else:
-            st.info("No positions file found yet in `logs/positions` for this Wave.")
-
-    # ALPHA DASHBOARD
-    with tab_alpha:
-        st.markdown("#### Internal Alpha Windows (β-Adjusted · Drift-Relative)")
-        alpha_rows = [
-            ["1-Day", fmt_pct_signed(alpha_1d)],
-            ["30-Day", fmt_pct_signed(alpha_30d)],
-            ["60-Day", fmt_pct_signed(alpha_60d)],
-        ]
-        alpha_table = pd.DataFrame(alpha_rows, columns=["Window", "Internal Alpha"])
-        st.table(alpha_table.set_index("Window"))
-
-        st.markdown("#### Cumulative Internal Alpha Timeline")
-        alpha_cum = perf_df.set_index("date")[["alpha_total"]]
-        alpha_cum.columns = ["Cumulative Internal Alpha"]
-        st.line_chart(alpha_cum)
-
-        st.markdown("#### Rolling Daily Internal Alpha")
-        alpha_daily = perf_df.set_index("date")[["alpha_daily"]]
-        alpha_daily.columns = ["Alpha (Daily)"]
-        st.line_chart(alpha_daily)
-
-        st.caption(
-            f"Internal alpha is computed as realized Wave return minus β-adjusted long-run drift. "
-            f"Mode <b>{mode}</b> uses β≈{beta_target:.2f} and {mu_annual*100:.1f}% annual drift over {TRADING_DAYS} trading days, "
-            f"scaled by Wave equity exposure of {equity_exposure_pct}%."
-        )
-
-    # LOGS
-    with tab_logs:
-        st.markdown("#### Engine Feeds")
-        c1, c2 = st.columns(2)
-
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.markdown("**Performance Feed (tail)**")
-            st.dataframe(perf_df.tail(50), use_container_width=True)
-
+            st.markdown("**1D Return**")
+            st.markdown(format_pct(one_day_ret))
         with c2:
-            st.markdown("**Positions Feed (latest)**")
-            if pos_df is not None and not pos_df.empty:
-                st.dataframe(pos_df.tail(50), use_container_width=True)
-            else:
-                st.info("No positions feed found for this Wave.")
+            st.markdown("**1D Alpha (β-adjusted)**")
+            cls = "alpha-positive" if one_day_alpha >= 0 else "alpha-negative"
+            st.markdown(f"<span class='{cls}'>{format_pct(one_day_alpha)}</span>", unsafe_allow_html=True)
+        with c3:
+            st.markdown("**30D Alpha**")
+            cls = "alpha-positive" if alpha_30d >= 0 else "alpha-negative"
+            st.markdown(f"<span class='{cls}'>{format_pct(alpha_30d)}</span>", unsafe_allow_html=True)
+        with c4:
+            st.markdown("**60D Alpha**")
+            cls = "alpha-positive" if alpha_60d >= 0 else "alpha-negative"
+            st.markdown(f"<span class='{cls}'>{format_pct(alpha_60d)}</span>", unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.caption(
-            "All views above are powered by the WAVES Engine logs when present. "
-            "If logs are missing, the console switches to structure/demo mode with synthetic data, "
-            "keeping the full experience live for presentations."
+        st.markdown("---", unsafe_allow_html=True)
+
+        c5, c6, c7 = st.columns(3)
+        with c5:
+            st.markdown("**30D Return vs Benchmark**")
+            st.markdown(
+                f"{format_pct(ret_30d)} | <span style='color:#9fa6b2;'>{format_pct(bench_30d)}</span>",
+                unsafe_allow_html=True,
+            )
+        with c6:
+            st.markdown("**60D Return vs Benchmark**")
+            st.markdown(
+                f"{format_pct(ret_60d)} | <span style='color:#9fa6b2;'>{format_pct(bench_60d)}</span>",
+                unsafe_allow_html=True,
+            )
+        with c7:
+            st.markdown("**Since Inception vs Benchmark**")
+            st.markdown(
+                f"{format_pct(since_inc_ret)} | <span style='color:#9fa6b2;'>{format_pct(since_inc_bench)}</span>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Performance curve
+        st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Performance Curve</div>', unsafe_allow_html=True)
+
+        perf_chart_df = pd.DataFrame(
+            {
+                "Date": perf_df["date"],
+                "Wave": (1.0 + perf_df["portfolio_return"]).cumprod(),
+                "Benchmark": (1.0 + perf_df["benchmark_return"]).cumprod(),
+            }
+        ).set_index("Date")
+
+        st.line_chart(perf_chart_df)
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#9fa6b2;'>"
+            "This curve shows cumulative performance of the Wave vs its benchmark using daily returns."
+            "</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_right:
+        # Risk & drawdown
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Risk & Drawdown</div>', unsafe_allow_html=True)
+
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            st.markdown("**Max Drawdown**")
+            st.markdown(format_pct(max_dd_pct))
+        with col_r2:
+            realized_beta = np.cov(
+                perf_df["portfolio_return"], perf_df["benchmark_return"]
+            )[0, 1] / np.var(perf_df["benchmark_return"])
+            st.markdown("**Realized β**")
+            st.markdown(f"{realized_beta:.2f}")
+
+        st.markdown("---", unsafe_allow_html=True)
+
+        dd_chart_df = pd.DataFrame(
+            {
+                "Date": perf_df["date"],
+                "Drawdown": dd_series.values,
+            }
+        ).set_index("Date")
+        st.area_chart(dd_chart_df)
+
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#9fa6b2;'>"
+            "Drawdown is computed from cumulative portfolio value; minimum value is shown as Max DD."
+            "</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Data regime / mode notes
+        st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Data Regime</div>', unsafe_allow_html=True)
+        regime = "LIVE (engine logs)" if is_live else "SANDBOX (synthetic demo)"
+        st.markdown(f"**Regime:** {regime}")
+        st.markdown(
+            "- Live logs are read from `logs/performance/<Wave>_performance_daily.csv`.\n"
+            "- When logs are missing or malformed, a synthetic but internally consistent series is generated.\n"
+            "- Beta targets and drift assumptions are always taken from the selected mode."
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================
+# Alpha Dashboard tab
+# ================================
+with tab_alpha:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Alpha Timelines</div>', unsafe_allow_html=True)
+
+    alpha_chart_df = pd.DataFrame(
+        {
+            "Date": perf_df["date"],
+            "Alpha 1D": perf_df["alpha_1d"],
+            "Alpha 30D": perf_df["alpha_30d"],
+            "Alpha 60D": perf_df["alpha_60d"],
+        }
+    ).set_index("Date")
+
+    st.line_chart(alpha_chart_df)
+
+    st.markdown(
+        "<span style='font-size:0.8rem;color:#9fa6b2;'>"
+        "All alphas are internally computed as β-adjusted excess returns relative to the benchmark "
+        "using the mode-specific β target. 30D and 60D windows are rolling sums of daily alpha, "
+        "which are time-additive and easy to audit from the underlying logs."
+        "</span>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Distribution Snapshot</div>', unsafe_allow_html=True)
+
+    col_a1, col_a2, col_a3 = st.columns(3)
+    with col_a1:
+        st.markdown("**Mean 1D Alpha**")
+        st.markdown(format_pct(perf_df["alpha_1d"].mean() * 100.0))
+    with col_a2:
+        st.markdown("**% Positive 1D Alpha**")
+        pct_pos = (perf_df["alpha_1d"] > 0).mean() * 100.0
+        st.markdown(format_pct(pct_pos))
+    with col_a3:
+        st.markdown("**Alpha Volatility (1D)**")
+        st.markdown(format_pct(perf_df["alpha_1d"].std() * 100.0))
+
+    st.markdown(
+        "<span style='font-size:0.75rem;color:#9fa6b2;'>"
+        "These are descriptive only and are not presented as forward-looking expectations."
+        "</span>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================
+# Top 10 Holdings tab
+# ================================
+with tab_top10:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Top 10 Holdings</div>', unsafe_allow_html=True)
+
+    top10_df = load_positions_top10(selected_wave)
+
+    if top10_df is None or top10_df.empty:
+        st.markdown(
+            "No positions logs found for this Wave yet.\n\n"
+            "- Expected pattern: `logs/positions/<Wave>_positions_YYYYMMDD.csv`\n"
+            "- The console will automatically populate once the engine writes at least one positions file."
+        )
+    else:
+        # Render the table with Google Finance links for each ticker
+        st.markdown(
+            "<span style='font-size:0.8rem;color:#9fa6b2;'>"
+            "Ticker links go directly to Google Finance for quick quote lookups."
+            "</span>",
+            unsafe_allow_html=True,
         )
 
+        st.dataframe(
+            top10_df,
+            use_container_width=True,
+        )
 
-if __name__ == "__main__":
-    main()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================
+# Engine Logs tab
+# ================================
+with tab_logs:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Engine Performance Log</div>', unsafe_allow_html=True)
+
+    perf_file = LOGS_PERF_DIR / f"{selected_wave}_performance_daily.csv"
+
+    if perf_file.exists():
+        st.markdown(
+            f"Reading from: `{perf_file}`  "
+            f"({'LIVE' if is_live else 'SANDBOX mirror from this file'})"
+        )
+
+        # Show last ~75 rows for quick scanning
+        display_cols = ["date", "portfolio_return", "benchmark_return", "alpha_1d", "alpha_30d", "alpha_60d"]
+        display_cols_existing = [c for c in display_cols if c in perf_df.columns]
+
+        st.dataframe(
+            perf_df[display_cols_existing].tail(75),
+            use_container_width=True,
+        )
+    else:
+        st.markdown(
+            "No live performance log found for this Wave.\n\n"
+            "The console is currently running in **demo/sandbox** mode for this Wave, "
+            "using internally generated performance that respects the selected mode's "
+            "β and drift assumptions."
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
