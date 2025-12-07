@@ -1,555 +1,521 @@
-import streamlit as st
-import pandas as pd
+import datetime as dt
+from typing import Dict, List, Tuple
+
 import numpy as np
+import pandas as pd
+import streamlit as st
 import yfinance as yf
-from datetime import datetime, timedelta
 
-st.set_page_config(
-    page_title="WAVES Institutional Console",
-    layout="wide",
-)
-
-# -------------------------------------------------------------------
-# 1. Configuration: Waves, modes, defaults
-# -------------------------------------------------------------------
+# ============================================================
+# 1. Core configuration
+# ============================================================
 
 BENCHMARK_TICKER = "SPY"
 VIX_TICKER = "^VIX"
 
-WAVES = {
-    "AI_Wave": "AI_Wave",
-    "Growth_Wave": "Growth_Wave",
-    "FuturePower_Wave": "FuturePower_Wave",
-    "Quantum_Wave": "Quantum_Wave",
-    "CleanTransitInfra_Wave": "CleanTransitInfra_Wave",
-    "SmallCapGrowth_Wave": "SmallCapGrowth_Wave",
-    "SmallMidGrowth_Wave": "SmallMidGrowth_Wave",
-    "Crypto_Wave": "Crypto_Wave",
-    "SP500_Wave": "SP500_Wave",
-}
+# 9 locked-in waves (names must match wave_weights.csv if used)
+WAVES = [
+    "AI_Wave",
+    "Growth_Wave",
+    "Quantum_Wave",
+    "FuturePower_Wave",
+    "CleanTransitInfra_Wave",
+    "Crypto_Wave",
+    "SmallCap_Wave",
+    "SmallMidGrowth_Wave",
+    "SP500_Wave",
+]
 
-# Fallback weights if CSV fails (toy defaults – CSV should overwrite these)
-DEFAULT_WAVE_WEIGHTS = {
+MODES = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+
+# Default lookback in trading days
+DEFAULT_LOOKBACK_DAYS = 365
+
+# ============================================================
+# 2. Default weights (safe fallback if CSV is missing/broken)
+#    You can edit these tickers/weights later.
+# ============================================================
+
+# Dict[wave_name, List[(ticker, weight)]]
+DEFAULT_WAVE_WEIGHTS: Dict[str, List[Tuple[str, float]]] = {
     "AI_Wave": [
-        ("NVDA", 0.18),
-        ("MSFT", 0.16),
-        ("META", 0.14),
-        ("GOOGL", 0.12),
-        ("AMZN", 0.10),
-        ("AVGO", 0.08),
-        ("CRM", 0.08),
-        ("PLTR", 0.07),
-        ("AMD", 0.07),
+        ("NVDA", 0.34),
+        ("MSFT", 0.33),
+        ("META", 0.33),
     ],
     "Growth_Wave": [
-        ("AAPL", 0.15),
-        ("TSLA", 0.15),
-        ("NFLX", 0.10),
-        ("SHOP", 0.10),
-        ("ABNB", 0.10),
-        ("NOW", 0.10),
-        ("ADBE", 0.10),
-        ("SQ", 0.10),
-        ("INTU", 0.10),
-    ],
-    "FuturePower_Wave": [
-        ("ENPH", 0.15),
-        ("FSLR", 0.15),
-        ("NEE", 0.15),
-        ("SEDG", 0.15),
-        ("PLUG", 0.10),
-        ("RUN", 0.10),
-        ("DQ", 0.10),
-        ("BLDP", 0.10),
+        ("AAPL", 0.34),
+        ("AMZN", 0.33),
+        ("TSLA", 0.33),
     ],
     "Quantum_Wave": [
-        ("IBM", 0.20),
-        ("MSFT", 0.20),
-        ("GOOGL", 0.15),
-        ("AMZN", 0.15),
-        ("AAPL", 0.10),
-        ("NVDA", 0.10),
-        ("QUBT", 0.10),
+        ("NVDA", 0.4),
+        ("AMD", 0.3),
+        ("TSM", 0.3),
+    ],
+    "FuturePower_Wave": [
+        ("NEE", 0.34),
+        ("ENPH", 0.33),
+        ("FSLR", 0.33),
     ],
     "CleanTransitInfra_Wave": [
-        ("TSLA", 0.18),
-        ("NIO", 0.15),
-        ("NEE", 0.15),
-        ("F", 0.12),
-        ("GM", 0.10),
-        ("BLDR", 0.10),
-        ("CAT", 0.10),
-        ("VMC", 0.10),
-    ],
-    "SmallCapGrowth_Wave": [
-        ("IWM", 1.0),  # placeholder small-cap ETF
-    ],
-    "SmallMidGrowth_Wave": [
-        ("IJH", 1.0),  # placeholder mid-cap ETF
+        ("TSLA", 0.34),
+        ("NIO", 0.33),
+        ("BLDR", 0.33),
     ],
     "Crypto_Wave": [
-        ("BTC-USD", 0.60),
-        ("ETH-USD", 0.40),
+        ("BTC-USD", 0.5),
+        ("ETH-USD", 0.5),
+    ],
+    "SmallCap_Wave": [
+        ("IWM", 1.0),
+    ],
+    "SmallMidGrowth_Wave": [
+        ("IJT", 0.5),
+        ("IJK", 0.5),
     ],
     "SP500_Wave": [
         ("SPY", 1.0),
     ],
 }
 
-MODES = ["Standard", "Alpha-Minus-Beta", "Private Logic™"]
+
+def _defaults_as_df() -> pd.DataFrame:
+    rows = []
+    for wave, pairs in DEFAULT_WAVE_WEIGHTS.items():
+        for t, w in pairs:
+            rows.append({"wave": wave, "ticker": t, "weight": float(w)})
+    df = pd.DataFrame(rows)
+    # Ensure each wave’s weights sum to 1
+    df["weight"] = (
+        df["weight"] / df.groupby("wave")["weight"].transform("sum")
+    )
+    return df
 
 
-# -------------------------------------------------------------------
-# 2. Data loading helpers
-# -------------------------------------------------------------------
+# ============================================================
+# 3. Data loading helpers
+# ============================================================
 
 @st.cache_data
-def load_weights(path: str = "wave_weights.csv") -> pd.DataFrame:
+def load_wave_weights(path: str = "wave_weights.csv") -> pd.DataFrame:
     """
-    Load wave weights from CSV, clean them, and if anything goes wrong,
-    fall back to DEFAULT_WAVE_WEIGHTS.
-    CSV format required: wave,ticker,weight  (no extra columns).
+    Load wave_weights.csv if possible.
+    Requirements:
+        - Columns: wave, ticker, weight (case-insensitive)
+        - Comma-delimited
+    On any error, falls back to DEFAULT_WAVE_WEIGHTS.
     """
-    # Build fallback df from defaults
-    default_rows = []
-    for wave, pairs in DEFAULT_WAVE_WEIGHTS.items():
-        for ticker, w in pairs:
-            default_rows.append({"wave": wave, "ticker": ticker, "weight": w})
-    default_df = pd.DataFrame(default_rows, columns=["wave", "ticker", "weight"])
+    default_df = _defaults_as_df()
 
     try:
-        try:
-            df = pd.read_csv(path, on_bad_lines="skip")
-        except TypeError:
-            # Older pandas without on_bad_lines
-            df = pd.read_csv(path, error_bad_lines=False)
-    except FileNotFoundError:
-        st.warning("wave_weights.csv not found. Using code-managed default weights.")
-        return default_df
+        raw = pd.read_csv(path)
     except Exception as e:
-        st.warning(f"Could not parse wave_weights.csv. Using defaults. (Error: {e})")
+        st.warning(
+            f"Could not read {path}: {e}. Using internal default weights."
+        )
         return default_df
 
-    if df is None or df.empty:
-        st.warning("wave_weights.csv is empty or malformed. Using default weights.")
-        return default_df
-
-    # Normalize column names (case / whitespace)
-    col_map = {c.strip().lower(): c for c in df.columns}
+    # Normalize column names
+    col_map = {c.strip().lower(): c for c in raw.columns}
     required = ["wave", "ticker", "weight"]
-    for r in required:
-        if r not in col_map:
-            st.warning(
-                "wave_weights.csv is missing required columns "
-                "['wave', 'ticker', 'weight']. Using code-managed default weights."
-            )
-            return default_df
+    if not all(r in col_map for r in required):
+        st.warning(
+            f"{path} is missing required columns {required}. "
+            "Using internal default weights."
+        )
+        return default_df
 
     wave_col = col_map["wave"]
     ticker_col = col_map["ticker"]
     weight_col = col_map["weight"]
 
-    # Clean values
-    df[wave_col] = df[wave_col].astype(str).str.strip()
-    df[ticker_col] = df[ticker_col].astype(str).str.strip().str.upper()
-    df[weight_col] = pd.to_numeric(df[weight_col], errors="coerce")
-
-    df = df.dropna(subset=[weight_col])
-
-    # Normalize weights per wave so they sum to 1
-    df["weight_norm"] = (
-        df.groupby(wave_col)[weight_col].transform(lambda x: x / x.sum())
+    df = raw[[wave_col, ticker_col, weight_col]].copy()
+    df.rename(
+        columns={
+            wave_col: "wave",
+            ticker_col: "ticker",
+            weight_col: "weight",
+        },
+        inplace=True,
     )
 
-    clean_df = df.rename(
-        columns={wave_col: "wave", ticker_col: "ticker", "weight_norm": "weight"}
-    )[["wave", "ticker", "weight"]]
+    # Clean up
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip()
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
 
-    return clean_df
+    # Drop bad rows
+    df = df.dropna(subset=["wave", "ticker", "weight"])
+    if df.empty:
+        st.warning(
+            f"{path} had no valid rows after cleaning. "
+            "Using internal default weights."
+        )
+        return default_df
+
+    # Keep only known waves to avoid typos killing the app
+    df = df[df["wave"].isin(WAVES)]
+    if df.empty:
+        st.warning(
+            f"{path} contains no rows for the configured waves {WAVES}. "
+            "Using internal default weights."
+        )
+        return default_df
+
+    # Normalize weights within each wave
+    df["weight"] = (
+        df["weight"]
+        / df.groupby("wave")["weight"].transform("sum")
+    )
+
+    return df
 
 
 @st.cache_data
-def fetch_price_history(tickers, start: datetime, end: datetime) -> pd.DataFrame:
+def fetch_price_history(
+    tickers: List[str],
+    start: dt.date,
+    end: dt.date,
+) -> pd.DataFrame:
     """
-    Fetch adjusted close prices for a list of tickers using yfinance.
-    Returns a DataFrame with Date index and tickers as columns.
+    Fetch Adj Close for a list of tickers.
+    Returns a DataFrame indexed by date with one column per ticker.
     """
-    if len(tickers) == 0:
+    if not tickers:
         return pd.DataFrame()
 
     data = yf.download(
-        tickers=list(set(tickers)),
+        tickers=tickers,
         start=start,
-        end=end + timedelta(days=1),
-        auto_adjust=True,
+        end=end + dt.timedelta(days=1),
         progress=False,
-        group_by="column",
     )
 
+    # yfinance returns different shapes for 1 vs many tickers
     if isinstance(data, pd.DataFrame) and "Adj Close" in data.columns:
-        data = data["Adj Close"]
+        prices = data["Adj Close"].copy()
+    else:
+        prices = data.copy()
 
-    data = data.sort_index()
-    return data
+    if isinstance(prices, pd.Series):
+        prices = prices.to_frame(name=tickers[0])
+
+    prices = prices.dropna(how="all")
+    return prices
 
 
 @st.cache_data
-def fetch_vix_history(start: datetime, end: datetime) -> pd.DataFrame:
-    data = yf.download(
-        VIX_TICKER,
-        start=start,
-        end=end + timedelta(days=1),
-        auto_adjust=False,
-        progress=False,
-    )
-    if isinstance(data, pd.DataFrame) and "Close" in data.columns:
-        data = data[["Close"]].rename(columns={"Close": "VIX"})
-    return data.sort_index()
+def fetch_single_price(
+    ticker: str,
+    start: dt.date,
+    end: dt.date,
+) -> pd.Series:
+    df = fetch_price_history([ticker], start, end)
+    if ticker in df.columns:
+        return df[ticker].dropna()
+    elif df.shape[1] == 1:
+        return df.iloc[:, 0].dropna()
+    return pd.Series(dtype=float)
 
 
-# -------------------------------------------------------------------
-# 3. Portfolio & alpha math
-# -------------------------------------------------------------------
+# ============================================================
+# 4. Portfolio / alpha calculations
+# ============================================================
 
-def compute_wave_timeseries(
+def compute_wave_series(
     wave_name: str,
     weights_df: pd.DataFrame,
-    prices: pd.DataFrame,
-    benchmark_ticker: str = BENCHMARK_TICKER,
-) -> dict:
+    all_prices: pd.DataFrame,
+) -> pd.DataFrame:
     """
-    Build equity curves and daily returns for a single wave vs benchmark.
-    Returns dict with:
-        equity_df: DataFrame [wave_equity, benchmark_equity]
-        returns_df: DataFrame [wave_ret, bench_ret]
+    Compute daily returns, equity curve, and alpha vs SPY
+    for a single wave.
     """
-    if prices is None or prices.empty:
-        return {"equity_df": pd.DataFrame(), "returns_df": pd.DataFrame()}
+    # Subset weights for this wave
+    w = weights_df[weights_df["wave"] == wave_name].copy()
+    if w.empty:
+        return pd.DataFrame()
 
-    wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
-    if wave_weights.empty:
-        return {"equity_df": pd.DataFrame(), "returns_df": pd.DataFrame()}
+    tickers = list(w["ticker"].unique())
+    w = w.set_index("ticker")["weight"]
 
-    tickers = [t for t in wave_weights["ticker"].unique() if t in prices.columns]
-    if len(tickers) == 0 or benchmark_ticker not in prices.columns:
-        return {"equity_df": pd.DataFrame(), "returns_df": pd.DataFrame()}
-
-    w = wave_weights.set_index("ticker")["weight"]
-    w = w.loc[[t for t in tickers if t in w.index]]
-    w = w / w.sum()
-
-    wave_prices = prices[tickers]
-    bench_prices = prices[[benchmark_ticker]]
-
-    # Compute normalized equity curves (start at 1.0)
-    wave_equity = (wave_prices.pct_change().fillna(0).dot(w) + 1.0).cumprod()
-    bench_equity = (bench_prices[benchmark_ticker].pct_change().fillna(0) + 1.0).cumprod()
-
-    equity_df = pd.DataFrame(
-        {
-            "wave": wave_equity,
-            "benchmark": bench_equity,
-        }
-    )
+    # Align prices
+    prices = all_prices.reindex(columns=tickers).dropna(how="all")
+    prices = prices.dropna(how="any", axis=0)
+    if prices.empty:
+        return pd.DataFrame()
 
     # Daily returns
-    returns_df = equity_df.pct_change().dropna()
-    returns_df.columns = ["wave_ret", "bench_ret"]
+    rets = prices.pct_change().dropna(how="all")
+    # Wave return: weighted sum each day
+    aligned_weights = w.reindex(rets.columns).fillna(0.0)
+    wave_ret = (rets * aligned_weights).sum(axis=1)
 
-    return {"equity_df": equity_df, "returns_df": returns_df}
+    # Benchmark
+    if BENCHMARK_TICKER in all_prices.columns:
+        bench_price = all_prices[BENCHMARK_TICKER].loc[rets.index]
+    else:
+        bench_price = fetch_single_price(
+            BENCHMARK_TICKER,
+            rets.index.min().date(),
+            rets.index.max().date(),
+        )
+        bench_price = bench_price.reindex(rets.index).ffill().bfill()
+
+    bench_ret = bench_price.pct_change().reindex(wave_ret.index).fillna(0.0)
+
+    # Equity curves (normalized to 1.0)
+    wave_equity = (1 + wave_ret).cumprod()
+    bench_equity = (1 + bench_ret).cumprod()
+
+    # Simple alpha = wave_ret - bench_ret
+    alpha_daily = wave_ret - bench_ret
+    alpha_cum = alpha_daily.cumsum()
+
+    df = pd.DataFrame(
+        {
+            "wave_ret": wave_ret,
+            "bench_ret": bench_ret,
+            "wave_equity": wave_equity,
+            "bench_equity": bench_equity,
+            "alpha_daily": alpha_daily,
+            "alpha_cum": alpha_cum,
+        }
+    )
+    return df
 
 
-def compute_alpha_windows_from_equity(equity_df: pd.DataFrame, beta: float = 1.0) -> dict:
+def compute_alpha_windows(
+    series_df: pd.DataFrame,
+    windows: List[int],
+) -> Dict[int, float]:
     """
-    Given an equity curve DataFrame with columns [wave, benchmark],
-    compute alpha over 30D, 60D, 6M, and 1Y windows for THIS wave only.
-    Alpha = WaveReturn - beta * BenchmarkReturn for each window.
-    Returns values in percent (e.g., 1.23 = +1.23% alpha).
+    Compute cumulative alpha for the last N days
+    for each window in `windows`.
     """
-    if equity_df is None or equity_df.empty:
-        return {"30D": np.nan, "60D": np.nan, "6M": np.nan, "1Y": np.nan}
+    results: Dict[int, float] = {}
+    if series_df.empty:
+        for w in windows:
+            results[w] = np.nan
+        return results
 
-    wave_col, bench_col = equity_df.columns[:2]
-
-    def window_alpha(days: int) -> float:
-        if len(equity_df) < 2:
-            return np.nan
-        window_len = min(days, len(equity_df))
-        sub = equity_df.iloc[-window_len:]
-
-        wave_ret = sub[wave_col].iloc[-1] / sub[wave_col].iloc[0] - 1.0
-        bench_ret = sub[bench_col].iloc[-1] / sub[bench_col].iloc[0] - 1.0
-
-        return (wave_ret - beta * bench_ret) * 100.0
-
-    return {
-        "30D": window_alpha(30),
-        "60D": window_alpha(60),
-        "6M": window_alpha(126),   # ~6 months trading days
-        "1Y": window_alpha(252),   # ~1 year trading days
-    }
+    alpha = series_df["alpha_daily"].copy()
+    n = len(alpha)
+    for w in windows:
+        if n < 2:
+            results[w] = np.nan
+            continue
+        look = min(w, n)
+        window_alpha = alpha.iloc[-look:].sum()
+        results[w] = window_alpha
+    return results
 
 
-def compute_realized_beta(returns_df: pd.DataFrame) -> float:
-    if returns_df is None or returns_df.empty:
+def estimate_realized_beta(series_df: pd.DataFrame) -> float:
+    if series_df.empty:
         return np.nan
-    x = returns_df["bench_ret"].values
-    y = returns_df["wave_ret"].values
-    if len(x) < 2 or np.var(x) == 0:
+    x = series_df["bench_ret"].values
+    y = series_df["wave_ret"].values
+    if len(x) < 10:
         return np.nan
-    cov = np.cov(y, x)[0, 1]
-    var = np.var(x)
-    return cov / var if var != 0 else np.nan
+    x = x - x.mean()
+    y = y - y.mean()
+    denom = np.dot(x, x)
+    if denom == 0:
+        return np.nan
+    beta = float(np.dot(x, y) / denom)
+    return beta
 
 
-def mode_exposure(mode: str) -> float:
-    """
-    Simple exposure targets per mode.
-    Returns equity exposure (0–1). SmartSafe = 1 - exposure.
-    """
-    if mode == "Alpha-Minus-Beta":
-        return 0.70
-    elif mode == "Private Logic™":
-        return 0.85
-    return 0.75  # Standard
-
-
-# -------------------------------------------------------------------
-# 4. Streamlit UI
-# -------------------------------------------------------------------
+# ============================================================
+# 5. Streamlit UI
+# ============================================================
 
 def main():
-    # Sidebar controls
-    st.sidebar.header("Wave & Mode")
-
-    wave_name = st.sidebar.selectbox(
-        "Select Wave",
-        options=list(WAVES.keys()),
-        index=list(WAVES.keys()).index("SP500_Wave") if "SP500_Wave" in WAVES else 0,
+    st.set_page_config(
+        page_title="WAVES Institutional Console",
+        layout="wide",
+        initial_sidebar_state="expanded",
     )
 
-    mode = st.sidebar.selectbox("Mode", MODES, index=0)
+    # ----- Sidebar: wave & mode -----
+    st.sidebar.header("Wave & Mode")
 
+    wave_name = st.sidebar.selectbox("Select Wave", WAVES, index=0)
+    mode = st.sidebar.selectbox("Mode", MODES, index=0)
     lookback_days = st.sidebar.slider(
         "Lookback (trading days)",
         min_value=60,
-        max_value=365,
-        value=365,
+        max_value=730,
+        value=DEFAULT_LOOKBACK_DAYS,
+        step=5,
     )
 
     show_debug = st.sidebar.checkbox("Show debug info", value=False)
 
-    # Date range
-    end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=int(lookback_days * 1.5))
+    # ----- Dates -----
+    end_date = dt.date.today()
+    start_date = end_date - dt.timedelta(days=int(lookback_days * 1.6))
 
-    # Load weights and prices
-    weights_df = load_weights("wave_weights.csv")
-    tickers_for_wave = weights_df[weights_df["wave"] == wave_name]["ticker"].tolist()
-    all_tickers = list(set(tickers_for_wave + [BENCHMARK_TICKER]))
+    # ----- Load weights safely -----
+    weights_df = load_wave_weights("wave_weights.csv")
+
+    # Build list of all tickers we need prices for
+    all_tickers = sorted(weights_df["ticker"].unique().tolist())
+    if BENCHMARK_TICKER not in all_tickers:
+        all_tickers.append(BENCHMARK_TICKER)
+    if VIX_TICKER not in all_tickers:
+        all_tickers.append(VIX_TICKER)
 
     prices = fetch_price_history(all_tickers, start_date, end_date)
-    vix_df = fetch_vix_history(start_date, end_date)
 
-    # Compute wave vs benchmark series
-    series = compute_wave_timeseries(wave_name, weights_df, prices, BENCHMARK_TICKER)
-    equity_df = series["equity_df"]
-    returns_df = series["returns_df"]
+    # ----- Compute series for selected wave -----
+    series_df = compute_wave_series(wave_name, weights_df, prices)
 
-    latest_vix = float(vix_df["VIX"].iloc[-1]) if not vix_df.empty else np.nan
-
-    # Top layout
     st.markdown("## WAVES Institutional Console")
-    st.caption(
-        "Adaptive Portfolio Waves • AIWs/APWs • SmartSafe™ • VIX-gated risk • "
-        "Alpha-Minus-Beta & Private Logic™"
+    st.markdown(
+        "Adaptive Portfolio Waves • AIWs/APWs • SmartSafe™ • "
+        "VIX-gated risk • Alpha-Minus-Beta & Private Logic™"
     )
 
-    cols_top = st.columns([1, 1, 1, 1, 1, 1])
+    # Engine status
+    st.markdown(
+        f"<div style='text-align:right;color:#00FF00;'>"
+        f"Engine Status: SANDBOX &nbsp;&nbsp;&nbsp; "
+        f"Last refresh: {dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
-    # Default values
-    wave_today = np.nan
-    bench_today = np.nan
-    alpha_today = np.nan
-    realized_beta = compute_realized_beta(returns_df)
-    exposure_now = mode_exposure(mode)
-    smartsafe_now = 1.0 - exposure_now
+    # ----- Top metrics row -----
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-    if not returns_df.empty:
-        last_ret = returns_df.iloc[-1]
-        wave_today = last_ret["wave_ret"] * 100.0
-        bench_today = last_ret["bench_ret"] * 100.0
+    if series_df.empty:
+        wave_today = np.nan
+        bench_today = np.nan
+        today_alpha = np.nan
+        realized_beta = np.nan
+    else:
+        wave_today = series_df["wave_ret"].iloc[-1]
+        bench_today = series_df["bench_ret"].iloc[-1]
+        today_alpha = series_df["alpha_daily"].iloc[-1]
+        realized_beta = estimate_realized_beta(series_df)
 
-        beta_for_alpha = realized_beta if not np.isnan(realized_beta) else 1.0
-        alpha_today = (last_ret["wave_ret"] - beta_for_alpha * last_ret["bench_ret"]) * 100.0
+    # Simple placeholder exposure logic (can refine later)
+    if mode == "Standard":
+        exposure = 0.75
+    elif mode == "Alpha-Minus-Beta":
+        exposure = 0.60
+    else:  # Private Logic
+        exposure = 0.90
 
-    with cols_top[0]:
-        st.metric("Wave Today", f"{wave_today:0.2f}%" if not np.isnan(wave_today) else "—")
-    with cols_top[1]:
-        st.metric(
-            "Benchmark Today (SPY)",
-            f"{bench_today:0.2f}%" if not np.isnan(bench_today) else "—",
-        )
-    with cols_top[2]:
-        st.metric(
-            "Today Alpha Captured",
-            f"{alpha_today:0.2f}%" if not np.isnan(alpha_today) else "—",
-        )
-    with cols_top[3]:
-        st.metric(
-            "Realized Beta vs SPY",
-            f"{realized_beta:0.2f}" if not np.isnan(realized_beta) else "—",
-            help="Rolling beta computed from this wave's daily returns vs SPY.",
-        )
-    with cols_top[4]:
-        st.metric("Current Exposure", f"{exposure_now * 100:0.1f}%")
-    with cols_top[5]:
-        st.metric(
-            "SmartSafe™ Allocation Now",
-            f"{smartsafe_now * 100:0.1f}%",
-        )
+    smartsafe_alloc = 1.0 - exposure
 
-    cols_vix = st.columns([1, 3])
-    with cols_vix[0]:
-        st.metric(
-            "VIX (latest)",
-            f"{latest_vix:0.1f}" if not np.isnan(latest_vix) else "—",
-            help="CBOE Volatility Index (approximate fear gauge).",
-        )
-    with cols_vix[1]:
-        st.caption(f"Engine Status: SANDBOX • Last refresh: {datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC")
+    # VIX latest
+    vix_series = fetch_single_price(VIX_TICKER, start_date, end_date)
+    vix_latest = float(vix_series.iloc[-1]) if not vix_series.empty else np.nan
+
+    col1.metric("Wave Today", f"{wave_today * 100:0.2f}%" if pd.notna(wave_today) else "–")
+    col2.metric(
+        "Benchmark Today (SPY)",
+        f"{bench_today * 100:0.2f}%" if pd.notna(bench_today) else "–",
+    )
+    col3.metric(
+        "Today Alpha Captured",
+        f"{today_alpha * 100:0.2f}%" if pd.notna(today_alpha) else "–",
+    )
+    col4.metric(
+        "Realized Beta vs SPY",
+        f"{realized_beta:0.2f}" if pd.notna(realized_beta) else "–",
+    )
+    col5.metric("Current Exposure", f"{exposure * 100:0.1f}%")
+    col6.metric(
+        "SmartSafe™ Allocation Now", f"{smartsafe_alloc * 100:0.1f}%"
+    )
 
     st.markdown("---")
 
-    # ----------------------------------------------------------------
-    # Alpha Captured Windows (THIS WAVE ONLY) – NEW PER-WAVE LOGIC
-    # ----------------------------------------------------------------
-    alpha_windows = compute_alpha_windows_from_equity(
-        equity_df, beta=realized_beta if not np.isnan(realized_beta) else 1.0
-    )
-
+    # ----- Alpha captured windows -----
     st.markdown("### Alpha Captured Windows (This Wave Only)")
-    cols_alpha = st.columns(4)
-    with cols_alpha[0]:
-        val = alpha_windows["30D"]
-        st.metric("30D", f"{val:0.2f}%" if not np.isnan(val) else "—")
-    with cols_alpha[1]:
-        val = alpha_windows["60D"]
-        st.metric("60D", f"{val:0.2f}%" if not np.isnan(val) else "—")
-    with cols_alpha[2]:
-        val = alpha_windows["6M"]
-        st.metric("6M", f"{val:0.2f}%" if not np.isnan(val) else "—")
-    with cols_alpha[3]:
-        val = alpha_windows["1Y"]
-        st.metric("1Y", f"{val:0.2f}%" if not np.isnan(val) else "—")
+
+    win_cols = st.columns(4)
+    windows = [30, 60, 126, 252]  # 30D, 60D, ~6M, ~1Y
+    alpha_windows = compute_alpha_windows(series_df, windows)
+
+    labels = ["30D", "60D", "6M", "1Y"]
+    for c, lbl, w in zip(win_cols, labels, windows):
+        val = alpha_windows.get(w, np.nan)
+        c.metric(
+            lbl,
+            f"{val * 100:0.2f}%" if pd.notna(val) else "–",
+        )
 
     st.markdown("---")
 
-    # ----------------------------------------------------------------
-    # Charts: Equity curve and benchmark
-    # ----------------------------------------------------------------
-    col_chart, col_holdings = st.columns([2, 1])
+    # ----- Equity curve + Top holdings -----
+    left, right = st.columns([2, 1])
 
-    with col_chart:
-        st.markdown(f"#### {wave_name} vs Benchmark (Equity Curves)")
-        if equity_df.empty:
+    with left:
+        st.markdown(f"### {wave_name} vs Benchmark (Equity Curves)")
+        if series_df.empty:
             st.info("No price data available for this wave / benchmark.")
         else:
-            st.line_chart(equity_df.rename(columns={"wave": wave_name, "benchmark": "SPY"}))
-
-    # ----------------------------------------------------------------
-    # Top holdings (live)
-    # ----------------------------------------------------------------
-    with col_holdings:
-        st.markdown("#### Top Holdings (Live)")
-        if len(tickers_for_wave) == 0:
-            st.info("No holdings configured for this wave.")
-        else:
-            # Fetch latest prices for just this wave's tickers
-            latest_prices = yf.download(
-                tickers=list(set(tickers_for_wave)),
-                period="5d",
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                group_by="column",
+            eq = series_df[["wave_equity", "bench_equity"]].copy()
+            eq.rename(
+                columns={
+                    "wave_equity": wave_name,
+                    "bench_equity": "SPY",
+                },
+                inplace=True,
             )
-            if isinstance(latest_prices, pd.DataFrame) and "Close" in latest_prices.columns:
-                latest_prices = latest_prices["Close"]
+            st.line_chart(eq)
 
-            latest_row = latest_prices.iloc[-1] if isinstance(latest_prices, pd.DataFrame) and not latest_prices.empty else pd.Series(dtype=float)
-            prev_row = latest_prices.iloc[-2] if isinstance(latest_prices, pd.DataFrame) and len(latest_prices) > 1 else None
+    with right:
+        st.markdown("### Top Holdings (Live)")
 
-            wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
-            wave_weights = wave_weights.sort_values("weight", ascending=False)
+        ww = weights_df[weights_df["wave"] == wave_name].copy()
+        if ww.empty:
+            st.info("No holdings defined for this wave.")
+        else:
+            # Make sure we don't hit the previous pandas error:
+            # use a plain DataFrame, unique column names, simple sort_values
+            ww = ww[["ticker", "weight"]].copy()
+            ww["weight_pct"] = ww["weight"] * 100.0
+            ww = ww.sort_values(by="weight", ascending=False)
 
-            rows = []
-            for _, r in wave_weights.iterrows():
-                t = r["ticker"]
-                w = r["weight"] * 100.0
-                price_today = float(latest_row[t]) if t in latest_row.index else np.nan
-                if prev_row is not None and t in prev_row.index and not np.isnan(price_today):
-                    price_yday = float(prev_row[t])
-                    todays_pct = (price_today / price_yday - 1.0) * 100.0 if price_yday != 0 else np.nan
-                else:
-                    todays_pct = np.nan
-
-                google_url = f"https://www.google.com/finance/quote/{t}:NASDAQ"
-                ticker_link = f"[{t}]({google_url})"
-
-                rows.append(
-                    {
-                        "Ticker": ticker_link,
-                        "Weight": f"{w:0.2f}%",
-                        "Today%": f"{todays_pct:0.2f}%" if not np.isnan(todays_pct) else "—",
-                    }
-                )
-
-            if rows:
-                holdings_df = pd.DataFrame(rows)
-                st.markdown(
-                    holdings_df.to_markdown(index=False),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.info("No valid holdings found for this wave.")
+            display_df = ww[["ticker", "weight_pct"]].copy()
+            display_df.rename(columns={"weight_pct": "Weight %"}, inplace=True)
+            display_df["Google Quote"] = display_df["ticker"].apply(
+                lambda t: f"https://www.google.com/finance/quote/{t}:NASDAQ"
+            )
+            st.dataframe(display_df, use_container_width=True)
 
     st.markdown("---")
 
-    # ----------------------------------------------------------------
-    # Benchmark & VIX charts
-    # ----------------------------------------------------------------
-    st.markdown("### Market Context")
-    col_spy, col_vix = st.columns(2)
-
-    if not prices.empty and BENCHMARK_TICKER in prices.columns:
-        spy_equity = (prices[BENCHMARK_TICKER].pct_change().fillna(0) + 1.0).cumprod()
-        with col_spy:
-            st.markdown("#### SPY (Benchmark) – Price (Normalized)")
-            st.line_chart(spy_equity.rename("SPY"))
-    else:
-        with col_spy:
-            st.info("No SPY data available.")
-
-    with col_vix:
-        st.markdown("#### VIX – Level")
-        if not vix_df.empty:
-            st.line_chart(vix_df["VIX"])
+    # ----- SPY & VIX charts -----
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("### SPY (Benchmark) – Price")
+        spy_series = fetch_single_price(BENCHMARK_TICKER, start_date, end_date)
+        if spy_series.empty:
+            st.info("No SPY price data available.")
         else:
-            st.info("No VIX data available.")
+            st.line_chart(spy_series.to_frame("SPY"))
 
-    # ----------------------------------------------------------------
-    # Debug section
-    # ----------------------------------------------------------------
+    with c2:
+        st.markdown("### VIX – Level")
+        if vix_series.empty:
+            st.info("No VIX data available.")
+        else:
+            st.line_chart(vix_series.to_frame("VIX"))
+
+    # ----- Debug section -----
     if show_debug:
-        st.markdown("### Debug Information")
-        st.write("Selected wave:", wave_name)
-        st.write("Mode:", mode)
-        st.write("Lookback days:", lookback_days)
-        st.write("Weights (this wave):", weights_df[weights_df["wave"] == wave_name])
-        st.write("Equity DF (tail):", equity_df.tail())
-        st.write("Returns DF (tail):", returns_df.tail())
-        st.write("Alpha windows:", alpha_windows)
+        st.markdown("### Debug Info")
+        st.write("Wave weights (cleaned):", weights_df.head())
+        st.write("Prices (sample):", prices.iloc[:5, :5])
+        st.write("Series DF (tail):", series_df.tail())
 
 
 if __name__ == "__main__":
