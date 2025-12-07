@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -22,9 +22,25 @@ LOGS_DIR = ROOT_DIR / "logs"
 PERF_DIR = LOGS_DIR / "performance"
 POS_DIR = LOGS_DIR / "positions"
 
-# Ensure directories exist (safe on cloud + local)
 for d in [LOGS_DIR, PERF_DIR, POS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# Map internal wave IDs -> nice display names
+WAVE_NAME_MAP = {
+    "Growth_Wave": "Growth Wave",
+    "SP500_Wave": "S&P 500 Wave",
+    "Income_Wave": "Income Wave",
+    "Future_Power_Wave": "Future Power & Energy Wave",
+    "Crypto_Income_Wave": "Crypto Income Wave",
+    "Quantum_Wave": "Quantum Computing Wave",
+    "Clean_Transit_Wave": "Clean Transit & Infrastructure Wave",
+    "SMID_Growth_Wave": "Small–Mid Cap Growth Wave",
+    "AL_Wave": "AI Leaders Wave",
+}
+
+def pretty_wave_name(internal: str) -> str:
+    return WAVE_NAME_MAP.get(internal, internal.replace("_", " "))
+
 
 # ============================================================
 # STYLING
@@ -37,7 +53,6 @@ CUSTOM_CSS = """
     padding-bottom: 2rem;
 }
 
-/* make metrics pop a bit */
 [data-testid="stMetricValue"] {
     font-weight: 600;
     font-size: 1.4rem;
@@ -68,6 +83,28 @@ CUSTOM_CSS = """
     border: 1px solid rgba(0, 168, 255, 0.35);
     color: #00a8ff;
 }
+
+/* compact top-10 table */
+.top10-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.top10-table th {
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 0.25rem 0.4rem;
+}
+.top10-table td {
+    padding: 0.18rem 0.4rem;
+}
+.top10-ticker {
+    font-weight: 600;
+    text-decoration: none;
+}
+.top10-weight {
+    text-align: right;
+}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -75,7 +112,6 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # ============================================================
 # HELPERS
 # ============================================================
-
 
 def safe_read_csv(path: Path) -> Optional[pd.DataFrame]:
     if not path.exists():
@@ -96,7 +132,6 @@ def find_universe_file(root: Path) -> Optional[Path]:
     for c in candidates:
         if c.exists():
             return c
-    # fallback: first CSV in root
     for c in root.glob("*.csv"):
         return c
     return None
@@ -114,7 +149,7 @@ def load_universe_df() -> Optional[pd.DataFrame]:
     df = df.copy()
     df.columns = [c.strip().lower() for c in df.columns]
 
-    col_map = {}
+    col_map: Dict[str, str] = {}
 
     for candidate in ["wave", "wave_name", "portfolio", "strategy"]:
         if candidate in df.columns:
@@ -165,7 +200,9 @@ def get_available_waves(universe_df: Optional[pd.DataFrame]) -> List[str]:
         waves = sorted(universe_df["wave"].dropna().unique().tolist())
         if waves:
             return waves
+    # fallback list
     return [
+        "AL_Wave",
         "Growth_Wave",
         "SP500_Wave",
         "Income_Wave",
@@ -180,25 +217,22 @@ def get_available_waves(universe_df: Optional[pd.DataFrame]) -> List[str]:
 def find_latest_perf_file_for_wave(wave_name: str) -> Optional[Path]:
     if not PERF_DIR.exists():
         return None
-
     pattern_dated = list(PERF_DIR.glob(f"{wave_name}_performance_*_daily.csv"))
     pattern_simple = list(PERF_DIR.glob(f"{wave_name}_performance_daily.csv"))
     candidates = pattern_dated + pattern_simple
     if not candidates:
         return None
-
     latest = max(candidates, key=lambda p: p.stat().st_mtime)
     return latest
 
 
-def load_perf_df_for_wave(wave_name: str) -> Optional[pd.DataFrame]:
+def load_perf_df_for_wave(wave_name: str) -> Tuple[Optional[pd.DataFrame], Optional[Path]]:
     perf_path = find_latest_perf_file_for_wave(wave_name)
     if perf_path is None:
-        return None
-
+        return None, None
     df = safe_read_csv(perf_path)
     if df is None or df.empty:
-        return None
+        return None, perf_path
 
     df = df.copy()
     df.columns = [c.strip().lower() for c in df.columns]
@@ -211,7 +245,7 @@ def load_perf_df_for_wave(wave_name: str) -> Optional[pd.DataFrame]:
                 df["timestamp"] = df[candidate].astype(str)
             break
 
-    return df
+    return df, perf_path
 
 
 def compute_perf_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
@@ -227,7 +261,7 @@ def compute_perf_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[
 
     cols = perf_df.columns
 
-    for candidate in ["cumulative_return", "cum_return", "total_return"]:
+    for candidate in ["cumulative_return", "cum_return", "total_return", "portfolio_return"]:
         if candidate in cols:
             metrics["total_return"] = perf_df[candidate].iloc[-1]
             break
@@ -278,6 +312,108 @@ def fmt_bp(x: Optional[float]) -> str:
     return f"{x * 10000:,.0f} bp"
 
 
+def choose_perf_series(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Choose a good column (or few) to plot: prefer cum return / NAV over exposure."""
+    if df is None or df.empty:
+        return None
+
+    num = df.select_dtypes(include=["number"]).copy()
+    if num.empty:
+        return None
+
+    # score columns
+    scores: Dict[str, int] = {}
+    for c in num.columns:
+        cl = c.lower()
+        score = 0
+        if "cum" in cl and "return" in cl:
+            score += 100
+        if "nav" in cl or "portfolio_value" in cl or "equity_curve" in cl:
+            score += 90
+        if "return" in cl:
+            score += 60
+        if "equity_exposure" in cl or "beta" in cl or "exposure" in cl:
+            score -= 50
+        if "weight" in cl:
+            score -= 80
+        scores[c] = score
+
+    best_cols = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    best_cols = [c for c in best_cols if scores[c] > -10]  # drop obviously bad ones
+
+    if not best_cols:
+        best_cols = num.columns.tolist()
+
+    plot_df = num[best_cols[:2]]  # at most 2 lines
+    return plot_df
+
+
+def build_top10_html(df: pd.DataFrame, positions: Optional[pd.DataFrame]) -> str:
+    """Build HTML table for top 10 with Google Finance links & red/green coloring."""
+    df = df.copy()
+
+    # join in daily change if we have positions
+    change_map: Dict[str, float] = {}
+    if positions is not None and not positions.empty:
+        pos = positions.copy()
+        pos.columns = [c.strip().lower() for c in pos.columns]
+        change_col = None
+        for cand in ["day_return", "daily_return", "return", "change_pct", "pct_change"]:
+            if cand in pos.columns:
+                change_col = cand
+                break
+        if change_col and "ticker" in pos.columns:
+            for _, row in pos.iterrows():
+                t = str(row["ticker"])
+                val = row[change_col]
+                try:
+                    val = float(val)
+                    change_map[t] = val
+                except Exception:
+                    continue
+
+    rows_html = []
+    for _, row in df.head(10).iterrows():
+        ticker = str(row.get("ticker", ""))
+        weight = row.get("weight_pct", np.nan)
+        w_str = f"{weight * 100:,.2f}%" if pd.notnull(weight) else "—"
+
+        change = change_map.get(ticker)
+        if change is None or np.isnan(change):
+            color = "#cccccc"
+        elif change > 0:
+            color = "#00ff87"  # green
+        elif change < 0:
+            color = "#ff4b4b"  # red
+        else:
+            color = "#cccccc"
+
+        url = f"https://www.google.com/finance/quote/{ticker}"
+        cell = (
+            f"<a class='top10-ticker' href='{url}' target='_blank' "
+            f"style='color:{color};'>{ticker}</a>"
+        )
+        row_html = (
+            f"<tr><td>{cell}</td>"
+            f"<td class='top10-weight'>{w_str}</td></tr>"
+        )
+        rows_html.append(row_html)
+
+    table_html = """
+    <table class="top10-table">
+        <thead>
+            <tr><th>Ticker</th><th class="top10-weight">Weight %</th></tr>
+        </thead>
+        <tbody>
+            {rows}
+        </tbody>
+    </table>
+    """.format(
+        rows="\n".join(rows_html)
+    )
+    return table_html
+
+
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -299,7 +435,13 @@ with st.sidebar:
 
     st.markdown("---")
 
-    selected_wave = st.selectbox("Select Wave", available_waves, index=0)
+    # selectbox returns internal ID, but shows pretty name
+    selected_wave = st.selectbox(
+        "Select Wave",
+        available_waves,
+        index=0,
+        format_func=pretty_wave_name,
+    )
 
     mode = st.radio(
         "Risk Mode (label in this view)",
@@ -314,7 +456,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(
-        "Run `python3 waves_engine.py` in another terminal window to keep "
+        "Run `python3 waves_engine.py` in another terminal to keep "
         "performance logs updating while this console is open."
     )
 
@@ -327,8 +469,8 @@ col_title, col_badge = st.columns([0.8, 0.2])
 with col_title:
     st.title("WAVES Institutional Console")
     st.caption(
-        "Live / demo console for **WAVES Intelligence™** — Adaptive Index Waves™. "
-        "Desktop engine handles trading & analytics; this view gives you "
+        f"Live / demo console for **WAVES Intelligence™** — {pretty_wave_name(selected_wave)} "
+        "shown below. Desktop engine handles trading & analytics; this view gives you "
         "**instant visibility** into each Wave."
     )
 
@@ -346,9 +488,8 @@ st.markdown("---")
 # LOAD DATA FOR CURRENT WAVE
 # ============================================================
 
-perf_df = load_perf_df_for_wave(selected_wave)
+perf_df, perf_path = load_perf_df_for_wave(selected_wave)
 perf_metrics = compute_perf_metrics(perf_df)
-
 positions_df = load_positions_for_wave(selected_wave)
 
 if universe_df is not None:
@@ -396,42 +537,43 @@ with left:
     st.subheader("Performance Curve")
 
     if perf_df is None or perf_df.empty:
-        st.info(
-            """
-            **Engine Snapshot Mode**
-
-            • Live **weights & holdings** displayed on the right  
-            • Summary metrics above update as performance logs accumulate  
-            • This panel plots the **Wave performance curve** once logs are present  
-
-            Keep `python3 waves_engine.py` running in another terminal to have the 
-            engine continuously write CSVs into `logs/performance/`.
-            """
-        )
+        if perf_path is None:
+            st.info(
+                "No performance logs were found yet for this Wave in `logs/performance/`.  "
+                "Once you run the engine (`python3 waves_engine.py`), "
+                "this panel will plot the **Wave equity curve / cumulative return**."
+            )
+        else:
+            st.info(
+                f"A performance file was found (`{perf_path.name}`), "
+                "but it is empty or unreadable."
+            )
     else:
         df = perf_df.copy()
-        numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
-
         if "timestamp" in df.columns:
             df = df.sort_values("timestamp")
             df = df.set_index("timestamp")
 
-        preferred = [c for c in numeric_cols if "cum" in c or "nav" in c]
-        if preferred:
-            plot_df = df[preferred]
-        elif numeric_cols:
-            plot_df = df[numeric_cols]
-        else:
-            plot_df = None
+        plot_df = choose_perf_series(df)
 
         if plot_df is not None and not plot_df.empty:
             st.line_chart(plot_df)
-            st.caption(
-                f"Chart based on latest performance log for **{selected_wave}** "
-                "found in `logs/performance/`."
-            )
+            # optional: warn if series is flat
+            if plot_df.nunique().max() <= 1:
+                st.caption(
+                    "Performance series appears flat. If this should not be the case, "
+                    "check which columns are being written into the performance CSV."
+                )
+            else:
+                st.caption(
+                    f"Chart based on latest performance log for **{pretty_wave_name(selected_wave)}** "
+                    "found in `logs/performance/`."
+                )
         else:
-            st.info("Performance data is present but not in a plottable numeric form.")
+            st.info(
+                "Performance data is present, but no suitable numeric series "
+                "was found to plot (avoiding beta/exposure columns)."
+            )
 
 # -------------------- RIGHT: HOLDINGS & RISK --------------------
 with right:
@@ -452,37 +594,25 @@ with right:
 
         df = df.sort_values("weight_pct", ascending=False)
 
-        display_cols = []
-        col_order = []
+        st.caption("Top 10 Positions — Google Finance Links (Bloomberg-style)")
+        top10_html = build_top10_html(df, positions_df)
+        st.markdown(top10_html, unsafe_allow_html=True)
 
-        if "ticker" in df.columns:
-            col_order.append("ticker")
-        if "name" in df.columns:
-            col_order.append("name")
-        if "sector" in df.columns:
-            col_order.append("sector")
-        col_order.append("weight_pct")
-
-        display_df = df[col_order].copy()
-        display_df.rename(
-            columns={
-                "ticker": "Ticker",
-                "name": "Name",
-                "sector": "Sector",
-                "weight_pct": "Weight",
-            },
-            inplace=True,
-        )
-
-        if "Weight" in display_df.columns:
-            display_df["Weight"] = display_df["Weight"].apply(
-                lambda x: f"{x * 100:,.2f}%" if pd.notnull(x) else "—"
+        with st.expander("Full Wave universe table"):
+            display_df = df.copy()
+            display_df.rename(
+                columns={
+                    "ticker": "Ticker",
+                    "name": "Name",
+                    "sector": "Sector",
+                    "weight_pct": "Weight",
+                },
+                inplace=True,
             )
-
-        st.caption("Top 10 Holdings — Snapshot")
-        st.dataframe(display_df.head(10), use_container_width=True)
-
-        with st.expander("View full Wave universe"):
+            if "Weight" in display_df.columns:
+                display_df["Weight"] = display_df["Weight"].apply(
+                    lambda x: f"{x * 100:,.2f}%" if pd.notnull(x) else "—"
+                )
             st.dataframe(display_df, use_container_width=True)
 
 # ============================================================
@@ -510,12 +640,12 @@ with status_cols[0]:
         latest = max(perf_files, key=lambda p: p.stat().st_mtime)
         ts = datetime.fromtimestamp(latest.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         st.success(
-            f"Latest performance log for **{selected_wave}**: `{latest.name}`  \n"
+            f"Latest performance log for **{pretty_wave_name(selected_wave)}**: `{latest.name}`  \n"
             f"_Last modified: **{ts}**_"
         )
     else:
         st.info(
-            f"No performance logs found for **{selected_wave}** yet. "
+            f"No performance logs found for **{pretty_wave_name(selected_wave)}** yet. "
             "Run the engine script to start generating them."
         )
 
@@ -532,13 +662,13 @@ with status_cols[1]:
            `python3 waves_engine.py`  
 
         3. Use this dashboard to:  
-           - Switch between Waves  
-           - See **top holdings & weights**  
-           - Watch **performance curves** fill in over time  
-           - Monitor **risk & exposure** at a glance  
+           - Switch between Waves (names fully spelled out)  
+           - See **top holdings & weights** with **Google links** and red/green coloring  
+           - Watch **performance curves** and alpha metrics as logs accumulate  
         """
     )
 
 st.caption(
-    "WAVES Intelligence™ — AI-managed Waves with a live desktop engine and an institutional-grade console."
+    "WAVES Intelligence™ — AI-managed Waves with a live desktop engine "
+    "and an institutional-grade console."
 )
