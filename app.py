@@ -335,11 +335,14 @@ def style_wave_table(df):
     if df.empty:
         return df
 
+    # Columns that should display as percentages
     fmt_pct_cols = [
         c
         for c in df.columns
-        if any(x in c for c2 in ["Alpha_", "Momentum_Score", "Equity_Alloc", "SmartSafe_Alloc"])
+        if any(c2 in c for c2 in ["Alpha_", "Momentum_Score", "Equity_Alloc", "SmartSafe_Alloc"])
     ]
+
+    # Columns that represent beta values (not drift)
     fmt_beta_cols = [c for c in df.columns if "Beta" in c and "Drift" not in c]
 
     def fmt(x, kind):
@@ -355,6 +358,7 @@ def style_wave_table(df):
 
     for c in fmt_pct_cols:
         df_fmt[c] = df_fmt[c].apply(lambda x: fmt(x, "pct"))
+
     for c in fmt_beta_cols:
         df_fmt[c] = df_fmt[c].apply(lambda x: fmt(x, "beta"))
 
