@@ -3,7 +3,8 @@
 # WAVES Intelligence™ - Institutional Console
 # Per-Wave Benchmarks, VIX-gated exposure + SmartSafe™,
 # Alpha windows, Realized Beta, Momentum / Leadership Engine,
-# Beta Drift Alerts, Mode-Aware Suggested Allocation, and "Mini Bloomberg" UI.
+# Beta Drift Alerts, Mode-Aware Suggested Allocation,
+# Position-Level Allocation, and "Mini Bloomberg" UI.
 #
 # IMPORTANT:
 # - Keep your last fully-working app.py saved separately as app_fallback.py.
@@ -373,7 +374,6 @@ def compute_suggested_allocations(summary_df, equity_pct, smartsafe_pct):
     total = tilted.sum()
 
     if total <= 0:
-        # fallback to equal weight if something went wrong
         tilted_norm = pd.Series([1.0 / n] * n, index=summary_df.index)
     else:
         tilted_norm = tilted / total
@@ -410,6 +410,70 @@ def compute_suggested_allocations(summary_df, equity_pct, smartsafe_pct):
 
     alloc_df = pd.concat([alloc_df, smartsafe_row], ignore_index=True)
     return alloc_df
+
+
+def compute_position_allocations(alloc_df, weights_df):
+    """
+    Expand Wave-level suggested allocations down to individual holdings.
+
+    Inputs:
+      alloc_df   - output of compute_suggested_allocations (Wave, Equity_Weight_% etc)
+      weights_df - wave_weights (Wave, Ticker, Weight) where Weight is intra-Wave
+
+    Output:
+      DataFrame with:
+        Wave
+        Ticker
+        IntraWave_Weight          (0–1 inside that Wave)
+        Wave_Equity_Weight_%      (% of portfolio in that Wave's equities)
+        Position_Equity_Weight_%  (% of portfolio in that individual position)
+    """
+    if alloc_df is None or alloc_df.empty:
+        return pd.DataFrame()
+
+    # Exclude SmartSafe row – no underlying holdings there
+    waves_only = alloc_df[alloc_df["Wave"] != SMARTSAFE_NAME].copy()
+    if waves_only.empty:
+        return pd.DataFrame()
+
+    waves_only["Equity_Weight_%"] = pd.to_numeric(
+        waves_only["Equity_Weight_%"], errors="coerce"
+    ).fillna(0.0)
+    waves_only["Equity_Weight_Fraction"] = waves_only["Equity_Weight_%"] / 100.0
+
+    positions = []
+
+    for _, row in waves_only.iterrows():
+        wave_name = row["Wave"]
+        wave_frac = float(row["Equity_Weight_Fraction"])
+
+        wdf = weights_df[weights_df["Wave"] == wave_name]
+        if wdf.empty:
+            continue
+
+        for _, h in wdf.iterrows():
+            ticker = h["Ticker"]
+            intra = float(h["Weight"])         # 0–1 inside wave
+            pos_frac = wave_frac * intra       # fraction of total portfolio
+
+            positions.append(
+                {
+                    "Wave": wave_name,
+                    "Ticker": ticker,
+                    "IntraWave_Weight": intra,
+                    "Wave_Equity_Weight_%": row["Equity_Weight_%"],
+                    "Position_Equity_Weight_%": pos_frac * 100.0,
+                }
+            )
+
+    pos_df = pd.DataFrame(positions)
+    if pos_df.empty:
+        return pos_df
+
+    pos_df = pos_df.sort_values(
+        "Position_Equity_Weight_%", ascending=False
+    ).reset_index(drop=True)
+    return pos_df
 
 # ============================================================
 # STREAMLIT UI
@@ -576,7 +640,7 @@ def main():
 
     summary_df = pd.DataFrame(basic_rows)
 
-    # Momentum tiers + beta drift + tilt (now mode-aware)
+    # Momentum tiers + beta drift + tilt (mode-aware)
     if not summary_df.empty:
         summary_df["Momentum_Rank"] = summary_df["Momentum_Score"].rank(
             ascending=False, method="min"
@@ -753,11 +817,13 @@ def main():
     else:
         st.success("No Waves currently breaching the beta-drift threshold.")
 
-    # ===================== SUGGESTED ALLOCATION =====================
+    # ===================== SUGGESTED ALLOCATION (WAVES + SMARTSAFE) =====================
 
     st.markdown("## Suggested Allocation — Waves + SmartSafe™")
 
     alloc_df = compute_suggested_allocations(summary_df, equity_pct, smartsafe_pct)
+
+    positions_df = pd.DataFrame()
 
     if not alloc_df.empty:
         st.write(
@@ -767,21 +833,49 @@ def main():
             **Equity / SmartSafe™ overlay** from the VIX regime.
             """
         )
-        # Format equity weights nicely
         alloc_df_display = alloc_df.copy()
         alloc_df_display["Equity_Weight_%"] = alloc_df_display["Equity_Weight_%"].apply(
             lambda x: "" if pd.isna(x) else f"{x:,.1f}%"
         )
         st.dataframe(alloc_df_display, use_container_width=True)
 
-        # CSV download
         csv_bytes = alloc_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download Suggested Allocation CSV",
+            label="Download Wave-Level Allocation CSV",
             data=csv_bytes,
             file_name="waves_suggested_allocation.csv",
             mime="text/csv",
         )
+
+        # ===================== POSITION-LEVEL ALLOCATION =====================
+
+        st.markdown("## Position-Level Allocation (Across All Waves)")
+
+        positions_df = compute_position_allocations(alloc_df, weights)
+
+        if not positions_df.empty:
+            pos_display = positions_df.copy()
+            pos_display["IntraWave_Weight"] = pos_display["IntraWave_Weight"].apply(
+                lambda x: f"{x*100:,.1f}%"
+            )
+            pos_display["Wave_Equity_Weight_%"] = pos_display["Wave_Equity_Weight_%"].apply(
+                lambda x: f"{x:,.1f}%"
+            )
+            pos_display["Position_Equity_Weight_%"] = pos_display["Position_Equity_Weight_%"].apply(
+                lambda x: f"{x:,.2f}%"
+            )
+
+            st.dataframe(pos_display, use_container_width=True)
+
+            pos_csv_bytes = positions_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download Position-Level Allocation CSV",
+                data=pos_csv_bytes,
+                file_name="waves_position_allocation.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("No position-level allocations could be computed.")
     else:
         st.info("Suggested allocation unavailable (missing tilt data).")
 
