@@ -29,7 +29,6 @@ dates = sorted(dates)
 history_rows = []
 
 for wave in waves:
-    # Slightly different profiles per wave type
     name = wave.lower()
 
     if "crypto" in name:
