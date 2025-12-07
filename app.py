@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 # CONFIG
 # ======================================================================
 
-TARGET_BETA_DEFAULT = 0.90  # baseline, but each mode will override
-
 # Built-in default Waves + holdings (used if CSVs are missing or invalid)
 WAVE_TICKERS_DEFAULT = {
     "S&P Wave": [
@@ -123,8 +121,7 @@ def load_or_build_market_history():
 def load_or_build_wave_history():
     """
     Try to load wave_history.csv (date,wave,portfolio_return,benchmark_return).
-    If missing/invalid, generate a full 252-day history for each Wave using
-    WAVE_TICKERS_DEFAULT.
+    If missing/invalid, generate a full 756-day (~3y) history for each Wave.
     Returns: (df, is_demo)
     """
     required = {"date", "wave", "portfolio_return", "benchmark_return"}
@@ -137,7 +134,7 @@ def load_or_build_wave_history():
         st.warning(f"Using built-in demo wave_history (reason: {e})")
 
         waves = sorted(WAVE_TICKERS_DEFAULT.keys())
-        num_days = 252
+        num_days = 756  # ~3 years of trading days
         end_date = datetime.today().date()
         dates = [end_date - timedelta(days=i) for i in range(num_days)]
         dates = sorted(dates)
@@ -178,10 +175,10 @@ def load_or_build_wave_history():
 
 
 # ======================================================================
-# METRICS ENGINE (includes 3-year alpha, now mode-aware beta target)
+# METRICS ENGINE (mode-aware, includes 3-year alpha)
 # ======================================================================
 
-def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float) -> pd.DataFrame:
+def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float, mode: str) -> pd.DataFrame:
     metrics_rows = []
 
     windows = {
@@ -232,7 +229,7 @@ def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float) -> pd.D
 
     metrics = pd.DataFrame(metrics_rows)
 
-    # Z-scored leadership composite (still using 30D–1Y windows)
+    # Z-scored alpha windows
     for col in ["alpha_30d", "alpha_60d", "alpha_6m", "alpha_1y"]:
         mean = metrics[col].mean()
         std = metrics[col].std()
@@ -241,11 +238,32 @@ def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float) -> pd.D
         else:
             metrics[col + "_z"] = (metrics[col] - mean) / std
 
+    # Z-scored beta drift (absolute) as a penalty
+    metrics["beta_drift_abs"] = metrics["beta_drift"].abs()
+    mean_bd = metrics["beta_drift_abs"].mean()
+    std_bd = metrics["beta_drift_abs"].std()
+    if std_bd == 0 or np.isnan(std_bd):
+        metrics["beta_drift_abs_z"] = 0
+    else:
+        metrics["beta_drift_abs_z"] = (metrics["beta_drift_abs"] - mean_bd) / std_bd
+
+    # Mode-specific weights
+    if mode == "Standard":
+        w30, w60, w6m, w1y = 0.4, 0.3, 0.2, 0.1
+        beta_weight = 0.3
+    elif mode == "Alpha-Minus-Beta":
+        w30, w60, w6m, w1y = 0.45, 0.35, 0.15, 0.05
+        beta_weight = 0.6
+    else:  # Private Logic™
+        w30, w60, w6m, w1y = 0.20, 0.20, 0.25, 0.35
+        beta_weight = 0.1
+
     metrics["leadership_score"] = (
-        0.4 * metrics["alpha_30d_z"]
-        + 0.3 * metrics["alpha_60d_z"]
-        + 0.2 * metrics["alpha_6m_z"]
-        + 0.1 * metrics["alpha_1y_z"]
+        w30 * metrics["alpha_30d_z"]
+        + w60 * metrics["alpha_60d_z"]
+        + w6m * metrics["alpha_6m_z"]
+        + w1y * metrics["alpha_1y_z"]
+        - beta_weight * metrics["beta_drift_abs_z"]
     )
 
     metrics = metrics.sort_values("leadership_score", ascending=False)
@@ -270,12 +288,8 @@ def compute_wave_metrics(wave_history: pd.DataFrame, target_beta: float) -> pd.D
 
 def vix_to_equity_pct(vix_level: float, mode: str) -> float:
     """
-    Base SmartSafe ladder, then adjusted a bit by mode:
-      - Standard: base ladder
-      - Alpha-Minus-Beta: more conservative
-      - Private Logic™: more aggressive (within reason)
+    Base SmartSafe ladder, then adjusted a bit by mode.
     """
-    # Base ladder
     if np.isnan(vix_level):
         base = 0.6
     elif vix_level < 12:
@@ -296,11 +310,9 @@ def vix_to_equity_pct(vix_level: float, mode: str) -> float:
     if mode == "Standard":
         equity_pct = base
     elif mode == "Alpha-Minus-Beta":
-        # More defensive: clamp and scale down
         equity_pct = base * 0.85
         equity_pct = max(0.20, min(equity_pct, 0.80))
     else:  # Private Logic™
-        # A bit more aggressive on equity, but with a floor
         equity_pct = base * 1.15
         equity_pct = max(0.30, min(equity_pct, 1.00))
 
@@ -328,7 +340,6 @@ def build_suggested_allocations(metrics: pd.DataFrame, vix_level: float, mode: s
     else:
         df["wave_equity_weight"] = df["adj_score"] / total
 
-    # Mode-aware floor / cap
     if mode == "Standard":
         floor, cap = 0.03, 0.35
     elif mode == "Alpha-Minus-Beta":
@@ -426,7 +437,7 @@ def main():
     wave_history, wh_demo = load_or_build_wave_history()
     market_history, mh_demo = load_or_build_market_history()
 
-    metrics = compute_wave_metrics(wave_history, target_beta)
+    metrics = compute_wave_metrics(wave_history, target_beta, mode)
 
     vix_df = market_history[market_history["symbol"].str.upper().isin(["^VIX", "VIX"])]
     spy_df = market_history[market_history["symbol"].str.upper().isin(["SPY"])]
@@ -604,19 +615,16 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # TOP 10 HOLDINGS PER WAVE (with Google quote link)
+    # TOP 10 HOLDINGS PER WAVE
     # ------------------------------------------------------------------
     st.markdown("---")
     st.subheader("Top 10 Holdings per Wave")
-
     waves = sorted(wave_weights["wave"].unique())
     selected_wave = st.selectbox("Select Wave", waves)
-
     ww = wave_weights[wave_weights["wave"] == selected_wave].copy()
     ww = ww.sort_values("weight", ascending=False).head(10)
     ww["Google Quote"] = ww["ticker"].apply(google_finance_link)
     ww["weight"] = ww["weight"].map(lambda x: f"{x:.2%}")
-
     st.dataframe(ww[["ticker", "weight", "Google Quote"]], use_container_width=True)
 
     # ------------------------------------------------------------------
