@@ -1,152 +1,106 @@
 import pandas as pd
 import numpy as np
 
-# ============================================================================
-# CONFIG — adjust filenames / benchmark mapping if needed
-# ============================================================================
 
-WAVE_WEIGHTS_FILE = "wave_weights.csv"   # wave,ticker,weight
-PRICES_FILE = "prices.csv"              # date,ticker,close
+# ------------------------
+# Configuration
+# ------------------------
+
+PRICES_FILE = "prices.csv"
+WAVE_WEIGHTS_FILE = "wave_weights.csv"
 OUTPUT_FILE = "wave_history.csv"
 
-# Optional: map each Wave to a benchmark ticker.
-# If a Wave is not in this dict, DEFAULT_BENCHMARK will be used.
+# Map each Wave to its benchmark ticker (edit this as needed)
 BENCHMARK_BY_WAVE = {
     "S&P Wave": "SPY",
-    "Growth Wave": "QQQ",
-    "Future Power & Energy Wave": "XLE",   # or SPY
+    "Growth Wave": "SPY",
     "Small Cap Growth Wave": "IWM",
     "Small-Mid Cap Growth Wave": "IJH",
-    "Clean Transit-Infrastructure Wave": "XTN",  # or SPY
     "Quantum Computing Wave": "QQQ",
-    "Crypto Income Wave": "BTC-USD",      # only if present in prices.csv
-    "Income Wave": "AGG",                 # or TLT/LQD
+    "Crypto Income Wave": "BTC-USD",  # example only
+    "Future Power & Energy Wave": "XLE",
+    "Clean Transit-Infrastructure Wave": "ICLN",
+    "Income Wave": "AGG",
+    # add the rest of your 15 Waves here
 }
 
-DEFAULT_BENCHMARK = "SPY"  # fallback benchmark
+
+# ------------------------
+# Load data
+# ------------------------
+
+print("Loading prices...")
+prices = pd.read_csv(PRICES_FILE, parse_dates=["date"])
+prices = prices.sort_values(["ticker", "date"])
+
+print("Loading wave weights...")
+weights = pd.read_csv(WAVE_WEIGHTS_FILE)
+
+if not {"wave", "ticker", "weight"}.issubset(weights.columns):
+    raise ValueError("wave_weights.csv must contain columns: wave, ticker, weight")
+
+# Pivot prices to wide format and compute daily returns
+print("Computing daily returns...")
+price_wide = prices.pivot_table(index="date", columns="ticker", values="close").sort_index()
+rets = price_wide.pct_change().dropna(how="all")  # daily returns, NaN where missing
 
 
-# ============================================================================
-# CORE FUNCTION
-# ============================================================================
+# ------------------------
+# Build wave history
+# ------------------------
 
-def build_wave_history(
-    wave_weights_file=WAVE_WEIGHTS_FILE,
-    prices_file=PRICES_FILE,
-    output_file=OUTPUT_FILE,
-) -> pd.DataFrame:
-    """
-    Build wave_history.csv from:
-      - wave_weights.csv (wave,ticker,weight)
-      - prices.csv (date,ticker,close)
+records = []
 
-    Output: wave_history.csv with columns:
-      date, wave, portfolio_return, benchmark_return
-    """
+for wave, wdf in weights.groupby("wave"):
+    if wave not in BENCHMARK_BY_WAVE:
+        print(f"[WARN] No benchmark defined for wave '{wave}'. Skipping.")
+        continue
 
-    # -----------------------------
-    # 1) Load & clean wave_weights
-    # -----------------------------
-    wave_weights = pd.read_csv(wave_weights_file)
-    required_ww = {"wave", "ticker", "weight"}
-    if not required_ww.issubset(wave_weights.columns):
-        raise ValueError(f"{wave_weights_file} must have columns {required_ww}")
+    bench_ticker = BENCHMARK_BY_WAVE[wave]
+    if bench_ticker not in rets.columns:
+        print(f"[WARN] Benchmark ticker '{bench_ticker}' not found in prices. Skipping wave '{wave}'.")
+        continue
 
-    wave_weights["wave"] = wave_weights["wave"].astype(str)
-    wave_weights["ticker"] = wave_weights["ticker"].astype(str).str.upper()
+    wdf = wdf.copy()
+    wdf["weight"] = wdf["weight"].astype(float)
 
-    # -----------------------------
-    # 2) Load & clean prices
-    # -----------------------------
-    prices = pd.read_csv(prices_file, parse_dates=["date"])
-    required_p = {"date", "ticker", "close"}
-    if not required_p.issubset(prices.columns):
-        raise ValueError(f"{prices_file} must have columns {required_p}")
+    # Normalize weights so they sum to 1 by absolute weight (per wave)
+    total_abs = wdf["weight"].abs().sum()
+    if total_abs == 0:
+        print(f"[WARN] Wave '{wave}' has zero total weight. Skipping.")
+        continue
+    wdf["norm_weight"] = wdf["weight"] / total_abs
 
-    prices["ticker"] = prices["ticker"].astype(str).str.upper()
-    prices = prices.sort_values(["ticker", "date"])
+    tickers = list(wdf["ticker"])
+    missing = [t for t in tickers if t not in rets.columns]
+    if missing:
+        print(f"[WARN] Some tickers for wave '{wave}' not in prices: {missing}")
 
-    # Compute daily returns per ticker
-    prices["return"] = prices.groupby("ticker")["close"].pct_change()
-    returns = prices[["date", "ticker", "return"]].dropna()
+    # Use only tickers that we actually have returns for
+    tickers = [t for t in tickers if t in rets.columns]
+    if not tickers:
+        print(f"[WARN] No valid tickers for wave '{wave}'. Skipping.")
+        continue
 
-    # -----------------------------
-    # 3) Compute Wave portfolio returns
-    # -----------------------------
-    merged = returns.merge(
-        wave_weights[["wave", "ticker", "weight"]],
-        on="ticker",
-        how="inner",
-        validate="many_to_many",
-    )
+    wdf = wdf[wdf["ticker"].isin(tickers)].set_index("ticker")
+    wave_rets = (rets[tickers] * wdf["norm_weight"]).sum(axis=1)
 
-    merged["weighted_ret"] = merged["return"] * merged["weight"]
+    bench_rets = rets[bench_ticker]
 
-    wave_ret = (
-        merged.groupby(["date", "wave"], as_index=False)["weighted_ret"]
-        .sum()
-        .rename(columns={"weighted_ret": "portfolio_return"})
-    )
+    df_wave = pd.DataFrame({
+        "date": wave_rets.index,
+        "wave": wave,
+        "portfolio_return": wave_rets.values,
+        "benchmark_return": bench_rets.reindex(wave_rets.index).values,
+    }).dropna()
 
-    # -----------------------------
-    # 4) Compute benchmark returns
-    # -----------------------------
-    # Re-use prices for benchmarks (simple & code-only)
-    bench_prices = prices[["date", "ticker", "close"]].copy()
-    bench_prices = bench_prices.sort_values(["ticker", "date"])
-    bench_prices["benchmark_return"] = bench_prices.groupby("ticker")["close"].pct_change()
-    bench_returns = bench_prices[["date", "ticker", "benchmark_return"]].dropna()
+    records.append(df_wave)
 
-    waves = wave_weights["wave"].unique()
-    all_dates = wave_ret["date"].drop_duplicates().sort_values().to_list()
+if not records:
+    raise RuntimeError("No wave history could be built. Check inputs and mappings.")
 
-    bench_rows = []
-    for wave in waves:
-        bench_ticker = BENCHMARK_BY_WAVE.get(wave, DEFAULT_BENCHMARK)
-        for d in all_dates:
-            bench_rows.append(
-                {"date": d, "wave": wave, "bench_ticker": bench_ticker}
-            )
+wave_history = pd.concat(records, ignore_index=True).sort_values(["wave", "date"])
 
-    bench_map_df = pd.DataFrame(bench_rows)
-
-    bench_returns["ticker"] = bench_returns["ticker"].astype(str).str.upper()
-    bench_map_df = bench_map_df.merge(
-        bench_returns,
-        left_on=["date", "bench_ticker"],
-        right_on=["date", "ticker"],
-        how="left",
-    )
-
-    bench_map_df = bench_map_df[["date", "wave", "benchmark_return"]]
-
-    # -----------------------------
-    # 5) Combine portfolio + benchmark returns
-    # -----------------------------
-    wave_hist = wave_ret.merge(
-        bench_map_df,
-        on=["date", "wave"],
-        how="left",
-        validate="one_to_one",
-    )
-
-    # Drop rows missing returns (optional)
-    wave_hist = wave_hist.dropna(subset=["portfolio_return", "benchmark_return"])
-
-    wave_hist = wave_hist.sort_values(["wave", "date"])
-
-    # -----------------------------
-    # 6) Save to CSV
-    # -----------------------------
-    wave_hist.to_csv(output_file, index=False)
-
-    print(f"✔ Wrote {output_file}")
-    print(f"  Waves: {wave_hist['wave'].nunique()}")
-    print(f"  Dates: {wave_hist['date'].nunique()}")
-    print(f"  Rows:  {len(wave_hist)}")
-
-    return wave_hist
-
-
-if __name__ == "__main__":
-    build_wave_history()
+print(f"Writing {OUTPUT_FILE} with {len(wave_history)} rows...")
+wave_history.to_csv(OUTPUT_FILE, index=False)
+print("Done.")
