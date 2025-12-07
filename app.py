@@ -18,6 +18,7 @@ VIX_TICKER = "^VIX"
 BETA_TARGET = 0.90  # target beta vs SPY
 BUSINESS_DAYS_PER_YEAR = 252
 
+
 # ---------------------------------------------------------
 # LOCKED-IN WAVES (CODE-MANAGED DEFAULT WEIGHTS)
 # ---------------------------------------------------------
@@ -90,7 +91,6 @@ DEFAULT_WEIGHTS = {
     },
 }
 
-# Preferred display order
 PREFERRED_WAVE_ORDER = [
     "AI_Wave",
     "Growth_Wave",
@@ -109,6 +109,7 @@ MODE_LABELS = {
     "PrivateLogic": "Private Logic™",
 }
 
+
 # =========================================================
 # DATA HELPERS
 # =========================================================
@@ -117,7 +118,7 @@ MODE_LABELS = {
 def load_weights_from_defaults() -> pd.DataFrame:
     """
     Build a weights DataFrame purely from DEFAULT_WEIGHTS,
-    ignoring any CSVs. This is our stable fallback engine.
+    ignoring any CSVs. This is our stable baseline engine.
     """
     rows = []
     for wave_name, positions in DEFAULT_WEIGHTS.items():
@@ -143,7 +144,8 @@ def fetch_price_history(tickers, lookback_days: int):
     Returns (prices_df, engine_status) where engine_status is 'LIVE' or 'SANDBOX'.
     """
     end = datetime.now(timezone.utc).date()
-    start = end - timedelta(days=lookback_days + 40)  # buffer
+    # need extra history for factors (up to ~1 year)
+    start = end - timedelta(days=lookback_days + 300)
 
     tickers = sorted(set(tickers))
     frames = []
@@ -173,7 +175,7 @@ def fetch_price_history(tickers, lookback_days: int):
             return prices, ("LIVE" if live_ok else "SANDBOX")
 
     # Synthetic SANDBOX data if live pull fails
-    dates = pd.date_range(end - timedelta(days=lookback_days), end, freq="B")
+    dates = pd.date_range(end - timedelta(days=lookback_days + 300), end, freq="B")
     rng = np.random.default_rng(42)
     data = {}
     for t in tickers:
@@ -187,7 +189,7 @@ def fetch_price_history(tickers, lookback_days: int):
 @st.cache_data
 def fetch_vix_series(lookback_days: int):
     end = datetime.now(timezone.utc).date()
-    start = end - timedelta(days=lookback_days + 40)
+    start = end - timedelta(days=lookback_days + 300)
 
     try:
         hist = yf.download(
@@ -213,70 +215,177 @@ def fetch_vix_series(lookback_days: int):
     return vix
 
 
-def compute_wave_timeseries(weights_df, prices: pd.DataFrame, wave_name: str):
+# =========================================================
+# FACTOR & DYNAMIC WEIGHTS ENGINE (HYBRID)
+# =========================================================
+
+def compute_factor_scores(prices: pd.DataFrame, model_tickers: list[str]) -> pd.DataFrame:
     """
-    Compute wave equity curve and benchmark curve.
-    Returns dict with keys: 'dates', 'wave_curve', 'bench_curve',
-    'wave_rets', 'bench_rets', 'spy_price'.
+    Compute blended factor momentum scores per ticker per date.
+    Hybrid: uses 20D, 60D, 120D returns and standardizes cross-sectionally.
     """
-    w = weights_df[weights_df["wave"] == wave_name].copy()
-    if w.empty:
-        return None
+    sub = prices[model_tickers].copy().dropna(how="all")
+    # use past performance only (shift by 1 day)
+    st = sub.pct_change(20).shift(1)
+    mt = sub.pct_change(60).shift(1)
+    lt = sub.pct_change(120).shift(1)
 
-    tickers = w["ticker"].tolist()
-    w_vec = w.set_index("ticker")["weight"]
+    # weighted composite
+    composite = 0.4 * st + 0.4 * mt + 0.2 * lt
 
-    needed = set(tickers) | {BENCHMARK_TICKER}
-    missing = [t for t in needed if t not in prices.columns]
-    if len(missing) == len(needed):
-        return None
+    # per-date z-score across tickers
+    def zscore_row(row):
+        if row.count() < 2:
+            return pd.Series(0.0, index=row.index)
+        mu = row.mean()
+        sig = row.std()
+        if sig <= 0:
+            return pd.Series(0.0, index=row.index)
+        return (row - mu) / sig
 
-    avail_tickers = [t for t in tickers if t in prices.columns]
-    if not avail_tickers or BENCHMARK_TICKER not in prices.columns:
-        return None
+    z = composite.apply(zscore_row, axis=1)
+    return z
 
-    sub = prices[avail_tickers].copy()
-    sub = sub.dropna(how="all")
-    bench = prices[BENCHMARK_TICKER].dropna()
 
-    # Align
-    sub, bench = sub.align(bench, join="inner", axis=0)
-    if sub.empty or bench.empty:
-        return None
+def build_dynamic_weights_panel(
+    weights_df: pd.DataFrame,
+    prices: pd.DataFrame,
+    rebalance_every: int = 5,
+) -> dict[str, pd.DataFrame]:
+    """
+    Hybrid dynamic weight engine:
+    - Base weights from DEFAULT_WEIGHTS
+    - Factor z-scores across tickers
+    - Every `rebalance_every` business days, within each wave:
+        w_new ∝ base_weight * (0.5 + percentile_rank_z)
+      then normalized to 1.0
+    - Between rebalances, weights are held constant.
+    Returns: dict[wave] -> DataFrame (index dates, columns tickers, values weights).
+    """
+    model_tickers = sorted(weights_df["ticker"].unique())
+    factor_z = compute_factor_scores(prices, model_tickers)
+    dates = factor_z.index
 
-    w_vec = w_vec.reindex(avail_tickers).fillna(0)
-    w_vec = w_vec / w_vec.sum()
-
-    rets_sub = sub.pct_change().fillna(0.0)
-    bench_rets = bench.pct_change().fillna(0.0)
-
-    wave_rets = (rets_sub * w_vec).sum(axis=1)
-
-    wave_curve = (1 + wave_rets).cumprod()
-    bench_curve = (1 + bench_rets).cumprod()
-
-    return {
-        "dates": wave_curve.index,
-        "wave_curve": wave_curve,
-        "bench_curve": bench_curve,
-        "wave_rets": wave_rets,
-        "bench_rets": bench_rets,
-        "spy_price": bench,
+    # wave -> list of tickers
+    wave_tickers = {
+        wave: weights_df[weights_df["wave"] == wave]["ticker"].tolist()
+        for wave in weights_df["wave"].unique()
     }
 
+    # base weights as Series indexed by (wave, ticker)
+    base_w = (
+        weights_df.set_index(["wave", "ticker"])["weight"]
+        .groupby(level=0)
+        .apply(lambda s: s / s.sum())
+    )
 
-def estimate_beta(wave_rets: pd.Series, bench_rets: pd.Series) -> float:
-    """Simple daily-return beta estimate."""
-    x, y = bench_rets.align(wave_rets, join="inner")
-    if len(x) < 10:
-        return np.nan
-    xr = x.values
-    yr = y.values
-    var = np.var(xr)
-    if var <= 0:
-        return np.nan
-    cov = np.cov(xr, yr)[0, 1]
-    return float(cov / var)
+    # initialize previous weights as base weights
+    prev_weights = {
+        wave: base_w.loc[wave].copy()
+        for wave in wave_tickers.keys()
+    }
+
+    panel: dict[str, pd.DataFrame] = {
+        wave: pd.DataFrame(index=dates, columns=model_tickers, dtype=float)
+        for wave in wave_tickers.keys()
+    }
+
+    for i, dt in enumerate(dates):
+        rebalance = (i == 0) or (i % rebalance_every == 0)
+
+        if rebalance:
+            # for each wave, adjust based on factor z-scores
+            row_z = factor_z.loc[dt]
+            for wave, tickers in wave_tickers.items():
+                bw = base_w.loc[wave]
+                bw = bw.reindex(tickers).fillna(0.0)
+
+                fac = row_z.reindex(tickers)
+                # if all NaN, just keep previous weights
+                if fac.notna().sum() == 0:
+                    w_new = prev_weights[wave]
+                else:
+                    # rank within wave to 0..1
+                    ranks = fac.rank(method="average", pct=True)
+                    # ensure no NaNs (missing get 0.5)
+                    ranks = ranks.fillna(0.5)
+                    # hybrid factor: scale around base
+                    raw = bw * (0.5 + ranks)  # range ~0.5x to 1.5x
+                    if raw.sum() <= 0:
+                        w_new = prev_weights[wave]
+                    else:
+                        w_new = raw / raw.sum()
+
+                prev_weights[wave] = w_new.copy()
+
+        # record weights for this date
+        for wave, tickers in wave_tickers.items():
+            for t in tickers:
+                panel[wave].loc[dt, t] = prev_weights[wave].get(t, 0.0)
+
+    # forward-fill any initial NaNs
+    for wave in panel.keys():
+        panel[wave] = panel[wave].fillna(method="ffill").fillna(0.0)
+
+    return panel
+
+
+def build_dynamic_returns(
+    weights_df: pd.DataFrame,
+    prices: pd.DataFrame,
+) -> tuple[dict[str, pd.Series], pd.Series, dict[str, pd.Series], pd.Series]:
+    """
+    Using dynamic weights panel, compute daily wave returns and SPY returns.
+    Returns:
+        wave_rets_dict: wave -> Series of daily returns
+        bench_rets: SPY daily returns
+        wave_curves_dict: wave -> Series equity curve
+        bench_curve: SPY equity curve
+    """
+    model_tickers = sorted(weights_df["ticker"].unique())
+    price_model = prices[model_tickers].copy().dropna(how="all")
+
+    # dynamic weights (panel per wave)
+    panel = build_dynamic_weights_panel(weights_df, price_model)
+
+    # daily returns for model tickers
+    daily_rets = price_model.pct_change().fillna(0.0)
+    idx = daily_rets.index
+
+    wave_rets_dict: dict[str, pd.Series] = {}
+    wave_curves_dict: dict[str, pd.Series] = {}
+
+    for wave, w_panel in panel.items():
+        # align panel to daily_rets index
+        w_panel = w_panel.reindex(idx).fillna(method="ffill").fillna(0.0)
+        wr = pd.Series(0.0, index=idx)
+
+        for i in range(1, len(idx)):
+            date = idx[i]
+            prev_date = idx[i - 1]
+            w = w_panel.loc[prev_date].fillna(0.0)
+            r = daily_rets.loc[date].fillna(0.0)
+
+            # align tickers
+            w, r = w.align(r, join="inner")
+            if w.sum() == 0:
+                wr.iloc[i] = 0.0
+            else:
+                wr.iloc[i] = float(np.dot(w.values, r.values))
+
+        wave_rets_dict[wave] = wr
+        wave_curves_dict[wave] = (1 + wr).cumprod()
+
+    # benchmark returns
+    if BENCHMARK_TICKER in prices.columns:
+        bench_price = prices[BENCHMARK_TICKER].reindex(idx).fillna(method="ffill")
+    else:
+        # synthetic benchmark if missing
+        bench_price = pd.Series(1.0, index=idx)
+    bench_rets = bench_price.pct_change().fillna(0.0)
+    bench_curve = (1 + bench_rets).cumprod()
+
+    return wave_rets_dict, bench_rets, wave_curves_dict, bench_curve
 
 
 # =========================================================
@@ -336,6 +445,7 @@ def base_exposure_from_vix(vix_value: float) -> float:
 def adjust_exposure_for_mode_and_beta(base: float, mode: str, est_beta: float) -> float:
     """
     Adjust exposure based on mode and realized beta vs target.
+    Private Logic™ gets more freedom, AlphaMinusBeta is stricter.
     """
     exp = base
 
@@ -367,7 +477,9 @@ def compute_exposure_series(vix_series: pd.Series, mode: str, est_beta: float) -
     Beta is used as a mild governor.
     """
     base_series = vix_series.apply(base_exposure_from_vix)
-    adjusted = base_series.apply(lambda x: adjust_exposure_for_mode_and_beta(x, mode, est_beta))
+    adjusted = base_series.apply(
+        lambda x: adjust_exposure_for_mode_and_beta(x, mode, est_beta)
+    )
     return adjusted.rename("Exposure")
 
 
@@ -398,28 +510,42 @@ def max_drawdown(series: pd.Series) -> float:
 # ALPHA / HOLDINGS HELPERS
 # =========================================================
 
-def compute_alpha_series(wave_rets: pd.Series, bench_rets: pd.Series, exposure_series: pd.Series):
+def estimate_beta(wave_rets: pd.Series, bench_rets: pd.Series) -> float:
+    """Simple daily-return beta estimate."""
+    x, y = bench_rets.align(wave_rets, join="inner")
+    if len(x) < 10:
+        return np.nan
+    xr = x.values
+    yr = y.values
+    var = np.var(xr)
+    if var <= 0:
+        return np.nan
+    cov = np.cov(xr, yr)[0, 1]
+    return float(cov / var)
+
+
+def compute_alpha_series(
+    wave_rets: pd.Series,
+    bench_rets: pd.Series,
+    exposure_series: pd.Series,
+):
     """
     Compute both simple alpha and 'Alpha Captured' (exposure-adjusted alpha).
 
     simple_alpha_daily   = wave - bench
     captured_alpha_daily = wave - exposure_t * bench
     """
-    # Align everything
-    wave_rets, bench_rets, exposure_series = wave_rets.align(
-        bench_rets, join="inner"
-    )[0].align(exposure_series, join="inner")[0], bench_rets.align(exposure_series, join="inner")[0], exposure_series.align(wave_rets, join="inner")[0]
+    idx = wave_rets.index.intersection(bench_rets.index).intersection(
+        exposure_series.index
+    )
+    wave = wave_rets.loc[idx]
+    bench = bench_rets.loc[idx]
+    exp = exposure_series.loc[idx]
 
-    # Simpler/safer realignment:
-    idx = wave_rets.index.intersection(bench_rets.index).intersection(exposure_series.index)
-    wave_rets = wave_rets.loc[idx]
-    bench_rets = bench_rets.loc[idx]
-    exposure_series = exposure_series.loc[idx]
-
-    simple_daily = wave_rets - bench_rets
+    simple_daily = wave - bench
     simple_cum = (1 + simple_daily).cumprod() - 1
 
-    captured_daily = wave_rets - exposure_series * bench_rets
+    captured_daily = wave - exp * bench
     captured_cum = (1 + captured_daily).cumprod() - 1
 
     return {
@@ -449,6 +575,21 @@ def get_top_holdings(weights_df, prices: pd.DataFrame, wave_name: str):
     df["Ticker"] = df["Ticker"].astype(str)
 
     return df
+
+
+def compute_alpha_window(captured_daily: pd.Series, window_days: int) -> float:
+    """
+    Alpha Captured over a rolling window in trading days.
+    Returns fraction (0.05 = +5%).
+    """
+    if captured_daily.empty:
+        return np.nan
+    if len(captured_daily) < window_days:
+        # use whatever history we have if shorter than window
+        w = captured_daily.copy()
+    else:
+        w = captured_daily.iloc[-window_days:]
+    return float((1 + w).prod() - 1)
 
 
 # =========================================================
@@ -510,46 +651,45 @@ def main():
     prices, engine_status = fetch_price_history(needed_tickers, lookback_days)
     vix_series = fetch_vix_series(lookback_days)
 
-    wave_data = compute_wave_timeseries(weights_df, prices, selected_wave)
-    if wave_data is None:
-        st.error(
-            f"Could not compute returns for {selected_wave}. "
-            "Please verify tickers and weights."
-        )
-        if show_debug:
-            st.write("Debug: Missing tickers or price history.", prices.head())
+    # dynamic wave returns for all waves
+    wave_rets_dict, bench_rets, wave_curves_dict, bench_curve = build_dynamic_returns(
+        weights_df, prices
+    )
+
+    if selected_wave not in wave_rets_dict:
+        st.error(f"No returns computed for {selected_wave}.")
         return
 
-    dates = wave_data["dates"]
-    wave_curve = wave_data["wave_curve"]
-    bench_curve = wave_data["bench_curve"]
-    wave_rets = wave_data["wave_rets"]
-    bench_rets = wave_data["bench_rets"]
-    spy_price = wave_data["spy_price"]
+    # align to lookback window
+    idx = wave_rets_dict[selected_wave].index
+    cutoff = idx[-1] - timedelta(days=lookback_days)
+    idx_window = idx[idx >= cutoff]
 
-    cutoff = dates[-1] - timedelta(days=lookback_days)
-    mask = dates >= cutoff
-    wave_curve = wave_curve[mask]
-    bench_curve = bench_curve[mask]
-    wave_rets = wave_rets[wave_rets.index >= cutoff]
-    bench_rets = bench_rets[bench_rets.index >= cutoff]
-    spy_price = spy_price[spy_price.index >= cutoff]
+    wave_rets = wave_rets_dict[selected_wave].loc[idx_window]
+    wave_curve = wave_curves_dict[selected_wave].loc[idx_window]
+    bench_rets = bench_rets.loc[idx_window]
+    bench_curve = bench_curve.loc[idx_window]
 
-    # Align VIX to SPY
-    vix_series = vix_series.loc[spy_price.index.min():spy_price.index.max()]
+    # SPY price for regime detection
+    if BENCHMARK_TICKER in prices.columns:
+        spy_price_full = prices[BENCHMARK_TICKER].reindex(idx_window).fillna(method="ffill")
+    else:
+        spy_price_full = pd.Series(1.0, index=idx_window)
+
+    # VIX aligned
+    vix_series = vix_series.reindex(idx_window).fillna(method="ffill")
     vix_last = float(vix_series.iloc[-1]) if not vix_series.empty else np.nan
 
     # ---------- REGIME + EXPOSURE + SMARTSAFE ----------
-    regime_series = compute_regimes(spy_price, vix_series)
+    regime_series = compute_regimes(spy_price_full, vix_series)
     current_regime = regime_series.iloc[-1] if not regime_series.empty else "Unknown"
 
-    est_beta = estimate_beta(wave_rets, bench_rets)
+    realized_beta = estimate_beta(wave_rets, bench_rets)
 
     # Time-varying exposure series
-    exposure_series = compute_exposure_series(vix_series, mode_key, est_beta)
-    # Align to wave rets
-    exposure_series = exposure_series.reindex(wave_rets.index).ffill().bfill()
-    # Current exposure = last value
+    exposure_series = compute_exposure_series(vix_series, mode_key, realized_beta)
+    exposure_series = exposure_series.reindex(idx_window).fillna(method="ffill")
+
     current_exposure = float(exposure_series.iloc[-1]) if len(exposure_series) else np.nan
     current_smartsafe = float(max(0.0, 1.0 - current_exposure))
 
@@ -558,21 +698,25 @@ def main():
     smartsafe_rets = smartsafe_curve.pct_change().fillna(0.0)
 
     # Align for blending
-    idx_blend = wave_rets.index.intersection(smartsafe_rets.index).intersection(exposure_series.index)
+    idx_blend = wave_rets.index.intersection(smartsafe_rets.index).intersection(
+        exposure_series.index
+    )
     wave_rets_blend = wave_rets.loc[idx_blend]
     smartsafe_rets_blend = smartsafe_rets.loc[idx_blend]
     exposure_blend = exposure_series.loc[idx_blend]
 
-    blended_rets = exposure_blend * wave_rets_blend + (1.0 - exposure_blend) * smartsafe_rets_blend
+    blended_rets = (
+        exposure_blend * wave_rets_blend + (1.0 - exposure_blend) * smartsafe_rets_blend
+    )
     blended_curve = (1 + blended_rets).cumprod()
     blended_curve.name = "Wave+SmartSafe"
 
     # ---------- ADVANCED ALPHA ----------
     alpha_info = compute_alpha_series(wave_rets, bench_rets, exposure_series)
-    simple_alpha_daily = alpha_info["simple_daily"]
-    captured_alpha_daily = alpha_info["captured_daily"]
+    captured_daily = alpha_info["captured_daily"]
     captured_cum = alpha_info["captured_cum"]
 
+    # Today stats
     if len(wave_curve) >= 2 and len(bench_curve) >= 2:
         wave_today = float(wave_curve.iloc[-1] / wave_curve.iloc[-2] - 1.0)
         bench_today = float(bench_curve.iloc[-1] / bench_curve.iloc[-2] - 1.0)
@@ -581,15 +725,21 @@ def main():
         bench_today = np.nan
 
     today_captured_alpha = (
-        captured_alpha_daily.iloc[-1] if len(captured_alpha_daily) > 0 else np.nan
+        captured_daily.iloc[-1] if len(captured_daily) > 0 else np.nan
     )
 
-    # Discipline metrics
-    realized_beta = est_beta
-    beta_diff = realized_beta - BETA_TARGET if not np.isnan(realized_beta) else np.nan
+    # Alpha capture windows: 30D, 60D, 6M (~126D), 1Y (~252D)
+    alpha_30d = compute_alpha_window(captured_daily, 30)
+    alpha_60d = compute_alpha_window(captured_daily, 60)
+    alpha_6m = compute_alpha_window(captured_daily, 126)
+    alpha_1y = compute_alpha_window(captured_daily, 252)
 
+    # Discipline metrics
     wave_mdd = max_drawdown(wave_curve)
     bench_mdd = max_drawdown(bench_curve)
+    beta_diff = (
+        realized_beta - BETA_TARGET if not np.isnan(realized_beta) else np.nan
+    )
 
     # Regime compliance: on high-vol days (VIX > 25), % of days exposure <= 0.75
     high_vol_mask = vix_series > 25
@@ -701,9 +851,24 @@ def main():
             unsafe_allow_html=True,
         )
 
+    # ---------- ALPHA WINDOWS PANEL ----------
     st.markdown("---")
+    st.subheader("Alpha Captured Windows")
+    aw_cols = st.columns(4)
+    labels = ["30D", "60D", "6M", "1Y"]
+    values = [alpha_30d, alpha_60d, alpha_6m, alpha_1y]
+    for col, label, val in zip(aw_cols, labels, values):
+        with col:
+            col.markdown(f"**{label}**")
+            col.markdown(
+                f"<span style='font-size:1.3rem;color:{metric_color(val)};'>"
+                f"{'' if np.isnan(val) else f'{val*100:.2f}%'}"
+                "</span>",
+                unsafe_allow_html=True,
+            )
 
     # ---------- MAIN CHART + TOP HOLDINGS ----------
+    st.markdown("---")
     left_main, right_main = st.columns([3, 2])
 
     with left_main:
@@ -711,8 +876,8 @@ def main():
         chart_df = pd.DataFrame(
             {
                 "Wave (Equity Only)": wave_curve,
-                "Benchmark (SPY)": bench_curve,
                 "Wave+SmartSafe": blended_curve,
+                "Benchmark (SPY)": bench_curve,
             }
         )
         st.line_chart(chart_df)
@@ -763,7 +928,7 @@ def main():
 
     with c2:
         st.subheader("SPY & VIX (Regime Context)")
-        combo_df = pd.DataFrame({"SPY": spy_price, "VIX": vix_series})
+        combo_df = pd.DataFrame({"SPY": spy_price_full, "VIX": vix_series})
         st.line_chart(combo_df)
 
     with c3:
@@ -781,7 +946,6 @@ def main():
             • Max Drawdown (SPY): **{dd_bench_str}**  
             • Beta Deviation (β − {BETA_TARGET:.2f}): **{beta_diff_str}**  
             • High-Vol Regime Compliance: **{regime_comp_str}**  
-            
             """,
             unsafe_allow_html=True,
         )
@@ -791,7 +955,6 @@ def main():
         st.markdown("---")
         st.subheader("Debug Info")
         st.write("Weights DataFrame", weights_df)
-        st.write("Prices (tail)", prices.tail())
         st.write("Wave returns (tail)", wave_rets.tail())
         st.write("Benchmark returns (tail)", bench_rets.tail())
         st.write("Exposure series (tail)", exposure_series.tail())
