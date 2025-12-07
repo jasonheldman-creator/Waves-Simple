@@ -483,6 +483,8 @@ def render_holdings_table(holdings: pd.DataFrame):
         st.warning("⚠️ No holdings data available")
         return
     
+    st.subheader("📊 Top Holdings")
+    
     # Prepare display DataFrame
     display_df = holdings.copy()
     
@@ -491,16 +493,23 @@ def render_holdings_table(holdings: pd.DataFrame):
     display_df["Today % Change"] = (display_df["today_pct_change"] * 100).map("{:.2f}%".format)
     display_df["Ticker"] = display_df["ticker"]
     
-    # Create clickable links for Google Finance
-    display_df["Google Finance"] = display_df["google_finance"].apply(
-        lambda x: f"[View]({x})" if x else ""
+    # Select and order columns for display
+    display_df = display_df[["Ticker", "Weight", "Today % Change"]].head(10)
+    
+    # Display table using st.dataframe for better compatibility
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
     )
     
-    # Select and order columns
-    display_df = display_df[["Ticker", "Weight", "Today % Change", "Google Finance"]]
-    
-    st.subheader("📊 Top Holdings")
-    st.markdown(display_df.head(10).to_markdown(index=False))
+    # Add Google Finance links separately
+    st.caption("🔗 Quick Links:")
+    link_cols = st.columns(min(5, len(holdings)))
+    for idx, (col, ticker) in enumerate(zip(link_cols, holdings["ticker"].head(5))):
+        with col:
+            google_url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
+            st.markdown(f"[{ticker}]({google_url})", unsafe_allow_html=True)
 
 
 def render_performance_chart(result: WaveEngineResult):
