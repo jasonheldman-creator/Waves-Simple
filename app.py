@@ -28,8 +28,9 @@ WAVE_TICKERS_DEFAULT = {
                     "KO", "PEP", "XLU", "O", "VZ"],
 }
 
+
 # ======================================================================
-# DATA LOADERS (LIVE FIRST, SIMPLE DEMO FALLBACK)
+# DATA LOADERS
 # ======================================================================
 
 @st.cache_data
@@ -39,6 +40,7 @@ def load_wave_weights():
         df = pd.read_csv("wave_weights.csv")
         if not required.issubset(df.columns):
             raise ValueError("wave_weights.csv missing required columns")
+        df["wave"] = df["wave"].astype(str)
         df["ticker"] = df["ticker"].astype(str).str.upper()
         return df, False
     except Exception as e:
@@ -49,11 +51,17 @@ def load_wave_weights():
             for t in tickers:
                 rows.append({"wave": wave, "ticker": t, "weight": w})
         demo_df = pd.DataFrame(rows)
+        demo_df["wave"] = demo_df["wave"].astype(str)
+        demo_df["ticker"] = demo_df["ticker"].astype(str).str.upper()
         return demo_df, True
 
 
 @st.cache_data
 def load_market_history():
+    """
+    market_history.csv: date,symbol,close
+    Used for SPY & VIX chart. Falls back to synthetic if missing.
+    """
     required = {"date", "symbol", "close"}
     try:
         df = pd.read_csv("market_history.csv", parse_dates=["date"])
@@ -88,6 +96,10 @@ def load_market_history():
 
 @st.cache_data
 def load_wave_history():
+    """
+    Prefers real wave_history.csv (built from prices), falls back to 1-year synthetic.
+    wave_history.csv: date,wave,portfolio_return,benchmark_return
+    """
     required = {"date", "wave", "portfolio_return", "benchmark_return"}
     try:
         df = pd.read_csv("wave_history.csv", parse_dates=["date"])
@@ -98,7 +110,7 @@ def load_wave_history():
     except Exception as e:
         st.warning(f"Using synthetic demo wave_history (reason: {e})")
         waves = sorted(WAVE_TICKERS_DEFAULT.keys())
-        num_days = 252  # 1y demo only
+        num_days = 252  # ~1 year demo
         end_date = datetime.today().date()
         dates = sorted([end_date - timedelta(days=i) for i in range(num_days)])
 
@@ -138,8 +150,22 @@ def load_wave_history():
 
 
 # ======================================================================
-# METRICS ENGINE — ONE TRUTH (NOT MODE-DEPENDENT)
+# METRICS ENGINE — SMOOTHED ALPHA, ONE TRUTH
 # ======================================================================
+
+def annualized_excess_alpha(window: pd.DataFrame) -> float:
+    """
+    Take a window of daily returns, compute average daily excess, annualize.
+    This gives smoother, more stable alpha while staying fully "real".
+    """
+    if window.empty:
+        return np.nan
+    excess = window["portfolio_return"].astype(float) - window["benchmark_return"].astype(float)
+    if excess.empty:
+        return np.nan
+    mean_excess = excess.mean()
+    return float(mean_excess * 252.0)  # annualized excess return
+
 
 def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -147,40 +173,36 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
 
     for wave, g in wave_history.groupby("wave"):
         g = g.sort_values("date")
-        pr = g["portfolio_return"].astype(float)
-        br = g["benchmark_return"].astype(float)
+        n = len(g)
 
-        def window_alpha(lookback):
-            if len(g) < lookback:
+        def window_ann_alpha(days: int) -> float:
+            if n < days:
                 return np.nan
-            window_pr = pr.iloc[-lookback:]
-            window_br = br.iloc[-lookback:]
-            port_cum = (1 + window_pr).prod() - 1
-            bench_cum = (1 + window_br).prod() - 1
-            return port_cum - bench_cum
+            window = g.iloc[-days:]
+            return annualized_excess_alpha(window)
 
-        alpha_30d = window_alpha(30)
-        alpha_60d = window_alpha(60)
-        alpha_6m = window_alpha(126)
-        alpha_1y = window_alpha(252)
-        alpha_3y = window_alpha(756)  # will be NaN if not enough history
+        alpha_30d = window_ann_alpha(30)
+        alpha_60d = window_ann_alpha(60)
+        alpha_6m = window_ann_alpha(126)
+        alpha_1y = window_ann_alpha(252)
+        alpha_3y = window_ann_alpha(756)  # will be NaN if not enough history
 
         # Beta over last 252 days if available
-        if len(g) >= 252 and br.iloc[-252:].var() > 0:
-            cov = np.cov(br.iloc[-252:], pr.iloc[-252:])[0, 1]
-            beta_252d = cov / br.iloc[-252:].var()
+        if n >= 252:
+            pr = g["portfolio_return"].astype(float).iloc[-252:]
+            br = g["benchmark_return"].astype(float).iloc[-252:]
+        else:
+            pr = g["portfolio_return"].astype(float)
+            br = g["benchmark_return"].astype(float)
+
+        if len(pr) > 5 and br.var() > 0:
+            cov = np.cov(br, pr)[0, 1]
+            beta_252d = cov / br.var()
         else:
             beta_252d = np.nan
 
-        # 1Y absolute alpha (for contribution calc)
-        if len(g) >= 252:
-            window_pr = pr.iloc[-252:]
-            window_br = br.iloc[-252:]
-            port_cum_1y = (1 + window_pr).prod() - 1
-            bench_cum_1y = (1 + window_br).prod() - 1
-            alpha_1y_abs = port_cum_1y - bench_cum_1y
-        else:
-            alpha_1y_abs = np.nan
+        # 1Y absolute alpha using same annualized logic
+        alpha_1y_abs = alpha_1y
 
         rows.append(
             {
@@ -198,7 +220,7 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
 
     m = pd.DataFrame(rows)
 
-    # Z-scores for leadership (simple, mode-independent)
+    # Z-scores for leadership (mode-independent)
     for col in ["alpha_30d", "alpha_60d", "alpha_6m", "alpha_1y"]:
         mean = m[col].mean(skipna=True)
         std = m[col].std(skipna=True)
@@ -207,6 +229,7 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
         else:
             m[col + "_z"] = 0.0
 
+    # Locked leadership formula
     m["leadership_score"] = (
         0.40 * m["alpha_30d_z"]
         + 0.30 * m["alpha_60d_z"]
@@ -231,10 +254,10 @@ def compute_wave_metrics(wave_history: pd.DataFrame) -> pd.DataFrame:
 
 
 # ======================================================================
-# ALLOCATION & POSITION ENGINE — MODES AS OVERLAYS
+# MODES AS REAL OVERLAYS (DIFFERENT LOGIC)
 # ======================================================================
 
-def vix_to_equity_pct(vix_level, mode: str) -> float:
+def vix_to_equity_pct(vix_level: float, mode: str) -> float:
     # Base ladder
     if np.isnan(vix_level):
         base = 0.60
@@ -256,21 +279,51 @@ def vix_to_equity_pct(vix_level, mode: str) -> float:
     if mode == "Standard":
         equity_pct = base
     elif mode == "Alpha-Minus-Beta":
-        equity_pct = max(0.20, min(base * 0.85, 0.80))
+        equity_pct = max(0.20, min(base * 0.80, 0.75))  # more SmartSafe
     else:  # Private Logic™
-        equity_pct = max(0.30, min(base * 1.15, 1.00))
+        equity_pct = max(0.35, min(base * 1.20, 1.00))  # more equity
 
     return equity_pct
 
 
 def build_suggested_allocations(metrics: pd.DataFrame, vix_level: float, mode: str):
-    equity_pct = vix_to_equity_pct(vix_level, mode)
+    """
+    This is where modes actually diverge:
+
+    - Standard: uses pure leadership_score.
+    - Alpha-Minus-Beta: penalizes high beta vs 0.80 target.
+    - Private Logic™: rewards higher beta & alpha slightly.
+    """
     df = metrics.copy()
 
-    # Turn leadership_score into raw positive weights
-    min_score = df["leadership_score"].min()
+    # Target betas for penalty/bonus
+    if mode == "Standard":
+        beta_target = 0.90
+    elif mode == "Alpha-Minus-Beta":
+        beta_target = 0.80
+    else:
+        beta_target = 1.05
+
+    beta = df["beta_252d"].fillna(beta_target)
+    base_score = df["leadership_score"]
+
+    if mode == "Standard":
+        adj_score = base_score
+    elif mode == "Alpha-Minus-Beta":
+        # Heavier penalty for high beta
+        penalty = 0.75 * np.abs(beta - beta_target)
+        adj_score = base_score - penalty
+    else:  # Private Logic™
+        # Slight bonus for higher beta above target
+        bonus = 0.50 * (beta - beta_target)
+        adj_score = base_score + bonus
+
+    df["mode_score"] = adj_score
+
+    # Turn into positive weights
+    min_score = df["mode_score"].min()
     shift = -min_score if min_score < 0 else 0
-    df["adj_score"] = df["leadership_score"] + shift + 1e-6
+    df["adj_score"] = df["mode_score"] + shift + 1e-6
     total = df["adj_score"].sum()
     if total <= 0:
         df["wave_equity_weight"] = 1.0 / len(df)
@@ -281,15 +334,17 @@ def build_suggested_allocations(metrics: pd.DataFrame, vix_level: float, mode: s
     if mode == "Standard":
         floor, cap = 0.03, 0.35
     elif mode == "Alpha-Minus-Beta":
-        floor, cap = 0.03, 0.30
-    else:  # Private Logic™
-        floor, cap = 0.04, 0.40
+        floor, cap = 0.03, 0.30  # more compressed
+    else:
+        floor, cap = 0.04, 0.40  # more aggressive
 
     df["wave_equity_weight"] = df["wave_equity_weight"].clip(lower=floor, upper=cap)
     df["wave_equity_weight"] /= df["wave_equity_weight"].sum()
 
+    equity_pct = vix_to_equity_pct(vix_level, mode)
     df["suggested_portfolio_weight"] = df["wave_equity_weight"] * equity_pct
-    return equity_pct, df
+
+    return equity_pct, beta_target, df
 
 
 def build_position_allocations(wave_weights: pd.DataFrame,
@@ -334,13 +389,14 @@ def style_wave_table(df: pd.DataFrame):
         "alpha_1y_contrib": "{:.2%}",
         "beta_252d": "{:.2f}",
         "leadership_score": "{:+.2f}",
+        "mode_score": "{:+.2f}",
     }
     fmt = {k: v for k, v in fmt_cols.items() if k in df.columns}
     return df.style.format(fmt).apply(highlight_tier, axis=1)
 
 
 # ======================================================================
-# MAIN APP — STABLE V1.0
+# MAIN APP
 # ======================================================================
 
 def main():
@@ -350,21 +406,12 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    # Mode selector (overlay behavior)
     mode = st.sidebar.radio(
         "WAVES Mode",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
         index=0,
-        help="Modes change risk posture & tilts, not the underlying performance history.",
+        help="Modes change risk posture and tilts (beta-aware), not the underlying return history.",
     )
-
-    # Mode-specific beta target for alerts
-    if mode == "Standard":
-        target_beta = 0.90
-    elif mode == "Alpha-Minus-Beta":
-        target_beta = 0.80
-    else:
-        target_beta = 1.05
 
     wave_weights, ww_demo = load_wave_weights()
     wave_history, wh_demo = load_wave_history()
@@ -372,17 +419,17 @@ def main():
 
     metrics = compute_wave_metrics(wave_history)
 
-    # VIX / SPY slice
+    # VIX / SPY
     vix_df = market_history[market_history["symbol"].isin(["VIX", "^VIX"])]
     spy_df = market_history[market_history["symbol"] == "SPY"]
     vix_latest = float(vix_df.sort_values("date")["close"].iloc[-1]) if not vix_df.empty else np.nan
 
-    equity_pct, wave_allocs = build_suggested_allocations(metrics, vix_latest, mode)
+    equity_pct, beta_target, wave_allocs = build_suggested_allocations(metrics, vix_latest, mode)
     position_allocs = build_position_allocations(wave_weights, wave_allocs)
 
-    # Merge allocations back into metrics for contribution
+    # Merge allocs for alpha contribution
     metrics = metrics.merge(
-        wave_allocs[["wave", "suggested_portfolio_weight"]],
+        wave_allocs[["wave", "suggested_portfolio_weight", "mode_score"]],
         on="wave",
         how="left",
     )
@@ -409,7 +456,11 @@ def main():
           <div>
             <h1 style="margin-bottom:0">WAVES Institutional Console</h1>
             <p style="color:#8f9bb3;margin-top:0">
-              Adaptive Portfolio Waves™ • Unified Alpha Engine • SmartSafe Overlay
+              Adaptive Portfolio Waves™ • Single Truth Engine • Mode-Aware Risk Overlays
+            </p>
+            <p style="color:#65708f;font-size:12px;margin-top:4px;">
+              Performance metrics (alpha, beta, tiers) are mode-independent. Modes change risk posture,
+              equity vs SmartSafe, and how aggressively we tilt toward leadership & beta.
             </p>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -422,7 +473,7 @@ def main():
             <span style="padding:6px 14px;border-radius:999px;
                          background-color:#1f2a3c;color:#e4e9ff;
                          font-weight:500;font-size:13px;">
-              Mode: {mode} • Target β ≈ {target_beta:.2f}
+              Mode: {mode} • Target β ≈ {beta_target:.2f}
             </span>
           </div>
         </div>
@@ -454,7 +505,7 @@ def main():
         st.metric("SmartSafe %", f"{1 - equity_pct:.0%}")
 
     with right:
-        st.subheader("Wave Leadership & Risk Snapshot")
+        st.subheader("Wave Leadership & Alpha Snapshot")
 
         display_cols = [
             "wave",
@@ -462,29 +513,29 @@ def main():
             "alpha_60d",
             "alpha_6m",
             "alpha_1y",
-            "alpha_3y",         # will be NaN if not enough history
+            "alpha_3y",
             "alpha_1y_contrib",
             "beta_252d",
             "leadership_score",
+            "mode_score",
             "tier",
         ]
         snap = metrics[display_cols].copy()
         st.dataframe(style_wave_table(snap), use_container_width=True)
-
         st.caption(
-            f"Estimated 1-Year alpha from current Wave mix (given this mode's weights): "
+            f"Estimated annualized 1-Year excess alpha from this mode's allocation: "
             f"**{total_alpha_1y:.2%}** vs benchmark."
         )
 
     st.markdown("---")
 
-    # MIDDLE: allocations + alerts
+    # MIDDLE
     c1, c2 = st.columns(2)
 
     with c1:
         st.subheader("Suggested Wave Allocation (Equity Sleeve)")
         view = wave_allocs[
-            ["wave", "tier", "leadership_score", "wave_equity_weight", "suggested_portfolio_weight"]
+            ["wave", "tier", "mode_score", "wave_equity_weight", "suggested_portfolio_weight"]
         ].copy()
         view["wave_equity_weight"] = view["wave_equity_weight"].map(lambda x: f"{x:.1%}")
         view["suggested_portfolio_weight"] = view["suggested_portfolio_weight"].map(lambda x: f"{x:.1%}")
@@ -499,12 +550,12 @@ def main():
             beta = row["beta_252d"]
             if pd.isna(beta):
                 continue
-            drift = beta - target_beta
+            drift = beta - beta_target
             if abs(drift) > 0.07:
                 alerts.append(
-                    f"⚠️ {row['wave']}: β drift {drift:+.2f} vs target {target_beta:.2f}"
+                    f"⚠️ {row['wave']}: β drift {drift:+.2f} vs target {beta_target:.2f}"
                 )
-            if beta > target_beta + 0.20:
+            if beta > beta_target + 0.20:
                 alerts.append(f"🚨 {row['wave']}: Elevated β {beta:.2f}")
 
         if not np.isnan(vix_latest):
@@ -533,7 +584,7 @@ def main():
 
     st.markdown("---")
 
-    # TOP 10 HOLDINGS
+    # TOP 10
     st.subheader("Top 10 Holdings per Wave")
     waves = sorted(wave_weights["wave"].unique())
     selected_wave = st.selectbox("Select Wave", waves)
@@ -547,7 +598,6 @@ def main():
 
     # DOWNLOADS
     st.subheader("Download CSVs")
-
     st.download_button(
         "Download Wave Metrics",
         data=metrics.to_csv(index=False),
