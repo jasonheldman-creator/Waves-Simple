@@ -1,76 +1,22 @@
-@st.cache_data
-def load_weights(path: str) -> pd.DataFrame:
-    """
-    Load wave weights from CSV, clean them, and automatically
-    inject code-managed defaults for any waves missing in the file.
-    """
-    try:
-        df = pd.read_csv(path)
-    except FileNotFoundError:
-        st.error(f"wave_weights.csv not found at: {path}")
-        return pd.DataFrame(columns=["wave", "ticker", "weight"])
+# ---------- CODE-MANAGED DEFAULT WAVE WEIGHTS ----------
+# If wave_weights.csv is missing or malformed, the app will fall back to this.
+DEFAULT_WAVE_WEIGHTS = [
+    # AI_Wave – 10 names, normalized weights (sum to 1.0)
+    {"wave": "AI_Wave", "ticker": "NVDA", "weight": 0.1722},
+    {"wave": "AI_Wave", "ticker": "MSFT", "weight": 0.1581},
+    {"wave": "AI_Wave", "ticker": "META", "weight": 0.1427},
+    {"wave": "AI_Wave", "ticker": "GOOGL", "weight": 0.1195},
+    {"wave": "AI_Wave", "ticker": "AMZN", "weight": 0.1025},
+    {"wave": "AI_Wave", "ticker": "AVGO", "weight": 0.0842},
+    {"wave": "AI_Wave", "ticker": "CRM",  "weight": 0.0707},
+    {"wave": "AI_Wave", "ticker": "PLTR", "weight": 0.0598},
+    {"wave": "AI_Wave", "ticker": "AMD",  "weight": 0.0488},
+    {"wave": "AI_Wave", "ticker": "TSLA", "weight": 0.0415},
 
-    # --- Normalize columns (handle Wave / wave / WAVE etc.) ---
-    col_map = {c.strip().lower(): c for c in df.columns}
-    required = ["wave", "ticker", "weight"]
-    for r in required:
-        if r not in col_map:
-            st.error(
-                f"wave_weights.csv is missing required column '{r}'. "
-                f"Found columns: {list(df.columns)}"
-            )
-            return pd.DataFrame(columns=["wave", "ticker", "weight"])
-
-    wave_col = col_map["wave"]
-    ticker_col = col_map["ticker"]
-    weight_col = col_map["weight"]
-
-    # --- Clean up data types / whitespace ---
-    df[wave_col] = df[wave_col].astype(str).str.strip()
-    df[ticker_col] = df[ticker_col].astype(str).str.strip().str.upper()
-    df[weight_col] = pd.to_numeric(df[weight_col], errors="coerce")
-
-    # Drop rows with invalid weights
-    df = df.dropna(subset=[weight_col])
-
-    # --- Start building final table (CSV + code-managed defaults) ---
-    frames = [df]
-
-    for wave_name, holdings in DEFAULT_WAVE_HOLDINGS.items():
-        # If this wave has no rows in the CSV, inject defaults from code
-        if not (df[wave_col] == wave_name).any():
-            default_rows = []
-
-            # Normalize weights from the list so they sum to 1.0
-            total_weight = sum(w for _, w in holdings)
-            if total_weight <= 0:
-                # fallback: equal weight
-                w_each = 1.0 / len(holdings)
-                norm_holdings = [(ticker, w_each) for ticker, _ in holdings]
-            else:
-                norm_holdings = [(ticker, w / total_weight) for ticker, w in holdings]
-
-            for ticker, w in norm_holdings:
-                default_rows.append({
-                    wave_col: wave_name,
-                    ticker_col: ticker,
-                    weight_col: w,
-                })
-
-            frames.append(pd.DataFrame(default_rows))
-
-    if len(frames) > 1:
-        df_final = pd.concat(frames, ignore_index=True)
-    else:
-        df_final = df.copy()
-
-    # Standardize output column names
-    df_final = df_final.rename(
-        columns={
-            wave_col: "wave",
-            ticker_col: "ticker",
-            weight_col: "weight",
-        }
-    )
-
-    return df_final
+    # CleanTransitInfra_Wave – example basket (you can change tickers later)
+    {"wave": "CleanTransitInfra_Wave", "ticker": "TSLA", "weight": 0.20},
+    {"wave": "CleanTransitInfra_Wave", "ticker": "NIO",  "weight": 0.20},
+    {"wave": "CleanTransitInfra_Wave", "ticker": "NEE",  "weight": 0.20},
+    {"wave": "CleanTransitInfra_Wave", "ticker": "PLUG", "weight": 0.20},
+    {"wave": "CleanTransitInfra_Wave", "ticker": "BE",   "weight": 0.20},
+]
