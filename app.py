@@ -25,17 +25,32 @@ POS_DIR = LOGS_DIR / "positions"
 for d in [LOGS_DIR, PERF_DIR, POS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+# ----- LOCKED 9 WAVES (internal IDs from your CSVs) ----------
+LOCKED_WAVES = [
+    "AI_Wave",
+    "Growth_Wave",
+    "SP500_Wave",
+    "Income_Wave",
+    "Small_Cap_Growth_Wave",
+    "SMID_Growth_Wave",
+    "Future_Power_Energy_Wave",
+    "Crypto_Income_Wave",
+    "Clean_Transit_Wave",
+]
+
 # Map internal wave IDs -> nice display names
 WAVE_NAME_MAP = {
+    "AI_Wave": "AI Leaders Wave",
+    "AL_Wave": "AI Leaders Wave",
     "Growth_Wave": "Growth Wave",
     "SP500_Wave": "S&P 500 Wave",
     "Income_Wave": "Income Wave",
-    "Future_Power_Wave": "Future Power & Energy Wave",
-    "Crypto_Income_Wave": "Crypto Income Wave",
-    "Quantum_Wave": "Quantum Computing Wave",
-    "Clean_Transit_Wave": "Clean Transit & Infrastructure Wave",
+    "Small_Cap_Growth_Wave": "Small Cap Growth Wave",
     "SMID_Growth_Wave": "Small–Mid Cap Growth Wave",
-    "AL_Wave": "AI Leaders Wave",
+    "Future_Power_Energy_Wave": "Future Power & Energy Wave",
+    "Crypto_Income_Wave": "Crypto Income Wave",
+    "Quantum_Computing_Wave": "Quantum Computing Wave",
+    "Clean_Transit_Wave": "Clean Transit & Infrastructure Wave",
 }
 
 def pretty_wave_name(internal: str) -> str:
@@ -49,7 +64,7 @@ def pretty_wave_name(internal: str) -> str:
 CUSTOM_CSS = """
 <style>
 .main .block-container {
-    padding-top: 1.2rem;
+    padding-top: 1.1rem;
     padding-bottom: 2rem;
 }
 
@@ -196,22 +211,19 @@ def load_universe_df() -> Optional[pd.DataFrame]:
 
 
 def get_available_waves(universe_df: Optional[pd.DataFrame]) -> List[str]:
+    """
+    Use your locked 9 waves, but only if they actually appear
+    in the universe file. Keeps order you care about.
+    """
     if universe_df is not None and "wave" in universe_df.columns:
-        waves = sorted(universe_df["wave"].dropna().unique().tolist())
-        if waves:
-            return waves
-    # fallback list
-    return [
-        "AL_Wave",
-        "Growth_Wave",
-        "SP500_Wave",
-        "Income_Wave",
-        "Future_Power_Wave",
-        "Crypto_Income_Wave",
-        "Quantum_Wave",
-        "Clean_Transit_Wave",
-        "SMID_Growth_Wave",
-    ]
+        present = sorted(universe_df["wave"].dropna().unique().tolist())
+        locked_present = [w for w in LOCKED_WAVES if w in present]
+        if locked_present:
+            return locked_present
+        if present:
+            return present
+    # fallback if universe missing
+    return LOCKED_WAVES
 
 
 def find_latest_perf_file_for_wave(wave_name: str) -> Optional[Path]:
@@ -313,7 +325,12 @@ def fmt_bp(x: Optional[float]) -> str:
 
 
 def choose_perf_series(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Choose a good column (or few) to plot: prefer cum return / NAV over exposure."""
+    """
+    Choose a good column (or few) to plot:
+    - Prefer cum return / NAV style columns.
+    - Explicitly ignore exposure, beta, weights.
+    - Drop almost-flat series (like the constant 0.90 exposure line).
+    """
     if df is None or df.empty:
         return None
 
@@ -321,35 +338,53 @@ def choose_perf_series(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     if num.empty:
         return None
 
-    # score columns
+    # Drop obvious non-performance columns
+    bad_words = ["exposure", "beta", "weight", "cash_buffer", "leverage"]
+    for col in list(num.columns):
+        cl = col.lower()
+        if any(b in cl for b in bad_words):
+            num.drop(columns=[col], inplace=True, errors="ignore")
+
+    if num.empty:
+        return None
+
+    # Score remaining columns
     scores: Dict[str, int] = {}
     for c in num.columns:
         cl = c.lower()
         score = 0
         if "cum" in cl and "return" in cl:
-            score += 100
+            score += 120
         if "nav" in cl or "portfolio_value" in cl or "equity_curve" in cl:
+            score += 100
+        if "total_return" in cl:
             score += 90
         if "return" in cl:
             score += 60
-        if "equity_exposure" in cl or "beta" in cl or "exposure" in cl:
-            score -= 50
-        if "weight" in cl:
+        if "alpha" in cl:
+            score += 40
+
+        # penalize nearly-flat series
+        series = num[c]
+        if series.nunique() <= 3 or series.std() < 1e-4:
             score -= 80
+
         scores[c] = score
 
-    best_cols = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-    best_cols = [c for c in best_cols if scores[c] > -10]  # drop obviously bad ones
+    good_cols = [c for c in num.columns if scores.get(c, -999) > -10]
 
-    if not best_cols:
-        best_cols = num.columns.tolist()
+    if not good_cols:
+        return None
 
-    plot_df = num[best_cols[:2]]  # at most 2 lines
-    return plot_df
+    best_cols = sorted(good_cols, key=lambda x: scores[x], reverse=True)
+    return num[best_cols[:2]]
 
 
 def build_top10_html(df: pd.DataFrame, positions: Optional[pd.DataFrame]) -> str:
-    """Build HTML table for top 10 with Google Finance links & red/green coloring."""
+    """
+    Build HTML table for top 10 with Google Finance links & red/green coloring
+    based on 1-day performance from positions logs.
+    """
     df = df.copy()
 
     # join in daily change if we have positions
@@ -358,7 +393,15 @@ def build_top10_html(df: pd.DataFrame, positions: Optional[pd.DataFrame]) -> str
         pos = positions.copy()
         pos.columns = [c.strip().lower() for c in pos.columns]
         change_col = None
-        for cand in ["day_return", "daily_return", "return", "change_pct", "pct_change"]:
+        for cand in [
+            "day_return",
+            "daily_return",
+            "return",
+            "change_pct",
+            "pct_change",
+            "day_change",
+            "change_1d",
+        ]:
             if cand in pos.columns:
                 change_col = cand
                 break
@@ -380,23 +423,24 @@ def build_top10_html(df: pd.DataFrame, positions: Optional[pd.DataFrame]) -> str
 
         change = change_map.get(ticker)
         if change is None or np.isnan(change):
-            color = "#cccccc"
+            color = "#cccccc"   # neutral if we don't know
         elif change > 0:
-            color = "#00ff87"  # green
+            color = "#00ff87"   # green
         elif change < 0:
-            color = "#ff4b4b"  # red
+            color = "#ff4b4b"   # red
         else:
             color = "#cccccc"
 
         url = f"https://www.google.com/finance/quote/{ticker}"
-        cell = (
+        ticker_html = (
             f"<a class='top10-ticker' href='{url}' target='_blank' "
             f"style='color:{color};'>{ticker}</a>"
         )
-        row_html = (
-            f"<tr><td>{cell}</td>"
-            f"<td class='top10-weight'>{w_str}</td></tr>"
+        weight_html = (
+            f"<span style='color:{color};'>{w_str}</span>"
         )
+
+        row_html = f"<tr><td>{ticker_html}</td><td class='top10-weight'>{weight_html}</td></tr>"
         rows_html.append(row_html)
 
     table_html = """
@@ -428,14 +472,12 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown(
-        "This console shows **live weights, holdings, and risk**. "
-        "Full performance curves and alpha metrics are driven by the "
-        "**WAVES desktop engine** writing CSVs into the `logs/` folder."
+        "Institutional console for **WAVES Intelligence™** — select one of your "
+        "**9 locked Waves** below."
     )
 
     st.markdown("---")
 
-    # selectbox returns internal ID, but shows pretty name
     selected_wave = st.selectbox(
         "Select Wave",
         available_waves,
@@ -444,7 +486,7 @@ with st.sidebar:
     )
 
     mode = st.radio(
-        "Risk Mode (label in this view)",
+        "Risk Mode (label only)",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
         index=0,
     )
@@ -456,8 +498,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(
-        "Run `python3 waves_engine.py` in another terminal to keep "
-        "performance logs updating while this console is open."
+        "Keep a second Terminal window running `python3 waves_engine.py` "
+        "to update logs live while you watch this console."
     )
 
 # ============================================================
@@ -469,9 +511,8 @@ col_title, col_badge = st.columns([0.8, 0.2])
 with col_title:
     st.title("WAVES Institutional Console")
     st.caption(
-        f"Live / demo console for **WAVES Intelligence™** — {pretty_wave_name(selected_wave)} "
-        "shown below. Desktop engine handles trading & analytics; this view gives you "
-        "**instant visibility** into each Wave."
+        f"Live / demo console for **WAVES Intelligence™** — "
+        f"showing **{pretty_wave_name(selected_wave)}**."
     )
 
 with col_badge:
@@ -521,7 +562,7 @@ with summary_cols[3]:
 
 st.caption(
     "If metrics show **0.00%** or **—**, there may not be enough performance history yet. "
-    "As you run the **desktop engine**, these will fill in automatically."
+    "As logs accumulate, this row will update automatically."
 )
 
 st.markdown("---")
@@ -539,9 +580,9 @@ with left:
     if perf_df is None or perf_df.empty:
         if perf_path is None:
             st.info(
-                "No performance logs were found yet for this Wave in `logs/performance/`.  "
-                "Once you run the engine (`python3 waves_engine.py`), "
-                "this panel will plot the **Wave equity curve / cumulative return**."
+                "No performance logs found for this Wave in `logs/performance/`.  "
+                "Once the desktop engine is running, this chart will plot the "
+                "**equity curve / cumulative return**."
             )
         else:
             st.info(
@@ -558,21 +599,15 @@ with left:
 
         if plot_df is not None and not plot_df.empty:
             st.line_chart(plot_df)
-            # optional: warn if series is flat
-            if plot_df.nunique().max() <= 1:
-                st.caption(
-                    "Performance series appears flat. If this should not be the case, "
-                    "check which columns are being written into the performance CSV."
-                )
-            else:
-                st.caption(
-                    f"Chart based on latest performance log for **{pretty_wave_name(selected_wave)}** "
-                    "found in `logs/performance/`."
-                )
+            st.caption(
+                f"Chart based on latest performance log for **{pretty_wave_name(selected_wave)}** "
+                "in `logs/performance/` (non-exposure series only)."
+            )
         else:
             st.info(
-                "Performance data is present, but no suitable numeric series "
-                "was found to plot (avoiding beta/exposure columns)."
+                "Performance data exists, but only flat or non-performance series "
+                "were detected (for example, constant exposure = 0.90).  \n"
+                "Once the engine writes a varying return/NAV column, it will appear here."
             )
 
 # -------------------- RIGHT: HOLDINGS & RISK --------------------
@@ -582,7 +617,7 @@ with right:
     if wave_universe is None or wave_universe.empty:
         st.warning(
             "No universe / weights file could be loaded for this Wave. "
-            "Make sure `wave_weights.csv` (or similar) exists and includes this Wave."
+            "Make sure your `wave_weights.csv` includes this Wave."
         )
     else:
         df = wave_universe.copy()
@@ -594,7 +629,7 @@ with right:
 
         df = df.sort_values("weight_pct", ascending=False)
 
-        st.caption("Top 10 Positions — Google Finance Links (Bloomberg-style)")
+        st.caption("Top 10 Positions — Google Finance Links (Bloomberg-style red/green)")
         top10_html = build_top10_html(df, positions_df)
         st.markdown(top10_html, unsafe_allow_html=True)
 
@@ -650,25 +685,24 @@ with status_cols[0]:
         )
 
 with status_cols[1]:
-    st.markdown("**How to Use this Console**")
+    st.markdown("**How to Drive This Console**")
     st.markdown(
         """
-        1. In **Terminal window A**:  
+        1. **Terminal A**  
            `cd ~/Downloads/Wave-Simple-main`  
            `python3 -m streamlit run app.py`  
 
-        2. In **Terminal window B**:  
+        2. **Terminal B**  
            `cd ~/Downloads/Wave-Simple-main`  
            `python3 waves_engine.py`  
 
-        3. Use this dashboard to:  
-           - Switch between Waves (names fully spelled out)  
-           - See **top holdings & weights** with **Google links** and red/green coloring  
-           - Watch **performance curves** and alpha metrics as logs accumulate  
+        3. Use this console to:  
+           - Flip between your **9 locked Waves** (names fully spelled out).  
+           - See **top holdings** with **Google Finance links** and **red/green** coloring.  
+           - Watch **equity curves & alpha metrics** once the engine has written enough history.
         """
     )
 
 st.caption(
-    "WAVES Intelligence™ — AI-managed Waves with a live desktop engine "
-    "and an institutional-grade console."
+    "WAVES Intelligence™ — Adaptive Index Waves, live desktop engine, institutional console."
 )
