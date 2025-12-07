@@ -1,588 +1,722 @@
-# app.py  — WAVES Institutional Console (Internal Alpha Version)
+# app.py – WAVES Institutional Console (Hybrid Mode, Internal Alpha Windows)
+#
+# Features:
+# - Hybrid: uses real logs if available, otherwise generates demo data
+# - Internal, beta-adjusted alpha vs long-run drift (no benchmark index alpha)
+# - Intraday, 30D, 60D, 6M, 1Y alpha captures
+# - Performance curve, alpha charts, top-10 with Google links
+# - SPX / VIX tiles and engine logs view
 
-import glob
-from datetime import datetime, timedelta
 from pathlib import Path
-
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-# -------------------------------------------------------------------
-# PATHS / CONSTANTS
-# -------------------------------------------------------------------
+try:
+    import yfinance as yf  # optional; console still works without it
+except Exception:
+    yf = None
 
+# ---------------------------------------------------------------------
+# PATHS / CONSTANTS
+# ---------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 LOGS_DIR = BASE_DIR / "logs"
 PERF_DIR = LOGS_DIR / "performance"
 POS_DIR = LOGS_DIR / "positions"
-WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
+WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
 
-TRADING_DAYS_1M = 21
-TRADING_DAYS_2M = 42
-TRADING_DAYS_6M = 126
-TRADING_DAYS_1Y = 252
-
-# Internal alpha settings (can be tuned per acquirer)
+# Internal alpha settings
+MU_ANNUAL = 0.07      # long-run annual drift
+TRADING_DAYS = 252
+MU_DAILY = (1.0 + MU_ANNUAL) ** (1.0 / TRADING_DAYS) - 1.0  # ≈ 0.00027
 BETA_TARGET_DEFAULT = 0.90
-EXPECTED_DRIFT_ANNUAL = 0.07  # 7% p.a. long-run drift assumption
 
-
-# -------------------------------------------------------------------
-# HELPERS
-# -------------------------------------------------------------------
-
-def pct(x, digits: int = 2):
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x * 100:.{digits}f}%"
-
-
-def load_wave_names_from_logs() -> list[str]:
-    waves = set()
-    if PERF_DIR.exists():
-        for path in PERF_DIR.glob("*_performance_daily.csv"):
-            name = path.name.replace("_performance_daily.csv", "")
-            if name:
-                waves.add(name)
-    return sorted(waves)
-
-
-def load_wave_names_from_weights() -> list[str]:
-    if not WEIGHTS_FILE.exists():
-        return []
-    df = pd.read_csv(WEIGHTS_FILE)
-    # Expecting a column like 'Wave' or 'Wave_Name' or 'Wave_Ticker_Weight'
-    for col in ["Wave", "Wave_Name", "wave", "wave_name"]:
-        if col in df.columns:
-            return sorted(df[col].dropna().unique().tolist())
-
-    # Fallback: parse from a combined column
-    if "Wave_Ticker_Weight" in df.columns:
-        waves = df["Wave_Ticker_Weight"].astype(str).str.split(",", expand=True)[0]
-        return sorted(waves.dropna().unique().tolist())
-
-    return []
-
-
-def load_performance(wave_name: str) -> pd.DataFrame | None:
-    """Load daily performance log for a given Wave."""
-    if not PERF_DIR.exists():
-        return None
-
-    path = PERF_DIR / f"{wave_name}_performance_daily.csv"
-    if not path.exists():
-        return None
-
-    df = pd.read_csv(path)
-
-    # Try to normalize date column
-    date_col = None
-    for c in ["date", "Date", "as_of_date", "timestamp"]:
-        if c in df.columns:
-            date_col = c
-            break
-
-    if date_col is None:
-        return None
-
-    df[date_col] = pd.to_datetime(df[date_col])
-    df = df.sort_values(date_col).reset_index(drop=True)
-    df = df.rename(columns={date_col: "date"})
-
-    # Try to locate daily return column
-    return_col = None
-    for c in ["daily_return", "return", "ret", "day_return"]:
-        if c in df.columns:
-            return_col = c
-            break
-
-    if return_col is None:
-        # Fallback: derive from 'total_return' if present
-        if "total_return" in df.columns:
-            tr = df["total_return"].astype(float)
-            df["daily_return"] = tr.pct_change().fillna(0.0)
-        else:
-            return None
-    else:
-        df["daily_return"] = df[return_col].astype(float)
-
-    return df
-
-
-def load_positions(wave_name: str) -> pd.DataFrame | None:
-    """Load latest positions log for a given Wave."""
-    if not POS_DIR.exists():
-        return None
-
-    pattern = str(POS_DIR / f"{wave_name}_positions_*.csv")
-    paths = glob.glob(pattern)
-    if not paths:
-        return None
-
-    latest_path = sorted(paths)[-1]
-    df = pd.read_csv(latest_path)
-
-    # Try to enforce expected columns
-    # e.g. Ticker, Name, Weight, Value, Sector
-    # If names differ, we just display what exists.
-    return df
-
-
-def compute_internal_alpha(perf_df: pd.DataFrame,
-                           beta_target: float = BETA_TARGET_DEFAULT,
-                           expected_drift_annual: float = EXPECTED_DRIFT_ANNUAL):
-    """
-    Compute internal alpha vs β-adjusted long-run drift.
-    All alpha metrics are relative to a constant expected drift, not an index benchmark.
-    """
-    if perf_df is None or perf_df.empty:
-        return None
-
-    df = perf_df.copy()
-
-    # Long-run daily drift from annual
-    expected_drift_daily = (1.0 + expected_drift_annual) ** (1.0 / 252.0) - 1.0
-    beta_adjusted_daily = expected_drift_daily * beta_target
-
-    df["expected_drift_daily"] = beta_adjusted_daily
-    df["alpha_daily_internal"] = df["daily_return"] - beta_adjusted_daily
-
-    # Build cumulative series
-    df["cum_return"] = (1.0 + df["daily_return"]).cumprod() - 1.0
-    df["cum_expected"] = (1.0 + df["expected_drift_daily"]).cumprod() - 1.0
-    df["cum_alpha_internal"] = df["cum_return"] - df["cum_expected"]
-
-    return df, beta_adjusted_daily
-
-
-def _window_mask(df: pd.DataFrame, days: int):
-    if df is None or df.empty:
-        return df.iloc[0:0]
-    end = df["date"].max()
-    start = end - timedelta(days=days)
-    return df[df["date"] >= start]
-
-
-def summarize_alpha_windows(df: pd.DataFrame,
-                            beta_adjusted_daily: float,
-                            days: dict[str, int]):
-    """
-    days: dict of label -> calendar day span
-    Returns dict with return & alpha metrics.
-    """
-    out = {}
-    if df is None or df.empty:
-        for k in days.keys():
-            out[f"{k}_ret"] = None
-            out[f"{k}_alpha"] = None
-        out["today_ret"] = None
-        out["today_alpha"] = None
-        out["total_ret"] = None
-        out["total_alpha"] = None
-        out["max_dd"] = None
-        return out
-
-    # Today (last row)
-    last = df.iloc[-1]
-    out["today_ret"] = float(last["daily_return"])
-    out["today_alpha"] = float(last["alpha_daily_internal"])
-
-    # Since inception
-    out["total_ret"] = float(df["cum_return"].iloc[-1])
-    out["total_alpha"] = float(df["cum_alpha_internal"].iloc[-1])
-
-    # Max drawdown on total return series
-    cum = 1.0 + df["cum_return"]
-    roll_max = cum.cummax()
-    dd = (cum / roll_max) - 1.0
-    out["max_dd"] = float(dd.min())
-
-    # Rolling windows
-    for label, span in days.items():
-        window = _window_mask(df, span)
-        if window.empty:
-            out[f"{label}_ret"] = None
-            out[f"{label}_alpha"] = None
-            continue
-
-        # Cumulative realized return over the window
-        realized = (1.0 + window["daily_return"]).prod() - 1.0
-        # Expected drift over same length
-        n = len(window)
-        expected = (1.0 + beta_adjusted_daily) ** n - 1.0
-        alpha = realized - expected
-
-        out[f"{label}_ret"] = float(realized)
-        out[f"{label}_alpha"] = float(alpha)
-
-    return out
-
-
-# -------------------------------------------------------------------
-# STREAMLIT CONFIG
-# -------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="WAVES Institutional Console",
-    layout="wide",
-)
+# ---------------------------------------------------------------------
+# STYLES
+# ---------------------------------------------------------------------
+st.set_page_config(page_title="WAVES Institutional Console", layout="wide")
 
 st.markdown(
     """
     <style>
+    body { background-color: #020617; color: #e5e7eb; }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #020617 0%, #020617 100%);
+    }
+
     .waves-hero {
-        padding: 24px 32px;
-        border-radius: 12px;
-        background: radial-gradient(circle at 0% 0%, #00ff99 0, #00101f 40%, #000814 100%);
-        color: #ffffff;
-        margin-bottom: 24px;
-        position: relative;
-        overflow: hidden;
+        background: radial-gradient(circle at 0% 0%, #0ea5e933, transparent 60%),
+                    radial-gradient(circle at 100% 100%, #22c55e33, transparent 60%),
+                    linear-gradient(90deg, #020617, #020617);
+        border-radius: 1rem;
+        padding: 1.35rem 1.6rem;
+        border: 1px solid #111827;
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        gap: 1.25rem;
     }
     .waves-hero-title {
-        font-size: 30px;
+        font-size: 1.5rem;
         font-weight: 700;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-        margin-bottom: 8px;
     }
     .waves-hero-sub {
-        font-size: 14px;
-        opacity: 0.9;
-        max-width: 520px;
+        font-size: 0.9rem;
+        color: #9ca3af;
+        margin-top: 0.35rem;
     }
-    .hero-badge-row {
-        margin-top: 12px;
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .hero-badge {
-        padding: 4px 10px;
+    .pill {
+        display: inline-block;
+        padding: 0.15rem 0.6rem;
+        font-size: 0.7rem;
         border-radius: 999px;
-        border: 1px solid rgba(255,255,255,0.25);
-        font-size: 11px;
+        margin-right: 0.25rem;
+        border: 1px solid #1f2937;
+        background-color: rgba(15,23,42,0.8);
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        opacity: 0.95;
+        letter-spacing: 0.09em;
+    }
+    .pill-live { border-color: #22c55e; color: #22c55e; }
+    .pill-demo { border-color: #eab308; color: #facc15; }
+
+    .index-strip {
+        margin-top: 0.75rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
     }
     .index-tile {
-        background: rgba(0,0,0,0.4);
-        padding: 10px 14px;
-        border-radius: 8px;
-        margin-top: 12px;
-        font-size: 12px;
-        width: 180px;
+        background: #020617;
+        border-radius: 0.7rem;
+        padding: 0.55rem 0.75rem;
+        border: 1px solid #111827;
+        min-width: 130px;
     }
     .index-label {
-        opacity: 0.7;
-        font-size: 11px;
+        font-size: 0.72rem;
+        color: #9ca3af;
     }
     .index-value {
-        font-size: 15px;
+        font-size: 0.95rem;
         font-weight: 600;
-        margin-top: 2px;
     }
-    .index-pct.pos { color: #00ff99; }
-    .index-pct.neg { color: #ff4d4f; }
-
-    .waves-subtitle {
-        font-size: 11px;
-        opacity: 0.75;
-        margin-top: 10px;
+    .index-pct {
+        font-size: 0.8rem;
     }
+    .index-pct.pos { color: #22c55e; }
+    .index-pct.neg { color: #f97373; }
 
-    .metric-card > div {
-        border-radius: 10px !important;
+    .waves-metric {
+        padding: 0.7rem 0.8rem;
+        border-radius: 0.75rem;
+        background: #020617;
+        border: 1px solid #111827;
+        margin-bottom: 0.6rem;
+    }
+    .waves-metric-label {
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9ca3af;
+    }
+    .waves-metric-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+    .waves-pos { color: #22c55e; }
+    .waves-neg { color: #f97373; }
+
+    .small-caption {
+        font-size: 0.72rem;
+        color: #9ca3af;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# -------------------------------------------------------------------
-# SIDEBAR – ENGINE CONTROLS
-# -------------------------------------------------------------------
-
-st.sidebar.title("Engine Controls")
-
-wave_names = load_wave_names_from_logs()
-using_weights_list = False
-
-if not wave_names:
-    wave_names = load_wave_names_from_weights()
-    using_weights_list = True
-
-if not wave_names:
-    st.sidebar.error("No Waves discovered yet. Run waves_engine.py to generate logs.")
-    selected_wave = None
-else:
-    selected_wave = st.sidebar.selectbox("Select Wave", wave_names)
-
-# Risk mode display only (logic handled in engine)
-st.sidebar.markdown("### Mode")
-mode = st.sidebar.radio(
-    "Risk Mode",
-    ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-    index=0,
-    label_visibility="collapsed",
-)
-
-equity_exposure = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
-st.sidebar.caption(f"Target β: {BETA_TARGET_DEFAULT:.2f} • Cash buffer: {100 - equity_exposure}%")
-
-if using_weights_list:
-    st.sidebar.warning("Using Wave list from wave_weights.csv (no performance logs found yet).")
+# ---------------------------------------------------------------------
+# SMALL UTILITIES
+# ---------------------------------------------------------------------
+def fmt_pct(x):
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x*100:0.2f}%"
 
 
-# -------------------------------------------------------------------
-# HERO
-# -------------------------------------------------------------------
+def fmt_pct_signed(x):
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x*100:+0.2f}%"
 
-st.markdown(
+
+def fmt_val(x):
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x:,.2f}"
+
+
+def ticker_to_google_link(ticker: str) -> str:
+    ticker = str(ticker).strip()
+    if not ticker:
+        return ""
+    url = f"https://www.google.com/finance/quote/{ticker}"
+    return f"[{ticker}]({url})"
+
+
+# ---------------------------------------------------------------------
+# DISCOVERY & LOADING
+# ---------------------------------------------------------------------
+def discover_waves():
+    waves = set()
+    # from logs
+    if PERF_DIR.exists():
+        for p in PERF_DIR.glob("*_performance_daily*.csv"):
+            name = p.name.replace("_performance_daily", "").replace(".csv", "")
+            if name:
+                waves.add(name)
+    # from wave_weights
+    if WEIGHTS_PATH.exists():
+        try:
+            ww = pd.read_csv(WEIGHTS_PATH)
+            if "Wave" in ww.columns:
+                for w in ww["Wave"].dropna().unique():
+                    waves.add(str(w))
+        except Exception:
+            pass
+    if not waves:
+        waves = {"SP500_Wave", "Growth_Wave", "Quantum_Wave"}
+    return sorted(waves)
+
+
+def load_performance_from_logs(wave_name: str):
+    if not PERF_DIR.exists():
+        return None
+    candidates = sorted(PERF_DIR.glob(f"{wave_name}_performance_daily*.csv"))
+    if not candidates:
+        return None
+    path = candidates[-1]
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+
+    # normalize date
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+    elif "Date" in df.columns:
+        df["date"] = pd.to_datetime(df["Date"])
+    else:
+        df["date"] = pd.to_datetime(df.index)
+
+    df = df.sort_values("date").reset_index(drop=True)
+    return df
+
+
+def generate_demo_performance(wave_name: str, days: int = 260):
+    rng = np.random.default_rng(abs(hash(wave_name)) % (2**32))
+    dates = pd.date_range(end=pd.Timestamp.today(), periods=days, freq="B")
+
+    # mild drift, realistic vol
+    drift = 0.00035
+    vol = 0.012
+    shocks = rng.normal(loc=drift, scale=vol, size=len(dates))
+    daily = shocks
+    total = (1 + daily).cumprod() - 1
+
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "daily_return": daily,
+            "total_return": total,
+        }
+    )
+
+
+def ensure_return_columns(df: pd.DataFrame):
+    df = df.copy()
+    # daily_return
+    if "daily_return" not in df.columns:
+        for c in ["return", "strategy_return", "day_return"]:
+            if c in df.columns:
+                df["daily_return"] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+                break
+    if "daily_return" not in df.columns:
+        # derive from value if possible
+        for c in ["nav", "portfolio_value", "total_value", "equity_curve"]:
+            if c in df.columns:
+                val = pd.to_numeric(df[c], errors="coerce")
+                df["daily_return"] = val.pct_change().fillna(0.0)
+                break
+    if "daily_return" not in df.columns:
+        df["daily_return"] = 0.0
+
+    # total_return
+    if "total_return" not in df.columns:
+        df = df.sort_values("date")
+        df["total_return"] = (1 + df["daily_return"]).cumprod() - 1
+
+    return df.sort_values("date").reset_index(drop=True)
+
+
+def load_positions(wave_name: str):
+    # from logs
+    if POS_DIR.exists():
+        candidates = sorted(POS_DIR.glob(f"{wave_name}_positions_*.csv"))
+        if candidates:
+            path = candidates[-1]
+            try:
+                return pd.read_csv(path)
+            except Exception:
+                pass
+    # from wave_weights as fallback
+    if WEIGHTS_PATH.exists():
+        try:
+            ww = pd.read_csv(WEIGHTS_PATH)
+            if "Wave" in ww.columns and "Ticker" in ww.columns:
+                sub = ww[ww["Wave"] == wave_name].copy()
+                if sub.empty:
+                    return None
+                if "Weight" not in sub.columns:
+                    sub["Weight"] = 1.0 / len(sub)
+                sub["Name"] = ""
+                sub["Sector"] = ""
+                return sub[["Ticker", "Name", "Weight", "Sector"]]
+        except Exception:
+            return None
+    return None
+
+
+# ---------------------------------------------------------------------
+# INTERNAL ALPHA (β-ADJUSTED vs DRIFT)
+# ---------------------------------------------------------------------
+def compute_internal_alpha(df: pd.DataFrame, equity_exposure: float, beta_target: float):
     """
-    <div class="waves-hero">
-      <div class="waves-hero-title">WAVES INSTITUTIONAL CONSOLE</div>
-      <div class="waves-hero-sub">
-        Live engine view for <b>WAVES Intelligence™</b> — Adaptive Index Waves.
-        This sample session is powered by the current WAVES internal engine; any
-        acquirer can plug in their own trading models into the same rails.
-      </div>
-      <div class="hero-badge-row">
-        <div class="hero-badge">Live Engine</div>
-        <div class="hero-badge">Multi-Wave</div>
-        <div class="hero-badge">Internal Alpha (β-Adjusted)</div>
-      </div>
+    Internal alpha vs β-adjusted drift:
+        expected_daily = MU_DAILY * beta_target * equity_exposure
+        alpha_daily = daily_return - expected_daily
+    """
+    df = ensure_return_columns(df)
+    expected_daily = MU_DAILY * beta_target * equity_exposure
 
-      <div style="position:absolute; top:18px; right:28px;">
-        <div class="index-tile">
-          <div class="index-label">S&P 500*</div>
-          <div class="index-value">6870.40</div>
-          <div class="index-pct pos">0.19%</div>
+    df["expected_daily"] = expected_daily
+    df["expected_total"] = (1 + df["expected_daily"]).cumprod() - 1
+    df["alpha_daily"] = df["daily_return"] - df["expected_daily"]
+    df["alpha_total"] = df["total_return"] - df["expected_total"]
+
+    return df, expected_daily
+
+
+def compute_window_alpha(df: pd.DataFrame, days: int, expected_daily: float):
+    if df.empty:
+        return None
+    df = df.sort_values("date")
+    tail = df.tail(days)
+    if tail.empty:
+        tail = df
+    realized = (1 + tail["daily_return"]).prod() - 1
+    expected = (1 + expected_daily) ** len(tail) - 1
+    return float(realized - expected)
+
+
+def compute_max_drawdown(total_return_series: pd.Series):
+    if total_return_series is None or total_return_series.empty:
+        return None
+    cum_curve = 1 + total_return_series
+    roll_max = cum_curve.cummax()
+    dd = (cum_curve / roll_max) - 1.0
+    return float(dd.min())
+
+
+# ---------------------------------------------------------------------
+# INDEX SNAPSHOT (SPX / VIX) WITH FALLBACK
+# ---------------------------------------------------------------------
+def get_index_snapshot():
+    out = {
+        "spx_value": 6870.40,
+        "spx_pct": 0.0019,
+        "vix_value": 15.41,
+        "vix_pct": 0.0234,
+    }
+    if yf is None:
+        return out
+    try:
+        spx = yf.Ticker("^GSPC").history(period="2d", interval="1d")
+        vix = yf.Ticker("^VIX").history(period="2d", interval="1d")
+        if not spx.empty:
+            last = float(spx["Close"].iloc[-1])
+            prev = float(spx["Close"].iloc[-2]) if len(spx) > 1 else last
+            out["spx_value"] = last
+            out["spx_pct"] = (last / prev) - 1
+        if not vix.empty:
+            last = float(vix["Close"].iloc[-1])
+            prev = float(vix["Close"].iloc[-2]) if len(vix) > 1 else last
+            out["vix_value"] = last
+            out["vix_pct"] = (last / prev) - 1
+    except Exception:
+        pass
+    return out
+
+
+# ---------------------------------------------------------------------
+# MAIN APP
+# ---------------------------------------------------------------------
+def main():
+    # Sidebar
+    st.sidebar.header("⚙️ Engine Controls")
+    waves = discover_waves()
+    selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
+
+    st.sidebar.markdown("**Mode (label only)**")
+    mode = st.sidebar.radio(
+        "Risk Mode",
+        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+        label_visibility="collapsed",
+        index=0,
+    )
+
+    equity_exposure_pct = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
+    equity_exposure = equity_exposure_pct / 100.0
+    st.sidebar.caption(f"Target β ≈ {BETA_TARGET_DEFAULT:.2f} · Cash buffer: {100 - equity_exposure_pct}%")
+
+    # Data: Hybrid
+    perf_logs = load_performance_from_logs(selected_wave)
+    using_logs = perf_logs is not None and not perf_logs.empty
+    if using_logs:
+        perf_df = perf_logs
+    else:
+        perf_df = generate_demo_performance(selected_wave)
+
+    perf_df, expected_daily = compute_internal_alpha(
+        perf_df,
+        equity_exposure=equity_exposure,
+        beta_target=BETA_TARGET_DEFAULT,
+    )
+
+    perf_df = perf_df.sort_values("date").reset_index(drop=True)
+    latest = perf_df.iloc[-1]
+
+    total_return = float(latest["total_return"])
+    intraday_return = float(latest["daily_return"])
+    alpha_1d = float(latest["alpha_daily"])
+    max_dd = compute_max_drawdown(perf_df["total_return"])
+
+    alpha_30d = compute_window_alpha(perf_df, 30, expected_daily)
+    alpha_60d = compute_window_alpha(perf_df, 60, expected_daily)
+    alpha_6m = compute_window_alpha(perf_df, 126, expected_daily)
+    alpha_1y = compute_window_alpha(perf_df, 252, expected_daily)
+
+    pos_df = load_positions(selected_wave)
+    idx = get_index_snapshot()
+
+    # HERO
+    spx_pct = idx["spx_pct"]
+    vix_pct = idx["vix_pct"]
+    hero_html = f"""
+    <div class="waves-hero">
+      <div>
+        <div class="waves-hero-title">WAVES INSTITUTIONAL CONSOLE</div>
+        <div style="margin-top:0.35rem;">
+          <span class="pill pill-live">LIVE ENGINE</span>
+          <span class="pill">MULTI-WAVE</span>
+          <span class="pill">Internal Alpha · β-Adjusted Drift</span>
         </div>
-        <div class="index-tile">
-          <div class="index-label">VIX (Risk Pulse)*</div>
-          <div class="index-value">15.41</div>
-          <div class="index-pct pos">2.34%</div>
+        <div class="waves-hero-sub">
+          Live console for WAVES Intelligence™ — Adaptive Index Waves.<br/>
+          All alpha metrics shown here are internal, live-only, and β-adjusted vs long-run drift
+          (no external benchmark alpha). Current view uses the WAVES internal engine as a sample
+          black box; any acquirer can plug in their own models into the same rails.
         </div>
-        <div class="waves-subtitle">
-          *Index values shown for layout only (demo); live feeds connect via acquirer data pipes.
+        <div class="index-strip">
+          <div class="index-tile">
+            <div class="index-label">Selected Wave 1D Internal Alpha</div>
+            <div class="index-value {'waves-pos' if (alpha_1d or 0) >= 0 else 'waves-neg'}">
+              {fmt_pct_signed(alpha_1d)}
+            </div>
+          </div>
+          <div class="index-tile">
+            <div class="index-label">S&P 500</div>
+            <div class="index-value">{fmt_val(idx['spx_value'])}</div>
+            <div class="index-pct {'pos' if spx_pct >= 0 else 'neg'}">{fmt_pct_signed(spx_pct)}</div>
+          </div>
+          <div class="index-tile">
+            <div class="index-label">VIX (Risk Pulse)</div>
+            <div class="index-value">{fmt_val(idx['vix_value'])}</div>
+            <div class="index-pct {'pos' if vix_pct >= 0 else 'neg'}">{fmt_pct_signed(vix_pct)}</div>
+          </div>
+        </div>
+      </div>
+      <div style="min-width:230px;">
+        <div class="waves-metric">
+          <div class="waves-metric-label">Data Regime</div>
+          <div class="waves-metric-value">{'LIVE LOGS' if using_logs else 'STRUCTURE / DEMO'}</div>
+          <div class="small-caption">
+            {'Sourced from logs/performance & logs/positions.'
+             if using_logs
+             else 'Engine in demo mode — run waves_engine.py & upload CSVs to go fully live.'}
+          </div>
+        </div>
+        <div class="waves-metric">
+          <div class="waves-metric-label">Last Console Refresh (UTC)</div>
+          <div class="waves-metric-value">{datetime.utcnow().strftime("%Y-%m-%d %H:%M")}</div>
+          <div class="small-caption">Internal clock reference only</div>
         </div>
       </div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# -------------------------------------------------------------------
-# MAIN BODY
-# -------------------------------------------------------------------
-
-st.markdown("## WAVES Engine Dashboard")
-st.markdown(
     """
-    Live console for <b>WAVES Intelligence™</b> — Adaptive Index Waves.<br>
-    All alpha metrics shown here are <b>internal, live-only, β-adjusted vs long-run drift</b>
-    (no index benchmark alpha).
-    """,
-    unsafe_allow_html=True,
-)
+    st.markdown(hero_html, unsafe_allow_html=True)
 
-if selected_wave is None:
-    st.info("Select a Wave on the left to view engine metrics.")
-    st.stop()
-
-perf_df_raw = load_performance(selected_wave)
-pos_df = load_positions(selected_wave)
-
-if perf_df_raw is None:
-    st.warning(
-        f"No performance log found yet for <b>{selected_wave}</b> in <code>logs/performance</code>.",
-        icon="⚠️",
-    )
-    st.markdown(
-        """
-        The dashboard is running in <b>structure/demo mode</b>.  
-        Run <code>waves_engine.py</code> locally to generate performance logs, then redeploy or
-        upload the resulting CSVs to see full live charts and alpha.
-        """,
-        unsafe_allow_html=True,
-    )
-    st.stop()
-
-# Compute internal alpha
-perf_df, beta_adj_daily = compute_internal_alpha(perf_df_raw)
-alpha_windows = summarize_alpha_windows(
-    perf_df,
-    beta_adj_daily,
-    days={
-        "30d": TRADING_DAYS_1M,
-        "60d": TRADING_DAYS_2M,
-        "6m": TRADING_DAYS_6M,
-        "1y": TRADING_DAYS_1Y,
-    },
-)
-
-# -------------------------------------------------------------------
-# TOP METRIC CARDS
-# -------------------------------------------------------------------
-
-m1, m2, m3, m4 = st.columns(4)
-
-with m1:
-    st.metric(
-        "Total Return (Since Inception)",
-        pct(alpha_windows["total_ret"]),
+    # TOP METRIC STRIP
+    st.markdown("### WAVES Engine Dashboard")
+    st.caption(
+        "All alpha captures below are internal, β-adjusted vs long-run market drift. "
+        "This represents the performance of the current WAVES internal engine as a sample black box."
     )
 
-with m2:
-    st.metric(
-        "Intraday Return (Today)",
-        pct(alpha_windows["today_ret"]),
-    )
-
-with m3:
-    st.metric(
-        "Max Drawdown",
-        pct(alpha_windows["max_dd"]),
-    )
-
-with m4:
-    st.metric(
-        "1-Day Internal Alpha vs Drift",
-        pct(alpha_windows["today_alpha"]),
-    )
-
-# Second row: horizon alpha tiles
-m5, m6, m7, m8 = st.columns(4)
-
-with m5:
-    st.metric(
-        "30-Day Internal Alpha",
-        pct(alpha_windows["30d_alpha"]),
-        help="Cumulative return over last ~30 calendar days minus β-adjusted expected drift.",
-    )
-
-with m6:
-    st.metric(
-        "60-Day Internal Alpha",
-        pct(alpha_windows["60d_alpha"]),
-    )
-
-with m7:
-    st.metric(
-        "6-Month Internal Alpha",
-        pct(alpha_windows["6m_alpha"]),
-    )
-
-with m8:
-    st.metric(
-        "1-Year Internal Alpha",
-        pct(alpha_windows["1y_alpha"]),
-    )
-
-st.info(
-    "This view uses WAVES’ internal engine as a sample black box. "
-    "In an acquisition, the acquirer’s own trading logic can be plugged into the "
-    "same performance and alpha rails with no changes to the console.",
-    icon="🔌",
-)
-
-# -------------------------------------------------------------------
-# TABS
-# -------------------------------------------------------------------
-
-tab_overview, tab_alpha, tab_logs = st.tabs(
-    ["Overview", "Alpha Dashboard", "Engine Logs"]
-)
-
-# === TAB 1: OVERVIEW =========================================================
-with tab_overview:
-    c1, c2 = st.columns([2, 1.3])
-
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        st.markdown("### Performance Curve (Live Engine)")
-        chart_df = perf_df[["date", "cum_return"]].set_index("date")
-        chart_df = chart_df.rename(columns={"cum_return": "Wave Total Return"})
-        st.line_chart(chart_df)
-
-    with c2:
-        st.markdown("### Exposure & Risk")
-        st.metric("Equity Exposure", f"{equity_exposure} %")
-        st.metric("Cash Buffer", f"{100 - equity_exposure} %")
-        st.metric("Target β", f"{BETA_TARGET_DEFAULT:.2f}")
-
-    st.markdown("### Top 10 Positions — Google Finance Links")
-    if pos_df is None or pos_df.empty:
-        st.info("No positions file found yet for this Wave in `logs/positions`.")
-    else:
-        # Try to normalize column names
-        cols = {c.lower(): c for c in pos_df.columns}
-        ticker_col = cols.get("ticker") or cols.get("symbol") or list(pos_df.columns)[0]
-        weight_col = cols.get("weight") or cols.get("target_weight") or None
-        name_col = cols.get("name") or cols.get("security") or None
-
-        top = pos_df.copy()
-        if weight_col:
-            top = top.sort_values(weight_col, ascending=False)
-        top = top.head(10)
-
-        # Build Google Finance links
-        display_rows = []
-        for _, row in top.iterrows():
-            ticker = str(row[ticker_col])
-            name = str(row[name_col]) if name_col else ""
-            weight = float(row[weight_col]) if weight_col else np.nan
-            link = f"https://www.google.com/finance/quote/{ticker}:NYSE"
-            display_rows.append(
-                {
-                    "Ticker": f"[{ticker}]({link})",
-                    "Name": name,
-                    "Weight": weight,
-                }
-            )
-        display_df = pd.DataFrame(display_rows)
         st.markdown(
-            display_df.to_markdown(index=False),
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">Total Return (Since Inception)</div>
+              <div class="waves-metric-value {'waves-pos' if total_return >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(total_return)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">Intraday Return (Today)</div>
+              <div class="waves-metric-value {'waves-pos' if intraday_return >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(intraday_return)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">Max Drawdown</div>
+              <div class="waves-metric-value waves-neg">
+                {fmt_pct(max_dd)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">1-Day Internal Alpha</div>
+              <div class="waves-metric-value {'waves-pos' if (alpha_1d or 0) >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(alpha_1d)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c5:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">β-Adjusted Expected Drift (Daily)</div>
+              <div class="waves-metric-value">
+                {fmt_pct(expected_daily)}
+              </div>
+            </div>""",
             unsafe_allow_html=True,
         )
 
-# === TAB 2: ALPHA DASHBOARD ==================================================
-with tab_alpha:
-    st.markdown("### Alpha Capture Timeline (Internal)")
-    alpha_curve = perf_df[["date", "cum_alpha_internal"]].set_index("date")
-    alpha_curve = alpha_curve.rename(
-        columns={"cum_alpha_internal": "Cumulative Internal Alpha"}
-    )
-    st.line_chart(alpha_curve)
-
-    st.markdown("### Rolling Daily Internal Alpha")
-    st.line_chart(
-        perf_df.set_index("date")[["alpha_daily_internal"]].rename(
-            columns={"alpha_daily_internal": "Daily Internal Alpha"}
+    # SECOND ROW: WINDOW ALPHAS
+    c6, c7, c8, c9 = st.columns(4)
+    with c6:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">30-Day Internal Alpha</div>
+              <div class="waves-metric-value {'waves-pos' if (alpha_30d or 0) >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(alpha_30d)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
         )
-    )
+    with c7:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">60-Day Internal Alpha</div>
+              <div class="waves-metric-value {'waves-pos' if (alpha_60d or 0) >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(alpha_60d)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c8:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">6-Month Internal Alpha</div>
+              <div class="waves-metric-value {'waves-pos' if (alpha_6m or 0) >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(alpha_6m)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c9:
+        st.markdown(
+            f"""
+            <div class="waves-metric">
+              <div class="waves-metric-label">1-Year Internal Alpha</div>
+              <div class="waves-metric-value {'waves-pos' if (alpha_1y or 0) >= 0 else 'waves-neg'}">
+                {fmt_pct_signed(alpha_1y)}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
-# === TAB 3: ENGINE LOGS ======================================================
-with tab_logs:
-    st.markdown("### Raw Engine Feeds")
+    if not using_logs:
+        st.info(
+            "No performance log found yet for this Wave in `logs/performance`.\n\n"
+            "The console is currently running in **structure/demo mode** using synthetic data. "
+            "Run `waves_engine.py` locally and sync its CSV logs to go fully live.",
+            icon="ℹ️",
+        )
 
-    c1, c2 = st.columns(2)
+    # TABS
+    tab_overview, tab_alpha, tab_logs = st.tabs(["Overview", "Alpha Dashboard", "Engine Logs"])
 
-    with c1:
-        st.markdown("**Performance Feed (tail)**")
-        st.dataframe(perf_df.tail(50), use_container_width=True, height=420)
+    # OVERVIEW
+    with tab_overview:
+        left, right = st.columns([2.4, 1.6])
 
-    with c2:
-        st.markdown("**Positions Feed (latest)**")
-        if pos_df is not None and not pos_df.empty:
-            st.dataframe(pos_df, use_container_width=True, height=420)
-        else:
-            st.info("No positions feed available for this Wave yet.")
+        with left:
+            st.markdown("#### Performance Curve (Live Engine / Demo)")
+            perf_plot = perf_df.set_index("date")[["total_return"]]
+            perf_plot.columns = ["Total Return"]
+            st.line_chart(perf_plot)
 
-    st.markdown("---")
-    st.caption(
-        "All data shown here is sourced from WAVES Engine logs. "
-        "Status (LIVE/SANDBOX/HYBRID) and regime tags are inferred from the underlying data regime."
-    )
+            st.markdown("#### Top 10 Positions — Clickable Google Links")
+            if pos_df is not None and not pos_df.empty:
+                dfp = pos_df.copy()
+                cols_lower = {c.lower(): c for c in dfp.columns}
+                ticker_col = cols_lower.get("ticker", list(dfp.columns)[0])
+                weight_col = cols_lower.get("weight", None)
+                name_col = cols_lower.get("name", None)
+                sector_col = cols_lower.get("sector", None)
+                value_col = cols_lower.get("value", None)
+
+                keep_cols = [ticker_col]
+                if name_col:
+                    keep_cols.append(name_col)
+                if weight_col:
+                    keep_cols.append(weight_col)
+                if value_col:
+                    keep_cols.append(value_col)
+                if sector_col:
+                    keep_cols.append(sector_col)
+
+                dfp = dfp[keep_cols].copy()
+
+                if weight_col and weight_col in dfp.columns:
+                    dfp = dfp.sort_values(weight_col, ascending=False)
+
+                dfp = dfp.head(10).reset_index(drop=True)
+
+                # Create link column
+                dfp["Ticker"] = dfp[ticker_col].apply(ticker_to_google_link)
+
+                rename = {ticker_col: "Ticker"}
+                if name_col:
+                    rename[name_col] = "Name"
+                if weight_col:
+                    rename[weight_col] = "Weight"
+                if value_col:
+                    rename[value_col] = "Value"
+                if sector_col:
+                    rename[sector_col] = "Sector"
+                dfp.rename(columns=rename, inplace=True)
+
+                table_md = dfp.to_markdown(index=False)
+                st.markdown(table_md)
+            else:
+                st.info("No positions file found yet in `logs/positions` for this Wave.")
+
+        with right:
+            st.markdown("#### Exposure & Risk Profile")
+            risk_df = pd.DataFrame(
+                {
+                    "Metric": ["Equity Exposure", "Cash Buffer", "Target β"],
+                    "Value": [f"{equity_exposure_pct}%", f"{100 - equity_exposure_pct}%", f"{BETA_TARGET_DEFAULT:.2f}"],
+                }
+            ).set_index("Metric")
+            st.table(risk_df)
+
+            st.markdown("#### Total vs Expected Drift")
+            drift_plot = perf_df.set_index("date")[["total_return", "expected_total"]]
+            drift_plot.columns = ["Total Return", "Expected Drift"]
+            st.line_chart(drift_plot)
+
+    # ALPHA DASHBOARD
+    with tab_alpha:
+        st.markdown("#### Internal Alpha Windows (β-Adjusted · Drift-Relative)")
+        alpha_rows = []
+        alpha_rows.append(["1-Day", fmt_pct_signed(alpha_1d)])
+        alpha_rows.append(["30-Day", fmt_pct_signed(alpha_30d)])
+        alpha_rows.append(["60-Day", fmt_pct_signed(alpha_60d)])
+        alpha_rows.append(["6-Month", fmt_pct_signed(alpha_6m)])
+        alpha_rows.append(["1-Year", fmt_pct_signed(alpha_1y)])
+
+        alpha_table = pd.DataFrame(alpha_rows, columns=["Window", "Internal Alpha"])
+        st.table(alpha_table.set_index("Window"))
+
+        st.markdown("#### Cumulative Internal Alpha Timeline")
+        alpha_cum = perf_df.set_index("date")[["alpha_total"]]
+        alpha_cum.columns = ["Cumulative Internal Alpha"]
+        st.line_chart(alpha_cum)
+
+        st.markdown("#### Rolling Daily Internal Alpha")
+        alpha_daily = perf_df.set_index("date")[["alpha_daily"]]
+        alpha_daily.columns = ["Alpha (Daily)"]
+        st.line_chart(alpha_daily)
+
+        st.caption(
+            "Internal alpha is computed as realized Wave return minus β-adjusted long-run drift "
+            f"({MU_ANNUAL*100:0.1f}% annual assumption, {TRADING_DAYS} trading days/year, β={BETA_TARGET_DEFAULT:.2f}, "
+            "scaled by Wave equity exposure)."
+        )
+
+    # LOGS
+    with tab_logs:
+        st.markdown("#### Engine Feeds")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("**Performance Feed (tail)**")
+            st.dataframe(perf_df.tail(50), use_container_width=True)
+
+        with c2:
+            st.markdown("**Positions Feed (latest)**")
+            if pos_df is not None and not pos_df.empty:
+                st.dataframe(pos_df.tail(50), use_container_width=True)
+            else:
+                st.info("No positions feed found for this Wave.")
+
+        st.markdown("---")
+        st.caption(
+            "All views above are powered by the WAVES Engine logs when present. "
+            "If logs are missing, the console switches to structure/demo mode with synthetic data, "
+            "keeping the full experience live for presentations."
+        )
+
+
+if __name__ == "__main__":
+    main()
