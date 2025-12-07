@@ -1,4 +1,4 @@
-# app.py  — WAVES Institutional Console (Resilient Data Version)
+# app.py — WAVES Institutional Console (Wave/Ticker/Weight CSV)
 
 import os
 import datetime as dt
@@ -9,12 +9,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# Try to import yfinance, but don't die if it's missing or blocked
+# Try to import yfinance, but don't crash if unavailable
 try:
     import yfinance as yf
     YF_AVAILABLE = True
 except ImportError:
     YF_AVAILABLE = False
+
 
 # =============================================================================
 # CONFIG
@@ -25,26 +26,28 @@ st.set_page_config(
     layout="wide",
 )
 
+# Path to your weights file (Wave, Ticker, Weight)
 WAVE_WEIGHTS_PATH = os.environ.get("WAVES_WEIGHTS_CSV", "wave_weights.csv")
 
-# Benchmarks per Wave (edit these to match your 15-wave lineup exactly)
+# Benchmarks per Wave — adjust to match your lineup
 WAVE_BENCHMARKS: Dict[str, str] = {
-    "S&P Wave": "SPY",
-    "Growth Wave": "QQQ",
-    "Income Wave": "VYM",
-    "Small Cap Growth Wave": "IWM",
-    "Small to Mid Cap Growth Wave": "IJH",
-    "Future Power & Energy Wave": "XLE",
-    "Crypto Income Wave": "BTC-USD",
-    "Quantum Computing Wave": "BOTZ",
-    "Clean Transit-Infrastructure Wave": "ICLN",
-    # Add other Waves here...
+    "S&P_Wave": "SPY",
+    "AL_Wave": "QQQ",   # Example; change to your preferred benchmark
+    "Growth_Wave": "QQQ",
+    "Income_Wave": "VYM",
+    "Small_Cap_Growth_Wave": "IWM",
+    "Small_to_Mid_Cap_Growth_Wave": "IJH",
+    "Future_Power_&_Energy_Wave": "XLE",
+    "Crypto_Income_Wave": "BTC-USD",
+    "Quantum_Computing_Wave": "BOTZ",
+    "Clean_Transit-Infrastructure_Wave": "ICLN",
+    # Add any additional waves here if needed
 }
 
 TARGET_BETA = 0.90
 
-SP_MARKET_TICKER = "SPY"   # For S&P mini chart
-VIX_TICKER = "^VIX"        # For VIX mini chart
+SP_MARKET_TICKER = "SPY"
+VIX_TICKER = "^VIX"
 
 HISTORY_LOOKBACK_DAYS = 365
 BETA_LOOKBACK_DAYS = 60
@@ -80,57 +83,39 @@ class WaveEngineResult:
 @st.cache_data(show_spinner=False)
 def load_weights(csv_path: str) -> pd.DataFrame:
     """
-    Load wave weights from CSV.
-    Expected flexible columns: wave, ticker, weight.
+    Load weights from wave_weights.csv.
+    Assumes columns: Wave, Ticker, Weight (case-insensitive).
     """
     try:
         df = pd.read_csv(csv_path)
     except Exception as e:
-        st.error(f"Could not read weights file at `{csv_path}`: {e}")
+        st.error(f"Could not read weights file `{csv_path}`: {e}")
         return pd.DataFrame()
 
-    df.columns = [c.strip().lower() for c in df.columns]
+    # Normalize column names to lowercase, strip spaces
+    df.rename(columns=lambda c: c.strip().lower(), inplace=True)
 
-    wave_col = None
-    ticker_col = None
-    weight_col = None
-
-    for cand in ["wave", "portfolio", "wave_name"]:
-        if cand in df.columns:
-            wave_col = cand
-            break
-
-    for cand in ["ticker", "symbol", "asset", "security"]:
-        if cand in df.columns:
-            ticker_col = cand
-            break
-
-    for cand in ["weight", "target_weight", "w"]:
-        if cand in df.columns:
-            weight_col = cand
-            break
-
-    if wave_col is None or ticker_col is None or weight_col is None:
+    required = {"wave", "ticker", "weight"}
+    missing = required - set(df.columns)
+    if missing:
         st.error(
-            "Weights CSV is missing required columns. "
-            "Please include columns for wave, ticker, and weight "
-            "(e.g., 'Wave', 'Ticker', 'Weight')."
+            f"wave_weights.csv must contain columns: Wave, Ticker, Weight "
+            f"(missing: {', '.join(missing)})"
         )
         return pd.DataFrame()
 
-    df = df[[wave_col, ticker_col, weight_col]].copy()
-    df.columns = ["wave", "ticker", "weight"]
-
-    df = df.dropna(subset=["ticker", "weight"])
+    df = df[["wave", "ticker", "weight"]].copy()
     df["wave"] = df["wave"].astype(str).str.strip()
     df["ticker"] = df["ticker"].astype(str).str.strip().upper()
-    df["weight"] = df["weight"].astype(float)
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
 
-    # Normalize weights within each wave
+    # Normalize weights within each wave to sum to 1
     df["weight"] = df.groupby("wave")["weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else x
     )
 
+    # Drop any rows with zero weight or empty ticker
+    df = df[(df["ticker"] != "") & (df["weight"] > 0)]
     return df
 
 
@@ -142,11 +127,11 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
     2) If fails, try local prices.csv
     3) If still fails, generate synthetic demo data
     """
-    tickers = list(dict.fromkeys([t for t in tickers if t]))  # unique, non-empty
-    if len(tickers) == 0:
+    tickers = list(dict.fromkeys([t for t in tickers if t]))  # unique & non-empty
+    if not tickers:
         return pd.DataFrame()
 
-    # Attempt yfinance first
+    # Try yfinance first
     if YF_AVAILABLE:
         try:
             end = dt.date.today()
@@ -158,7 +143,6 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
                 progress=False,
                 auto_adjust=True,
             )
-            # yfinance returns multi-index if multiple tickers
             if isinstance(data, pd.DataFrame) and "Adj Close" in data.columns:
                 data = data["Adj Close"]
             if isinstance(data, pd.Series):
@@ -169,11 +153,10 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
         except Exception as e:
             st.warning(f"yfinance unavailable, using fallback data. Error: {e}")
 
-    # Fallback 1 – local prices.csv (index=date, columns=tickers)
+    # Fallback 1: local prices.csv (index=date, columns=tickers)
     if os.path.exists("prices.csv"):
         try:
             df = pd.read_csv("prices.csv", index_col=0, parse_dates=True)
-            # Subset to requested tickers if they exist
             cols = [c for c in df.columns if c in tickers]
             if cols:
                 return df[cols].tail(days)
@@ -182,7 +165,7 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
         except Exception as e:
             st.warning(f"prices.csv exists but could not be read: {e}")
 
-    # Fallback 2 – synthetic demo data
+    # Fallback 2: synthetic demo data
     dates = pd.date_range(end=dt.date.today(), periods=days)
     demo = pd.DataFrame(
         {
@@ -207,7 +190,9 @@ def compute_returns(prices: pd.DataFrame) -> pd.DataFrame:
 
 
 def estimate_beta(
-    port_rets: pd.Series, bench_rets: pd.Series, lookback_days: int = BETA_LOOKBACK_DAYS
+    port_rets: pd.Series,
+    bench_rets: pd.Series,
+    lookback_days: int = BETA_LOOKBACK_DAYS,
 ) -> Optional[float]:
     if port_rets.empty or bench_rets.empty:
         return None
@@ -222,7 +207,6 @@ def estimate_beta(
 
     if x.var() == 0:
         return None
-
     cov = np.cov(x, y)[0, 1]
     return cov / x.var()
 
@@ -273,14 +257,11 @@ def compute_momentum_scores(
     long_days: int = MOM_LONG_DAYS,
     short_days: int = MOM_SHORT_DAYS,
 ) -> pd.Series:
-    if prices.empty:
-        return pd.Series(dtype=float)
-    if len(prices) < long_days + 2:
+    if prices.empty or len(prices) < long_days + 2:
         return pd.Series(dtype=float)
 
     long_ret = prices.pct_change(long_days).iloc[-1]
     short_ret = prices.pct_change(short_days).iloc[-1]
-
     score = 0.6 * long_ret + 0.4 * short_ret
     return score.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
@@ -303,6 +284,10 @@ def tilt_weights_with_momentum(
     if tilted.sum() > 0:
         tilted /= tilted.sum()
     return tilted
+
+
+def google_finance_link(ticker: str) -> str:
+    return f"https://www.google.com/finance/quote/{ticker.upper()}"
 
 
 def style_top_holdings(df: pd.DataFrame):
@@ -329,11 +314,6 @@ def style_top_holdings(df: pd.DataFrame):
     return styler
 
 
-def google_finance_link(ticker: str) -> str:
-    t = ticker.upper()
-    return f"https://www.google.com/finance/quote/{t}"
-
-
 # =============================================================================
 # CORE ENGINE
 # =============================================================================
@@ -350,19 +330,19 @@ def run_wave_engine(
 
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
-        st.warning(f"No holdings found in weights file for wave: {wave_name}")
+        st.warning(f"No holdings found in weights for wave: {wave_name}")
         return None
 
     tickers = wave_weights["ticker"].unique().tolist()
     port_prices = prices_all[tickers].dropna(how="all", axis=0)
 
     if port_prices.empty or bench_prices.empty:
-        st.warning("Price history is missing for this wave or its benchmark.")
+        st.warning("Price history is missing for this wave or benchmark.")
         return None
 
     bench_prices = bench_prices.reindex(port_prices.index).ffill().dropna()
     if bench_prices.empty:
-        st.warning("Benchmark price series is empty after alignment.")
+        st.warning("Benchmark price series empty after alignment.")
         return None
 
     port_rets_all = compute_returns(port_prices)
@@ -479,7 +459,7 @@ def render_header():
 def sidebar_controls(weights_df: pd.DataFrame) -> Tuple[str, str, bool, bool]:
     st.sidebar.title("Wave & Mode")
 
-    waves = sorted(weights_df["wave"].unique()) if not weights_df.empty else ["S&P Wave"]
+    waves = sorted(weights_df["wave"].unique()) if not weights_df.empty else ["AL_Wave"]
     wave_name = st.sidebar.selectbox("Select Wave", options=waves, index=0)
 
     mode = st.sidebar.radio(
@@ -519,11 +499,9 @@ def render_kpi_row(result: WaveEngineResult):
         delta=f"SmartSafe™ {result.smartsafe_alloc:.0%}",
     )
 
-    beta_label = "β estimate"
     beta_value = f"{result.beta_estimate:.2f}" if result.beta_estimate is not None else "N/A"
-
     c4.metric(
-        label=beta_label,
+        label="β estimate",
         value=beta_value,
         delta=f"Target β {TARGET_BETA:.2f}",
     )
@@ -556,7 +534,6 @@ def render_performance_charts(result: WaveEngineResult, show_alpha: bool, show_d
 
 def render_top_holdings_table(result: WaveEngineResult):
     st.subheader("Top Holdings (Live)")
-
     df_display = result.holdings_today[["Ticker", "Weight", "Today % Change", "Google Finance"]]
     styler = style_top_holdings(df_display)
     st.dataframe(styler, use_container_width=True)
@@ -564,7 +541,6 @@ def render_top_holdings_table(result: WaveEngineResult):
 
 def render_market_mini_charts(spy_prices: pd.Series, vix_prices: pd.Series):
     st.subheader("Market Context — S&P & VIX")
-
     c1, c2 = st.columns(2)
 
     if not spy_prices.empty:
@@ -630,10 +606,10 @@ def main():
 
     render_kpi_row(result)
 
-    col_left, col_right = st.columns([2, 1])
-    with col_left:
+    left, right = st.columns([2, 1])
+    with left:
         render_performance_charts(result, show_alpha, show_drawdown)
-    with col_right:
+    with right:
         render_top_holdings_table(result)
         render_market_mini_charts(spy_series, vix_series)
 
