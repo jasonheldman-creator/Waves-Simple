@@ -15,17 +15,16 @@ st.set_page_config(
 
 BENCHMARK_TICKER = "SPY"
 VIX_TICKER = "^VIX"
-BETA_TARGET = 0.90
+BETA_TARGET = 0.90  # still here for future use
 
 # ---------------------------------------------------------
 # LOCKED-IN WAVES (CODE-MANAGED DEFAULT WEIGHTS)
 # ---------------------------------------------------------
-# IMPORTANT:
-# - These are code-level defaults so the engine is 100% stable
-#   and independent of wave_weights.csv.
-# - You can rename wave keys (e.g. "AI_Wave") to your exact
-#   9 locked wave names without touching any other code.
-# - Each inner dict must sum to 1.0 (weights per wave).
+# These are code-level defaults so the engine is 100% stable
+# and independent of wave_weights.csv.
+# You can rename wave keys (e.g. "AI_Wave") to your exact
+# 9 locked wave names without touching any other code.
+# Each inner dict must sum to 1.0 (weights per wave).
 # ---------------------------------------------------------
 
 DEFAULT_WEIGHTS = {
@@ -197,7 +196,7 @@ def fetch_vix_series(lookback_days: int):
             auto_adjust=False,
             progress=False,
         )
-        if hist is not None and not hist.empty:
+        if hist is not None and not empty:
             s = hist["Adj Close"].rename("VIX")
             s.index = s.index.tz_convert(None)
             return s
@@ -301,6 +300,29 @@ def compute_exposure_and_smartsafe(vix_last: float, mode: str):
     smartsafe = float(max(0.0, 1.0 - base))
 
     return base, smartsafe
+
+
+def compute_alpha_series(wave_rets: pd.Series, bench_rets: pd.Series, exposure: float):
+    """
+    Compute both simple alpha and 'Alpha Captured' (exposure-adjusted alpha).
+
+    simple_alpha_daily   = wave - bench
+    captured_alpha_daily = wave - exposure * bench
+
+    Returns dict with daily and cumulative series for both.
+    """
+    simple_daily = wave_rets - bench_rets
+    simple_cum = (1 + simple_daily).cumprod() - 1
+
+    captured_daily = wave_rets - exposure * bench_rets
+    captured_cum = (1 + captured_daily).cumprod() - 1
+
+    return {
+        "simple_daily": simple_daily,
+        "simple_cum": simple_cum,
+        "captured_daily": captured_daily,
+        "captured_cum": captured_cum,
+    }
 
 
 def get_top_holdings(weights_df, prices: pd.DataFrame, wave_name: str):
@@ -409,7 +431,7 @@ def main():
     wave_rets = wave_rets[wave_rets.index >= cutoff]
     bench_rets = bench_rets[bench_rets.index >= cutoff]
 
-    # ---------- TOP METRICS ----------
+    # ---------- TOP METRICS & ADVANCED ALPHA ----------
     if len(wave_curve) >= 2 and len(bench_curve) >= 2:
         wave_today = float(wave_curve.iloc[-1] / wave_curve.iloc[-2] - 1.0)
         bench_today = float(bench_curve.iloc[-1] / bench_curve.iloc[-2] - 1.0)
@@ -417,13 +439,22 @@ def main():
         wave_today = np.nan
         bench_today = np.nan
 
-    today_alpha = (
-        wave_today - bench_today
-        if not (np.isnan(wave_today) or np.isnan(bench_today))
-        else np.nan
-    )
+    # Estimate beta and exposure
     est_beta = estimate_beta(wave_rets, bench_rets)
     exposure, smartsafe = compute_exposure_and_smartsafe(vix_last, mode_key)
+
+    # Advanced alpha series (simple + alpha captured)
+    alpha_info = compute_alpha_series(wave_rets, bench_rets, exposure)
+    simple_alpha_daily = alpha_info["simple_daily"]
+    captured_alpha_daily = alpha_info["captured_daily"]
+    captured_cum = alpha_info["captured_cum"]
+
+    today_simple_alpha = (
+        simple_alpha_daily.iloc[-1] if len(simple_alpha_daily) > 0 else np.nan
+    )
+    today_captured_alpha = (
+        captured_alpha_daily.iloc[-1] if len(captured_alpha_daily) > 0 else np.nan
+    )
 
     # ---------- HEADER ----------
     col_header_left, col_header_right = st.columns([4, 1])
@@ -482,25 +513,26 @@ def main():
         )
 
     with m3:
-        st.markdown("**Today Alpha**")
+        st.markdown("**Today Alpha Captured**")
         st.markdown(
-            f"<span style='font-size:1.6rem;color:{metric_color(today_alpha)};'>"
-            f"{'' if np.isnan(today_alpha) else f'{today_alpha*100:.2f}%'}"
+            f"<span style='font-size:1.6rem;color:{metric_color(today_captured_alpha)};'>"
+            f"{'' if np.isnan(today_captured_alpha) else f'{today_captured_alpha*100:.2f}%'}"
             "</span>",
             unsafe_allow_html=True,
         )
+        st.caption("Wave − Exposure × SPY")
 
     with m4:
-        st.markdown("**Exposure**")
+        st.markdown("**Estimated Beta vs SPY**")
         st.markdown(
-            f"<span style='font-size:1.6rem;'>{exposure*100:.1f}%</span>",
+            f"<span style='font-size:1.6rem;'>{'' if np.isnan(est_beta) else f'{est_beta:.2f}'}</span>",
             unsafe_allow_html=True,
         )
 
     with m5:
-        st.markdown("**SmartSafe™ Allocation**")
+        st.markdown("**Exposure**")
         st.markdown(
-            f"<span style='font-size:1.6rem;'>{smartsafe*100:.1f}%</span>",
+            f"<span style='font-size:1.6rem;'>{exposure*100:.1f}%</span>",
             unsafe_allow_html=True,
         )
 
@@ -568,9 +600,8 @@ def main():
     c1, c2, c3 = st.columns([3, 3, 2])
 
     with c1:
-        st.subheader("Cumulative Alpha (Wave – Scaled Benchmark)")
-        alpha_curve = (1 + (wave_rets - bench_rets)).cumprod() - 1
-        st.line_chart(alpha_curve.rename("Alpha"))
+        st.subheader("Cumulative Alpha Captured (Wave − Exposure × SPY)")
+        st.line_chart(captured_cum.rename("Alpha Captured"))
 
     with c2:
         st.subheader("SPY (Benchmark) – Price")
@@ -587,6 +618,8 @@ def main():
         st.write("Prices (tail)", prices.tail())
         st.write("Wave returns (tail)", wave_rets.tail())
         st.write("Benchmark returns (tail)", bench_rets.tail())
+        st.write("Simple alpha today", today_simple_alpha)
+        st.write("Captured alpha today", today_captured_alpha)
         st.write("Engine status:", engine_status)
 
 
