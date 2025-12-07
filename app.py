@@ -1,4 +1,4 @@
-# app.py – WAVES Institutional Console (Hybrid Mode, Internal Alpha Windows)
+# app.py – WAVES Institutional Console (Hybrid Mode, Mode-Aware Internal Alpha)
 #
 # Features:
 # - Hybrid: uses real logs if available, otherwise generates demo data
@@ -7,6 +7,7 @@
 # - Performance curve, alpha charts
 # - Per-wave Top 10 positions with clickable Google Finance links
 # - SPX / VIX tiles and engine logs view
+# - Mode-aware logic: Standard, Alpha-Minus-Beta, Private Logic™ each have their own β and drift
 
 from pathlib import Path
 from datetime import datetime
@@ -28,11 +29,26 @@ PERF_DIR = LOGS_DIR / "performance"
 POS_DIR = LOGS_DIR / "positions"
 WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
 
-# Internal alpha settings
-MU_ANNUAL = 0.07      # long-run annual drift
 TRADING_DAYS = 252
-MU_DAILY = (1.0 + MU_ANNUAL) ** (1.0 / TRADING_DAYS) - 1.0  # ≈ 0.00027
-BETA_TARGET_DEFAULT = 0.90
+
+# Mode configuration: each mode gets its own beta target and annual drift assumption
+MODE_CONFIG = {
+    "Standard": {
+        "beta_target": 0.90,
+        "mu_annual": 0.07,  # 7% annual drift
+        "label": "Standard risk · β≈0.90 · 7% long-run drift",
+    },
+    "Alpha-Minus-Beta": {
+        "beta_target": 0.80,
+        "mu_annual": 0.06,  # 6% annual drift (more conservative)
+        "label": "Reduced beta overlay · β≈0.80 · 6% long-run drift",
+    },
+    "Private Logic™": {
+        "beta_target": 1.05,
+        "mu_annual": 0.09,  # 9% annual drift (more aggressive)
+        "label": "Private Logic™ enhanced risk · β≈1.05 · 9% long-run drift",
+    },
+}
 
 # ---------------------------------------------------------------------
 # STYLES
@@ -168,7 +184,6 @@ def ticker_to_google_link(ticker: str) -> str:
     ticker = str(ticker).strip()
     if not ticker:
         return ""
-    # Generic Google Finance mapping – it will usually resolve the exchange automatically
     url = f"https://www.google.com/finance/quote/{ticker}"
     return f"[{ticker}]({url})"
 
@@ -314,16 +329,23 @@ def load_positions(wave_name: str):
 
 
 # ---------------------------------------------------------------------
-# INTERNAL ALPHA (β-ADJUSTED vs DRIFT)
+# INTERNAL ALPHA (β-ADJUSTED vs DRIFT, MODE-AWARE)
 # ---------------------------------------------------------------------
-def compute_internal_alpha(df: pd.DataFrame, equity_exposure: float, beta_target: float):
+def compute_internal_alpha(
+    df: pd.DataFrame,
+    equity_exposure: float,
+    beta_target: float,
+    mu_annual: float,
+):
     """
     Internal alpha vs β-adjusted drift:
-        expected_daily = MU_DAILY * beta_target * equity_exposure
+        mu_daily = (1 + mu_annual)^(1/252) - 1
+        expected_daily = mu_daily * beta_target * equity_exposure
         alpha_daily = daily_return - expected_daily
     """
     df = ensure_return_columns(df)
-    expected_daily = MU_DAILY * beta_target * equity_exposure
+    mu_daily = (1.0 + mu_annual) ** (1.0 / TRADING_DAYS) - 1.0
+    expected_daily = mu_daily * beta_target * equity_exposure
 
     df["expected_daily"] = expected_daily
     df["expected_total"] = (1 + df["expected_daily"]).cumprod() - 1
@@ -393,7 +415,7 @@ def main():
     waves = discover_waves()
     selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
 
-    st.sidebar.markdown("**Mode (label only)**")
+    st.sidebar.markdown("**Mode (drift & β logic)**")
     mode = st.sidebar.radio(
         "Risk Mode",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
@@ -401,9 +423,15 @@ def main():
         index=0,
     )
 
+    mode_cfg = MODE_CONFIG.get(mode, MODE_CONFIG["Standard"])
+    beta_target = mode_cfg["beta_target"]
+    mu_annual = mode_cfg["mu_annual"]
+
     equity_exposure_pct = st.sidebar.slider("Equity Exposure", 0, 100, 90, step=5)
     equity_exposure = equity_exposure_pct / 100.0
-    st.sidebar.caption(f"Target β ≈ {BETA_TARGET_DEFAULT:.2f} · Cash buffer: {100 - equity_exposure_pct}%")
+    st.sidebar.caption(
+        f"Mode: {mode}  •  β target ≈ {beta_target:.2f}  •  Cash buffer: {100 - equity_exposure_pct}%"
+    )
 
     # Data: Hybrid
     perf_logs = load_performance_from_logs(selected_wave)
@@ -416,7 +444,8 @@ def main():
     perf_df, expected_daily = compute_internal_alpha(
         perf_df,
         equity_exposure=equity_exposure,
-        beta_target=BETA_TARGET_DEFAULT,
+        beta_target=beta_target,
+        mu_annual=mu_annual,
     )
 
     perf_df = perf_df.sort_values("date").reset_index(drop=True)
@@ -443,10 +472,11 @@ def main():
         <div style="margin-top:0.35rem;">
           <span class="pill pill-live">LIVE ENGINE</span>
           <span class="pill">MULTI-WAVE</span>
-          <span class="pill">Internal Alpha · β-Adjusted Drift</span>
+          <span class="pill">Internal Alpha · β-Adjusted Drift · {mode}</span>
         </div>
         <div class="waves-hero-sub">
           Live console for WAVES Intelligence™ — Adaptive Index Waves.<br/>
+          Mode: <b>{mode}</b> ({mode_cfg["label"]}).<br/>
           All alpha metrics shown here are internal, live-only, and β-adjusted vs long-run drift
           (no external benchmark alpha). Current view uses the WAVES internal engine as a sample
           black box; any acquirer can plug in their own models into the same rails.
@@ -494,7 +524,8 @@ def main():
     st.markdown("### WAVES Engine Dashboard")
     st.caption(
         "All alpha captures below are internal, β-adjusted vs long-run market drift. "
-        "This represents the performance of the current WAVES internal engine as a sample black box."
+        f"Mode currently set to <b>{mode}</b> with β≈{beta_target:.2f} and "
+        f"{mu_annual*100:.1f}% long-run drift assumption."
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -653,8 +684,14 @@ def main():
             st.markdown("#### Exposure & Risk Profile")
             risk_df = pd.DataFrame(
                 {
-                    "Metric": ["Equity Exposure", "Cash Buffer", "Target β"],
-                    "Value": [f"{equity_exposure_pct}%", f"{100 - equity_exposure_pct}%", f"{BETA_TARGET_DEFAULT:.2f}"],
+                    "Metric": ["Mode", "Equity Exposure", "Cash Buffer", "Target β", "Long-Run Drift (Annual)"],
+                    "Value": [
+                        mode,
+                        f"{equity_exposure_pct}%",
+                        f"{100 - equity_exposure_pct}%",
+                        f"{beta_target:.2f}",
+                        f"{mu_annual*100:.1f}%",
+                    ],
                 }
             ).set_index("Metric")
             st.table(risk_df)
@@ -686,9 +723,9 @@ def main():
         st.line_chart(alpha_daily)
 
         st.caption(
-            "Internal alpha is computed as realized Wave return minus β-adjusted long-run drift "
-            f"({MU_ANNUAL*100:0.1f}% annual assumption, {TRADING_DAYS} trading days/year, β={BETA_TARGET_DEFAULT:.2f}, "
-            "scaled by Wave equity exposure)."
+            f"Internal alpha is computed as realized Wave return minus β-adjusted long-run drift. "
+            f"Mode <b>{mode}</b> uses β≈{beta_target:.2f} and {mu_annual*100:.1f}% annual drift over {TRADING_DAYS} trading days, "
+            f"scaled by Wave equity exposure of {equity_exposure_pct}%."
         )
 
     # LOGS
