@@ -1,82 +1,54 @@
-wave,ticker,weight
-AI_Wave,NVDA,0.18
-AI_Wave,MSFT,0.16
-AI_Wave,META,0.14
-AI_Wave,GOOGL,0.12
-AI_Wave,AMZN,0.10
-AI_Wave,AVGO,0.08
-AI_Wave,CRM,0.07
-AI_Wave,ADBE,0.06
-AI_Wave,ORCL,0.05
-AI_Wave,INTU,0.04
-Growth_Wave,AAPL,0.15
-Growth_Wave,AMZN,0.13
-Growth_Wave,MSFT,0.12
-Growth_Wave,META,0.10
-Growth_Wave,GOOGL,0.10
-Growth_Wave,TSLA,0.09
-Growth_Wave,NFLX,0.08
-Growth_Wave,SHOP,0.07
-Growth_Wave,NOW,0.08
-Growth_Wave,UBER,0.08
-FuturePower_Wave,NEE,0.12
-FuturePower_Wave,ENPH,0.10
-FuturePower_Wave,FSLR,0.10
-FuturePower_Wave,PLUG,0.07
-FuturePower_Wave,SEDG,0.08
-FuturePower_Wave,TSLA,0.12
-FuturePower_Wave,BE,0.08
-FuturePower_Wave,RUN,0.08
-FuturePower_Wave,DQ,0.10
-FuturePower_Wave,ORA,0.15
-SmallCapGrowth_Wave,CELH,0.10
-SmallCapGrowth_Wave,ROKU,0.10
-SmallCapGrowth_Wave,PLTR,0.10
-SmallCapGrowth_Wave,DDOG,0.10
-SmallCapGrowth_Wave,ZS,0.10
-SmallCapGrowth_Wave,MDB,0.10
-SmallCapGrowth_Wave,SNOW,0.10
-SmallCapGrowth_Wave,NET,0.10
-SmallCapGrowth_Wave,OKTA,0.10
-SmallCapGrowth_Wave,ESTC,0.10
-SmallMidGrowth_Wave,TTD,0.10
-SmallMidGrowth_Wave,CRWD,0.10
-SmallMidGrowth_Wave,TEAM,0.10
-SmallMidGrowth_Wave,PAYC,0.10
-SmallMidGrowth_Wave,LULU,0.10
-SmallMidGrowth_Wave,SQ,0.10
-SmallMidGrowth_Wave,ROKU,0.10
-SmallMidGrowth_Wave,HUBS,0.10
-SmallMidGrowth_Wave,TWLO,0.10
-SmallMidGrowth_Wave,PINS,0.10
-Quantum_Wave,NVDA,0.16
-Quantum_Wave,AMD,0.14
-Quantum_Wave,QCOM,0.12
-Quantum_Wave,TSM,0.12
-Quantum_Wave,ASML,0.12
-Quantum_Wave,AMAT,0.10
-Quantum_Wave,LRCX,0.08
-Quantum_Wave,INTC,0.06
-Quantum_Wave,MU,0.05
-Quantum_Wave,AVGO,0.05
-CleanTransitInfra_Wave,TSLA,0.15
-CleanTransitInfra_Wave,NIO,0.10
-CleanTransitInfra_Wave,XPEV,0.08
-CleanTransitInfra_Wave,F,0.10
-CleanTransitInfra_Wave,GM,0.10
-CleanTransitInfra_Wave,BLDR,0.09
-CleanTransitInfra_Wave,VMC,0.09
-CleanTransitInfra_Wave,MLM,0.09
-CleanTransitInfra_Wave,CAT,0.10
-CleanTransitInfra_Wave,DE,0.10
-Infinity_Wave,NVDA,0.14
-Infinity_Wave,MSFT,0.13
-Infinity_Wave,AAPL,0.12
-Infinity_Wave,AMZN,0.11
-Infinity_Wave,META,0.10
-Infinity_Wave,GOOGL,0.10
-Infinity_Wave,TSLA,0.08
-Infinity_Wave,AVGO,0.08
-Infinity_Wave,CRM,0.07
-Infinity_Wave,ADBE,0.07
-SP500_Wave,SPY,1.0
+Wave,Ticker,Weight
+S&P 500 Wave,AAPL,0.20
+S&P 500 Wave,MSFT,0.20
+S&P 500 Wave,AMZN,0.20
+S&P 500 Wave,GOOGL,0.20
+S&P 500 Wave,META,0.20
+
+Growth Wave,NVDA,0.20
+Growth Wave,META,0.20
+Growth Wave,AVGO,0.20
+Growth Wave,TSLA,0.20
+Growth Wave,ADBE,0.20
+
+Small Cap Growth Wave,IWM,0.20
+Small Cap Growth Wave,QQQ,0.20
+Small Cap Growth Wave,SMH,0.20
+Small Cap Growth Wave,ARKK,0.20
+Small Cap Growth Wave,SOXL,0.20
+
+Small-Mid Cap Growth Wave,IJH,0.20
+Small-Mid Cap Growth Wave,MDY,0.20
+Small-Mid Cap Growth Wave,VO,0.20
+Small-Mid Cap Growth Wave,VB,0.20
+Small-Mid Cap Growth Wave,VXF,0.20
+
+Future Power & Energy Wave,XLE,0.20
+Future Power & Energy Wave,ICLN,0.20
+Future Power & Energy Wave,TAN,0.20
+Future Power & Energy Wave,ENPH,0.20
+Future Power & Energy Wave,NEE,0.20
+
+Quantum Computing Wave,QQQ,0.20
+Quantum Computing Wave,NVDA,0.20
+Quantum Computing Wave,AMD,0.20
+Quantum Computing Wave,SMCI,0.20
+Quantum Computing Wave,SMH,0.20
+
+Clean Transit-Infrastructure Wave,ICLN,0.20
+Clean Transit-Infrastructure Wave,TAN,0.20
+Clean Transit-Infrastructure Wave,TSLA,0.20
+Clean Transit-Infrastructure Wave,ENPH,0.20
+Clean Transit-Infrastructure Wave,NEE,0.20
+
+Crypto Income Wave,BTC-USD,0.20
+Crypto Income Wave,ETH-USD,0.20
+Crypto Income Wave,SOL-USD,0.20
+Crypto Income Wave,MSTR,0.20
+Crypto Income Wave,COIN,0.20
+
+Income Wave,AGG,0.20
+Income Wave,TLT,0.20
+Income Wave,LQD,0.20
+Income Wave,HYG,0.20
+Income Wave,SHY,0.20
