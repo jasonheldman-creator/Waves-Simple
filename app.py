@@ -4,7 +4,8 @@
 # - Hybrid: uses real logs if available, otherwise generates demo data
 # - Internal, beta-adjusted alpha vs long-run drift (no benchmark index alpha)
 # - Intraday (1-Day), 30-Day, 60-Day internal alpha captures
-# - Performance curve, alpha charts, top-10 with Google links
+# - Performance curve, alpha charts
+# - Per-wave Top 10 positions with clickable Google Finance links
 # - SPX / VIX tiles and engine logs view
 
 from pathlib import Path
@@ -163,9 +164,11 @@ def fmt_val(x):
 
 
 def ticker_to_google_link(ticker: str) -> str:
+    """Return a markdown link to Google Finance for this ticker."""
     ticker = str(ticker).strip()
     if not ticker:
         return ""
+    # Generic Google Finance mapping – it will usually resolve the exchange automatically
     url = f"https://www.google.com/finance/quote/{ticker}"
     return f"[{ticker}]({url})"
 
@@ -174,7 +177,7 @@ def ticker_to_google_link(ticker: str) -> str:
 # DISCOVERY & LOADING
 # ---------------------------------------------------------------------
 def discover_waves():
-    """Discover Waves from logs/weights; default to 9 Waves if nothing found."""
+    """Discover Waves from logs/weights; default to 9 WAVES if nothing found."""
     waves = set()
 
     # from logs
@@ -282,6 +285,7 @@ def ensure_return_columns(df: pd.DataFrame):
 
 
 def load_positions(wave_name: str):
+    """Load the latest positions for this Wave (logs first, then wave_weights fallback)."""
     # from logs
     if POS_DIR.exists():
         candidates = sorted(POS_DIR.glob(f"{wave_name}_positions_*.csv"))
@@ -596,7 +600,10 @@ def main():
             perf_plot.columns = ["Total Return"]
             st.line_chart(perf_plot)
 
-            st.markdown("#### Top 10 Positions — Clickable Google Links")
+            st.markdown(
+                f"#### Top 10 Positions — {selected_wave}  \n"
+                "_Click any ticker to open its Google Finance quote_"
+            )
             if pos_df is not None and not pos_df.empty:
                 dfp = pos_df.copy()
                 cols_lower = {c.lower(): c for c in dfp.columns}
