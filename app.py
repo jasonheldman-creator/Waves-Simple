@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 TARGET_BETA = 0.90  # Alpha-Minus-Beta discipline anchor
 
-# Built-in default Waves + holdings (used if CSVs are missing)
+# Built-in default Waves + holdings (used if CSVs are missing or invalid)
 WAVE_TICKERS_DEFAULT = {
     "S&P Wave": [
         "AAPL", "MSFT", "AMZN", "GOOGL", "META",
@@ -50,21 +50,22 @@ WAVE_TICKERS_DEFAULT = {
 }
 
 # ======================================================================
-# DATA: LOAD OR BUILD (NO MANUAL SCRIPTS NEEDED)
+# DATA: LOAD OR BUILD (AUTO LIVE/DEMO)
 # ======================================================================
 
 @st.cache_data
-def load_or_build_wave_weights() -> pd.DataFrame:
+def load_or_build_wave_weights():
     """
     Try to load wave_weights.csv (wave,ticker,weight).
     If missing/invalid, build a full default table from WAVE_TICKERS_DEFAULT.
+    Returns: (df, is_demo)
     """
     required = {"wave", "ticker", "weight"}
     try:
         df = pd.read_csv("wave_weights.csv")
         if not required.issubset(df.columns):
-            raise ValueError(f"wave_weights.csv missing columns {required - set(df.columns)}")
-        return df
+            raise ValueError(f"wave_weights.csv missing {required - set(df.columns)}")
+        return df, False
     except Exception as e:
         st.warning(f"Using built-in demo wave_weights (reason: {e})")
         rows = []
@@ -72,21 +73,23 @@ def load_or_build_wave_weights() -> pd.DataFrame:
             w = 1.0 / len(tickers)
             for t in tickers:
                 rows.append({"wave": wave, "ticker": t, "weight": w})
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows), True
 
 
 @st.cache_data
-def load_or_build_market_history() -> pd.DataFrame:
+def load_or_build_market_history():
     """
     Try to load market_history.csv (date,symbol,close).
     If missing/invalid, build synthetic SPY + VIX series for 180 days.
+    Returns: (df, is_demo)
     """
     required = {"date", "symbol", "close"}
     try:
         df = pd.read_csv("market_history.csv", parse_dates=["date"])
         if not required.issubset(df.columns):
-            raise ValueError(f"market_history.csv missing columns {required - set(df.columns)}")
-        return df.sort_values(["symbol", "date"])
+            raise ValueError(f"market_history.csv missing {required - set(df.columns)}")
+        df = df.sort_values(["symbol", "date"])
+        return df, False
     except Exception as e:
         st.warning(f"Using built-in demo market_history (reason: {e})")
 
@@ -113,25 +116,27 @@ def load_or_build_market_history() -> pd.DataFrame:
 
         df = pd.DataFrame(rows)
         df["date"] = pd.to_datetime(df["date"])
-        return df.sort_values(["symbol", "date"])
+        return df.sort_values(["symbol", "date"]), True
 
 
 @st.cache_data
-def load_or_build_wave_history(wave_weights: pd.DataFrame) -> pd.DataFrame:
+def load_or_build_wave_history():
     """
     Try to load wave_history.csv (date,wave,portfolio_return,benchmark_return).
-    If missing/invalid, generate a full 252-day history for each Wave.
+    If missing/invalid, generate a full 252-day history for each Wave using
+    WAVE_TICKERS_DEFAULT.
+    Returns: (df, is_demo)
     """
     required = {"date", "wave", "portfolio_return", "benchmark_return"}
     try:
         df = pd.read_csv("wave_history.csv", parse_dates=["date"])
         if not required.issubset(df.columns):
-            raise ValueError(f"wave_history.csv missing columns {required - set(df.columns)}")
-        return df.sort_values(["wave", "date"])
+            raise ValueError(f"wave_history.csv missing {required - set(df.columns)}")
+        return df.sort_values(["wave", "date"]), False
     except Exception as e:
         st.warning(f"Using built-in demo wave_history (reason: {e})")
 
-        waves = sorted(wave_weights["wave"].dropna().unique())
+        waves = sorted(WAVE_TICKERS_DEFAULT.keys())
         num_days = 252
         end_date = datetime.today().date()
         dates = [end_date - timedelta(days=i) for i in range(num_days)]
@@ -169,7 +174,7 @@ def load_or_build_wave_history(wave_weights: pd.DataFrame) -> pd.DataFrame:
 
         df = pd.DataFrame(rows)
         df["date"] = pd.to_datetime(df["date"])
-        return df.sort_values(["wave", "date"])
+        return df.sort_values(["wave", "date"]), True
 
 
 # ======================================================================
@@ -286,7 +291,7 @@ def build_suggested_allocations(metrics: pd.DataFrame, vix_level: float):
     df = metrics.copy()
 
     # make strictly positive weights
-    min_score = df["leadership_score"].min()
+    min_score = df["leadership_score"]..min()
     shift = -min_score if min_score < 0 else 0
     df["adj_score"] = df["leadership_score"] + shift + 1e-6
 
@@ -364,21 +369,12 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    st.markdown(
-        """
-        <h1 style="margin-bottom:0">WAVES Institutional Console</h1>
-        <p style="color:#8f9bb3;margin-top:0">
-        Adaptive Portfolio Waves™ • WAVES Intelligence™ • Alpha-Minus-Beta Discipline
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Load data (LIVE or DEMO)
+    wave_weights, ww_demo = load_or_build_wave_weights()
+    wave_history, wh_demo = load_or_build_wave_history()
+    market_history, mh_demo = load_or_build_market_history()
 
-    # Data (with automatic fallbacks)
-    wave_weights = load_or_build_wave_weights()
-    wave_history = load_or_build_wave_history(wave_weights)
     metrics = compute_wave_metrics(wave_history)
-    market_history = load_or_build_market_history()
 
     vix_df = market_history[market_history["symbol"].str.upper().isin(["^VIX", "VIX"])]
     spy_df = market_history[market_history["symbol"].str.upper().isin(["SPY"])]
@@ -386,6 +382,47 @@ def main():
 
     equity_pct, wave_allocs = build_suggested_allocations(metrics, vix_latest)
     position_allocs = build_position_allocations(wave_weights, wave_allocs)
+
+    # Determine DATA MODE badge
+    demo_flags = [ww_demo, wh_demo, mh_demo]
+    if all(flag is False for flag in demo_flags):
+        data_mode = "LIVE"
+        badge_color = "#16c784"  # green
+    elif all(flag is True for flag in demo_flags):
+        data_mode = "DEMO"
+        badge_color = "#ff9800"  # orange
+    else:
+        data_mode = "MIXED"
+        badge_color = "#f4c842"  # yellow
+
+    # HEADER
+    st.markdown(
+        f"""
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <h1 style="margin-bottom:0">WAVES Institutional Console</h1>
+            <p style="color:#8f9bb3;margin-top:0">
+              Adaptive Portfolio Waves™ • WAVES Intelligence™ • Alpha-Minus-Beta Discipline
+            </p>
+          </div>
+          <div>
+            <span style="
+                padding:6px 14px;
+                border-radius:999px;
+                background-color:{badge_color};
+                color:#0b1020;
+                font-weight:600;
+                font-size:13px;
+                letter-spacing:0.08em;
+                text-transform:uppercase;
+            ">
+              Data Mode: {data_mode}
+            </span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ------------------------------------------------------------------
     # TOP PANEL — MARKET REGIME + SNAPSHOT
@@ -406,7 +443,7 @@ def main():
             chart_df = chart_df.set_index("date")
             st.line_chart(chart_df)
         else:
-            st.info("VIX/SPY chart using built-in demo data.")
+            st.info("VIX/SPY chart using demo data (SPY/VIX series).")
 
         st.metric("Latest VIX", f"{vix_latest:.2f}" if not np.isnan(vix_latest) else "N/A")
         st.metric("Equity Sleeve %", f"{equity_pct:.0%}")
@@ -466,7 +503,7 @@ def main():
                 alerts.append(f"⚠️ Elevated VIX ({vix_latest:.2f}) — risk throttling partially engaged.")
 
         if not alerts:
-            st.success("No critical risk alerts. Demo or live data within parameters.")
+            st.success("No critical risk alerts. Data within parameters.")
         else:
             for a in alerts:
                 st.write(a)
