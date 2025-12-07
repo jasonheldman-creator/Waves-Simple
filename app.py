@@ -53,7 +53,6 @@ WAVE_TICKERS = {
     ],
 
     # 8) CryptoIncome_Wave – ETF-wrapped crypto / blockchain
-    # (no direct crypto tickers: all wrappers/ETFs)
     "CryptoIncome_Wave": [
         "IBIT", "BITB", "GBTC", "BLOK", "ARKW",
         "COIN", "MARA", "RIOT", "HUT", "BITX",
@@ -68,15 +67,16 @@ WAVE_TICKERS = {
 BENCHMARK_TICKER = "SPY"
 VIX_TICKER = "^VIX"
 
-# Build equal-weight DataFrame from the code map
+
 def build_wave_weights() -> pd.DataFrame:
+    """Build equal-weight mapping from WAVE_TICKERS."""
     rows = []
     for wave_name, tickers in WAVE_TICKERS.items():
         if not tickers:
             continue
         w = 1.0 / len(tickers)
         for t in tickers:
-            rows.append({"wave": wave_name, "ticker": t, "weight": w})
+            rows.append({"wave": wave_name, "ticker": t.upper(), "weight": w})
     return pd.DataFrame(rows, columns=["wave", "ticker", "weight"])
 
 
@@ -92,7 +92,7 @@ def fetch_price_history(all_tickers, start, end):
     Fetch daily adjusted close prices for given tickers between start and end.
     Returns a DataFrame with one column per ticker.
     """
-    all_tickers = sorted(set(all_tickers))
+    all_tickers = sorted({t.upper() for t in all_tickers})
     if not all_tickers:
         return pd.DataFrame()
 
@@ -118,17 +118,13 @@ def fetch_price_history(all_tickers, start, end):
         elif "Close" in data.columns.levels[0]:
             prices = data["Close"].copy()
         else:
-            # Fallback: take the last level
             prices = data.xs(data.columns.levels[-1][0], axis=1, level=0)
     else:
         prices = data.copy()
 
-    # Normalize columns: ensure columns are tickers only
+    # Normalize column labels to just ticker symbols
     prices.columns = [str(c).upper().split()[0] for c in prices.columns]
-
-    # Drop columns that are entirely NaN
     prices = prices.dropna(axis=1, how="all")
-
     return prices
 
 
@@ -152,7 +148,6 @@ def fetch_vix_history(start, end):
         series = vix["Adj Close"]
     else:
         series = vix["Close"]
-
     return series.dropna()
 
 
@@ -171,12 +166,10 @@ def compute_wave_returns(
     if prices.empty:
         return pd.Series(dtype=float), pd.Series(dtype=float)
 
-    # Ensure SPY present; if missing, we can't compute alpha
     if BENCHMARK_TICKER not in prices.columns:
         st.warning(f"Benchmark {BENCHMARK_TICKER} not in price data.")
         return pd.Series(dtype=float), pd.Series(dtype=float)
 
-    # Tickers and weights for this wave
     wdf = DEFAULT_WAVE_WEIGHTS[
         DEFAULT_WAVE_WEIGHTS["wave"] == wave_name
     ].copy()
@@ -199,32 +192,24 @@ def compute_wave_returns(
         st.warning(
             f"Missing price data for tickers (dropped): {', '.join(missing)}"
         )
-        # Re-normalize weights on the existing subset
         mask = [t in existing for t in tickers]
         weights = np.array(weights)[mask]
         weights = weights / weights.sum()
         tickers = existing
 
-    # Compute daily returns
     ret = prices.pct_change().dropna(how="all")
-
-    # Benchmark returns
     spy_ret = ret[BENCHMARK_TICKER].dropna()
 
-    # Ensure we have the wave tickers in the returns DF
     wave_cols = [t for t in tickers if t in ret.columns]
     if not wave_cols:
         st.error(f"No return data available for {wave_name}.")
         return pd.Series(dtype=float), spy_ret
 
-    # Align weights with columns
     col_idx = [tickers.index(t) for t in wave_cols]
     w_vec = np.array(weights)[col_idx]
 
-    # Portfolio returns = weighted sum across columns
     wave_ret = (ret[wave_cols] * w_vec).sum(axis=1)
 
-    # Align indices
     common_index = wave_ret.index.intersection(spy_ret.index)
     wave_ret = wave_ret.loc[common_index]
     spy_ret = spy_ret.loc[common_index]
@@ -248,8 +233,7 @@ def realized_beta(wave_ret: pd.Series, spy_ret: pd.Series) -> float:
 
 def alpha_window(wave_ret: pd.Series, spy_ret: pd.Series, days: int) -> float:
     """
-    Total alpha (wave - SPY) over the last `days` of returns.
-    Returns percent (e.g. 0.75 = 0.75%).
+    Total alpha (wave - SPY) over the last `days` of returns, in percent.
     """
     if len(wave_ret) <= days or len(spy_ret) <= days:
         return np.nan
@@ -265,7 +249,74 @@ def cumulative_equity_curve(ret: pd.Series) -> pd.Series:
 
 
 # ---------------------------------------------------------
-# 4. STREAMLIT UI
+# 4. VIX-GATED EXPOSURE ENGINE
+# ---------------------------------------------------------
+
+def classify_vix_regime(latest_vix: float) -> tuple[str, float]:
+    """
+    Map VIX level to regime + base equity exposure (before modes).
+    Returns: (regime_label, base_equity_exposure_0_to_1)
+    """
+    if np.isnan(latest_vix):
+        return "Unknown", 0.75
+
+    if latest_vix < 15:
+        # Calm: offense
+        return "Calm", 0.90
+    elif 15 <= latest_vix < 25:
+        # Normal: balanced offense/defense
+        return "Normal", 0.75
+    elif 25 <= latest_vix < 35:
+        # Volatile / correction: more defense
+        return "Volatile", 0.55
+    else:
+        # Stress / panic: big SmartSafe
+        return "Stress", 0.35
+
+
+def mode_exposure_adjustment(mode: str) -> float:
+    """
+    Mode-level adjustment. >1.0 = more aggressive, <1.0 = more defensive.
+    """
+    if mode == "Alpha-Minus-Beta":
+        # Slightly more defensive
+        return 0.9
+    elif mode == "Private Logic™":
+        # Slightly more aggressive (but still VIX-gated)
+        return 1.1
+    return 1.0  # Standard
+
+
+def combine_exposure(
+    base_exposure: float,
+    mode: str,
+    realized_beta_val: float,
+    target_beta: float = 0.90,
+) -> float:
+    """
+    Combine:
+      - VIX-based base_exposure
+      - Mode adjust (Standard / Alpha-Minus-Beta / Private Logic™)
+      - Mild beta clamp toward target_beta
+    """
+    # Apply mode multiplier
+    exposure = base_exposure * mode_exposure_adjustment(mode)
+
+    # Gentle beta clamp: if beta too high, trim exposure a bit; if low, add a bit.
+    if not np.isnan(realized_beta_val):
+        beta_diff = realized_beta_val - target_beta  # + if too aggressive
+        # Cap influence
+        beta_diff = max(min(beta_diff, 0.3), -0.3)
+        # Turn 0.3 beta difference into ~ +/- 10% exposure tweak
+        exposure *= (1.0 - 0.35 * beta_diff)
+
+    # Bound within [0,1]
+    exposure = max(0.0, min(1.0, exposure))
+    return float(exposure)
+
+
+# ---------------------------------------------------------
+# 5. STREAMLIT UI
 # ---------------------------------------------------------
 
 def main():
@@ -275,7 +326,7 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    # ----- Sidebar: Wave & Mode -----
+    # ----- Sidebar -----
     st.sidebar.title("Wave & Mode")
 
     wave_names = list(WAVE_TICKERS.keys())
@@ -302,19 +353,21 @@ def main():
     end_date = dt.date.today()
     start_date = end_date - dt.timedelta(days=int(lookback_days * 1.4))
 
-    # ----- Get price data -----
+    # ----- Fetch prices -----
     all_tickers = set()
     for ts in WAVE_TICKERS.values():
-        all_tickers.update(ts)
+        all_tickers.update([t.upper() for t in ts])
     all_tickers.add(BENCHMARK_TICKER)
 
     prices = fetch_price_history(all_tickers, start_date, end_date)
     vix_series = fetch_vix_history(start_date, end_date)
 
-    # ----- Compute returns for selected wave -----
+    latest_vix = float(vix_series.iloc[-1]) if not vix_series.empty else np.nan
+    vix_regime, vix_base_exposure = classify_vix_regime(latest_vix)
+
+    # ----- Wave vs SPY returns -----
     wave_ret, spy_ret = compute_wave_returns(prices, selected_wave)
 
-    # Today metrics
     if not wave_ret.empty and not spy_ret.empty:
         today_wave = wave_ret.iloc[-1] * 100.0
         today_spy = spy_ret.iloc[-1] * 100.0
@@ -324,26 +377,27 @@ def main():
         today_wave = today_spy = today_alpha = np.nan
         beta = np.nan
 
-    # Exposure – simple rule for now (can be upgraded later)
-    target_beta = 0.90
-    base_equity_exposure = 0.75
-    # small adjustment vs target beta
-    beta_adj = 0.0 if np.isnan(beta) else max(min(beta - target_beta, 0.2), -0.2)
-    current_exposure = base_equity_exposure + beta_adj
-    current_exposure = float(max(min(current_exposure, 1.0), 0.0))
+    # ----- VIX-gated exposure + SmartSafe -----
+    # Combine VIX-based exposure, mode effects, and beta clamp
+    current_exposure = combine_exposure(
+        base_exposure=vix_base_exposure,
+        mode=mode,
+        realized_beta_val=beta,
+        target_beta=0.90,
+    )
     smartsafe_alloc = 1.0 - current_exposure
 
-    # Alpha capture windows
+    # ----- Alpha capture windows -----
     alpha_30d = alpha_window(wave_ret, spy_ret, 30)
     alpha_60d = alpha_window(wave_ret, spy_ret, 60)
     alpha_6m = alpha_window(wave_ret, spy_ret, 126)
     alpha_1y = alpha_window(wave_ret, spy_ret, 252)
 
-    # Equity curves
+    # ----- Equity curves -----
     wave_eq = cumulative_equity_curve(wave_ret)
     spy_eq = cumulative_equity_curve(spy_ret)
 
-    # ----- TOP HEADER -----
+    # ----- Header -----
     st.markdown(
         """
         <h1 style="margin-bottom:0;">WAVES Institutional Console</h1>
@@ -354,9 +408,11 @@ def main():
         unsafe_allow_html=True,
     )
 
-    cols_top = st.columns(7)
     def fmt_pct(x):
         return "—" if np.isnan(x) else f"{x:+.2f}%"
+
+    # ----- Top metrics row -----
+    cols_top = st.columns(7)
 
     with cols_top[0]:
         st.caption("Wave Today")
@@ -375,7 +431,7 @@ def main():
         st.markdown("### " + ("—" if np.isnan(beta) else f"{beta:.2f}"))
 
     with cols_top[4]:
-        st.caption("Current Exposure")
+        st.caption("Current Exposure (VIX + Mode + Beta)")
         st.markdown(f"### {current_exposure * 100:.1f}%")
 
     with cols_top[5]:
@@ -383,16 +439,32 @@ def main():
         st.markdown(f"### {smartsafe_alloc * 100:.1f}%")
 
     with cols_top[6]:
-        st.caption("Engine Status")
-        st.markdown(
-            "<span style='color:#00ff00;'>SANDBOX</span><br>"
-            f"<span style='font-size:0.8rem;'>Last refresh: {dt.datetime.utcnow():%Y-%m-%d %H:%M UTC}</span>",
-            unsafe_allow_html=True,
+        st.caption("Regime / Engine")
+        engine_html = (
+            f"<div><b>Regime:</b> {vix_regime} "
+            f"(VIX {latest_vix:.1f} if not np.isnan(latest_vix) else '—')</div>"
         )
+        engine_html += (
+            "<div style='color:#00ff00; font-size:0.8rem;'>"
+            f"Engine: SANDBOX • Last refresh: {dt.datetime.utcnow():%Y-%m-%d %H:%M UTC}"
+            "</div>"
+        )
+        # Quick fix: format VIX safely
+        if np.isnan(latest_vix):
+            vix_display = "—"
+        else:
+            vix_display = f"{latest_vix:.1f}"
+        engine_html = (
+            f"<div><b>Regime:</b> {vix_regime} (VIX {vix_display})</div>"
+            "<div style='color:#00ff00; font-size:0.8rem;'>"
+            f"Engine: SANDBOX • Last refresh: {dt.datetime.utcnow():%Y-%m-%d %H:%M UTC}"
+            "</div>"
+        )
+        st.markdown(engine_html, unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # ----- Alpha Capture Windows -----
+    # ----- Alpha Captured Windows -----
     st.subheader("Alpha Captured Windows (This Wave Only)")
     cols_alpha = st.columns(4)
     for col, label, value in zip(
@@ -402,10 +474,7 @@ def main():
     ):
         with col:
             st.caption(label)
-            st.markdown(
-                "### "
-                + ("—" if np.isnan(value) else f"{value:+.2f}%")
-            )
+            st.markdown("### " + (fmt_pct(value)))
 
     st.markdown("---")
 
@@ -426,7 +495,7 @@ def main():
             st.line_chart(eq_df)
 
     with right:
-        st.subheader("Top Holdings (Live)")
+        st.subheader("Top Holdings (Static Weights)")
         wdf = DEFAULT_WAVE_WEIGHTS[
             DEFAULT_WAVE_WEIGHTS["wave"] == selected_wave
         ].copy()
@@ -457,8 +526,7 @@ def main():
         if spy_eq.empty:
             st.info("No SPY price data available.")
         else:
-            spy_price = cumulative_equity_curve(spy_ret)  # already eq curve
-            spy_df = pd.DataFrame({"SPY": spy_price})
+            spy_df = pd.DataFrame({"SPY": spy_eq})
             st.line_chart(spy_df)
 
     with c2:
@@ -477,9 +545,17 @@ def main():
         st.write("Lookback days:", lookback_days)
         st.write("Available price columns:", list(prices.columns))
         st.write("Wave tickers:", WAVE_TICKERS[selected_wave])
-        st.write("Wave weights DF:", DEFAULT_WAVE_WEIGHTS[
-            DEFAULT_WAVE_WEIGHTS["wave"] == selected_wave
-        ].reset_index(drop=True))
+        st.write(
+            "Wave weights DF:",
+            DEFAULT_WAVE_WEIGHTS[
+                DEFAULT_WAVE_WEIGHTS["wave"] == selected_wave
+            ].reset_index(drop=True),
+        )
+        st.write("Latest VIX:", latest_vix)
+        st.write("VIX regime:", vix_regime)
+        st.write("VIX base exposure:", vix_base_exposure)
+        st.write("Realized beta:", beta)
+        st.write("Final exposure:", current_exposure)
 
 
 if __name__ == "__main__":
