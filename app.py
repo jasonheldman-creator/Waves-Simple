@@ -38,6 +38,13 @@ WAVE_BENCHMARKS = {
 }
 DEFAULT_BENCHMARK = "SPY"
 
+# Exposure and allocation settings
+LIVE_MODE_EXPOSURE = 1.0  # 100% exposure in live mode
+DEMO_MODE_EXPOSURE = 0.5  # 50% exposure in demo mode
+
+# Default exchange for Google Finance links
+DEFAULT_EXCHANGE = "NASDAQ"
+
 # =============================================================================
 # DATA MODELS
 # =============================================================================
@@ -380,10 +387,10 @@ def compute_portfolio_engine(
             holdings_with_metrics.at[idx, "today_pct_change"] = today_return
         
         # Google Finance link
-        holdings_with_metrics.at[idx, "google_finance"] = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
+        holdings_with_metrics.at[idx, "google_finance"] = f"https://www.google.com/finance/quote/{ticker}:{DEFAULT_EXCHANGE}"
     
-    # Compute exposure (for demo, use 100% or based on mode)
-    exposure = 1.0 if mode == "Live" else 0.5
+    # Compute exposure based on mode
+    exposure = LIVE_MODE_EXPOSURE if mode == "Live" else DEMO_MODE_EXPOSURE
     smartsafe_allocation = 1.0 - exposure
     
     return WaveEngineResult(
@@ -508,8 +515,8 @@ def render_holdings_table(holdings: pd.DataFrame):
     link_cols = st.columns(min(5, len(holdings)))
     for idx, (col, ticker) in enumerate(zip(link_cols, holdings["ticker"].head(5))):
         with col:
-            google_url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
-            st.markdown(f"[{ticker}]({google_url})", unsafe_allow_html=True)
+            google_url = f"https://www.google.com/finance/quote/{ticker}:{DEFAULT_EXCHANGE}"
+            st.markdown(f"[{ticker}]({google_url})")
 
 
 def render_performance_chart(result: WaveEngineResult):
