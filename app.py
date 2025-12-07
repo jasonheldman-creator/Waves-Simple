@@ -3,7 +3,7 @@
 # Features:
 # - Hybrid: uses real logs if available, otherwise generates demo data
 # - Internal, beta-adjusted alpha vs long-run drift (no benchmark index alpha)
-# - Intraday, 30D, 60D, 6M, 1Y alpha captures
+# - Intraday (1-Day), 30-Day, 60-Day internal alpha captures
 # - Performance curve, alpha charts, top-10 with Google links
 # - SPX / VIX tiles and engine logs view
 
@@ -174,13 +174,16 @@ def ticker_to_google_link(ticker: str) -> str:
 # DISCOVERY & LOADING
 # ---------------------------------------------------------------------
 def discover_waves():
+    """Discover Waves from logs/weights; default to 9 Waves if nothing found."""
     waves = set()
+
     # from logs
     if PERF_DIR.exists():
         for p in PERF_DIR.glob("*_performance_daily*.csv"):
             name = p.name.replace("_performance_daily", "").replace(".csv", "")
             if name:
                 waves.add(name)
+
     # from wave_weights
     if WEIGHTS_PATH.exists():
         try:
@@ -190,8 +193,21 @@ def discover_waves():
                     waves.add(str(w))
         except Exception:
             pass
+
+    # fallback: nine Waves (for demo / structure mode)
     if not waves:
-        waves = {"SP500_Wave", "Growth_Wave", "Quantum_Wave"}
+        waves = {
+            "SP500_Wave",
+            "Growth_Wave",
+            "Income_Wave",
+            "Future_Power_Energy_Wave",
+            "Crypto_Wave",
+            "Crypto_Income_Wave",
+            "Quantum_Computing_Wave",
+            "Small_Cap_Growth_Wave",
+            "Clean_Transit_Infrastructure_Wave",
+        }
+
     return sorted(waves)
 
 
@@ -409,8 +425,6 @@ def main():
 
     alpha_30d = compute_window_alpha(perf_df, 30, expected_daily)
     alpha_60d = compute_window_alpha(perf_df, 60, expected_daily)
-    alpha_6m = compute_window_alpha(perf_df, 126, expected_daily)
-    alpha_1y = compute_window_alpha(perf_df, 252, expected_daily)
 
     pos_df = load_positions(selected_wave)
     idx = get_index_snapshot()
@@ -536,8 +550,8 @@ def main():
             unsafe_allow_html=True,
         )
 
-    # SECOND ROW: WINDOW ALPHAS
-    c6, c7, c8, c9 = st.columns(4)
+    # SECOND ROW: WINDOW ALPHAS (30D / 60D)
+    c6, c7 = st.columns(2)
     with c6:
         st.markdown(
             f"""
@@ -556,28 +570,6 @@ def main():
               <div class="waves-metric-label">60-Day Internal Alpha</div>
               <div class="waves-metric-value {'waves-pos' if (alpha_60d or 0) >= 0 else 'waves-neg'}">
                 {fmt_pct_signed(alpha_60d)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c8:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">6-Month Internal Alpha</div>
-              <div class="waves-metric-value {'waves-pos' if (alpha_6m or 0) >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(alpha_6m)}
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-    with c9:
-        st.markdown(
-            f"""
-            <div class="waves-metric">
-              <div class="waves-metric-label">1-Year Internal Alpha</div>
-              <div class="waves-metric-value {'waves-pos' if (alpha_1y or 0) >= 0 else 'waves-neg'}">
-                {fmt_pct_signed(alpha_1y)}
               </div>
             </div>""",
             unsafe_allow_html=True,
@@ -668,13 +660,11 @@ def main():
     # ALPHA DASHBOARD
     with tab_alpha:
         st.markdown("#### Internal Alpha Windows (β-Adjusted · Drift-Relative)")
-        alpha_rows = []
-        alpha_rows.append(["1-Day", fmt_pct_signed(alpha_1d)])
-        alpha_rows.append(["30-Day", fmt_pct_signed(alpha_30d)])
-        alpha_rows.append(["60-Day", fmt_pct_signed(alpha_60d)])
-        alpha_rows.append(["6-Month", fmt_pct_signed(alpha_6m)])
-        alpha_rows.append(["1-Year", fmt_pct_signed(alpha_1y)])
-
+        alpha_rows = [
+            ["1-Day", fmt_pct_signed(alpha_1d)],
+            ["30-Day", fmt_pct_signed(alpha_30d)],
+            ["60-Day", fmt_pct_signed(alpha_60d)],
+        ]
         alpha_table = pd.DataFrame(alpha_rows, columns=["Window", "Internal Alpha"])
         st.table(alpha_table.set_index("Window"))
 
