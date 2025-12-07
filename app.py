@@ -1,4 +1,4 @@
-# app.py — WAVES Institutional Console (Wave/Ticker/Weight CSV)
+# app.py — WAVES Institutional Console (Simplified, Debug-Safe Weights Loader)
 
 import os
 import datetime as dt
@@ -26,13 +26,13 @@ st.set_page_config(
     layout="wide",
 )
 
-# Path to your weights file (Wave, Ticker, Weight)
+# Path to your weights file (must be in same folder as app.py)
 WAVE_WEIGHTS_PATH = os.environ.get("WAVES_WEIGHTS_CSV", "wave_weights.csv")
 
 # Benchmarks per Wave — adjust to match your lineup
 WAVE_BENCHMARKS: Dict[str, str] = {
     "S&P_Wave": "SPY",
-    "AL_Wave": "QQQ",   # Example; change to your preferred benchmark
+    "AL_Wave": "QQQ",
     "Growth_Wave": "QQQ",
     "Income_Wave": "VYM",
     "Small_Cap_Growth_Wave": "IWM",
@@ -41,7 +41,7 @@ WAVE_BENCHMARKS: Dict[str, str] = {
     "Crypto_Income_Wave": "BTC-USD",
     "Quantum_Computing_Wave": "BOTZ",
     "Clean_Transit-Infrastructure_Wave": "ICLN",
-    # Add any additional waves here if needed
+    # add any others here as needed
 }
 
 TARGET_BETA = 0.90
@@ -80,42 +80,59 @@ class WaveEngineResult:
 # HELPERS
 # =============================================================================
 
-@st.cache_data(show_spinner=False)
 def load_weights(csv_path: str) -> pd.DataFrame:
     """
-    Load weights from wave_weights.csv.
-    Assumes columns: Wave, Ticker, Weight (case-insensitive).
+    Ultra-safe loader for wave_weights.csv.
+
+    Expected headers (case-insensitive, any order):
+        Wave, Ticker, Weight
+
+    If anything is off, it shows you what it sees and returns an empty DataFrame
+    instead of crashing.
     """
+    if not os.path.exists(csv_path):
+        st.error(f"weights file not found at: {csv_path}")
+        return pd.DataFrame()
+
     try:
         df = pd.read_csv(csv_path)
     except Exception as e:
         st.error(f"Could not read weights file `{csv_path}`: {e}")
         return pd.DataFrame()
 
-    # Normalize column names to lowercase, strip spaces
-    df.rename(columns=lambda c: c.strip().lower(), inplace=True)
+    # DEBUG: show what we actually got
+    st.write("DEBUG — wave_weights.csv columns:", list(df.columns))
 
-    required = {"wave", "ticker", "weight"}
-    missing = required - set(df.columns)
+    # Build a case-insensitive map: lower_name -> actual_name
+    col_map = {c.strip().lower(): c for c in df.columns}
+
+    required = ["wave", "ticker", "weight"]
+    missing = [name for name in required if name not in col_map]
+
     if missing:
         st.error(
-            f"wave_weights.csv must contain columns: Wave, Ticker, Weight "
-            f"(missing: {', '.join(missing)})"
+            "wave_weights.csv must contain headers: Wave, Ticker, Weight "
+            f"(case-insensitive). Missing: {missing}"
         )
         return pd.DataFrame()
 
-    df = df[["wave", "ticker", "weight"]].copy()
-    df["wave"] = df["wave"].astype(str).str.strip()
-    df["ticker"] = df["ticker"].astype(str).str.strip().upper()
+    # Select and standardize
+    df = df[[col_map["wave"], col_map["ticker"], col_map["weight"]]].copy()
+    df.columns = ["wave", "ticker", "weight"]
+
+    df["wave"] = df["wave"].astype(str).strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
     df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
 
-    # Normalize weights within each wave to sum to 1
+    # Normalize weights within each wave
     df["weight"] = df.groupby("wave")["weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else x
     )
 
-    # Drop any rows with zero weight or empty ticker
+    # Drop any rows with zero weight or blank tickers
     df = df[(df["ticker"] != "") & (df["weight"] > 0)]
+    if df.empty:
+        st.error("wave_weights.csv has no valid (ticker, weight) rows after cleaning.")
     return df
 
 
@@ -127,11 +144,11 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
     2) If fails, try local prices.csv
     3) If still fails, generate synthetic demo data
     """
-    tickers = list(dict.fromkeys([t for t in tickers if t]))  # unique & non-empty
+    tickers = list(dict.fromkeys([t for t in tickers if t]))
     if not tickers:
         return pd.DataFrame()
 
-    # Try yfinance first
+    # Try yfinance
     if YF_AVAILABLE:
         try:
             end = dt.date.today()
@@ -153,7 +170,7 @@ def fetch_price_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -
         except Exception as e:
             st.warning(f"yfinance unavailable, using fallback data. Error: {e}")
 
-    # Fallback 1: local prices.csv (index=date, columns=tickers)
+    # Fallback 1: local prices.csv
     if os.path.exists("prices.csv"):
         try:
             df = pd.read_csv("prices.csv", index_col=0, parse_dates=True)
