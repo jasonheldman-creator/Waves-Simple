@@ -1,364 +1,543 @@
+# app.py  -- WAVES Institutional Console (Cloud + Desktop single script)
+# ----------------------------------------------------------------------
+# - Uses wave_weights.csv for universes
+# - Pulls live prices with yfinance (no separate engine script needed)
+# - Computes portfolio & benchmark curves on the fly
+# - Shows performance metrics + top holdings with Google Finance links
+# - Colors holdings green/red based on latest % change
+
 import os
-import datetime as dt
-from typing import Dict, List, Tuple
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# ---------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------
+
+# ---------- CONFIG & CONSTANTS -------------------------------------------------
+
 st.set_page_config(
     page_title="WAVES Institutional Console",
     layout="wide",
-    page_icon="🌊",
+    initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------
-# HELPERS
-# ---------------------------------------------------------
+# Mapping from internal wave codes (in CSV) to pretty names
+WAVE_PRETTY_NAMES = {
+    "AI_Wave": "AI Leaders Wave",
+    "Growth_Wave": "Growth Wave",
+    "Income_Wave": "Income Wave",
+    "SmallCapGrowth_Wave": "Small-Cap Growth Wave",
+    "SMIDGrowth_Wave": "Small-Mid Growth Wave",
+    "FuturePower_Wave": "Future Power & Energy Wave",
+    "CryptoIncome_Wave": "Crypto Income Wave",
+    "Quantum_Wave": "Quantum Computing Wave",
+    "CleanTransit_Wave": "Clean Transit & Infrastructure Wave",
+}
+
+# Reverse lookup: pretty -> internal
+PRETTY_TO_INTERNAL = {v: k for k, v in WAVE_PRETTY_NAMES.items()}
+
+# Benchmark mapping (can refine per-wave later)
+WAVE_BENCHMARK = {
+    "AI_Wave": "SPY",
+    "Growth_Wave": "SPY",
+    "Income_Wave": "SPY",
+    "SmallCapGrowth_Wave": "IWM",
+    "SMIDGrowth_Wave": "VO",
+    "FuturePower_Wave": "XLE",
+    "CryptoIncome_Wave": "BTC-USD",  # example; adjust as needed
+    "Quantum_Wave": "QQQ",
+    "CleanTransit_Wave": "XTN",
+}
+
+
+# ---------- STYLE --------------------------------------------------------------
+
+DARK_CSS = """
+<style>
+/* Global dark theme tweaks */
+body, .stApp {
+    background-color: #050910;
+    color: #F5F7FB;
+}
+
+/* Top hero bar */
+.waves-hero {
+    padding: 0.75rem 1.25rem;
+    border-radius: 999px;
+    border: 1px solid #1b2335;
+    background: linear-gradient(90deg, #071424, #04101c);
+    box-shadow: 0 0 20px rgba(0, 255, 170, 0.15);
+}
+
+/* KPI cards */
+.waves-kpi {
+    padding: 0.8rem 1.1rem;
+    border-radius: 12px;
+    background: #070c14;
+    border: 1px solid #101827;
+}
+.waves-kpi-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #9CA3AF;
+}
+.waves-kpi-value {
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+/* Section titles */
+h2, h3 {
+    color: #F9FAFB;
+}
+
+/* Holdings table */
+.waves-table thead tr th {
+    background-color: #020617;
+}
+
+/* Sidebar header */
+.sidebar-brand {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 0.4rem;
+}
+.sidebar-sub {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+}
+
+/* Little pill labels */
+.badge-pill {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid #10b98133;
+    color: #A7F3D0;
+}
+</style>
+"""
+
+st.markdown(DARK_CSS, unsafe_allow_html=True)
+
+
+# ---------- HELPERS ------------------------------------------------------------
 
 @st.cache_data(show_spinner=False)
-def load_weights(csv_path: str = "wave_weights.csv") -> pd.DataFrame:
-    """Load wave universe / weights."""
-    df = pd.read_csv(csv_path)
-    # Try to normalize expected column names
-    cols = {c.lower(): c for c in df.columns}
-    ticker_col = cols.get("ticker", list(df.columns)[0])
-    wave_col = cols.get("wave", list(df.columns)[1])
-    # allow either 'Weight %' or 'WeightPct' etc
-    weight_col = None
-    for c in df.columns:
-        if "weight" in c.lower():
-            weight_col = c
-            break
-    if weight_col is None:
-        raise ValueError("No weight column found in wave_weights.csv")
+def load_universe(path: str = "wave_weights.csv") -> pd.DataFrame:
+    """Load the master Wave universe."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"wave_weights.csv not found in repo root. Expected at: {os.path.abspath(path)}"
+        )
+    df = pd.read_csv(path)
 
-    df = df[[ticker_col, wave_col, weight_col]].copy()
-    df.columns = ["Ticker", "Wave", "WeightPct"]
+    # Normalise column names
+    df.columns = [c.strip() for c in df.columns]
+
+    # Expected minimal columns
+    expected = {"Ticker", "Wave"}
+    if not expected.issubset(set(df.columns)):
+        raise ValueError(
+            "wave_weights.csv must contain at least columns: 'Ticker', 'Wave' "
+            f"(found: {list(df.columns)})"
+        )
+
+    # Accept either Weight or Weight % or weight
+    if "Weight" not in df.columns:
+        for alt in ["Weight %", "WeightPct", "WeightPct%", "weight", "weight_pct"]:
+            if alt in df.columns:
+                df["Weight"] = df[alt]
+                break
+    if "Weight" not in df.columns:
+        # If nothing, equal weight within each wave
+        df["Weight"] = 1.0
+
+    # Convert to fractions if looks like % values
+    if df["Weight"].max() > 1.5:
+        df["Weight"] = df["Weight"] / 100.0
+
+    # Normalise per wave
+    df["Weight"] = df.groupby("Wave")["Weight"].transform(
+        lambda s: s / s.sum() if s.sum() != 0 else s
+    )
+
+    df["Ticker"] = df["Ticker"].str.upper().str.strip()
+
     return df
 
 
-def friendly_wave_name(raw: str) -> str:
-    mapping = {
-        "AI_Wave": "AI Leaders Wave",
-        "Growth_Wave": "Growth Wave",
-        "SP500_Wave": "S&P 500 Wave",
-    }
-    if raw in mapping:
-        return mapping[raw]
-    # Fallback: replace underscores and title-case
-    return raw.replace("_", " ").strip().title()
-
-
-def google_finance_link(ticker: str) -> str:
-    # Generic search works well regardless of exchange
-    return f"https://www.google.com/finance?q={ticker}"
-
-
 @st.cache_data(show_spinner=False)
-def fetch_prices(tickers: List[str], lookback_days: int = 90) -> pd.DataFrame:
-    """Download daily history for a list of tickers."""
-    if not tickers:
-        return pd.DataFrame()
-
-    end = dt.date.today()
-    start = end - dt.timedelta(days=lookback_days * 2)  # buffer for weekends/holidays
-
+def fetch_prices(tickers, period="6mo") -> pd.DataFrame:
+    """Fetch OHLCV for tickers via yfinance and return a DataFrame of closes."""
+    if isinstance(tickers, (list, tuple, set)):
+        tickers = sorted(set(tickers))
     data = yf.download(
-        tickers=tickers,
-        start=start,
-        end=end + dt.timedelta(days=1),
+        tickers,
+        period=period,
         interval="1d",
-        auto_adjust=True,
+        group_by="column",
+        auto_adjust=False,
         progress=False,
+        threads=True,
     )
 
-    if data.empty:
-        return pd.DataFrame()
-
-    # yfinance returns either:
-    # - DataFrame with 'Adj Close' column (single ticker)
-    # - MultiIndex columns ('Adj Close', 'TICKER') (multi-ticker)
+    # Handle both multi-index and single-index cases
     if isinstance(data.columns, pd.MultiIndex):
-        close = data["Adj Close"].copy()
+        # Try Adj Close first, then Close
+        lvl1 = set(data.columns.get_level_values(0))
+        if "Adj Close" in lvl1:
+            close = data["Adj Close"].copy()
+        elif "Close" in lvl1:
+            close = data["Close"].copy()
+        else:
+            raise KeyError("Neither 'Adj Close' nor 'Close' level found in price data.")
     else:
-        close = data[["Adj Close"]].copy()
-        close.columns = tickers
+        cols = list(data.columns)
+        if "Adj Close" in cols:
+            close = data["Adj Close"].to_frame()
+        elif "Close" in cols:
+            close = data["Close"].to_frame()
+        else:
+            raise KeyError("Neither 'Adj Close' nor 'Close' column found in price data.")
+        close.columns = tickers  # single ticker case
 
     close = close.dropna(how="all")
     return close
 
 
-def build_portfolio_curve(
-    prices: pd.DataFrame, weights: pd.Series
-) -> Tuple[pd.Series, Dict[str, float]]:
-    """Create an equity curve and summary stats from prices & weights."""
-    if prices.empty or weights.empty:
-        return pd.Series(dtype=float), {}
-
-    # Align weights to available tickers; normalize to 1
-    weights = weights.reindex(prices.columns).fillna(0.0)
-    if weights.sum() == 0:
-        return pd.Series(dtype=float), {}
-
-    w = weights / weights.sum()
-
-    # Normalize each ticker to 1.0 at first available price
-    norm_prices = prices / prices.iloc[0]
-    portfolio = (norm_prices * w.values).sum(axis=1)
-
-    # Convert to cumulative return (%)
-    cumret = portfolio / portfolio.iloc[0] - 1.0
-
-    # Stats
-    daily_ret = portfolio.pct_change().dropna()
-    total_return = cumret.iloc[-1]
-    today_ret = daily_ret.iloc[-1] if not daily_ret.empty else 0.0
-
-    running_max = portfolio.cummax()
-    drawdown = portfolio / running_max - 1.0
-    max_drawdown = drawdown.min() if not drawdown.empty else 0.0
-
-    stats = {
-        "total_return": float(total_return),
-        "today_return": float(today_ret),
-        "max_drawdown": float(max_drawdown),
-    }
-    return cumret, stats
-
-
-@st.cache_data(show_spinner=False)
-def fetch_ticker_moves(tickers: List[str]) -> pd.Series:
-    """Get today's % move for tickers (for red/green in holdings table)."""
+def build_portfolio_series(holdings: pd.DataFrame, prices: pd.DataFrame) -> pd.Series:
+    """Create a normalised portfolio equity curve from holdings + price history."""
+    tickers = [t for t in holdings["Ticker"] if t in prices.columns]
     if not tickers:
         return pd.Series(dtype=float)
 
-    end = dt.date.today()
-    start = end - dt.timedelta(days=7)
+    weights = holdings.set_index("Ticker")["Weight"].loc[tickers]
 
-    data = yf.download(
-        tickers=tickers,
-        start=start,
-        end=end + dt.timedelta(days=1),
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
+    # Normalise each ticker to 1.0 at start, then weight & sum
+    norm_prices = prices[tickers] / prices[tickers].iloc[0]
+    port = (norm_prices * weights).sum(axis=1)
+    return port
 
-    if data.empty:
-        return pd.Series(index=tickers, dtype=float)
 
-    if isinstance(data.columns, pd.MultiIndex):
-        close = data["Adj Close"]
+def compute_metrics(port: pd.Series, bench: pd.Series | None) -> dict:
+    """Compute total return, today's move, max drawdown, alpha vs benchmark."""
+    if port.empty:
+        return {"total": None, "today": None, "maxdd": None, "alpha": None}
+
+    total_ret = port.iloc[-1] / port.iloc[0] - 1.0
+
+    if len(port) >= 2:
+        today_ret = port.iloc[-1] / port.iloc[-2] - 1.0
     else:
-        close = data[["Adj Close"]]
-        close.columns = tickers
+        today_ret = None
 
-    close = close.dropna(how="all")
-    if close.shape[0] < 2:
-        return pd.Series(index=tickers, dtype=float)
+    running_max = port.cummax()
+    dd = port / running_max - 1.0
+    max_dd = dd.min()
 
-    last = close.iloc[-1]
-    prev = close.iloc[-2]
-    moves = (last / prev - 1.0) * 100.0
-    return moves.reindex(tickers).round(2)
+    alpha = None
+    if bench is not None and not bench.empty:
+        bench_norm = bench / bench.iloc[0]
+        common = port.index.intersection(bench_norm.index)
+        if len(common) > 1:
+            port_c = port.loc[common] / port.loc[common].iloc[0]
+            bench_c = bench_norm.loc[common]
+            alpha = port_c.iloc[-1] - bench_c.iloc[-1]
+
+    return {"total": total_ret, "today": today_ret, "maxdd": max_dd, "alpha": alpha}
 
 
-def fmt_pct(x: float) -> str:
-    return f"{x:+.2f}%"
+def fmt_pct(x: float | None) -> str:
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x*100:0.2f}%"
 
 
-# ---------------------------------------------------------
-# LOAD DATA
-# ---------------------------------------------------------
+def ticker_to_google_link(ticker: str) -> str:
+    """
+    Build a Google Finance link.
+    We won't guess exchange perfectly; Google is forgiving.
+    """
+    return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
 
-weights_df = load_weights()
-wave_ids = sorted(weights_df["Wave"].unique())
-wave_display_map = {raw: friendly_wave_name(raw) for raw in wave_ids}
-display_to_raw = {v: k for k, v in wave_display_map.items()}
 
-# ---------------------------------------------------------
-# SIDEBAR – ENGINE + WAVE SELECTION
-# ---------------------------------------------------------
+def style_top_holdings(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+    """Apply red/green styling to the Change % column."""
+    def color_change(val):
+        if pd.isna(val):
+            return ""
+        if val > 0:
+            return "color: #22c55e; font-weight: 600;"
+        elif val < 0:
+            return "color: #ef4444; font-weight: 600;"
+        return ""
+
+    styler = (
+        df.style.format({"Weight %": "{:0.2f}%", "Change %": "{:0.2f}%"})
+        .applymap(color_change, subset=["Change %"])
+    )
+    return styler
+
+
+# ---------- LOAD DATA ----------------------------------------------------------
+
+try:
+    universe = load_universe()
+except Exception as e:
+    st.error(
+        f"⚠️ Could not load `wave_weights.csv`: {e}\n\n"
+        "Place `wave_weights.csv` in the root of the repo and redeploy."
+    )
+    st.stop()
+
+# Filter to only the waves we know / want
+available_wave_codes = sorted(set(universe["Wave"]))
+valid_codes = [w for w in available_wave_codes if w in WAVE_PRETTY_NAMES]
+if not valid_codes:
+    st.error(
+        "No recognised waves found in `wave_weights.csv`.\n\n"
+        f"Expected one of: {list(WAVE_PRETTY_NAMES.keys())}, "
+        f"found: {available_wave_codes}"
+    )
+    st.stop()
+
+pretty_names = [WAVE_PRETTY_NAMES[w] for w in valid_codes]
+
+
+# ---------- SIDEBAR ------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("### 🌊 WAVES Intelligence™")
-    st.markdown("**DESKTOP ENGINE + CLOUD SNAPSHOT**")
+    st.markdown(
+        "<div class='sidebar-brand'>WAVES Intelligence™</div>"
+        "<div class='sidebar-sub'>Institutional console — live engine view</div>",
+        unsafe_allow_html=True,
+    )
 
+    st.markdown("**Desktop Engine + Cloud Snapshot**")
     st.caption(
-        "Institutional console for WAVES Intelligence™ — select one of your "
-        "locked Waves below. This version computes performance live in the cloud "
-        "using current price history (no local CSV logs needed)."
+        "This console pulls live prices via yfinance and builds each Wave’s equity "
+        "curve on the fly. No local CSV performance logs required."
     )
 
-    selected_wave_display = st.selectbox(
-        "Select Wave",
-        options=list(display_to_raw.keys()),
-        index=0,
-    )
-    selected_wave_id = display_to_raw[selected_wave_display]
+    selected_pretty = st.selectbox("Select Wave", pretty_names, index=0)
+    selected_wave = PRETTY_TO_INTERNAL[selected_pretty]
 
-    st.markdown("---")
-    st.markdown("#### Risk Mode (label only)")
-    mode = st.radio(
-        "Risk Mode",
+    risk_mode = st.radio(
+        "Risk Mode *(label only)*",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
         index=0,
-        label_visibility="collapsed",
     )
-    st.caption(f"**{mode.upper()}**")
+
+    exposure = st.slider("Equity Exposure", min_value=0, max_value=100, value=90, step=5)
+    st.caption(
+        f"Target β ≈ 0.90 | Cash buffer: {100 - exposure}%  \n"
+        "These controls label the view — actual allocations are set in the engine."
+    )
 
     st.markdown("---")
     st.caption(
-        "This is a **cloud-only** engine: it pulls prices via yfinance on each "
-        "refresh. No local terminal or CSV logs are required."
+        "Tip: For a **live demo**, leave this console open while the market is open. "
+        "It will refresh pricing on each interaction."
     )
 
-# ---------------------------------------------------------
-# MAIN LAYOUT
-# ---------------------------------------------------------
 
-st.markdown(
-    "<h1 style='margin-bottom:0'>WAVES Institutional Console</h1>",
-    unsafe_allow_html=True,
-)
-st.caption(
-    f"Live / demo console for WAVES Intelligence™ — showing **{selected_wave_display}**."
-)
+# ---------- TOP BAR / HERO -----------------------------------------------------
 
-col_spx, col_vix, col_mode = st.columns([2, 2, 1])
-with col_spx:
-    st.markdown("**SPX** 6899.07 *(demo)*")
-with col_vix:
-    st.markdown("**VIX** 15.40 *(demo)*")
-with col_mode:
-    st.markdown(f"**Mode:** {mode}")
+# Fetch SPX & VIX quick quotes
+try:
+    spx = yf.Ticker("^GSPC").history(period="1d")["Close"]
+    vix = yf.Ticker("^VIX").history(period="1d")["Close"]
+    spx_val = float(spx.iloc[-1]) if not spx.empty else None
+    vix_val = float(vix.iloc[-1]) if not vix.empty else None
+except Exception:
+    spx_val = vix_val = None
+
+utc_now = datetime.now(timezone.utc).replace(microsecond=0)
+
+col_hero = st.container()
+with col_hero:
+    st.markdown(
+        """
+        <div class="waves-hero">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+            <div>
+              <div style="font-size:0.75rem; letter-spacing:0.18em; text-transform:uppercase; color:#6B7280;">
+                WAVES INSTITUTIONAL CONSOLE
+              </div>
+              <div style="font-size:1.15rem; font-weight:600; color:#E5E7EB;">
+                Live / demo console for <span style="color:#22c55e;">WAVES Intelligence™</span>
+              </div>
+              <div style="font-size:0.8rem; color:#9CA3AF;">
+                Adaptive Index Waves™ — {wave_name} | Mode: {mode} | UTC: {utc}
+              </div>
+            </div>
+            <div style="display:flex; gap:0.75rem; align-items:center;">
+              <span class="badge-pill">Live Engine</span>
+              <span class="badge-pill">Multi-Wave</span>
+              <span class="badge-pill">Adaptive Index Waves™</span>
+            </div>
+          </div>
+        </div>
+        """.format(
+            wave_name=selected_pretty,
+            mode=risk_mode,
+            utc=utc_now.isoformat().replace("T", " "),
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # Quick SPX / VIX strip
+    if spx_val is not None and vix_val is not None:
+        st.markdown(
+            f"""
+            <div style="margin-top:0.6rem; display:flex; gap:1rem; align-items:center;">
+              <div style="font-size:0.8rem; color:#9CA3AF;">SPX</div>
+              <div style="font-size:0.9rem; color:#22c55e; font-weight:600;">{spx_val:,.2f}</div>
+              <div style="font-size:0.8rem; color:#9CA3AF; margin-left:1.5rem;">VIX</div>
+              <div style="font-size:0.9rem; color:#f97316; font-weight:600;">{vix_val:0.2f}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+st.markdown("")
+
+
+# ---------- LOAD HOLDINGS & PRICES --------------------------------------------
+
+wave_holdings = universe[universe["Wave"] == selected_wave].copy()
+wave_holdings = wave_holdings.sort_values("Weight", ascending=False).reset_index(drop=True)
+
+tickers = wave_holdings["Ticker"].tolist()
+benchmark_ticker = WAVE_BENCHMARK.get(selected_wave, "SPY")
+
+all_price_tickers = sorted(set(tickers + [benchmark_ticker]))
+
+with st.spinner("Fetching live prices…"):
+    prices = fetch_prices(all_price_tickers, period="6mo")
+
+if prices.empty:
+    st.error("No price data returned. Check ticker symbols or yfinance availability.")
+    st.stop()
+
+# Split portfolio vs benchmark
+bench_series = prices[benchmark_ticker].dropna() if benchmark_ticker in prices.columns else None
+port_series = build_portfolio_series(wave_holdings, prices)
+
+metrics = compute_metrics(port_series, bench_series)
+
+
+# ---------- KPI ROW -----------------------------------------------------------
+
+kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+
+with kpi_col1:
+    st.markdown(
+        "<div class='waves-kpi'><div class='waves-kpi-label'>Total Return (logs)</div>"
+        f"<div class='waves-kpi-value'>{fmt_pct(metrics['total'])}</div></div>",
+        unsafe_allow_html=True,
+    )
+with kpi_col2:
+    st.markdown(
+        "<div class='waves-kpi'><div class='waves-kpi-label'>Today</div>"
+        f"<div class='waves-kpi-value'>{fmt_pct(metrics['today'])}</div></div>",
+        unsafe_allow_html=True,
+    )
+with kpi_col3:
+    st.markdown(
+        "<div class='waves-kpi'><div class='waves-kpi-label'>Max Drawdown</div>"
+        f"<div class='waves-kpi-value'>{fmt_pct(metrics['maxdd'])}</div></div>",
+        unsafe_allow_html=True,
+    )
+with kpi_col4:
+    st.markdown(
+        "<div class='waves-kpi'><div class='waves-kpi-label'>Alpha vs Benchmark</div>"
+        f"<div class='waves-kpi-value'>{fmt_pct(metrics['alpha'])}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
-# ---------------------------------------------------------
-# BUILD WAVE VIEW
-# ---------------------------------------------------------
 
-wave_slice = weights_df[weights_df["Wave"] == selected_wave_id].copy()
-wave_slice = wave_slice.sort_values("WeightPct", ascending=False)
+# ---------- MAIN LAYOUT: CHART + HOLDINGS -------------------------------------
 
-tickers = wave_slice["Ticker"].tolist()
-weights_pct = wave_slice["WeightPct"]
-weights_normalized = weights_pct / weights_pct.sum()
+left_col, right_col = st.columns((2.2, 1.8))
 
-prices = fetch_prices(tickers)
-curve, stats = build_portfolio_curve(prices, weights_normalized)
-
-# ---------------------------------------------------------
-# TOP METRICS
-# ---------------------------------------------------------
-
-m1, m2, m3, m4 = st.columns(4)
-
-if curve.empty:
-    tr, td, mdd = 0.0, 0.0, 0.0
-else:
-    tr = stats["total_return"] * 100.0
-    td = stats["today_return"] * 100.0
-    mdd = stats["max_drawdown"] * 100.0
-
-with m1:
-    st.metric("Total Return (live)", f"{tr:+.2f}%")
-with m2:
-    st.metric("Today", f"{td:+.2f}%")
-with m3:
-    st.metric("Max Drawdown", f"{mdd:.2f}%")
-with m4:
-    st.metric("Alpha vs Benchmark", "—")  # placeholder until benchmark logic is added
-
-st.markdown("---")
-
-# ---------------------------------------------------------
-# PERFORMANCE CURVE & HOLDINGS
-# ---------------------------------------------------------
-
-left, right = st.columns([2, 2])
-
-with left:
+# --- Performance Curve ---
+with left_col:
     st.subheader("Performance Curve")
-    if curve.empty:
+
+    if port_series.empty:
         st.info(
-            "No performance history could be built yet for this Wave. "
-            "This usually means price data could not be fetched for its tickers "
-            "or the Wave has no holdings defined."
+            "No performance history available for this Wave yet. "
+            "Once price history is available for its holdings, the equity curve will appear here."
         )
     else:
-        curve_df = pd.DataFrame({"Cumulative Return": (curve * 100.0).round(2)})
-        curve_df.index.name = "Date"
-        st.line_chart(curve_df)
+        chart_df = pd.DataFrame(
+            {
+                "Portfolio": port_series / port_series.iloc[0] * 100,
+            }
+        )
+        if bench_series is not None and not bench_series.empty:
+            bench_norm = bench_series / bench_series.iloc[0] * 100
+            chart_df["Benchmark"] = bench_norm.reindex(chart_df.index, method="ffill")
 
-with right:
+        st.line_chart(chart_df, height=320, use_container_width=True)
+
+# --- Holdings & Risk ---
+with right_col:
     st.subheader("Holdings, Weights & Risk")
 
-    if wave_slice.empty:
-        st.warning("No holdings found for this Wave in wave_weights.csv.")
+    # Compute latest price & daily change for each holding
+    latest_closes = prices.iloc[-1]
+    if len(prices) >= 2:
+        prev_closes = prices.iloc[-2]
+        daily_change = latest_closes / prev_closes - 1.0
     else:
-        # Top 10 holdings
-        top10 = wave_slice.head(10).copy()
-        top10_moves = fetch_ticker_moves(top10["Ticker"].tolist())
+        daily_change = pd.Series(index=prices.columns, dtype=float)
 
-        top10["Today %"] = top10["Ticker"].map(top10_moves).fillna(0.0)
+    top = wave_holdings.copy()
+    top["Weight %"] = top["Weight"] * 100
+    top["Live Price"] = top["Ticker"].map(latest_closes.to_dict())
+    top["Change %"] = top["Ticker"].map(daily_change.to_dict()) * 100
 
-        # Build a styled HTML table for Bloomberg-style red/green
-        table_rows = []
-        for _, row in top10.iterrows():
-            t = row["Ticker"]
-            w = row["WeightPct"]
-            move = row["Today %"]
+    # Build Google links in a separate display column
+    top_display = top.copy()
+    top_display["Ticker"] = top_display["Ticker"].apply(
+        lambda t: f"<a href='{ticker_to_google_link(t)}' target='_blank'>{t}</a>"
+    )
 
-            color = "green" if move > 0 else "red" if move < 0 else "gray"
-            move_html = f"<span style='color:{color}'>{fmt_pct(move)}</span>"
+    top10 = top_display.head(10)[["Ticker", "Weight %", "Change %"]].reset_index(drop=True)
 
-            link = google_finance_link(t)
-            cell_ticker = f"<a href='{link}' target='_blank'>{t}</a>"
+    st.caption("Top 10 Positions — Google Finance Links (Bloomberg-style red/green)")
+    styled = style_top_holdings(top10)
+    styled = styled.hide(axis="index")
+    styled = styled.set_table_attributes('class="waves-table"').format(escape=False)
+    st.write(styled.to_html(), unsafe_allow_html=True)
 
-            table_rows.append(
-                f"<tr>"
-                f"<td style='padding:4px 8px'>{cell_ticker}</td>"
-                f"<td style='padding:4px 8px;text-align:right'>{w:.2f}%</td>"
-                f"<td style='padding:4px 8px;text-align:right'>{move_html}</td>"
-                f"</tr>"
-            )
-
-        table_html = (
-            "<table style='width:100%;border-collapse:collapse;font-size:0.9rem'>"
-            "<thead>"
-            "<tr>"
-            "<th style='text-align:left;padding:4px 8px'>Ticker</th>"
-            "<th style='text-align:right;padding:4px 8px'>Weight %</th>"
-            "<th style='text-align:right;padding:4px 8px'>Today</th>"
-            "</tr>"
-            "</thead>"
-            "<tbody>"
-            + "".join(table_rows)
-            + "</tbody></table>"
+    st.markdown("")
+    with st.expander("Full Wave universe table"):
+        full = top_display[["Ticker", "Weight %", "Change %", "Live Price"]].reset_index(
+            drop=True
         )
-
-        st.markdown("**Top 10 Positions — Google Finance Links (red/green moves)**")
-        st.markdown(table_html, unsafe_allow_html=True)
-
-        with st.expander("Full Wave universe table"):
-            full_moves = fetch_ticker_moves(wave_slice["Ticker"].tolist())
-            wave_slice["Today %"] = wave_slice["Ticker"].map(full_moves).fillna(0.0)
-            st.dataframe(
-                wave_slice[["Ticker", "WeightPct", "Today %"]]
-                .rename(columns={"WeightPct": "Weight %"})
-                .reset_index(drop=True)
-            )
+        full_styled = style_top_holdings(full)
+        full_styled = full_styled.hide(axis="index").set_table_attributes(
+            'class="waves-table"'
+        ).format(escape=False)
+        st.write(full_styled.to_html(), unsafe_allow_html=True)
 
 st.markdown("---")
+
 st.caption(
-    "This console is running entirely in the cloud. Performance curves and holdings "
-    "are computed live from price history; no local CSV logs or background engine "
-    "process is required."
+    "This console is a **single self-contained app**: it reads `wave_weights.csv`, "
+    "pulls prices via yfinance, and computes each Wave’s live equity curve on demand. "
+    "No background engine or CSV performance logs required on Streamlit Cloud."
 )
