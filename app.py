@@ -4,7 +4,8 @@
 # Per-Wave Benchmarks, VIX-gated exposure + SmartSafe™,
 # Excess return windows, Realized Beta, Momentum / Leadership Engine,
 # Beta Drift Alerts, Mode-Aware Suggested Allocation,
-# Position-Level Allocation, and "Mini Bloomberg" UI.
+# Position-Level Allocation, 1-Year Alpha Contribution,
+# and "Mini Bloomberg" UI.
 #
 # IMPORTANT:
 # - Keep your last fully-working app.py saved separately as app_fallback.py.
@@ -337,7 +338,7 @@ def style_wave_table(df):
     fmt_pct_cols = [
         c
         for c in df.columns
-        if any(x in c for x in ["Alpha_", "Momentum_Score", "Equity_Alloc", "SmartSafe_Alloc"])
+        if any(x in c for c2 in ["Alpha_", "Momentum_Score", "Equity_Alloc", "SmartSafe_Alloc"])
     ]
     fmt_beta_cols = [c for c in df.columns if "Beta" in c and "Drift" not in c]
 
@@ -421,23 +422,10 @@ def compute_suggested_allocations(summary_df, equity_pct, smartsafe_pct):
 def compute_position_allocations(alloc_df, weights_df):
     """
     Expand Wave-level suggested allocations down to individual holdings.
-
-    Inputs:
-      alloc_df   - output of compute_suggested_allocations (Wave, Equity_Weight_% etc)
-      weights_df - wave_weights (Wave, Ticker, Weight) where Weight is intra-Wave
-
-    Output:
-      DataFrame with:
-        Wave
-        Ticker
-        IntraWave_Weight          (0–1 inside that Wave)
-        Wave_Equity_Weight_%      (% of portfolio in that Wave's equities)
-        Position_Equity_Weight_%  (% of portfolio in that individual position)
     """
     if alloc_df is None or alloc_df.empty:
         return pd.DataFrame()
 
-    # Exclude SmartSafe row – no underlying holdings there
     waves_only = alloc_df[alloc_df["Wave"] != SMARTSAFE_NAME].copy()
     if waves_only.empty:
         return pd.DataFrame()
@@ -480,6 +468,56 @@ def compute_position_allocations(alloc_df, weights_df):
         "Position_Equity_Weight_%", ascending=False
     ).reset_index(drop=True)
     return pos_df
+
+
+def compute_1yr_contribution(summary_df, alloc_df):
+    """
+    For each Wave:
+      1Y Excess Return (Alpha_1Y)
+      Suggested Equity Weight (%)
+      Contribution = (Equity_Weight_%/100) * Alpha_1Y
+    SmartSafe™ is ignored.
+    """
+    if summary_df.empty or alloc_df.empty:
+        return pd.DataFrame()
+
+    waves_only = alloc_df[alloc_df["Wave"] != SMARTSAFE_NAME].copy()
+    if waves_only.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for _, r in waves_only.iterrows():
+        wave = r["Wave"]
+        weight_pct = float(r["Equity_Weight_%"])
+        weight_frac = weight_pct / 100.0
+
+        alpha_row = summary_df[summary_df["Wave"] == wave]
+        if alpha_row.empty:
+            continue
+
+        alpha_1y = alpha_row["Alpha_1Y"].values[0]
+
+        if pd.isna(alpha_1y):
+            contrib = np.nan
+        else:
+            contrib = weight_frac * alpha_1y
+
+        rows.append(
+            {
+                "Wave": wave,
+                "Equity_Weight_%": weight_pct,
+                "Alpha_1Y": alpha_1y,
+                "Contribution": contrib,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    df = df.sort_values("Contribution", ascending=False).reset_index(drop=True)
+    return df
 
 # ============================================================
 # STREAMLIT UI
@@ -882,6 +920,31 @@ def main():
             )
         else:
             st.info("No position-level allocations could be computed.")
+
+        # ===================== 1-YEAR ALPHA CONTRIBUTION =====================
+
+        st.markdown("## 1-Year Contribution to Portfolio Alpha")
+
+        contrib_df = compute_1yr_contribution(summary_df, alloc_df)
+
+        if not contrib_df.empty:
+            df_disp = contrib_df.copy()
+            df_disp["Equity_Weight_%"] = df_disp["Equity_Weight_%"].apply(
+                lambda x: f"{x:,.1f}%"
+            )
+            df_disp["Alpha_1Y"] = df_disp["Alpha_1Y"].apply(
+                lambda x: f"{x*100:,.2f}%" if not pd.isna(x) else ""
+            )
+            df_disp["Contribution"] = df_disp["Contribution"].apply(
+                lambda x: f"{x*100:,.2f}%" if not pd.isna(x) else ""
+            )
+
+            st.dataframe(df_disp, use_container_width=True)
+
+            total_alpha = contrib_df["Contribution"].sum() * 100
+            st.metric("Total Portfolio Alpha (1-Year)", f"{total_alpha:,.2f}%")
+        else:
+            st.info("Not enough data to compute 1-year alpha contribution.")
     else:
         st.info("Suggested allocation unavailable (missing tilt data).")
 
