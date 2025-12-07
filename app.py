@@ -1,11 +1,11 @@
 # app.py
 # WAVES Intelligence™ — Institutional Console
-# Mini Bloomberg-style terminal with LIVE-ONLY alpha engine (no backtest alpha).
+# Mini Bloomberg-style terminal with LIVE-ONLY internal alpha engine (no index benchmark alpha).
 
 from pathlib import Path
 from datetime import datetime
 import glob
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -27,6 +27,11 @@ WEIGHTS_PATH = BASE_DIR / "wave_weights.csv"
 
 SPX_TICKER = "^GSPC"
 VIX_TICKER = "^VIX"
+
+# Long-run market drift assumption (for internal alpha)
+MU_ANNUAL = 0.07     # 7% per year
+TRADING_DAYS = 252
+MU_DAILY = MU_ANNUAL / TRADING_DAYS  # ≈ 0.000278/day
 
 WAVE_DISPLAY_NAMES: Dict[str, str] = {
     "SP500_Wave": "S&P 500 Wave",
@@ -51,7 +56,6 @@ def discover_waves_from_logs() -> List[str]:
     """Find Waves from files like <Wave>_performance_YYYYMMDD.csv."""
     if not PERF_DIR.exists():
         return []
-
     waves = set()
     for path in PERF_DIR.glob("*_performance_*.csv"):
         name = path.name
@@ -66,34 +70,26 @@ def discover_waves_from_weights() -> List[str]:
     """Fallback: read unique Wave names from wave_weights.csv."""
     if not WEIGHTS_PATH.exists():
         return []
-
     try:
         df = pd.read_csv(WEIGHTS_PATH)
     except Exception:
         return []
-
-    # Try common wave name columns
     for col in ["Wave", "Wave_Name", "wave", "wave_name"]:
         if col in df.columns:
             return sorted(df[col].dropna().unique().tolist())
-
-    # Otherwise just use first column
     if len(df.columns) > 0:
         return sorted(df.iloc[:, 0].dropna().unique().tolist())
-
     return []
 
 
-def discover_waves() -> (List[str], str):
+def discover_waves() -> Tuple[List[str], str]:
     """Return (waves, source) where source is 'logs', 'weights', or 'none'."""
     from_logs = discover_waves_from_logs()
     if from_logs:
         return from_logs, "logs"
-
     from_weights = discover_waves_from_weights()
     if from_weights:
         return from_weights, "weights"
-
     return [], "none"
 
 
@@ -107,12 +103,10 @@ def load_performance(wave_name: str) -> Optional[pd.DataFrame]:
     """Load latest performance CSV for a Wave."""
     if not PERF_DIR.exists():
         return None
-
     pattern = str(PERF_DIR / f"{wave_name}_performance_*.csv")
     matches = glob.glob(pattern)
     if not matches:
         return None
-
     latest_path = max(matches, key=lambda p: Path(p).stat().st_mtime)
     try:
         df = pd.read_csv(latest_path)
@@ -132,7 +126,6 @@ def load_performance(wave_name: str) -> Optional[pd.DataFrame]:
             df = df.sort_values(date_col)
         except Exception:
             pass
-
     return df
 
 
@@ -140,25 +133,22 @@ def load_positions(wave_name: str) -> Optional[pd.DataFrame]:
     """Load latest positions CSV for a Wave."""
     if not POS_DIR.exists():
         return None
-
     pattern = str(POS_DIR / f"{wave_name}_positions_*.csv")
     matches = glob.glob(pattern)
     if not matches:
         return None
-
     latest_path = max(matches, key=lambda p: Path(p).stat().st_mtime)
     try:
         df = pd.read_csv(latest_path)
     except Exception:
         return None
-
     return df
 
 # ----------------------------------------------------
-# HELPERS: MARKET DATA (SPX / VIX)
+# MARKET DATA (SPX / VIX) — VISUAL ONLY
 # ----------------------------------------------------
 def fetch_index_timeseries(ticker: str, days: int = 90) -> Optional[pd.DataFrame]:
-    """Download recent daily close series for ticker."""
+    """Download recent daily close series for ticker (for charts only)."""
     if yf is None:
         return None
     try:
@@ -173,7 +163,7 @@ def fetch_index_timeseries(ticker: str, days: int = 90) -> Optional[pd.DataFrame
 
 
 def fetch_index_snapshot(ticker: str) -> Optional[Dict[str, float]]:
-    """Latest price + daily change %."""
+    """Latest price + daily change % (visual only)."""
     if yf is None:
         return None
     try:
@@ -182,7 +172,6 @@ def fetch_index_snapshot(ticker: str) -> Optional[Dict[str, float]]:
         return None
     if data is None or data.empty:
         return None
-
     latest = float(data.iloc[-1]["Close"])
     if len(data) > 1:
         prev = float(data.iloc[-2]["Close"])
@@ -193,193 +182,155 @@ def fetch_index_snapshot(ticker: str) -> Optional[Dict[str, float]]:
     return {"last": latest, "change": change, "pct": pct}
 
 # ----------------------------------------------------
-# HELPERS: RETURNS & ALPHA (LIVE-ONLY)
+# RETURNS & INTERNAL ALPHA (LIVE-ONLY)
 # ----------------------------------------------------
 def _normalize_return_series(raw: pd.Series) -> pd.Series:
     """Ensure returns are in decimal form (0.01 = 1%)."""
     s = pd.to_numeric(raw, errors="coerce").dropna()
     if s.empty:
         return s
-    # If it looks like percents (e.g. 1.5 = 1.5%), convert
-    if s.abs().median() > 0.5:  # crude but safe for our data
+    if s.abs().median() > 0.5:
         s = s / 100.0
     return s
 
 
-def _extract_wave_bench_series(
-    perf_df: Optional[pd.DataFrame],
-    beta_default: float = 0.90,
-) -> (Optional[pd.DataFrame], float):
+def get_wave_return_series(perf_df: Optional[pd.DataFrame]) -> Optional[pd.Series]:
     """
-    From a performance DataFrame, extract aligned wave and benchmark daily returns
-    and return aligned DataFrame + beta.
+    Extract daily Wave return series from performance DF.
+    Prefers daily_return; falls back to NAV/value pct_change.
     """
     if perf_df is None or perf_df.empty:
-        return None, beta_default
-
+        return None
     df = perf_df.copy()
-
-    # Wave return column
-    wave_col = None
-    for c in df.columns:
-        lc = c.lower()
-        if "daily_return" in lc or ("return" in lc and "benchmark" not in lc):
-            wave_col = c
-            break
-    if wave_col is None:
-        for c in df.columns:
-            if c.lower() == "return":
-                wave_col = c
-                break
-    if wave_col is None:
-        return None, beta_default
-
-    # Benchmark return column
-    bench_col = None
-    for c in df.columns:
-        lc = c.lower()
-        if "benchmark_return" in lc or ("benchmark" in lc and "return" in lc):
-            bench_col = c
-            break
-
-    wave_r = _normalize_return_series(df[wave_col])
-    if bench_col is not None:
-        bench_r = _normalize_return_series(df[bench_col])
-    else:
-        bench_r = pd.Series(index=wave_r.index, data=0.0)
-
-    aligned = pd.concat([wave_r, bench_r], axis=1, join="inner").dropna()
-    if aligned.empty:
-        return None, beta_default
-
-    aligned.columns = ["wave_r", "bench_r"]
-
-    # Beta
-    if "beta_target" in df.columns:
-        beta_series = pd.to_numeric(df["beta_target"], errors="coerce").fillna(beta_default)
-        beta = float(beta_series.iloc[-1])
-    else:
-        beta = beta_default
-
-    return aligned, beta
-
-
-def compute_return_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
-    """
-    Compute live-only total return, today's return, and max drawdown
-    from the engine log performance DataFrame.
-    """
-    metrics = {
-        "total_return": None,
-        "today_return": None,
-        "max_drawdown": None,
-    }
-    if perf_df is None or perf_df.empty:
-        return metrics
-
-    # Try to find daily return or derive from NAV/value
     ret_col = None
     nav_col = None
-    for c in perf_df.columns:
+
+    # Try return column
+    for c in df.columns:
         lc = c.lower()
         if "daily_return" in lc or ("return" in lc and "benchmark" not in lc):
             ret_col = c
             break
+
+    # Try NAV/value
     if ret_col is None:
-        for c in perf_df.columns:
+        for c in df.columns:
             lc = c.lower()
             if "nav" in lc or "value" in lc:
                 nav_col = c
                 break
 
     if ret_col:
-        r = _normalize_return_series(perf_df[ret_col])
+        r = _normalize_return_series(df[ret_col])
     elif nav_col:
-        p = pd.to_numeric(perf_df[nav_col], errors="coerce").dropna()
-        r = p.pct_change().fillna(0.0)
+        prices = pd.to_numeric(df[nav_col], errors="coerce").dropna()
+        r = prices.pct_change().fillna(0.0)
     else:
+        return None
+
+    # Align index to date if present
+    date_col = None
+    for c in df.columns:
+        lc = c.lower()
+        if "date" in lc or "time" in lc or "timestamp" in lc:
+            date_col = c
+            break
+    if date_col:
+        try:
+            df[date_col] = pd.to_datetime(df[date_col])
+            r.index = df[date_col]
+        except Exception:
+            pass
+
+    return r.sort_index()
+
+
+def get_beta_target(perf_df: Optional[pd.DataFrame], default_beta: float = 0.90) -> float:
+    if perf_df is None or perf_df.empty:
+        return default_beta
+    if "beta_target" in perf_df.columns:
+        try:
+            beta_series = pd.to_numeric(perf_df["beta_target"], errors="coerce").dropna()
+            if not beta_series.empty:
+                return float(beta_series.iloc[-1])
+        except Exception:
+            pass
+    return default_beta
+
+
+def compute_return_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
+    """Total return, today's return, max drawdown from live returns."""
+    metrics = {"total_return": None, "today_return": None, "max_drawdown": None}
+    r = get_wave_return_series(perf_df)
+    if r is None or r.empty:
         return metrics
 
-    if r.empty:
-        return metrics
-
-    # total return
     metrics["total_return"] = (1 + r).prod() - 1
-    # today
     metrics["today_return"] = float(r.iloc[-1])
-    # max drawdown
     cum = (1 + r).cumprod()
     peak = cum.cummax()
     dd = (cum / peak) - 1
     metrics["max_drawdown"] = float(dd.min())
-
     return metrics
 
 
-def compute_live_alpha_metrics(
+def compute_internal_alpha_metrics(
     perf_df: Optional[pd.DataFrame],
     beta_default: float = 0.90,
+    mu_daily: float = MU_DAILY,
     min_days_threshold: int = 15,
 ) -> Dict[str, Dict[str, Optional[float]]]:
     """
-    Compute live-only alpha metrics for multiple windows from a performance DataFrame.
+    Internal (benchmark-free) alpha vs expected drift:
 
-    Expected columns (case-insensitive search):
-        - daily_return / return (Wave)
-        - benchmark_return (Benchmark)
-        - beta_target (optional; if missing we use beta_default)
+        expected_daily = beta * mu_daily
+        alpha_daily    = wave_r - expected_daily
 
-    Returns dict with:
-        windows (30d, 60d, 6m, 1y, since_inception)
-        plus key "_one_day_alpha" for last day's alpha.
+    For each window:
+        cum_wave     = ∏(1 + wave_r)
+        cum_expected = (1 + expected_daily) ^ N
+        alpha_window = cum_wave - cum_expected
     """
     out: Dict[str, Dict[str, Optional[float]]] = {}
     for key in ALPHA_WINDOWS:
-        out[key] = {"alpha": None, "wave_return": None, "bench_return": None, "days": 0}
+        out[key] = {"alpha": None, "wave_return": None, "expected_return": None, "days": 0}
     out["_one_day_alpha"] = None
 
-    aligned, beta = _extract_wave_bench_series(perf_df, beta_default=beta_default)
-    if aligned is None or aligned.empty:
+    r = get_wave_return_series(perf_df)
+    if r is None or r.empty:
         return out
 
-    w_full = aligned["wave_r"]
-    b_full = aligned["bench_r"]
+    beta = get_beta_target(perf_df, default_beta=beta_default)
+    expected_daily = beta * mu_daily
 
-    # 1-day alpha = last day’s return differential
-    one_day_alpha = float((w_full.iloc[-1] - beta * b_full.iloc[-1]))
+    # Intraday / 1-Day Alpha = last day's alpha vs expected
+    one_day_alpha = float(r.iloc[-1] - expected_daily)
     out["_one_day_alpha"] = one_day_alpha
 
-    # Per-window alpha
+    # Window alphas
     for label, window in ALPHA_WINDOWS.items():
         if window is None:
-            window_df = aligned.copy()
+            window_r = r.copy()
         else:
-            window_df = aligned.tail(window)
+            window_r = r.tail(window)
 
-        n_days = len(window_df)
+        n_days = len(window_r)
         out[label]["days"] = n_days
 
         if window is not None and n_days < min_days_threshold:
-            continue  # leave as None with days count
+            continue  # not enough history, leave None
 
-        w = window_df["wave_r"]
-        b = window_df["bench_r"]
+        cum_wave = (1.0 + window_r).prod()
+        cum_expected = (1.0 + expected_daily) ** n_days
 
-        cum_wave = (1.0 + w).prod()
-        cum_bench = (1.0 + beta * b).prod()
-
-        if cum_bench == 0:
-            alpha = None
-        else:
-            alpha = cum_wave / cum_bench - 1.0
-
+        alpha_window = cum_wave - cum_expected
         wave_total = cum_wave - 1.0
-        bench_total = cum_bench - 1.0
+        expected_total = cum_expected - 1.0
 
         out[label] = {
-            "alpha": float(alpha) if alpha is not None else None,
+            "alpha": float(alpha_window),
             "wave_return": float(wave_total),
-            "bench_return": float(bench_total),
+            "expected_return": float(expected_total),
             "days": int(n_days),
         }
 
@@ -389,15 +340,15 @@ def compute_live_alpha_metrics(
 def compute_daily_alpha_series(
     perf_df: Optional[pd.DataFrame],
     beta_default: float = 0.90,
+    mu_daily: float = MU_DAILY,
 ) -> Optional[pd.Series]:
-    """
-    Compute daily alpha time series (for charting).
-    alpha_daily = wave_r - beta * bench_r
-    """
-    aligned, beta = _extract_wave_bench_series(perf_df, beta_default=beta_default)
-    if aligned is None or aligned.empty:
+    """Daily alpha series: alpha_daily = wave_r - beta * mu_daily."""
+    r = get_wave_return_series(perf_df)
+    if r is None or r.empty:
         return None
-    alpha = aligned["wave_r"] - beta * aligned["bench_r"]
+    beta = get_beta_target(perf_df, default_beta=beta_default)
+    expected_daily = beta * mu_daily
+    alpha = r - expected_daily
     alpha.name = "alpha_daily"
     return alpha
 
@@ -571,10 +522,11 @@ st.markdown(
 )
 
 # ----------------------------------------------------
-# TOP BAR: TITLE + INDEX SNAPSHOTS
+# TOP BAR: TITLE + INDEX SNAPSHOTS (VISUAL ONLY)
 # ----------------------------------------------------
 spx_snap = fetch_index_snapshot(SPX_TICKER)
 vix_snap = fetch_index_snapshot(VIX_TICKER)
+
 
 def index_tile(label: str, snap: Optional[Dict[str, float]], flip_vix: bool = False) -> str:
     if not snap:
@@ -596,12 +548,13 @@ def index_tile(label: str, snap: Optional[Dict[str, float]], flip_vix: bool = Fa
     </div>
     """
 
+
 topbar_html = f"""
 <div class="waves-topbar">
   <div class="waves-topbar-left">
     <div class="waves-title">WAVES INSTITUTIONAL CONSOLE</div>
     <div class="waves-badge">LIVE ENGINE · MULTI-WAVE</div>
-    <div class="waves-subtitle">Adaptive Index Waves · Mini Bloomberg-Style Terminal</div>
+    <div class="waves-subtitle">Adaptive Index Waves · Internal Alpha (β-Adjusted)</div>
   </div>
   <div class="waves-topbar-right">
     {index_tile("S&P 500", spx_snap)}
@@ -626,7 +579,6 @@ if not waves:
     )
     st.stop()
 
-# default wave preference
 default_wave = None
 for candidate in ["Growth_Wave", "SP500_Wave"]:
     if candidate in waves:
@@ -659,11 +611,12 @@ st.sidebar.caption(f"Target β ≈ 0.90 · Cash buffer: {100 - equity_exposure}%
 perf_df = load_performance(selected_wave)
 pos_df = load_positions(selected_wave)
 ret_metrics = compute_return_metrics(perf_df)
-alpha_metrics = compute_live_alpha_metrics(perf_df, beta_default=0.90)
-alpha_daily_series = compute_daily_alpha_series(perf_df, beta_default=0.90)
+alpha_metrics = compute_internal_alpha_metrics(perf_df, beta_default=0.90, mu_daily=MU_DAILY)
+alpha_daily_series = compute_daily_alpha_series(perf_df, beta_default=0.90, mu_daily=MU_DAILY)
 
 one_day_alpha = alpha_metrics.get("_one_day_alpha")
 alpha_30d = alpha_metrics["30d"]["alpha"]
+alpha_60d = alpha_metrics["60d"]["alpha"]
 alpha_1y = alpha_metrics["1y"]["alpha"]
 
 # ----------------------------------------------------
@@ -710,16 +663,20 @@ st.markdown(tape_html, unsafe_allow_html=True)
 # MAIN HEADER + METRIC STRIP
 # ----------------------------------------------------
 st.markdown("### WAVES Engine Dashboard")
-st.caption("Live console for WAVES Intelligence™ — Adaptive Index Waves (LIVE alpha only — no backtest alpha)")
+st.caption(
+    "Live console for WAVES Intelligence™ — Adaptive Index Waves. "
+    "**All alpha metrics are internal, live-only, and β-adjusted vs long-run market drift (no index benchmark alpha).**"
+)
 
-metric_html = f"""
+# Row 1: performance metrics
+metric_html_row1 = f"""
 <div class="metric-strip">
   <div class="metric-card">
-    <div class="metric-label">Total Return (since inception)</div>
+    <div class="metric-label">Total Return (Since Inception)</div>
     <div class="metric-value {sign_class(ret_metrics['total_return'])}">{fmt_pct(ret_metrics['total_return'])}</div>
   </div>
   <div class="metric-card">
-    <div class="metric-label">Today</div>
+    <div class="metric-label">Intraday Return (Today)</div>
     <div class="metric-value {sign_class(ret_metrics['today_return'])}">{fmt_pct(ret_metrics['today_return'])}</div>
   </div>
   <div class="metric-card">
@@ -727,12 +684,35 @@ metric_html = f"""
     <div class="metric-value neg">{fmt_pct(ret_metrics['max_drawdown'])}</div>
   </div>
   <div class="metric-card">
-    <div class="metric-label">1-Day Live Alpha vs Benchmark</div>
+    <div class="metric-label">Intraday Internal Alpha (1-Day)</div>
     <div class="metric-value {sign_class(one_day_alpha)}">{fmt_pct(one_day_alpha)}</div>
   </div>
 </div>
 """
-st.markdown(metric_html, unsafe_allow_html=True)
+st.markdown(metric_html_row1, unsafe_allow_html=True)
+
+# Row 2: 30D / 60D / 1Y Internal Alpha
+metric_html_row2 = f"""
+<div class="metric-strip">
+  <div class="metric-card">
+    <div class="metric-label">30-Day Internal Alpha</div>
+    <div class="metric-value {sign_class(alpha_30d)}">{fmt_pct(alpha_30d)}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">60-Day Internal Alpha</div>
+    <div class="metric-value {sign_class(alpha_60d)}">{fmt_pct(alpha_60d)}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">1-Year Internal Alpha</div>
+    <div class="metric-value {sign_class(alpha_1y)}">{fmt_pct(alpha_1y)}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">β-Adjusted Expected Drift (Daily)</div>
+    <div class="metric-value neutral">{fmt_pct(get_beta_target(perf_df) * MU_DAILY)}</div>
+  </div>
+</div>
+"""
+st.markdown(metric_html_row2, unsafe_allow_html=True)
 
 if perf_df is None:
     st.info(
@@ -770,7 +750,7 @@ with tab_overview:
                 df_plot = df_plot.set_index("date")
                 st.line_chart(df_plot)
             else:
-                st.info("Could not identify NAV/date columns — showing raw performance table.")
+                st.info("Could not identify NAV/value and date columns — showing raw performance table.")
                 st.dataframe(perf_df.tail(50), use_container_width=True)
         else:
             st.caption("No performance data yet — waiting for first engine logs.")
@@ -815,7 +795,7 @@ with tab_overview:
         st.metric("Cash Buffer", f"{100 - equity_exposure} %")
         st.metric("Target β", "0.90")
 
-        st.markdown("#### S&P 500 & VIX")
+        st.markdown("#### S&P 500 & VIX (Visual Only)")
         if yf is None:
             st.caption("`yfinance` not installed — market charts unavailable in this environment.")
         else:
@@ -827,15 +807,15 @@ with tab_overview:
                 st.line_chart(vix_hist["close"], height=120)
 
 # ----------------------------------------------------
-# TAB 2: ALPHA DASHBOARD (LIVE-ONLY)
+# TAB 2: ALPHA DASHBOARD (LIVE-ONLY INTERNAL)
 # ----------------------------------------------------
 with tab_alpha:
-    st.subheader("Live Alpha Dashboard (No Backtests)")
+    st.subheader("Live Internal Alpha Dashboard (β-Adjusted · No Benchmarks)")
 
     if perf_df is None or perf_df.empty:
         st.info("Alpha metrics will appear once performance logs are available for this Wave.")
     else:
-        # Alpha windows table
+        # Summary table for windows
         rows = []
         for label, window in ALPHA_WINDOWS.items():
             m = alpha_metrics[label]
@@ -848,27 +828,25 @@ with tab_alpha:
             }.get(label, label)
             rows.append({
                 "Window": label_pretty,
-                "Live Alpha vs Benchmark": fmt_pct(m["alpha"]),
+                "Internal Alpha vs Drift": fmt_pct(m["alpha"]),
                 "Wave Return": fmt_pct(m["wave_return"]),
-                "Benchmark Return (β-adjusted)": fmt_pct(m["bench_return"]),
+                "Expected Return (β·μ)": fmt_pct(m["expected_return"]),
                 "Days in Window": m["days"],
             })
         alpha_table = pd.DataFrame(rows)
         st.dataframe(alpha_table, use_container_width=True)
 
-        st.markdown("#### Daily Alpha Series")
+        st.markdown("#### Daily Internal Alpha Series")
         if alpha_daily_series is not None and not alpha_daily_series.empty:
-            # Convert to DataFrame for chart
             alpha_df = alpha_daily_series.to_frame()
             st.line_chart(alpha_df, height=260)
-            st.caption("alpha_daily = Wave_return – β_target × Benchmark_return")
+            st.caption("alpha_daily = Wave_return – β_target × μ_daily  (μ_daily ≈ 7% / 252)")
         else:
             st.caption("No daily alpha series available yet for this Wave.")
 
         st.caption(
-            "All alpha metrics are computed **only** from live engine logs, using:\n\n"
-            "  alpha_daily = Wave_return – β_target × Benchmark_return\n\n"
-            "Then compounded over each window. No backtests, no synthetic history."
+            "All alpha metrics are computed **only** from live engine logs, using internal expected drift, "
+            "not external index benchmarks. This is β-adjusted excess return vs long-run market drift."
         )
 
 # ----------------------------------------------------
@@ -884,19 +862,19 @@ with tab_logs:
 
     st.markdown("**Performance files**")
     if PERF_DIR.exists():
-        perf_files = [p.name for p in PERF_DIR.glob('*.csv')]
+        perf_files = [p.name for p in PERF_DIR.glob("*.csv")]
         st.write(perf_files if perf_files else "No CSV files in `logs/performance`.")
     else:
         st.write("`logs/performance` directory does not exist.")
 
     st.markdown("**Position files**")
     if POS_DIR.exists():
-        pos_files = [p.name for p in POS_DIR.glob('*.csv')]
+        pos_files = [p.name for p in POS_DIR.glob("*.csv")]
         st.write(pos_files if pos_files else "No CSV files in `logs/positions`.")
     else:
         st.write("`logs/positions` directory does not exist.")
 
     st.caption(
-        "All live performance and alpha are sourced exclusively from WAVES Engine logs. "
+        "All live performance and internal alpha are sourced exclusively from WAVES Engine logs. "
         "If you see no files above, run `waves_engine.py` to generate them."
     )
