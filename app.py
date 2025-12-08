@@ -1,15 +1,15 @@
 import os
-import glob
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+import yfinance as yf
 
 
 # ================================
-# High-level configuration
+# Streamlit config & styling
 # ================================
 st.set_page_config(
     page_title="WAVES Intelligence™ Institutional Console",
@@ -17,7 +17,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Simple dark-mode theming via CSS injection.
 st.markdown(
     """
     <style>
@@ -118,11 +117,9 @@ st.markdown(
 
 
 # ================================
-# Paths & constants
+# Constants & paths
 # ================================
 BASE_DIR = Path(".")
-LOGS_PERF_DIR = BASE_DIR / "logs" / "performance"
-LOGS_POS_DIR = BASE_DIR / "logs" / "positions"
 WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
 
 MODES = {
@@ -131,82 +128,26 @@ MODES = {
     "Private Logic™": {"beta_target": 1.05, "drift_annual": 0.09},
 }
 
+BENCHMARK_MAP = {
+    "S&P 500 Wave": "^GSPC",
+    "Growth Wave": "QQQ",
+    "Infinity Wave": "^GSPC",
+    "Income Wave": "^GSPC",
+    "Future Power & Energy Wave": "XLE",
+    "Crypto Income Wave": "BTC-USD",
+    "Quantum Computing Wave": "QQQ",
+    "Clean Transit-Infrastructure Wave": "IGE",
+    "Small/Mid Growth Wave": "IWM",
+}
+
 
 # ================================
-# Utility helpers
+# Helpers
 # ================================
-
-def normalize_key(s: str) -> str:
-    """Loose normalizer so 'AI Wave' and 'AI_Wave' and 'aiwave' all match."""
-    return "".join(ch.lower() for ch in str(s) if ch.isalnum())
-
-
-def discover_waves_from_logs() -> list:
-    """
-    Discover wave names based on performance logs; fall back to fixed lineup
-    so the console never comes up blank.
-    """
-    if LOGS_PERF_DIR.exists():
-        pattern = str(LOGS_PERF_DIR / "*_performance_daily.csv")
-        files = glob.glob(pattern)
-    else:
-        files = []
-
-    wave_names = sorted(
-        {
-            os.path.basename(f).replace("_performance_daily.csv", "")
-            for f in files
-        }
-    )
-
-    if wave_names:
-        return wave_names
-
-    # Fallback (only used if no logs yet)
-    return [
-        "S&P 500 Wave",
-        "Growth Wave",
-        "Infinity Wave",
-        "Income Wave",
-        "Future Power & Energy Wave",
-        "Crypto Income Wave",
-        "Quantum Computing Wave",
-        "Clean Transit-Infrastructure Wave",
-        "Small/Mid Growth Wave",
-    ]
-
-
-def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
-    """Find the latest positions file for a Wave, using a loose name match."""
-    if not LOGS_POS_DIR.exists():
-        return None
-
-    pattern = str(LOGS_POS_DIR / "*_positions_*.csv")
-    files = glob.glob(pattern)
-    if not files:
-        return None
-
-    target_key = normalize_key(wave_name)
-    candidates = []
-
-    for f in files:
-        base = os.path.basename(f)
-        if "_positions_" not in base:
-            continue
-        prefix = base.split("_positions_")[0]
-        if normalize_key(prefix) == target_key:
-            try:
-                date_str = base.split("_positions_")[1].split(".csv")[0]
-                dt = datetime.strptime(date_str, "%Y%m%d")
-            except Exception:
-                dt = datetime.min
-            candidates.append((dt, f))
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x[0])
-    return Path(candidates[-1][1])
+def format_pct(x: float | None, decimals: int = 2) -> str:
+    if x is None or np.isnan(x):
+        return "—"
+    return f"{x:.{decimals}f}%"
 
 
 def google_url(ticker: str) -> str:
@@ -216,37 +157,56 @@ def google_url(ticker: str) -> str:
     return f"https://www.google.com/finance/quote/{t}"
 
 
-def load_top10_from_weights(wave_name: str) -> pd.DataFrame | None:
+@st.cache_data(show_spinner=False)
+def get_spx_vix_tiles() -> dict:
+    data = {
+        "SPX": {"label": "S&P 500", "value": None, "change": None},
+        "VIX": {"label": "VIX", "value": None, "change": None},
+    }
+    try:
+        for symbol, key in [("^GSPC", "SPX"), ("^VIX", "VIX")]:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="5d")
+            if hist.empty:
+                continue
+            last_close = float(hist["Close"].iloc[-1])
+            if len(hist) >= 2:
+                prev_close = float(hist["Close"].iloc[-2])
+                change_pct = (last_close / prev_close - 1.0) * 100.0
+            else:
+                change_pct = 0.0
+            data[key]["value"] = last_close
+            data[key]["change"] = change_pct
+    except Exception:
+        pass
+    return data
+
+
+@st.cache_data(show_spinner=False)
+def load_weights() -> pd.DataFrame:
     """
-    Fallback: use wave_weights.csv to construct a Top 10 list when
-    there is no positions file.
+    Load wave_weights.csv and normalize:
+      - wave
+      - ticker
+      - weight (sums to 1 within each wave)
     """
     if not WEIGHTS_FILE.exists():
-        return None
+        raise FileNotFoundError(f"Missing weights file: {WEIGHTS_FILE}")
 
-    try:
-        df = pd.read_csv(WEIGHTS_FILE)
-    except Exception:
-        return None
-
+    df = pd.read_csv(WEIGHTS_FILE)
     if df.empty:
-        return None
+        raise ValueError("wave_weights.csv is empty")
 
     cols = {c.lower(): c for c in df.columns}
 
-    # Identify wave column and filter for matching wave
-    wave_col = cols.get("wave") or cols.get("portfolio") or None
+    wave_col = cols.get("wave") or cols.get("portfolio")
     if wave_col is None:
-        wave_filtered = df.copy()
-    else:
-        target_key = normalize_key(wave_name)
-        df = df.copy()
-        df["_wave_key"] = df[wave_col].astype(str).apply(normalize_key)
-        wave_filtered = df[df["_wave_key"] == target_key]
-        if wave_filtered.empty:
-            return None
+        raise ValueError("wave_weights.csv must have a 'wave' or 'portfolio' column")
 
-    ticker_col = cols.get("ticker") or cols.get("symbol") or list(df.columns)[0]
+    ticker_col = cols.get("ticker") or cols.get("symbol")
+    if ticker_col is None:
+        raise ValueError("wave_weights.csv must have a 'ticker' or 'symbol' column")
+
     weight_candidates = [
         "weight",
         "weight_pct",
@@ -261,233 +221,125 @@ def load_top10_from_weights(wave_name: str) -> pd.DataFrame | None:
             break
 
     if weight_col is None:
-        wave_filtered["__weight__"] = 1.0 / len(wave_filtered)
+        df["__weight__"] = 1.0
         weight_col = "__weight__"
 
-    wave_filtered = wave_filtered.copy()
-    wave_filtered = wave_filtered.sort_values(by=weight_col, ascending=False).head(10)
+    df = df.rename(
+        columns={wave_col: "wave", ticker_col: "ticker", weight_col: "raw_weight"}
+    )
+    df["wave"] = df["wave"].astype(str)
+    df["ticker"] = df["ticker"].astype(str).str.upper()
+    df["raw_weight"] = df["raw_weight"].astype(float)
 
-    out = pd.DataFrame()
-    out["Ticker"] = wave_filtered[ticker_col].astype(str).str.upper()
-    out["Name"] = ""
-    out["Sector"] = ""
-    out["Weight%"] = (
-        wave_filtered[weight_col].astype(float) * 100.0
-    ).round(2).astype(str) + "%"
-
-    out["TickerLink"] = out["Ticker"].apply(
-        lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>' if t else ""
+    df["weight"] = df.groupby("wave")["raw_weight"].transform(
+        lambda x: x / x.sum() if x.sum() != 0 else 1.0 / len(x)
     )
 
-    return out
+    return df[["wave", "ticker", "weight"]]
 
 
-def load_positions_top10(wave_name: str) -> tuple[pd.DataFrame | None, str]:
+def get_benchmark_for_wave(wave_name: str) -> str:
+    return BENCHMARK_MAP.get(wave_name, "^GSPC")
+
+
+@st.cache_data(show_spinner=True)
+def fetch_prices(tickers: tuple[str, ...], start: datetime, end: datetime) -> pd.DataFrame:
     """
-    Load the Top 10 holdings for a Wave:
-
-    1) Try positions logs (preferred, live)
-    2) If missing/broken, fallback to wave_weights.csv
-
-    Returns (df, source_label) where source_label is "positions" or "weights".
+    Fetch adjusted close prices for a list of tickers between start & end.
+    Returns DataFrame: index=date, columns=tickers.
     """
-    # 1) Positions logs
-    latest_file = get_latest_positions_file_for_wave(wave_name)
-    if latest_file is not None and latest_file.exists():
-        try:
-            df = pd.read_csv(latest_file)
-            if not df.empty:
-                cols = {c.lower(): c for c in df.columns}
+    if not tickers:
+        return pd.DataFrame()
 
-                ticker_col = cols.get("ticker") or cols.get("symbol") or list(df.columns)[0]
-                weight_candidates = [
-                    "weight",
-                    "portfolio_weight",
-                    "target_weight",
-                    "actual_weight",
-                    "weight_pct",
-                    "weight_percent",
-                ]
-                weight_col = None
-                for cand in weight_candidates:
-                    if cand in cols:
-                        weight_col = cols[cand]
-                        break
+    data = yf.download(
+        tickers=list(tickers),
+        start=start.date(),
+        end=(end + timedelta(days=1)).date(),
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+    )
 
-                if weight_col is None:
-                    df["__weight__"] = 1.0 / len(df)
-                    weight_col = "__weight__"
+    # MultiIndex vs single
+    if isinstance(data.columns, pd.MultiIndex):
+        cols = []
+        for t in tickers:
+            if (t, "Close") in data.columns:
+                cols.append(data[(t, "Close")].rename(t))
+        if not cols:
+            return pd.DataFrame()
+        prices = pd.concat(cols, axis=1)
+    else:
+        prices = data["Close"].to_frame()
+        prices.columns = [tickers[0]]
 
-                name_col = cols.get("name") or cols.get("security_name")
-                sector_col = cols.get("sector")
-
-                df = df.copy()
-                df = df.sort_values(by=weight_col, ascending=False).head(10)
-
-                out = pd.DataFrame()
-                out["Ticker"] = df[ticker_col].astype(str).str.upper()
-                out["Name"] = df[name_col].astype(str) if name_col else ""
-                out["Sector"] = df[sector_col].astype(str) if sector_col else ""
-                out["Weight%"] = (
-                    df[weight_col].astype(float) * 100.0
-                ).round(2).astype(str) + "%"
-
-                out["TickerLink"] = out["Ticker"].apply(
-                    lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>' if t else ""
-                )
-
-                return out, f"positions log ({latest_file.name})"
-        except Exception:
-            pass  # fall through
-
-    # 2) Fallback to wave_weights.csv
-    weights_df = load_top10_from_weights(wave_name)
-    if weights_df is not None and not weights_df.empty:
-        return weights_df, "wave_weights.csv"
-
-    return None, ""
+    prices = prices.dropna(how="all")
+    return prices
 
 
-def infer_return_and_benchmark_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
-    lower = {c.lower(): c for c in df.columns}
-
-    return_candidates = [
-        "daily_return",
-        "return",
-        "portfolio_return",
-        "pct_return",
-        "r",
-    ]
-    bench_candidates = [
-        "benchmark_return",
-        "spx_return",
-        "index_return",
-        "benchmark_pct_return",
-        "b",
-    ]
-
-    ret_col = None
-    bench_col = None
-
-    for cand in return_candidates:
-        if cand in lower:
-            ret_col = lower[cand]
-            break
-
-    for cand in bench_candidates:
-        if cand in lower:
-            bench_col = lower[cand]
-            break
-
-    return ret_col, bench_col
+def compute_returns_from_prices(prices: pd.DataFrame) -> pd.DataFrame:
+    return prices.pct_change().dropna(how="all")
 
 
-def generate_demo_performance(
+@st.cache_data(show_spinner=True)
+def build_wave_performance(
     wave_name: str,
     mode_label: str,
-    n_days: int = 120,
+    history_days: int = 365,
 ) -> pd.DataFrame:
     """
-    Synthetic but internally consistent series that respects mode's beta + drift.
-    Used whenever no usable log file exists.
+    Full engine for one Wave, in-memory:
+      - Uses full basket from wave_weights.csv
+      - Fetches prices + benchmark prices
+      - Computes daily portfolio_return & benchmark_return
+      - Computes α_1d, α_30d, α_60d, rolling returns.
     """
-    mode_cfg = MODES.get(mode_label, MODES["Standard"])
-    beta_target = mode_cfg["beta_target"]
-    drift_annual = mode_cfg["drift_annual"]
+    weights_df = load_weights()
+    wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
+    if wave_weights.empty:
+        raise ValueError(f"No rows for wave: {wave_name} in wave_weights.csv")
 
-    seed = abs(hash((wave_name, mode_label))) % (2**32)
-    rng = np.random.default_rng(seed)
+    tickers = sorted(wave_weights["ticker"].unique().tolist())
+    bench_ticker = get_benchmark_for_wave(wave_name)
 
-    dates = pd.bdate_range(end=datetime.now(), periods=n_days)
+    end = datetime.utcnow()
+    start = end - timedelta(days=history_days)
 
-    mu_bench_annual = 0.08
-    sigma_annual = 0.16
+    basket_prices = fetch_prices(tuple(tickers), start, end)
+    bench_prices = fetch_prices((bench_ticker,), start, end)
 
-    mu_bench_daily = mu_bench_annual / 252.0
-    sigma_daily = sigma_annual / np.sqrt(252.0)
+    if basket_prices.empty or bench_prices.empty:
+        raise ValueError(f"Missing price history for wave {wave_name} or benchmark {bench_ticker}")
 
-    bench_rets = rng.normal(loc=mu_bench_daily, scale=sigma_daily, size=len(dates))
+    basket_rets = compute_returns_from_prices(basket_prices)
+    bench_rets = compute_returns_from_prices(bench_prices)
 
-    alpha_drift_daily = drift_annual / 252.0
-    idio_vol = 0.07 / np.sqrt(252.0)
-    idio_noise = rng.normal(loc=0.0, scale=idio_vol, size=len(dates))
+    common_dates = basket_rets.index.intersection(bench_rets.index)
+    basket_rets = basket_rets.loc[common_dates]
+    bench_rets = bench_rets.loc[common_dates]
 
-    wave_rets = beta_target * bench_rets + alpha_drift_daily + idio_noise
+    weight_map = {row["ticker"]: row["weight"] for _, row in wave_weights.iterrows()}
+    aligned_weights = np.array([weight_map[t] for t in basket_rets.columns])
+
+    port_ret = basket_rets.values @ aligned_weights
 
     df = pd.DataFrame(
         {
-            "date": dates,
-            "benchmark_return": bench_rets,
-            "portfolio_return": wave_rets,
+            "date": common_dates,
+            "portfolio_return": port_ret,
+            "benchmark_return": bench_rets.iloc[:, 0].values,
         }
     )
 
-    return df
-
-
-def load_wave_performance(
-    wave_name: str,
-    mode_label: str,
-) -> tuple[pd.DataFrame, bool]:
-    """
-    Load performance for a Wave + Mode.
-
-    1) Try logs/performance/<Wave>_performance_daily.csv
-    2) If missing/bad, fallback to synthetic demo series
-    """
-    is_live = False
-    perf_file = LOGS_PERF_DIR / f"{wave_name}_performance_daily.csv"
-
-    if perf_file.exists():
-        try:
-            df = pd.read_csv(perf_file)
-            if df.empty:
-                raise ValueError("Empty performance log")
-
-            if "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"])
-            elif "Date" in df.columns:
-                df["date"] = pd.to_datetime(df["Date"])
-            else:
-                start_date = datetime.now() - timedelta(days=len(df))
-                df["date"] = pd.bdate_range(start=start_date, periods=len(df))
-
-            ret_col, bench_col = infer_return_and_benchmark_cols(df)
-            if ret_col is None or bench_col is None:
-                raise ValueError("Could not infer return/benchmark columns")
-
-            df = df.sort_values("date").reset_index(drop=True)
-            df["portfolio_return"] = df[ret_col].astype(float)
-            df["benchmark_return"] = df[bench_col].astype(float)
-
-            is_live = True
-            return df[["date", "portfolio_return", "benchmark_return"]], is_live
-        except Exception:
-            pass
-
-    df_demo = generate_demo_performance(wave_name, mode_label)
-    return df_demo, is_live
-
-
-def compute_alpha_windows(
-    df: pd.DataFrame,
-    mode_label: str,
-) -> pd.DataFrame:
-    """Add alpha and rolling return columns using the mode's beta target."""
+    # Add alpha windows & rolling returns
     mode_cfg = MODES.get(mode_label, MODES["Standard"])
     beta_target = mode_cfg["beta_target"]
 
-    df = df.copy()
     df = df.sort_values("date").reset_index(drop=True)
-
-    # Daily β-adjusted alpha
     df["alpha_1d"] = df["portfolio_return"] - beta_target * df["benchmark_return"]
+    df["alpha_30d"] = df["alpha_1d"].rolling(30, min_periods=1).sum()
+    df["alpha_60d"] = df["alpha_1d"].rolling(60, min_periods=1).sum()
 
-    # Rolling alpha windows
-    df["alpha_30d"] = df["alpha_1d"].rolling(window=30, min_periods=1).sum()
-    df["alpha_60d"] = df["alpha_1d"].rolling(window=60, min_periods=1).sum()
-
-    # Rolling return windows
     df["ret_30d"] = (1.0 + df["portfolio_return"]).rolling(30, min_periods=1).apply(
         lambda x: float(np.prod(x) - 1.0),
         raw=True,
@@ -496,7 +348,6 @@ def compute_alpha_windows(
         lambda x: float(np.prod(x) - 1.0),
         raw=True,
     )
-
     df["bench_30d"] = (1.0 + df["benchmark_return"]).rolling(30, min_periods=1).apply(
         lambda x: float(np.prod(x) - 1.0),
         raw=True,
@@ -518,116 +369,15 @@ def compute_drawdown(df: pd.DataFrame) -> tuple[float, pd.Series]:
     return float(max_dd), dd
 
 
-@st.cache_data(show_spinner=False)
-def get_spx_vix_tiles() -> dict:
-    data = {
-        "SPX": {"label": "S&P 500", "value": None, "change": None},
-        "VIX": {"label": "VIX", "value": None, "change": None},
-    }
-
-    try:
-        import yfinance as yf
-
-        for symbol, key in [("^GSPC", "SPX"), ("^VIX", "VIX")]:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="5d")
-            if hist.empty:
-                continue
-            last_close = float(hist["Close"].iloc[-1])
-            if len(hist) >= 2:
-                prev_close = float(hist["Close"].iloc[-2])
-                change_pct = (last_close / prev_close - 1.0) * 100.0
-            else:
-                change_pct = 0.0
-            data[key]["value"] = last_close
-            data[key]["change"] = change_pct
-
-    except Exception:
-        pass
-
-    return data
-
-
-def format_pct(x: float | None, decimals: int = 2) -> str:
-    if x is None or np.isnan(x):
-        return "—"
-    return f"{x:.{decimals}f}%"
-
-
-def compute_alpha_summary_for_wave(
-    wave_name: str,
-    mode_label: str,
-) -> dict:
-    """
-    Used for the 'Alpha Capture Matrix' window, using the selected mode.
-    Returns alpha captures in % for:
-        Intraday, 1D, 30D, 60D, 1Y
-    Plus Since-Inception:
-        SI Alpha, SI Wave Return, SI Benchmark Return.
-    """
-    perf_df_raw, _live_flag = load_wave_performance(wave_name, mode_label)
-    perf_df = compute_alpha_windows(perf_df_raw, mode_label)
-
-    if perf_df.empty:
-        return {
-            "Wave": wave_name,
-            "Intraday α": np.nan,
-            "1D α": np.nan,
-            "30D α": np.nan,
-            "60D α": np.nan,
-            "1Y α": np.nan,
-            "SI Alpha": np.nan,
-            "SI Wave Return": np.nan,
-            "SI Benchmark Return": np.nan,
-        }
-
-    perf_df = perf_df.sort_values("date").reset_index(drop=True)
-
-    latest = perf_df.iloc[-1]
-    intraday_alpha = latest["alpha_1d"]
-
-    if len(perf_df) >= 2:
-        one_day_alpha = perf_df["alpha_1d"].iloc[-2]
-    else:
-        one_day_alpha = intraday_alpha
-
-    alpha_30d = latest["alpha_30d"]
-    alpha_60d = latest["alpha_60d"]
-
-    # 1Y alpha (last 252 trading days)
-    window = perf_df["alpha_1d"].tail(252)
-    alpha_1y = window.sum()
-
-    # Since-inception stats for this Wave (Option C)
-    cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
-    cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
-    si_wave_ret = (cum_port.iloc[-1] - 1.0) * 100.0
-    si_bench_ret = (cum_bench.iloc[-1] - 1.0) * 100.0
-    si_alpha = perf_df["alpha_1d"].sum() * 100.0  # cumulative β-adjusted alpha
-
-    return {
-        "Wave": wave_name,
-        "Intraday α": intraday_alpha * 100.0,
-        "1D α": one_day_alpha * 100.0,
-        "30D α": alpha_30d * 100.0,
-        "60D α": alpha_60d * 100.0,
-        "1Y α": alpha_1y * 100.0,
-        "SI Alpha": si_alpha,
-        "SI Wave Return": si_wave_ret,
-        "SI Benchmark Return": si_bench_ret,
-    }
-
-
 def compute_standard_matrix_row(wave_name: str) -> dict:
     """
-    Row for the Standard Mode Matrix:
-      Wave, 1D Return, 1D Alpha, 30D Alpha, 60D Alpha,
-      Realized β, Max Drawdown,
-      SI Return, SI Benchmark, SI Excess (all Standard mode).
+    Standard Mode snapshot for a Wave:
+      - 1D Return, 1D Alpha, 30D Alpha, 60D Alpha
+      - Realized β
+      - Max Drawdown
+      - Since-inception Return / Benchmark / Excess
     """
-    mode_label = "Standard"
-    perf_df_raw, _ = load_wave_performance(wave_name, mode_label)
-    perf_df = compute_alpha_windows(perf_df_raw, mode_label)
+    perf_df = build_wave_performance(wave_name, "Standard", history_days=365)
 
     if perf_df.empty:
         return {
@@ -651,7 +401,6 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     alpha_30d = latest["alpha_30d"] * 100.0
     alpha_60d = latest["alpha_60d"] * 100.0
 
-    # Realized beta
     if np.var(perf_df["benchmark_return"]) > 0:
         realized_beta = np.cov(
             perf_df["portfolio_return"], perf_df["benchmark_return"]
@@ -659,10 +408,8 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     else:
         realized_beta = np.nan
 
-    # Max drawdown
     max_dd, _ = compute_drawdown(perf_df)
 
-    # Since-inception cumulative returns for this Wave
     cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
     cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
     si_ret = (cum_port.iloc[-1] - 1.0) * 100.0
@@ -683,20 +430,104 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     }
 
 
+def compute_alpha_summary_for_wave(wave_name: str, mode_label: str) -> dict:
+    """
+    For the Alpha Capture Matrix (selected mode).
+    """
+    perf_df = build_wave_performance(wave_name, mode_label, history_days=365)
+    if perf_df.empty:
+        return {
+            "Wave": wave_name,
+            "Intraday α": np.nan,
+            "1D α": np.nan,
+            "30D α": np.nan,
+            "60D α": np.nan,
+            "1Y α": np.nan,
+            "SI Alpha": np.nan,
+            "SI Wave Return": np.nan,
+            "SI Benchmark Return": np.nan,
+        }
+
+    perf_df = perf_df.sort_values("date").reset_index(drop=True)
+    latest = perf_df.iloc[-1]
+
+    intraday_alpha = latest["alpha_1d"]
+    one_day_alpha = perf_df["alpha_1d"].iloc[-2] if len(perf_df) >= 2 else intraday_alpha
+    alpha_30d = latest["alpha_30d"]
+    alpha_60d = latest["alpha_60d"]
+
+    window = perf_df["alpha_1d"].tail(252)
+    alpha_1y = window.sum()
+
+    cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
+    cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
+    si_wave_ret = (cum_port.iloc[-1] - 1.0) * 100.0
+    si_bench_ret = (cum_bench.iloc[-1] - 1.0) * 100.0
+    si_alpha = perf_df["alpha_1d"].sum() * 100.0
+
+    return {
+        "Wave": wave_name,
+        "Intraday α": intraday_alpha * 100.0,
+        "1D α": one_day_alpha * 100.0,
+        "30D α": alpha_30d * 100.0,
+        "60D α": alpha_60d * 100.0,
+        "1Y α": alpha_1y * 100.0,
+        "SI Alpha": si_alpha,
+        "SI Wave Return": si_wave_ret,
+        "SI Benchmark Return": si_bench_ret,
+    }
+
+
+def load_top10_holdings(wave_name: str) -> pd.DataFrame:
+    """
+    Top 10 by weight from wave_weights.csv, with optional yfinance metadata.
+    """
+    weights_df = load_weights()
+    wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
+    if wave_weights.empty:
+        return pd.DataFrame()
+
+    # Re-normalize
+    wave_weights["weight"] = wave_weights["weight"] / wave_weights["weight"].sum()
+    wave_weights["weight_pct"] = wave_weights["weight"] * 100.0
+
+    # Enrich with names/sectors (best effort)
+    names = {}
+    sectors = {}
+    tickers = sorted(wave_weights["ticker"].unique().tolist())
+    for t in tickers:
+        try:
+            info = yf.Ticker(t).info
+            names[t] = info.get("shortName") or info.get("longName") or ""
+            sectors[t] = info.get("sector") or ""
+        except Exception:
+            names[t] = ""
+            sectors[t] = ""
+
+    wave_weights["Name"] = wave_weights["ticker"].map(names)
+    wave_weights["Sector"] = wave_weights["ticker"].map(sectors)
+
+    out = wave_weights.sort_values("weight_pct", ascending=False).head(10)
+    out = out[["ticker", "Name", "Sector", "weight_pct"]].copy()
+    out["Ticker"] = out["ticker"].astype(str).str.upper()
+    out["Weight%"] = out["weight_pct"].round(2).astype(str) + "%"
+    out["TickerLink"] = out["Ticker"].apply(
+        lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>'
+    )
+    return out[["Ticker", "TickerLink", "Name", "Sector", "Weight%"]]
+
+
 # ================================
-# Sidebar controls
+# Sidebar
 # ================================
-waves = discover_waves_from_logs()
+weights_df_global = load_weights()
+waves = sorted(weights_df_global["wave"].unique().tolist())
 
 with st.sidebar:
     st.markdown("### WAVES Intelligence™")
     st.markdown("#### Institutional Console")
 
-    selected_wave = st.selectbox(
-        "Select Wave",
-        options=waves,
-        index=0,
-    )
+    selected_wave = st.selectbox("Select Wave", options=waves, index=0)
 
     selected_mode = st.radio(
         "Mode",
@@ -707,21 +538,21 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(
-        "This console is running in **Hybrid Mode**:\n"
-        "- Uses real engine logs when available\n"
-        "- Auto-generates synthetic demo performance when logs are missing\n"
-        "- Never renders a blank screen"
+        "Engine is running **live in-app**:\n"
+        "- Uses full basket + secondary basket from `wave_weights.csv`\n"
+        "- Pulls prices via yfinance on demand\n"
+        "- No external logs required"
     )
 
 
 # ================================
-# Load data for selected Wave/mode
+# Compute perf for selected Wave/mode
 # ================================
-perf_df_raw, is_live = load_wave_performance(selected_wave, selected_mode)
-perf_df = compute_alpha_windows(perf_df_raw, selected_mode)
-max_dd_pct, dd_series = compute_drawdown(perf_df)
+perf_df = build_wave_performance(selected_wave, selected_mode, history_days=365)
+perf_df = perf_df.sort_values("date").reset_index(drop=True)
 
 latest = perf_df.iloc[-1]
+max_dd_pct, dd_series = compute_drawdown(perf_df)
 
 mode_cfg = MODES[selected_mode]
 beta_target = mode_cfg["beta_target"]
@@ -744,18 +575,16 @@ since_inc_bench = (cum_bench.iloc[-1] - 1.0) * 100.0
 
 
 # ================================
-# Hero header & market tiles
+# Hero & tiles
 # ================================
 spx_vix = get_spx_vix_tiles()
 
 st.markdown(
     f"""
     <div class="section-card" style="margin-bottom: 0.8rem;">
-        <div class="hero-title">
-            WAVES Intelligence™ Institutional Console
-        </div>
+        <div class="hero-title">WAVES Intelligence™ Institutional Console</div>
         <div class="hero-subtitle">
-            Live multi-wave, mode-aware monitoring &mdash; engine output visualized for institutional use.
+            Live multi-wave, mode-aware monitoring — engine output visualized for institutional use.
         </div>
         <div style="margin-top: 0.6rem;">
             <span class="wave-badge">{selected_wave}</span>
@@ -775,17 +604,12 @@ with col_spx:
     chg = tile["change"]
     chg_str = format_pct(chg) if chg is not None else "—"
     chg_class = "alpha-positive" if (chg or 0) >= 0 else "alpha-negative"
-
     st.markdown(
         f"""
         <div class="section-card">
             <div class="metric-label">{label}</div>
-            <div class="metric-value">
-                {f"{val:,.0f}" if val is not None else "—"}
-            </div>
-            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">
-                {chg_str}
-            </div>
+            <div class="metric-value">{f"{val:,.0f}" if val is not None else "—"}</div>
+            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">{chg_str}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -798,17 +622,12 @@ with col_vix:
     chg = tile["change"]
     chg_str = format_pct(chg) if chg is not None else "—"
     chg_class = "alpha-positive" if (chg or 0) <= 0 else "alpha-negative"
-
     st.markdown(
         f"""
         <div class="section-card">
             <div class="metric-label">{label}</div>
-            <div class="metric-value">
-                {f"{val:,.2f}" if val is not None else "—"}
-            </div>
-            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">
-                {chg_str}
-            </div>
+            <div class="metric-value">{f"{val:,.2f}" if val is not None else "—"}</div>
+            <div class="{chg_class}" style="font-size:0.85rem;margin-top:0.15rem;">{chg_str}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -834,7 +653,7 @@ with col_mode:
                 </div>
             </div>
             <div style="font-size:0.75rem;color:#6b7280;margin-top:0.4rem;">
-                Internal targets only &mdash; used for beta-adjusted alpha and drift framing.
+                Internal targets only — used for beta-adjusted alpha and drift framing.
             </div>
         </div>
         """,
@@ -857,7 +676,7 @@ tab_overview, tab_alpha, tab_std_matrix, tab_alpha_matrix, tab_top10, tab_logs =
 )
 
 
-# ---------------- Overview tab ----------------
+# -------- Overview --------
 with tab_overview:
     col_left, col_right = st.columns([1.6, 1.4])
 
@@ -918,15 +737,14 @@ with tab_overview:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Performance curve
         st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Performance Curve</div>', unsafe_allow_html=True)
 
         perf_chart_df = pd.DataFrame(
             {
                 "Date": perf_df["date"],
-                "Wave": (1.0 + perf_df["portfolio_return"]).cumprod(),
-                "Benchmark": (1.0 + perf_df["benchmark_return"]).cumprod(),
+                "Wave": cum_port.values,
+                "Benchmark": cum_bench.values,
             }
         ).set_index("Date")
 
@@ -940,7 +758,6 @@ with tab_overview:
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_right:
-        # Risk & drawdown
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Risk & Drawdown</div>', unsafe_allow_html=True)
 
@@ -966,7 +783,6 @@ with tab_overview:
             {"Date": perf_df["date"], "Drawdown": dd_series.values}
         ).set_index("Date")
         st.area_chart(dd_chart_df)
-
         st.markdown(
             "<span style='font-size:0.75rem;color:#9fa6b2;'>"
             "Drawdown is computed from cumulative portfolio value; minimum value is shown as Max DD."
@@ -975,20 +791,18 @@ with tab_overview:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Data regime
         st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Data Regime</div>', unsafe_allow_html=True)
-        regime = "LIVE (engine logs)" if is_live else "SANDBOX (synthetic demo)"
-        st.markdown(f"**Regime:** {regime}")
+        st.markdown("**Regime:** LIVE (yfinance engine)")
         st.markdown(
-            "- Live logs: `logs/performance/<Wave>_performance_daily.csv`\n"
-            "- If missing or malformed, synthetic but internally consistent series is generated.\n"
+            "- Full basket + secondary basket from `wave_weights.csv`\n"
+            "- Prices pulled live via yfinance on each refresh\n"
             "- β targets and drift assumptions always come from the selected mode."
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Alpha Dashboard tab ----------------
+# -------- Alpha Dashboard --------
 with tab_alpha:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Alpha Timelines</div>', unsafe_allow_html=True)
@@ -1003,23 +817,21 @@ with tab_alpha:
     ).set_index("Date")
 
     st.line_chart(alpha_chart_df)
-
     st.markdown(
         "<span style='font-size:0.8rem;color:#9fa6b2;'>"
         "All alphas are β-adjusted excess returns using the mode's β target. "
-        "30D and 60D are rolling sums of daily alpha, making them easy to audit."
+        "30D and 60D are rolling sums of daily alpha."
         "</span>",
         unsafe_allow_html=True,
     )
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Standard Mode Matrix tab ----------------
+# -------- Standard Mode Matrix --------
 with tab_std_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="metric-label">Standard Mode Matrix &mdash; All Waves</div>',
+        '<div class="metric-label">Standard Mode Matrix — All Waves</div>',
         unsafe_allow_html=True,
     )
 
@@ -1030,10 +842,9 @@ with tab_std_matrix:
         matrix_df = matrix_df.sort_values("60D Alpha", ascending=False).reset_index(
             drop=True
         )
-
         display_df = matrix_df.copy()
-        # Format all percentage columns
-        pct_cols = [
+
+        for col in [
             "1D Return",
             "1D Alpha",
             "30D Alpha",
@@ -1042,8 +853,7 @@ with tab_std_matrix:
             "SI Return",
             "SI Benchmark",
             "SI Excess",
-        ]
-        for col in pct_cols:
+        ]:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
         display_df["Realized β"] = display_df["Realized β"].apply(
@@ -1052,16 +862,13 @@ with tab_std_matrix:
 
         st.markdown(
             "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "All metrics are computed in **Standard mode** (β≈0.90), regardless of the mode selected "
-            "in the sidebar. This gives a clean, apples-to-apples view across all Waves. "
-            "Since-Inception metrics use each Wave's own engine inception date (Option C)."
+            "All metrics are computed in Standard mode (β≈0.90). "
+            "Since-Inception metrics use each Wave's first available price date."
             "</span>",
             unsafe_allow_html=True,
         )
-
         st.dataframe(display_df, use_container_width=True)
 
-        # Quick visual: 60D alpha bar chart
         bar_df = matrix_df[["Wave", "60D Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
@@ -1070,19 +877,16 @@ with tab_std_matrix:
         )
         st.bar_chart(bar_df)
     else:
-        st.markdown(
-            "No data available yet. Once Standard-mode performance is available for each Wave, "
-            "this matrix will populate automatically."
-        )
+        st.markdown("No data available yet.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Alpha Capture Matrix (All Waves) tab ----------------
+# -------- Alpha Capture Matrix --------
 with tab_alpha_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="metric-label">Alpha Capture Matrix &mdash; All Waves</div>',
+        '<div class="metric-label">Alpha Capture Matrix — All Waves</div>',
         unsafe_allow_html=True,
     )
 
@@ -1095,8 +899,7 @@ with tab_alpha_matrix:
         )
 
         display_df = summary_df.copy()
-        # Percentage formatting for all alpha/return columns
-        alpha_cols = [
+        for col in [
             "Intraday α",
             "1D α",
             "30D α",
@@ -1105,65 +908,51 @@ with tab_alpha_matrix:
             "SI Alpha",
             "SI Wave Return",
             "SI Benchmark Return",
-        ]
-        for col in alpha_cols:
+        ]:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
         st.markdown(
             f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            f"All values are β-adjusted alpha captures and cumulative returns in % terms for the "
-            f"**selected mode** (<b>{selected_mode}</b>). "
-            f"Intraday = latest; 1D = prior day when available; "
-            f"30D/60D = rolling sums of daily alpha; 1Y = sum of last 252 trading days; "
-            f"Since-Inception metrics use each Wave's own engine inception date."
+            f"All values are β-adjusted alpha captures and cumulative returns for the "
+            f"selected mode (<b>{selected_mode}</b>). "
+            f"Since-Inception metrics use each Wave's first available price date."
             f"</span>",
             unsafe_allow_html=True,
         )
-
         st.dataframe(display_df, use_container_width=True)
 
-        # Quick visual of SI Alpha across waves
         bar_df = summary_df[["Wave", "SI Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
-            "<span class='metric-label'>Since-Inception Alpha (All Waves, Selected Mode)</span>",
+            "<span class='metric-label'>Since-Inception Alpha (All Waves)</span>",
             unsafe_allow_html=True,
         )
         st.bar_chart(bar_df)
     else:
-        st.markdown(
-            "No alpha data available yet. Once performance is available for each Wave, "
-            "this alpha capture matrix will populate automatically."
-        )
+        st.markdown("No data available yet.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Top 10 Holdings tab ----------------
+# -------- Top 10 Holdings --------
 with tab_top10:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Top 10 Holdings</div>', unsafe_allow_html=True)
 
-    top10_df, top10_source = load_positions_top10(selected_wave)
+    top10_df = load_top10_holdings(selected_wave)
 
-    if top10_df is None or top10_df.empty:
-        st.markdown(
-            "No holdings data found for this Wave.\n\n"
-            "- Looked for: `logs/positions/<Wave>_positions_YYYYMMDD.csv`\n"
-            f"- Also tried fallback: `{WEIGHTS_FILE.name}`\n"
-        )
+    if top10_df.empty:
+        st.markdown("No holdings data found for this Wave in wave_weights.csv.")
     else:
         st.markdown(
-            f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            f"Source: <b>{top10_source}</b> &mdash; Tickers link directly to Google Finance."
-            f"</span>",
+            "<span style='font-size:0.8rem;color:#9fa6b2;'>"
+            "Source: wave_weights.csv (full basket). Tickers link directly to Google Finance."
+            "</span>",
             unsafe_allow_html=True,
         )
-
-        html_rows = []
-        html_rows.append(
+        html_rows = [
             "<tr><th>Ticker</th><th>Name</th><th>Sector</th><th>Weight</th></tr>"
-        )
+        ]
         for _, row in top10_df.iterrows():
             html_rows.append(
                 "<tr>"
@@ -1173,45 +962,34 @@ with tab_top10:
                 f"<td>{row['Weight%']}</td>"
                 "</tr>"
             )
-
         html_table = (
             "<table class='top10-table'><thead>{head}</thead>"
             "<tbody>{body}</tbody></table>"
         ).format(head=html_rows[0], body="".join(html_rows[1:]))
-
         st.markdown(html_table, unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Engine Logs tab ----------------
+# -------- Engine Logs (in-memory) --------
 with tab_logs:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Engine Performance Log</div>', unsafe_allow_html=True)
 
-    perf_file = LOGS_PERF_DIR / f"{selected_wave}_performance_daily.csv"
+    st.markdown(
+        "This view shows the **computed daily performance** for the selected Wave "
+        "based on full-basket prices from yfinance."
+    )
 
-    if perf_file.exists():
-        st.markdown(
-            f"Reading from: `{perf_file}`  "
-            f"({'LIVE' if is_live else 'SANDBOX mirror from this file'})"
-        )
-
-        display_cols = [
-            "date",
-            "portfolio_return",
-            "benchmark_return",
-            "alpha_1d",
-            "alpha_30d",
-            "alpha_60d",
-        ]
-        display_cols_existing = [c for c in display_cols if c in perf_df.columns]
-        st.dataframe(perf_df[display_cols_existing].tail(75), use_container_width=True)
-    else:
-        st.markdown(
-            "No live performance log found for this Wave.\n\n"
-            "The console is currently running in **demo/sandbox** mode for this Wave, "
-            "using internally generated performance that respects the mode's β and drift assumptions."
-        )
+    display_cols = [
+        "date",
+        "portfolio_return",
+        "benchmark_return",
+        "alpha_1d",
+        "alpha_30d",
+        "alpha_60d",
+    ]
+    display_cols_existing = [c for c in display_cols if c in perf_df.columns]
+    st.dataframe(perf_df[display_cols_existing].tail(75), use_container_width=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
