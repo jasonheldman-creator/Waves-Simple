@@ -1,16 +1,15 @@
-import os
-from datetime import datetime, timedelta
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
+from datetime import datetime, timedelta
+from pathlib import Path
 
-# ================================
-# Streamlit config & styling
-# ================================
+
+# ======================================================
+# STREAMLIT CONFIG & STYLING
+# ======================================================
 st.set_page_config(
     page_title="WAVES Intelligence™ Institutional Console",
     layout="wide",
@@ -116,13 +115,13 @@ st.markdown(
 )
 
 
-# ================================
-# Constants & paths
-# ================================
+# ======================================================
+# CONSTANTS / PATHS
+# ======================================================
 BASE_DIR = Path(".")
 WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
 
-MODES = {
+MODES_BASE = {
     "Standard": {"beta_target": 0.90, "drift_annual": 0.07},
     "Alpha-Minus-Beta": {"beta_target": 0.80, "drift_annual": 0.06},
     "Private Logic™": {"beta_target": 1.05, "drift_annual": 0.09},
@@ -140,10 +139,12 @@ BENCHMARK_MAP = {
     "Small/Mid Growth Wave": "IWM",
 }
 
+HISTORY_DAYS = 365  # calendar days
 
-# ================================
-# Helpers
-# ================================
+
+# ======================================================
+# UTILS
+# ======================================================
 def format_pct(x: float | None, decimals: int = 2) -> str:
     if x is None or np.isnan(x):
         return "—"
@@ -157,7 +158,6 @@ def google_url(ticker: str) -> str:
     return f"https://www.google.com/finance/quote/{t}"
 
 
-@st.cache_data(show_spinner=False)
 def get_spx_vix_tiles() -> dict:
     data = {
         "SPX": {"label": "S&P 500", "value": None, "change": None},
@@ -182,13 +182,85 @@ def get_spx_vix_tiles() -> dict:
     return data
 
 
-@st.cache_data(show_spinner=False)
-def load_weights() -> pd.DataFrame:
+# ======================================================
+# HUMAN OVERRIDES (GLOBAL STATE)
+# ======================================================
+if "overrides" not in st.session_state:
+    st.session_state["overrides"] = {
+        "global": {
+            "equity_tilt": "Neutral",  # Defensive / Neutral / Aggressive
+            "max_position_pct": 10.0,  # cap on any single position
+            "smartsafe_floor_pct": 0.0,
+            "trading_freeze": False,
+        },
+        "per_wave": {},  # {wave_name: {"equity_tilt": "..."}}
+    }
+
+
+def get_effective_tilt(wave: str) -> str:
+    per_wave = st.session_state["overrides"]["per_wave"]
+    if wave in per_wave and per_wave[wave].get("equity_tilt"):
+        return per_wave[wave]["equity_tilt"]
+    return st.session_state["overrides"]["global"]["equity_tilt"]
+
+
+def get_effective_mode_config(wave: str, mode_label: str) -> dict:
     """
-    Load wave_weights.csv and normalize:
-      - wave
-      - ticker
-      - weight (sums to 1 within each wave)
+    Start from base mode config, then adjust β & drift based on Human Overrides.
+    """
+    base = MODES_BASE.get(mode_label, MODES_BASE["Standard"]).copy()
+    tilt = get_effective_tilt(wave)
+
+    beta = base["beta_target"]
+    drift = base["drift_annual"]
+
+    # Simple mapping: Defensive <= Neutral <= Aggressive
+    if tilt == "Defensive":
+        beta *= 0.9
+        drift *= 0.8
+    elif tilt == "Aggressive":
+        beta *= 1.1
+        drift *= 1.2
+
+    # small safety caps
+    beta = max(0.5, min(1.3, beta))
+    drift = max(0.0, min(0.20, drift))
+
+    base["beta_target"] = beta
+    base["drift_annual"] = drift
+    return base
+
+
+def apply_max_position_cap(weights_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply global max_position_pct override per Wave.
+    This is a simple 'portfolio construction' override.
+    """
+    cap = st.session_state["overrides"]["global"]["max_position_pct"]
+    cap_frac = cap / 100.0
+
+    df = weights_df.copy()
+
+    def _cap_and_norm(group: pd.DataFrame) -> pd.DataFrame:
+        w = group["weight"].values
+        w = np.minimum(w, cap_frac)
+        if w.sum() == 0:
+            w = np.ones_like(w) / len(w)
+        else:
+            w = w / w.sum()
+        group["weight"] = w
+        return group
+
+    df = df.groupby("wave", group_keys=False).apply(_cap_and_norm)
+    return df
+
+
+# ======================================================
+# ENGINE: LOAD WEIGHTS & BUILD PERFORMANCE
+# ======================================================
+def load_weights_raw() -> pd.DataFrame:
+    """
+    Load wave_weights.csv and normalize within each Wave.
     """
     if not WEIGHTS_FILE.exists():
         raise FileNotFoundError(f"Missing weights file: {WEIGHTS_FILE}")
@@ -200,12 +272,10 @@ def load_weights() -> pd.DataFrame:
     cols = {c.lower(): c for c in df.columns}
 
     wave_col = cols.get("wave") or cols.get("portfolio")
-    if wave_col is None:
-        raise ValueError("wave_weights.csv must have a 'wave' or 'portfolio' column")
-
     ticker_col = cols.get("ticker") or cols.get("symbol")
-    if ticker_col is None:
-        raise ValueError("wave_weights.csv must have a 'ticker' or 'symbol' column")
+
+    if wave_col is None or ticker_col is None:
+        raise ValueError("wave_weights.csv must have 'wave' and 'ticker' columns")
 
     weight_candidates = [
         "weight",
@@ -238,29 +308,36 @@ def load_weights() -> pd.DataFrame:
     return df[["wave", "ticker", "weight"]]
 
 
+def load_weights_effective() -> pd.DataFrame:
+    """
+    Apply Human Override caps to base weights.
+    (Future: SmartSafe floor / sector tilts can be added here.)
+    """
+    raw = load_weights_raw()
+    capped = apply_max_position_cap(raw)
+    return capped
+
+
 def get_benchmark_for_wave(wave_name: str) -> str:
     return BENCHMARK_MAP.get(wave_name, "^GSPC")
 
 
-@st.cache_data(show_spinner=True)
-def fetch_prices(tickers: tuple[str, ...], start: datetime, end: datetime) -> pd.DataFrame:
+def fetch_prices(tickers: list[str], start: datetime, end: datetime) -> pd.DataFrame:
     """
-    Fetch adjusted close prices for a list of tickers between start & end.
-    Returns DataFrame: index=date, columns=tickers.
+    Fetch adjusted close prices for tickers between start & end.
     """
     if not tickers:
         return pd.DataFrame()
 
     data = yf.download(
-        tickers=list(tickers),
+        tickers=tickers,
         start=start.date(),
         end=(end + timedelta(days=1)).date(),
         auto_adjust=True,
-        progress=False,
         group_by="ticker",
+        progress=False,
     )
 
-    # MultiIndex vs single
     if isinstance(data.columns, pd.MultiIndex):
         cols = []
         for t in tickers:
@@ -281,20 +358,15 @@ def compute_returns_from_prices(prices: pd.DataFrame) -> pd.DataFrame:
     return prices.pct_change().dropna(how="all")
 
 
-@st.cache_data(show_spinner=True)
 def build_wave_performance(
     wave_name: str,
     mode_label: str,
-    history_days: int = 365,
+    weights_df: pd.DataFrame,
+    history_days: int = HISTORY_DAYS,
 ) -> pd.DataFrame:
     """
-    Full engine for one Wave, in-memory:
-      - Uses full basket from wave_weights.csv
-      - Fetches prices + benchmark prices
-      - Computes daily portfolio_return & benchmark_return
-      - Computes α_1d, α_30d, α_60d, rolling returns.
+    Core engine: full-basket performance for a Wave under a given mode+overrides.
     """
-    weights_df = load_weights()
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
         raise ValueError(f"No rows for wave: {wave_name} in wave_weights.csv")
@@ -305,11 +377,13 @@ def build_wave_performance(
     end = datetime.utcnow()
     start = end - timedelta(days=history_days)
 
-    basket_prices = fetch_prices(tuple(tickers), start, end)
-    bench_prices = fetch_prices((bench_ticker,), start, end)
+    basket_prices = fetch_prices(tickers, start, end)
+    bench_prices = fetch_prices([bench_ticker], start, end)
 
     if basket_prices.empty or bench_prices.empty:
-        raise ValueError(f"Missing price history for wave {wave_name} or benchmark {bench_ticker}")
+        raise ValueError(
+            f"Missing price history for wave {wave_name} or benchmark {bench_ticker}"
+        )
 
     basket_rets = compute_returns_from_prices(basket_prices)
     bench_rets = compute_returns_from_prices(bench_prices)
@@ -329,13 +403,12 @@ def build_wave_performance(
             "portfolio_return": port_ret,
             "benchmark_return": bench_rets.iloc[:, 0].values,
         }
-    )
+    ).sort_values("date").reset_index(drop=True)
 
-    # Add alpha windows & rolling returns
-    mode_cfg = MODES.get(mode_label, MODES["Standard"])
+    # Mode / override config
+    mode_cfg = get_effective_mode_config(wave_name, mode_label)
     beta_target = mode_cfg["beta_target"]
 
-    df = df.sort_values("date").reset_index(drop=True)
     df["alpha_1d"] = df["portfolio_return"] - beta_target * df["benchmark_return"]
     df["alpha_30d"] = df["alpha_1d"].rolling(30, min_periods=1).sum()
     df["alpha_60d"] = df["alpha_1d"].rolling(60, min_periods=1).sum()
@@ -348,50 +421,30 @@ def build_wave_performance(
         lambda x: float(np.prod(x) - 1.0),
         raw=True,
     )
-    df["bench_30d"] = (1.0 + df["benchmark_return"]).rolling(30, min_periods=1).apply(
-        lambda x: float(np.prod(x) - 1.0),
-        raw=True,
-    )
-    df["bench_60d"] = (1.0 + df["benchmark_return"]).rolling(60, min_periods=1).apply(
-        lambda x: float(np.prod(x) - 1.0),
-        raw=True,
-    )
+    df["bench_30d"] = (1.0 + df["benchmark_return"]).rolling(
+        30, min_periods=1
+    ).apply(lambda x: float(np.prod(x) - 1.0), raw=True)
+    df["bench_60d"] = (1.0 + df["benchmark_return"]).rolling(
+        60, min_periods=1
+    ).apply(lambda x: float(np.prod(x) - 1.0), raw=True)
 
     return df
 
 
-def compute_drawdown(df: pd.DataFrame) -> tuple[float, pd.Series]:
-    df = df.copy().sort_values("date")
+def compute_drawdown(df: pd.DataFrame):
     cum = (1.0 + df["portfolio_return"]).cumprod()
     running_max = cum.cummax()
     dd = cum / running_max - 1.0
-    max_dd = dd.min() * 100.0
-    return float(max_dd), dd
+    return float(dd.min() * 100.0), dd
 
 
-def compute_standard_matrix_row(wave_name: str) -> dict:
+def compute_standard_matrix_row(wave_name: str, weights_df: pd.DataFrame) -> dict:
     """
-    Standard Mode snapshot for a Wave:
-      - 1D Return, 1D Alpha, 30D Alpha, 60D Alpha
-      - Realized β
-      - Max Drawdown
-      - Since-inception Return / Benchmark / Excess
+    Standard mode snapshot (uses overrides for caps, but Standard mode β).
     """
-    perf_df = build_wave_performance(wave_name, "Standard", history_days=365)
-
+    perf_df = build_wave_performance(wave_name, "Standard", weights_df, HISTORY_DAYS)
     if perf_df.empty:
-        return {
-            "Wave": wave_name,
-            "1D Return": np.nan,
-            "1D Alpha": np.nan,
-            "30D Alpha": np.nan,
-            "60D Alpha": np.nan,
-            "Realized β": np.nan,
-            "Max Drawdown": np.nan,
-            "SI Return": np.nan,
-            "SI Benchmark": np.nan,
-            "SI Excess": np.nan,
-        }
+        return {k: np.nan for k in ["Wave"]}
 
     perf_df = perf_df.sort_values("date").reset_index(drop=True)
     latest = perf_df.iloc[-1]
@@ -430,34 +483,23 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     }
 
 
-def compute_alpha_summary_for_wave(wave_name: str, mode_label: str) -> dict:
-    """
-    For the Alpha Capture Matrix (selected mode).
-    """
-    perf_df = build_wave_performance(wave_name, mode_label, history_days=365)
+def compute_alpha_summary_for_wave(
+    wave_name: str, mode_label: str, weights_df: pd.DataFrame
+) -> dict:
+    perf_df = build_wave_performance(wave_name, mode_label, weights_df, HISTORY_DAYS)
     if perf_df.empty:
-        return {
-            "Wave": wave_name,
-            "Intraday α": np.nan,
-            "1D α": np.nan,
-            "30D α": np.nan,
-            "60D α": np.nan,
-            "1Y α": np.nan,
-            "SI Alpha": np.nan,
-            "SI Wave Return": np.nan,
-            "SI Benchmark Return": np.nan,
-        }
+        return {"Wave": wave_name}
 
     perf_df = perf_df.sort_values("date").reset_index(drop=True)
     latest = perf_df.iloc[-1]
 
     intraday_alpha = latest["alpha_1d"]
-    one_day_alpha = perf_df["alpha_1d"].iloc[-2] if len(perf_df) >= 2 else intraday_alpha
+    one_day_alpha = (
+        perf_df["alpha_1d"].iloc[-2] if len(perf_df) >= 2 else intraday_alpha
+    )
     alpha_30d = latest["alpha_30d"]
     alpha_60d = latest["alpha_60d"]
-
-    window = perf_df["alpha_1d"].tail(252)
-    alpha_1y = window.sum()
+    alpha_1y = perf_df["alpha_1d"].tail(252).sum()
 
     cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
     cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
@@ -478,23 +520,17 @@ def compute_alpha_summary_for_wave(wave_name: str, mode_label: str) -> dict:
     }
 
 
-def load_top10_holdings(wave_name: str) -> pd.DataFrame:
-    """
-    Top 10 by weight from wave_weights.csv, with optional yfinance metadata.
-    """
-    weights_df = load_weights()
+def load_top10_holdings(wave_name: str, weights_df: pd.DataFrame) -> pd.DataFrame:
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
         return pd.DataFrame()
 
-    # Re-normalize
     wave_weights["weight"] = wave_weights["weight"] / wave_weights["weight"].sum()
     wave_weights["weight_pct"] = wave_weights["weight"] * 100.0
 
-    # Enrich with names/sectors (best effort)
+    tickers = sorted(wave_weights["ticker"].unique().tolist())
     names = {}
     sectors = {}
-    tickers = sorted(wave_weights["ticker"].unique().tolist())
     for t in tickers:
         try:
             info = yf.Ticker(t).info
@@ -508,7 +544,6 @@ def load_top10_holdings(wave_name: str) -> pd.DataFrame:
     wave_weights["Sector"] = wave_weights["ticker"].map(sectors)
 
     out = wave_weights.sort_values("weight_pct", ascending=False).head(10)
-    out = out[["ticker", "Name", "Sector", "weight_pct"]].copy()
     out["Ticker"] = out["ticker"].astype(str).str.upper()
     out["Weight%"] = out["weight_pct"].round(2).astype(str) + "%"
     out["TickerLink"] = out["Ticker"].apply(
@@ -517,11 +552,11 @@ def load_top10_holdings(wave_name: str) -> pd.DataFrame:
     return out[["Ticker", "TickerLink", "Name", "Sector", "Weight%"]]
 
 
-# ================================
-# Sidebar
-# ================================
-weights_df_global = load_weights()
-waves = sorted(weights_df_global["wave"].unique().tolist())
+# ======================================================
+# SIDEBAR: WAVE & MODE
+# ======================================================
+weights_effective = load_weights_effective()
+waves = sorted(weights_effective["wave"].unique().tolist())
 
 with st.sidebar:
     st.markdown("### WAVES Intelligence™")
@@ -531,33 +566,33 @@ with st.sidebar:
 
     selected_mode = st.radio(
         "Mode",
-        options=list(MODES.keys()),
+        options=list(MODES_BASE.keys()),
         index=0,
         help="Display logic adapts to Standard, Alpha-Minus-Beta, and Private Logic™ targets.",
     )
 
     st.markdown("---")
     st.markdown(
-        "Engine is running **live in-app**:\n"
-        "- Uses full basket + secondary basket from `wave_weights.csv`\n"
-        "- Pulls prices via yfinance on demand\n"
-        "- No external logs required"
+        "This console runs the engine **inside the app**:\n"
+        "- Full basket + secondary basket from `wave_weights.csv`\n"
+        "- Prices pulled live via yfinance\n"
+        "- Human overrides applied (tilt, caps) before performance is computed."
     )
 
 
-# ================================
-# Compute perf for selected Wave/mode
-# ================================
-perf_df = build_wave_performance(selected_wave, selected_mode, history_days=365)
+# ======================================================
+# RUN ENGINE FOR SELECTED WAVE/MODE
+# ======================================================
+perf_df = build_wave_performance(selected_wave, selected_mode, weights_effective)
 perf_df = perf_df.sort_values("date").reset_index(drop=True)
-
 latest = perf_df.iloc[-1]
-max_dd_pct, dd_series = compute_drawdown(perf_df)
+mode_cfg_eff = get_effective_mode_config(selected_wave, selected_mode)
 
-mode_cfg = MODES[selected_mode]
-beta_target = mode_cfg["beta_target"]
-drift_annual = mode_cfg["drift_annual"]
+beta_target = mode_cfg_eff["beta_target"]
+drift_annual = mode_cfg_eff["drift_annual"]
 drift_daily = drift_annual / 252.0 * 100.0
+
+max_dd_pct, dd_series = compute_drawdown(perf_df)
 
 one_day_ret = latest["portfolio_return"] * 100.0
 one_day_alpha = latest["alpha_1d"] * 100.0
@@ -574,9 +609,9 @@ since_inc_ret = (cum_port.iloc[-1] - 1.0) * 100.0
 since_inc_bench = (cum_bench.iloc[-1] - 1.0) * 100.0
 
 
-# ================================
-# Hero & tiles
-# ================================
+# ======================================================
+# HERO HEADER & TILES
+# ======================================================
 spx_vix = get_spx_vix_tiles()
 
 st.markdown(
@@ -595,7 +630,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-col_spx, col_vix, col_mode = st.columns([1, 1, 1.2])
+col_spx, col_vix, col_mode = st.columns([1, 1, 1.5])
 
 with col_spx:
     tile = spx_vix["SPX"]
@@ -637,7 +672,7 @@ with col_mode:
     st.markdown(
         f"""
         <div class="section-card">
-            <div class="metric-label">Mode Parameters</div>
+            <div class="metric-label">Mode Parameters (Effective)</div>
             <div style="display:flex;gap:1.5rem;margin-top:0.3rem;">
                 <div>
                     <div style="font-size:0.75rem;color:#9fa6b2;">β Target</div>
@@ -653,7 +688,7 @@ with col_mode:
                 </div>
             </div>
             <div style="font-size:0.75rem;color:#6b7280;margin-top:0.4rem;">
-                Internal targets only — used for beta-adjusted alpha and drift framing.
+                Effective parameters after Human Overrides (equity tilt, caps) are applied.
             </div>
         </div>
         """,
@@ -661,10 +696,18 @@ with col_mode:
     )
 
 
-# ================================
-# Tabs
-# ================================
-tab_overview, tab_alpha, tab_std_matrix, tab_alpha_matrix, tab_top10, tab_logs = st.tabs(
+# ======================================================
+# TABS
+# ======================================================
+(
+    tab_overview,
+    tab_alpha,
+    tab_std_matrix,
+    tab_alpha_matrix,
+    tab_top10,
+    tab_logs,
+    tab_override,
+) = st.tabs(
     [
         "Overview",
         "Alpha Dashboard",
@@ -672,6 +715,7 @@ tab_overview, tab_alpha, tab_std_matrix, tab_alpha_matrix, tab_top10, tab_logs =
         "Alpha Capture Matrix (All Waves)",
         "Top 10 Holdings",
         "Engine Logs",
+        "Human Override",
     ]
 )
 
@@ -793,11 +837,11 @@ with tab_overview:
 
         st.markdown('<div class="section-card" style="margin-top:0.85rem;">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Data Regime</div>', unsafe_allow_html=True)
-        st.markdown("**Regime:** LIVE (yfinance engine)")
+        st.markdown("**Regime:** LIVE (embedded engine)")
         st.markdown(
             "- Full basket + secondary basket from `wave_weights.csv`\n"
-            "- Prices pulled live via yfinance on each refresh\n"
-            "- β targets and drift assumptions always come from the selected mode."
+            "- Prices pulled live via yfinance\n"
+            "- Human overrides (tilt, caps) applied before computing returns."
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -819,7 +863,7 @@ with tab_alpha:
     st.line_chart(alpha_chart_df)
     st.markdown(
         "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-        "All alphas are β-adjusted excess returns using the mode's β target. "
+        "All alphas are β-adjusted excess returns using the effective mode β. "
         "30D and 60D are rolling sums of daily alpha."
         "</span>",
         unsafe_allow_html=True,
@@ -835,7 +879,7 @@ with tab_std_matrix:
         unsafe_allow_html=True,
     )
 
-    rows = [compute_standard_matrix_row(w) for w in waves]
+    rows = [compute_standard_matrix_row(w, weights_effective) for w in waves]
     matrix_df = pd.DataFrame(rows)
 
     if not matrix_df.empty:
@@ -862,8 +906,8 @@ with tab_std_matrix:
 
         st.markdown(
             "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "All metrics are computed in Standard mode (β≈0.90). "
-            "Since-Inception metrics use each Wave's first available price date."
+            "All metrics computed in Standard mode with Human Overrides applied "
+            "to weights (position caps)."
             "</span>",
             unsafe_allow_html=True,
         )
@@ -890,7 +934,10 @@ with tab_alpha_matrix:
         unsafe_allow_html=True,
     )
 
-    summaries = [compute_alpha_summary_for_wave(w, selected_mode) for w in waves]
+    summaries = [
+        compute_alpha_summary_for_wave(w, selected_mode, weights_effective)
+        for w in waves
+    ]
     summary_df = pd.DataFrame(summaries)
 
     if not summary_df.empty:
@@ -913,9 +960,8 @@ with tab_alpha_matrix:
 
         st.markdown(
             f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            f"All values are β-adjusted alpha captures and cumulative returns for the "
-            f"selected mode (<b>{selected_mode}</b>). "
-            f"Since-Inception metrics use each Wave's first available price date."
+            f"All values are β-adjusted alpha captures and cumulative returns for "
+            f"the selected mode (<b>{selected_mode}</b>) with overrides applied."
             f"</span>",
             unsafe_allow_html=True,
         )
@@ -939,14 +985,15 @@ with tab_top10:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Top 10 Holdings</div>', unsafe_allow_html=True)
 
-    top10_df = load_top10_holdings(selected_wave)
+    top10_df = load_top10_holdings(selected_wave, weights_effective)
 
     if top10_df.empty:
         st.markdown("No holdings data found for this Wave in wave_weights.csv.")
     else:
         st.markdown(
             "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "Source: wave_weights.csv (full basket). Tickers link directly to Google Finance."
+            "Source: wave_weights.csv (full basket, with caps applied). "
+            "Tickers link directly to Google Finance."
             "</span>",
             unsafe_allow_html=True,
         )
@@ -978,7 +1025,7 @@ with tab_logs:
 
     st.markdown(
         "This view shows the **computed daily performance** for the selected Wave "
-        "based on full-basket prices from yfinance."
+        "based on full-basket prices and current Human Overrides."
     )
 
     display_cols = [
@@ -989,7 +1036,103 @@ with tab_logs:
         "alpha_30d",
         "alpha_60d",
     ]
-    display_cols_existing = [c for c in display_cols if c in perf_df.columns]
-    st.dataframe(perf_df[display_cols_existing].tail(75), use_container_width=True)
+    existing = [c for c in display_cols if c in perf_df.columns]
+    st.dataframe(perf_df[existing].tail(75), use_container_width=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------- Human Override Tab --------
+with tab_override:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="metric-label">Human Override — Risk & Tilt Controls</div>',
+        unsafe_allow_html=True,
+    )
+
+    overrides = st.session_state["overrides"]
+    global_cfg = overrides["global"]
+
+    col_g1, col_g2, col_g3 = st.columns(3)
+
+    with col_g1:
+        equity_tilt = st.radio(
+            "Global Equity Tilt",
+            options=["Defensive", "Neutral", "Aggressive"],
+            index=["Defensive", "Neutral", "Aggressive"].index(
+                global_cfg["equity_tilt"]
+            ),
+            help="Defensive tilts β & drift down; Aggressive tilts them up.",
+        )
+
+    with col_g2:
+        max_pos = st.slider(
+            "Max Position Weight (%)",
+            min_value=1.0,
+            max_value=25.0,
+            value=float(global_cfg["max_position_pct"]),
+            step=0.5,
+            help="Hard cap on any single position's target weight; engine renormalizes the rest.",
+        )
+
+    with col_g3:
+        smartsafe_floor = st.slider(
+            "SmartSafe Floor (%)",
+            min_value=0.0,
+            max_value=50.0,
+            value=float(global_cfg["smartsafe_floor_pct"]),
+            step=1.0,
+            help="Reserved for future SmartSafe allocation logic (not yet affecting weights).",
+        )
+        freeze = st.checkbox(
+            "Freeze Trading (Preview)",
+            value=bool(global_cfg["trading_freeze"]),
+            help="Flag only, for now; future versions can use this to halt rebalancing.",
+        )
+
+    # Update global overrides in session_state
+    overrides["global"]["equity_tilt"] = equity_tilt
+    overrides["global"]["max_position_pct"] = float(max_pos)
+    overrides["global"]["smartsafe_floor_pct"] = float(smartsafe_floor)
+    overrides["global"]["trading_freeze"] = bool(freeze)
+
+    st.markdown("---")
+
+    st.markdown("##### Per-Wave Tilt Overrides")
+
+    with st.expander("Override tilt for a specific Wave"):
+        ow_wave = st.selectbox("Select Wave to Override", options=["(None)"] + waves)
+        if ow_wave != "(None)":
+            current_tilt = get_effective_tilt(ow_wave)
+            tilt_options = ["Inherit Global", "Defensive", "Neutral", "Aggressive"]
+            default_idx = (
+                tilt_options.index("Inherit Global")
+                if ow_wave not in overrides["per_wave"]
+                else tilt_options.index(current_tilt)
+                if current_tilt in tilt_options
+                else tilt_options.index("Inherit Global")
+            )
+            wave_tilt_choice = st.radio(
+                f"{ow_wave} Tilt",
+                options=tilt_options,
+                index=default_idx,
+                help="Set a custom tilt for this Wave, or inherit the global tilt.",
+            )
+
+            if wave_tilt_choice == "Inherit Global":
+                overrides["per_wave"].pop(ow_wave, None)
+            else:
+                overrides["per_wave"].setdefault(ow_wave, {})
+                overrides["per_wave"][ow_wave]["equity_tilt"] = wave_tilt_choice
+
+    st.session_state["overrides"] = overrides
+
+    st.markdown(
+        "<br><span style='font-size:0.8rem;color:#9fa6b2;'>"
+        "Human overrides are applied immediately on refresh: caps adjust weights, "
+        "and tilt adjusts effective β & drift for all engine calculations."
+        "</span>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
