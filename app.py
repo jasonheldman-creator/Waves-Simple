@@ -480,11 +480,14 @@ def compute_alpha_windows(
     df = df.copy()
     df = df.sort_values("date").reset_index(drop=True)
 
+    # Daily β-adjusted alpha
     df["alpha_1d"] = df["portfolio_return"] - beta_target * df["benchmark_return"]
 
+    # Rolling alpha windows
     df["alpha_30d"] = df["alpha_1d"].rolling(window=30, min_periods=1).sum()
     df["alpha_60d"] = df["alpha_1d"].rolling(window=60, min_periods=1).sum()
 
+    # Rolling return windows
     df["ret_30d"] = (1.0 + df["portfolio_return"]).rolling(30, min_periods=1).apply(
         lambda x: float(np.prod(x) - 1.0),
         raw=True,
@@ -559,6 +562,8 @@ def compute_alpha_summary_for_wave(
     Used for the 'Alpha Capture Matrix' window, using the selected mode.
     Returns alpha captures in % for:
         Intraday, 1D, 30D, 60D, 1Y
+    Plus Since-Inception:
+        SI Alpha, SI Wave Return, SI Benchmark Return.
     """
     perf_df_raw, _live_flag = load_wave_performance(wave_name, mode_label)
     perf_df = compute_alpha_windows(perf_df_raw, mode_label)
@@ -571,6 +576,9 @@ def compute_alpha_summary_for_wave(
             "30D α": np.nan,
             "60D α": np.nan,
             "1Y α": np.nan,
+            "SI Alpha": np.nan,
+            "SI Wave Return": np.nan,
+            "SI Benchmark Return": np.nan,
         }
 
     perf_df = perf_df.sort_values("date").reset_index(drop=True)
@@ -586,8 +594,16 @@ def compute_alpha_summary_for_wave(
     alpha_30d = latest["alpha_30d"]
     alpha_60d = latest["alpha_60d"]
 
+    # 1Y alpha (last 252 trading days)
     window = perf_df["alpha_1d"].tail(252)
     alpha_1y = window.sum()
+
+    # Since-inception stats for this Wave (Option C)
+    cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
+    cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
+    si_wave_ret = (cum_port.iloc[-1] - 1.0) * 100.0
+    si_bench_ret = (cum_bench.iloc[-1] - 1.0) * 100.0
+    si_alpha = perf_df["alpha_1d"].sum() * 100.0  # cumulative β-adjusted alpha
 
     return {
         "Wave": wave_name,
@@ -596,6 +612,9 @@ def compute_alpha_summary_for_wave(
         "30D α": alpha_30d * 100.0,
         "60D α": alpha_60d * 100.0,
         "1Y α": alpha_1y * 100.0,
+        "SI Alpha": si_alpha,
+        "SI Wave Return": si_wave_ret,
+        "SI Benchmark Return": si_bench_ret,
     }
 
 
@@ -603,8 +622,8 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     """
     Row for the Standard Mode Matrix:
       Wave, 1D Return, 1D Alpha, 30D Alpha, 60D Alpha,
-      Realized β, Max Drawdown
-    Always uses Standard mode.
+      Realized β, Max Drawdown,
+      SI Return, SI Benchmark, SI Excess (all Standard mode).
     """
     mode_label = "Standard"
     perf_df_raw, _ = load_wave_performance(wave_name, mode_label)
@@ -619,6 +638,9 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
             "60D Alpha": np.nan,
             "Realized β": np.nan,
             "Max Drawdown": np.nan,
+            "SI Return": np.nan,
+            "SI Benchmark": np.nan,
+            "SI Excess": np.nan,
         }
 
     perf_df = perf_df.sort_values("date").reset_index(drop=True)
@@ -629,6 +651,7 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     alpha_30d = latest["alpha_30d"] * 100.0
     alpha_60d = latest["alpha_60d"] * 100.0
 
+    # Realized beta
     if np.var(perf_df["benchmark_return"]) > 0:
         realized_beta = np.cov(
             perf_df["portfolio_return"], perf_df["benchmark_return"]
@@ -636,7 +659,15 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
     else:
         realized_beta = np.nan
 
+    # Max drawdown
     max_dd, _ = compute_drawdown(perf_df)
+
+    # Since-inception cumulative returns for this Wave
+    cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
+    cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
+    si_ret = (cum_port.iloc[-1] - 1.0) * 100.0
+    si_bench = (cum_bench.iloc[-1] - 1.0) * 100.0
+    si_excess = si_ret - si_bench
 
     return {
         "Wave": wave_name,
@@ -646,6 +677,9 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
         "60D Alpha": alpha_60d,
         "Realized β": realized_beta,
         "Max Drawdown": max_dd,
+        "SI Return": si_ret,
+        "SI Benchmark": si_bench,
+        "SI Excess": si_excess,
     }
 
 
@@ -998,7 +1032,18 @@ with tab_std_matrix:
         )
 
         display_df = matrix_df.copy()
-        for col in ["1D Return", "1D Alpha", "30D Alpha", "60D Alpha", "Max Drawdown"]:
+        # Format all percentage columns
+        pct_cols = [
+            "1D Return",
+            "1D Alpha",
+            "30D Alpha",
+            "60D Alpha",
+            "Max Drawdown",
+            "SI Return",
+            "SI Benchmark",
+            "SI Excess",
+        ]
+        for col in pct_cols:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
         display_df["Realized β"] = display_df["Realized β"].apply(
@@ -1008,13 +1053,15 @@ with tab_std_matrix:
         st.markdown(
             "<span style='font-size:0.8rem;color:#9fa6b2;'>"
             "All metrics are computed in **Standard mode** (β≈0.90), regardless of the mode selected "
-            "in the sidebar. This gives a clean, apples-to-apples view across all Waves."
+            "in the sidebar. This gives a clean, apples-to-apples view across all Waves. "
+            "Since-Inception metrics use each Wave's own engine inception date (Option C)."
             "</span>",
             unsafe_allow_html=True,
         )
 
         st.dataframe(display_df, use_container_width=True)
 
+        # Quick visual: 60D alpha bar chart
         bar_df = matrix_df[["Wave", "60D Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
@@ -1048,24 +1095,38 @@ with tab_alpha_matrix:
         )
 
         display_df = summary_df.copy()
-        for col in ["Intraday α", "1D α", "30D α", "60D α", "1Y α"]:
+        # Percentage formatting for all alpha/return columns
+        alpha_cols = [
+            "Intraday α",
+            "1D α",
+            "30D α",
+            "60D α",
+            "1Y α",
+            "SI Alpha",
+            "SI Wave Return",
+            "SI Benchmark Return",
+        ]
+        for col in alpha_cols:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
         st.markdown(
             f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            f"All values are β-adjusted alpha captures in % terms for the **selected mode** "
-            f"(<b>{selected_mode}</b>). Intraday = latest; 1D = prior day when available; "
-            f"30D/60D = rolling sums of daily alpha; 1Y = sum of last 252 trading days."
+            f"All values are β-adjusted alpha captures and cumulative returns in % terms for the "
+            f"**selected mode** (<b>{selected_mode}</b>). "
+            f"Intraday = latest; 1D = prior day when available; "
+            f"30D/60D = rolling sums of daily alpha; 1Y = sum of last 252 trading days; "
+            f"Since-Inception metrics use each Wave's own engine inception date."
             f"</span>",
             unsafe_allow_html=True,
         )
 
         st.dataframe(display_df, use_container_width=True)
 
-        bar_df = summary_df[["Wave", "1Y α"]].set_index("Wave")
+        # Quick visual of SI Alpha across waves
+        bar_df = summary_df[["Wave", "SI Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
-            "<span class='metric-label'>1Y Alpha (All Waves, Selected Mode)</span>",
+            "<span class='metric-label'>Since-Inception Alpha (All Waves, Selected Mode)</span>",
             unsafe_allow_html=True,
         )
         st.bar_chart(bar_df)
