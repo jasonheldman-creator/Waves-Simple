@@ -470,7 +470,9 @@ def compute_alpha_summary_for_wave(
     mode_label: str,
 ) -> dict:
     """
-    Used for the 'Top Performers' table, using the selected mode.
+    Used for the 'Alpha Capture Matrix' window, using the selected mode.
+    Returns alpha captures in % for:
+        Intraday, 1D, 30D, 60D, 1Y
     """
     perf_df_raw, _live_flag = load_wave_performance(wave_name, mode_label)
     perf_df = compute_alpha_windows(perf_df_raw, mode_label)
@@ -723,12 +725,12 @@ with col_mode:
 # ================================
 # Tabs
 # ================================
-tab_overview, tab_alpha, tab_std_matrix, tab_top_perf, tab_top10, tab_logs = st.tabs(
+tab_overview, tab_alpha, tab_std_matrix, tab_alpha_matrix, tab_top10, tab_logs = st.tabs(
     [
         "Overview",
         "Alpha Dashboard",
         "Standard Mode Matrix",
-        "Top Performers",
+        "Alpha Capture Matrix (All Waves)",
         "Top 10 Holdings",
         "Engine Logs",
     ]
@@ -932,33 +934,48 @@ with tab_std_matrix:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ---------------- Top Performers tab ----------------
-with tab_top_perf:
+# ---------------- Alpha Capture Matrix (All Waves) tab ----------------
+with tab_alpha_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Top Performers & Alpha Capture (All Waves)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="metric-label">Alpha Capture Matrix &mdash; All Waves</div>',
+        unsafe_allow_html=True,
+    )
 
     summaries = [compute_alpha_summary_for_wave(w, selected_mode) for w in waves]
     summary_df = pd.DataFrame(summaries)
 
     if not summary_df.empty:
+        # Sort by 60D alpha so the recent winners float to the top
         summary_df = summary_df.sort_values("60D α", ascending=False).reset_index(drop=True)
+
         display_df = summary_df.copy()
         for col in ["Intraday α", "1D α", "30D α", "60D α", "1Y α"]:
             display_df[col] = display_df[col].apply(lambda x: format_pct(x))
 
         st.markdown(
-            "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "All values are β-adjusted alpha captures in % terms for the **selected mode** "
-            f"(**{selected_mode}**). Intraday = latest; 1D = prior day when available; "
-            "30D/60D = rolling sums; 1Y = sum of last 252 trading days."
-            "</span>",
+            f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
+            f"All values are β-adjusted alpha captures in % terms for the **selected mode** "
+            f"(<b>{selected_mode}</b>). Intraday = latest; 1D = prior day when available; "
+            f"30D/60D = rolling sums of daily alpha; 1Y = sum of last 252 trading days."
+            f"</span>",
             unsafe_allow_html=True,
         )
+
         st.dataframe(display_df, use_container_width=True)
+
+        # Optional: quick visual of 1Y alpha across waves
+        bar_df = summary_df[["Wave", "1Y α"]].set_index("Wave")
+        st.markdown("<br/>", unsafe_allow_html=True)
+        st.markmarkdown(
+            "<span class='metric-label'>1Y Alpha (All Waves, Selected Mode)</span>",
+            unsafe_allow_html=True,
+        )
+        st.bar_chart(bar_df)
     else:
         st.markdown(
-            "No data available across Waves yet. Once the engine writes performance logs "
-            "for each Wave, this panel will populate automatically."
+            "No alpha data available yet. Once performance is available for each Wave, "
+            "this alpha capture matrix will populate automatically."
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
