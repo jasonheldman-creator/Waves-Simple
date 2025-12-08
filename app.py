@@ -149,7 +149,7 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
             best_score = score
             best_path = os.path.join(LOGS_PERFORMANCE_DIR, fname)
 
-    # Lower threshold to be more permissive; adjust if needed
+    # threshold for “good enough” match
     if best_score < 0.2:
         MATCH_DEBUG["performance"][wave_name] = None
         return None
@@ -462,9 +462,9 @@ def render_system_status_tab(waves: List[str]) -> None:
     with engine_col:
         st.markdown("#### Engine")
         if HAS_ENGINE:
-            st.success("waves_engine module detected.")
+            st.success("Engine module loaded — WAVES engine is AVAILABLE.")
         else:
-            st.error("waves_engine module NOT found.")
+            st.error("Engine module NOT found — console is read-only right now.")
         st.markdown("#### Directories")
         st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
         st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
@@ -529,17 +529,33 @@ def main() -> None:
         index=0,
     )
 
+    # Engine status + control buttons
     st.sidebar.markdown("---")
+    if HAS_ENGINE:
+        st.sidebar.success("Engine status: ON (waves_engine loaded).")
+    else:
+        st.sidebar.error("Engine status: OFF (waves_engine.py not found).")
+
+    if HAS_ENGINE and hasattr(waves_engine, "run_wave"):
+        if st.sidebar.button(f"Run Engine for THIS Wave ({selected_wave})"):
+            try:
+                # Keep it simple; your waves_engine can decide what to do with mode
+                waves_engine.run_wave(selected_wave)  # type: ignore
+                st.sidebar.success(f"Engine run triggered for {selected_wave}.")
+            except Exception as e:
+                st.sidebar.error(f"Error running engine for {selected_wave}: {e}")
 
     if HAS_ENGINE and hasattr(waves_engine, "run_all_waves"):
-        if st.sidebar.button("Run Engine for ALL Waves (Manual Kick)"):
+        if st.sidebar.button("Run Engine for ALL Waves"):
             try:
                 waves_engine.run_all_waves(mode=mode, debug=True)  # type: ignore
-                st.sidebar.success("Engine run triggered successfully.")
+                st.sidebar.success("Engine run triggered for ALL Waves.")
             except Exception as e:
-                st.sidebar.error(f"Error running engine: {e}")
+                st.sidebar.error(f"Error running engine for ALL Waves: {e}")
+    elif HAS_ENGINE:
+        st.sidebar.info("run_all_waves() not available on waves_engine.")
     else:
-        st.sidebar.info("Engine module not loaded or run_all_waves() not available here.")
+        st.sidebar.info("Engine not loaded; run buttons are disabled.")
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"Active Wave: **{selected_wave}**")
@@ -554,7 +570,7 @@ def main() -> None:
     if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
         try:
             waves_engine.run_wave(selected_wave)  # type: ignore
-            st.sidebar.success(f"Engine auto-run for {selected_wave}.")
+            st.sidebar.info(f"Auto-run: engine kicked for {selected_wave}.")
             perf_df = load_performance_history(selected_wave)
             positions_df = load_latest_positions(selected_wave)
         except Exception as e:
