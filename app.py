@@ -177,9 +177,7 @@ def discover_waves_from_logs() -> list:
 
 
 def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
-    """
-    Find the latest positions file for a Wave, using a *loose* name match.
-    """
+    """Find the latest positions file for a Wave, using a loose name match."""
     if not LOGS_POS_DIR.exists():
         return None
 
@@ -222,10 +220,6 @@ def load_top10_from_weights(wave_name: str) -> pd.DataFrame | None:
     """
     Fallback: use wave_weights.csv to construct a Top 10 list when
     there is no positions file.
-    Expected columns (flexible):
-        - wave / Wave
-        - ticker / symbol
-        - weight / weight_pct / target_weight
     """
     if not WEIGHTS_FILE.exists():
         return None
@@ -243,7 +237,6 @@ def load_top10_from_weights(wave_name: str) -> pd.DataFrame | None:
     # Identify wave column and filter for matching wave
     wave_col = cols.get("wave") or cols.get("portfolio") or None
     if wave_col is None:
-        # If no explicit wave column, assume file is already per-wave; use all rows
         wave_filtered = df.copy()
     else:
         target_key = normalize_key(wave_name)
@@ -298,7 +291,7 @@ def load_positions_top10(wave_name: str) -> tuple[pd.DataFrame | None, str]:
 
     Returns (df, source_label) where source_label is "positions" or "weights".
     """
-    # ---- 1) Try positions logs ----
+    # 1) Positions logs
     latest_file = get_latest_positions_file_for_wave(wave_name)
     if latest_file is not None and latest_file.exists():
         try:
@@ -345,9 +338,9 @@ def load_positions_top10(wave_name: str) -> tuple[pd.DataFrame | None, str]:
 
                 return out, f"positions log ({latest_file.name})"
         except Exception:
-            pass  # fall through to weights
+            pass  # fall through
 
-    # ---- 2) Fallback to wave_weights.csv ----
+    # 2) Fallback to wave_weights.csv
     weights_df = load_top10_from_weights(wave_name)
     if weights_df is not None and not weights_df.empty:
         return weights_df, "wave_weights.csv"
@@ -441,8 +434,6 @@ def load_wave_performance(
 
     1) Try logs/performance/<Wave>_performance_daily.csv
     2) If missing/bad, fallback to synthetic demo series
-
-    Returns (df, is_live_flag).
     """
     is_live = False
     perf_file = LOGS_PERF_DIR / f"{wave_name}_performance_daily.csv"
@@ -482,10 +473,7 @@ def compute_alpha_windows(
     df: pd.DataFrame,
     mode_label: str,
 ) -> pd.DataFrame:
-    """
-    Add alpha and rolling return columns
-    using the mode's beta target.
-    """
+    """Add alpha and rolling return columns using the mode's beta target."""
     mode_cfg = MODES.get(mode_label, MODES["Standard"])
     beta_target = mode_cfg["beta_target"]
 
@@ -652,13 +640,13 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
 
     return {
         "Wave": wave_name,
-            "1D Return": one_day_ret,
-            "1D Alpha": one_day_alpha,
-            "30D Alpha": alpha_30d,
-            "60D Alpha": alpha_60d,
-            "Realized β": realized_beta,
-            "Max Drawdown": max_dd,
-        }
+        "1D Return": one_day_ret,
+        "1D Alpha": one_day_alpha,
+        "30D Alpha": alpha_30d,
+        "60D Alpha": alpha_60d,
+        "Realized β": realized_beta,
+        "Max Drawdown": max_dd,
+    }
 
 
 # ================================
@@ -850,15 +838,24 @@ with tab_overview:
         with c2:
             st.markdown("**1D Alpha (β-adjusted)**")
             cls = "alpha-positive" if one_day_alpha >= 0 else "alpha-negative"
-            st.markdown(f"<span class='{cls}'>{format_pct(one_day_alpha)}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span class='{cls}'>{format_pct(one_day_alpha)}</span>",
+                unsafe_allow_html=True,
+            )
         with c3:
             st.markdown("**30D Alpha**")
             cls = "alpha-positive" if alpha_30d >= 0 else "alpha-negative"
-            st.markdown(f"<span class='{cls}'>{format_pct(alpha_30d)}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span class='{cls}'>{format_pct(alpha_30d)}</span>",
+                unsafe_allow_html=True,
+            )
         with c4:
             st.markdown("**60D Alpha**")
             cls = "alpha-positive" if alpha_60d >= 0 else "alpha-negative"
-            st.markdown(f"<span class='{cls}'>{format_pct(alpha_60d)}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span class='{cls}'>{format_pct(alpha_60d)}</span>",
+                unsafe_allow_html=True,
+            )
 
         st.markdown("---", unsafe_allow_html=True)
 
@@ -866,19 +863,22 @@ with tab_overview:
         with c5:
             st.markdown("**30D Return vs Benchmark**")
             st.markdown(
-                f"{format_pct(ret_30d)} | <span style='color:#9fa6b2;'>{format_pct(bench_30d)}</span>",
+                f"{format_pct(ret_30d)} | "
+                f"<span style='color:#9fa6b2;'>{format_pct(bench_30d)}</span>",
                 unsafe_allow_html=True,
             )
         with c6:
             st.markdown("**60D Return vs Benchmark**")
             st.markdown(
-                f"{format_pct(ret_60d)} | <span style='color:#9fa6b2;'>{format_pct(bench_60d)}</span>",
+                f"{format_pct(ret_60d)} | "
+                f"<span style='color:#9fa6b2;'>{format_pct(bench_60d)}</span>",
                 unsafe_allow_html=True,
             )
         with c7:
             st.markdown("**Since Inception vs Benchmark**")
             st.markdown(
-                f"{format_pct(since_inc_ret)} | <span style='color:#9fa6b2;'>{format_pct(since_inc_bench)}</span>",
+                f"{format_pct(since_inc_ret)} | "
+                f"<span style='color:#9fa6b2;'>{format_pct(since_inc_bench)}</span>",
                 unsafe_allow_html=True,
             )
 
@@ -922,15 +922,14 @@ with tab_overview:
             else:
                 realized_beta_sel = np.nan
             st.markdown("**Realized β**")
-            st.markdown(f"{realized_beta_sel:.2f}" if not np.isnan(realized_beta_sel) else "—")
+            st.markdown(
+                f"{realized_beta_sel:.2f}" if not np.isnan(realized_beta_sel) else "—"
+            )
 
         st.markdown("---", unsafe_allow_html=True)
 
         dd_chart_df = pd.DataFrame(
-            {
-                "Date": perf_df["date"],
-                "Drawdown": dd_series.values,
-            }
+            {"Date": perf_df["date"], "Drawdown": dd_series.values}
         ).set_index("Date")
         st.area_chart(dd_chart_df)
 
@@ -994,8 +993,9 @@ with tab_std_matrix:
     matrix_df = pd.DataFrame(rows)
 
     if not matrix_df.empty:
-        # Sort by 60D alpha, best to worst
-        matrix_df = matrix_df.sort_values("60D Alpha", ascending=False).reset_index(drop=True)
+        matrix_df = matrix_df.sort_values("60D Alpha", ascending=False).reset_index(
+            drop=True
+        )
 
         display_df = matrix_df.copy()
         for col in ["1D Return", "1D Alpha", "30D Alpha", "60D Alpha", "Max Drawdown"]:
@@ -1015,7 +1015,6 @@ with tab_std_matrix:
 
         st.dataframe(display_df, use_container_width=True)
 
-        # Quick visual: 60D alpha bar chart
         bar_df = matrix_df[["Wave", "60D Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
@@ -1035,7 +1034,7 @@ with tab_std_matrix:
 # ---------------- Alpha Capture Matrix (All Waves) tab ----------------
 with tab_alpha_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markmarkdown(
+    st.markdown(
         '<div class="metric-label">Alpha Capture Matrix &mdash; All Waves</div>',
         unsafe_allow_html=True,
     )
@@ -1044,8 +1043,9 @@ with tab_alpha_matrix:
     summary_df = pd.DataFrame(summaries)
 
     if not summary_df.empty:
-        # Sort by 60D alpha so the recent winners float to the top
-        summary_df = summary_df.sort_values("60D α", ascending=False).reset_index(drop=True)
+        summary_df = summary_df.sort_values("60D α", ascending=False).reset_index(
+            drop=True
+        )
 
         display_df = summary_df.copy()
         for col in ["Intraday α", "1D α", "30D α", "60D α", "1Y α"]:
@@ -1062,7 +1062,6 @@ with tab_alpha_matrix:
 
         st.dataframe(display_df, use_container_width=True)
 
-        # Quick visual of 1Y alpha across waves
         bar_df = summary_df[["Wave", "1Y α"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
@@ -1100,7 +1099,6 @@ with tab_top10:
             unsafe_allow_html=True,
         )
 
-        # Build HTML table with clickable ticker links
         html_rows = []
         html_rows.append(
             "<tr><th>Ticker</th><th>Name</th><th>Sector</th><th>Weight</th></tr>"
@@ -1115,9 +1113,10 @@ with tab_top10:
                 "</tr>"
             )
 
-        html_table = "<table class='top10-table'><thead>{head}</thead><tbody>{body}</tbody></table>".format(
-            head=html_rows[0], body="".join(html_rows[1:])
-        )
+        html_table = (
+            "<table class='top10-table'><thead>{head}</thead>"
+            "<tbody>{body}</tbody></table>"
+        ).format(head=html_rows[0], body="".join(html_rows[1:]))
 
         st.markdown(html_table, unsafe_allow_html=True)
 
