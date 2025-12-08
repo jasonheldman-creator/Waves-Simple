@@ -10,7 +10,7 @@ try:
 except Exception:  # for environments without Streamlit during linting
     class _Dummy:
         def __getattr__(self, name):
-            def f(*a, **k): 
+            def f(*a, **k):
                 pass
             return f
     st = _Dummy()
@@ -459,8 +459,8 @@ def main() -> None:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Wave Details", "Alpha Capture", "WaveScore", "System Status"]
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Wave Details", "Alpha Capture", "WaveScore", "System Status", "All Waves Snapshot"]
     )
 
     with tab1:
@@ -483,6 +483,17 @@ def main() -> None:
 
     with tab4:
         render_system_status_tab(waves)
+
+    with tab5:
+        st.subheader("All Waves — Snapshot")
+        snapshot_df = compute_multi_wave_snapshot(waves)
+        if not snapshot_df.empty:
+            display_df = snapshot_df.copy()
+            for c in ["Intraday", "30d Return", "60d Return", "30d Alpha"]:
+                display_df[c] = display_df[c].apply(format_pct)
+            st.dataframe(display_df, use_container_width=True)
+        else:
+            st.info("No data available yet for multi-Wave snapshot.")
 
 
 if __name__ == "__main__":
