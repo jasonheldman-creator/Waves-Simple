@@ -121,14 +121,12 @@ st.markdown(
 BASE_DIR = Path(".")
 WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
 
-# Modes (Standard, Alpha-Minus-Beta, Private Logic™)
 MODES_BASE = {
     "Standard": {"beta_target": 0.90, "drift_annual": 0.07},
     "Alpha-Minus-Beta": {"beta_target": 0.80, "drift_annual": 0.06},
     "Private Logic™": {"beta_target": 1.05, "drift_annual": 0.09},
 }
 
-# Benchmarks per Wave
 BENCHMARK_MAP = {
     "S&P 500 Wave": "^GSPC",
     "Growth Wave": "QQQ",
@@ -141,7 +139,7 @@ BENCHMARK_MAP = {
     "Small/Mid Growth Wave": "IWM",
 }
 
-HISTORY_DAYS = 365  # calendar days to look back
+HISTORY_DAYS = 365  # calendar days
 
 
 # ======================================================
@@ -232,9 +230,6 @@ def get_effective_mode_config(wave, mode_label):
 
 
 def apply_max_position_cap(weights_df):
-    """
-    Apply global max_position_pct override per Wave.
-    """
     cap = st.session_state["overrides"]["global"]["max_position_pct"]
     cap_frac = cap / 100.0
 
@@ -259,12 +254,9 @@ def apply_max_position_cap(weights_df):
 # ======================================================
 def load_weights_raw():
     """
-    Load wave_weights.csv.
-
-    IMPORTANT:
-    - This file should already contain the **full basket** for each Wave:
-      primary + secondary positions combined.
-    - Every row for a given `wave` is treated as part of the portfolio.
+    Load wave_weights.csv and normalize within each Wave.
+    Primary + secondary basket should be combined in this file
+    as separate rows for the same Wave.
     """
     if not WEIGHTS_FILE.exists():
         raise FileNotFoundError(f"Missing weights file: {WEIGHTS_FILE}")
@@ -305,6 +297,7 @@ def load_weights_raw():
     df["ticker"] = df["ticker"].astype(str).str.upper()
     df["raw_weight"] = df["raw_weight"].astype(float)
 
+    # Normalize within Wave – this automatically blends primary + secondary basket
     df["weight"] = df.groupby("wave")["raw_weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else 1.0 / len(x)
     )
@@ -357,7 +350,7 @@ def compute_returns_from_prices(prices):
 
 def generate_synthetic_performance(wave_name, mode_label, history_days):
     """
-    Synthetic benchmark + portfolio series that respects mode β & drift.
+    Synthetic benchmark + portfolio series consistent with mode β & drift.
     """
     mode_cfg = get_effective_mode_config(wave_name, mode_label)
     beta_target = mode_cfg["beta_target"]
@@ -390,9 +383,6 @@ def generate_synthetic_performance(wave_name, mode_label, history_days):
 
 
 def compute_alpha_windows(df, wave_name, mode_label):
-    """
-    Attach α(1D,30D,60D) + 30/60D returns vs benchmark.
-    """
     mode_cfg = get_effective_mode_config(wave_name, mode_label)
     beta_target = mode_cfg["beta_target"]
 
@@ -422,7 +412,7 @@ def compute_alpha_windows(df, wave_name, mode_label):
 
 def validate_or_fallback(df, wave_name, mode_label, regime, history_days):
     """
-    If df is empty, too short, or full of NaNs → regenerate synthetic.
+    If df is empty, too short, or full of NaNs, regenerate synthetic.
     """
     if df is None or df.empty:
         df_syn, reg_syn = generate_synthetic_performance(
@@ -431,8 +421,10 @@ def validate_or_fallback(df, wave_name, mode_label, regime, history_days):
         df_syn = compute_alpha_windows(df_syn, wave_name, mode_label)
         return df_syn, reg_syn
 
+    # Drop rows with NaNs in core columns
     df = df.dropna(subset=["portfolio_return", "benchmark_return"])
 
+    # If still too short or degenerate, fallback
     if len(df) < 30 or df["portfolio_return"].isna().all():
         df_syn, reg_syn = generate_synthetic_performance(
             wave_name, mode_label, history_days
@@ -447,7 +439,7 @@ def build_wave_performance(wave_name, mode_label, weights_df, history_days=HISTO
     """
     Hybrid engine with hardened fallback:
 
-    1) Try LIVE (yfinance) path for the full basket (primary + secondary).
+    1) Try LIVE (yfinance) path.
     2) If any step leaves us with too little or invalid data, fall back
        to SANDBOX synthetic series so the Wave always has full metrics.
     """
@@ -478,6 +470,7 @@ def build_wave_performance(wave_name, mode_label, weights_df, history_days=HISTO
         basket_rets = basket_rets.loc[common_dates]
         bench_rets = bench_rets.loc[common_dates]
 
+        # If after alignment we don't have enough, treat as failure
         if len(basket_rets) < 30 or len(bench_rets) < 30:
             raise ValueError("insufficient overlap")
 
@@ -599,10 +592,6 @@ def compute_alpha_summary_for_wave(wave_name, mode_label, weights_df):
 
 
 def load_top10_holdings(wave_name, weights_df):
-    """
-    Top 10 positions (by effective weight) for the selected Wave.
-    Uses the full basket (primary + secondary).
-    """
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
         return pd.DataFrame()
@@ -690,8 +679,6 @@ bench_60d = latest["bench_60d"] * 100.0
 
 cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
 cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
-since_inc_ret = (cum_port.iloc[-1] - 1.0) * 100.0
-since_inc_bench = (cum_bench.iloc[-1] - 1.0) * 100.0
 
 
 # ======================================================
@@ -813,6 +800,7 @@ with tab_overview:
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Return & Alpha Strip</div>', unsafe_allow_html=True)
 
+        # Intraday (1D) + 30D + 60D only
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown("**1D Return**")
@@ -841,7 +829,8 @@ with tab_overview:
 
         st.markdown("---", unsafe_allow_html=True)
 
-        c5, c6, c7 = st.columns(3)
+        # Only 30D and 60D return vs benchmark (no since inception)
+        c5, c6 = st.columns(2)
         with c5:
             st.markdown("**30D Return vs Benchmark**")
             st.markdown(
@@ -854,13 +843,6 @@ with tab_overview:
             st.markdown(
                 f"{format_pct(ret_60d)} | "
                 f"<span style='color:#9fa6b2;'>{format_pct(bench_60d)}</span>",
-                unsafe_allow_html=True,
-            )
-        with c7:
-            st.markdown("**Since Inception vs Benchmark**")
-            st.markdown(
-                f"{format_pct(since_inc_ret)} | "
-                f"<span style='color:#9fa6b2;'>{format_pct(since_inc_bench)}</span>",
                 unsafe_allow_html=True,
             )
 
