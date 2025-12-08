@@ -1,18 +1,18 @@
 # app.py
 """
-WAVES Intelligence™ Super Console (Combined)
+WAVES Intelligence™ Super Console (Cloud-safe)
 
 - Uses waves_engine.py (dynamic S&P 500 Wave)
-- All Waves Dashboard (table + alpha heatmap)
+- All Waves dashboard (table + alpha heatmap)
 - Per-Wave deep console:
-    - Overview
-    - Holdings (Top 10 + Google links)
-    - Performance (benchmark & modes)
-    - Risk (vol, drawdown, factor exposure)
+    • Overview
+    • Holdings (Top 10 + Google links)
+    • Performance (benchmark & modes)
+    • Risk (vol, drawdown, factor exposure)
 - Vector Lab:
-    - Wave Blender (two-wave slider blend)
-    - Scenario Shocks (simple equity shocks)
-    - VectorOS Prompt stub (future agent slot)
+    • Wave Blender
+    • Scenario Shocks
+    • VectorOS Prompt stub
 """
 
 import pandas as pd
@@ -47,9 +47,7 @@ def load_all_weights() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
-    """
-    Optional: sector_map.csv with columns: ticker,sector
-    """
+    """Optional: sector_map.csv with columns: ticker,sector"""
     try:
         df = pd.read_csv(path)
         if "ticker" not in df.columns or "sector" not in df.columns:
@@ -62,20 +60,14 @@ def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
 
 
 @st.cache_data(show_spinner=False)
-def preload_summaries_for_all_waves(
-    weights_df: pd.DataFrame,
-) -> dict:
-    """
-    Precompute summary metrics for all Waves:
-    returns dict: { wave_name: summary_dict }
-    """
+def preload_summaries_for_all_waves(weights_df: pd.DataFrame) -> dict:
+    """Precompute summary metrics for all Waves."""
     summaries = {}
-    wave_names_local = we.get_wave_names(weights_df)
-    for wname in wave_names_local:
+    for wname in we.get_wave_names(weights_df):
         try:
             summaries[wname] = we.compute_wave_summary(wname, weights_df)
         except Exception as e:
-            print(f"[WARN] Failed summary for {wname}: {e}")
+            print(f"[WARN] summary failed for {wname}: {e}")
     return summaries
 
 
@@ -97,7 +89,7 @@ st.sidebar.header("Wave Controls")
 selected_wave = st.sidebar.selectbox("Select Wave", wave_names, index=0)
 
 mode = st.sidebar.radio(
-    "Mode (used in Mode Comparison analytics)",
+    "Mode (for comparison curves)",
     ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
     index=0,
 )
@@ -111,7 +103,7 @@ history_window = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Mode logic is applied analytically in Performance ➜ Mode Comparison.\n"
+    "Modes are applied analytically in Performance ➜ Mode Comparison.\n"
     "Engine-level mode separation can be added later."
 )
 
@@ -130,17 +122,8 @@ def get_wave_timeseries(
     wave_name: str,
     days: int,
     weights_df: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.Series | None, pd.Series | None]:
-    """
-    Build daily series for:
-        - wave cumulative return
-        - benchmark cumulative return (if exists)
-
-    Returns:
-        df_cum (DataFrame with cols 'date','series','value')
-        port_rets (Series of daily portfolio returns)
-        bench_rets (Series or None)
-    """
+):
+    """Return tidy cumulative series + daily rets for a wave and its benchmark."""
     w = weights_df[weights_df["wave"] == wave_name].copy()
     if w.empty:
         return pd.DataFrame(), None, None
@@ -151,16 +134,14 @@ def get_wave_timeseries(
         .reindex(w["ticker"].unique())
         .fillna(0.0)
     )
-
     tickers = list(weights.index)
-    lookback = days + 10  # pad for weekends/holidays
+    lookback = days + 10
 
     prices = we.fetch_price_history(tickers, lookback_days=lookback)
     rets = prices.pct_change().dropna(how="all")
     weights_aligned = weights.reindex(prices.columns).fillna(0.0)
     port_rets = (rets * weights_aligned).sum(axis=1)
 
-    # restrict to last N calendar days
     port_rets = port_rets.tail(days)
     if port_rets.empty:
         return pd.DataFrame(), None, None
@@ -170,32 +151,26 @@ def get_wave_timeseries(
     bench_ticker = we.get_benchmark_for_wave(wave_name)
     bench_rets = None
     cum_bench = None
-
     if bench_ticker:
         try:
             bench_prices = we.fetch_price_history([bench_ticker], lookback_days=lookback)
             bench_rets = bench_prices.pct_change().dropna().iloc[:, 0]
-            # align indices
-            common_idx = port_rets.index.intersection(bench_rets.index)
-            port_rets = port_rets.reindex(common_idx)
+            common = port_rets.index.intersection(bench_rets.index)
+            port_rets = port_rets.reindex(common)
+            bench_rets = bench_rets.reindex(common)
             cum_wave = (1.0 + port_rets).cumprod() - 1.0
-
-            bench_rets = bench_rets.reindex(common_idx)
             cum_bench = (1.0 + bench_rets).cumprod() - 1.0
         except Exception as e:
             st.warning(f"Benchmark series unavailable for {bench_ticker}: {e}")
 
-    # melt into tidy frame for Altair
-    df_list = []
-    df_wave = pd.DataFrame({"date": cum_wave.index, "series": "Wave", "value": cum_wave.values})
-    df_list.append(df_wave)
-
+    frames = [
+        pd.DataFrame({"date": cum_wave.index, "series": "Wave", "value": cum_wave.values})
+    ]
     if cum_bench is not None:
-        df_bench = pd.DataFrame({"date": cum_bench.index, "series": "Benchmark", "value": cum_bench.values})
-        df_list.append(df_bench)
-
-    df_cum = pd.concat(df_list, ignore_index=True)
-
+        frames.append(
+            pd.DataFrame({"date": cum_bench.index, "series": "Benchmark", "value": cum_bench.values})
+        )
+    df_cum = pd.concat(frames, ignore_index=True)
     return df_cum, port_rets, bench_rets
 
 
@@ -204,24 +179,14 @@ def build_sector_allocation(
     weights_df: pd.DataFrame,
     sector_map: pd.DataFrame | None,
 ) -> pd.DataFrame | None:
-    """
-    Returns sector allocation for the wave if a sector_map is available.
-    """
     if sector_map is None:
         return None
-
     w = weights_df[weights_df["wave"] == wave_name].copy()
     if w.empty:
         return None
-
-    agg = (
-        w.groupby("ticker")["weight"]
-        .sum()
-        .reset_index()
-    )
+    agg = w.groupby("ticker")["weight"].sum().reset_index()
     merged = agg.merge(sector_map, how="left", on="ticker")
     merged["sector"].fillna("Other / Unknown", inplace=True)
-
     sector_alloc = (
         merged.groupby("sector")["weight"]
         .sum()
@@ -236,33 +201,19 @@ def compute_risk_metrics(
     window_short: int = 30,
     window_long: int = 60,
 ) -> dict:
-    """
-    Simple risk metrics for the Risk tab.
-    """
-    metrics: dict = {
-        "vol_30d": None,
-        "vol_60d": None,
-        "max_dd": None,
-    }
+    metrics = {"vol_30d": None, "vol_60d": None, "max_dd": None}
     if port_rets is None or port_rets.empty:
         return metrics
 
-    # Annualized vol approximations (sqrt(252))
     if len(port_rets) >= window_short:
-        metrics["vol_30d"] = float(
-            port_rets.tail(window_short).std() * np.sqrt(252)
-        )
+        metrics["vol_30d"] = float(port_rets.tail(window_short).std() * np.sqrt(252))
     if len(port_rets) >= window_long:
-        metrics["vol_60d"] = float(
-            port_rets.tail(window_long).std() * np.sqrt(252)
-        )
+        metrics["vol_60d"] = float(port_rets.tail(window_long).std() * np.sqrt(252))
 
-    # Max drawdown on available history
     cum = (1.0 + port_rets).cumprod()
     running_max = cum.cummax()
     dd = cum / running_max - 1.0
     metrics["max_dd"] = float(dd.min())
-
     return metrics
 
 
@@ -271,10 +222,6 @@ def compute_factor_exposure_for_wave(
     weights_df: pd.DataFrame,
     days: int = 260,
 ) -> pd.DataFrame | None:
-    """
-    Uses waves_engine.compute_factor_scores to estimate factor tilts for a wave.
-    Returns DataFrame with columns: factor, exposure
-    """
     w = weights_df[weights_df["wave"] == wave_name].copy()
     if w.empty:
         return None
@@ -285,7 +232,6 @@ def compute_factor_exposure_for_wave(
         .reindex(w["ticker"].unique())
         .fillna(0.0)
     )
-
     tickers = list(weights.index)
     if not tickers:
         return None
@@ -298,28 +244,25 @@ def compute_factor_exposure_for_wave(
         return None
 
     factor_df = factor_df.reindex(tickers)
-
-    cols_needed = ["momentum_score", "quality_score", "factor_score"]
-    for c in cols_needed:
-        if c not in factor_df.columns:
-            return None
+    needed = ["momentum_score", "quality_score", "factor_score"]
+    if any(c not in factor_df.columns for c in needed):
+        return None
 
     w_vec = weights.reindex(factor_df.index).fillna(0.0).values
 
     def w_avg(series: pd.Series) -> float:
         arr = series.fillna(0.0).values
         if w_vec.sum() <= 0:
-            return float(np.nan)
+            return float("nan")
         return float((arr * w_vec).sum() / w_vec.sum())
 
-    momentum_exposure = w_avg(factor_df["momentum_score"])
-    quality_exposure = w_avg(factor_df["quality_score"])
-    hybrid_exposure = w_avg(factor_df["factor_score"])
+    m = w_avg(factor_df["momentum_score"])
+    q = w_avg(factor_df["quality_score"])
+    h = w_avg(factor_df["factor_score"])
 
-    vals = np.array([momentum_exposure, quality_exposure, hybrid_exposure], dtype=float)
+    vals = np.array([m, q, h], dtype=float)
     if np.all(np.isnan(vals)):
         return None
-
     mean = np.nanmean(vals)
     std = np.nanstd(vals)
     if std == 0 or np.isnan(std):
@@ -327,39 +270,32 @@ def compute_factor_exposure_for_wave(
     else:
         z_vals = (vals - mean) / std
 
-    df_out = pd.DataFrame(
+    return pd.DataFrame(
         {
             "factor": ["Momentum", "Quality / Low-Vol", "Hybrid Factor"],
             "exposure": z_vals,
         }
     )
-    return df_out
 
 
 def build_mode_comparison_series(
     port_rets: pd.Series | None,
     bench_rets: pd.Series | None,
 ) -> pd.DataFrame | None:
-    """
-    Synthesizes Standard vs Alpha-Minus-Beta vs Private Logic™
-    as three different cumulative curves, using daily rets.
-    """
     if port_rets is None or port_rets.empty:
         return None
-
     if bench_rets is None or bench_rets.empty:
         cum_std = (1.0 + port_rets).cumprod() - 1.0
-        df_std = pd.DataFrame(
+        return pd.DataFrame(
             {"date": cum_std.index, "series": "Standard", "value": cum_std.values}
         )
-        return df_std
 
-    common_idx = port_rets.index.intersection(bench_rets.index)
-    if common_idx.empty:
+    common = port_rets.index.intersection(bench_rets.index)
+    if common.empty:
         return None
 
-    wave = port_rets.reindex(common_idx)
-    bench = bench_rets.reindex(common_idx)
+    wave = port_rets.reindex(common)
+    bench = bench_rets.reindex(common)
     alpha = wave - bench
 
     cum_std = (1.0 + wave).cumprod() - 1.0
@@ -368,13 +304,14 @@ def build_mode_comparison_series(
     pl_rets = wave + 0.30 * alpha
     cum_pl = (1.0 + pl_rets).cumprod() - 1.0
 
-    df_list = [
-        pd.DataFrame({"date": cum_std.index, "series": "Standard", "value": cum_std.values}),
-        pd.DataFrame({"date": cum_amb.index, "series": "Alpha-Minus-Beta", "value": cum_amb.values}),
-        pd.DataFrame({"date": cum_pl.index, "series": "Private Logic™", "value": cum_pl.values}),
-    ]
-    df_modes = pd.concat(df_list, ignore_index=True)
-    return df_modes
+    return pd.concat(
+        [
+            pd.DataFrame({"date": cum_std.index, "series": "Standard", "value": cum_std.values}),
+            pd.DataFrame({"date": cum_amb.index, "series": "Alpha-Minus-Beta", "value": cum_amb.values}),
+            pd.DataFrame({"date": cum_pl.index, "series": "Private Logic™", "value": cum_pl.values}),
+        ],
+        ignore_index=True,
+    )
 
 
 def build_blended_wave_timeseries(
@@ -384,65 +321,49 @@ def build_blended_wave_timeseries(
     days: int,
     weights_df: pd.DataFrame,
 ) -> pd.DataFrame | None:
-    """
-    Builds a blended series: blend_a * Wave A + (1 - blend_a) * Wave B
-    Based on daily returns.
-    Returns tidy DataFrame with columns: date, series, value
-    """
     df_a, rets_a, _ = get_wave_timeseries(wave_a, days, weights_df)
     df_b, rets_b, _ = get_wave_timeseries(wave_b, days, weights_df)
-
     if rets_a is None or rets_a.empty or rets_b is None or rets_b.empty:
         return None
 
-    common_idx = rets_a.index.intersection(rets_b.index)
-    if common_idx.empty:
+    common = rets_a.index.intersection(rets_b.index)
+    if common.empty:
         return None
 
-    rets_a = rets_a.reindex(common_idx)
-    rets_b = rets_b.reindex(common_idx)
-
-    blended_rets = blend_a * rets_a + (1.0 - blend_a) * rets_b
-    cum_blend = (1.0 + blended_rets).cumprod() - 1.0
-
-    df = pd.DataFrame({"date": cum_blend.index, "series": "Blended Wave", "value": cum_blend.values})
-    return df
+    rets_a = rets_a.reindex(common)
+    rets_b = rets_b.reindex(common)
+    blended = blend_a * rets_a + (1.0 - blend_a) * rets_b
+    cum_blend = (1.0 + blended).cumprod() - 1.0
+    return pd.DataFrame(
+        {"date": cum_blend.index, "series": "Blended Wave", "value": cum_blend.values}
+    )
 
 
 def compute_shock_scenarios(
     port_rets: pd.Series | None,
     shock_levels: list[float] | None = None,
 ) -> pd.DataFrame | None:
-    """
-    Simple scenario approximations:
-    - shock_levels: list of instantaneous equity shocks, e.g. [-0.1, -0.2, -0.3]
-    """
     if port_rets is None or port_rets.empty:
         return None
-
     if shock_levels is None:
         shock_levels = [-0.10, -0.20, -0.30]
 
-    recent_vol = float(port_rets.tail(30).std() * np.sqrt(252)) if len(port_rets) >= 30 else None
+    recent_vol = (
+        float(port_rets.tail(30).std() * np.sqrt(252)) if len(port_rets) >= 30 else None
+    )
 
     rows = []
     for s in shock_levels:
-        scenario_name = f"{int(abs(s) * 100)}% Equity Shock"
-        est_effect = s
         rows.append(
             {
-                "scenario": scenario_name,
-                "shock": s,
-                "est_effect": est_effect,
-                "recent_vol": recent_vol,
+                "Scenario": f"{int(abs(s) * 100)}% Equity Shock",
+                "Shock (%)": s * 100.0,
+                "Estimated Impact (%)": s * 100.0,
+                "Recent Vol (ann.)": recent_vol,
             }
         )
     return pd.DataFrame(rows)
 
-
-# -------------------------------------------------------------------
-# All-Waves top summary (super console feel)
-# -------------------------------------------------------------------
 
 def build_all_waves_table(summaries: dict) -> pd.DataFrame:
     rows = []
@@ -460,45 +381,37 @@ def build_all_waves_table(summaries: dict) -> pd.DataFrame:
                 "Alpha 60D": summ.get("alpha_60d"),
             }
         )
+    if not rows:
+        return pd.DataFrame()
     df = pd.DataFrame(rows)
-    if df.empty:
-        return df
     return df.sort_values("Wave")
 
 
 def build_alpha_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert alpha columns into tidy matrix for heatmap:
-    columns: Wave, window, alpha
-    """
     if df.empty:
         return df
-
     melted = pd.melt(
         df,
         id_vars=["Wave"],
         value_vars=["Alpha 1D", "Alpha 30D", "Alpha 60D"],
-        var_name="window",
-        value_name="alpha",
+        var_name="Window",
+        value_name="Alpha",
     )
-    # Clean window labels
-    melted["window"] = melted["window"].str.replace("Alpha ", "")
+    melted["Window"] = melted["Window"].str.replace("Alpha ", "")
     return melted
 
 
 # -------------------------------------------------------------------
-# Pull summary metrics for selected wave from preloaded dict
+# Selected wave summary (from preloaded dict)
 # -------------------------------------------------------------------
 
 summary = all_summaries.get(selected_wave, {})
-
 r1 = summary.get("return_1d")
 a1 = summary.get("alpha_1d")
 r30 = summary.get("return_30d")
 a30 = summary.get("alpha_30d")
 r60 = summary.get("return_60d")
 a60 = summary.get("alpha_60d")
-
 bench = summary.get("benchmark")
 
 
@@ -509,15 +422,12 @@ bench = summary.get("benchmark")
 st.markdown("### Wave Snapshot")
 
 m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8)
-
 m1.metric("1-Day Return", fmt_pct(r1))
 m2.metric("1-Day Alpha", fmt_pct(a1))
 m3.metric("30-Day Return", fmt_pct(r30))
 m4.metric("30-Day Alpha", fmt_pct(a30))
 m5.metric("60-Day Return", fmt_pct(r60))
 m6.metric("60-Day Alpha", fmt_pct(a60))
-
-# Placeholder for WaveScore slot
 m7.metric("WaveScore™ (slot)", "—")
 
 try:
@@ -526,7 +436,6 @@ try:
 except Exception:
     m8.metric("VIX (Ref)", "—")
 
-
 if bench:
     st.caption(f"Benchmark for **{selected_wave}**: `{bench}`")
 else:
@@ -534,13 +443,7 @@ else:
 
 
 # -------------------------------------------------------------------
-# Tabs:
-#   All Waves
-#   Overview (selected)
-#   Holdings
-#   Performance
-#   Risk
-#   Vector Lab
+# Tabs
 # -------------------------------------------------------------------
 
 tab_all, tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
@@ -548,7 +451,7 @@ tab_all, tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
 )
 
 # -------------------------------------------------------------------
-# ALL WAVES TAB (Super console grid)
+# ALL WAVES TAB
 # -------------------------------------------------------------------
 
 with tab_all:
@@ -558,21 +461,20 @@ with tab_all:
     if df_all.empty:
         st.info("No wave summaries available.")
     else:
-        df_disp = df_all.copy()
         st.markdown("#### Wave Metrics Table")
-        st.dataframe(
-            df_disp.style.format(
-                {
-                    "Return 1D": "{:.2%}",
-                    "Alpha 1D": "{:.2%}",
-                    "Return 30D": "{:.2%}",
-                    "Alpha 30D": "{:.2%}",
-                    "Return 60D": "{:.2%}",
-                    "Alpha 60D": "{:.2%}",
-                }
-            ),
-            use_container_width=True,
-        )
+        df_show = df_all.copy()
+        # round numeric columns a bit
+        for col in [
+            "Return 1D",
+            "Alpha 1D",
+            "Return 30D",
+            "Alpha 30D",
+            "Return 60D",
+            "Alpha 60D",
+        ]:
+            if col in df_show.columns:
+                df_show[col] = (df_show[col] * 100.0).round(2)
+        st.dataframe(df_show, use_container_width=True)
 
         st.markdown("#### Alpha Matrix (Heatmap)")
         alpha_mat = build_alpha_matrix(df_all)
@@ -583,17 +485,13 @@ with tab_all:
                 alt.Chart(alpha_mat)
                 .mark_rect()
                 .encode(
-                    x=alt.X("window:N", title="Window"),
+                    x=alt.X("Window:N", title="Window"),
                     y=alt.Y("Wave:N", title="Wave"),
-                    color=alt.Color(
-                        "alpha:Q",
-                        title="Alpha",
-                        scale=alt.Scale(scheme="redblue"),
-                    ),
+                    color=alt.Color("Alpha:Q", title="Alpha", scale=alt.Scale(scheme="redblue")),
                     tooltip=[
                         alt.Tooltip("Wave:N", title="Wave"),
-                        alt.Tooltip("window:N", title="Window"),
-                        alt.Tooltip("alpha:Q", title="Alpha", format=".2%"),
+                        alt.Tooltip("Window:N", title="Window"),
+                        alt.Tooltip("Alpha:Q", title="Alpha", format=".2%"),
                     ],
                 )
                 .properties(height=400)
@@ -601,13 +499,13 @@ with tab_all:
             st.altair_chart(chart_alpha, use_container_width=True)
 
     st.caption(
-        "All-Wave dashboard approximates the old 'grid' console: "
-        "return and alpha across multiple horizons, with a simple alpha heatmap."
+        "All-Wave dashboard approximates the old grid console: "
+        "returns and alpha across horizons, plus a simple alpha heatmap."
     )
 
 
 # -------------------------------------------------------------------
-# OVERVIEW TAB (Selected wave)
+# OVERVIEW TAB
 # -------------------------------------------------------------------
 
 with tab_overview:
@@ -618,7 +516,6 @@ with tab_overview:
     )
 
     col_left, col_right = st.columns([2, 1])
-
     with col_left:
         st.markdown("##### Performance vs Benchmark")
         if df_cum.empty:
@@ -642,20 +539,15 @@ with tab_overview:
             st.altair_chart(chart, use_container_width=True)
 
     with col_right:
-        st.markdown("##### Mode & Wave Details")
+        st.markdown("##### Wave Details")
         st.write(f"**Wave:** {selected_wave}")
-        st.write(f"**Selected Mode (for comparison):** {mode}")
+        st.write(f"**Selected Mode (for comparison curves):** {mode}")
         st.write(f"**History Window:** {history_window} days")
-        if bench:
-            st.write(f"**Benchmark:** `{bench}`")
-        else:
-            st.write("**Benchmark:** Not mapped")
-
+        st.write(f"**Benchmark:** `{bench}`" if bench else "**Benchmark:** Not mapped")
         st.markdown("---")
-        st.markdown("##### Quick Notes")
         st.caption(
-            "- Performance curves use realized daily returns from the current Wave definition.\n"
-            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in Performance."
+            "Performance curves use realized daily returns from the current Wave definition.\n"
+            "Mode comparison logic is shown in the Performance tab."
         )
 
     st.markdown("---")
@@ -665,13 +557,8 @@ with tab_overview:
         st.write("No holdings found for this Wave.")
     else:
         top_disp = top.copy()
-        top_disp["weight_pct"] = top_disp["weight"] * 100.0
-        top_disp = top_disp[["ticker", "weight_pct"]]
-        top_disp.columns = ["Ticker", "Weight (%)"]
-        st.dataframe(
-            top_disp.style.format({"Weight (%)": "{:0.2f}"}),
-            use_container_width=True,
-        )
+        top_disp["Weight (%)"] = (top_disp["weight"] * 100.0).round(2)
+        st.dataframe(top_disp[["ticker", "Weight (%)"]], use_container_width=True)
 
 
 # -------------------------------------------------------------------
@@ -686,16 +573,9 @@ with tab_holdings:
         st.write("No holdings for this Wave.")
     else:
         st.markdown("##### Top 10 Holdings Table")
-
         top_disp = top.copy()
-        top_disp["Weight (%)"] = top_disp["weight"] * 100.0
-        top_disp = top_disp[["ticker", "Weight (%)"]]
-        top_disp.columns = ["Ticker", "Weight (%)"]
-
-        st.dataframe(
-            top_disp.style.format({"Weight (%)": "{:0.2f}"}),
-            use_container_width=True,
-        )
+        top_disp["Weight (%)"] = (top_disp["weight"] * 100.0).round(2)
+        st.dataframe(top_disp[["ticker", "Weight (%)"]], use_container_width=True)
 
         st.markdown("##### Google Finance Links")
         for _, row in top.iterrows():
@@ -708,11 +588,8 @@ with tab_holdings:
             )
 
         st.markdown("---")
-
         st.markdown("##### Sector Allocation (if mapped)")
-        sector_alloc = build_sector_allocation(
-            selected_wave, weights_df, sector_map_df
-        )
+        sector_alloc = build_sector_allocation(selected_wave, weights_df, sector_map_df)
         if sector_alloc is None or sector_alloc.empty:
             st.info(
                 "No sector_map.csv found or no sectors mapped. "
@@ -720,8 +597,7 @@ with tab_holdings:
             )
         else:
             df_sec = sector_alloc.copy()
-            df_sec["Weight (%)"] = df_sec["weight"] * 100.0
-
+            df_sec["Weight (%)"] = (df_sec["weight"] * 100.0).round(2)
             chart_sector = (
                 alt.Chart(df_sec)
                 .mark_bar()
@@ -735,7 +611,6 @@ with tab_holdings:
                 )
                 .properties(height=400)
             )
-
             st.altair_chart(chart_sector, use_container_width=True)
 
 
@@ -751,7 +626,6 @@ with tab_perf:
     )
 
     col1, col2 = st.columns(2)
-
     with col1:
         st.markdown("##### Cumulative Performance")
         if df_cum.empty:
@@ -779,16 +653,14 @@ with tab_perf:
         if df_cum.empty or bench_rets is None:
             st.info("Benchmark series not available; alpha chart skipped.")
         else:
-            common_idx = port_rets.index.intersection(bench_rets.index)
-            port = port_rets.reindex(common_idx)
-            bench = bench_rets.reindex(common_idx)
+            common = port_rets.index.intersection(bench_rets.index)
+            port = port_rets.reindex(common)
+            bench = bench_rets.reindex(common)
             alpha_daily = port - bench
             alpha_cum = (1.0 + alpha_daily).cumprod() - 1.0
-
             df_alpha = pd.DataFrame(
                 {"date": alpha_cum.index, "alpha": alpha_cum.values}
             )
-
             chart_alpha = (
                 alt.Chart(df_alpha)
                 .mark_line()
@@ -809,10 +681,7 @@ with tab_perf:
 
     df_modes = build_mode_comparison_series(port_rets, bench_rets)
     if df_modes is None or df_modes.empty:
-        st.info(
-            "Not enough data (or no benchmark) to show mode comparison. "
-            "Standard curve is used elsewhere."
-        )
+        st.info("Not enough data (or no benchmark) to show mode comparison.")
     else:
         chart_modes = (
             alt.Chart(df_modes)
@@ -850,7 +719,6 @@ with tab_risk:
     )
 
     risk = compute_risk_metrics(port_rets)
-
     c1, c2, c3 = st.columns(3)
     c1.metric("30-Day Vol (ann.)", fmt_pct(risk.get("vol_30d")))
     c2.metric("60-Day Vol (ann.)", fmt_pct(risk.get("vol_60d")))
@@ -858,7 +726,6 @@ with tab_risk:
 
     st.markdown("---")
     st.markdown("##### Drawdown Curve")
-
     if port_rets is None or port_rets.empty:
         st.info("Not enough data to show drawdown.")
     else:
@@ -866,7 +733,6 @@ with tab_risk:
         running_max = cum.cummax()
         dd = cum / running_max - 1.0
         df_dd = pd.DataFrame({"date": dd.index, "drawdown": dd.values})
-
         chart_dd = (
             alt.Chart(df_dd)
             .mark_area()
@@ -880,20 +746,16 @@ with tab_risk:
             )
             .properties(height=350)
         )
-
         st.altair_chart(chart_dd, use_container_width=True)
 
     st.markdown("---")
     st.markdown("##### Factor Exposure (Momentum & Quality Tilt)")
-
     factor_exposure = compute_factor_exposure_for_wave(
         selected_wave, weights_df, days=260
     )
-
     if factor_exposure is None or factor_exposure.empty:
         st.info(
-            "Factor exposure could not be computed (insufficient history or data). "
-            "Ensure tickers have ~1 year of price history for best results."
+            "Factor exposure could not be computed (insufficient history or data)."
         )
     else:
         chart_factor = (
@@ -901,7 +763,7 @@ with tab_risk:
             .mark_bar()
             .encode(
                 x=alt.X("factor:N", title="Factor"),
-                y=alt.Y("exposure:Q", title="Exposure (relative z-score)"),
+                y=alt.Y("exposure:Q", title="Exposure (rel. z-score)"),
                 tooltip=[
                     alt.Tooltip("factor:N", title="Factor"),
                     alt.Tooltip("exposure:Q", title="Exposure", format=".2f"),
@@ -928,15 +790,13 @@ with tab_vector:
         ["Wave Blender", "Scenario Shocks", "VectorOS Prompt"]
     )
 
-    # ---- Wave Blender ----
+    # Wave Blender
     with subtab1:
         st.markdown("### Wave Blender")
-
         st.caption(
             "Blend your selected Wave with another Wave (e.g., SmartSafe, S&P Wave) "
             "to see how a combined allocation would have behaved."
         )
-
         other_waves = [w for w in wave_names if w != selected_wave]
         if not other_waves:
             st.info("Need at least 2 Waves to use the blender.")
@@ -946,28 +806,18 @@ with tab_vector:
                 if "safe" in wname.lower() or "cash" in wname.lower():
                     default_other = i
                     break
-
-            blend_wave = st.selectbox(
-                "Blend with Wave",
-                other_waves,
-                index=default_other,
-            )
-
+            blend_wave = st.selectbox("Blend with Wave", other_waves, index=default_other)
             blend_pct = st.slider(
                 "Allocation to primary Wave",
                 min_value=0,
                 max_value=100,
                 value=60,
                 step=5,
-                help="The remainder goes to the secondary Wave.",
             )
-
             blend_a = blend_pct / 100.0
-
             df_blend = build_blended_wave_timeseries(
                 selected_wave, blend_wave, blend_a, history_window, weights_df
             )
-
             if df_blend is None or df_blend.empty:
                 st.info("Not enough overlapping data to build blended series.")
             else:
@@ -991,73 +841,42 @@ with tab_vector:
                 )
                 st.altair_chart(chart_blend, use_container_width=True)
 
-    # ---- Scenario Shocks ----
+    # Scenario Shocks
     with subtab2:
         st.markdown("### Scenario Shocks")
-
         st.caption(
             "Very simple hypothetical shocks applied to the selected Wave. "
-            "These are not full stress tests, but quick intuition aids."
+            "Not a full stress engine, just quick intuition aids."
         )
-
-        df_cum, port_rets, bench_rets = get_wave_timeseries(
-            selected_wave, history_window, weights_df
-        )
+        df_cum, port_rets, _ = get_wave_timeseries(selected_wave, history_window, weights_df)
         scenarios = compute_shock_scenarios(port_rets)
-
         if scenarios is None or scenarios.empty:
             st.info("Not enough data to compute scenarios.")
         else:
-            scenarios_disp = scenarios.copy()
-            scenarios_disp["Shock (%)"] = scenarios_disp["shock"] * 100.0
-            scenarios_disp["Estimated Impact (%)"] = scenarios_disp["est_effect"] * 100.0
-            scenarios_disp = scenarios_disp[
-                ["scenario", "Shock (%)", "Estimated Impact (%)", "recent_vol"]
-            ]
-            scenarios_disp.rename(
-                columns={
-                    "scenario": "Scenario",
-                    "recent_vol": "Recent Vol (ann.)",
-                },
-                inplace=True,
+            st.dataframe(scenarios, use_container_width=True)
+            st.caption(
+                "Assumes a simple 1:1 mapping between the shock and the Wave's estimated impact. "
+                "A full implementation would scale this by beta, sectors, and factor sensitivities."
             )
 
-            st.dataframe(
-                scenarios_disp.style.format(
-                    {
-                        "Shock (%)": "{:0.1f}",
-                        "Estimated Impact (%)": "{:0.1f}",
-                        "Recent Vol (ann.)": "{:0.2%}",
-                    }
-                ),
-                use_container_width=True,
-            )
-
-    # ---- VectorOS Prompt Stub ----
+    # VectorOS Prompt stub
     with subtab3:
         st.markdown("### VectorOS Prompt (Stub)")
-
         st.caption(
             "UI-only stub for the future VectorOS agent. "
             "Use it to prototype how you'd talk to the system."
         )
-
         default_prompt = (
             "Reallocate 10% from S&P Wave into SmartSafe over the next 30 days, "
             "but only if VIX stays above 25. Show me the expected drawdown improvement."
         )
-
         user_prompt = st.text_area(
-            "Tell Vector what to do:",
-            value=default_prompt,
-            height=120,
+            "Tell Vector what to do:", value=default_prompt, height=120
         )
-
         if st.button("Interpret with VectorOS (placeholder)"):
             st.markdown("#### VectorOS Interpretation (Prototype)")
             st.write("**Raw Instruction:**")
             st.code(user_prompt)
-
             st.write("**Parsed Intent (example):**")
             st.json(
                 {
