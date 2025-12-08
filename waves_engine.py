@@ -7,7 +7,7 @@ This script:
 
 1. Loads wave_weights.csv (Primary / Secondary baskets — full universe).
 2. Auto-discovers all Waves.
-3. Normalizes weights within each Wave (full basket, not just top 10).
+3. Normalizes weights within each Wave (full basket).
 4. Fetches historical prices & daily returns via yfinance.
 5. Writes positions logs for each Wave:
      logs/positions/<Wave>_positions_YYYYMMDD.csv
@@ -30,10 +30,9 @@ Run manually:
 
     python waves_engine.py
 
-Or later on a schedule (cron, GitHub Actions, etc.).
+(or via GitHub Actions / Codespaces / Replit)
 """
 
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -54,10 +53,8 @@ LOGS_POS_DIR = BASE_DIR / "logs" / "positions"
 LOGS_PERF_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_POS_DIR.mkdir(parents=True, exist_ok=True)
 
-# How many calendar days of history to pull (approx trading days)
-HISTORY_DAYS = 365
+HISTORY_DAYS = 365  # calendar days of history
 
-# Simple benchmark mapping (tweak as needed)
 BENCHMARK_MAP = {
     "S&P 500 Wave": "^GSPC",
     "Growth Wave": "QQQ",
@@ -74,20 +71,10 @@ BENCHMARK_MAP = {
 # ================================
 # Helpers
 # ================================
-def normalize_key(s):
-    return "".join(ch.lower() for ch in str(s) if ch.isalnum())
-
-
-def load_weights():
-    """
-    Load wave_weights.csv and return a DataFrame with:
-
-      wave, ticker, weight
-
-    where weight is normalized within each Wave (full basket).
-    """
+def load_weights() -> pd.DataFrame:
+    """Load wave_weights.csv and return [wave, ticker, weight]."""
     if not WEIGHTS_FILE.exists():
-        raise FileNotFoundError("Missing weights file: %s" % WEIGHTS_FILE)
+        raise FileNotFoundError(f"Missing weights file: {WEIGHTS_FILE}")
 
     df = pd.read_csv(WEIGHTS_FILE)
     if df.empty:
@@ -117,7 +104,6 @@ def load_weights():
             break
 
     if weight_col is None:
-        # Equal weight if nothing provided
         df["__weight__"] = 1.0
         weight_col = "__weight__"
 
@@ -129,7 +115,6 @@ def load_weights():
     df["ticker"] = df["ticker"].astype(str).str.upper()
     df["raw_weight"] = df["raw_weight"].astype(float)
 
-    # Normalize within each Wave
     df["weight"] = df.groupby("wave")["raw_weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else 1.0 / len(x)
     )
@@ -137,19 +122,12 @@ def load_weights():
     return df[["wave", "ticker", "weight"]]
 
 
-def get_benchmark_for_wave(wave_name):
-    """
-    Map Wave name to benchmark ticker for yfinance.
-    Default to S&P if unknown.
-    """
+def get_benchmark_for_wave(wave_name: str) -> str:
     return BENCHMARK_MAP.get(wave_name, "^GSPC")
 
 
-def fetch_price_history(tickers, start, end):
-    """
-    Fetch adjusted close prices for all tickers between start & end.
-    Returns DataFrame: index=date, columns=tickers.
-    """
+def fetch_price_history(tickers, start: datetime, end: datetime) -> pd.DataFrame:
+    """Fetch adjusted close prices for tickers between start & end."""
     if not tickers:
         return pd.DataFrame()
 
@@ -162,7 +140,6 @@ def fetch_price_history(tickers, start, end):
         progress=False,
     )
 
-    # Handle multi-index vs single column structure
     if isinstance(data.columns, pd.MultiIndex):
         cols = []
         for t in tickers:
@@ -172,7 +149,6 @@ def fetch_price_history(tickers, start, end):
             return pd.DataFrame()
         prices = pd.concat(cols, axis=1)
     else:
-        # Single ticker
         prices = data["Close"].to_frame()
         prices.columns = [tickers[0]]
 
@@ -180,20 +156,17 @@ def fetch_price_history(tickers, start, end):
     return prices
 
 
-def compute_daily_returns(prices):
-    """Convert price levels into daily pct returns."""
+def compute_daily_returns(prices: pd.DataFrame) -> pd.DataFrame:
     return prices.pct_change().dropna(how="all")
 
 
-def build_wave_performance(wave_name, weights_df, start, end):
-    """
-    Build daily performance DataFrame for a single Wave:
-
-      date, portfolio_return, benchmark_return
-    """
+def build_wave_performance(
+    wave_name: str, weights_df: pd.DataFrame, start: datetime, end: datetime
+) -> pd.DataFrame:
+    """Return DataFrame: date, portfolio_return, benchmark_return."""
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
-        raise ValueError("No rows for wave '%s' in wave_weights.csv" % wave_name)
+        raise ValueError(f"No rows for wave '{wave_name}' in wave_weights.csv")
 
     tickers = sorted(wave_weights["ticker"].unique().tolist())
     bench_ticker = get_benchmark_for_wave(wave_name)
@@ -203,23 +176,19 @@ def build_wave_performance(wave_name, weights_df, start, end):
 
     if basket_prices.empty or bench_prices.empty:
         raise ValueError(
-            "Missing price history for wave '%s' or benchmark '%s'"
-            % (wave_name, bench_ticker)
+            f"Missing price history for wave '{wave_name}' or benchmark '{bench_ticker}'"
         )
 
     basket_rets = compute_daily_returns(basket_prices)
     bench_rets = compute_daily_returns(bench_prices)
 
-    # Align dates
     common_dates = basket_rets.index.intersection(bench_rets.index)
     basket_rets = basket_rets.loc[common_dates]
     bench_rets = bench_rets.loc[common_dates]
 
-    # Align weights with tickers
     weight_map = {row["ticker"]: row["weight"] for _, row in wave_weights.iterrows()}
     aligned_weights = np.array([weight_map[t] for t in basket_rets.columns])
 
-    # Portfolio daily return
     port_ret = basket_rets.values @ aligned_weights
 
     perf_df = pd.DataFrame(
@@ -234,29 +203,30 @@ def build_wave_performance(wave_name, weights_df, start, end):
     return perf_df
 
 
-def write_performance_log(wave_name, perf_df):
+def write_performance_log(wave_name: str, perf_df: pd.DataFrame) -> Path:
     """
-    Write:
-      logs/performance/<Wave>_performance_daily.csv
+    Write logs/performance/<Wave>_performance_daily.csv
+
+    Also ensures any intermediate directories implied by '/' in wave_name exist.
     """
     out_path = LOGS_PERF_DIR / f"{wave_name}_performance_daily.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)  # handles names with '/'
     perf_df.to_csv(out_path, index=False)
     return out_path
 
 
-def write_positions_log(wave_name, weights_df, as_of_date):
+def write_positions_log(
+    wave_name: str, weights_df: pd.DataFrame, as_of_date: datetime
+) -> Path:
     """
-    Write:
-      logs/positions/<Wave>_positions_YYYYMMDD.csv
+    Write logs/positions/<Wave>_positions_YYYYMMDD.csv
 
-    Columns:
-      Ticker, Name, Sector, weight_pct
+    Columns: Ticker, Name, Sector, weight_pct
     """
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
-        raise ValueError("No rows for wave '%s' in wave_weights.csv" % wave_name)
+        raise ValueError(f"No rows for wave '{wave_name}' in wave_weights.csv")
 
-    # Normalize again for safety
     wave_weights["weight"] = wave_weights["weight"] / wave_weights["weight"].sum()
     wave_weights["weight_pct"] = wave_weights["weight"] * 100.0
 
@@ -273,10 +243,10 @@ def write_positions_log(wave_name, weights_df, as_of_date):
             names[t] = ""
             sectors[t] = ""
 
-    out_rows = []
+    rows = []
     for _, row in wave_weights.iterrows():
         t = row["ticker"]
-        out_rows.append(
+        rows.append(
             {
                 "Ticker": t,
                 "Name": names.get(t, ""),
@@ -285,11 +255,11 @@ def write_positions_log(wave_name, weights_df, as_of_date):
             }
         )
 
-    pos_df = pd.DataFrame(out_rows)
-    pos_df = pos_df.sort_values("weight_pct", ascending=False)
+    pos_df = pd.DataFrame(rows).sort_values("weight_pct", ascending=False)
 
     date_str = as_of_date.strftime("%Y%m%d")
     out_path = LOGS_POS_DIR / f"{wave_name}_positions_{date_str}.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)  # handles names with '/'
     pos_df.to_csv(out_path, index=False)
     return out_path
 
