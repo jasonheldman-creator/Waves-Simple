@@ -554,6 +554,15 @@ def compute_standard_matrix_row(wave_name, weights_df):
 
 
 def compute_alpha_summary_for_wave(wave_name, mode_label, weights_df):
+    """
+    Alpha summary used in Alpha Capture Matrix:
+    - Intraday α
+    - 1D α
+    - 30D α
+    - 60D α
+    - Since-Inception Alpha + Returns
+    (No explicit 1Y α here by design.)
+    """
     perf_df, regime = build_wave_performance(
         wave_name, mode_label, weights_df, HISTORY_DAYS
     )
@@ -569,7 +578,6 @@ def compute_alpha_summary_for_wave(wave_name, mode_label, weights_df):
     )
     alpha_30d = latest["alpha_30d"]
     alpha_60d = latest["alpha_60d"]
-    alpha_1y = perf_df["alpha_1d"].tail(252).sum()
 
     cum_port = (1.0 + perf_df["portfolio_return"]).cumprod()
     cum_bench = (1.0 + perf_df["benchmark_return"]).cumprod()
@@ -584,7 +592,6 @@ def compute_alpha_summary_for_wave(wave_name, mode_label, weights_df):
         "1D α": one_day_alpha * 100.0,
         "30D α": alpha_30d * 100.0,
         "60D α": alpha_60d * 100.0,
-        "1Y α": alpha_1y * 100.0,
         "SI Alpha": si_alpha,
         "SI Wave Return": si_wave_ret,
         "SI Benchmark Return": si_bench_ret,
@@ -829,7 +836,7 @@ with tab_overview:
 
         st.markdown("---", unsafe_allow_html=True)
 
-        # Only 30D and 60D return vs benchmark (no since inception)
+        # Only 30D and 60D return vs benchmark (no since inception shown here)
         c5, c6 = st.columns(2)
         with c5:
             st.markdown("**30D Return vs Benchmark**")
@@ -921,10 +928,10 @@ with tab_overview:
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------- Alpha Dashboard --------
+# -------- Alpha Dashboard (intraday / 30D / 60D only) --------
 with tab_alpha:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="metric-label">Alpha Timelines</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-label">Alpha Timelines (1D / 30D / 60D)</div>', unsafe_allow_html=True)
 
     alpha_chart_df = pd.DataFrame(
         {
@@ -939,7 +946,7 @@ with tab_alpha:
     st.markdown(
         "<span style='font-size:0.8rem;color:#9fa6b2;'>"
         "All alphas are β-adjusted excess returns using the effective mode β. "
-        "30D and 60D are rolling sums of daily alpha."
+        "30D and 60D are rolling sums of daily alpha. No 1-year alpha is shown on this tab."
         "</span>",
         unsafe_allow_html=True,
     )
@@ -1001,7 +1008,7 @@ with tab_std_matrix:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------- Alpha Capture Matrix --------
+# -------- Alpha Capture Matrix (no 1Y column) --------
 with tab_alpha_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown(
@@ -1026,7 +1033,6 @@ with tab_alpha_matrix:
             "1D α",
             "30D α",
             "60D α",
-            "1Y α",
             "SI Alpha",
             "SI Wave Return",
             "SI Benchmark Return",
@@ -1035,8 +1041,9 @@ with tab_alpha_matrix:
 
         st.markdown(
             f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            f"All values are β-adjusted alpha captures and cumulative returns for "
-            f"the selected mode (<b>{selected_mode}</b>). Regime shows LIVE vs SANDBOX."
+            f"All values are β-adjusted alpha captures and since-inception returns "
+            f"for the selected mode (<b>{selected_mode}</b>). "
+            f"Regime shows LIVE vs SANDBOX."
             f"</span>",
             unsafe_allow_html=True,
         )
