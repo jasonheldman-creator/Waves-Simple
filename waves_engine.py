@@ -239,6 +239,28 @@ def load_wavescore_summary() -> Optional[pd.DataFrame]:
     return None
 
 
+def load_human_overrides() -> Optional[pd.DataFrame]:
+    """
+    Optional human override view.
+
+    Expected file (if used): logs/human_overrides/overrides.csv
+    or logs/human_overrides/human_overrides.csv
+    """
+    candidates = [
+        os.path.join(HUMAN_OVERRIDE_DIR, "overrides.csv"),
+        os.path.join(HUMAN_OVERRIDE_DIR, "human_overrides.csv"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                if not df.empty:
+                    return df
+            except Exception:
+                continue
+    return None
+
+
 # ---------- Google Finance links & metrics ----------
 
 def google_quote_url(ticker: str) -> str:
@@ -365,6 +387,31 @@ def render_alpha_capture_tab() -> None:
     st.dataframe(df, use_container_width=True)
 
 
+def render_human_override_tab(selected_wave: str) -> None:
+    st.subheader("Human Override — View Only")
+
+    df = load_human_overrides()
+    if df is None or df.empty:
+        st.info(
+            "No human overrides found. If overrides are used, they will be read from "
+            "`logs/human_overrides/overrides.csv`."
+        )
+        return
+
+    st.markdown("#### All Overrides")
+    st.dataframe(df, use_container_width=True)
+
+    cols = {c.lower(): c for c in df.columns}
+    wave_col = cols.get("wave")
+    if wave_col:
+        st.markdown(f"#### Overrides for {selected_wave}")
+        this_wave_df = df[df[wave_col] == selected_wave]
+        if not this_wave_df.empty:
+            st.dataframe(this_wave_df, use_container_width=True)
+        else:
+            st.info(f"No overrides currently filed for {selected_wave}.")
+
+
 def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
     if path is None or not os.path.exists(path):
         return None
@@ -390,6 +437,7 @@ def render_system_status_tab(waves: List[str]) -> None:
         st.markdown("#### Directories")
         st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
         st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
+        st.write(f"Human Overrides: `{HUMAN_OVERRIDE_DIR}`")
 
     with logs_col:
         st.markdown("#### Latest Updates per Wave")
@@ -502,8 +550,8 @@ def main() -> None:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Wave Details", "Alpha Capture", "WaveScore", "System Status", "All Waves Snapshot"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Wave Details", "Alpha Capture", "WaveScore", "Human Override", "System Status", "All Waves Snapshot"]
     )
 
     with tab1:
@@ -525,9 +573,12 @@ def main() -> None:
         render_wavescore_tab()
 
     with tab4:
-        render_system_status_tab(waves)
+        render_human_override_tab(selected_wave)
 
     with tab5:
+        render_system_status_tab(waves)
+
+    with tab6:
         st.subheader("All Waves — Snapshot")
         snapshot_df = compute_multi_wave_snapshot(waves)
         if not snapshot_df.empty:
