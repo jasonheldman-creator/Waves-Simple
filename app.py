@@ -15,7 +15,7 @@ except Exception:  # for environments without Streamlit during linting
             return f
     st = _Dummy()
 
-# Try to import your engine (optional)
+# Try to import your engine
 try:
     import waves_engine  # type: ignore
     HAS_ENGINE = True
@@ -40,7 +40,7 @@ WAVESCORE_CANDIDATES = [
     "wavescore_summary.csv",
 ]
 
-# Simple metadata (kept small so it pastes cleanly on mobile)
+# ---- Wave metadata (display names) ----
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "S&P 500 Wave": {
         "category": "Core Equity",
@@ -57,7 +57,7 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
         "benchmark": "QQQ",
         "tagline": "Quantum, AI, and deep-tech acceleration.",
     },
-    "Clean Transit & Infrastructure Wave": {
+    "Clean Transit-Infrastructure Wave": {
         "category": "Thematic Equity",
         "benchmark": "IDEV",
         "tagline": "Clean transit, infrastructure and mobility.",
@@ -74,8 +74,7 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
     },
 }
 
-
-# ---------- Path helpers ----------
+# ---------- Basic helpers ----------
 
 def ensure_dirs() -> None:
     os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
@@ -83,24 +82,21 @@ def ensure_dirs() -> None:
     os.makedirs(HUMAN_OVERRIDE_DIR, exist_ok=True)
 
 
-def safe_wave_to_file_prefix(wave_name: str) -> str:
-    return wave_name.replace(" ", "_")
-
-
-def performance_path_for_wave(wave: str) -> Optional[str]:
-    safe = safe_wave_to_file_prefix(wave)
-    direct = os.path.join(LOGS_PERFORMANCE_DIR, f"{safe}_performance_daily.csv")
-    if os.path.exists(direct):
-        return direct
-    if not os.path.isdir(LOGS_PERFORMANCE_DIR):
-        return None
-    for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-        if fname.endswith(".csv") and fname.startswith(safe + "_performance"):
-            return os.path.join(LOGS_PERFORMANCE_DIR, fname)
-    return None
+def normalize_for_match(s: str) -> str:
+    """Normalize wave names / filenames for fuzzy matching."""
+    if not isinstance(s, str):
+        return ""
+    s = s.lower()
+    for ch in ["&", "-", "_"]:
+        s = s.replace(ch, " ")
+    s = s.replace("wave", " ")
+    s = s.replace("portfolio", " ")
+    s = " ".join(s.split())
+    return s
 
 
 def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
+    """Try to parse YYYYMMDD from ..._YYYYMMDD.csv"""
     base = os.path.basename(fname)
     stem = base.replace(".csv", "")
     parts = stem.split("_")
@@ -115,48 +111,101 @@ def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
     return None
 
 
-def latest_positions_path_for_wave(wave: str) -> Optional[str]:
+def find_best_performance_path(wave_name: str) -> Optional[str]:
+    """Fuzzy match performance file for a wave."""
+    if not os.path.isdir(LOGS_PERFORMANCE_DIR):
+        return None
+    target = normalize_for_match(wave_name)
+    if not target:
+        return None
+
+    best_score = 0.0
+    best_path: Optional[str] = None
+
+    for fname in os.listdir(LOGS_PERFORMANCE_DIR):
+        if not fname.endswith(".csv"):
+            continue
+        if "_performance" not in fname:
+            continue
+        base = fname.replace(".csv", "")
+        base_norm = normalize_for_match(base)
+        if not base_norm:
+            continue
+        t_tokens = set(target.split())
+        b_tokens = set(base_norm.split())
+        if not t_tokens or not b_tokens:
+            continue
+        score = len(t_tokens & b_tokens) / len(t_tokens | b_tokens)
+        if score > best_score:
+            best_score = score
+            best_path = os.path.join(LOGS_PERFORMANCE_DIR, fname)
+
+    if best_score < 0.4:
+        return None
+    return best_path
+
+
+def find_latest_positions_path(wave_name: str) -> Optional[str]:
+    """Fuzzy match LATEST positions file for a wave."""
     if not os.path.isdir(LOGS_POSITIONS_DIR):
         return None
-    safe = safe_wave_to_file_prefix(wave)
+    target = normalize_for_match(wave_name)
+    if not target:
+        return None
+
     candidates: List[Tuple[datetime, str]] = []
+
     for fname in os.listdir(LOGS_POSITIONS_DIR):
-        if fname.endswith(".csv") and fname.startswith(safe + "_positions_"):
-            dt = parse_date_from_positions_filename(fname)
-            if dt is not None:
-                candidates.append((dt, fname))
+        if not fname.endswith(".csv"):
+            continue
+        if "_positions" not in fname:
+            continue
+        base = fname.replace(".csv", "")
+        base_norm = normalize_for_match(base)
+        if not base_norm:
+            continue
+        t_tokens = set(target.split())
+        b_tokens = set(base_norm.split())
+        if not t_tokens or not b_tokens:
+            continue
+        score = len(t_tokens & b_tokens) / len(t_tokens | b_tokens)
+        if score < 0.4:
+            continue
+
+        full_path = os.path.join(LOGS_POSITIONS_DIR, fname)
+        dt = parse_date_from_positions_filename(fname)
+        if dt is None:
+            try:
+                dt = datetime.fromtimestamp(os.path.getmtime(full_path))
+            except Exception:
+                continue
+        candidates.append((dt, fname))
+
     if not candidates:
         return None
-    latest = max(candidates, key=lambda x: x[0])[1]
-    return os.path.join(LOGS_POSITIONS_DIR, latest)
+    latest_fname = max(candidates, key=lambda x: x[0])[1]
+    return os.path.join(LOGS_POSITIONS_DIR, latest_fname)
 
 
 # ---------- Data loaders ----------
 
 def get_available_waves() -> List[str]:
+    """Waves from engine weights, falling back to metadata."""
     waves: set[str] = set()
 
-    # From performance logs
-    if os.path.isdir(LOGS_PERFORMANCE_DIR):
-        for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-            if fname.endswith(".csv") and "_performance" in fname:
-                base = fname.replace(".csv", "")
-                wave_part = base.split("_performance")[0]
-                waves.add(wave_part.replace("_", " ").strip())
-
-    # Fallback to weights via engine
-    if not waves and HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
+    if HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
         try:
             weights_df = waves_engine.load_wave_weights()  # type: ignore
             if weights_df is not None and not weights_df.empty:
                 cols = {c.lower(): c for c in weights_df.columns}
                 wave_col = cols.get("wave")
                 if wave_col:
-                    waves.update(weights_df[wave_col].dropna().astype(str).unique().tolist())
+                    waves.update(
+                        weights_df[wave_col].dropna().astype(str).unique().tolist()
+                    )
         except Exception:
             pass
 
-    # Last resort: metadata keys
     if not waves:
         waves.update(WAVE_METADATA.keys())
 
@@ -164,7 +213,7 @@ def get_available_waves() -> List[str]:
 
 
 def load_performance_history(wave: str) -> Optional[pd.DataFrame]:
-    path = performance_path_for_wave(wave)
+    path = find_best_performance_path(wave)
     if path is None or not os.path.exists(path):
         return None
     df = pd.read_csv(path)
@@ -178,7 +227,7 @@ def load_performance_history(wave: str) -> Optional[pd.DataFrame]:
 
 
 def load_latest_positions(wave: str) -> Optional[pd.DataFrame]:
-    path = latest_positions_path_for_wave(wave)
+    path = find_latest_positions_path(wave)
     if path is None or not os.path.exists(path):
         return None
     return pd.read_csv(path)
@@ -198,6 +247,22 @@ def load_alpha_capture_matrix() -> Optional[pd.DataFrame]:
 
 def load_wavescore_summary() -> Optional[pd.DataFrame]:
     for path in WAVESCORE_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                if not df.empty:
+                    return df
+            except Exception:
+                continue
+    return None
+
+
+def load_human_overrides() -> Optional[pd.DataFrame]:
+    candidates = [
+        os.path.join(HUMAN_OVERRIDE_DIR, "overrides.csv"),
+        os.path.join(HUMAN_OVERRIDE_DIR, "human_overrides.csv"),
+    ]
+    for path in candidates:
         if os.path.exists(path):
             try:
                 df = pd.read_csv(path)
@@ -314,7 +379,7 @@ def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-# ---------- Tabs ----------
+# ---------- Sub-tabs ----------
 
 def render_wavescore_tab() -> None:
     st.subheader("WAVESCORE™ v1.0 — Wave Quality Dashboard")
@@ -332,6 +397,30 @@ def render_alpha_capture_tab() -> None:
         st.info("Alpha Capture Matrix not yet generated.")
         return
     st.dataframe(df, use_container_width=True)
+
+
+def render_human_override_tab(selected_wave: str) -> None:
+    st.subheader("Human Override — View Only")
+    df = load_human_overrides()
+    if df is None or df.empty:
+        st.info(
+            "No human overrides found. If overrides are used, they will be read from "
+            "`logs/human_overrides/overrides.csv`."
+        )
+        return
+
+    st.markdown("#### All Overrides")
+    st.dataframe(df, use_container_width=True)
+
+    cols = {c.lower(): c for c in df.columns}
+    wave_col = cols.get("wave")
+    if wave_col:
+        st.markdown(f"#### Overrides for {selected_wave}")
+        this_wave_df = df[df[wave_col] == selected_wave]
+        if not this_wave_df.empty:
+            st.dataframe(this_wave_df, use_container_width=True)
+        else:
+            st.info(f"No overrides currently filed for {selected_wave}.")
 
 
 def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
@@ -355,17 +444,17 @@ def render_system_status_tab(waves: List[str]) -> None:
             st.success("waves_engine module detected.")
         else:
             st.error("waves_engine module NOT found.")
-
         st.markdown("#### Directories")
         st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
         st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
+        st.write(f"Human Overrides: `{HUMAN_OVERRIDE_DIR}`")
 
     with logs_col:
         st.markdown("#### Latest Updates per Wave")
         rows = []
         for wave in waves:
-            perf_path = performance_path_for_wave(wave)
-            pos_path = latest_positions_path_for_wave(wave)
+            perf_path = find_best_performance_path(wave)
+            pos_path = find_latest_positions_path(wave)
             rows.append({
                 "Wave": wave,
                 "Last Perf Update": get_last_update_time(perf_path),
@@ -434,11 +523,23 @@ def main() -> None:
     if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
         st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
 
-    col_left, col_right = st.columns([2, 1])
-
+    # Load data (may be empty if engine never ran for this wave)
     perf_df = load_performance_history(selected_wave)
-    metrics = compute_summary_metrics(perf_df)
     positions_df = load_latest_positions(selected_wave)
+
+    # Auto-kick engine ONCE if there is no data for this wave
+    if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
+        try:
+            waves_engine.run_wave(selected_wave)  # type: ignore
+            st.sidebar.success(f"Engine auto-run for {selected_wave}.")
+            perf_df = load_performance_history(selected_wave)
+            positions_df = load_latest_positions(selected_wave)
+        except Exception as e:
+            st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
+
+    metrics = compute_summary_metrics(perf_df)
+
+    col_left, col_right = st.columns([2, 1])
 
     with col_left:
         st.subheader(f"{selected_wave} — Overview")
@@ -459,8 +560,15 @@ def main() -> None:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Wave Details", "Alpha Capture", "WaveScore", "System Status", "All Waves Snapshot"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        [
+            "Wave Details",
+            "Alpha Capture",
+            "WaveScore",
+            "Human Override",
+            "System Status",
+            "All Waves Snapshot",
+        ]
     )
 
     with tab1:
@@ -482,9 +590,12 @@ def main() -> None:
         render_wavescore_tab()
 
     with tab4:
-        render_system_status_tab(waves)
+        render_human_override_tab(selected_wave)
 
     with tab5:
+        render_system_status_tab(waves)
+
+    with tab6:
         st.subheader("All Waves — Snapshot")
         snapshot_df = compute_multi_wave_snapshot(waves)
         if not snapshot_df.empty:
