@@ -1,10 +1,10 @@
 name: Run WAVES Engine
 
 on:
-  # Run every hour between 9:00 and 16:00 US Central, Mon–Fri (tweak as needed)
+  # Run once per market day at 21:00 UTC (3pm US Central) – tweak as needed
   schedule:
-    - cron: "0 15-22 * * 1-5"
-  # Allow manual trigger from GitHub UI too
+    - cron: "0 21 * * 1-5"
+  # Allow manual trigger from GitHub UI
   workflow_dispatch:
 
 jobs:
