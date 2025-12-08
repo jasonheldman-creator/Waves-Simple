@@ -1,19 +1,14 @@
 """
-waves_engine.py
-
-WAVES Intelligence™ engine (Vector 1 Final):
+waves_engine.py — Vector 1 Fallback (Hardened)
 
 - Reads wave_weights.csv (user-defined Waves)
 - Builds a dynamic S&P 500 Wave from sp500_universe.csv
   with an overlay from any "S&P Wave" rows in wave_weights.csv
-- Fetches price history via yfinance
+- Fetches price history via yfinance (with full try/except so Streamlit never crashes)
 - Computes per-Wave performance & alpha vs benchmarks
 - Produces top holdings
 - Computes simple factor scores (momentum, quality/low-vol proxy)
 - Exposes a VIX helper for the console
-
-This file is designed to match the expectations of the
-Vector 1 Console app.py.
 """
 
 from __future__ import annotations
@@ -25,7 +20,6 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
-
 
 # ---------------------------------------------------------------------
 # Paths & constants
@@ -146,6 +140,7 @@ def _build_dynamic_sp500_wave(
     try:
         core = _build_sp500_core(sp500_path)
     except Exception as e:
+        # If core fails but we have an overlay, just use overlay.
         if overlay.empty:
             raise RuntimeError(f"Failed to build S&P core and no overlay present: {e}")
         core = overlay.rename(columns={"weight": "core_weight"})
@@ -215,28 +210,40 @@ def get_wave_names(weights_df: pd.DataFrame) -> List[str]:
 
 
 # ---------------------------------------------------------------------
-# Market data helpers
+# Market data helpers (hardened)
 # ---------------------------------------------------------------------
 
 def fetch_price_history(tickers: List[str], lookback_days: int = MAX_LOOKBACK_DAYS) -> pd.DataFrame:
     """
     Fetch daily adjusted close prices for the given tickers.
     Returns wide DataFrame with Date index and tickers as columns.
+
+    HARDENED: any yfinance error returns an empty DataFrame instead
+    of crashing the Streamlit app.
     """
     if not tickers:
         return pd.DataFrame()
 
-    tickers_clean = sorted(set(str(t).upper().strip() for t in tickers))
+    tickers_clean = sorted(
+        set(str(t).upper().strip() for t in tickers if str(t).strip())
+    )
+    if not tickers_clean:
+        return pd.DataFrame()
+
     end = datetime.utcnow()
     start = end - timedelta(days=lookback_days + 5)
 
-    data = yf.download(
-        tickers_clean,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
-        progress=False,
-        auto_adjust=True,
-    )
+    try:
+        data = yf.download(
+            tickers_clean,
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            progress=False,
+            auto_adjust=True,
+        )
+    except Exception as e:
+        print(f"[WARN] yfinance download failed for {tickers_clean}: {e}")
+        return pd.DataFrame()
 
     if data.empty:
         return pd.DataFrame()
@@ -260,6 +267,7 @@ def fetch_price_history(tickers: List[str], lookback_days: int = MAX_LOOKBACK_DA
 def get_vix_level() -> Optional[float]:
     """
     Fetch current-ish VIX level using yfinance ^VIX.
+    Also hardened with try/except.
     """
     try:
         df = yf.download("^VIX", period="5d", interval="1d", progress=False, auto_adjust=True)
