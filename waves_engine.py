@@ -1,444 +1,337 @@
-"""
-waves_engine.py — Vector 1 Fallback (Hardened)
-
-- Reads wave_weights.csv (user-defined Waves)
-- Builds a dynamic S&P 500 Wave from sp500_universe.csv
-  with an overlay from any "S&P Wave" rows in wave_weights.csv
-- Fetches price history via yfinance (with full try/except so Streamlit never crashes)
-- Computes per-Wave performance & alpha vs benchmarks
-- Produces top holdings
-- Computes simple factor scores (momentum, quality/low-vol proxy)
-- Exposes a VIX helper for the console
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-from datetime import datetime, timedelta
+import os
+from datetime import datetime
 from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# ---------------------------------------------------------------------
-# Paths & constants
-# ---------------------------------------------------------------------
+# ---------- Paths & Config ----------
 
-ROOT = Path(__file__).resolve().parent
+LIST_PATH = "list.csv"                 # Universe file (Tickers, Names, Sectors)
+WEIGHTS_PATH = "wave_weights.csv"      # Wave weights definition
 
-WAVE_WEIGHTS_PATH = ROOT / "wave_weights.csv"
-SP500_UNIVERSE_PATH = ROOT / "sp500_universe.csv"
+LOGS_POSITIONS_DIR = os.path.join("logs", "positions")
+LOGS_PERFORMANCE_DIR = os.path.join("logs", "performance")
 
-# Portion of S&P Wave weight that is driven by the custom overlay
-SP500_OVERLAY_SHARE = 0.30  # 30% overlay from wave_weights; 70% broad S&P core
+os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
+os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
 
-# Lookback for summary calculations
-MAX_LOOKBACK_DAYS = 365
+# Starting notional per Wave (just a scaling constant)
+DEFAULT_CAPITAL = 1_000_000.0
+
+# Benchmark mapping (can be customized)
+WAVE_BENCHMARK_MAP: Dict[str, str] = {
+    "S&P 500 Wave": "SPY",
+    "Growth Wave": "QQQ",
+    "AI Megacap Wave": "QQQ",
+    "Quantum Computing Wave": "QQQ",
+    "Small Cap Growth Wave": "IWM",
+    "Small–Mid Cap Growth Wave": "IJH",
+    "Income Wave": "AGG",
+    "Future Power & Energy Wave": "XLE",
+    "Clean Transit & Infrastructure Wave": "IDEV",
+    "Crypto Income Wave": "BTC-USD",  # spot; alpha logic still works
+    "Emerging Markets Wave": "EEM",
+    "Global Opportunities Wave": "VT",
+    "Infinite Alpha Wave": "VT",
+    "Technology Innovators Wave": "XLK",
+    "SmartSafe Wave": "BIL",
+}
 
 
-# ---------------------------------------------------------------------
-# I/O helpers
-# ---------------------------------------------------------------------
+# ---------- Core Loaders ----------
 
-def _read_csv(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(f"CSV not found: {path}")
-    return pd.read_csv(path)
+def load_universe() -> Optional[pd.DataFrame]:
+    if not os.path.exists(LIST_PATH):
+        return None
+    df = pd.read_csv(LIST_PATH)
+    # Normalize
+    cols = {c.lower(): c for c in df.columns}
+    if "ticker" not in cols:
+        return None
+    return df
 
 
-# ---------------------------------------------------------------------
-# Wave weights & dynamic S&P Wave
-# ---------------------------------------------------------------------
+def load_wave_weights() -> Optional[pd.DataFrame]:
+    if not os.path.exists(WEIGHTS_PATH):
+        return None
+    df = pd.read_csv(WEIGHTS_PATH)
+    # Expect at least Wave, Ticker, Weight
+    cols = {c.lower(): c for c in df.columns}
+    required = ["wave", "ticker", "weight"]
+    for r in required:
+        if r not in cols:
+            raise ValueError(
+                f"wave_weights.csv is missing required column '{r}'. "
+                "It must have: Wave, Ticker, Weight (case-insensitive)."
+            )
+    return df
 
-def load_wave_weights(path: Path = WAVE_WEIGHTS_PATH) -> pd.DataFrame:
+
+def discover_waves_from_weights(weights_df: pd.DataFrame) -> List[str]:
+    cols = {c.lower(): c for c in weights_df.columns}
+    wave_col = cols["wave"]
+    return sorted(weights_df[wave_col].dropna().unique().tolist())
+
+
+# ---------- Price & Return Helpers ----------
+
+def _fetch_prices(tickers: List[str]) -> Dict[str, pd.DataFrame]:
     """
-    Load base wave weights from CSV: columns wave,ticker,weight
-    Normalizes weights within each wave but does NOT yet apply
-    the dynamic S&P logic.
+    Fetch last 2 days of daily prices for a list of tickers using yfinance.
+    Returns dict {ticker: DataFrame}.
     """
-    df = _read_csv(path)
-    expected_cols = {"wave", "ticker", "weight"}
-    missing = expected_cols.difference(df.columns)
-    if missing:
-        raise ValueError(f"wave_weights.csv must contain columns {expected_cols}, missing {missing}")
+    result: Dict[str, pd.DataFrame] = {}
+    uniq = sorted(set(tickers))
+    if not uniq:
+        return result
 
-    df = df.copy()
-    df["wave"] = df["wave"].astype(str).str.strip()
-    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
+    data = yf.download(uniq, period="2d", interval="1d", auto_adjust=False, progress=False)
 
-    grouped = []
-    for wave, sub in df.groupby("wave"):
-        total = sub["weight"].sum()
-        if total <= 0:
-            continue
-        sub = sub.copy()
-        sub["weight"] = sub["weight"] / total
-        grouped.append(sub)
-    if not grouped:
-        return pd.DataFrame(columns=["wave", "ticker", "weight"])
-    return pd.concat(grouped, ignore_index=True)
-
-
-def _build_sp500_core(path: Path = SP500_UNIVERSE_PATH) -> pd.DataFrame:
-    """
-    Build a broad S&P 500 core from sp500_universe.csv.
-
-    Expected columns: ticker, market_cap (optional but preferred).
-    If market_cap is missing, all tickers are equal-weighted.
-    Returns DataFrame with columns: ticker, core_weight.
-    """
-    df = _read_csv(path)
-    if "ticker" not in df.columns:
-        raise ValueError("sp500_universe.csv must contain a 'ticker' column.")
-
-    df = df.copy()
-    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-
-    if "market_cap" in df.columns:
-        df["market_cap"] = pd.to_numeric(df["market_cap"], errors="coerce").fillna(0.0)
-        if df["market_cap"].sum() > 0:
-            df["core_weight"] = df["market_cap"] / df["market_cap"].sum()
-        else:
-            df["core_weight"] = 1.0 / len(df)
-    else:
-        df["core_weight"] = 1.0 / len(df)
-
-    return df[["ticker", "core_weight"]]
-
-
-def _build_dynamic_sp500_wave(
-    base_weights: pd.DataFrame,
-    sp500_path: Path = SP500_UNIVERSE_PATH,
-    overlay_share: float = SP500_OVERLAY_SHARE,
-    wave_name: str = "S&P Wave",
-) -> pd.DataFrame:
-    """
-    Build the dynamic S&P Wave:
-
-    - Start from a broad S&P core based on sp500_universe.csv
-      (market-cap weighted if available, else equal).
-    - Take any rows in base_weights where wave == wave_name and
-      treat them as an overlay (user-specified tilt).
-    - Combine core and overlay:
-        weight = (1 - overlay_share) * core_weight
-                 + overlay_share * overlay_weight
-
-    Returns DataFrame columns: wave, ticker, weight
-    """
-    overlay = base_weights[base_weights["wave"] == wave_name].copy()
-    overlay = overlay[["ticker", "weight"]]
-
-    if not overlay.empty:
-        tot = overlay["weight"].sum()
-        if tot > 0:
-            overlay["weight"] = overlay["weight"] / tot
-        else:
-            overlay = overlay.iloc[0:0]
-
-    try:
-        core = _build_sp500_core(sp500_path)
-    except Exception as e:
-        # If core fails but we have an overlay, just use overlay.
-        if overlay.empty:
-            raise RuntimeError(f"Failed to build S&P core and no overlay present: {e}")
-        core = overlay.rename(columns={"weight": "core_weight"})
-        core["core_weight"] = 1.0 / len(core)
-
-    merged = core.merge(overlay, how="left", on="ticker")
-    merged["weight"].fillna(0.0, inplace=True)
-    merged["core_weight"].fillna(0.0, inplace=True)
-
-    overlay_share = float(max(0.0, min(overlay_share, 1.0)))
-    base_share = 1.0 - overlay_share
-
-    merged["final_weight"] = base_share * merged["core_weight"] + overlay_share * merged["weight"]
-
-    total = merged["final_weight"].sum()
-    if total <= 0:
-        merged["final_weight"] = 1.0 / len(merged)
-    else:
-        merged["final_weight"] = merged["final_weight"] / total
-
-    out = merged[["ticker", "final_weight"]].copy()
-    out.rename(columns={"final_weight": "weight"}, inplace=True)
-    out["wave"] = wave_name
-
-    return out[["wave", "ticker", "weight"]]
-
-
-def get_dynamic_wave_weights() -> pd.DataFrame:
-    """
-    Main entry: returns a DataFrame of all Waves with dynamic S&P applied.
-    """
-    base = load_wave_weights(WAVE_WEIGHTS_PATH)
-    if base.empty:
-        return base
-
-    wave_name = "S&P Wave"
-
-    non_sp = base[base["wave"] != wave_name].copy()
-
-    try:
-        dynamic_sp = _build_dynamic_sp500_wave(base, SP500_UNIVERSE_PATH, SP500_OVERLAY_SHARE, wave_name)
-    except Exception as e:
-        print(f"[WARN] Dynamic S&P Wave failed, falling back to base S&P weights: {e}")
-        dynamic_sp = base[base["wave"] == wave_name].copy()
-        if dynamic_sp.empty:
-            return non_sp
-
-    all_waves = pd.concat([non_sp, dynamic_sp], ignore_index=True)
-
-    grouped = []
-    for wave, sub in all_waves.groupby("wave"):
-        total = sub["weight"].sum()
-        if total <= 0:
-            continue
-        sub = sub.copy()
-        sub["weight"] = sub["weight"] / total
-        grouped.append(sub)
-    if not grouped:
-        return pd.DataFrame(columns=["wave", "ticker", "weight"])
-    return pd.concat(grouped, ignore_index=True)
-
-
-def get_wave_names(weights_df: pd.DataFrame) -> List[str]:
-    if weights_df is None or weights_df.empty:
-        return []
-    return sorted(weights_df["wave"].dropna().unique().tolist())
-
-
-# ---------------------------------------------------------------------
-# Market data helpers (hardened)
-# ---------------------------------------------------------------------
-
-def fetch_price_history(tickers: List[str], lookback_days: int = MAX_LOOKBACK_DAYS) -> pd.DataFrame:
-    """
-    Fetch daily adjusted close prices for the given tickers.
-    Returns wide DataFrame with Date index and tickers as columns.
-
-    HARDENED: any yfinance error returns an empty DataFrame instead
-    of crashing the Streamlit app.
-    """
-    if not tickers:
-        return pd.DataFrame()
-
-    tickers_clean = sorted(
-        set(str(t).upper().strip() for t in tickers if str(t).strip())
-    )
-    if not tickers_clean:
-        return pd.DataFrame()
-
-    end = datetime.utcnow()
-    start = end - timedelta(days=lookback_days + 5)
-
-    try:
-        data = yf.download(
-            tickers_clean,
-            start=start.strftime("%Y-%m-%d"),
-            end=end.strftime("%Y-%m-%d"),
-            progress=False,
-            auto_adjust=True,
-        )
-    except Exception as e:
-        print(f"[WARN] yfinance download failed for {tickers_clean}: {e}")
-        return pd.DataFrame()
-
-    if data.empty:
-        return pd.DataFrame()
-
+    # yfinance returns different shapes for 1 vs many tickers
     if isinstance(data.columns, pd.MultiIndex):
-        if "Adj Close" in data.columns.levels[0]:
-            prices = data["Adj Close"].copy()
-        elif "Close" in data.columns.levels[0]:
-            prices = data["Close"].copy()
-        else:
-            top0 = data.columns.levels[0][0]
-            prices = data[top0].copy()
+        # MultiIndex: (field, ticker)
+        closes = data["Adj Close"]
+        for t in uniq:
+            if t in closes.columns:
+                df = closes[[t]].rename(columns={t: "price"})
+                result[t] = df
     else:
-        prices = data.copy()
+        # Single ticker
+        df = data.rename(columns={"Adj Close": "price"})
+        result[uniq[0]] = df[["price"]]
 
-    prices = prices.dropna(how="all")
-    prices.index.name = "date"
-    return prices
+    return result
 
 
-def get_vix_level() -> Optional[float]:
+def _latest_return_from_price_df(df: pd.DataFrame) -> Optional[float]:
     """
-    Fetch current-ish VIX level using yfinance ^VIX.
-    Also hardened with try/except.
+    Given a DataFrame with a 'price' column and DateTimeIndex, return the
+    last daily return (most recent vs previous). If not available, None.
     """
-    try:
-        df = yf.download("^VIX", period="5d", interval="1d", progress=False, auto_adjust=True)
-        if df.empty:
-            return None
-        last = df["Close"].dropna().iloc[-1]
-        return float(last)
-    except Exception as e:
-        print(f"[WARN] Failed to fetch VIX: {e}")
+    if df is None or df.empty or "price" not in df.columns:
         return None
-
-
-# ---------------------------------------------------------------------
-# Benchmarks
-# ---------------------------------------------------------------------
-
-def get_benchmark_for_wave(wave_name: str) -> Optional[str]:
-    """
-    Map a Wave name to a benchmark ticker. Heuristic; adjust as needed.
-    """
-    name = wave_name.lower()
-
-    if "s&p" in name or "sp " in name or "core us" in name:
-        return "SPY"
-    if "growth" in name or "innovation" in name or "quantum" in name:
-        return "QQQ"
-    if "crypto" in name or "bitcoin" in name:
-        return "BTC-USD"
-    if "income" in name or "yield" in name:
-        return "VYM"
-    if "energy" in name or "power" in name:
-        return "XLE"
-    if "clean transit" in name or "infrastructure" in name:
-        return "ICLN"
-    if "small cap" in name or "smid" in name:
-        return "IWM"
-
-    return "SPY"
-
-
-# ---------------------------------------------------------------------
-# Factors (momentum / quality proxies)
-# ---------------------------------------------------------------------
-
-def compute_factor_scores(price_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute simple factor proxies from price history:
-
-    - momentum_score: full-window total return
-    - quality_score: negative volatility
-    - factor_score: average of the two
-    """
-    if price_df is None or price_df.empty:
-        return pd.DataFrame()
-
-    df = price_df.sort_index().copy()
-    rets = df.pct_change().dropna(how="all")
-
-    momentum = (1.0 + rets).prod() - 1.0
-    vol = rets.std()
-    quality = -vol
-
-    out = pd.DataFrame(
-        {
-            "momentum_score": momentum,
-            "quality_score": quality,
-        }
-    )
-    out["factor_score"] = out[["momentum_score", "quality_score"]].mean(axis=1)
-    return out
-
-
-# ---------------------------------------------------------------------
-# Wave summary (returns, alpha, top holdings)
-# ---------------------------------------------------------------------
-
-def _compute_portfolio_returns(
-    weights: pd.Series,
-    lookback_days: int = MAX_LOOKBACK_DAYS,
-) -> pd.Series:
-    tickers = list(weights.index)
-    prices = fetch_price_history(tickers, lookback_days=lookback_days)
-    if prices.empty:
-        return pd.Series(dtype=float)
-
-    w = weights.reindex(prices.columns).fillna(0.0)
-    rets = prices.pct_change().dropna(how="all")
-    port_rets = (rets * w).sum(axis=1)
-    return port_rets
-
-
-def _compute_horizon_return(rets: pd.Series, days: int) -> Optional[float]:
-    if rets is None or rets.empty:
+    df = df.dropna(subset=["price"]).copy()
+    if len(df) < 2:
         return None
-    tail = rets.tail(days)
-    if tail.empty:
-        return None
-    return float((1.0 + tail).prod() - 1.0)
+    df["return"] = df["price"].pct_change()
+    return float(df["return"].iloc[-1])
 
 
-def compute_wave_summary(
+# ---------- Performance File Helper ----------
+
+def _performance_path_for_wave(wave: str) -> str:
+    safe_wave = wave.replace(" ", "_")
+    return os.path.join(LOGS_PERFORMANCE_DIR, f"{safe_wave}_performance_daily.csv")
+
+
+def _positions_path_for_wave(wave: str, date: datetime) -> str:
+    safe_wave = wave.replace(" ", "_")
+    stamp = date.strftime("%Y%m%d")
+    return os.path.join(LOGS_POSITIONS_DIR, f"{safe_wave}_positions_{stamp}.csv")
+
+
+# ---------- Core Engine Logic ----------
+
+def run_wave(
     wave_name: str,
-    weights_df: pd.DataFrame | None = None,
-) -> Dict:
+    mode: str = "Standard",
+    capital: float = DEFAULT_CAPITAL,
+    debug: bool = False,
+) -> None:
     """
-    Compute summary metrics for a single Wave:
+    Run the engine for a single Wave:
+    - Loads weights
+    - Fetches live prices
+    - Computes today's return + alpha vs benchmark
+    - Appends performance entry
+    - Writes positions snapshot
+    """
 
-    - 1D / 30D / 60D returns
-    - Alpha vs benchmark over same horizons
-    - Top 10 holdings
-    - Benchmark symbol
-    """
+    weights_df = load_wave_weights()
     if weights_df is None:
-        weights_df = get_dynamic_wave_weights()
+        raise RuntimeError("wave_weights.csv not found")
 
-    df = weights_df[weights_df["wave"] == wave_name].copy()
-    if df.empty:
-        return {}
+    universe_df = load_universe()  # optional, for name/sector enrichment
 
-    w = (
-        df.groupby("ticker")["weight"]
+    cols = {c.lower(): c for c in weights_df.columns}
+    wave_col = cols["wave"]
+    ticker_col = cols["ticker"]
+    weight_col = cols["weight"]
+    basket_col = cols.get("basket")   # optional (Primary / Secondary / etc.)
+
+    wv = weights_df[weights_df[wave_col] == wave_name].copy()
+    if wv.empty:
+        raise RuntimeError(f"No weights found for Wave '{wave_name}'")
+
+    # Deduplicate & normalize weights
+    wv[ticker_col] = wv[ticker_col].astype(str).str.strip().str.upper()
+    wv = (
+        wv.groupby(ticker_col, as_index=False)[weight_col]
         .sum()
-        .sort_values(ascending=False)
+        .rename(columns={weight_col: "Weight"})
     )
+    total_w = wv["Weight"].sum()
+    if total_w <= 0:
+        raise RuntimeError(f"Total weight for Wave '{wave_name}' is non-positive.")
+    wv["Weight"] = wv["Weight"] / total_w
 
-    port_rets = _compute_portfolio_returns(w, lookback_days=MAX_LOOKBACK_DAYS)
+    tickers = wv[ticker_col].tolist()
 
-    bench_ticker = get_benchmark_for_wave(wave_name)
-    bench_rets = None
-    if bench_ticker:
-        try:
-            bench_prices = fetch_price_history([bench_ticker], lookback_days=MAX_LOOKBACK_DAYS)
-            if not bench_prices.empty:
-                bench_rets = bench_prices.iloc[:, 0].pct_change().dropna()
-        except Exception as e:
-            print(f"[WARN] Failed to fetch benchmark {bench_ticker} for {wave_name}: {e}")
-            bench_rets = None
+    # Fetch prices for tickers + benchmark
+    bench_ticker = WAVE_BENCHMARK_MAP.get(wave_name, "SPY")
+    all_tickers = tickers + [bench_ticker]
+    px = _fetch_prices(all_tickers)
 
-    if bench_rets is not None and not bench_rets.empty and not port_rets.empty:
-        idx = port_rets.index.intersection(bench_rets.index)
-        port_rets = port_rets.reindex(idx)
-        bench_rets = bench_rets.reindex(idx)
+    # Compute today's return per position
+    returns: Dict[str, float] = {}
+    latest_prices: Dict[str, float] = {}
+    for t in tickers:
+        df = px.get(t)
+        if df is None or df.empty:
+            continue
+        df = df.dropna(subset=["price"])
+        latest_prices[t] = float(df["price"].iloc[-1])
+        r = _latest_return_from_price_df(df)
+        if r is not None:
+            returns[t] = r
+
+    bench_ret: Optional[float] = None
+    if bench_ticker in px:
+        bench_ret = _latest_return_from_price_df(px[bench_ticker])
+
+    # Wave daily return (weighted sum of individual returns)
+    wave_ret_today = 0.0
+    total_weight_for_ret = 0.0
+    for _, row in wv.iterrows():
+        t = row[ticker_col]
+        w = row["Weight"]
+        r = returns.get(t)
+        if r is None:
+            continue
+        wave_ret_today += w * r
+        total_weight_for_ret += w
+
+    if total_weight_for_ret > 0:
+        wave_ret_today = wave_ret_today / total_weight_for_ret
     else:
-        bench_rets = None
+        wave_ret_today = 0.0
 
-    ret_1d = _compute_horizon_return(port_rets, 1)
-    ret_30d = _compute_horizon_return(port_rets, 30)
-    ret_60d = _compute_horizon_return(port_rets, 60)
-
-    if bench_rets is not None and not bench_rets.empty:
-        b1 = _compute_horizon_return(bench_rets, 1)
-        b30 = _compute_horizon_return(bench_rets, 30)
-        b60 = _compute_horizon_return(bench_rets, 60)
-        alpha_1d = None if (ret_1d is None or b1 is None) else ret_1d - b1
-        alpha_30d = None if (ret_30d is None or b30 is None) else ret_30d - b30
-        alpha_60d = None if (ret_60d is None or b60 is None) else ret_60d - b60
+    if bench_ret is None:
+        alpha_today = None
     else:
-        alpha_1d = alpha_30d = alpha_60d = None
+        alpha_today = wave_ret_today - bench_ret
 
-    top10 = w.head(10).reset_index()
-    top10.columns = ["ticker", "weight"]
+    # Load existing performance history & append
+    perf_path = _performance_path_for_wave(wave_name)
+    if os.path.exists(perf_path):
+        perf_df = pd.read_csv(perf_path)
+    else:
+        perf_df = pd.DataFrame()
 
-    summary = {
-        "return_1d": ret_1d,
-        "alpha_1d": alpha_1d,
-        "return_30d": ret_30d,
-        "alpha_30d": alpha_30d,
-        "return_60d": ret_60d,
-        "alpha_60d": alpha_60d,
-        "top_holdings": top10,
-        "benchmark": bench_ticker,
+    today = datetime.utcnow().date()
+
+    new_row = {
+        "date": today.isoformat(),
+        "mode": mode,
+        "return_1d": wave_ret_today,
+        "bench_return_1d": bench_ret,
+        "alpha_1d": alpha_today,
     }
 
-    return summary
+    perf_df = pd.concat([perf_df, pd.DataFrame([new_row])], ignore_index=True)
+    perf_df["date"] = pd.to_datetime(perf_df["date"])
+    perf_df = perf_df.sort_values("date")
+
+    # Compute cumulative returns
+    perf_df["cum_return"] = (1 + perf_df["return_1d"].fillna(0.0)).cumprod() - 1
+    if "bench_return_1d" in perf_df.columns:
+        perf_df["cum_bench_return"] = (1 + perf_df["bench_return_1d"].fillna(0.0)).cumprod() - 1
+        perf_df["cum_alpha"] = perf_df["cum_return"] - perf_df["cum_bench_return"]
+    else:
+        perf_df["cum_bench_return"] = None
+        perf_df["cum_alpha"] = None
+
+    # 30d/60d rolling (using rows as proxy for days)
+    perf_df["return_30d"] = (
+        (1 + perf_df["return_1d"].fillna(0.0)).rolling(window=30).apply(lambda x: (x.prod() - 1.0), raw=False)
+    )
+    perf_df["return_60d"] = (
+        (1 + perf_df["return_1d"].fillna(0.0)).rolling(window=60).apply(lambda x: (x.prod() - 1.0), raw=False)
+    )
+
+    if "bench_return_1d" in perf_df.columns:
+        perf_df["bench_return_30d"] = (
+            (1 + perf_df["bench_return_1d"].fillna(0.0)).rolling(window=30).apply(lambda x: (x.prod() - 1.0), raw=False)
+        )
+        perf_df["bench_return_60d"] = (
+            (1 + perf_df["bench_return_1d"].fillna(0.0)).rolling(window=60).apply(lambda x: (x.prod() - 1.0), raw=False)
+        )
+        perf_df["alpha_30d"] = perf_df["return_30d"] - perf_df["bench_return_30d"]
+        perf_df["alpha_60d"] = perf_df["return_60d"] - perf_df["bench_return_60d"]
+    else:
+        perf_df["bench_return_30d"] = None
+        perf_df["bench_return_60d"] = None
+        perf_df["alpha_30d"] = None
+        perf_df["alpha_60d"] = None
+
+    perf_df.to_csv(perf_path, index=False)
+
+    # Build positions snapshot
+    if universe_df is not None:
+        ucols = {c.lower(): c for c in universe_df.columns}
+        u_ticker_col = ucols.get("ticker")
+        name_col = ucols.get("name") or ucols.get("company") or ucols.get("security")
+        sector_col = ucols.get("sector")
+        if u_ticker_col:
+            universe_df[u_ticker_col] = universe_df[u_ticker_col].astype(str).str.strip().str.upper()
+            wv = wv.merge(
+                universe_df,
+                left_on=ticker_col,
+                right_on=u_ticker_col,
+                how="left"
+            )
+            if name_col:
+                wv.rename(columns={name_col: "Name"}, inplace=True)
+            if sector_col:
+                wv.rename(columns={sector_col: "Sector"}, inplace=True)
+
+    wv["Price"] = wv[ticker_col].map(latest_prices).fillna(0.0)
+    wv["Weight"] = wv["Weight"].astype(float)
+    wv["Capital"] = capital * wv["Weight"]
+    wv["Shares"] = (wv["Capital"] / wv["Price"]).replace([float("inf"), -float("inf")], 0.0).fillna(0.0)
+
+    # Save positions file
+    dt_now = datetime.utcnow()
+    positions_path = _positions_path_for_wave(wave_name, dt_now)
+    wv["AsOf"] = dt_now.isoformat()
+    wv.to_csv(positions_path, index=False)
+
+    if debug:
+        print(f"[{wave_name}] return_1d={wave_ret_today:.5f}, alpha_1d={alpha_today}")
+
+
+def run_all_waves(
+    mode: str = "Standard",
+    capital: float = DEFAULT_CAPITAL,
+    debug: bool = False
+) -> None:
+    """
+    Convenience function: run engine for all waves discovered in wave_weights.csv.
+    """
+    weights_df = load_wave_weights()
+    if weights_df is None:
+        raise RuntimeError("wave_weights.csv not found")
+
+    waves = discover_waves_from_weights(weights_df)
+    for wave in waves:
+        try:
+            run_wave(wave, mode=mode, capital=capital, debug=debug)
+        except Exception as e:
+            if debug:
+                print(f"Error running {wave}: {e}")
+
+
+if __name__ == "__main__":
+    # Quick CLI entry: python waves_engine.py
+    run_all_waves(mode="Standard", capital=DEFAULT_CAPITAL, debug=True)
