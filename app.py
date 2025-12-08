@@ -13,10 +13,15 @@ WAVES Intelligence™ Super Console (Cloud-safe)
     • Wave Blender
     • Scenario Shocks
     • VectorOS Prompt stub
+
+This version is Streamlit Cloud–safe:
+NO pandas Styler (.style) calls anywhere.
 """
 
-import pandas as pd
+from __future__ import annotations
+
 import numpy as np
+import pandas as pd
 import streamlit as st
 import altair as alt
 
@@ -47,7 +52,7 @@ def load_all_weights() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
-    """Optional: sector_map.csv with columns: ticker,sector"""
+    """Optional: sector_map.csv with columns: ticker,sector."""
     try:
         df = pd.read_csv(path)
         if "ticker" not in df.columns or "sector" not in df.columns:
@@ -62,7 +67,7 @@ def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
 @st.cache_data(show_spinner=False)
 def preload_summaries_for_all_waves(weights_df: pd.DataFrame) -> dict:
     """Precompute summary metrics for all Waves."""
-    summaries = {}
+    summaries: dict = {}
     for wname in we.get_wave_names(weights_df):
         try:
             summaries[wname] = we.compute_wave_summary(wname, weights_df)
@@ -123,7 +128,7 @@ def get_wave_timeseries(
     days: int,
     weights_df: pd.DataFrame,
 ):
-    """Return tidy cumulative series + daily rets for a wave and its benchmark."""
+    """Return tidy cumulative series + daily returns for a wave and its benchmark."""
     w = weights_df[weights_df["wave"] == wave_name].copy()
     if w.empty:
         return pd.DataFrame(), None, None
@@ -138,6 +143,9 @@ def get_wave_timeseries(
     lookback = days + 10
 
     prices = we.fetch_price_history(tickers, lookback_days=lookback)
+    if prices.empty:
+        return pd.DataFrame(), None, None
+
     rets = prices.pct_change().dropna(how="all")
     weights_aligned = weights.reindex(prices.columns).fillna(0.0)
     port_rets = (rets * weights_aligned).sum(axis=1)
@@ -154,12 +162,13 @@ def get_wave_timeseries(
     if bench_ticker:
         try:
             bench_prices = we.fetch_price_history([bench_ticker], lookback_days=lookback)
-            bench_rets = bench_prices.pct_change().dropna().iloc[:, 0]
-            common = port_rets.index.intersection(bench_rets.index)
-            port_rets = port_rets.reindex(common)
-            bench_rets = bench_rets.reindex(common)
-            cum_wave = (1.0 + port_rets).cumprod() - 1.0
-            cum_bench = (1.0 + bench_rets).cumprod() - 1.0
+            if not bench_prices.empty:
+                bench_rets = bench_prices.pct_change().dropna().iloc[:, 0]
+                common = port_rets.index.intersection(bench_rets.index)
+                port_rets = port_rets.reindex(common)
+                bench_rets = bench_rets.reindex(common)
+                cum_wave = (1.0 + port_rets).cumprod() - 1.0
+                cum_bench = (1.0 + bench_rets).cumprod() - 1.0
         except Exception as e:
             st.warning(f"Benchmark series unavailable for {bench_ticker}: {e}")
 
@@ -357,8 +366,8 @@ def compute_shock_scenarios(
         rows.append(
             {
                 "Scenario": f"{int(abs(s) * 100)}% Equity Shock",
-                "Shock (%)": s * 100.0,
-                "Estimated Impact (%)": s * 100.0,
+                "Shock (%)": round(s * 100.0, 1),
+                "Estimated Impact (%)": round(s * 100.0, 1),
                 "Recent Vol (ann.)": recent_vol,
             }
         )
@@ -463,7 +472,6 @@ with tab_all:
     else:
         st.markdown("#### Wave Metrics Table")
         df_show = df_all.copy()
-        # round numeric columns a bit
         for col in [
             "Return 1D",
             "Alpha 1D",
@@ -499,7 +507,7 @@ with tab_all:
             st.altair_chart(chart_alpha, use_container_width=True)
 
     st.caption(
-        "All-Wave dashboard approximates the old grid console: "
+        "All-Waves dashboard approximates the old grid console: "
         "returns and alpha across horizons, plus a simple alpha heatmap."
     )
 
