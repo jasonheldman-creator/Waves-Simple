@@ -40,7 +40,7 @@ WAVESCORE_CANDIDATES = [
     "wavescore_summary.csv",
 ]
 
-# Simple metadata (kept small so it pastes cleanly on mobile)
+# Basic metadata (compact for mobile pasting)
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "S&P 500 Wave": {
         "category": "Core Equity",
@@ -465,8 +465,19 @@ def main() -> None:
     if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
         st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
 
+    # Load data (may be empty if engine never ran for this wave)
     perf_df = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
+
+    # Auto-kick engine ONCE if there is no data for this wave
+    if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
+        try:
+            waves_engine.run_wave(selected_wave)  # type: ignore
+            st.sidebar.success(f"Engine auto-run for {selected_wave}.")
+            perf_df = load_performance_history(selected_wave)
+            positions_df = load_latest_positions(selected_wave)
+        except Exception as e:
+            st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
 
     metrics = compute_summary_metrics(perf_df)
 
