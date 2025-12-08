@@ -1,6 +1,6 @@
 # app.py
 """
-WAVES Intelligence™ Institutional Console v2.0 — Stage 2 (Advanced Analytics)
+WAVES Intelligence™ Institutional Console v2.0 — Stage 3 (Vector Lab)
 
 - Uses waves_engine.py (dynamic S&P 500 Wave)
 - Multi-tab institutional layout
@@ -11,6 +11,10 @@ WAVES Intelligence™ Institutional Console v2.0 — Stage 2 (Advanced Analytics
 - Top 10 holdings with Google Finance links
 - Sector allocation chart (if sector_map.csv is available)
 - Factor exposure panel (Momentum & Quality/Low-Vol tilt)
+- NEW: Vector Lab tab:
+    - Wave Blender (blend two Waves with a slider)
+    - Scenario Shock Blocks (simple stress scenarios)
+    - VectorOS Prompt Stub (UI only, for “tell Vector what to do”)
 """
 
 import pandas as pd
@@ -97,7 +101,7 @@ st.sidebar.caption(
 
 
 # -------------------------------------------------------------------
-# Helper functions for metrics & charts
+# Helper functions
 # -------------------------------------------------------------------
 
 def fmt_pct(x: float | None) -> str:
@@ -115,7 +119,6 @@ def get_wave_timeseries(
     Build daily series for:
         - wave cumulative return
         - benchmark cumulative return (if exists)
-        - rolling alpha (wave - benchmark)
 
     Returns:
         df_cum (DataFrame with cols 'date','series','value')
@@ -278,11 +281,8 @@ def compute_factor_exposure_for_wave(
         st.warning(f"Factor data unavailable for {wave_name}: {e}")
         return None
 
-    # Align to tickers and weights
     factor_df = factor_df.reindex(tickers)
 
-    # We use three composite factors from the engine:
-    #   momentum_score, quality_score, factor_score (hybrid)
     cols_needed = ["momentum_score", "quality_score", "factor_score"]
     for c in cols_needed:
         if c not in factor_df.columns:
@@ -300,12 +300,10 @@ def compute_factor_exposure_for_wave(
     quality_exposure = w_avg(factor_df["quality_score"])
     hybrid_exposure = w_avg(factor_df["factor_score"])
 
-    # Normalize exposures into something presentable
     vals = np.array([momentum_exposure, quality_exposure, hybrid_exposure], dtype=float)
     if np.all(np.isnan(vals)):
         return None
 
-    # z-score the exposures so 0 = neutral
     mean = np.nanmean(vals)
     std = np.nanstd(vals)
     if std == 0 or np.isnan(std):
@@ -339,7 +337,6 @@ def build_mode_comparison_series(
     if port_rets is None or port_rets.empty:
         return None
 
-    # If no benchmark, just show Standard as the only curve
     if bench_rets is None or bench_rets.empty:
         cum_std = (1.0 + port_rets).cumprod() - 1.0
         df_std = pd.DataFrame(
@@ -355,14 +352,9 @@ def build_mode_comparison_series(
     bench = bench_rets.reindex(common_idx)
     alpha = wave - bench
 
-    # Standard
     cum_std = (1.0 + wave).cumprod() - 1.0
-
-    # Alpha-Minus-Beta: keep alpha, reduce beta to ~0.9
     amb_rets = 0.90 * bench + alpha
     cum_amb = (1.0 + amb_rets).cumprod() - 1.0
-
-    # Private Logic™: increase tilt to alpha
     pl_rets = wave + 0.30 * alpha
     cum_pl = (1.0 + pl_rets).cumprod() - 1.0
 
@@ -375,6 +367,72 @@ def build_mode_comparison_series(
     return df_modes
 
 
+def build_blended_wave_timeseries(
+    wave_a: str,
+    wave_b: str,
+    blend_a: float,
+    days: int,
+    weights_df: pd.DataFrame,
+) -> pd.DataFrame | None:
+    """
+    Builds a blended series: blend_a * Wave A + (1 - blend_a) * Wave B
+    Based on daily returns.
+    Returns tidy DataFrame with columns: date, series, value
+    """
+    df_a, rets_a, _ = get_wave_timeseries(wave_a, days, weights_df)
+    df_b, rets_b, _ = get_wave_timeseries(wave_b, days, weights_df)
+
+    if rets_a is None or rets_a.empty or rets_b is None or rets_b.empty:
+        return None
+
+    common_idx = rets_a.index.intersection(rets_b.index)
+    if common_idx.empty:
+        return None
+
+    rets_a = rets_a.reindex(common_idx)
+    rets_b = rets_b.reindex(common_idx)
+
+    blended_rets = blend_a * rets_a + (1.0 - blend_a) * rets_b
+    cum_blend = (1.0 + blended_rets).cumprod() - 1.0
+
+    df = pd.DataFrame({"date": cum_blend.index, "series": "Blended Wave", "value": cum_blend.values})
+    return df
+
+
+def compute_shock_scenarios(
+    port_rets: pd.Series | None,
+    shock_levels: list[float] | None = None,
+) -> pd.DataFrame | None:
+    """
+    Very simple scenario approximations:
+    - shock_levels: list of instantaneous equity shocks, e.g. [-0.1, -0.2, -0.3]
+    Uses recent realized volatility as a rough scale check.
+
+    Returns DataFrame with columns: scenario, shock, est_effect
+    """
+    if port_rets is None or port_rets.empty:
+        return None
+
+    if shock_levels is None:
+        shock_levels = [-0.10, -0.20, -0.30]
+
+    recent_vol = float(port_rets.tail(30).std() * np.sqrt(252)) if len(port_rets) >= 30 else None
+
+    rows = []
+    for s in shock_levels:
+        scenario_name = f"{int(abs(s) * 100)}% Equity Shock"
+        est_effect = s  # 1:1 for now (we could scale by beta later)
+        rows.append(
+            {
+                "scenario": scenario_name,
+                "shock": s,
+                "est_effect": est_effect,
+                "recent_vol": recent_vol,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 # -------------------------------------------------------------------
 # Pull summary metrics from engine
 # -------------------------------------------------------------------
@@ -382,7 +440,6 @@ def build_mode_comparison_series(
 with st.spinner(f"Computing summary metrics for {selected_wave}..."):
     summary = we.compute_wave_summary(selected_wave, weights_df)
 
-# 1D / 30D / 60D metrics
 r1 = summary.get("return_1d")
 a1 = summary.get("alpha_1d")
 r30 = summary.get("return_30d")
@@ -408,10 +465,8 @@ m4.metric("30-Day Alpha", fmt_pct(a30))
 m5.metric("60-Day Return", fmt_pct(r60))
 m6.metric("60-Day Alpha", fmt_pct(a60))
 
-# Placeholder for WaveScore slot (engine scoring can be attached later)
 m7.metric("WaveScore™ (slot)", "—")
 
-# VIX tag
 try:
     vix_level = we.get_vix_level()
     m8.metric("VIX (Ref)", f"{vix_level:0.1f}")
@@ -426,11 +481,11 @@ else:
 
 
 # -------------------------------------------------------------------
-# Tabs: Overview | Holdings | Performance | Risk
+# Tabs: Overview | Holdings | Performance | Risk | Vector Lab
 # -------------------------------------------------------------------
 
-tab_overview, tab_holdings, tab_perf, tab_risk = st.tabs(
-    ["Overview", "Holdings", "Performance", "Risk"]
+tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
+    ["Overview", "Holdings", "Performance", "Risk", "Vector Lab"]
 )
 
 # -------------------------------------------------------------------
@@ -482,7 +537,7 @@ with tab_overview:
         st.markdown("##### Quick Notes")
         st.caption(
             "- Performance curves use realized daily returns from the current Wave definition.\n"
-            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in Stage 2."
+            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in this stage."
         )
 
     st.markdown("---")
@@ -740,6 +795,195 @@ with tab_risk:
         "Risk metrics are based on recent realized volatility, drawdowns, and price-derived factor tilts. "
         "A full WAVES Risk Engine (stress tests, scenario analysis, factor risk) can be layered in a future stage."
     )
+
+# -------------------------------------------------------------------
+# VECTOR LAB TAB (Stage 3)
+# -------------------------------------------------------------------
+
+with tab_vector:
+    st.subheader("Vector Lab — Experiments & OS Toys")
+
+    subtab1, subtab2, subtab3 = st.tabs(
+        ["Wave Blender", "Scenario Shocks", "VectorOS Prompt"]
+    )
+
+    # ---- Wave Blender ----
+    with subtab1:
+        st.markdown("### Wave Blender")
+
+        st.caption(
+            "Blend your selected Wave with another Wave (e.g., SmartSafe, S&P Wave) "
+            "to see how a combined allocation would have behaved."
+        )
+
+        # Build list of other waves for blending
+        other_waves = [w for w in wave_names if w != selected_wave]
+        if not other_waves:
+            st.info("Need at least 2 Waves to use the blender.")
+        else:
+            default_other = 0
+            # Prefer SmartSafe if present
+            for i, wname in enumerate(other_waves):
+                if "safe" in wname.lower() or "cash" in wname.lower():
+                    default_other = i
+                    break
+
+            blend_wave = st.selectbox(
+                "Blend with Wave",
+                other_waves,
+                index=default_other,
+            )
+
+            blend_pct = st.slider(
+                "Allocation to primary Wave",
+                min_value=0,
+                max_value=100,
+                value=60,
+                step=5,
+                help="The remainder goes to the secondary Wave.",
+            )
+
+            blend_a = blend_pct / 100.0
+
+            df_blend = build_blended_wave_timeseries(
+                selected_wave, blend_wave, blend_a, history_window, weights_df
+            )
+
+            if df_blend is None or df_blend.empty:
+                st.info("Not enough overlapping data to build blended series.")
+            else:
+                st.markdown(
+                    f"**Blend:** {blend_pct}% {selected_wave} + {100 - blend_pct}% {blend_wave}"
+                )
+                chart_blend = (
+                    alt.Chart(df_blend)
+                    .mark_line()
+                    .encode(
+                        x=alt.X("date:T", title="Date"),
+                        y=alt.Y("value:Q", title="Cumulative Return"),
+                        color=alt.Color("series:N", title="Series"),
+                        tooltip=[
+                            alt.Tooltip("date:T", title="Date"),
+                            alt.Tooltip("series:N", title="Series"),
+                            alt.Tooltip("value:Q", title="Cumulative Return", format=".2%"),
+                        ],
+                    )
+                    .properties(height=350)
+                )
+                st.altair_chart(chart_blend, use_container_width=True)
+
+                # quick delta vs pure selected wave
+                df_sel, rets_sel, _ = get_wave_timeseries(
+                    selected_wave, history_window, weights_df
+                )
+                if rets_sel is not None and not rets_sel.empty:
+                    # line up the last point
+                    last_sel = (1.0 + rets_sel.tail(len(df_blend["date"]))).prod() - 1.0
+                    last_blend = df_blend["value"].iloc[-1]
+                    st.metric(
+                        "Blend vs Pure Wave (over window)",
+                        fmt_pct(last_blend),
+                        f"{(last_blend - last_sel) * 100:0.2f} pts vs pure",
+                    )
+
+    # ---- Scenario Shocks ----
+    with subtab2:
+        st.markdown("### Scenario Shocks")
+
+        st.caption(
+            "Very simple hypothetical shocks applied to the selected Wave. "
+            "These are not full stress tests, but quick intuition aids."
+        )
+
+        df_cum, port_rets, bench_rets = get_wave_timeseries(
+            selected_wave, history_window, weights_df
+        )
+        scenarios = compute_shock_scenarios(port_rets)
+
+        if scenarios is None or scenarios.empty:
+            st.info("Not enough data to compute scenarios.")
+        else:
+            scenarios_disp = scenarios.copy()
+            scenarios_disp["Shock (%)"] = scenarios_disp["shock"] * 100.0
+            scenarios_disp["Estimated Impact (%)"] = scenarios_disp["est_effect"] * 100.0
+            scenarios_disp = scenarios_disp[
+                ["scenario", "Shock (%)", "Estimated Impact (%)", "recent_vol"]
+            ]
+            scenarios_disp.rename(
+                columns={
+                    "scenario": "Scenario",
+                    "recent_vol": "Recent Vol (ann.)",
+                },
+                    inplace=True,
+            )
+
+            st.dataframe(
+                scenarios_disp.style.format(
+                    {
+                        "Shock (%)": "{:0.1f}",
+                        "Estimated Impact (%)": "{:0.1f}",
+                        "Recent Vol (ann.)": "{:0.2%}",
+                    }
+                ),
+                use_container_width=True,
+            )
+
+            st.caption(
+                "Assumes a simple 1:1 mapping between the shock and the Wave's estimated impact. "
+                "In a full implementation, this would be scaled by beta, sector exposures, and factor sensitivities."
+            )
+
+    # ---- VectorOS Prompt Stub ----
+    with subtab3:
+        st.markdown("### VectorOS Prompt (Stub)")
+
+        st.caption(
+            "This is a UI-only stub for the future VectorOS agent. "
+            "Use it to prototype how you'd talk to the system."
+        )
+
+        default_prompt = (
+            "Reallocate 10% from S&P Wave into SmartSafe over the next 30 days, "
+            "but only if VIX stays above 25. Show me the expected drawdown improvement."
+        )
+
+        user_prompt = st.text_area(
+            "Tell Vector what to do:",
+            value=default_prompt,
+            height=120,
+        )
+
+        if st.button("Interpret with VectorOS (placeholder)"):
+            st.markdown("#### VectorOS Interpretation (Prototype)")
+            st.write("**Raw Instruction:**")
+            st.code(user_prompt)
+
+            st.write("**Parsed Intent (example):**")
+            st.json(
+                {
+                    "action": "rebalance",
+                    "from_wave": "S&P Wave",
+                    "to_wave": "SmartSafe (or cash-like Wave)",
+                    "fraction": 0.10,
+                    "schedule": "over_30_days",
+                    "condition": {
+                        "metric": "VIX",
+                        "operator": ">",
+                        "threshold": 25,
+                    },
+                    "objective": "reduce_drawdown",
+                    "outputs": [
+                        "expected_drawdown_change",
+                        "before_vs_after_vol",
+                        "before_vs_after_allocation",
+                    ],
+                }
+            )
+
+            st.caption(
+                "In a future build, this block would call a real VectorOS agent that manipulates "
+                "Waves, allocations, and scenarios, then pushes changes back into the engine."
+            )
 
 # -------------------------------------------------------------------
 # Footer
