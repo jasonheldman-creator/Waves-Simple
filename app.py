@@ -121,12 +121,14 @@ st.markdown(
 BASE_DIR = Path(".")
 WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
 
+# Modes (Standard, Alpha-Minus-Beta, Private Logic™)
 MODES_BASE = {
     "Standard": {"beta_target": 0.90, "drift_annual": 0.07},
     "Alpha-Minus-Beta": {"beta_target": 0.80, "drift_annual": 0.06},
     "Private Logic™": {"beta_target": 1.05, "drift_annual": 0.09},
 }
 
+# Benchmarks per Wave
 BENCHMARK_MAP = {
     "S&P 500 Wave": "^GSPC",
     "Growth Wave": "QQQ",
@@ -139,7 +141,7 @@ BENCHMARK_MAP = {
     "Small/Mid Growth Wave": "IWM",
 }
 
-HISTORY_DAYS = 365  # calendar days
+HISTORY_DAYS = 365  # calendar days to look back
 
 
 # ======================================================
@@ -214,7 +216,6 @@ def get_effective_mode_config(wave, mode_label):
     beta = base["beta_target"]
     drift = base["drift_annual"]
 
-    # Simple mapping: Defensive <= Neutral <= Aggressive
     if tilt == "Defensive":
         beta *= 0.9
         drift *= 0.8
@@ -222,7 +223,6 @@ def get_effective_mode_config(wave, mode_label):
         beta *= 1.1
         drift *= 1.2
 
-    # safety caps
     beta = max(0.5, min(1.3, beta))
     drift = max(0.0, min(0.20, drift))
 
@@ -234,7 +234,6 @@ def get_effective_mode_config(wave, mode_label):
 def apply_max_position_cap(weights_df):
     """
     Apply global max_position_pct override per Wave.
-    This is a simple 'portfolio construction' override.
     """
     cap = st.session_state["overrides"]["global"]["max_position_pct"]
     cap_frac = cap / 100.0
@@ -260,7 +259,12 @@ def apply_max_position_cap(weights_df):
 # ======================================================
 def load_weights_raw():
     """
-    Load wave_weights.csv and normalize within each Wave.
+    Load wave_weights.csv.
+
+    IMPORTANT:
+    - This file should already contain the **full basket** for each Wave:
+      primary + secondary positions combined.
+    - Every row for a given `wave` is treated as part of the portfolio.
     """
     if not WEIGHTS_FILE.exists():
         raise FileNotFoundError(f"Missing weights file: {WEIGHTS_FILE}")
@@ -309,10 +313,6 @@ def load_weights_raw():
 
 
 def load_weights_effective():
-    """
-    Apply Human Override caps to base weights.
-    (Future: SmartSafe floor / sector tilts can be added here.)
-    """
     raw = load_weights_raw()
     capped = apply_max_position_cap(raw)
     return capped
@@ -323,9 +323,6 @@ def get_benchmark_for_wave(wave_name):
 
 
 def fetch_prices(tickers, start, end):
-    """
-    Fetch adjusted close prices for tickers between start & end.
-    """
     if not tickers:
         return pd.DataFrame()
 
@@ -360,8 +357,7 @@ def compute_returns_from_prices(prices):
 
 def generate_synthetic_performance(wave_name, mode_label, history_days):
     """
-    Generate a synthetic benchmark + portfolio series consistent with
-    the mode's β target and drift assumptions.
+    Synthetic benchmark + portfolio series that respects mode β & drift.
     """
     mode_cfg = get_effective_mode_config(wave_name, mode_label)
     beta_target = mode_cfg["beta_target"]
@@ -371,14 +367,11 @@ def generate_synthetic_performance(wave_name, mode_label, history_days):
     end_date = datetime.utcnow().date()
     dates = pd.bdate_range(end=end_date, periods=n_days)
 
-    # Assume benchmark ~7% annual drift, 16% vol
     mu_bench = 0.07 / 252.0
     sigma_bench = 0.16 / np.sqrt(252.0)
 
-    # Sample benchmark returns
     bench = np.random.normal(mu_bench, sigma_bench, size=n_days)
 
-    # Portfolio: drift per mode, correlated to benchmark via beta
     mu_port = drift_annual / 252.0
     sigma_idio = 0.10 / np.sqrt(252.0)
 
@@ -398,8 +391,7 @@ def generate_synthetic_performance(wave_name, mode_label, history_days):
 
 def compute_alpha_windows(df, wave_name, mode_label):
     """
-    Given a DataFrame with date, portfolio_return, benchmark_return,
-    attach alpha and window metrics.
+    Attach α(1D,30D,60D) + 30/60D returns vs benchmark.
     """
     mode_cfg = get_effective_mode_config(wave_name, mode_label)
     beta_target = mode_cfg["beta_target"]
@@ -428,16 +420,39 @@ def compute_alpha_windows(df, wave_name, mode_label):
     return df
 
 
+def validate_or_fallback(df, wave_name, mode_label, regime, history_days):
+    """
+    If df is empty, too short, or full of NaNs → regenerate synthetic.
+    """
+    if df is None or df.empty:
+        df_syn, reg_syn = generate_synthetic_performance(
+            wave_name, mode_label, history_days
+        )
+        df_syn = compute_alpha_windows(df_syn, wave_name, mode_label)
+        return df_syn, reg_syn
+
+    df = df.dropna(subset=["portfolio_return", "benchmark_return"])
+
+    if len(df) < 30 or df["portfolio_return"].isna().all():
+        df_syn, reg_syn = generate_synthetic_performance(
+            wave_name, mode_label, history_days
+        )
+        df_syn = compute_alpha_windows(df_syn, wave_name, mode_label)
+        return df_syn, reg_syn
+
+    return df, regime
+
+
 def build_wave_performance(wave_name, mode_label, weights_df, history_days=HISTORY_DAYS):
     """
-    Hybrid engine:
+    Hybrid engine with hardened fallback:
 
-    1) Try to build performance from LIVE prices (yfinance).
-    2) If that fails or is incomplete, fall back to synthetic series.
+    1) Try LIVE (yfinance) path for the full basket (primary + secondary).
+    2) If any step leaves us with too little or invalid data, fall back
+       to SANDBOX synthetic series so the Wave always has full metrics.
     """
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
-        # No weights at all -> synthetic
         df, regime = generate_synthetic_performance(wave_name, mode_label, history_days)
         df = compute_alpha_windows(df, wave_name, mode_label)
         return df, regime
@@ -455,35 +470,42 @@ def build_wave_performance(wave_name, mode_label, weights_df, history_days=HISTO
 
         if basket_prices.empty or bench_prices.empty:
             raise ValueError("empty price history")
+
         basket_rets = compute_returns_from_prices(basket_prices)
         bench_rets = compute_returns_from_prices(bench_prices)
 
         common_dates = basket_rets.index.intersection(bench_rets.index)
-        if len(common_dates) < 30:  # not enough history
-            raise ValueError("insufficient overlap")
-
         basket_rets = basket_rets.loc[common_dates]
         bench_rets = bench_rets.loc[common_dates]
+
+        if len(basket_rets) < 30 or len(bench_rets) < 30:
+            raise ValueError("insufficient overlap")
 
         weight_map = {row["ticker"]: row["weight"] for _, row in wave_weights.iterrows()}
         aligned_weights = np.array([weight_map[t] for t in basket_rets.columns])
 
         port_ret = basket_rets.values @ aligned_weights
 
-        df = pd.DataFrame(
+        df_live = pd.DataFrame(
             {
                 "date": common_dates,
                 "portfolio_return": port_ret,
                 "benchmark_return": bench_rets.iloc[:, 0].values,
             }
         )
-        df = compute_alpha_windows(df, wave_name, mode_label)
-        return df, regime
+
+        df_live = compute_alpha_windows(df_live, wave_name, mode_label)
+        df_valid, regime_valid = validate_or_fallback(
+            df_live, wave_name, mode_label, regime, history_days
+        )
+        return df_valid, regime_valid
+
     except Exception:
-        # Synthetic fallback
-        df, regime = generate_synthetic_performance(wave_name, mode_label, history_days)
-        df = compute_alpha_windows(df, wave_name, mode_label)
-        return df, regime
+        df_syn, regime_syn = generate_synthetic_performance(
+            wave_name, mode_label, history_days
+        )
+        df_syn = compute_alpha_windows(df_syn, wave_name, mode_label)
+        return df_syn, regime_syn
 
 
 def compute_drawdown(df):
@@ -494,9 +516,6 @@ def compute_drawdown(df):
 
 
 def compute_standard_matrix_row(wave_name, weights_df):
-    """
-    Standard mode snapshot (uses overrides for caps, but Standard mode β).
-    """
     perf_df, regime = build_wave_performance(
         wave_name, "Standard", weights_df, HISTORY_DAYS
     )
@@ -580,6 +599,10 @@ def compute_alpha_summary_for_wave(wave_name, mode_label, weights_df):
 
 
 def load_top10_holdings(wave_name, weights_df):
+    """
+    Top 10 positions (by effective weight) for the selected Wave.
+    Uses the full basket (primary + secondary).
+    """
     wave_weights = weights_df[weights_df["wave"] == wave_name].copy()
     if wave_weights.empty:
         return pd.DataFrame()
@@ -635,7 +658,7 @@ with st.sidebar:
         "This console runs the engine **inside the app**:\n"
         "- Full basket + secondary basket from `wave_weights.csv`\n"
         "- Prices pulled live via yfinance when available\n"
-        "- Synthetic series generated when prices are missing\n"
+        "- Synthetic series generated when prices are missing or incomplete\n"
         "- Human overrides applied (tilt, caps) before performance is computed."
     )
 
