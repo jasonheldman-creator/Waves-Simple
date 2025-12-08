@@ -1,20 +1,18 @@
 # app.py
 """
-WAVES Intelligence™ Institutional Console v2.0 — Stage 3 (Vector Lab)
+WAVES Intelligence™ Super Console (Combined)
 
 - Uses waves_engine.py (dynamic S&P 500 Wave)
-- Multi-tab institutional layout
-- 1D / 30D / 60D returns & alpha
-- Performance vs benchmark chart
-- Rolling alpha chart
-- Mode comparison: Standard vs Alpha-Minus-Beta vs Private Logic™
-- Top 10 holdings with Google Finance links
-- Sector allocation chart (if sector_map.csv is available)
-- Factor exposure panel (Momentum & Quality/Low-Vol tilt)
-- NEW: Vector Lab tab:
-    - Wave Blender (blend two Waves with a slider)
-    - Scenario Shock Blocks (simple stress scenarios)
-    - VectorOS Prompt Stub (UI only, for “tell Vector what to do”)
+- All Waves Dashboard (table + alpha heatmap)
+- Per-Wave deep console:
+    - Overview
+    - Holdings (Top 10 + Google links)
+    - Performance (benchmark & modes)
+    - Risk (vol, drawdown, factor exposure)
+- Vector Lab:
+    - Wave Blender (two-wave slider blend)
+    - Scenario Shocks (simple equity shocks)
+    - VectorOS Prompt stub (future agent slot)
 """
 
 import pandas as pd
@@ -30,12 +28,12 @@ import waves_engine as we
 # -------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
+    page_title="WAVES Intelligence™ Super Console",
     layout="wide",
 )
 
-st.title("WAVES Intelligence™ Institutional Console")
-st.caption("Autonomous Waves • Dynamic Alpha • Real-Time Intelligence")
+st.title("WAVES Intelligence™ Institutional Super Console")
+st.caption("Autonomous Waves • Dynamic Alpha • Vector-Ready OS")
 
 
 # -------------------------------------------------------------------
@@ -63,14 +61,32 @@ def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
         return None
 
 
+@st.cache_data(show_spinner=False)
+def preload_summaries_for_all_waves(
+    weights_df: pd.DataFrame,
+) -> dict:
+    """
+    Precompute summary metrics for all Waves:
+    returns dict: { wave_name: summary_dict }
+    """
+    summaries = {}
+    wave_names_local = we.get_wave_names(weights_df)
+    for wname in wave_names_local:
+        try:
+            summaries[wname] = we.compute_wave_summary(wname, weights_df)
+        except Exception as e:
+            print(f"[WARN] Failed summary for {wname}: {e}")
+    return summaries
+
+
 weights_df = load_all_weights()
 wave_names = we.get_wave_names(weights_df)
-
 if not wave_names:
     st.error("No waves found. Check wave_weights.csv and sp500_universe.csv.")
     st.stop()
 
 sector_map_df = load_sector_map()
+all_summaries = preload_summaries_for_all_waves(weights_df)
 
 
 # -------------------------------------------------------------------
@@ -81,7 +97,7 @@ st.sidebar.header("Wave Controls")
 selected_wave = st.sidebar.selectbox("Select Wave", wave_names, index=0)
 
 mode = st.sidebar.radio(
-    "Mode (applied in Mode Comparison analytics)",
+    "Mode (used in Mode Comparison analytics)",
     ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
     index=0,
 )
@@ -95,8 +111,8 @@ history_window = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Mode logic in this stage is applied in the Performance ➜ Mode Comparison section.\n"
-    "Engine-level mode separation can be wired in a later code stage."
+    "Mode logic is applied analytically in Performance ➜ Mode Comparison.\n"
+    "Engine-level mode separation can be added later."
 )
 
 
@@ -327,12 +343,6 @@ def build_mode_comparison_series(
     """
     Synthesizes Standard vs Alpha-Minus-Beta vs Private Logic™
     as three different cumulative curves, using daily rets.
-
-    - Standard: portfolio returns as-is.
-    - Alpha-Minus-Beta: 0.9 * benchmark + alpha (wave - bench).
-    - Private Logic™: wave + 0.3 * alpha (a more aggressive tilt).
-
-    Returns tidy DataFrame with columns: date, series, value
     """
     if port_rets is None or port_rets.empty:
         return None
@@ -404,11 +414,8 @@ def compute_shock_scenarios(
     shock_levels: list[float] | None = None,
 ) -> pd.DataFrame | None:
     """
-    Very simple scenario approximations:
+    Simple scenario approximations:
     - shock_levels: list of instantaneous equity shocks, e.g. [-0.1, -0.2, -0.3]
-    Uses recent realized volatility as a rough scale check.
-
-    Returns DataFrame with columns: scenario, shock, est_effect
     """
     if port_rets is None or port_rets.empty:
         return None
@@ -421,7 +428,7 @@ def compute_shock_scenarios(
     rows = []
     for s in shock_levels:
         scenario_name = f"{int(abs(s) * 100)}% Equity Shock"
-        est_effect = s  # 1:1 for now (we could scale by beta later)
+        est_effect = s
         rows.append(
             {
                 "scenario": scenario_name,
@@ -434,11 +441,56 @@ def compute_shock_scenarios(
 
 
 # -------------------------------------------------------------------
-# Pull summary metrics from engine
+# All-Waves top summary (super console feel)
 # -------------------------------------------------------------------
 
-with st.spinner(f"Computing summary metrics for {selected_wave}..."):
-    summary = we.compute_wave_summary(selected_wave, weights_df)
+def build_all_waves_table(summaries: dict) -> pd.DataFrame:
+    rows = []
+    for wname, summ in summaries.items():
+        if not isinstance(summ, dict):
+            continue
+        rows.append(
+            {
+                "Wave": wname,
+                "Return 1D": summ.get("return_1d"),
+                "Alpha 1D": summ.get("alpha_1d"),
+                "Return 30D": summ.get("return_30d"),
+                "Alpha 30D": summ.get("alpha_30d"),
+                "Return 60D": summ.get("return_60d"),
+                "Alpha 60D": summ.get("alpha_60d"),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values("Wave")
+
+
+def build_alpha_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert alpha columns into tidy matrix for heatmap:
+    columns: Wave, window, alpha
+    """
+    if df.empty:
+        return df
+
+    melted = pd.melt(
+        df,
+        id_vars=["Wave"],
+        value_vars=["Alpha 1D", "Alpha 30D", "Alpha 60D"],
+        var_name="window",
+        value_name="alpha",
+    )
+    # Clean window labels
+    melted["window"] = melted["window"].str.replace("Alpha ", "")
+    return melted
+
+
+# -------------------------------------------------------------------
+# Pull summary metrics for selected wave from preloaded dict
+# -------------------------------------------------------------------
+
+summary = all_summaries.get(selected_wave, {})
 
 r1 = summary.get("return_1d")
 a1 = summary.get("alpha_1d")
@@ -465,6 +517,7 @@ m4.metric("30-Day Alpha", fmt_pct(a30))
 m5.metric("60-Day Return", fmt_pct(r60))
 m6.metric("60-Day Alpha", fmt_pct(a60))
 
+# Placeholder for WaveScore slot
 m7.metric("WaveScore™ (slot)", "—")
 
 try:
@@ -481,15 +534,80 @@ else:
 
 
 # -------------------------------------------------------------------
-# Tabs: Overview | Holdings | Performance | Risk | Vector Lab
+# Tabs:
+#   All Waves
+#   Overview (selected)
+#   Holdings
+#   Performance
+#   Risk
+#   Vector Lab
 # -------------------------------------------------------------------
 
-tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
-    ["Overview", "Holdings", "Performance", "Risk", "Vector Lab"]
+tab_all, tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
+    ["All Waves", "Overview", "Holdings", "Performance", "Risk", "Vector Lab"]
 )
 
 # -------------------------------------------------------------------
-# OVERVIEW TAB
+# ALL WAVES TAB (Super console grid)
+# -------------------------------------------------------------------
+
+with tab_all:
+    st.subheader("All Waves — Dashboard")
+
+    df_all = build_all_waves_table(all_summaries)
+    if df_all.empty:
+        st.info("No wave summaries available.")
+    else:
+        df_disp = df_all.copy()
+        st.markdown("#### Wave Metrics Table")
+        st.dataframe(
+            df_disp.style.format(
+                {
+                    "Return 1D": "{:.2%}",
+                    "Alpha 1D": "{:.2%}",
+                    "Return 30D": "{:.2%}",
+                    "Alpha 30D": "{:.2%}",
+                    "Return 60D": "{:.2%}",
+                    "Alpha 60D": "{:.2%}",
+                }
+            ),
+            use_container_width=True,
+        )
+
+        st.markdown("#### Alpha Matrix (Heatmap)")
+        alpha_mat = build_alpha_matrix(df_all)
+        if alpha_mat.empty:
+            st.info("Not enough alpha data for heatmap.")
+        else:
+            chart_alpha = (
+                alt.Chart(alpha_mat)
+                .mark_rect()
+                .encode(
+                    x=alt.X("window:N", title="Window"),
+                    y=alt.Y("Wave:N", title="Wave"),
+                    color=alt.Color(
+                        "alpha:Q",
+                        title="Alpha",
+                        scale=alt.Scale(scheme="redblue"),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("Wave:N", title="Wave"),
+                        alt.Tooltip("window:N", title="Window"),
+                        alt.Tooltip("alpha:Q", title="Alpha", format=".2%"),
+                    ],
+                )
+                .properties(height=400)
+            )
+            st.altair_chart(chart_alpha, use_container_width=True)
+
+    st.caption(
+        "All-Wave dashboard approximates the old 'grid' console: "
+        "return and alpha across multiple horizons, with a simple alpha heatmap."
+    )
+
+
+# -------------------------------------------------------------------
+# OVERVIEW TAB (Selected wave)
 # -------------------------------------------------------------------
 
 with tab_overview:
@@ -537,7 +655,7 @@ with tab_overview:
         st.markdown("##### Quick Notes")
         st.caption(
             "- Performance curves use realized daily returns from the current Wave definition.\n"
-            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in this stage."
+            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in Performance."
         )
 
     st.markdown("---")
@@ -554,6 +672,7 @@ with tab_overview:
             top_disp.style.format({"Weight (%)": "{:0.2f}"}),
             use_container_width=True,
         )
+
 
 # -------------------------------------------------------------------
 # HOLDINGS TAB
@@ -618,6 +737,7 @@ with tab_holdings:
             )
 
             st.altair_chart(chart_sector, use_container_width=True)
+
 
 # -------------------------------------------------------------------
 # PERFORMANCE TAB
@@ -714,8 +834,9 @@ with tab_perf:
     st.markdown("---")
     st.caption(
         "Mode comparison curves are analytical constructs derived from realized returns and benchmarks.\n"
-        "Engine-level mode separation (distinct portfolios per mode) can be added on top later."
+        "Engine-level mode separation (distinct portfolios per mode) can be added later."
     )
+
 
 # -------------------------------------------------------------------
 # RISK TAB
@@ -792,12 +913,12 @@ with tab_risk:
 
     st.markdown("---")
     st.caption(
-        "Risk metrics are based on recent realized volatility, drawdowns, and price-derived factor tilts. "
-        "A full WAVES Risk Engine (stress tests, scenario analysis, factor risk) can be layered in a future stage."
+        "Risk metrics are based on recent realized volatility, drawdowns, and price-derived factor tilts."
     )
 
+
 # -------------------------------------------------------------------
-# VECTOR LAB TAB (Stage 3)
+# VECTOR LAB TAB
 # -------------------------------------------------------------------
 
 with tab_vector:
@@ -816,13 +937,11 @@ with tab_vector:
             "to see how a combined allocation would have behaved."
         )
 
-        # Build list of other waves for blending
         other_waves = [w for w in wave_names if w != selected_wave]
         if not other_waves:
             st.info("Need at least 2 Waves to use the blender.")
         else:
             default_other = 0
-            # Prefer SmartSafe if present
             for i, wname in enumerate(other_waves):
                 if "safe" in wname.lower() or "cash" in wname.lower():
                     default_other = i
@@ -872,20 +991,6 @@ with tab_vector:
                 )
                 st.altair_chart(chart_blend, use_container_width=True)
 
-                # quick delta vs pure selected wave
-                df_sel, rets_sel, _ = get_wave_timeseries(
-                    selected_wave, history_window, weights_df
-                )
-                if rets_sel is not None and not rets_sel.empty:
-                    # line up the last point
-                    last_sel = (1.0 + rets_sel.tail(len(df_blend["date"]))).prod() - 1.0
-                    last_blend = df_blend["value"].iloc[-1]
-                    st.metric(
-                        "Blend vs Pure Wave (over window)",
-                        fmt_pct(last_blend),
-                        f"{(last_blend - last_sel) * 100:0.2f} pts vs pure",
-                    )
-
     # ---- Scenario Shocks ----
     with subtab2:
         st.markdown("### Scenario Shocks")
@@ -914,7 +1019,7 @@ with tab_vector:
                     "scenario": "Scenario",
                     "recent_vol": "Recent Vol (ann.)",
                 },
-                    inplace=True,
+                inplace=True,
             )
 
             st.dataframe(
@@ -928,17 +1033,12 @@ with tab_vector:
                 use_container_width=True,
             )
 
-            st.caption(
-                "Assumes a simple 1:1 mapping between the shock and the Wave's estimated impact. "
-                "In a full implementation, this would be scaled by beta, sector exposures, and factor sensitivities."
-            )
-
     # ---- VectorOS Prompt Stub ----
     with subtab3:
         st.markdown("### VectorOS Prompt (Stub)")
 
         st.caption(
-            "This is a UI-only stub for the future VectorOS agent. "
+            "UI-only stub for the future VectorOS agent. "
             "Use it to prototype how you'd talk to the system."
         )
 
@@ -978,11 +1078,6 @@ with tab_vector:
                         "before_vs_after_allocation",
                     ],
                 }
-            )
-
-            st.caption(
-                "In a future build, this block would call a real VectorOS agent that manipulates "
-                "Waves, allocations, and scenarios, then pushes changes back into the engine."
             )
 
 # -------------------------------------------------------------------
