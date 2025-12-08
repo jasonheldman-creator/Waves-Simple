@@ -40,6 +40,12 @@ WAVESCORE_CANDIDATES = [
     "wavescore_summary.csv",
 ]
 
+# Debug tracker: which files each wave is using
+MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
+    "performance": {},
+    "positions": {},
+}
+
 # ---- Wave metadata (display names) ----
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "S&P 500 Wave": {
@@ -89,8 +95,8 @@ def normalize_for_match(s: str) -> str:
     s = s.lower()
     for ch in ["&", "-", "_"]:
         s = s.replace(ch, " ")
-    s = s.replace("wave", " ")
-    s = s.replace("portfolio", " ")
+    for token in ["wave", "portfolio", "positions", "performance", "daily"]:
+        s = s.replace(token, " ")
     s = " ".join(s.split())
     return s
 
@@ -112,7 +118,12 @@ def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
 
 
 def find_best_performance_path(wave_name: str) -> Optional[str]:
-    """Fuzzy match performance file for a wave."""
+    """
+    Fuzzy match performance file for a wave.
+    Stores result in MATCH_DEBUG['performance'][wave_name].
+    """
+    MATCH_DEBUG["performance"][wave_name] = None
+
     if not os.path.isdir(LOGS_PERFORMANCE_DIR):
         return None
     target = normalize_for_match(wave_name)
@@ -121,55 +132,60 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
 
     best_score = 0.0
     best_path: Optional[str] = None
+    target_tokens = set(target.split())
 
     for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-        if not fname.endswith(".csv"):
-            continue
-        if "_performance" not in fname:
+        if not fname.endswith(".csv") or "_performance" not in fname:
             continue
         base = fname.replace(".csv", "")
         base_norm = normalize_for_match(base)
         if not base_norm:
             continue
-        t_tokens = set(target.split())
         b_tokens = set(base_norm.split())
-        if not t_tokens or not b_tokens:
+        if not target_tokens or not b_tokens:
             continue
-        score = len(t_tokens & b_tokens) / len(t_tokens | b_tokens)
+        score = len(target_tokens & b_tokens) / len(target_tokens | b_tokens)
         if score > best_score:
             best_score = score
             best_path = os.path.join(LOGS_PERFORMANCE_DIR, fname)
 
-    if best_score < 0.4:
+    # Lower threshold to be more permissive; adjust if needed
+    if best_score < 0.2:
+        MATCH_DEBUG["performance"][wave_name] = None
         return None
+
+    MATCH_DEBUG["performance"][wave_name] = best_path
     return best_path
 
 
 def find_latest_positions_path(wave_name: str) -> Optional[str]:
-    """Fuzzy match LATEST positions file for a wave."""
+    """
+    Fuzzy match LATEST positions file for a wave.
+    Stores result in MATCH_DEBUG['positions'][wave_name].
+    """
+    MATCH_DEBUG["positions"][wave_name] = None
+
     if not os.path.isdir(LOGS_POSITIONS_DIR):
         return None
     target = normalize_for_match(wave_name)
     if not target:
         return None
 
-    candidates: List[Tuple[datetime, str]] = []
+    candidates: List[Tuple[datetime, str, float]] = []
+    target_tokens = set(target.split())
 
     for fname in os.listdir(LOGS_POSITIONS_DIR):
-        if not fname.endswith(".csv"):
-            continue
-        if "_positions" not in fname:
+        if not fname.endswith(".csv") or "_positions" not in fname:
             continue
         base = fname.replace(".csv", "")
         base_norm = normalize_for_match(base)
         if not base_norm:
             continue
-        t_tokens = set(target.split())
         b_tokens = set(base_norm.split())
-        if not t_tokens or not b_tokens:
+        if not target_tokens or not b_tokens:
             continue
-        score = len(t_tokens & b_tokens) / len(t_tokens | b_tokens)
-        if score < 0.4:
+        score = len(target_tokens & b_tokens) / len(target_tokens | b_tokens)
+        if score < 0.2:
             continue
 
         full_path = os.path.join(LOGS_POSITIONS_DIR, fname)
@@ -179,12 +195,17 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
                 dt = datetime.fromtimestamp(os.path.getmtime(full_path))
             except Exception:
                 continue
-        candidates.append((dt, fname))
+        candidates.append((dt, fname, score))
 
     if not candidates:
         return None
-    latest_fname = max(candidates, key=lambda x: x[0])[1]
-    return os.path.join(LOGS_POSITIONS_DIR, latest_fname)
+
+    # choose latest date; if tie, highest score
+    latest = max(candidates, key=lambda x: (x[0], x[2]))
+    latest_fname = latest[1]
+    best_path = os.path.join(LOGS_POSITIONS_DIR, latest_fname)
+    MATCH_DEBUG["positions"][wave_name] = best_path
+    return best_path
 
 
 # ---------- Data loaders ----------
@@ -286,7 +307,7 @@ def google_quote_url(ticker: str) -> str:
 
 def render_top10_holdings(holdings_df: Optional[pd.DataFrame], wave_name: str) -> None:
     if holdings_df is None or holdings_df.empty:
-        st.info(f"No holdings available for {wave_name}.")
+        st.info(f"No holdings available for {wave_name}. (No matching positions file found.)")
         return
 
     df = holdings_df.copy()
@@ -453,10 +474,12 @@ def render_system_status_tab(waves: List[str]) -> None:
         st.markdown("#### Latest Updates per Wave")
         rows = []
         for wave in waves:
-            perf_path = find_best_performance_path(wave)
-            pos_path = find_latest_positions_path(wave)
+            perf_path = MATCH_DEBUG["performance"].get(wave) or find_best_performance_path(wave)
+            pos_path = MATCH_DEBUG["positions"].get(wave) or find_latest_positions_path(wave)
             rows.append({
                 "Wave": wave,
+                "Perf File": perf_path or "(none)",
+                "Positions File": pos_path or "(none)",
                 "Last Perf Update": get_last_update_time(perf_path),
                 "Last Positions Update": get_last_update_time(pos_path),
             })
@@ -554,6 +577,13 @@ def main() -> None:
             if chart_cols:
                 chart_data = perf_df.set_index("date")[chart_cols]
                 st.line_chart(chart_data)
+        else:
+            st.caption("No performance history yet for this Wave (no matching performance file found).")
+
+        # Show which files this wave is currently using
+        st.markdown("###### Debug — Matched Files for This Wave")
+        st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
+        st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
 
     with col_right:
         render_top10_holdings(positions_df, selected_wave)
@@ -576,12 +606,12 @@ def main() -> None:
         if positions_df is not None and not positions_df.empty:
             st.dataframe(positions_df, use_container_width=True)
         else:
-            st.info("No detailed positions available.")
+            st.info("No detailed positions available for this Wave.")
         st.markdown("### Raw Performance History")
         if perf_df is not None and not perf_df.empty:
             st.dataframe(perf_df, use_container_width=True)
         else:
-            st.info("No performance history yet.")
+            st.info("No performance history yet for this Wave.")
 
     with tab2:
         render_alpha_capture_tab()
