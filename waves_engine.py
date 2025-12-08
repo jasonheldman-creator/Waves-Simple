@@ -74,6 +74,16 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Alternate legacy names used in logs
+ALT_WAVE_NAMES: Dict[str, List[str]] = {
+    "Clean Transit-Infrastructure Wave": [
+        "Clean Transit & Infrastructure Wave",
+        "Clean Transit Infrastructure Wave",
+        "Clean Transit & Infra Wave",
+    ],
+    # Add more aliases here if any other wave names were changed
+}
+
 # ---------- Path helpers ----------
 
 def ensure_dirs() -> None:
@@ -86,16 +96,35 @@ def safe_wave_to_file_prefix(wave_name: str) -> str:
     return wave_name.replace(" ", "_")
 
 
+def iter_possible_prefixes(canonical_wave: str) -> List[str]:
+    """
+    For a given Wave name, generate all possible filename prefixes
+    based on current + legacy names.
+    """
+    names = [canonical_wave]
+    names.extend(ALT_WAVE_NAMES.get(canonical_wave, []))
+    prefixes: List[str] = []
+    seen = set()
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            prefixes.append(safe_wave_to_file_prefix(name))
+    return prefixes
+
+
 def performance_path_for_wave(wave: str) -> Optional[str]:
-    safe = safe_wave_to_file_prefix(wave)
-    direct = os.path.join(LOGS_PERFORMANCE_DIR, f"{safe}_performance_daily.csv")
-    if os.path.exists(direct):
-        return direct
+    """
+    Find a performance CSV for this Wave, trying canonical and legacy prefixes.
+    """
     if not os.path.isdir(LOGS_PERFORMANCE_DIR):
         return None
-    for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-        if fname.endswith(".csv") and "_performance" in fname and fname.startswith(safe):
-            return os.path.join(LOGS_PERFORMANCE_DIR, fname)
+    for prefix in iter_possible_prefixes(wave):
+        direct = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
+        if os.path.exists(direct):
+            return direct
+        for fname in os.listdir(LOGS_PERFORMANCE_DIR):
+            if fname.endswith(".csv") and "_performance" in fname and fname.startswith(prefix):
+                return os.path.join(LOGS_PERFORMANCE_DIR, fname)
     return None
 
 
@@ -115,15 +144,18 @@ def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
 
 
 def latest_positions_path_for_wave(wave: str) -> Optional[str]:
+    """
+    Find the latest positions CSV for this Wave, trying canonical and legacy prefixes.
+    """
     if not os.path.isdir(LOGS_POSITIONS_DIR):
         return None
-    safe = safe_wave_to_file_prefix(wave)
     candidates: List[Tuple[datetime, str]] = []
-    for fname in os.listdir(LOGS_POSITIONS_DIR):
-        if fname.endswith(".csv") and "_positions_" in fname and fname.startswith(safe):
-            dt = parse_date_from_positions_filename(fname)
-            if dt is not None:
-                candidates.append((dt, fname))
+    for prefix in iter_possible_prefixes(wave):
+        for fname in os.listdir(LOGS_POSITIONS_DIR):
+            if fname.endswith(".csv") and "_positions_" in fname and fname.startswith(prefix):
+                dt = parse_date_from_positions_filename(fname)
+                if dt is not None:
+                    candidates.append((dt, fname))
     if not candidates:
         return None
     latest = max(candidates, key=lambda x: x[0])[1]
@@ -433,19 +465,8 @@ def main() -> None:
     if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
         st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
 
-    # Load data (may be empty if engine never ran for this wave)
     perf_df = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
-
-    # Auto-kick engine once if there is no data for this wave
-    if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
-        try:
-            waves_engine.run_wave(selected_wave)  # type: ignore
-            st.sidebar.success(f"Engine auto-run for {selected_wave}.")
-            perf_df = load_performance_history(selected_wave)
-            positions_df = load_latest_positions(selected_wave)
-        except Exception as e:
-            st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
 
     metrics = compute_summary_metrics(perf_df)
 
