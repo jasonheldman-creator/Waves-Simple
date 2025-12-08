@@ -315,3 +315,4 @@ with tab1:
 
 with tab2:
     render_alpha_capture_tab()
+    
