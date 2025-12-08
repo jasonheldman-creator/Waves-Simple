@@ -1,21 +1,18 @@
 # app.py
 """
-WAVES Intelligence™ Super Console (Cloud-safe)
+WAVES Intelligence™ Console — Vector 1 Final (Version C)
 
-- Uses waves_engine.py (dynamic S&P 500 Wave)
-- All Waves dashboard (table + alpha heatmap)
-- Per-Wave deep console:
-    • Overview
-    • Holdings (Top 10 + Google links)
-    • Performance (benchmark & modes)
-    • Risk (vol, drawdown, factor exposure)
-- Vector Lab:
-    • Wave Blender
-    • Scenario Shocks
-    • VectorOS Prompt stub
+Features:
+- Sidebar: wave selector, mode selector, history window
+- Top strip: 1D / 30D / 60D returns & alpha, WaveScore slot, VIX
+- Tabs:
+    • All Waves — grid + alpha matrix heatmap
+    • Overview — perf vs benchmark + quick holdings preview
+    • Holdings — Top 10 + Google links
+    • Performance — cumulative + rolling alpha + mode comparison
+    • Risk — vol, drawdown, factor exposure
 
-This version is Streamlit Cloud–safe:
-NO pandas Styler (.style) calls anywhere.
+No pandas Styler (.style). Safe for Streamlit Cloud.
 """
 
 from __future__ import annotations
@@ -33,12 +30,12 @@ import waves_engine as we
 # -------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="WAVES Intelligence™ Super Console",
+    page_title="WAVES Intelligence™ Console — Vector 1",
     layout="wide",
 )
 
-st.title("WAVES Intelligence™ Institutional Super Console")
-st.caption("Autonomous Waves • Dynamic Alpha • Vector-Ready OS")
+st.title("WAVES Intelligence™ Institutional Console (Vector 1)")
+st.caption("Autonomous Waves • Alpha-Minus-Beta Modes • Vector-Ready")
 
 
 # -------------------------------------------------------------------
@@ -51,22 +48,7 @@ def load_all_weights() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_sector_map(path: str = "sector_map.csv") -> pd.DataFrame | None:
-    """Optional: sector_map.csv with columns: ticker,sector."""
-    try:
-        df = pd.read_csv(path)
-        if "ticker" not in df.columns or "sector" not in df.columns:
-            return None
-        df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-        df["sector"] = df["sector"].astype(str).str.strip()
-        return df
-    except Exception:
-        return None
-
-
-@st.cache_data(show_spinner=False)
 def preload_summaries_for_all_waves(weights_df: pd.DataFrame) -> dict:
-    """Precompute summary metrics for all Waves."""
     summaries: dict = {}
     for wname in we.get_wave_names(weights_df):
         try:
@@ -79,42 +61,14 @@ def preload_summaries_for_all_waves(weights_df: pd.DataFrame) -> dict:
 weights_df = load_all_weights()
 wave_names = we.get_wave_names(weights_df)
 if not wave_names:
-    st.error("No waves found. Check wave_weights.csv and sp500_universe.csv.")
+    st.error("No Waves found. Check wave_weights.csv and sp500_universe.csv.")
     st.stop()
 
-sector_map_df = load_sector_map()
 all_summaries = preload_summaries_for_all_waves(weights_df)
 
 
 # -------------------------------------------------------------------
-# Sidebar controls
-# -------------------------------------------------------------------
-
-st.sidebar.header("Wave Controls")
-selected_wave = st.sidebar.selectbox("Select Wave", wave_names, index=0)
-
-mode = st.sidebar.radio(
-    "Mode (for comparison curves)",
-    ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-    index=0,
-)
-
-history_window = st.sidebar.selectbox(
-    "History Window",
-    options=[90, 180, 365],
-    index=1,
-    format_func=lambda x: f"{x} days",
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Modes are applied analytically in Performance ➜ Mode Comparison.\n"
-    "Engine-level mode separation can be added later."
-)
-
-
-# -------------------------------------------------------------------
-# Helper functions
+# Helpers
 # -------------------------------------------------------------------
 
 def fmt_pct(x: float | None) -> str:
@@ -128,7 +82,9 @@ def get_wave_timeseries(
     days: int,
     weights_df: pd.DataFrame,
 ):
-    """Return tidy cumulative series + daily returns for a wave and its benchmark."""
+    """
+    Return tidy cumulative series + daily returns for a wave and its benchmark.
+    """
     w = weights_df[weights_df["wave"] == wave_name].copy()
     if w.empty:
         return pd.DataFrame(), None, None
@@ -181,28 +137,6 @@ def get_wave_timeseries(
         )
     df_cum = pd.concat(frames, ignore_index=True)
     return df_cum, port_rets, bench_rets
-
-
-def build_sector_allocation(
-    wave_name: str,
-    weights_df: pd.DataFrame,
-    sector_map: pd.DataFrame | None,
-) -> pd.DataFrame | None:
-    if sector_map is None:
-        return None
-    w = weights_df[weights_df["wave"] == wave_name].copy()
-    if w.empty:
-        return None
-    agg = w.groupby("ticker")["weight"].sum().reset_index()
-    merged = agg.merge(sector_map, how="left", on="ticker")
-    merged["sector"].fillna("Other / Unknown", inplace=True)
-    sector_alloc = (
-        merged.groupby("sector")["weight"]
-        .sum()
-        .reset_index()
-        .sort_values("weight", ascending=False)
-    )
-    return sector_alloc
 
 
 def compute_risk_metrics(
@@ -323,57 +257,6 @@ def build_mode_comparison_series(
     )
 
 
-def build_blended_wave_timeseries(
-    wave_a: str,
-    wave_b: str,
-    blend_a: float,
-    days: int,
-    weights_df: pd.DataFrame,
-) -> pd.DataFrame | None:
-    df_a, rets_a, _ = get_wave_timeseries(wave_a, days, weights_df)
-    df_b, rets_b, _ = get_wave_timeseries(wave_b, days, weights_df)
-    if rets_a is None or rets_a.empty or rets_b is None or rets_b.empty:
-        return None
-
-    common = rets_a.index.intersection(rets_b.index)
-    if common.empty:
-        return None
-
-    rets_a = rets_a.reindex(common)
-    rets_b = rets_b.reindex(common)
-    blended = blend_a * rets_a + (1.0 - blend_a) * rets_b
-    cum_blend = (1.0 + blended).cumprod() - 1.0
-    return pd.DataFrame(
-        {"date": cum_blend.index, "series": "Blended Wave", "value": cum_blend.values}
-    )
-
-
-def compute_shock_scenarios(
-    port_rets: pd.Series | None,
-    shock_levels: list[float] | None = None,
-) -> pd.DataFrame | None:
-    if port_rets is None or port_rets.empty:
-        return None
-    if shock_levels is None:
-        shock_levels = [-0.10, -0.20, -0.30]
-
-    recent_vol = (
-        float(port_rets.tail(30).std() * np.sqrt(252)) if len(port_rets) >= 30 else None
-    )
-
-    rows = []
-    for s in shock_levels:
-        rows.append(
-            {
-                "Scenario": f"{int(abs(s) * 100)}% Equity Shock",
-                "Shock (%)": round(s * 100.0, 1),
-                "Estimated Impact (%)": round(s * 100.0, 1),
-                "Recent Vol (ann.)": recent_vol,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
 def build_all_waves_table(summaries: dict) -> pd.DataFrame:
     rows = []
     for wname, summ in summaries.items():
@@ -392,8 +275,7 @@ def build_all_waves_table(summaries: dict) -> pd.DataFrame:
         )
     if not rows:
         return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    return df.sort_values("Wave")
+    return pd.DataFrame(rows).sort_values("Wave")
 
 
 def build_alpha_matrix(df: pd.DataFrame) -> pd.DataFrame:
@@ -411,7 +293,31 @@ def build_alpha_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # -------------------------------------------------------------------
-# Selected wave summary (from preloaded dict)
+# Sidebar controls
+# -------------------------------------------------------------------
+
+st.sidebar.header("Wave Controls")
+selected_wave = st.sidebar.selectbox("Select Wave", wave_names, index=0)
+
+mode = st.sidebar.radio(
+    "Mode (for comparison curves)",
+    ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+    index=0,
+)
+
+history_window = st.sidebar.selectbox(
+    "History Window",
+    options=[30, 60, 90, 180],
+    index=2,
+    format_func=lambda x: f"{x} days",
+)
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Vector 1 Final — stable multi-tab console.")
+
+
+# -------------------------------------------------------------------
+# Selected wave summary
 # -------------------------------------------------------------------
 
 summary = all_summaries.get(selected_wave, {})
@@ -422,10 +328,11 @@ a30 = summary.get("alpha_30d")
 r60 = summary.get("return_60d")
 a60 = summary.get("alpha_60d")
 bench = summary.get("benchmark")
+top_holdings = summary.get("top_holdings")
 
 
 # -------------------------------------------------------------------
-# Top metrics strip
+# Top metrics
 # -------------------------------------------------------------------
 
 st.markdown("### Wave Snapshot")
@@ -455,8 +362,8 @@ else:
 # Tabs
 # -------------------------------------------------------------------
 
-tab_all, tab_overview, tab_holdings, tab_perf, tab_risk, tab_vector = st.tabs(
-    ["All Waves", "Overview", "Holdings", "Performance", "Risk", "Vector Lab"]
+tab_all, tab_overview, tab_holdings, tab_perf, tab_risk = st.tabs(
+    ["All Waves", "Overview", "Holdings", "Performance", "Risk"]
 )
 
 # -------------------------------------------------------------------
@@ -507,8 +414,7 @@ with tab_all:
             st.altair_chart(chart_alpha, use_container_width=True)
 
     st.caption(
-        "All-Waves dashboard approximates the old grid console: "
-        "returns and alpha across horizons, plus a simple alpha heatmap."
+        "All-Waves dashboard: returns and alpha across horizons, plus a simple alpha heatmap."
     )
 
 
@@ -560,11 +466,10 @@ with tab_overview:
 
     st.markdown("---")
     st.markdown("##### Top 10 Holdings (Preview)")
-    top = summary.get("top_holdings")
-    if top is None or top.empty:
+    if top_holdings is None or top_holdings.empty:
         st.write("No holdings found for this Wave.")
     else:
-        top_disp = top.copy()
+        top_disp = top_holdings.copy()
         top_disp["Weight (%)"] = (top_disp["weight"] * 100.0).round(2)
         st.dataframe(top_disp[["ticker", "Weight (%)"]], use_container_width=True)
 
@@ -576,50 +481,23 @@ with tab_overview:
 with tab_holdings:
     st.subheader(f"Holdings — {selected_wave}")
 
-    top = summary.get("top_holdings")
-    if top is None or top.empty:
+    if top_holdings is None or top_holdings.empty:
         st.write("No holdings for this Wave.")
     else:
         st.markdown("##### Top 10 Holdings Table")
-        top_disp = top.copy()
+        top_disp = top_holdings.copy()
         top_disp["Weight (%)"] = (top_disp["weight"] * 100.0).round(2)
         st.dataframe(top_disp[["ticker", "Weight (%)"]], use_container_width=True)
 
         st.markdown("##### Google Finance Links")
-        for _, row in top.iterrows():
-            ticker = row["ticker"]
+        for _, row in top_holdings.iterrows():
+            ticker = str(row["ticker"])
             wgt = row["weight"]
             url = f"https://www.google.com/finance?q={ticker}"
             st.markdown(
                 f"- [{ticker}]({url}) — {wgt * 100:0.2f}% weight",
                 unsafe_allow_html=True,
             )
-
-        st.markdown("---")
-        st.markdown("##### Sector Allocation (if mapped)")
-        sector_alloc = build_sector_allocation(selected_wave, weights_df, sector_map_df)
-        if sector_alloc is None or sector_alloc.empty:
-            st.info(
-                "No sector_map.csv found or no sectors mapped. "
-                "Add a sector_map.csv (ticker,sector) to enable this chart."
-            )
-        else:
-            df_sec = sector_alloc.copy()
-            df_sec["Weight (%)"] = (df_sec["weight"] * 100.0).round(2)
-            chart_sector = (
-                alt.Chart(df_sec)
-                .mark_bar()
-                .encode(
-                    x=alt.X("Weight (%):Q", title="Weight (%)"),
-                    y=alt.Y("sector:N", sort="-x", title="Sector"),
-                    tooltip=[
-                        alt.Tooltip("sector:N", title="Sector"),
-                        alt.Tooltip("Weight (%):Q", format=".2f"),
-                    ],
-                )
-                .properties(height=400)
-            )
-            st.altair_chart(chart_sector, use_container_width=True)
 
 
 # -------------------------------------------------------------------
@@ -788,128 +666,8 @@ with tab_risk:
 
 
 # -------------------------------------------------------------------
-# VECTOR LAB TAB
-# -------------------------------------------------------------------
-
-with tab_vector:
-    st.subheader("Vector Lab — Experiments & OS Toys")
-
-    subtab1, subtab2, subtab3 = st.tabs(
-        ["Wave Blender", "Scenario Shocks", "VectorOS Prompt"]
-    )
-
-    # Wave Blender
-    with subtab1:
-        st.markdown("### Wave Blender")
-        st.caption(
-            "Blend your selected Wave with another Wave (e.g., SmartSafe, S&P Wave) "
-            "to see how a combined allocation would have behaved."
-        )
-        other_waves = [w for w in wave_names if w != selected_wave]
-        if not other_waves:
-            st.info("Need at least 2 Waves to use the blender.")
-        else:
-            default_other = 0
-            for i, wname in enumerate(other_waves):
-                if "safe" in wname.lower() or "cash" in wname.lower():
-                    default_other = i
-                    break
-            blend_wave = st.selectbox("Blend with Wave", other_waves, index=default_other)
-            blend_pct = st.slider(
-                "Allocation to primary Wave",
-                min_value=0,
-                max_value=100,
-                value=60,
-                step=5,
-            )
-            blend_a = blend_pct / 100.0
-            df_blend = build_blended_wave_timeseries(
-                selected_wave, blend_wave, blend_a, history_window, weights_df
-            )
-            if df_blend is None or df_blend.empty:
-                st.info("Not enough overlapping data to build blended series.")
-            else:
-                st.markdown(
-                    f"**Blend:** {blend_pct}% {selected_wave} + {100 - blend_pct}% {blend_wave}"
-                )
-                chart_blend = (
-                    alt.Chart(df_blend)
-                    .mark_line()
-                    .encode(
-                        x=alt.X("date:T", title="Date"),
-                        y=alt.Y("value:Q", title="Cumulative Return"),
-                        color=alt.Color("series:N", title="Series"),
-                        tooltip=[
-                            alt.Tooltip("date:T", title="Date"),
-                            alt.Tooltip("series:N", title="Series"),
-                            alt.Tooltip("value:Q", title="Cumulative Return", format=".2%"),
-                        ],
-                    )
-                    .properties(height=350)
-                )
-                st.altair_chart(chart_blend, use_container_width=True)
-
-    # Scenario Shocks
-    with subtab2:
-        st.markdown("### Scenario Shocks")
-        st.caption(
-            "Very simple hypothetical shocks applied to the selected Wave. "
-            "Not a full stress engine, just quick intuition aids."
-        )
-        df_cum, port_rets, _ = get_wave_timeseries(selected_wave, history_window, weights_df)
-        scenarios = compute_shock_scenarios(port_rets)
-        if scenarios is None or scenarios.empty:
-            st.info("Not enough data to compute scenarios.")
-        else:
-            st.dataframe(scenarios, use_container_width=True)
-            st.caption(
-                "Assumes a simple 1:1 mapping between the shock and the Wave's estimated impact. "
-                "A full implementation would scale this by beta, sectors, and factor sensitivities."
-            )
-
-    # VectorOS Prompt stub
-    with subtab3:
-        st.markdown("### VectorOS Prompt (Stub)")
-        st.caption(
-            "UI-only stub for the future VectorOS agent. "
-            "Use it to prototype how you'd talk to the system."
-        )
-        default_prompt = (
-            "Reallocate 10% from S&P Wave into SmartSafe over the next 30 days, "
-            "but only if VIX stays above 25. Show me the expected drawdown improvement."
-        )
-        user_prompt = st.text_area(
-            "Tell Vector what to do:", value=default_prompt, height=120
-        )
-        if st.button("Interpret with VectorOS (placeholder)"):
-            st.markdown("#### VectorOS Interpretation (Prototype)")
-            st.write("**Raw Instruction:**")
-            st.code(user_prompt)
-            st.write("**Parsed Intent (example):**")
-            st.json(
-                {
-                    "action": "rebalance",
-                    "from_wave": "S&P Wave",
-                    "to_wave": "SmartSafe (or cash-like Wave)",
-                    "fraction": 0.10,
-                    "schedule": "over_30_days",
-                    "condition": {
-                        "metric": "VIX",
-                        "operator": ">",
-                        "threshold": 25,
-                    },
-                    "objective": "reduce_drawdown",
-                    "outputs": [
-                        "expected_drawdown_change",
-                        "before_vs_after_vol",
-                        "before_vs_after_allocation",
-                    ],
-                }
-            )
-
-# -------------------------------------------------------------------
 # Footer
 # -------------------------------------------------------------------
 
 st.markdown("---")
-st.caption("WAVES Intelligence™ • Autonomous Wealth Engine • Not investment advice.")
+st.caption("WAVES Intelligence™ • Vector 1 Final • Not investment advice.")
