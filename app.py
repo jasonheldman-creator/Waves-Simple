@@ -1,14 +1,16 @@
 # app.py
 """
-WAVES Intelligence™ Institutional Console v2.0 (Stage 1)
+WAVES Intelligence™ Institutional Console v2.0 — Stage 2 (Advanced Analytics)
 
 - Uses waves_engine.py (dynamic S&P 500 Wave)
 - Multi-tab institutional layout
 - 1D / 30D / 60D returns & alpha
 - Performance vs benchmark chart
 - Rolling alpha chart
+- Mode comparison: Standard vs Alpha-Minus-Beta vs Private Logic™
 - Top 10 holdings with Google Finance links
-- (Optional) sector allocation chart, if sector mapping file is present
+- Sector allocation chart (if sector_map.csv is available)
+- Factor exposure panel (Momentum & Quality/Low-Vol tilt)
 """
 
 import pandas as pd
@@ -75,7 +77,7 @@ st.sidebar.header("Wave Controls")
 selected_wave = st.sidebar.selectbox("Select Wave", wave_names, index=0)
 
 mode = st.sidebar.radio(
-    "Mode (UI only – engine still Standard in this build)",
+    "Mode (applied in Mode Comparison analytics)",
     ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
     index=0,
 )
@@ -89,8 +91,8 @@ history_window = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Mode logic and advanced analytics will be wired in the next stage. "
-    "This build focuses on core institutional views."
+    "Mode logic in this stage is applied in the Performance ➜ Mode Comparison section.\n"
+    "Engine-level mode separation can be wired in a later code stage."
 )
 
 
@@ -144,13 +146,11 @@ def get_wave_timeseries(
     if port_rets.empty:
         return pd.DataFrame(), None, None
 
-    # cumulative portfolio
     cum_wave = (1.0 + port_rets).cumprod() - 1.0
 
     bench_ticker = we.get_benchmark_for_wave(wave_name)
     bench_rets = None
     cum_bench = None
-    alpha_series = None
 
     if bench_ticker:
         try:
@@ -163,7 +163,6 @@ def get_wave_timeseries(
 
             bench_rets = bench_rets.reindex(common_idx)
             cum_bench = (1.0 + bench_rets).cumprod() - 1.0
-            alpha_series = cum_wave - cum_bench
         except Exception as e:
             st.warning(f"Benchmark series unavailable for {bench_ticker}: {e}")
 
@@ -248,6 +247,134 @@ def compute_risk_metrics(
     return metrics
 
 
+def compute_factor_exposure_for_wave(
+    wave_name: str,
+    weights_df: pd.DataFrame,
+    days: int = 260,
+) -> pd.DataFrame | None:
+    """
+    Uses waves_engine.compute_factor_scores to estimate factor tilts for a wave.
+    Returns DataFrame with columns: factor, exposure
+    """
+    w = weights_df[weights_df["wave"] == wave_name].copy()
+    if w.empty:
+        return None
+
+    weights = (
+        w.groupby("ticker")["weight"]
+        .sum()
+        .reindex(w["ticker"].unique())
+        .fillna(0.0)
+    )
+
+    tickers = list(weights.index)
+    if not tickers:
+        return None
+
+    try:
+        prices = we.fetch_price_history(tickers, lookback_days=days)
+        factor_df = we.compute_factor_scores(prices)
+    except Exception as e:
+        st.warning(f"Factor data unavailable for {wave_name}: {e}")
+        return None
+
+    # Align to tickers and weights
+    factor_df = factor_df.reindex(tickers)
+
+    # We use three composite factors from the engine:
+    #   momentum_score, quality_score, factor_score (hybrid)
+    cols_needed = ["momentum_score", "quality_score", "factor_score"]
+    for c in cols_needed:
+        if c not in factor_df.columns:
+            return None
+
+    w_vec = weights.reindex(factor_df.index).fillna(0.0).values
+
+    def w_avg(series: pd.Series) -> float:
+        arr = series.fillna(0.0).values
+        if w_vec.sum() <= 0:
+            return float(np.nan)
+        return float((arr * w_vec).sum() / w_vec.sum())
+
+    momentum_exposure = w_avg(factor_df["momentum_score"])
+    quality_exposure = w_avg(factor_df["quality_score"])
+    hybrid_exposure = w_avg(factor_df["factor_score"])
+
+    # Normalize exposures into something presentable
+    vals = np.array([momentum_exposure, quality_exposure, hybrid_exposure], dtype=float)
+    if np.all(np.isnan(vals)):
+        return None
+
+    # z-score the exposures so 0 = neutral
+    mean = np.nanmean(vals)
+    std = np.nanstd(vals)
+    if std == 0 or np.isnan(std):
+        z_vals = np.zeros_like(vals)
+    else:
+        z_vals = (vals - mean) / std
+
+    df_out = pd.DataFrame(
+        {
+            "factor": ["Momentum", "Quality / Low-Vol", "Hybrid Factor"],
+            "exposure": z_vals,
+        }
+    )
+    return df_out
+
+
+def build_mode_comparison_series(
+    port_rets: pd.Series | None,
+    bench_rets: pd.Series | None,
+) -> pd.DataFrame | None:
+    """
+    Synthesizes Standard vs Alpha-Minus-Beta vs Private Logic™
+    as three different cumulative curves, using daily rets.
+
+    - Standard: portfolio returns as-is.
+    - Alpha-Minus-Beta: 0.9 * benchmark + alpha (wave - bench).
+    - Private Logic™: wave + 0.3 * alpha (a more aggressive tilt).
+
+    Returns tidy DataFrame with columns: date, series, value
+    """
+    if port_rets is None or port_rets.empty:
+        return None
+
+    # If no benchmark, just show Standard as the only curve
+    if bench_rets is None or bench_rets.empty:
+        cum_std = (1.0 + port_rets).cumprod() - 1.0
+        df_std = pd.DataFrame(
+            {"date": cum_std.index, "series": "Standard", "value": cum_std.values}
+        )
+        return df_std
+
+    common_idx = port_rets.index.intersection(bench_rets.index)
+    if common_idx.empty:
+        return None
+
+    wave = port_rets.reindex(common_idx)
+    bench = bench_rets.reindex(common_idx)
+    alpha = wave - bench
+
+    # Standard
+    cum_std = (1.0 + wave).cumprod() - 1.0
+
+    # Alpha-Minus-Beta: keep alpha, reduce beta to ~0.9
+    amb_rets = 0.90 * bench + alpha
+    cum_amb = (1.0 + amb_rets).cumprod() - 1.0
+
+    # Private Logic™: increase tilt to alpha
+    pl_rets = wave + 0.30 * alpha
+    cum_pl = (1.0 + pl_rets).cumprod() - 1.0
+
+    df_list = [
+        pd.DataFrame({"date": cum_std.index, "series": "Standard", "value": cum_std.values}),
+        pd.DataFrame({"date": cum_amb.index, "series": "Alpha-Minus-Beta", "value": cum_amb.values}),
+        pd.DataFrame({"date": cum_pl.index, "series": "Private Logic™", "value": cum_pl.values}),
+    ]
+    df_modes = pd.concat(df_list, ignore_index=True)
+    return df_modes
+
+
 # -------------------------------------------------------------------
 # Pull summary metrics from engine
 # -------------------------------------------------------------------
@@ -281,7 +408,7 @@ m4.metric("30-Day Alpha", fmt_pct(a30))
 m5.metric("60-Day Return", fmt_pct(r60))
 m6.metric("60-Day Alpha", fmt_pct(a60))
 
-# Placeholder for WaveScore slot
+# Placeholder for WaveScore slot (engine scoring can be attached later)
 m7.metric("WaveScore™ (slot)", "—")
 
 # VIX tag
@@ -344,7 +471,7 @@ with tab_overview:
     with col_right:
         st.markdown("##### Mode & Wave Details")
         st.write(f"**Wave:** {selected_wave}")
-        st.write(f"**Mode:** {mode}")
+        st.write(f"**Selected Mode (for comparison):** {mode}")
         st.write(f"**History Window:** {history_window} days")
         if bench:
             st.write(f"**Benchmark:** `{bench}`")
@@ -354,8 +481,8 @@ with tab_overview:
         st.markdown("---")
         st.markdown("##### Quick Notes")
         st.caption(
-            "- Mode behavior (Standard / A−B / Private Logic™) will be wired to engine logic in the next stage.\n"
-            "- WaveScore™ slot is present; scoring logic will be attached to WAVESCORE v1.0 spec."
+            "- Performance curves use realized daily returns from the current Wave definition.\n"
+            "- Mode comparison logic (Standard / A−B / Private Logic™) is applied analytically in Stage 2."
         )
 
     st.markdown("---")
@@ -477,7 +604,6 @@ with tab_perf:
         if df_cum.empty or bench_rets is None:
             st.info("Benchmark series not available; alpha chart skipped.")
         else:
-            # recompute from port_rets & bench_rets (aligned in get_wave_timeseries)
             common_idx = port_rets.index.intersection(bench_rets.index)
             port = port_rets.reindex(common_idx)
             bench = bench_rets.reindex(common_idx)
@@ -504,9 +630,36 @@ with tab_perf:
             st.altair_chart(chart_alpha, use_container_width=True)
 
     st.markdown("---")
+    st.markdown("##### Mode Comparison — Standard vs A−B vs Private Logic™")
+
+    df_modes = build_mode_comparison_series(port_rets, bench_rets)
+    if df_modes is None or df_modes.empty:
+        st.info(
+            "Not enough data (or no benchmark) to show mode comparison. "
+            "Standard curve is used elsewhere."
+        )
+    else:
+        chart_modes = (
+            alt.Chart(df_modes)
+            .mark_line()
+            .encode(
+                x=alt.X("date:T", title="Date"),
+                y=alt.Y("value:Q", title="Cumulative Return"),
+                color=alt.Color("series:N", title="Mode"),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date"),
+                    alt.Tooltip("series:N", title="Mode"),
+                    alt.Tooltip("value:Q", title="Cumulative Return", format=".2%"),
+                ],
+            )
+            .properties(height=350)
+        )
+        st.altair_chart(chart_modes, use_container_width=True)
+
+    st.markdown("---")
     st.caption(
-        "Performance and alpha are based on portfolio-level daily returns using current Wave definitions. "
-        "Historical composition changes are not yet modeled in this build."
+        "Mode comparison curves are analytical constructs derived from realized returns and benchmarks.\n"
+        "Engine-level mode separation (distinct portfolios per mode) can be added on top later."
     )
 
 # -------------------------------------------------------------------
@@ -555,10 +708,37 @@ with tab_risk:
         st.altair_chart(chart_dd, use_container_width=True)
 
     st.markdown("---")
+    st.markdown("##### Factor Exposure (Momentum & Quality Tilt)")
+
+    factor_exposure = compute_factor_exposure_for_wave(
+        selected_wave, weights_df, days=260
+    )
+
+    if factor_exposure is None or factor_exposure.empty:
+        st.info(
+            "Factor exposure could not be computed (insufficient history or data). "
+            "Ensure tickers have ~1 year of price history for best results."
+        )
+    else:
+        chart_factor = (
+            alt.Chart(factor_exposure)
+            .mark_bar()
+            .encode(
+                x=alt.X("factor:N", title="Factor"),
+                y=alt.Y("exposure:Q", title="Exposure (relative z-score)"),
+                tooltip=[
+                    alt.Tooltip("factor:N", title="Factor"),
+                    alt.Tooltip("exposure:Q", title="Exposure", format=".2f"),
+                ],
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(chart_factor, use_container_width=True)
+
+    st.markdown("---")
     st.caption(
-        "Risk metrics are derived from recent realized volatility and drawdowns. "
-        "Full WAVES Risk Engine (stress tests, scenario analysis, factor risk) "
-        "can be layered in a later stage."
+        "Risk metrics are based on recent realized volatility, drawdowns, and price-derived factor tilts. "
+        "A full WAVES Risk Engine (stress tests, scenario analysis, factor risk) can be layered in a future stage."
     )
 
 # -------------------------------------------------------------------
