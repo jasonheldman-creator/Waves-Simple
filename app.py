@@ -1,8 +1,9 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+import numpy as np
 from urllib.parse import quote_plus
 
 try:
@@ -294,6 +295,113 @@ def load_human_overrides() -> Optional[pd.DataFrame]:
     return None
 
 
+# ---------- SANDBOX data generator (code-only fallback) ----------
+
+def demo_positions_for_wave(wave: str) -> pd.DataFrame:
+    """Generate synthetic positions for a wave if none exist."""
+    if wave == "Clean Transit-Infrastructure Wave":
+        tickers = ["TSLA", "NIO", "RIVN", "CHPT", "BLNK", "F", "GM", "CAT", "DE", "UNP"]
+    elif wave == "Quantum Computing Wave":
+        tickers = ["NVDA", "AMD", "IBM", "QCOM", "AVGO", "TSM", "MSFT", "GOOGL"]
+    elif wave == "S&P 500 Wave":
+        tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "BRK.B", "JPM", "JNJ", "XOM", "PG"]
+    else:
+        tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
+
+    n = len(tickers)
+    raw = np.abs(np.random.rand(n))
+    weights = raw / raw.sum()
+
+    df = pd.DataFrame({
+        "wave": [wave] * n,
+        "ticker": tickers,
+        "name": tickers,  # simple name = ticker
+        "weight": weights,
+    })
+    return df
+
+
+def demo_performance_for_wave(wave: str, days: int = 90) -> pd.DataFrame:
+    """Generate synthetic performance history for a wave if none exist."""
+    end_date = datetime.today().date()
+    dates = pd.bdate_range(end=end_date, periods=days)
+    n = len(dates)
+
+    # simple random walk around 0.08 annualized, 15% vol (approx)
+    daily_mu = 0.08 / 252.0
+    daily_sigma = 0.15 / np.sqrt(252.0)
+    daily_ret = np.random.normal(daily_mu, daily_sigma, size=n)
+
+    nav = 100 * (1 + daily_ret).cumprod()
+
+    df = pd.DataFrame({
+        "date": dates,
+        "nav": nav,
+        "return_1d": daily_ret,
+    })
+
+    # trailing returns
+    df["return_30d"] = np.nan
+    df["return_60d"] = np.nan
+    for i in range(n):
+        # 30 business days
+        if i >= 21:
+            df.loc[df.index[i], "return_30d"] = nav[i] / nav[i - 21] - 1.0
+        if i >= 42:
+            df.loc[df.index[i], "return_60d"] = nav[i] / nav[i - 42] - 1.0
+
+    # simple alpha: 30d alpha = 30d return minus 2%/yr baseline
+    baseline_daily = 0.02 / 252.0
+    df["alpha_30d"] = df["return_30d"] - (baseline_daily * 21)
+
+    df["wave"] = wave
+    df["regime"] = "SANDBOX"
+
+    return df
+
+
+def generate_sandbox_logs_if_missing(wave: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """
+    If a wave has no positions/performance files at all,
+    generate synthetic SANDBOX data and write logs to /logs.
+    """
+    perf_path = find_best_performance_path(wave)
+    pos_path = find_latest_positions_path(wave)
+
+    if perf_path is not None or pos_path is not None:
+        # Something already exists; don't overwrite
+        perf_df = load_performance_history(wave)
+        pos_df = load_latest_positions(wave)
+        return perf_df, pos_df
+
+    # No files at all: generate SANDBOX
+    prefix = wave.replace(" ", "_")
+
+    perf_df = demo_performance_for_wave(wave)
+    pos_df = demo_positions_for_wave(wave)
+
+    # Write to logs so future reads pick it up
+    perf_log_path = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
+    pos_log_path = os.path.join(
+        LOGS_POSITIONS_DIR,
+        f"{prefix}_positions_{datetime.today().strftime('%Y%m%d')}.csv",
+    )
+
+    try:
+        perf_df.to_csv(perf_log_path, index=False)
+        MATCH_DEBUG["performance"][wave] = perf_log_path
+    except Exception:
+        pass
+
+    try:
+        pos_df.to_csv(pos_log_path, index=False)
+        MATCH_DEBUG["positions"][wave] = pos_log_path
+    except Exception:
+        pass
+
+    return perf_df, pos_df
+
+
 # ---------- Google Finance links & metrics ----------
 
 def google_quote_url(ticker: str) -> str:
@@ -386,6 +494,9 @@ def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
     records = []
     for wave in waves:
         perf_df = load_performance_history(wave)
+        # if still missing, allow SANDBOX fill-in for snapshot as well
+        if perf_df is None or perf_df.empty:
+            perf_df, _ = generate_sandbox_logs_if_missing(wave)
         m = compute_summary_metrics(perf_df)
         meta = WAVE_METADATA.get(wave, {})
         records.append({
@@ -462,9 +573,9 @@ def render_system_status_tab(waves: List[str]) -> None:
     with engine_col:
         st.markdown("#### Engine")
         if HAS_ENGINE:
-            st.success("Engine module loaded — WAVES engine is AVAILABLE.")
+            st.success("waves_engine module loaded — WAVES engine is AVAILABLE.")
         else:
-            st.error("Engine module NOT found — console is read-only right now.")
+            st.error("waves_engine module NOT found — console is running in SANDBOX mode only.")
         st.markdown("#### Directories")
         st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
         st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
@@ -534,12 +645,11 @@ def main() -> None:
     if HAS_ENGINE:
         st.sidebar.success("Engine status: ON (waves_engine loaded).")
     else:
-        st.sidebar.error("Engine status: OFF (waves_engine.py not found).")
+        st.sidebar.warning("Engine status: SANDBOX (no waves_engine.py on this host).")
 
     if HAS_ENGINE and hasattr(waves_engine, "run_wave"):
         if st.sidebar.button(f"Run Engine for THIS Wave ({selected_wave})"):
             try:
-                # Keep it simple; your waves_engine can decide what to do with mode
                 waves_engine.run_wave(selected_wave)  # type: ignore
                 st.sidebar.success(f"Engine run triggered for {selected_wave}.")
             except Exception as e:
@@ -555,7 +665,7 @@ def main() -> None:
     elif HAS_ENGINE:
         st.sidebar.info("run_all_waves() not available on waves_engine.")
     else:
-        st.sidebar.info("Engine not loaded; run buttons are disabled.")
+        st.sidebar.info("Engine not loaded; using SANDBOX data where needed.")
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"Active Wave: **{selected_wave}**")
@@ -576,6 +686,11 @@ def main() -> None:
         except Exception as e:
             st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
 
+    # If still no data, generate SANDBOX logs via code only
+    if (perf_df is None or perf_df.empty) and (positions_df is None or positions_df.empty):
+        st.sidebar.info(f"Generating SANDBOX data for {selected_wave} (code-only demo).")
+        perf_df, positions_df = generate_sandbox_logs_if_missing(selected_wave)
+
     metrics = compute_summary_metrics(perf_df)
 
     col_left, col_right = st.columns([2, 1])
@@ -594,7 +709,7 @@ def main() -> None:
                 chart_data = perf_df.set_index("date")[chart_cols]
                 st.line_chart(chart_data)
         else:
-            st.caption("No performance history yet for this Wave (no matching performance file found).")
+            st.caption("No performance history yet for this Wave.")
 
         # Show which files this wave is currently using
         st.markdown("###### Debug — Matched Files for This Wave")
