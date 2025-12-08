@@ -123,6 +123,7 @@ st.markdown(
 BASE_DIR = Path(".")
 LOGS_PERF_DIR = BASE_DIR / "logs" / "performance"
 LOGS_POS_DIR = BASE_DIR / "logs" / "positions"
+WEIGHTS_FILE = BASE_DIR / "wave_weights.csv"
 
 MODES = {
     "Standard": {"beta_target": 0.90, "drift_annual": 0.07},
@@ -210,17 +211,27 @@ def get_latest_positions_file_for_wave(wave_name: str) -> Path | None:
     return Path(candidates[-1][1])
 
 
-def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
+def google_url(ticker: str) -> str:
+    t = str(ticker).strip().upper()
+    if not t or t == "NAN":
+        return ""
+    return f"https://www.google.com/finance/quote/{t}"
+
+
+def load_top10_from_weights(wave_name: str) -> pd.DataFrame | None:
     """
-    Load the latest positions file for a Wave and return the Top 10 holdings
-    with clickable Google Finance ticker links.
+    Fallback: use wave_weights.csv to construct a Top 10 list when
+    there is no positions file.
+    Expected columns (flexible):
+        - wave / Wave
+        - ticker / symbol
+        - weight / weight_pct / target_weight
     """
-    latest_file = get_latest_positions_file_for_wave(wave_name)
-    if latest_file is None or not latest_file.exists():
+    if not WEIGHTS_FILE.exists():
         return None
 
     try:
-        df = pd.read_csv(latest_file)
+        df = pd.read_csv(WEIGHTS_FILE)
     except Exception:
         return None
 
@@ -229,14 +240,26 @@ def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
 
     cols = {c.lower(): c for c in df.columns}
 
+    # Identify wave column and filter for matching wave
+    wave_col = cols.get("wave") or cols.get("portfolio") or None
+    if wave_col is None:
+        # If no explicit wave column, assume file is already per-wave; use all rows
+        wave_filtered = df.copy()
+    else:
+        target_key = normalize_key(wave_name)
+        df = df.copy()
+        df["_wave_key"] = df[wave_col].astype(str).apply(normalize_key)
+        wave_filtered = df[df["_wave_key"] == target_key]
+        if wave_filtered.empty:
+            return None
+
     ticker_col = cols.get("ticker") or cols.get("symbol") or list(df.columns)[0]
     weight_candidates = [
         "weight",
-        "portfolio_weight",
-        "target_weight",
-        "actual_weight",
         "weight_pct",
         "weight_percent",
+        "target_weight",
+        "portfolio_weight",
     ]
     weight_col = None
     for cand in weight_candidates:
@@ -245,32 +268,91 @@ def load_positions_top10(wave_name: str) -> pd.DataFrame | None:
             break
 
     if weight_col is None:
-        df["__weight__"] = 1.0 / len(df)
+        wave_filtered["__weight__"] = 1.0 / len(wave_filtered)
         weight_col = "__weight__"
 
-    name_col = cols.get("name") or cols.get("security_name")
-    sector_col = cols.get("sector")
-
-    df = df.copy()
-    df = df.sort_values(by=weight_col, ascending=False).head(10)
-
-    def google_url(ticker: str) -> str:
-        t = str(ticker).strip().upper()
-        if not t or t == "NAN":
-            return ""
-        return f"https://www.google.com/finance/quote/{t}"
+    wave_filtered = wave_filtered.copy()
+    wave_filtered = wave_filtered.sort_values(by=weight_col, ascending=False).head(10)
 
     out = pd.DataFrame()
-    out["Ticker"] = df[ticker_col].astype(str).str.upper()
-    out["Name"] = df[name_col].astype(str) if name_col else ""
-    out["Sector"] = df[sector_col].astype(str) if sector_col else ""
-    out["Weight%"] = (df[weight_col].astype(float) * 100.0).round(2).astype(str) + "%"
+    out["Ticker"] = wave_filtered[ticker_col].astype(str).str.upper()
+    out["Name"] = ""
+    out["Sector"] = ""
+    out["Weight%"] = (
+        wave_filtered[weight_col].astype(float) * 100.0
+    ).round(2).astype(str) + "%"
 
     out["TickerLink"] = out["Ticker"].apply(
         lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>' if t else ""
     )
 
     return out
+
+
+def load_positions_top10(wave_name: str) -> tuple[pd.DataFrame | None, str]:
+    """
+    Load the Top 10 holdings for a Wave:
+
+    1) Try positions logs (preferred, live)
+    2) If missing/broken, fallback to wave_weights.csv
+
+    Returns (df, source_label) where source_label is "positions" or "weights".
+    """
+    # ---- 1) Try positions logs ----
+    latest_file = get_latest_positions_file_for_wave(wave_name)
+    if latest_file is not None and latest_file.exists():
+        try:
+            df = pd.read_csv(latest_file)
+            if not df.empty:
+                cols = {c.lower(): c for c in df.columns}
+
+                ticker_col = cols.get("ticker") or cols.get("symbol") or list(df.columns)[0]
+                weight_candidates = [
+                    "weight",
+                    "portfolio_weight",
+                    "target_weight",
+                    "actual_weight",
+                    "weight_pct",
+                    "weight_percent",
+                ]
+                weight_col = None
+                for cand in weight_candidates:
+                    if cand in cols:
+                        weight_col = cols[cand]
+                        break
+
+                if weight_col is None:
+                    df["__weight__"] = 1.0 / len(df)
+                    weight_col = "__weight__"
+
+                name_col = cols.get("name") or cols.get("security_name")
+                sector_col = cols.get("sector")
+
+                df = df.copy()
+                df = df.sort_values(by=weight_col, ascending=False).head(10)
+
+                out = pd.DataFrame()
+                out["Ticker"] = df[ticker_col].astype(str).str.upper()
+                out["Name"] = df[name_col].astype(str) if name_col else ""
+                out["Sector"] = df[sector_col].astype(str) if sector_col else ""
+                out["Weight%"] = (
+                    df[weight_col].astype(float) * 100.0
+                ).round(2).astype(str) + "%"
+
+                out["TickerLink"] = out["Ticker"].apply(
+                    lambda t: f'<a href="{google_url(t)}" target="_blank">{t}</a>' if t else ""
+                )
+
+                return out, f"positions log ({latest_file.name})"
+        except Exception:
+            pass  # fall through to weights
+
+    # ---- 2) Fallback to wave_weights.csv ----
+    weights_df = load_top10_from_weights(wave_name)
+    if weights_df is not None and not weights_df.empty:
+        return weights_df, "wave_weights.csv"
+
+    return None, ""
 
 
 def infer_return_and_benchmark_cols(df: pd.DataFrame) -> tuple[str | None, str | None]:
@@ -312,6 +394,10 @@ def generate_demo_performance(
     mode_label: str,
     n_days: int = 120,
 ) -> pd.DataFrame:
+    """
+    Synthetic but internally consistent series that respects mode's beta + drift.
+    Used whenever no usable log file exists.
+    """
     mode_cfg = MODES.get(mode_label, MODES["Standard"])
     beta_target = mode_cfg["beta_target"]
     drift_annual = mode_cfg["drift_annual"]
@@ -350,6 +436,14 @@ def load_wave_performance(
     wave_name: str,
     mode_label: str,
 ) -> tuple[pd.DataFrame, bool]:
+    """
+    Load performance for a Wave + Mode.
+
+    1) Try logs/performance/<Wave>_performance_daily.csv
+    2) If missing/bad, fallback to synthetic demo series
+
+    Returns (df, is_live_flag).
+    """
     is_live = False
     perf_file = LOGS_PERF_DIR / f"{wave_name}_performance_daily.csv"
 
@@ -388,6 +482,10 @@ def compute_alpha_windows(
     df: pd.DataFrame,
     mode_label: str,
 ) -> pd.DataFrame:
+    """
+    Add alpha and rolling return columns
+    using the mode's beta target.
+    """
     mode_cfg = MODES.get(mode_label, MODES["Standard"])
     beta_target = mode_cfg["beta_target"]
 
@@ -554,13 +652,13 @@ def compute_standard_matrix_row(wave_name: str) -> dict:
 
     return {
         "Wave": wave_name,
-        "1D Return": one_day_ret,
-        "1D Alpha": one_day_alpha,
-        "30D Alpha": alpha_30d,
-        "60D Alpha": alpha_60d,
-        "Realized β": realized_beta,
-        "Max Drawdown": max_dd,
-    }
+            "1D Return": one_day_ret,
+            "1D Alpha": one_day_alpha,
+            "30D Alpha": alpha_30d,
+            "60D Alpha": alpha_60d,
+            "Realized β": realized_beta,
+            "Max Drawdown": max_dd,
+        }
 
 
 # ================================
@@ -917,7 +1015,7 @@ with tab_std_matrix:
 
         st.dataframe(display_df, use_container_width=True)
 
-        # Optional quick visual: 60D alpha bar chart
+        # Quick visual: 60D alpha bar chart
         bar_df = matrix_df[["Wave", "60D Alpha"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
         st.markdown(
@@ -937,7 +1035,7 @@ with tab_std_matrix:
 # ---------------- Alpha Capture Matrix (All Waves) tab ----------------
 with tab_alpha_matrix:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown(
+    st.markmarkdown(
         '<div class="metric-label">Alpha Capture Matrix &mdash; All Waves</div>',
         unsafe_allow_html=True,
     )
@@ -964,10 +1062,10 @@ with tab_alpha_matrix:
 
         st.dataframe(display_df, use_container_width=True)
 
-        # Optional: quick visual of 1Y alpha across waves
+        # Quick visual of 1Y alpha across waves
         bar_df = summary_df[["Wave", "1Y α"]].set_index("Wave")
         st.markdown("<br/>", unsafe_allow_html=True)
-        st.markmarkdown(
+        st.markdown(
             "<span class='metric-label'>1Y Alpha (All Waves, Selected Mode)</span>",
             unsafe_allow_html=True,
         )
@@ -986,19 +1084,19 @@ with tab_top10:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown('<div class="metric-label">Top 10 Holdings</div>', unsafe_allow_html=True)
 
-    top10_df = load_positions_top10(selected_wave)
+    top10_df, top10_source = load_positions_top10(selected_wave)
 
     if top10_df is None or top10_df.empty:
         st.markdown(
-            "No positions logs found for this Wave yet.\n\n"
-            "- Expected pattern: `logs/positions/<Wave>_positions_YYYYMMDD.csv`\n"
-            "- The console will automatically populate once the engine writes at least one positions file."
+            "No holdings data found for this Wave.\n\n"
+            "- Looked for: `logs/positions/<Wave>_positions_YYYYMMDD.csv`\n"
+            f"- Also tried fallback: `{WEIGHTS_FILE.name}`\n"
         )
     else:
         st.markdown(
-            "<span style='font-size:0.8rem;color:#9fa6b2;'>"
-            "Tickers link directly to Google Finance (new tab)."
-            "</span>",
+            f"<span style='font-size:0.8rem;color:#9fa6b2;'>"
+            f"Source: <b>{top10_source}</b> &mdash; Tickers link directly to Google Finance."
+            f"</span>",
             unsafe_allow_html=True,
         )
 
