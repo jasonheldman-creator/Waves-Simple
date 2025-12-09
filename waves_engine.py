@@ -1,8 +1,7 @@
 """
 waves_engine.py
 
-WAVES Intelligence™ Engine — Phase 2.5
-Mode-Aware + VIX-Gated Exposure + Beta-Adjusted Alpha Captured
+WAVES Intelligence™ Engine — Vector 2.0 (Dynamic 1Y Alpha)
 
 - list.csv = TOTAL MARKET universe (no wave column required)
 - wave_weights.csv = authoritative Wave definition file (wave,ticker,weight)
@@ -23,14 +22,16 @@ Core logic per Wave:
     * Intraday (last residual)
     * 30-Day
     * 60-Day
-    * 1-Year (~252 trading days)
+    * 1-Year (uses up to 252 trading days; if less data, uses all available ≥60d)
+
+Also logs positions and performance for audit trail.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -59,7 +60,7 @@ class WavesEngine:
         self.benchmark_map = self._default_benchmark_map()
 
         # Cache for VIX history
-        self._vix_cache: pd.Series | None = None
+        self._vix_cache: Optional[pd.Series] = None
 
     # ------------------------------------------------------------------
     # File loading
@@ -176,7 +177,7 @@ class WavesEngine:
             "Quantum Computing Wave": "QQQ",
             "Small Cap Growth Wave": "IWM",
             "Small to Mid Cap Growth Wave": "IJH",
-            "Infinity Wave": "SPY",  # meta-benchmark; adjust if needed
+            "Infinity Wave": "SPY",
             # everything else → SPY by default
         }
 
@@ -231,11 +232,10 @@ class WavesEngine:
         self._vix_cache = vix
         return vix
 
-    def _current_vix_level(self) -> float | None:
+    def _current_vix_level(self) -> Optional[float]:
         vix_series = self._get_vix_series(days=60)
         if vix_series.empty:
             return None
-        # Use last close; smooth with short MA if needed later
         return float(vix_series.iloc[-1])
 
     def _compute_beta(
@@ -263,7 +263,6 @@ class WavesEngine:
     def _vix_multiplier(self, base_exposure: float, mode: str) -> float:
         """
         VIX ladder overlay. This is the WAVES 'safety brain':
-
         - Higher VIX → throttle exposure.
         - Lower VIX → allow fuller (or slightly enhanced) exposure.
         """
@@ -327,7 +326,7 @@ class WavesEngine:
                 ratio = target_beta / base_beta
                 exposure = min(1.15, max(0.8, ratio))
         else:
-            # standard mode: exposure ≈1; we still allow mild beta normalization
+            # standard mode: exposure ≈1; allow mild beta normalization
             if base_beta > 0:
                 exposure = min(1.05, max(0.9, 1.0 / base_beta))
 
@@ -337,6 +336,32 @@ class WavesEngine:
         wave_mode = exposure_final * wave_daily
         beta_mode = self._compute_beta(wave_mode, bm_daily, lookback=60)
         return wave_mode, beta_mode, exposure_final
+
+    # ------------------------------------------------------------------
+    # Helper for cumulative window returns
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _window_cum_dynamic(
+        series: pd.Series,
+        target_days: int,
+        min_days: int = 1,
+    ) -> Optional[float]:
+        """
+        Cumulative return over up to `target_days` of data.
+
+        - Uses the last min(len(series), target_days) observations.
+        - If len(series) < min_days → returns None (too little data).
+        """
+        if series is None or len(series) == 0:
+            return None
+
+        n = len(series)
+        if n < min_days:
+            return None
+
+        use_len = min(n, target_days)
+        subset = series.iloc[-use_len:]
+        return float((1.0 + subset).prod() - 1.0)
 
     # ------------------------------------------------------------------
     # Main performance method
@@ -395,27 +420,22 @@ class WavesEngine:
         # Intraday Alpha Captured (last day residual)
         intraday_alpha_captured = float(residual_daily.iloc[-1])
 
-        def _window_cum(series: pd.Series, window: int):
-            if len(series) < window:
-                return None
-            subset = series.iloc[-window:]
-            return float((1.0 + subset).prod() - 1.0)
-
         # Windows
         w30 = 30
         w60 = 60
-        w1y = 252
+        w1y = 252  # "target" 1-year window
 
-        alpha_30d = _window_cum(residual_daily, w30)
-        alpha_60d = _window_cum(residual_daily, w60)
-        alpha_1y = _window_cum(residual_daily, w1y)
+        alpha_30d = self._window_cum_dynamic(residual_daily, w30, min_days=10)
+        alpha_60d = self._window_cum_dynamic(residual_daily, w60, min_days=20)
+        # 1Y: use all available data up to 252d, but require at least 60d
+        alpha_1y = self._window_cum_dynamic(residual_daily, w1y, min_days=60)
 
-        ret_30_wave = _window_cum(wave_daily_mode, w30)
-        ret_30_bm = _window_cum(bm_daily, w30)
-        ret_60_wave = _window_cum(wave_daily_mode, w60)
-        ret_60_bm = _window_cum(bm_daily, w60)
-        ret_1y_wave = _window_cum(wave_daily_mode, w1y)
-        ret_1y_bm = _window_cum(bm_daily, w1y)
+        ret_30_wave = self._window_cum_dynamic(wave_daily_mode, w30, min_days=10)
+        ret_30_bm = self._window_cum_dynamic(bm_daily, w30, min_days=10)
+        ret_60_wave = self._window_cum_dynamic(wave_daily_mode, w60, min_days=20)
+        ret_60_bm = self._window_cum_dynamic(bm_daily, w60, min_days=20)
+        ret_1y_wave = self._window_cum_dynamic(wave_daily_mode, w1y, min_days=60)
+        ret_1y_bm = self._window_cum_dynamic(bm_daily, w1y, min_days=60)
 
         # Build 30-day history for chart/table
         chart_days = min(days, 30)
