@@ -5,11 +5,15 @@ WAVES Intelligence™ Institutional Console (Streamlit)
 
 - Clears Streamlit cache on startup
 - Uses ONLY the latest waves_engine.py logic
-- Loads list.csv (universe) and wave_weights.csv (wave definitions)
 - Auto-discovers Waves
-- Shows intraday + 30-day return & alpha
+- Shows beta-adjusted Alpha Captured:
+    * Intraday
+    * 30-Day
+    * 60-Day
+    * 1-Year
+- Also shows 30/60/1Y Wave vs Benchmark returns
+- 30-Day chart + daily alpha table
 - Displays top 10 holdings with Google Finance links
-- Adds Wave Snapshot card + benchmark label + history table
 """
 
 import streamlit as st
@@ -32,7 +36,6 @@ def clear_streamlit_cache_once():
         if hasattr(st, "cache_resource"):
             st.cache_resource.clear()
     except Exception:
-        # Fail silently; app will still run
         pass
 
     st.session_state["cache_cleared"] = True
@@ -49,7 +52,9 @@ st.set_page_config(
 )
 
 st.title("WAVES Intelligence™ Institutional Console")
-st.caption("Live Wave Engine • Intraday + 30-Day Alpha • S&P Wave + Full Lineup")
+st.caption(
+    "Live Wave Engine • Beta-Adjusted Alpha Captured • Intraday + 30/60/1-Year • S&P Wave + Full Lineup"
+)
 
 # ----------------------------------------------------------------------
 # Initialize engine
@@ -74,7 +79,7 @@ st.sidebar.markdown("**Files in use:**")
 st.sidebar.code("list.csv\nwave_weights.csv", language="text")
 
 # ----------------------------------------------------------------------
-# Main layout
+# Layout
 # ----------------------------------------------------------------------
 top_row = st.columns([2.2, 1.2])
 perf_col, snapshot_col = top_row
@@ -83,7 +88,7 @@ bottom_row = st.columns([2.0, 1.4])
 chart_col, holdings_col = bottom_row
 
 # ----------------------------------------------------------------------
-# Wave Snapshot (right of title)
+# Wave Snapshot
 # ----------------------------------------------------------------------
 with snapshot_col:
     st.subheader("Wave Snapshot")
@@ -106,7 +111,6 @@ with snapshot_col:
     st.write(f"**Holdings:** {num_holdings:,}")
 
     if holdings_df is not None and "sector" in holdings_df.columns:
-        # Top sector by total weight
         sector_weights = (
             holdings_df.groupby("sector")["weight"].sum().sort_values(ascending=False)
         )
@@ -119,7 +123,7 @@ with snapshot_col:
 # Performance Panel
 # ----------------------------------------------------------------------
 with perf_col:
-    st.subheader(f"{selected_wave} — Performance")
+    st.subheader(f"{selected_wave} — Alpha Captured (β-Adjusted)")
 
     try:
         perf = engine.get_wave_performance(selected_wave, days=30, log=True)
@@ -128,52 +132,92 @@ with perf_col:
         perf = None
 
     if perf is not None:
-        benchmark = perf["benchmark"]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Intraday Return", f"{perf['intraday_return'] * 100:0.2f}%")
-        c2.metric("Intraday Alpha", f"{perf['intraday_alpha'] * 100:0.2f}%")
-        c3.metric("30-Day Return", f"{perf['return_30d'] * 100:0.2f}%")
-        c4.metric("30-Day Alpha", f"{perf['alpha_30d'] * 100:0.2f}%")
+        beta = perf["beta_realized"]
 
-        st.markdown(f"**Benchmark:** {benchmark}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(
+            "Intraday Alpha Captured",
+            f"{perf['intraday_alpha_captured'] * 100:0.2f}%",
+        )
+        c2.metric("30-Day Alpha Captured", _fmt_pct(perf["alpha_30d"]))
+        c3.metric("60-Day Alpha Captured", _fmt_pct(perf["alpha_60d"]))
+        c4.metric("1-Year Alpha Captured", _fmt_pct(perf["alpha_1y"]))
+
+        st.markdown(f"**Realized Beta (≈60d):** {beta:0.2f}")
+        st.markdown(f"**Benchmark:** {perf['benchmark']}")
+
+        st.write("")
+        r1, r2, r3 = st.columns(3)
+        r1.metric(
+            "30-Day Wave Return",
+            _fmt_pct(perf["return_30d_wave"]),
+            delta=_fmt_pct_diff(perf["return_30d_wave"], perf["return_30d_benchmark"]),
+        )
+        r2.metric(
+            "60-Day Wave Return",
+            _fmt_pct(perf["return_60d_wave"]),
+            delta=_fmt_pct_diff(perf["return_60d_wave"], perf["return_60d_benchmark"]),
+        )
+        r3.metric(
+            "1-Year Wave Return",
+            _fmt_pct(perf["return_1y_wave"]),
+            delta=_fmt_pct_diff(perf["return_1y_wave"], perf["return_1y_benchmark"]),
+        )
+
+
+# Helpers for formatting percentages
+def _fmt_pct(x: float | None) -> str:
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x * 100:0.2f}%"
+
+
+def _fmt_pct_diff(wave: float | None, bm: float | None) -> str:
+    if wave is None or bm is None or pd.isna(wave) or pd.isna(bm):
+        return "vs BM: —"
+    diff = (wave - bm) * 100
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:0.2f} pts vs BM"
+
 
 # ----------------------------------------------------------------------
-# Chart + History Table
+# Chart + History Table (30-Day)
 # ----------------------------------------------------------------------
 with chart_col:
     if perf is not None:
-        st.markdown(f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve")
+        st.markdown(
+            f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve (β Adj Alpha)"
+        )
 
-        history = perf["history"]
+        history = perf["history_30d"]
         chart_data = history[["wave_value", "benchmark_value"]]
         st.line_chart(chart_data)
 
-        # History table (last 15 days)
         hist_df = history.copy()
         hist_df = hist_df.reset_index().rename(columns={"index": "date"})
         hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.date
         hist_df["wave_return_pct"] = hist_df["wave_return"] * 100
         hist_df["benchmark_return_pct"] = hist_df["benchmark_return"] * 100
-        hist_df["alpha_pct"] = (hist_df["wave_return"] - hist_df["benchmark_return"]) * 100
+        hist_df["alpha_captured_pct"] = hist_df["alpha_captured"] * 100
 
         display_cols = [
             "date",
             "wave_return_pct",
             "benchmark_return_pct",
-            "alpha_pct",
+            "alpha_captured_pct",
         ]
-        hist_display = hist_df[display_cols].tail(15).iloc[::-1]  # most recent on top
+        hist_display = hist_df[display_cols].tail(15).iloc[::-1]
         hist_display = hist_display.rename(
             columns={
                 "date": "Date",
                 "wave_return_pct": "Wave Return (%)",
                 "benchmark_return_pct": "Benchmark Return (%)",
-                "alpha_pct": "Alpha (%)",
+                "alpha_captured_pct": "Alpha Captured (%)",
             }
         )
         hist_display = hist_display.round(3)
 
-        st.markdown("#### Recent Daily Returns & Alpha (Last 15 Days)")
+        st.markdown("#### Recent Daily Returns & Alpha Captured (Last 15 Days)")
         st.dataframe(hist_display, hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------------------------
@@ -189,9 +233,9 @@ with holdings_col:
         top10 = None
 
     if top10 is not None and not top10.empty:
-        # Build Google Finance URLs
+
         def google_finance_url(ticker: str) -> str:
-            # You can adjust exchange suffix logic here if needed
+            # Adjust exchange suffix if you want; NASDAQ is a simple default
             return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
 
         display_df = top10.copy()
@@ -208,11 +252,11 @@ with holdings_col:
         st.write("No holdings found for this Wave.")
 
 # ----------------------------------------------------------------------
-# Footer / Debug Info
+# Footer
 # ----------------------------------------------------------------------
 st.markdown("---")
 st.caption(
     "Engine: WAVES Intelligence™ • list.csv = total market universe • "
-    "wave_weights.csv = Wave definitions • Modes: Standard / Alpha-Minus-Beta / "
-    "Private Logic handled in engine logic."
+    "wave_weights.csv = Wave definitions • Alpha = Beta-Adjusted Alpha Captured "
+    "• Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
 )
