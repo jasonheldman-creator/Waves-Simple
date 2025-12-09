@@ -1,17 +1,18 @@
 """
 app.py
 
-WAVES Intelligence™ Institutional Console — Vector 2.0
+WAVES Intelligence™ Institutional Console — Vector 2.0 (Patched)
 
-Multi-tab institutional console on top of the VIX-gated, mode-aware
-WavesEngine.
+- Multi-tab institutional console on top of the VIX-gated, mode-aware WavesEngine.
+- Fixes TypeError in Alpha Matrix by coercing numeric columns before scaling.
+- Adds "Sort by" control in Alpha Matrix tab.
 
 Tabs:
   1) Vector 2.0 Dashboard     – summary of all Waves, top/bottom alpha
   2) Wave Explorer            – full detail view for selected Wave
-  3) Alpha Matrix             – Intraday/30D/60D/1Y Alpha for ALL Waves + 1Y returns
+  3) Alpha Matrix (All Waves) – Intraday/30D/60D/1Y Alpha + 1Y returns for ALL Waves
   4) History & Logs           – recent performance logs for selected Wave
-  5) Engine Diagnostics & VIX – VIX, per-mode beta & exposure diagnostics
+  5) Engine Diagnostics & VIX – per-mode beta & exposure comparison
   6) SmartSafe / Cash         – SmartSafe wave view (if defined)
 
 Modes:
@@ -20,7 +21,6 @@ Modes:
   - Private Logic
 """
 
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -105,7 +105,7 @@ if not waves:
     st.error("No active Waves detected (after exclusions).")
     st.stop()
 
-# Optional: a SmartSafe wave name if present in wave_weights.csv
+# Optional: SmartSafe wave name if present
 SMARTSAFE_NAMES = {
     "SmartSafe Wave",
     "SmartSafe",
@@ -226,7 +226,9 @@ with tab_dashboard:
         "Alpha 60D",
         "Alpha 1Y",
     ]
-    stats_df = perf_df[numeric_cols].copy()
+    stats_df = perf_df[numeric_cols].apply(
+        pd.to_numeric, errors="coerce"
+    )  # ensure numeric
 
     avg_intraday = stats_df["Intraday Alpha Captured"].mean()
     avg_30 = stats_df["Alpha 30D"].mean()
@@ -240,7 +242,9 @@ with tab_dashboard:
     c4.metric("Avg 1-Year Alpha (All Waves)", _fmt_pct(avg_1y))
 
     # Top / bottom alpha waves (30D as primary)
-    perf_df["Alpha 30D_safe"] = perf_df["Alpha 30D"].fillna(-9999)
+    perf_df["Alpha 30D_safe"] = pd.to_numeric(
+        perf_df["Alpha 30D"], errors="coerce"
+    ).fillna(-9999)
     top_wave_row = perf_df.sort_values("Alpha 30D_safe", ascending=False).head(1)
     bottom_wave_row = perf_df.sort_values("Alpha 30D_safe", ascending=True).head(1)
 
@@ -281,16 +285,20 @@ with tab_dashboard:
         ]
     ].copy()
 
+    # Ensure numeric and scale
     for col in [
         "Intraday Alpha Captured",
         "Alpha 30D",
         "Alpha 60D",
         "Alpha 1Y",
     ]:
-        display_df[col] = (display_df[col] * 100).round(2)
+        if col in display_df.columns:
+            display_df[col] = pd.to_numeric(display_df[col], errors="coerce")
+            display_df[col] = (display_df[col] * 100).round(2)
 
-    display_df["Realized Beta (≈60d)"] = display_df["Realized Beta (≈60d)"].round(2)
-    display_df["Exposure (Net)"] = display_df["Exposure (Net)"].round(2)
+    for col in ["Realized Beta (≈60d)", "Exposure (Net)"]:
+        if col in display_df.columns:
+            display_df[col] = pd.to_numeric(display_df[col], errors="coerce").round(2)
 
     display_df = display_df.rename(
         columns={
@@ -496,6 +504,7 @@ with tab_alpha_matrix:
         ]
     ].copy()
 
+    # Ensure numeric then scale to %
     for col in [
         "Intraday Alpha Captured",
         "Alpha 30D",
@@ -504,10 +513,13 @@ with tab_alpha_matrix:
         "Return 1Y Wave",
         "Return 1Y BM",
     ]:
-        matrix_df[col] = (matrix_df[col] * 100).round(2)
+        if col in matrix_df.columns:
+            matrix_df[col] = pd.to_numeric(matrix_df[col], errors="coerce")
+            matrix_df[col] = (matrix_df[col] * 100).round(2)
 
-    matrix_df["Realized Beta (≈60d)"] = matrix_df["Realized Beta (≈60d)"].round(2)
-    matrix_df["Exposure (Net)"] = matrix_df["Exposure (Net)"].round(2)
+    for col in ["Realized Beta (≈60d)", "Exposure (Net)"]:
+        if col in matrix_df.columns:
+            matrix_df[col] = pd.to_numeric(matrix_df[col], errors="coerce").round(2)
 
     matrix_df = matrix_df.rename(
         columns={
@@ -519,6 +531,23 @@ with tab_alpha_matrix:
             "Return 1Y BM": "1Y Benchmark Return (%)",
         }
     )
+
+    # New feature: sort control
+    sort_options = {
+        "Intraday Alpha (%)": "Intraday Alpha (%)",
+        "Alpha 30D (%)": "Alpha 30D (%)",
+        "Alpha 60D (%)": "Alpha 60D (%)",
+        "Alpha 1Y (%)": "Alpha 1Y (%)",
+        "1Y Wave Return (%)": "1Y Wave Return (%)",
+        "1Y Benchmark Return (%)": "1Y Benchmark Return (%)",
+    }
+    sort_label = st.selectbox("Sort Waves by", list(sort_options.keys()), index=1)
+    sort_col = sort_options[sort_label]
+
+    if sort_col in matrix_df.columns:
+        matrix_df = matrix_df.sort_values(
+            by=sort_col, ascending=False, na_position="last"
+        )
 
     st.dataframe(matrix_df, hide_index=True, use_container_width=True)
 
@@ -534,7 +563,6 @@ with tab_history:
     if fname.exists():
         df_log = pd.read_csv(fname)
         df_log_display = df_log.copy()
-        # Show most recent first
         df_log_display = df_log_display.iloc[::-1].head(50)
         st.markdown("##### Last 50 Performance Log Entries")
         st.dataframe(df_log_display, hide_index=True, use_container_width=True)
@@ -547,7 +575,6 @@ with tab_history:
 with tab_diagnostics:
     st.subheader("Engine Diagnostics & VIX")
 
-    # Call engine in each mode (no logging) for selected_wave
     diagnostics_rows = []
     for label, key in mode_map.items():
         try:
@@ -573,10 +600,11 @@ with tab_diagnostics:
     diag_df = pd.DataFrame(diagnostics_rows)
     if not diag_df.empty:
         for col in ["Alpha 30D", "Alpha 60D", "Alpha 1Y"]:
+            diag_df[col] = pd.to_numeric(diag_df[col], errors="coerce")
             diag_df[col] = (diag_df[col] * 100).round(2)
 
-        diag_df["Realized Beta (≈60d)"] = diag_df["Realized Beta (≈60d)"].round(2)
-        diag_df["Exposure (Net)"] = diag_df["Exposure (Net)"].round(2)
+        for col in ["Realized Beta (≈60d)", "Exposure (Net)"]:
+            diag_df[col] = pd.to_numeric(diag_df[col], errors="coerce").round(2)
 
         diag_df = diag_df.rename(
             columns={
@@ -596,8 +624,7 @@ with tab_diagnostics:
         "risk-on bias when volatility is cheap."
     )
     st.caption(
-        "Note: exact VIX level is fetched in the WavesEngine; this tab summarizes "
-        "the resulting exposures and betas per mode for the selected Wave."
+        "This tab summarizes the resulting exposures and betas per mode for the selected Wave."
     )
 
 # ----------------------------------------------------------------------
@@ -652,5 +679,5 @@ st.caption(
     "Engine: WAVES Intelligence™ • list.csv = total market universe • "
     "wave_weights.csv = Wave definitions • Alpha = Mode-Aware + VIX-Gated, "
     "Beta-Adjusted Alpha Captured • Modes: Standard / Alpha-Minus-Beta / "
-    "Private Logic fully handled in engine logic • Console: Vector 2.0 multi-tab view."
+    "Private Logic • Console: Vector 2.0 multi-tab view."
 )
