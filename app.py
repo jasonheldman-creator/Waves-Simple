@@ -427,3 +427,4 @@ with tab_about:
         "Engine: WAVES Intelligence™ • Alpha = Wave return minus benchmark return • "
         "All metrics are for illustration/testing only and not investment advice."
     )
+    
