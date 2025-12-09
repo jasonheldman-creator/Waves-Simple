@@ -339,7 +339,7 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
     return df
 
 
-def demo_performance_for_wave(wave: str, days: int = 90) -> pd.DataFrame:
+def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     """Generate synthetic performance history for a wave if none exist."""
     end_date = datetime.today().date()
     dates = pd.bdate_range(end=end_date, periods=days)
@@ -359,14 +359,21 @@ def demo_performance_for_wave(wave: str, days: int = 90) -> pd.DataFrame:
 
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
+    df["return_252d"] = np.nan
+
     for i in range(n):
         if i >= 21:
             df.loc[df.index[i], "return_30d"] = nav[i] / nav[i - 21] - 1.0
         if i >= 42:
             df.loc[df.index[i], "return_60d"] = nav[i] / nav[i - 42] - 1.0
+        if i >= 252:
+            df.loc[df.index[i], "return_252d"] = nav[i] / nav[i - 252] - 1.0
 
     baseline_daily = 0.02 / 252.0
+    df["alpha_1d"] = df["return_1d"] - baseline_daily
     df["alpha_30d"] = df["return_30d"] - (baseline_daily * 21)
+    df["alpha_60d"] = df["return_60d"] - (baseline_daily * 42)
+    df["alpha_1y"] = df["return_252d"] - (baseline_daily * 252)
 
     df["wave"] = wave
     df["regime"] = "SANDBOX"
@@ -464,10 +471,10 @@ def render_top10_holdings(holdings_df: Optional[pd.DataFrame], wave_name: str) -
 
 def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
     metrics: Dict[str, Optional[float]] = {
-        "intraday_return": None,
-        "return_30d": None,
-        "return_60d": None,
+        "alpha_1d": None,
         "alpha_30d": None,
+        "alpha_60d": None,
+        "alpha_1y": None,
     }
 
     if perf_df is None or perf_df.empty:
@@ -484,10 +491,10 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
                     continue
         return None
 
-    metrics["intraday_return"] = pull(["return_1d", "intraday_return", "daily_return", "r_1d"])
-    metrics["return_30d"] = pull(["return_30d", "r_30d", "total_return_30d"])
-    metrics["return_60d"] = pull(["return_60d", "r_60d", "total_return_60d"])
+    metrics["alpha_1d"] = pull(["alpha_1d", "alpha1d", "alpha_daily", "alpha_intraday"])
     metrics["alpha_30d"] = pull(["alpha_30d", "alpha30", "alpha_1m", "alpha_30"])
+    metrics["alpha_60d"] = pull(["alpha_60d", "alpha60", "alpha_2m", "alpha_60"])
+    metrics["alpha_1y"] = pull(["alpha_1y", "alpha1y", "alpha_12m", "alpha_252d", "alpha_365d"])
 
     return metrics
 
@@ -513,10 +520,10 @@ def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
             "Wave": wave,
             "Category": meta.get("category", ""),
             "Benchmark": meta.get("benchmark", ""),
-            "Intraday": m["intraday_return"],
-            "30d Return": m["return_30d"],
-            "60d Return": m["return_60d"],
+            "Intraday Alpha": m["alpha_1d"],
             "30d Alpha": m["alpha_30d"],
+            "60d Alpha": m["alpha_60d"],
+            "1y Alpha": m["alpha_1y"],
         })
     return pd.DataFrame(records)
 
@@ -635,7 +642,6 @@ def render_mode_logic_tab(selected_mode: str) -> None:
     st.markdown("##### Current Selected Mode")
     st.write(f"**Mode:** {selected_mode}")
 
-    # Static explanation if engine does not expose config:
     mode_rows = [
         {
             "Mode": "Standard",
@@ -705,8 +711,10 @@ def render_engine_activity_tab() -> None:
         show_cols.append(status_col)
 
     if show_cols:
-        st.dataframe(df[show_cols].sort_values(ts_col if ts_col else show_cols[0], ascending=False),
-                     use_container_width=True)
+        st.dataframe(
+            df[show_cols].sort_values(ts_col if ts_col else show_cols[0], ascending=False),
+            use_container_width=True,
+        )
     else:
         st.dataframe(df, use_container_width=True)
 
@@ -723,6 +731,13 @@ def main() -> None:
     if not waves:
         st.error("No Waves discovered yet.")
         return
+
+    # Ensure EVERY wave has at least SANDBOX data if no logs exist
+    for w in waves:
+        perf_path = find_best_performance_path(w)
+        pos_path = find_latest_positions_path(w)
+        if perf_path is None and pos_path is None:
+            generate_sandbox_logs_if_missing(w)
 
     st.sidebar.header("Wave & Mode")
     selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
@@ -791,15 +806,15 @@ def main() -> None:
     with col_left:
         st.subheader(f"{selected_wave} — Overview")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Intraday Return", format_pct(metrics["intraday_return"]))
-        m2.metric("30-Day Return", format_pct(metrics["return_30d"]))
-        m3.metric("60-Day Return", format_pct(metrics["return_60d"]))
-        m4.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
+        m1.metric("Intraday Alpha", format_pct(metrics["alpha_1d"]))
+        m2.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
+        m3.metric("60-Day Alpha", format_pct(metrics["alpha_60d"]))
+        m4.metric("1-Year Alpha", format_pct(metrics["alpha_1y"]))
 
         if perf_df is not None and not perf_df.empty and "date" in perf_df.columns:
-            chart_cols = [c for c in ["return_30d", "return_60d", "alpha_30d"] if c in perf_df.columns]
-            if chart_cols:
-                chart_data = perf_df.set_index("date")[chart_cols]
+            alpha_cols = [c for c in ["alpha_30d", "alpha_60d", "alpha_1y"] if c in perf_df.columns]
+            if alpha_cols:
+                chart_data = perf_df.set_index("date")[alpha_cols]
                 st.line_chart(chart_data)
         else:
             st.caption("No performance history yet for this Wave.")
@@ -866,7 +881,7 @@ def main() -> None:
         snapshot_df = compute_multi_wave_snapshot(waves)
         if not snapshot_df.empty:
             display_df = snapshot_df.copy()
-            for c in ["Intraday", "30d Return", "60d Return", "30d Alpha"]:
+            for c in ["Intraday Alpha", "30d Alpha", "60d Alpha", "1y Alpha"]:
                 display_df[c] = display_df[c].apply(format_pct)
             st.dataframe(display_df, use_container_width=True)
         else:
