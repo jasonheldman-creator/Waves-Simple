@@ -1,21 +1,36 @@
 """
-waves_engine.py — Vector1 Stub Engine
+waves_engine.py — Real-History Engine (Vector1)
 
-This file:
-- Defines per-wave strategy recipes
-- Implements a VIX ladder / risk-off overlay
-- Generates SANDBOX performance & positions logs for all Waves
-- Provides load_wave_weights() for compatibility with the app
+- Loads wave_weights.csv (+ list.csv for names)
+- Maps each Wave to a benchmark ETF (SPY, QQQ, etc.)
+- Fetches real price history via yfinance
+- Computes daily, 30d, 60d, 1y returns and alpha vs benchmark
+- Writes logs:
+    logs/performance/<Wave>_performance_daily.csv
+    logs/positions/<Wave>_positions_YYYYMMDD.csv
+- Provides:
+    load_wave_weights()
+    get_strategy_recipe()
+    run_all_waves()
 """
 
 import os
-from datetime import datetime, date
-from typing import Dict, List, Tuple
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
 
-# ----------------- Paths -----------------
+# ---------- Optional yfinance import (real prices) ----------
+
+try:
+    import yfinance as yf  # type: ignore
+
+    HAS_YF = True
+except Exception:
+    HAS_YF = False
+
+# ---------- Paths ----------
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(ROOT_DIR, "logs")
@@ -28,7 +43,7 @@ os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
 os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
 os.makedirs(LOGS_MARKET_DIR, exist_ok=True)
 
-# ----------------- Wave lineup -----------------
+# ---------- Wave lineup & benchmarks ----------
 
 EQUITY_WAVES: List[str] = [
     "S&P 500 Wave",
@@ -44,15 +59,30 @@ EQUITY_WAVES: List[str] = [
     "Emerging Markets Wave",
 ]
 
-# ----------------- Strategy recipes -----------------
+# Mapping from Wave name to benchmark ticker
+WAVE_BENCHMARKS: Dict[str, str] = {
+    "S&P 500 Wave": "SPY",
+    "Growth Wave": "QQQ",
+    "Small Cap Growth Wave": "IWM",
+    "Small to Mid Cap Growth Wave": "IJH",
+    "Future Power & Energy Wave": "XLE",
+    "Quantum Computing Wave": "QQQ",
+    "Clean Transit-Infrastructure Wave": "IDEV",  # or ITA/IFRA/XTN etc.
+    "AI Wave": "QQQ",  # proxy AI-heavy index
+    "Infinity Wave": "ACWI",
+    "International Developed Wave": "EFA",
+    "Emerging Markets Wave": "EEM",
+}
+
+# ---------- Strategy recipes (used by UI; not critical to math) ----------
 
 STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
     "S&P 500 Wave": {
         "style": "Core Equity",
         "universe": "S&P 500",
         "target_beta": 1.00,
-        "alpha_mu_annual": 0.01,      # +1% alpha / yr
-        "alpha_sigma_annual": 0.04,   # mild tracking error
+        "alpha_mu_annual": 0.01,
+        "alpha_sigma_annual": 0.04,
         "turnover_annual_max": 0.30,
         "max_drawdown_target": 0.20,
         "notes": "Low-turnover core with mild tilts.",
@@ -161,7 +191,7 @@ STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
 
 
 def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
-    """Return strategy config for this wave with safe defaults."""
+    """Used by the app sidebar for the 'Strategy Snapshot' section."""
     default = {
         "style": "Generic Equity",
         "universe": "Global",
@@ -178,234 +208,228 @@ def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
     return merged
 
 
-# ----------------- VIX ladder -----------------
-
-def _simulate_vix_path(dates: pd.DatetimeIndex) -> np.ndarray:
-    """Fallback VIX simulation if no real history is present."""
-    n = len(dates)
-    vix = []
-    level = 18.0
-    for _ in range(n):
-        level = max(10.0, min(50.0, level + np.random.normal(0, 1)))
-        vix.append(level)
-    return np.array(vix)
+# ---------- Wave weights & list.csv ----------
 
 
-def load_or_generate_vix(dates: pd.DatetimeIndex) -> np.ndarray:
+def load_wave_weights() -> pd.DataFrame:
     """
-    Try to load VIX from logs/market/vix_history.csv, otherwise simulate.
-    If we simulate, we also write it to the CSV for consistency.
+    Load wave_weights.csv (required for real engine).
+    Expected columns: wave, ticker, weight (case-insensitive).
     """
-    path = os.path.join(LOGS_MARKET_DIR, "vix_history.csv")
-    n = len(dates)
+    path = os.path.join(ROOT_DIR, "wave_weights.csv")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"wave_weights.csv not found at {path}")
 
-    if os.path.exists(path):
-        try:
-            vdf = pd.read_csv(path)
-            if "date" in vdf.columns and "vix" in vdf.columns:
-                vdf["date"] = pd.to_datetime(vdf["date"]).dt.normalize()
-                idx = pd.Index(dates.normalize(), name="date")
-                merged = (
-                    pd.DataFrame({"date": idx})
-                    .merge(vdf[["date", "vix"]], on="date", how="left")
-                    .ffill()
-                    .bfill()
-                )
-                if merged["vix"].notna().any():
-                    return merged["vix"].to_numpy()
-        except Exception:
-            pass
+    df = pd.read_csv(path)
+    if df.empty:
+        raise ValueError("wave_weights.csv is empty")
 
-    # If not found or invalid, simulate and persist
-    vix = _simulate_vix_path(dates)
-    vdf_new = pd.DataFrame({"date": dates.normalize(), "vix": vix})
-    vdf_new.to_csv(path, index=False)
-    return vix
+    # Normalize column names
+    cols = {c.lower(): c for c in df.columns}
+    wave_col = cols.get("wave")
+    ticker_col = cols.get("ticker")
+    weight_col = cols.get("weight")
 
+    if wave_col is None or ticker_col is None or weight_col is None:
+        raise ValueError(
+            "wave_weights.csv must contain columns 'wave', 'ticker', 'weight'"
+        )
 
-def apply_vix_ladder_to_returns(
-    bench_mu: float,
-    bench_sigma: float,
-    alpha_mu: float,
-    alpha_sigma: float,
-    dates: pd.DatetimeIndex,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
-    """
-    Generate daily returns for benchmark and alpha component
-    scaled by a simple VIX ladder:
-      < 18  -> Risk-On   (slightly higher alpha, normal beta)
-      18-25 -> Neutral
-      > 25  -> Risk-Off  (lower exposure, lower alpha, lower vol)
-    """
-    n = len(dates)
-    vix = load_or_generate_vix(dates)
-
-    risk_mult_alpha = np.ones(n)
-    risk_mult_beta = np.ones(n)
-    regime: List[str] = []
-
-    for i, v in enumerate(vix):
-        if v < 18:
-            risk_mult_alpha[i] = 1.10
-            risk_mult_beta[i] = 1.00
-            regime.append("Risk-On")
-        elif v <= 25:
-            risk_mult_alpha[i] = 1.00
-            risk_mult_beta[i] = 1.00
-            regime.append("Neutral")
-        else:
-            risk_mult_alpha[i] = 0.70
-            risk_mult_beta[i] = 0.80
-            regime.append("Risk-Off")
-
-    bench_ret = np.random.normal(
-        bench_mu * risk_mult_beta,
-        bench_sigma * np.abs(risk_mult_beta),
-        size=n,
+    df = df[[wave_col, ticker_col, weight_col]].rename(
+        columns={wave_col: "wave", ticker_col: "ticker", weight_col: "weight"}
     )
-    alpha_noise = np.random.normal(
-        alpha_mu * risk_mult_alpha,
-        alpha_sigma * np.abs(risk_mult_alpha),
-        size=n,
+    df["wave"] = df["wave"].astype(str)
+    df["ticker"] = df["ticker"].astype(str).str.upper()
+    df["weight"] = df["weight"].astype(float)
+
+    # Keep only known equity waves (if other Waves exist in the file)
+    df = df[df["wave"].isin(EQUITY_WAVES)]
+
+    # Normalize weights within each wave
+    df["weight"] = df.groupby("wave")["weight"].transform(
+        lambda x: x / x.sum() if x.sum() != 0 else x
     )
-    wave_ret = bench_ret + alpha_noise
 
-    return bench_ret, wave_ret, vix, regime
+    return df
 
 
-# ----------------- Performance simulation -----------------
+def load_master_list() -> Optional[pd.DataFrame]:
+    """
+    Optional: list.csv (for security names/sectors).
+    Expected columns: ticker, name, sector (flexible).
+    """
+    candidate = os.path.join(ROOT_DIR, "list.csv")
+    if not os.path.exists(candidate):
+        return None
+    try:
+        df = pd.read_csv(candidate)
+        if df.empty:
+            return None
+        cols = {c.lower(): c for c in df.columns}
+        ticker_col = cols.get("ticker")
+        if ticker_col is None:
+            return None
+        df = df.rename(columns={ticker_col: "ticker"})
+        df["ticker"] = df["ticker"].astype(str).str.upper()
+        return df
+    except Exception:
+        return None
 
-def simulate_wave_path_with_recipe(
-    wave_name: str,
-    days: int = 260,
+
+# ---------- Price history (via yfinance) ----------
+
+
+def get_price_history(
+    tickers: List[str],
+    years: int = 3,
 ) -> pd.DataFrame:
     """
-    Generate a SANDBOX performance path for one Wave using:
-      - its strategy recipe
-      - VIX ladder overlay
+    Download adjusted close prices for all tickers over the last `years` years.
     """
-    end_date: date = datetime.today().date()
-    dates = pd.bdate_range(end=end_date, periods=days)
-    n = len(dates)
+    if not HAS_YF:
+        raise RuntimeError("yfinance not installed in this environment.")
 
-    cfg = get_strategy_recipe(wave_name)
+    tickers = sorted(set(tickers))
+    if not tickers:
+        raise ValueError("No tickers provided for get_price_history()")
 
-    # Benchmark process (generic equity index)
-    bench_mu_annual = 0.08        # 8%/year
-    bench_sigma_annual = 0.15     # 15%/year
+    end = datetime.today().date()
+    start = end - timedelta(days=365 * years + 30)
 
-    bench_mu = bench_mu_annual / 252.0
-    bench_sigma = bench_sigma_annual / np.sqrt(252.0)
-
-    alpha_mu = cfg["alpha_mu_annual"] / 252.0
-    alpha_sigma = cfg["alpha_sigma_annual"] / np.sqrt(252.0)
-
-    bench_ret, wave_ret, vix, regime = apply_vix_ladder_to_returns(
-        bench_mu, bench_sigma, alpha_mu, alpha_sigma, dates
+    data = yf.download(
+        tickers=tickers,
+        start=start,
+        end=end,
+        progress=False,
+        auto_adjust=True,
+        group_by="ticker",
     )
 
-    bench_nav = 100 * (1 + bench_ret).cumprod()
-    wave_nav = 100 * (1 + wave_ret).cumprod()
+    # Normalize into a DataFrame: index = date, columns = tickers
+    if isinstance(data.columns, pd.MultiIndex):
+        px = data["Adj Close"] if "Adj Close" in data.columns.levels[0] else data["Close"]
+    else:
+        px = data
 
-    df = pd.DataFrame(
-        {
-            "date": dates,
-            "nav": wave_nav,
-            "return_1d": wave_ret,
-            "bench_nav": bench_nav,
-            "bench_return_1d": bench_ret,
-            "vix": vix,
-            "risk_regime": regime,
-        }
-    )
+    if isinstance(px, pd.Series):
+        px = px.to_frame(name=tickers[0])
 
-    # Horizon returns / alpha
-    df["return_30d"] = np.nan
-    df["return_60d"] = np.nan
-    df["return_252d"] = np.nan
-    df["bench_return_30d"] = np.nan
-    df["bench_return_60d"] = np.nan
-    df["bench_return_252d"] = np.nan
+    # Ensure columns match tickers order
+    px = px[tickers].copy()
+    px.index = pd.to_datetime(px.index)
+    px = px.sort_index()
+    return px
 
-    for i in range(n):
-        if i >= 21:
-            df.loc[df.index[i], "return_30d"] = wave_nav[i] / wave_nav[i - 21] - 1.0
-            df.loc[df.index[i], "bench_return_30d"] = (
-                bench_nav[i] / bench_nav[i - 21] - 1.0
-            )
-        if i >= 42:
-            df.loc[df.index[i], "return_60d"] = wave_nav[i] / wave_nav[i - 42] - 1.0
-            df.loc[df.index[i], "bench_return_60d"] = (
-                bench_nav[i] / bench_nav[i - 42] - 1.0
-            )
-        if i >= 252:
-            df.loc[df.index[i], "return_252d"] = wave_nav[i] / wave_nav[i - 252] - 1.0
-            df.loc[df.index[i], "bench_return_252d"] = (
-                bench_nav[i] / bench_nav[i - 252] - 1.0
-            )
 
+# ---------- NAV & alpha calculations ----------
+
+
+def compute_wave_nav(
+    price_panel: pd.DataFrame,
+    weights_df: pd.DataFrame,
+    wave_name: str,
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Given a price panel (date x ticker) and this wave's weights,
+    compute Wave NAV and benchmark NAV, plus returns & alpha.
+    """
+    this_wave = weights_df[weights_df["wave"] == wave_name].copy()
+    if this_wave.empty:
+        raise ValueError(f"No weights found for wave '{wave_name}'")
+
+    tickers = this_wave["ticker"].tolist()
+    w = this_wave["weight"].values
+
+    # Ensure all tickers exist in price_panel
+    missing = [t for t in tickers if t not in price_panel.columns]
+    if missing:
+        raise ValueError(f"Missing price history for tickers: {missing}")
+
+    prices = price_panel[tickers].copy()
+    # Wave "price" as weighted sum of component prices
+    wave_price = (prices * w).sum(axis=1)
+
+    # Benchmark mapping
+    bench_ticker = WAVE_BENCHMARKS.get(wave_name, "SPY")
+    if bench_ticker not in price_panel.columns:
+        raise ValueError(f"Missing price history for benchmark {bench_ticker}")
+
+    bench_price = price_panel[bench_ticker].copy()
+
+    # Align indexes (drop dates where either side is NaN)
+    df = pd.DataFrame({"wave_px": wave_price, "bench_px": bench_price})
+    df = df.dropna().copy()
+    df.index.name = "date"
+
+    # Turn into NAV (100 starting index)
+    df["nav"] = df["wave_px"] / df["wave_px"].iloc[0] * 100.0
+    df["bench_nav"] = df["bench_px"] / df["bench_px"].iloc[0] * 100.0
+
+    # Daily returns
+    df["return_1d"] = df["nav"].pct_change()
+    df["bench_return_1d"] = df["bench_nav"].pct_change()
+
+    # Horizon returns (21 ≈ 30d, 42 ≈ 60d, 252 ≈ 1y)
+    horizons = [(21, "30d"), (42, "60d"), (252, "252d")]
+
+    for h, label in horizons:
+        df[f"return_{label}"] = df["nav"] / df["nav"].shift(h) - 1.0
+        df[f"bench_return_{label}"] = (
+            df["bench_nav"] / df["bench_nav"].shift(h) - 1.0
+        )
+
+    # Alphas
     df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
     df["alpha_30d"] = df["return_30d"] - df["bench_return_30d"]
     df["alpha_60d"] = df["return_60d"] - df["bench_return_60d"]
     df["alpha_1y"] = df["return_252d"] - df["bench_return_252d"]
 
     df["wave"] = wave_name
-    df["regime"] = "SANDBOX"
-    return df
+    df["benchmark_ticker"] = bench_ticker
+    df["regime"] = "LIVE_PRICES" if HAS_YF else "SANDBOX"
+
+    return df.reset_index(), bench_ticker
 
 
-# ----------------- Positions simulation -----------------
+# ---------- Positions snapshot ----------
 
-def _sample_tickers_for_wave(wave: str) -> List[str]:
-    """Simple universe definition for each wave."""
-    if wave == "Clean Transit-Infrastructure Wave":
-        return ["TSLA", "NIO", "RIVN", "CHPT", "BLNK", "F", "GM", "CAT", "DE", "UNP"]
-    elif wave == "Quantum Computing Wave":
-        return ["NVDA", "AMD", "IBM", "QCOM", "AVGO", "TSM", "MSFT", "GOOGL"]
-    elif wave == "S&P 500 Wave":
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "BRK.B", "JPM", "JNJ", "XOM", "PG"]
-    elif wave == "AI Wave":
-        return ["NVDA", "MSFT", "GOOGL", "META", "AVGO", "CRM", "SNOW", "ADBE"]
-    elif wave == "Future Power & Energy Wave":
-        return ["NEE", "ENPH", "FSLR", "XOM", "CVX", "PLUG", "SEDG"]
-    elif wave == "Infinity Wave":
-        return ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "GOOGL", "META", "AVGO"]
-    elif wave == "International Developed Wave":
-        return ["NOVO-B.CO", "NESN.SW", "ASML", "SONY", "BP", "BHP", "RIO"]
-    elif wave == "Emerging Markets Wave":
-        return ["TSM", "BABA", "PDD", "INFY", "VALE", "PBR", "MELI"]
+
+def build_positions_snapshot(
+    weights_df: pd.DataFrame, master_list: Optional[pd.DataFrame], wave_name: str
+) -> pd.DataFrame:
+    this_wave = weights_df[weights_df["wave"] == wave_name].copy()
+    if this_wave.empty:
+        raise ValueError(f"No weights found for wave '{wave_name}'")
+
+    this_wave["wave"] = wave_name
+
+    if master_list is not None:
+        merged = this_wave.merge(
+            master_list, on="ticker", how="left", suffixes=("", "_list")
+        )
+        # Prefer 'name' column from list.csv if it exists
+        cols = {c.lower(): c for c in merged.columns}
+        name_col = cols.get("name")
+        if name_col:
+            merged = merged.rename(columns={name_col: "name"})
+        else:
+            merged["name"] = merged["ticker"]
+        # Keep a clean subset
+        out = merged[["wave", "ticker", "name", "weight"]].copy()
     else:
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
+        out = this_wave.copy()
+        out["name"] = out["ticker"]
+        out = out[["wave", "ticker", "name", "weight"]]
+
+    return out.sort_values("weight", ascending=False)
 
 
-def simulate_positions_for_wave(wave: str) -> pd.DataFrame:
-    """
-    Generate a static positions snapshot for a Wave.
-    The app will show the top-10 from this.
-    """
-    tickers = _sample_tickers_for_wave(wave)
-    n = len(tickers)
-    raw = np.abs(np.random.rand(n))
-    weights = raw / raw.sum()
+# ---------- Log writers ----------
 
-    df = pd.DataFrame(
-        {
-            "wave": [wave] * n,
-            "ticker": tickers,
-            "name": tickers,
-            "weight": weights,
-        }
-    )
-    return df
-
-
-# ----------------- Log writers -----------------
 
 def write_performance_log(df: pd.DataFrame, wave_name: str) -> str:
     prefix = wave_name.replace(" ", "_")
-    path = os.path.join(
-        LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv"
-    )
+    path = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
     df.to_csv(path, index=False)
     return path
 
@@ -413,65 +437,97 @@ def write_performance_log(df: pd.DataFrame, wave_name: str) -> str:
 def write_positions_log(df: pd.DataFrame, wave_name: str) -> str:
     today_str = datetime.today().strftime("%Y%m%d")
     prefix = wave_name.replace(" ", "_")
-    path = os.path.join(
-        LOGS_POSITIONS_DIR, f"{prefix}_positions_{today_str}.csv"
-    )
+    path = os.path.join(LOGS_POSITIONS_DIR, f"{prefix}_positions_{today_str}.csv")
     df.to_csv(path, index=False)
     return path
 
 
-# ----------------- Public API -----------------
-
-def load_wave_weights() -> pd.DataFrame:
-    """
-    For compatibility with the app.
-    If wave_weights.csv exists, load it.
-    Otherwise, synthesize a minimal one listing the Waves and equal weights.
-    """
-    candidate = os.path.join(ROOT_DIR, "wave_weights.csv")
-    if os.path.exists(candidate):
-        try:
-            df = pd.read_csv(candidate)
-            if not df.empty:
-                return df
-        except Exception:
-            pass
-
-    # Fallback synthetic weights
-    df = pd.DataFrame(
-        {
-            "wave": EQUITY_WAVES,
-            "weight": [1.0 / len(EQUITY_WAVES)] * len(EQUITY_WAVES),
-        }
-    )
-    return df
+# ---------- Public engine API ----------
 
 
-def run_wave_update(wave_name: str, days: int = 260) -> Tuple[str, str]:
+def run_wave_update(
+    wave_name: str,
+    price_panel: Optional[pd.DataFrame] = None,
+    years: int = 3,
+) -> Tuple[str, str]:
     """
-    Generate SANDBOX performance + positions logs for a single Wave.
-    Returns (performance_log_path, positions_log_path).
+    Generate performance + positions logs for a single Wave.
+
+    If price_panel is provided, it must contain all component tickers
+    and the appropriate benchmark ticker. Otherwise, we fetch prices.
     """
-    perf_df = simulate_wave_path_with_recipe(wave_name, days=days)
-    pos_df = simulate_positions_for_wave(wave_name)
+    weights_df = load_wave_weights()
+    master_list = load_master_list()
+
+    this_wave = weights_df[weights_df["wave"] == wave_name]
+    if this_wave.empty:
+        raise ValueError(f"Wave '{wave_name}' not present in wave_weights.csv")
+
+    all_wave_tickers = weights_df["ticker"].unique().tolist()
+    bench_ticker = WAVE_BENCHMARKS.get(wave_name, "SPY")
+
+    if price_panel is None:
+        tickers_needed = list(set(all_wave_tickers + [bench_ticker]))
+        price_panel = get_price_history(tickers_needed, years=years)
+
+    perf_df, _ = compute_wave_nav(price_panel, weights_df, wave_name)
+    pos_df = build_positions_snapshot(weights_df, master_list, wave_name)
 
     perf_path = write_performance_log(perf_df, wave_name)
     pos_path = write_positions_log(pos_df, wave_name)
     return perf_path, pos_path
 
 
-def run_all_waves(days: int = 260) -> None:
-    """Generate logs for all EQUITY_WAVES."""
-    for w in EQUITY_WAVES:
-        perf_path, pos_path = run_wave_update(w, days=days)
-        print(f"[waves_engine] Updated {w}")
-        print(f"  Performance: {perf_path}")
-        print(f"  Positions:   {pos_path}")
+def run_all_waves(years: int = 3) -> None:
+    """
+    Main entrypoint: recompute performance logs for all EQUITY_WAVES.
+
+    - Reads wave_weights.csv (and list.csv if available)
+    - Downloads price history for all tickers + all benchmarks
+    - Writes performance & positions logs for each wave
+    """
+    if not HAS_YF:
+        raise RuntimeError(
+            "yfinance is not available. Install it in this environment "
+            "to use real price history."
+        )
+
+    weights_df = load_wave_weights()
+    master_list = load_master_list()
+
+    all_wave_tickers = weights_df["ticker"].unique().tolist()
+    bench_tickers = list(set(WAVE_BENCHMARKS.values()))
+    all_tickers = sorted(set(all_wave_tickers + bench_tickers))
+
+    print(f"[waves_engine] Fetching prices for {len(all_tickers)} tickers...")
+    price_panel = get_price_history(all_tickers, years=years)
+    print(f"[waves_engine] Price panel shape: {price_panel.shape}")
+
+    for wave_name in EQUITY_WAVES:
+        if wave_name not in weights_df["wave"].unique():
+            print(f"[waves_engine] Skipping {wave_name} (no weights).")
+            continue
+        try:
+            perf_df, bench = compute_wave_nav(price_panel, weights_df, wave_name)
+            pos_df = build_positions_snapshot(weights_df, master_list, wave_name)
+            perf_path = write_performance_log(perf_df, wave_name)
+            pos_path = write_positions_log(pos_df, wave_name)
+            print(f"[waves_engine] Updated {wave_name} (benchmark: {bench})")
+            print(f"  Performance: {perf_path}")
+            print(f"  Positions:   {pos_path}")
+        except Exception as exc:
+            print(f"[waves_engine] ERROR on {wave_name}: {exc}")
 
 
-# ----------------- Script entry -----------------
+# ---------- Script entrypoint ----------
 
 if __name__ == "__main__":
-    print("Running WAVES stub engine (Vector1 SANDBOX)...")
-    run_all_waves(days=260)
+    print("Running WAVES Intelligence™ real-history engine (Vector1)...")
+    if not HAS_YF:
+        print(
+            "ERROR: yfinance not installed. Install it in this environment "
+            "to fetch real prices."
+        )
+    else:
+        run_all_waves(years=3)
     print("Done.")
