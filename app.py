@@ -26,8 +26,8 @@ except Exception:
 
 APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
 APP_SUBTITLE = (
-    "11-Wave Rotation + SmartSafe™ • Alpha-Minus-Beta • Private Logic™ • "
-    "WaveScore™ • SmartSafe™ • UAPV™ Preview"
+    "10-Wave Lineup (9 Equity + SmartSafe™) • Alpha-Minus-Beta • Private Logic™ • "
+    "WaveScore™ • UAPV™ Preview"
 )
 
 LOGS_DIR = "logs"
@@ -52,63 +52,77 @@ MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
     "positions": {},
 }
 
-# ----------------- Wave lineup -----------------
+# ----------------- Wave lineup (9 equity + SmartSafe = 10 total) -----------------
 
-WAVE_LINEUP = {
-    "AI Wave": {
-        "category": "Thematic Equity",
+EQUITY_WAVES: List[str] = [
+    "S&P 500 Wave",
+    "Growth Wave",
+    "Small Cap Growth Wave",
+    "Future Power & Energy Wave",
+    "Quantum Computing Wave",
+    "Clean Transit-Infrastructure Wave",
+    "AI Wave",
+    "Infinity Wave",
+    "International Developed Wave",
+    "SmartSafe Wave",  # cash-like sleeve
+]
+
+WAVE_METADATA: Dict[str, Dict[str, str]] = {
+    "S&P 500 Wave": {
+        "category": "Core Equity",
+        "benchmark": "SPY",
+        "tagline": "Core S&P 500 exposure with AI overlays and risk discipline.",
+    },
+    "Growth Wave": {
+        "category": "Growth Equity",
         "benchmark": "QQQ",
-        "description": "AI & automation leaders across semis, cloud, and software.",
+        "tagline": "High-growth exposure tuned for volatility and drawdowns.",
     },
-    "Clean Transit-Infrastructure Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "IYT",
-        "description": "EVs, clean transit, infrastructure, and logistics rails.",
-    },
-    "Emerging Markets Wave": {
-        "category": "Global Equity",
-        "benchmark": "EEM",
-        "description": "Broad EM exposure with an AI bias toward quality and growth.",
+    "Small Cap Growth Wave": {
+        "category": "Small Cap Growth",
+        "benchmark": "IWM",
+        "tagline": "High-octane small-cap growth with disciplined risk controls.",
     },
     "Future Power & Energy Wave": {
         "category": "Thematic Equity",
         "benchmark": "XLE",
-        "description": "Next-gen energy, grid, storage, and related infrastructure.",
+        "tagline": "Future power, infrastructure, renewables, and next-gen energy.",
     },
-    "Growth Wave": {
-        "category": "Growth Equity",
-        "benchmark": "SPYG",
-        "description": "Core U.S. growth tilt across sectors.",
+    "Quantum Computing Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "QQQ",
+        "tagline": "Quantum, AI, and deep-tech acceleration.",
+    },
+    "Clean Transit-Infrastructure Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "IDEV",
+        "tagline": "Clean transit, infrastructure, and mobility.",
+    },
+    "AI Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "AI Basket",
+        "tagline": "Pure AI exposure across chips, cloud, and software leaders.",
     },
     "Infinity Wave": {
         "category": "Flagship Multi-Theme",
-        "benchmark": "SPY",
-        "description": "Flagship multi-theme AI Wave spanning all core playbooks.",
+        "benchmark": "ACWI",
+        "tagline": "Flagship multi-theme alpha engine — “Tesla Roadster” Wave.",
     },
     "International Developed Wave": {
         "category": "Global Equity",
         "benchmark": "EFA",
-        "description": "Developed ex-U.S. exposure with quality / FX aware tilts.",
+        "tagline": "Developed international exposure with adaptive overlays.",
     },
-    "Quantum Computing Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "XLK",
-        "description": "Quantum, HPC, and enabling hardware / software stack.",
-    },
-    "S&P 500 Wave": {
-        "category": "Core Equity",
-        "benchmark": "SPY",
-        "description": "Core S&P 500 exposure with AI-driven tilts vs the index.",
-    },
-    "Small Cap Growth Wave": {
-        "category": "Small Cap Growth",
-        "benchmark": "IWO",
-        "description": "U.S. small-cap growth with quality and liquidity screens.",
+    # EM kept for future use but not in current lineup
+    "Emerging Markets Wave": {
+        "category": "Global Equity",
+        "benchmark": "EEM",
+        "tagline": "Emerging markets growth engine with risk discipline.",
     },
     "SmartSafe Wave": {
         "category": "SmartSafe / Cash",
-        "benchmark": "BIL",
-        "description": "Cash-plus AI ladder with risk-off sweep behavior.",
+        "benchmark": "CASH / BIL",
+        "tagline": "High-grade cash sleeve with money-market-like yield and low volatility.",
     },
 }
 
@@ -229,7 +243,7 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 def get_available_waves() -> List[str]:
     """
     Discover waves from the engine / wave_weights, but ALWAYS include
-    the full EQUITY_WAVES lineup so all Waves appear in the UI.
+    the full 10-wave lineup so all Waves appear in the UI.
     """
     waves: Set[str] = set()
 
@@ -248,7 +262,7 @@ def get_available_waves() -> List[str]:
         except Exception:
             pass
 
-    # 2) ALWAYS include the full lineup
+    # 2) ALWAYS include the full 10-wave lineup
     waves = waves.union(set(EQUITY_WAVES))
 
     # 3) Sort and return
@@ -348,10 +362,9 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
         tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "GOOGL", "META", "AVGO"]
     elif wave == "International Developed Wave":
         tickers = ["NOVO-B.CO", "NESN.SW", "ASML", "SONY", "BP", "BHP", "RIO"]
-    elif wave == "Emerging Markets Wave":
-        tickers = ["TSM", "BABA", "PDD", "INFY", "VALE", "PBR", "MELI"]
-    elif wave == "SmartSafe Wave":  # NEW
-        # Short-duration treasuries / cash-equivalents
+    elif wave == "Small Cap Growth Wave":
+        tickers = ["IWM", "IWO", "VBK", "IJT", "SCHA", "SAA", "TNA"]
+    elif wave == "SmartSafe Wave":
         tickers = ["BIL", "SHV", "SGOV", "JPST", "TFLO"]
     else:
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
@@ -394,7 +407,7 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     elif wave == "Infinity Wave":
         alpha_mu = 0.04 / 252.0
         alpha_sigma = 0.08 / np.sqrt(252.0)
-    elif wave in ["Growth Wave", "Small Cap Growth Wave", "Small to Mid Cap Growth Wave"]:
+    elif wave in ["Growth Wave", "Small Cap Growth Wave"]:
         alpha_mu = 0.03 / 252.0
         alpha_sigma = 0.07 / np.sqrt(252.0)
     elif wave in [
@@ -408,6 +421,7 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     elif wave in ["International Developed Wave", "Emerging Markets Wave"]:
         alpha_mu = 0.02 / 252.0
         alpha_sigma = 0.05 / np.sqrt(252.0)
+
     if wave == "SmartSafe Wave":
         # Cash-like benchmark & small positive alpha
         bench_mu = 0.03 / 252.0   # ~3% annual yield
@@ -901,7 +915,7 @@ def main() -> None:
 
     waves = get_available_waves()
     if not waves:
-        st.error("No Waves discovered (11-wave rotation + SmartSafe).")
+        st.error("No Waves discovered (10-wave lineup).")
         return
 
     # Ensure logs exist for each Wave
