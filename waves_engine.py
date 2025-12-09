@@ -1,22 +1,26 @@
 """
 waves_engine.py
 
-WAVES Intelligence™ Engine — Phase 2 (Mode-Aware, No Self-Import)
+WAVES Intelligence™ Engine — Phase 2.5
+Mode-Aware + VIX-Gated Exposure + Beta-Adjusted Alpha Captured
 
 - list.csv = TOTAL MARKET universe (no wave column required)
 - wave_weights.csv = authoritative Wave definition file (wave,ticker,weight)
 - Auto-detects Waves from wave_weights.csv
 - Normalizes weights per Wave
 - Merges universe metadata (company, sector, etc.)
-- Computes beta-adjusted Alpha Captured, with MODE-AWARE exposure:
 
+Core logic per Wave:
+- Compute daily Wave returns vs benchmark
+- Compute realized beta (≈60d)
+- Apply MODE + VIX overlay to exposure:
     Modes:
-      - "standard"         → full exposure
-      - "alpha-minus-beta" → reduces exposure toward target beta ≈ 0.85
-      - "private_logic"    → allows mild leverage toward target beta ≈ 1.05
+      - "standard"         → β ~ as-is, VIX-based throttling only
+      - "alpha-minus-beta" → target β ≈ 0.85 + stronger VIX throttle
+      - "private_logic"    → target β ≈ 1.05 with VIX-aware risk-on/off
 
-- Alpha Captured horizons:
-    * Intraday
+- Then compute beta-adjusted Alpha Captured:
+    * Intraday (last residual)
     * 30-Day
     * 60-Day
     * 1-Year (~252 trading days)
@@ -54,6 +58,9 @@ class WavesEngine:
         # Benchmarks per wave
         self.benchmark_map = self._default_benchmark_map()
 
+        # Cache for VIX history
+        self._vix_cache: pd.Series | None = None
+
     # ------------------------------------------------------------------
     # File loading
     # ------------------------------------------------------------------
@@ -62,14 +69,6 @@ class WavesEngine:
         (self.logs_root / "performance").mkdir(parents=True, exist_ok=True)
 
     def _load_universe(self) -> pd.DataFrame:
-        """
-        Load list.csv as the TOTAL MARKET universe.
-
-        Requirements:
-        - Must contain a ticker column (Ticker/ticker/symbol)
-        - Other columns are treated as metadata:
-          Company, Sector, Weight, etc.
-        """
         if not self.list_path.exists():
             raise FileNotFoundError(f"Universe file not found: {self.list_path}")
 
@@ -86,7 +85,7 @@ class WavesEngine:
         ticker_col = ticker_cols[0]
         df = df.rename(columns={ticker_col: "ticker"})
 
-        # Standardize a few common metadata columns
+        # Standardize metadata columns
         rename_map: Dict[str, str] = {}
         for col in df.columns:
             cl = col.lower()
@@ -101,22 +100,14 @@ class WavesEngine:
             df = df.rename(columns=rename_map)
 
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-
         return df
 
     def _load_wave_weights(self) -> pd.DataFrame:
-        """
-        Load wave_weights.csv which defines:
-        - wave
-        - ticker
-        - weight
-        """
         if not self.weights_path.exists():
             raise FileNotFoundError(f"Wave weights file not found: {self.weights_path}")
 
         df = pd.read_csv(self.weights_path)
 
-        # Normalize column names
         col_map: Dict[str, str] = {}
         for col in df.columns:
             cl = col.lower()
@@ -147,20 +138,14 @@ class WavesEngine:
         return df
 
     def _build_wave_definitions(self) -> pd.DataFrame:
-        """
-        Merge wave_weights with universe metadata and normalize weights
-        within each Wave.
-        """
         df = self.wave_weights.copy()
 
-        # Normalize weights inside each wave to sum to 1.0
+        # Normalize weights inside each wave to sum to ~1.0
         df["weight"] = df.groupby("wave")["weight"].transform(
             lambda x: x / x.sum() if x.sum() != 0 else x
         )
 
-        # Merge with universe metadata (left join)
         merged = df.merge(self.universe, how="left", on="ticker", suffixes=("", "_u"))
-
         return merged
 
     # ------------------------------------------------------------------
@@ -180,33 +165,30 @@ class WavesEngine:
         return holdings.head(n)
 
     # ------------------------------------------------------------------
-    # Benchmarks & performance
+    # Benchmarks & VIX overlays
     # ------------------------------------------------------------------
     def _default_benchmark_map(self) -> Dict[str, str]:
-        """
-        Default benchmark tickers per Wave.
-        Edit this mapping as needed.
-        """
         return {
             "S&P Wave": "SPY",
             "Growth Wave": "QQQ",
             "Future Power & Energy Wave": "XLE",
             "Clean Transit-Infrastructure Wave": "ICLN",
-            # Fallback for all others: SPY
+            "Quantum Computing Wave": "QQQ",
+            "Small Cap Growth Wave": "IWM",
+            "Small to Mid Cap Growth Wave": "IJH",
+            "Infinity Wave": "SPY",  # meta-benchmark; adjust if needed
+            # everything else → SPY by default
         }
 
     def get_benchmark(self, wave: str) -> str:
         return self.benchmark_map.get(wave, "SPY")
 
     def _fetch_history(self, tickers: List[str], days: int) -> pd.DataFrame:
-        """
-        Fetch daily adjusted close prices for a list of tickers over the last N days.
-        """
         if not tickers:
             raise ValueError("No tickers provided to _fetch_history")
 
         end = datetime.now()
-        start = end - timedelta(days=days + 5)  # buffer for weekends/holidays
+        start = end - timedelta(days=days + 5)
 
         data = yf.download(
             tickers,
@@ -223,12 +205,42 @@ class WavesEngine:
         close = close.dropna(how="all")
         return close
 
+    def _get_vix_series(self, days: int = 120) -> pd.Series:
+        """
+        Fetch ^VIX history (cached) for VIX-based exposure overlays.
+        """
+        if self._vix_cache is not None and len(self._vix_cache) >= days:
+            return self._vix_cache.iloc[-days:]
+
+        end = datetime.now()
+        start = end - timedelta(days=days + 5)
+
+        data = yf.download(
+            "^VIX",
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            auto_adjust=False,
+            progress=False,
+        )
+
+        if "Close" not in data.columns:
+            vix = pd.Series(dtype=float)
+        else:
+            vix = data["Close"].dropna()
+
+        self._vix_cache = vix
+        return vix
+
+    def _current_vix_level(self) -> float | None:
+        vix_series = self._get_vix_series(days=60)
+        if vix_series.empty:
+            return None
+        # Use last close; smooth with short MA if needed later
+        return float(vix_series.iloc[-1])
+
     def _compute_beta(
         self, wave_ret: pd.Series, bm_ret: pd.Series, lookback: int = 60
     ) -> float:
-        """
-        Compute realized beta using the last 'lookback' days.
-        """
         df = pd.concat([wave_ret, bm_ret], axis=1).dropna()
         if df.empty:
             return 1.0
@@ -248,48 +260,92 @@ class WavesEngine:
 
         return float(beta)
 
+    def _vix_multiplier(self, base_exposure: float, mode: str) -> float:
+        """
+        VIX ladder overlay. This is the WAVES 'safety brain':
+
+        - Higher VIX → throttle exposure.
+        - Lower VIX → allow fuller (or slightly enhanced) exposure.
+        """
+        vix = self._current_vix_level()
+        if vix is None:
+            return base_exposure  # fail-safe
+
+        m = base_exposure
+        m_mode = mode.lower()
+
+        # Base ladder
+        if vix >= 40:
+            ladder = 0.5
+        elif vix >= 30:
+            ladder = 0.65
+        elif vix >= 25:
+            ladder = 0.8
+        elif vix >= 20:
+            ladder = 0.9
+        else:  # vix < 20
+            ladder = 1.0
+
+        # Mode-specific tweaks
+        if "alpha" in m_mode:  # Alpha-Minus-Beta → more defensive
+            ladder *= 0.9
+        elif "private" in m_mode:  # Private Logic → more opportunistic
+            if vix < 18:
+                ladder *= 1.05  # small risk-on boost when volatility is cheap
+
+        # Keep final exposure in a sane band
+        m *= ladder
+        return float(min(1.25, max(0.4, m)))
+
     def _apply_mode(
         self,
         wave_daily: pd.Series,
         bm_daily: pd.Series,
         mode: str,
-    ) -> tuple[pd.Series, float]:
+    ) -> tuple[pd.Series, float, float]:
         """
-        Apply mode-specific exposure scaling and recompute beta.
+        Apply mode + VIX overlay to derive final Wave returns and realized beta.
 
-        - standard: full exposure
-        - alpha-minus-beta: scale down toward target beta ≈ 0.85
-        - private_logic: scale up or down toward target beta ≈ 1.05
+        Returns:
+            wave_mode: series of mode/VIX-adjusted returns
+            beta_mode: realized beta after adjustment
+            exposure_final: final exposure scalar applied to raw Wave returns
         """
         base_beta = self._compute_beta(wave_daily, bm_daily, lookback=60)
         mode_lower = mode.lower()
         exposure = 1.0
 
+        # Base exposure from beta targeting
         if mode_lower in ("alpha-minus-beta", "alpha_minus_beta", "alpha minus beta", "amb"):
             target_beta = 0.85
             if base_beta > 0:
                 ratio = target_beta / base_beta
-                # cap exposure between 0.5 and 1.0 (never levered, only throttle)
                 exposure = min(1.0, max(0.5, ratio))
         elif mode_lower in ("private_logic", "private", "private logic", "pl"):
             target_beta = 1.05
             if base_beta > 0:
                 ratio = target_beta / base_beta
-                # allow mild leverage, but don't go crazy
-                exposure = min(1.2, max(0.8, ratio))
+                exposure = min(1.15, max(0.8, ratio))
         else:
-            # standard mode
-            exposure = 1.0
+            # standard mode: exposure ≈1; we still allow mild beta normalization
+            if base_beta > 0:
+                exposure = min(1.05, max(0.9, 1.0 / base_beta))
 
-        wave_mode = exposure * wave_daily
+        # Apply VIX overlay
+        exposure_final = self._vix_multiplier(exposure, mode)
+
+        wave_mode = exposure_final * wave_daily
         beta_mode = self._compute_beta(wave_mode, bm_daily, lookback=60)
-        return wave_mode, beta_mode
+        return wave_mode, beta_mode, exposure_final
 
+    # ------------------------------------------------------------------
+    # Main performance method
+    # ------------------------------------------------------------------
     def get_wave_performance(
         self,
         wave: str,
         mode: str = "standard",
-        days: int = 30,  # chart days
+        days: int = 30,
         log: bool = True,
     ) -> Dict[str, object]:
         """
@@ -328,8 +384,10 @@ class WavesEngine:
         else:
             bm_daily = pd.Series(index=wave_daily_raw.index, data=0.0, name="benchmark")
 
-        # Apply mode-specific exposure + recompute beta
-        wave_daily_mode, beta_real = self._apply_mode(wave_daily_raw, bm_daily, mode)
+        # Apply mode-specific exposure + VIX overlay + recompute beta
+        wave_daily_mode, beta_real, exposure_final = self._apply_mode(
+            wave_daily_raw, bm_daily, mode
+        )
 
         # Beta-adjusted residual returns
         residual_daily = wave_daily_mode - beta_real * bm_daily
@@ -386,6 +444,7 @@ class WavesEngine:
             "mode": mode,
             "benchmark": benchmark,
             "beta_realized": beta_real,
+            "exposure_final": exposure_final,
             "intraday_alpha_captured": intraday_alpha_captured,
             "alpha_30d": alpha_30d,
             "alpha_60d": alpha_60d,
@@ -433,6 +492,7 @@ class WavesEngine:
             "mode": perf["mode"],
             "benchmark": perf["benchmark"],
             "beta_realized": perf["beta_realized"],
+            "exposure_final": perf["exposure_final"],
             "intraday_alpha_captured": perf["intraday_alpha_captured"],
             "alpha_30d": perf["alpha_30d"],
             "alpha_60d": perf["alpha_60d"],
