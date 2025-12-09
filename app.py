@@ -1,284 +1,233 @@
-# app.py
-#
-# WAVES Intelligence™ Institutional Console — Hard Reset Edition
-#
-# - On each run, calls run_engine_once_for_all_waves(), which wipes logs and rebuilds them.
-# - Shows Wave details (returns + alpha + top 10 holdings).
-# - Shows Alpha Capture matrix across waves & modes.
-# - Shows Engine version + log tag + universe.
+"""
+WAVES Intelligence™ Institutional Console – Streamlit UI
+Uses the rebuilt waves_engine.run_full_engine()
+"""
 
-import streamlit as st
+from __future__ import annotations
+
+import traceback
+
+import numpy as np
 import pandas as pd
-from datetime import datetime
+import streamlit as st
 
-from waves_engine import (
-    ENGINE_VERSION,
-    ENGINE_LOG_TAG,
-    run_engine_once_for_all_waves,
-    load_wave_universe,
-    get_latest_perf_row,
-    get_latest_positions_frame,
-    build_alpha_matrix_for_mode,
-)
+from waves_engine import ENGINE_VERSION, run_full_engine
 
 # ---------------------------------------------------------------------
-# Page config
+# Page config & cache clearing
 # ---------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
+    page_title="WAVES Intelligence – Institutional Console",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
+# Clear Streamlit caches at startup so ONLY latest code/data are used
+try:
+    st.cache_data.clear()
+    st.cache_resource.clear()
+except Exception:
+    # Older Streamlit versions may not have these; ignore
+    pass
 
 # ---------------------------------------------------------------------
-# Run engine (HARD RESET each time)
+# Load engine results
 # ---------------------------------------------------------------------
 
-with st.spinner("Running WAVES Engine (hard reset + fresh logs)…"):
-    run_engine_once_for_all_waves()
+with st.spinner("Starting WAVES Engine and computing live metrics…"):
+    try:
+        engine_result = run_full_engine()
+    except Exception as e:
+        st.error("Engine failed to start. See details below.")
+        st.exception(e)
+        st.stop()
 
+# Convenience handles
+wave_list = engine_result.wave_list
+alpha_capture = engine_result.alpha_capture  # dict of mode -> df
+top_holdings = engine_result.top_holdings
+system_status = engine_result.system_status
 
 # ---------------------------------------------------------------------
-# Sidebar
+# Layout: header
 # ---------------------------------------------------------------------
 
-st.sidebar.title("WAVES Intelligence™")
-st.sidebar.caption("10-Wave Equity Lineup + SmartSafe™ — Hard Reset Engine")
-
-waves_df, _ = load_wave_universe()
-wave_names = waves_df["Wave"].tolist()
-
-selected_wave = st.sidebar.selectbox("Select Wave", wave_names)
-
-mode = st.sidebar.radio(
-    "Mode",
-    options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-    index=0,
+st.markdown(
+    f"""
+    <h1 style="margin-bottom:0.2rem;">WAVES Intelligence™ – Institutional Console</h1>
+    <p style="color:#AAAAAA;margin-top:0;">
+        Engine version <b>{ENGINE_VERSION}</b> • As of <b>{engine_result.as_of:%Y-%m-%d %H:%M} UTC</b>
+    </p>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Engine Version**  \n{ENGINE_VERSION}")
-st.sidebar.markdown(f"**Engine Log Tag:** `{ENGINE_LOG_TAG}`")
-st.sidebar.markdown(
-    f"_Last refreshed: {datetime.utcnow().isoformat(timespec='seconds')} UTC_"
-)
-
+tabs = st.tabs(["Wave Details", "Alpha Capture", "WaveScore", "System Status"])
 
 # ---------------------------------------------------------------------
-# Tabs
+# Tab 1 – Wave Details
 # ---------------------------------------------------------------------
 
-tab_wave, tab_alpha, tab_wavescore, tab_system = st.tabs(
-    ["Wave Details", "Alpha Capture", "WaveScore Preview", "System Status"]
-)
+with tabs[0]:
+    st.subheader("Wave Lineup")
+
+    st.dataframe(
+        wave_list.rename(
+            columns={
+                "wave": "Wave",
+                "category": "Category",
+                "benchmark": "Benchmark",
+            }
+        ),
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    st.subheader("Top 10 Holdings per Wave")
+
+    selected_wave = st.selectbox(
+        "Select Wave to view holdings",
+        options=["All Waves"] + sorted(wave_list["wave"].tolist()),
+        index=0,
+    )
+
+    holdings_df = top_holdings.copy()
+    # Convert weights to % for nicer display
+    holdings_df["Weight_%"] = (holdings_df["Weight"] * 100.0).round(2)
+
+    if selected_wave != "All Waves":
+        holdings_df = holdings_df[holdings_df["Wave"] == selected_wave]
+
+    st.dataframe(
+        holdings_df[["Wave", "Ticker", "Weight_%", "Google_Finance_URL"]],
+        use_container_width=True,
+    )
 
 # ---------------------------------------------------------------------
-# Wave Details tab
+# Tab 2 – Alpha Capture
 # ---------------------------------------------------------------------
 
-with tab_wave:
-    st.header(f"{selected_wave} — Wave Details")
-
-    col1, col2 = st.columns([2, 1])
-
-    # Performance & alpha
-    with col1:
-        perf = get_latest_perf_row(selected_wave)
-        if perf is None:
-            st.warning(
-                f"No performance history yet for {selected_wave} "
-                f"(no logs found for engine tag `{ENGINE_LOG_TAG}`)."
-            )
-        else:
-            st.subheader("Performance Snapshot (Base Engine Metrics)")
-
-            # Returns table
-            ret_df = pd.DataFrame(
-                {
-                    "Metric": ["Return_1d", "Return_30d", "Return_60d", "Return_1y"],
-                    "Value": [
-                        perf.get("Return_1d", float("nan")),
-                        perf.get("Return_30d", float("nan")),
-                        perf.get("Return_60d", float("nan")),
-                        perf.get("Return_1y", float("nan")),
-                    ],
-                }
-            ).set_index("Metric")
-
-            st.markdown("**Total Returns (unscaled)**")
-            st.dataframe(
-                (ret_df * 100).style.format("{:.2f}%"),
-                use_container_width=True,
-            )
-
-            # Alpha table — scaled by mode
-            if mode == "Standard":
-                alpha_scale = 1.0
-            elif mode == "Alpha-Minus-Beta":
-                alpha_scale = 0.8
-            else:
-                alpha_scale = 1.3
-
-            alpha_df = pd.DataFrame(
-                {
-                    "Metric": [
-                        "Alpha_1d",
-                        "Alpha_30d",
-                        "Alpha_60d",
-                        "Alpha_1y",
-                        "Alpha_IR",
-                    ],
-                    "Value": [
-                        perf.get("Alpha_1d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_30d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_60d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_1y", float("nan")) * alpha_scale,
-                        perf.get("Alpha_IR", float("nan")),
-                    ],
-                }
-            ).set_index("Metric")
-
-            st.markdown(f"**Alpha (scaled for mode: {mode})**")
-            st.dataframe(
-                (alpha_df * 100).style.format("{:.2f}%"),
-                use_container_width=True,
-            )
-
-    # Holdings
-    with col2:
-        st.subheader("Top 10 Holdings (Latest Snapshot)")
-        pos = get_latest_positions_frame(selected_wave)
-        if pos is None or pos.empty:
-            st.info(
-                f"No holdings available for {selected_wave} "
-                f"(no positions log found for tag `{ENGINE_LOG_TAG}`)."
-            )
-        else:
-            pos_sorted = pos.sort_values("Weight", ascending=False).head(10).copy()
-            pos_sorted["Weight (%)"] = pos_sorted["Weight"] * 100.0
-            display_cols = ["Ticker", "Weight (%)", "LastPrice", "GoogleFinanceURL"]
-            st.dataframe(
-                pos_sorted[display_cols]
-                .rename(
-                    columns={
-                        "LastPrice": "Last Price",
-                        "GoogleFinanceURL": "Google Finance",
-                    }
-                )
-                .style.format({"Weight (%)": "{:.2f}%"}),
-                use_container_width=True,
-            )
+def _format_alpha_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for col in [
+        "Alpha_1d",
+        "Alpha_30d",
+        "Alpha_60d",
+        "Alpha_1y",
+        "Return_1d",
+        "Return_30d",
+        "Return_60d",
+        "Return_1y",
+    ]:
+        if col in df.columns:
+            df[col] = (df[col] * 100.0).round(2)
+    return df
 
 
-# ---------------------------------------------------------------------
-# Alpha Capture tab
-# ---------------------------------------------------------------------
+with tabs[1]:
+    st.subheader("Alpha Capture Matrix")
 
-with tab_alpha:
-    st.header(f"Alpha Capture Matrix — {mode}")
+    mode = st.radio(
+        "Mode",
+        ["Standard", "Alpha-Minus-Beta", "Private Logic"],
+        horizontal=True,
+    )
 
-    matrix = build_alpha_matrix_for_mode(mode=mode)
-    if matrix.empty:
-        st.warning(
-            "No alpha capture data yet for current engine tag. "
-            "Check that the engine is running and logs exist."
-        )
+    df_mode = alpha_capture.get(mode, pd.DataFrame())
+    if df_mode.empty:
+        st.warning("No alpha data available for this mode.")
     else:
-        display_df = matrix.copy()
-        for c in [
+        df_display = _format_alpha_df(df_mode)
+        # Reorder columns for readability
+        col_order = [
+            "Wave",
+            "Category",
+            "Benchmark",
             "Alpha_1d",
             "Alpha_30d",
             "Alpha_60d",
             "Alpha_1y",
+            "Return_1d",
             "Return_30d",
             "Return_60d",
             "Return_1y",
-        ]:
-            display_df[c] = display_df[c] * 100.0
+        ]
+        df_display = df_display[[c for c in col_order if c in df_display.columns]]
 
-        st.dataframe(
-            display_df.style.format("{:.2f}%"),
-            use_container_width=True,
-        )
-
+        st.dataframe(df_display, use_container_width=True)
 
 # ---------------------------------------------------------------------
-# WaveScore preview tab (simple approximation using 1y alpha + IR)
+# Tab 3 – WaveScore (simple placeholder based on alpha)
 # ---------------------------------------------------------------------
 
-with tab_wavescore:
-    st.header("WaveScore™ Preview (Based on Engine Metrics)")
+with tabs[2]:
+    st.subheader("WaveScore™ – Prototype")
 
-    matrix_std = build_alpha_matrix_for_mode(mode="Standard")
-    if matrix_std.empty:
-        st.info(
-            "WaveScore preview requires Standard mode alpha metrics. "
-            "No data available for current engine tag."
-        )
+    # Use Standard mode as base scoring input
+    base = alpha_capture.get("Standard", pd.DataFrame()).copy()
+    if base.empty:
+        st.info("WaveScore prototype requires Standard alpha data.")
     else:
-        rows = []
-        for _, row in matrix_std.iterrows():
-            wave_name = row["Wave"]
-            perf = get_latest_perf_row(wave_name)
-            ir = perf.get("Alpha_IR", float("nan")) if perf is not None else float("nan")
-            alpha_1y = row["Alpha_1y"]
+        df = base.copy()
 
-            # Simple provisional score (0–100)
-            score = 50 + alpha_1y * 200 + (0 if pd.isna(ir) else ir * 5)
-            score = max(0, min(100, score))
+        # Simple prototype: focus on 1y alpha & 60d alpha
+        for col in ["Alpha_60d", "Alpha_1y"]:
+            if col not in df.columns:
+                df[col] = np.nan
 
-            rows.append(
-                {
-                    "Wave": wave_name,
-                    "Category": row["Category"],
-                    "WaveScore_preview": score,
-                    "Alpha_1y": alpha_1y,
-                    "Alpha_IR": ir,
-                }
-            )
-
-        score_df = pd.DataFrame(rows).sort_values(
-            "WaveScore_preview", ascending=False
+        # Raw numeric scores (0–100 scaled by alpha)
+        df["WaveScore"] = (
+            (df["Alpha_1y"].fillna(0) * 100.0)
+            + (df["Alpha_60d"].fillna(0) * 50.0)
         )
+
+        # Normalize to 0–100 band
+        if df["WaveScore"].abs().max() > 0:
+            max_abs = df["WaveScore"].abs().max()
+            df["WaveScore"] = 50 + 50 * (df["WaveScore"] / max_abs)
+
+        df["WaveScore"] = df["WaveScore"].clip(0, 100).round(1)
+
+        df_display = df[["Wave", "Category", "Benchmark", "Alpha_60d", "Alpha_1y", "WaveScore"]].copy()
+        df_display["Alpha_60d"] = (df_display["Alpha_60d"] * 100.0).round(2)
+        df_display["Alpha_1y"] = (df_display["Alpha_1y"] * 100.0).round(2)
+
         st.dataframe(
-            score_df.style.format(
-                {
-                    "WaveScore_preview": "{:.1f}",
-                    "Alpha_1y": "{:.2%}",
-                    "Alpha_IR": "{:.2f}",
-                }
-            ),
+            df_display.sort_values("WaveScore", ascending=False).reset_index(drop=True),
             use_container_width=True,
         )
 
         st.caption(
-            "WaveScore™ preview only — real WaveScore v1.0 uses the full locked spec "
-            "with volatility, drawdown, consistency, and governance factors."
+            "Prototype WaveScore™: scaled off 60-day and 1-year alpha. "
+            "Final spec is governed by locked WAVESCORE™ v1.0."
         )
 
-
 # ---------------------------------------------------------------------
-# System Status tab
+# Tab 4 – System Status
 # ---------------------------------------------------------------------
 
-with tab_system:
-    st.header("System Status — Engine & Universe")
+with tabs[3]:
+    st.subheader("System Status — Engine & Data Health")
 
-    st.subheader("Engine")
     st.success("waves_engine module loaded — engine AVAILABLE.")
-    st.info(ENGINE_VERSION)
-    st.code(f"ENGINE_LOG_TAG = '{ENGINE_LOG_TAG}'")
 
-    st.subheader("Wave Universe (from list.csv)")
-    st.dataframe(
-        waves_df[["Wave", "Category", "Benchmark"]],
-        use_container_width=True,
-    )
+    st.markdown("### Engine")
+    st.json(system_status)
 
-    st.markdown(
-        "On every run, the engine **deletes all prior logs** and rebuilds fresh "
-        "positions and performance for each Wave using the latest prices.\n\n"
-        "The console only uses logs whose filenames include the current "
-        "`ENGINE_LOG_TAG`, so older engine versions are never read."
+    st.markdown("### Controls")
+
+    if st.button("Force hard refresh (clear cache & rerun)"):
+        try:
+            st.cache_data.clear()
+            st.cache_resource.clear()
+        except Exception:
+            pass
+        st.experimental_rerun()
+
+    st.markdown("---")
+    st.caption(
+        "This console is a live simulation using market data via yfinance. "
+        "Results are for research & demonstration only and do not represent "
+        "actual trading or investment performance."
     )
