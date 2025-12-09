@@ -1,9 +1,12 @@
 """
 app.py
 
-WAVES Intelligence™ Institutional Console — Phase 2 (Mode-Aware)
+WAVES Intelligence™ Institutional Console — Phase 2 (Tabs + All-Wave Alpha View)
 
 - Mode selector: Standard / Alpha-Minus-Beta / Private Logic
+- Tabs:
+    1) Overview (All Waves): Intraday / 30D / 60D / 1Y Alpha Captured for ALL Waves
+    2) Selected Wave Detail: full dashboard for the chosen Wave
 - Uses mode-aware WavesEngine to compute:
   • Intraday Alpha Captured (β-adjusted)
   • 30-Day / 60-Day / 1-Year Alpha Captured
@@ -109,173 +112,242 @@ st.sidebar.markdown("**Files in use:**")
 st.sidebar.code("list.csv\nwave_weights.csv", language="text")
 
 # ----------------------------------------------------------------------
-# Layout
+# Tabs
 # ----------------------------------------------------------------------
-top_row = st.columns([2.2, 1.2])
-perf_col, snapshot_col = top_row
-
-bottom_row = st.columns([2.0, 1.4])
-chart_col, holdings_col = bottom_row
+tab_overview, tab_detail = st.tabs(
+    ["Overview — All Waves Alpha Capture", "Selected Wave Detail"]
+)
 
 # ----------------------------------------------------------------------
-# Wave Snapshot
+# TAB 1: Overview — All Waves Alpha Capture
 # ----------------------------------------------------------------------
-with snapshot_col:
-    st.subheader("Wave Snapshot")
+with tab_overview:
+    st.subheader(f"All Waves — Alpha Captured (Mode: {mode_label})")
 
-    try:
-        holdings_df = engine.get_wave_holdings(selected_wave)
-        num_holdings = len(holdings_df)
-        benchmark = engine.get_benchmark(selected_wave)
-    except Exception as e:
-        st.error(f"Could not load snapshot for {selected_wave}: {e}")
-        holdings_df = None
-        num_holdings = 0
-        benchmark = "SPY"
+    overview_rows = []
+    for wave_name in waves:
+        try:
+            perf = engine.get_wave_performance(
+                wave_name, mode=selected_mode_key, days=30, log=False
+            )
+        except Exception as e:
+            # If a single wave fails, continue and mark as NaN
+            perf = None
 
-    snapshot1, snapshot2 = st.columns(2)
-    snapshot1.metric("Wave", selected_wave)
-    snapshot2.metric("Benchmark", benchmark)
+        if perf is not None:
+            row = {
+                "Wave": wave_name,
+                "Benchmark": perf["benchmark"],
+                "Realized Beta (≈60d)": perf["beta_realized"],
+                "Intraday Alpha Captured (%)": perf["intraday_alpha_captured"] * 100
+                if perf["intraday_alpha_captured"] is not None
+                else None,
+                "30-Day Alpha Captured (%)": perf["alpha_30d"] * 100
+                if perf["alpha_30d"] is not None
+                else None,
+                "60-Day Alpha Captured (%)": perf["alpha_60d"] * 100
+                if perf["alpha_60d"] is not None
+                else None,
+                "1-Year Alpha Captured (%)": perf["alpha_1y"] * 100
+                if perf["alpha_1y"] is not None
+                else None,
+            }
+        else:
+            row = {
+                "Wave": wave_name,
+                "Benchmark": "—",
+                "Realized Beta (≈60d)": None,
+                "Intraday Alpha Captured (%)": None,
+                "30-Day Alpha Captured (%)": None,
+                "60-Day Alpha Captured (%)": None,
+                "1-Year Alpha Captured (%)": None,
+            }
 
-    st.write("")
-    st.write(f"**Mode:** {mode_label}")
-    st.write(f"**Holdings:** {num_holdings:,}")
+        overview_rows.append(row)
 
-    if holdings_df is not None and "sector" in holdings_df.columns:
-        sector_weights = (
-            holdings_df.groupby("sector")["weight"].sum().sort_values(ascending=False)
-        )
-        if not sector_weights.empty:
-            top_sector = sector_weights.index[0]
-            top_sector_weight = float(sector_weights.iloc[0])
-            st.write(f"**Top Sector:** {top_sector} ({top_sector_weight:.1%})")
+    overview_df = pd.DataFrame(overview_rows)
+    # Round numeric columns
+    for col in [
+        "Realized Beta (≈60d)",
+        "Intraday Alpha Captured (%)",
+        "30-Day Alpha Captured (%)",
+        "60-Day Alpha Captured (%)",
+        "1-Year Alpha Captured (%)",
+    ]:
+        if col in overview_df.columns:
+            overview_df[col] = overview_df[col].astype(float).round(2)
+
+    st.dataframe(overview_df, hide_index=True, use_container_width=True)
+
+    st.caption(
+        "Alpha Captured is beta-adjusted residual performance vs benchmark. "
+        "Values above 0 indicate excess return beyond what beta alone explains."
+    )
 
 # ----------------------------------------------------------------------
-# Performance Panel
+# TAB 2: Selected Wave Detail
 # ----------------------------------------------------------------------
-with perf_col:
-    st.subheader(f"{selected_wave} — Alpha Captured (β-Adjusted)")
+with tab_detail:
+    # Layout
+    top_row = st.columns([2.2, 1.2])
+    perf_col, snapshot_col = top_row
 
-    try:
-        perf = engine.get_wave_performance(
-            selected_wave, mode=selected_mode_key, days=30, log=True
-        )
-    except Exception as e:
-        st.error(f"Could not compute performance for {selected_wave}: {e}")
-        perf = None
+    bottom_row = st.columns([2.0, 1.4])
+    chart_col, holdings_col = bottom_row
 
-    if perf is not None:
-        beta = perf["beta_realized"]
+    # -------------------- Wave Snapshot --------------------
+    with snapshot_col:
+        st.subheader("Wave Snapshot")
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric(
-            "Intraday Alpha Captured",
-            _fmt_pct(perf["intraday_alpha_captured"]),
-        )
-        c2.metric("30-Day Alpha Captured", _fmt_pct(perf["alpha_30d"]))
-        c3.metric("60-Day Alpha Captured", _fmt_pct(perf["alpha_60d"]))
-        c4.metric("1-Year Alpha Captured", _fmt_pct(perf["alpha_1y"]))
+        try:
+            holdings_df = engine.get_wave_holdings(selected_wave)
+            num_holdings = len(holdings_df)
+            benchmark = engine.get_benchmark(selected_wave)
+        except Exception as e:
+            st.error(f"Could not load snapshot for {selected_wave}: {e}")
+            holdings_df = None
+            num_holdings = 0
+            benchmark = "SPY"
 
-        st.markdown(f"**Realized Beta (≈60d):** {beta:0.2f}")
-        st.markdown(f"**Benchmark:** {perf['benchmark']}")
+        snapshot1, snapshot2 = st.columns(2)
+        snapshot1.metric("Wave", selected_wave)
+        snapshot2.metric("Benchmark", benchmark)
 
         st.write("")
-        r1, r2, r3 = st.columns(3)
-        r1.metric(
-            "30-Day Wave Return",
-            _fmt_pct(perf["return_30d_wave"]),
-            delta=_fmt_pct_diff(
-                perf["return_30d_wave"], perf["return_30d_benchmark"]
-            ),
-        )
-        r2.metric(
-            "60-Day Wave Return",
-            _fmt_pct(perf["return_60d_wave"]),
-            delta=_fmt_pct_diff(
-                perf["return_60d_wave"], perf["return_60d_benchmark"]
-            ),
-        )
-        r3.metric(
-            "1-Year Wave Return",
-            _fmt_pct(perf["return_1y_wave"]),
-            delta=_fmt_pct_diff(
-                perf["return_1y_wave"], perf["return_1y_benchmark"]
-            ),
-        )
+        st.write(f"**Mode:** {mode_label}")
+        st.write(f"**Holdings:** {num_holdings:,}")
 
-# ----------------------------------------------------------------------
-# Chart + History Table (30-Day)
-# ----------------------------------------------------------------------
-with chart_col:
-    if perf is not None:
-        st.markdown(
-            f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve (β-Adj Alpha)"
-        )
+        if holdings_df is not None and "sector" in holdings_df.columns:
+            sector_weights = (
+                holdings_df.groupby("sector")["weight"].sum().sort_values(ascending=False)
+            )
+            if not sector_weights.empty:
+                top_sector = sector_weights.index[0]
+                top_sector_weight = float(sector_weights.iloc[0])
+                st.write(f"**Top Sector:** {top_sector} ({top_sector_weight:.1%})")
 
-        history = perf["history_30d"]
-        chart_data = history[["wave_value", "benchmark_value"]]
-        st.line_chart(chart_data)
+    # -------------------- Performance Panel --------------------
+    with perf_col:
+        st.subheader(f"{selected_wave} — Alpha Captured (β-Adjusted)")
 
-        hist_df = history.copy()
-        hist_df = hist_df.reset_index()
-        date_col = hist_df.columns[0]
-        hist_df = hist_df.rename(columns={date_col: "date"})
-        hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.date
+        try:
+            perf = engine.get_wave_performance(
+                selected_wave, mode=selected_mode_key, days=30, log=True
+            )
+        except Exception as e:
+            st.error(f"Could not compute performance for {selected_wave}: {e}")
+            perf = None
 
-        hist_df["wave_return_pct"] = hist_df["wave_return"] * 100
-        hist_df["benchmark_return_pct"] = hist_df["benchmark_return"] * 100
-        hist_df["alpha_captured_pct"] = hist_df["alpha_captured"] * 100
+        if perf is not None:
+            beta = perf["beta_realized"]
 
-        display_cols = [
-            "date",
-            "wave_return_pct",
-            "benchmark_return_pct",
-            "alpha_captured_pct",
-        ]
-        hist_display = hist_df[display_cols].tail(15).iloc[::-1]
-        hist_display = hist_display.rename(
-            columns={
-                "date": "Date",
-                "wave_return_pct": "Wave Return (%)",
-                "benchmark_return_pct": "Benchmark Return (%)",
-                "alpha_captured_pct": "Alpha Captured (%)",
-            }
-        )
-        hist_display = hist_display.round(3)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(
+                "Intraday Alpha Captured",
+                _fmt_pct(perf["intraday_alpha_captured"]),
+            )
+            c2.metric("30-Day Alpha Captured", _fmt_pct(perf["alpha_30d"]))
+            c3.metric("60-Day Alpha Captured", _fmt_pct(perf["alpha_60d"]))
+            c4.metric("1-Year Alpha Captured", _fmt_pct(perf["alpha_1y"]))
 
-        st.markdown("#### Recent Daily Returns & Alpha Captured (Last 15 Days)")
-        st.dataframe(hist_display, hide_index=True, use_container_width=True)
+            st.markdown(f"**Realized Beta (≈60d):** {beta:0.2f}")
+            st.markdown(f"**Benchmark:** {perf['benchmark']}")
 
-# ----------------------------------------------------------------------
-# Holdings Panel (Top 10 + Google links)
-# ----------------------------------------------------------------------
-with holdings_col:
-    st.subheader(f"{selected_wave} — Top 10 Holdings")
+            st.write("")
+            r1, r2, r3 = st.columns(3)
+            r1.metric(
+                "30-Day Wave Return",
+                _fmt_pct(perf["return_30d_wave"]),
+                delta=_fmt_pct_diff(
+                    perf["return_30d_wave"], perf["return_30d_benchmark"]
+                ),
+            )
+            r2.metric(
+                "60-Day Wave Return",
+                _fmt_pct(perf["return_60d_wave"]),
+                delta=_fmt_pct_diff(
+                    perf["return_60d_wave"], perf["return_60d_benchmark"]
+                ),
+            )
+            r3.metric(
+                "1-Year Wave Return",
+                _fmt_pct(perf["return_1y_wave"]),
+                delta=_fmt_pct_diff(
+                    perf["return_1y_wave"], perf["return_1y_benchmark"]
+                ),
+            )
 
-    try:
-        top10 = engine.get_top_holdings(selected_wave, n=10)
-    except Exception as e:
-        st.error(f"Could not load holdings for {selected_wave}: {e}")
-        top10 = None
+    # -------------------- Chart + History Table (30-Day) --------------------
+    with chart_col:
+        if perf is not None:
+            st.markdown(
+                f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve (β-Adj Alpha)"
+            )
 
-    if top10 is not None and not top10.empty:
+            history = perf["history_30d"]
+            chart_data = history[["wave_value", "benchmark_value"]]
+            st.line_chart(chart_data)
 
-        def google_finance_url(ticker: str) -> str:
-            # Adjust exchange suffix if needed
-            return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
+            hist_df = history.copy()
+            hist_df = hist_df.reset_index()
+            date_col = hist_df.columns[0]
+            hist_df = hist_df.rename(columns={date_col: "date"})
+            hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.date
 
-        display_df = top10.copy()
+            hist_df["wave_return_pct"] = hist_df["wave_return"] * 100
+            hist_df["benchmark_return_pct"] = hist_df["benchmark_return"] * 100
+            hist_df["alpha_captured_pct"] = hist_df["alpha_captured"] * 100
 
-        if "company" not in display_df.columns:
-            display_df["company"] = ""
+            display_cols = [
+                "date",
+                "wave_return_pct",
+                "benchmark_return_pct",
+                "alpha_captured_pct",
+            ]
+            hist_display = hist_df[display_cols].tail(15).iloc[::-1]
+            hist_display = hist_display.rename(
+                columns={
+                    "date": "Date",
+                    "wave_return_pct": "Wave Return (%)",
+                    "benchmark_return_pct": "Benchmark Return (%)",
+                    "alpha_captured_pct": "Alpha Captured (%)",
+                }
+            )
+            hist_display = hist_display.round(3)
 
-        display_df = display_df[["ticker", "company", "weight"]].copy()
-        display_df["weight"] = display_df["weight"].round(4)
-        display_df["Google Finance"] = display_df["ticker"].apply(google_finance_url)
+            st.markdown("#### Recent Daily Returns & Alpha Captured (Last 15 Days)")
+            st.dataframe(hist_display, hide_index=True, use_container_width=True)
 
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
-    else:
-        st.write("No holdings found for this Wave.")
+    # -------------------- Holdings Panel (Top 10 + Google links) --------------------
+    with holdings_col:
+        st.subheader(f"{selected_wave} — Top 10 Holdings")
+
+        try:
+            top10 = engine.get_top_holdings(selected_wave, n=10)
+        except Exception as e:
+            st.error(f"Could not load holdings for {selected_wave}: {e}")
+            top10 = None
+
+        if top10 is not None and not top10.empty:
+
+            def google_finance_url(ticker: str) -> str:
+                # Adjust exchange suffix if needed
+                return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
+
+            display_df = top10.copy()
+
+            if "company" not in display_df.columns:
+                display_df["company"] = ""
+
+            display_df = display_df[["ticker", "company", "weight"]].copy()
+            display_df["weight"] = display_df["weight"].round(4)
+            display_df["Google Finance"] = display_df["ticker"].apply(
+                google_finance_url
+            )
+
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
+        else:
+            st.write("No holdings found for this Wave.")
 
 # ----------------------------------------------------------------------
 # Footer
