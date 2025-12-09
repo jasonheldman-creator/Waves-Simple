@@ -157,6 +157,7 @@ class WavesEngine:
     def _get_price_series(self, ticker: str, period: str = "1y") -> pd.Series:
         """
         Fetches adjusted close for a single ticker as a 1-D Series.
+        Raises if no data.
         """
         data = yf.download(
             tickers=ticker,
@@ -178,6 +179,7 @@ class WavesEngine:
         """
         Fetches adjusted close for multiple tickers as a clean DataFrame [date x ticker].
         We fetch each ticker individually to avoid MultiIndex / shape surprises.
+        Raises if nothing could be priced.
         """
         frames = []
         valid_tickers = []
@@ -187,11 +189,11 @@ class WavesEngine:
                 frames.append(s)
                 valid_tickers.append(t)
             except Exception:
-                # skip tickers we can't price
+                # skip tickers we can't price at all
                 continue
 
         if not frames:
-            raise ValueError(f"No price data for tickers: {tickers}")
+            raise ValueError(f"No price data for any tickers in: {tickers}")
 
         closes = pd.concat(frames, axis=1)
         closes.columns = valid_tickers
@@ -212,10 +214,11 @@ class WavesEngine:
         """
         Compute full metrics for a given Wave + mode.
         All returns are daily; alpha is Wave − Benchmark.
+        Raises clear errors if anything critical is missing.
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
-            return None
+            raise ValueError(f"No holdings defined for Wave: {wave}")
 
         # unique tickers for the Wave
         tickers = sorted(holdings["ticker"].unique())
@@ -224,25 +227,23 @@ class WavesEngine:
         history_period = "1y"
 
         # --- Wave prices & returns (portfolio) ---
-        try:
-            price_matrix = self._get_price_matrix(tickers, period=history_period)
-        except Exception:
-            return None
+        price_matrix = self._get_price_matrix(tickers, period=history_period)
 
         # align weights to available columns
         common = [t for t in price_matrix.columns if t in weights.index]
         if not common:
-            return None
+            raise ValueError(f"No overlapping priced tickers for Wave {wave}")
 
         price_matrix = price_matrix[common]
         w_vec = weights.loc[common].values.astype(float)
 
         # daily returns per ticker
         ret_matrix = price_matrix.pct_change().dropna(how="all").astype(float)
-
         if ret_matrix.shape[1] != len(w_vec):
-            # something badly misaligned; bail out gracefully
-            return None
+            raise ValueError(
+                f"Weight alignment mismatch for {wave}: "
+                f"{ret_matrix.shape[1]} return columns vs {len(w_vec)} weights"
+            )
 
         # portfolio daily return: (ret * weights).sum(axis=1)
         wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
@@ -253,10 +254,7 @@ class WavesEngine:
 
         # --- Benchmark prices & returns ---
         benchmark = self.get_benchmark(wave)
-        try:
-            bm_price = self._get_price_series(benchmark, period=history_period)
-        except Exception:
-            return None
+        bm_price = self._get_price_series(benchmark, period=history_period)
 
         bm_ret = bm_price.pct_change()
         bm_ret.name = "benchmark_return"
@@ -266,7 +264,7 @@ class WavesEngine:
         # --- Merge Wave + Benchmark ---
         df = pd.concat([wave_ret_series, bm_ret, wave_value, bm_value], axis=1).dropna()
         if df.empty:
-            return None
+            raise ValueError(f"No overlapping Wave/benchmark history for {wave}")
 
         df["alpha_captured"] = df["wave_return"] - df["benchmark_return"]
 
