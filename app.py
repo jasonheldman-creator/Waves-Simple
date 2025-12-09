@@ -905,7 +905,7 @@ def render_system_status_tab(waves: List[str]) -> None:
         """Format file status with exists and accessible info."""
         if not info["exists"]:
             return "✗ Not Found"
-        elif not info.get("accessible", True):
+        elif not info.get("accessible", False):  # Default to False (not accessible)
             return "⚠ Not Accessible"
         else:
             return "✓ OK"

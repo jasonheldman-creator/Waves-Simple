@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import math
 import glob
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,7 +34,6 @@ ENGINE_VERSION = "1.5.0"
 def _get_engine_last_updated() -> str:
     """Get the last modification time of this file (in local time)."""
     try:
-        import inspect
         frame = inspect.currentframe()
         if frame is not None:
             engine_file = inspect.getfile(frame)
