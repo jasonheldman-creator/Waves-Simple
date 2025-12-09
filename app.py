@@ -240,8 +240,13 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 
 
 def get_available_waves() -> List[str]:
+    """
+    Discover waves from the engine / wave_weights, but ALWAYS include
+    the full EQUITY_WAVES lineup so all equity Waves appear in the UI.
+    """
     waves: Set[str] = set()
 
+    # 1) Try to get waves from the engine / weights file
     if HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
         try:
             weights_df = waves_engine.load_wave_weights()  # type: ignore
@@ -249,17 +254,17 @@ def get_available_waves() -> List[str]:
                 cols = {c.lower(): c for c in weights_df.columns}
                 wave_col = cols.get("wave")
                 if wave_col:
-                    waves.update(
+                    discovered = (
                         weights_df[wave_col].dropna().astype(str).unique().tolist()
                     )
+                    waves.update(discovered)
         except Exception:
             pass
 
-    if waves:
-        waves = waves.intersection(set(EQUITY_WAVES))
-    else:
-        waves = set(EQUITY_WAVES)
+    # 2) ALWAYS include the full equity lineup
+    waves = waves.union(set(EQUITY_WAVES))
 
+    # 3) Sort and return
     return sorted(list(waves))
 
 
