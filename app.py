@@ -1,15 +1,16 @@
 """
 app.py
 
-WAVES Intelligence™ Institutional Console — Vector 2.0 (Patched)
+WAVES Intelligence™ Institutional Console — Vector 2.0 (Enhanced)
 
 - Multi-tab institutional console on top of the VIX-gated, mode-aware WavesEngine.
-- Fixes TypeError in Alpha Matrix by coercing numeric columns before scaling.
-- Adds "Sort by" control in Alpha Matrix tab.
+- Shows Intraday / 30D / 60D / 1Y Alpha Captured in metric boxes for each Wave.
+- Adds trading-style "Signal" interpretation based on alpha profile + beta/exposure.
+- Fixes numeric TypeErrors by coercing numeric columns before scaling.
 
 Tabs:
-  1) Vector 2.0 Dashboard     – summary of all Waves, top/bottom alpha
-  2) Wave Explorer            – full detail view for selected Wave
+  1) Vector 2.0 Dashboard     – summary of all Waves, top/bottom alpha + selected Wave alpha boxes
+  2) Wave Explorer            – full detail view for selected Wave + Trading Signal
   3) Alpha Matrix (All Waves) – Intraday/30D/60D/1Y Alpha + 1Y returns for ALL Waves
   4) History & Logs           – recent performance logs for selected Wave
   5) Engine Diagnostics & VIX – per-mode beta & exposure comparison
@@ -44,6 +45,55 @@ def _fmt_pct_diff(wave, bm):
     diff = (wave - bm) * 100
     sign = "+" if diff >= 0 else ""
     return f"{sign}{diff:0.2f} pts vs BM"
+
+
+def _trading_signal(alpha_30d, alpha_1y, beta, exposure):
+    """
+    Simple qualitative trading-style signal based on alpha profile.
+
+    This does NOT place trades — it's an interpretation layer:
+    - Strong Uptrend / Core Hold
+    - Short-Term Soft Patch / Consider Trim
+    - Rebound Setup
+    - Underperformer / Watchlist
+    """
+    alpha_30d = float(alpha_30d) if alpha_30d is not None and not pd.isna(alpha_30d) else 0.0
+    alpha_1y = float(alpha_1y) if alpha_1y is not None and not pd.isna(alpha_1y) else 0.0
+    beta = float(beta) if beta is not None and not pd.isna(beta) else 1.0
+    exposure = float(exposure) if exposure is not None and not pd.isna(exposure) else 1.0
+
+    # Thresholds (in decimal alpha)
+    small = 0.01   # 1%
+    medium = 0.03  # 3%
+    large = 0.06   # 6%
+
+    if alpha_1y > large and alpha_30d > medium:
+        return (
+            "📈 **Strong Uptrend / Core Hold** — 1-Year alpha is strong and the last "
+            "30 days are also beating the benchmark. Current beta and exposure "
+            f"({beta:0.2f}, {exposure:0.2f}×) look justified."
+        )
+    if alpha_1y > medium and alpha_30d < 0:
+        return (
+            "🔁 **Rebalance / Buy-the-Dip Candidate** — 1-Year alpha is positive but "
+            "the most recent 30 days are soft. Consider whether this is a healthy "
+            "pullback within an uptrend."
+        )
+    if alpha_1y < -small and alpha_30d < -small:
+        return (
+            "⚠️ **Underperformer / Watchlist** — both 1-Year and 30-Day alpha are "
+            "negative. Treat as a candidate for risk reduction or strategy review."
+        )
+    if abs(alpha_1y) < small and abs(alpha_30d) < small:
+        return (
+            "➖ **Benchmark-Like Behavior** — little alpha either way over both 30-Day "
+            "and 1-Year windows. Acting like its benchmark; no strong signal."
+        )
+
+    return (
+        "ℹ️ **Mixed Signal** — alpha profile is in between clear categories. Use the "
+        "metrics and diagnostics to decide whether to lean risk-on or risk-off."
+    )
 
 
 # ----------------------------------------------------------------------
@@ -226,9 +276,7 @@ with tab_dashboard:
         "Alpha 60D",
         "Alpha 1Y",
     ]
-    stats_df = perf_df[numeric_cols].apply(
-        pd.to_numeric, errors="coerce"
-    )  # ensure numeric
+    stats_df = perf_df[numeric_cols].apply(pd.to_numeric, errors="coerce")
 
     avg_intraday = stats_df["Intraday Alpha Captured"].mean()
     avg_30 = stats_df["Alpha 30D"].mean()
@@ -240,6 +288,22 @@ with tab_dashboard:
     c2.metric("Avg 30-Day Alpha (All Waves)", _fmt_pct(avg_30))
     c3.metric("Avg 60-Day Alpha (All Waves)", _fmt_pct(avg_60))
     c4.metric("Avg 1-Year Alpha (All Waves)", _fmt_pct(avg_1y))
+
+    # Selected Wave alpha boxes (including 1-Year)
+    st.markdown(f"##### Selected Wave Alpha — {selected_wave}")
+    try:
+        perf_sel = engine.get_wave_performance(
+            selected_wave, mode=selected_mode_key, days=30, log=False
+        )
+    except Exception:
+        perf_sel = None
+
+    if perf_sel is not None:
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("Intraday Alpha Captured", _fmt_pct(perf_sel["intraday_alpha_captured"]))
+        sc2.metric("30-Day Alpha Captured", _fmt_pct(perf_sel["alpha_30d"]))
+        sc3.metric("60-Day Alpha Captured", _fmt_pct(perf_sel["alpha_60d"]))
+        sc4.metric("1-Year Alpha Captured", _fmt_pct(perf_sel["alpha_1y"]))
 
     # Top / bottom alpha waves (30D as primary)
     perf_df["Alpha 30D_safe"] = pd.to_numeric(
@@ -356,7 +420,7 @@ with tab_wave:
                 top_sector_weight = float(sector_weights.iloc[0])
                 st.write(f"**Top Sector:** {top_sector} ({top_sector_weight:.1%})")
 
-    # Performance metrics
+    # Performance metrics + trading signal
     with perf_col:
         st.markdown("##### Performance & Alpha")
 
@@ -409,6 +473,16 @@ with tab_wave:
                     perf["return_1y_wave"], perf["return_1y_benchmark"]
                 ),
             )
+
+            # Trading-style signal box
+            st.markdown("##### Trading Signal (Non-binding)")
+            signal_text = _trading_signal(
+                perf["alpha_30d"],
+                perf["alpha_1y"],
+                perf["beta_realized"],
+                perf.get("exposure_final", None),
+            )
+            st.markdown(signal_text)
 
     # 30-day chart + alpha table
     with chart_col:
@@ -532,7 +606,7 @@ with tab_alpha_matrix:
         }
     )
 
-    # New feature: sort control
+    # Sort control
     sort_options = {
         "Intraday Alpha (%)": "Intraday Alpha (%)",
         "Alpha 30D (%)": "Alpha 30D (%)",
