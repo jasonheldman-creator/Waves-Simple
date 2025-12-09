@@ -34,13 +34,15 @@ def _get_engine_last_updated() -> str:
     """Get the last modification time of this file (in local time)."""
     try:
         import inspect
-        engine_file = inspect.getfile(inspect.currentframe())
-        if os.path.exists(engine_file):
-            mtime = os.path.getmtime(engine_file)
-            return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        frame = inspect.currentframe()
+        if frame is not None:
+            engine_file = inspect.getfile(frame)
+            if os.path.exists(engine_file):
+                mtime = os.path.getmtime(engine_file)
+                return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         pass
-    return "Unknown"
+    return "N/A"
 
 ENGINE_LAST_UPDATED = _get_engine_last_updated()
 

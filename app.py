@@ -34,6 +34,10 @@ def clear_cache_on_startup() -> None:
     Note: Requires Streamlit >= 1.18.0 (released 2022) for st.cache_data and st.cache_resource.
     The legacy st.cache API was deprecated in Streamlit 1.18.0.
     """
+    # Check if Streamlit is properly initialized (not the dummy implementation)
+    if not hasattr(st, 'session_state'):
+        return
+    
     if "cache_cleared" not in st.session_state:
         try:
             # Clear both cache_data and cache_resource caches (Streamlit >= 1.18.0)
