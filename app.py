@@ -5,7 +5,8 @@ WAVES Intelligence™ Institutional Console — Phase 2.5
 
 - Mode selector: Standard / Alpha-Minus-Beta / Private Logic
 - Tabs:
-    1) Overview (All Waves): Intraday / 30D / 60D / 1Y Alpha Captured for ALL *active* Waves
+    1) Overview (All Waves): Intraday / 30D / 60D / 1Y Alpha Captured
+       + 1Y Wave & Benchmark returns for ALL active Waves
     2) Selected Wave Detail: full dashboard for the chosen Wave
 - Uses mode-aware + VIX-gated WavesEngine.
 - Explicitly excludes Crypto Income variants from the console.
@@ -155,6 +156,12 @@ with tab_overview:
                 "1-Year Alpha Captured (%)": perf["alpha_1y"] * 100
                 if perf["alpha_1y"] is not None
                 else None,
+                "1-Year Wave Return (%)": perf["return_1y_wave"] * 100
+                if perf["return_1y_wave"] is not None
+                else None,
+                "1-Year Benchmark Return (%)": perf["return_1y_benchmark"] * 100
+                if perf["return_1y_benchmark"] is not None
+                else None,
             }
         else:
             row = {
@@ -166,12 +173,15 @@ with tab_overview:
                 "30-Day Alpha Captured (%)": None,
                 "60-Day Alpha Captured (%)": None,
                 "1-Year Alpha Captured (%)": None,
+                "1-Year Wave Return (%)": None,
+                "1-Year Benchmark Return (%)": None,
             }
 
         overview_rows.append(row)
 
     overview_df = pd.DataFrame(overview_rows)
 
+    # Round numeric columns
     for col in [
         "Realized Beta (≈60d)",
         "Exposure (Net)",
@@ -179,6 +189,8 @@ with tab_overview:
         "30-Day Alpha Captured (%)",
         "60-Day Alpha Captured (%)",
         "1-Year Alpha Captured (%)",
+        "1-Year Wave Return (%)",
+        "1-Year Benchmark Return (%)",
     ]:
         if col in overview_df.columns:
             overview_df[col] = overview_df[col].astype(float).round(2)
@@ -187,7 +199,8 @@ with tab_overview:
 
     st.caption(
         "Alpha Captured is beta-adjusted residual performance vs benchmark. "
-        "Exposure (Net) reflects combined Mode + VIX overlay."
+        "Exposure (Net) reflects combined Mode + VIX overlay. "
+        "1-Year returns are total returns for the Wave and its benchmark."
     )
 
 # ----------------------------------------------------------------------
