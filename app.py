@@ -2,13 +2,13 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from urllib.parse import quote_plus
 
 try:
     import streamlit as st
-except Exception:  # for environments without Streamlit during linting
+except Exception:
     class _Dummy:
         def __getattr__(self, name):
             def f(*a, **k):
@@ -32,11 +32,6 @@ LOGS_PERFORMANCE_DIR = os.path.join("logs", "performance")
 HUMAN_OVERRIDE_DIR = os.path.join("logs", "human_overrides")
 ENGINE_LOG_DIR = os.path.join("logs", "engine")
 
-ALPHA_CAPTURE_CANDIDATES = [
-    os.path.join(LOGS_PERFORMANCE_DIR, "alpha_capture_matrix.csv"),
-    "alpha_capture_matrix.csv",
-]
-
 WAVESCORE_CANDIDATES = [
     os.path.join(LOGS_PERFORMANCE_DIR, "wavescore_summary.csv"),
     "wavescore_summary.csv",
@@ -53,7 +48,7 @@ MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
     "positions": {},
 }
 
-# ---------- 11-Wave Rotation ----------
+# ----------------- Wave lineup -----------------
 
 EQUITY_WAVES: List[str] = [
     "S&P 500 Wave",
@@ -127,7 +122,8 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
     },
 }
 
-# ---------- Basic helpers ----------
+# ----------------- Helpers -----------------
+
 
 def ensure_dirs() -> None:
     os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
@@ -144,8 +140,7 @@ def normalize_for_match(s: str) -> str:
         s = s.replace(ch, " ")
     for token in ["wave", "portfolio", "positions", "position", "performance", "daily"]:
         s = s.replace(token, " ")
-    s = " ".join(s.split())
-    return s
+    return " ".join(s.split())
 
 
 def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
@@ -167,23 +162,23 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
     MATCH_DEBUG["performance"][wave_name] = None
     if not os.path.isdir(LOGS_PERFORMANCE_DIR):
         return None
+
     target = normalize_for_match(wave_name)
     if not target:
         return None
+    target_tokens = set(target.split())
 
     best_score = 0.0
     best_path: Optional[str] = None
-    target_tokens = set(target.split())
 
     for fname in os.listdir(LOGS_PERFORMANCE_DIR):
         if not fname.endswith(".csv") or "_performance" not in fname:
             continue
-        base = fname.replace(".csv", "")
-        base_norm = normalize_for_match(base)
+        base_norm = normalize_for_match(fname.replace(".csv", ""))
         if not base_norm:
             continue
         b_tokens = set(base_norm.split())
-        if not target_tokens or not b_tokens:
+        if not b_tokens:
             continue
         score = len(target_tokens & b_tokens) / len(target_tokens | b_tokens)
         if score > best_score:
@@ -201,22 +196,22 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
     MATCH_DEBUG["positions"][wave_name] = None
     if not os.path.isdir(LOGS_POSITIONS_DIR):
         return None
+
     target = normalize_for_match(wave_name)
     if not target:
         return None
+    target_tokens = set(target.split())
 
     candidates: List[Tuple[datetime, str, float]] = []
-    target_tokens = set(target.split())
 
     for fname in os.listdir(LOGS_POSITIONS_DIR):
         if not fname.endswith(".csv") or "_positions" not in fname:
             continue
-        base = fname.replace(".csv", "")
-        base_norm = normalize_for_match(base)
+        base_norm = normalize_for_match(fname.replace(".csv", ""))
         if not base_norm:
             continue
         b_tokens = set(base_norm.split())
-        if not target_tokens or not b_tokens:
+        if not b_tokens:
             continue
         score = len(target_tokens & b_tokens) / len(target_tokens | b_tokens)
         if score < 0.2:
@@ -235,9 +230,9 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
         return None
 
     latest = max(candidates, key=lambda x: (x[0], x[2]))
-    best_path = os.path.join(LOGS_POSITIONS_DIR, latest[1])
-    MATCH_DEBUG["positions"][wave_name] = best_path
-    return best_path
+    path = os.path.join(LOGS_POSITIONS_DIR, latest[1])
+    MATCH_DEBUG["positions"][wave_name] = path
+    return path
 
 
 def get_available_waves() -> List[str]:
@@ -263,7 +258,9 @@ def get_available_waves() -> List[str]:
 
     return sorted(waves)
 
-# ---------- Data loaders ----------
+
+# ----------------- Loaders -----------------
+
 
 def load_performance_history(wave: str) -> Optional[pd.DataFrame]:
     path = find_best_performance_path(wave)
@@ -284,18 +281,6 @@ def load_latest_positions(wave: str) -> Optional[pd.DataFrame]:
     if path is None or not os.path.exists(path):
         return None
     return pd.read_csv(path)
-
-
-def load_alpha_capture_matrix() -> Optional[pd.DataFrame]:
-    for path in ALPHA_CAPTURE_CANDIDATES:
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path)
-                if not df.empty:
-                    return df
-            except Exception:
-                continue
-    return None
 
 
 def load_wavescore_summary() -> Optional[pd.DataFrame]:
@@ -337,7 +322,9 @@ def load_engine_activity() -> Optional[pd.DataFrame]:
                 continue
     return None
 
-# ---------- SANDBOX generator ----------
+
+# ----------------- Sandbox generators -----------------
+
 
 def demo_positions_for_wave(wave: str) -> pd.DataFrame:
     if wave == "Clean Transit-Infrastructure Wave":
@@ -363,13 +350,14 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
     raw = np.abs(np.random.rand(n))
     weights = raw / raw.sum()
 
-    df = pd.DataFrame({
-        "wave": [wave] * n,
-        "ticker": tickers,
-        "name": tickers,
-        "weight": weights,
-    })
-    return df
+    return pd.DataFrame(
+        {
+            "wave": [wave] * n,
+            "ticker": tickers,
+            "name": tickers,
+            "weight": weights,
+        }
+    )
 
 
 def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
@@ -411,14 +399,17 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     bench_nav = 100 * (1 + bench_ret).cumprod()
     wave_nav = 100 * (1 + wave_ret).cumprod()
 
-    df = pd.DataFrame({
-        "date": dates,
-        "nav": wave_nav,
-        "return_1d": wave_ret,
-        "bench_nav": bench_nav,
-        "bench_return_1d": bench_ret,
-    })
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "nav": wave_nav,
+            "return_1d": wave_ret,
+            "bench_nav": bench_nav,
+            "bench_return_1d": bench_ret,
+        }
+    )
 
+    # Horizon returns/alpha
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
     df["return_252d"] = np.nan
@@ -454,12 +445,9 @@ def generate_sandbox_logs_if_missing(
     pos_path = find_latest_positions_path(wave)
 
     if perf_path is not None or pos_path is not None:
-        perf_df = load_performance_history(wave)
-        pos_df = load_latest_positions(wave)
-        return perf_df, pos_df
+        return load_performance_history(wave), load_latest_positions(wave)
 
     prefix = wave.replace(" ", "_")
-
     perf_df = demo_performance_for_wave(wave)
     pos_df = demo_positions_for_wave(wave)
 
@@ -482,17 +470,11 @@ def generate_sandbox_logs_if_missing(
 
     return perf_df, pos_df
 
-# ---------- Mode overlay ----------
+
+# ----------------- Mode overlay -----------------
+
 
 def apply_mode_overlay(perf_df: Optional[pd.DataFrame], mode: str) -> Optional[pd.DataFrame]:
-    """
-    Apply mode-specific scaling to alpha and return columns so that:
-      - Standard: raw data
-      - Alpha-Minus-Beta: lower beta / lower volatility (scale down)
-      - Private Logic™: higher alpha / more aggressive (scale up)
-    This affects what is DISPLAYED in the Overview + Snapshot, without
-    overwriting the stored raw performance.
-    """
     if perf_df is None or perf_df.empty:
         return perf_df
 
@@ -527,7 +509,9 @@ def apply_mode_overlay(perf_df: Optional[pd.DataFrame], mode: str) -> Optional[p
 
     return df
 
-# ---------- Display helpers ----------
+
+# ----------------- Metrics & formatting -----------------
+
 
 def google_quote_url(ticker: str) -> str:
     if not isinstance(ticker, str):
@@ -556,7 +540,7 @@ def render_top10_holdings(df: Optional[pd.DataFrame], wave_name: str) -> None:
     except Exception:
         pass
     df = df.sort_values(wcol, ascending=False).head(10)
-    df["Google"] = df[tcol].apply(lambda t: google_quote_url(t))
+    df["Google"] = df[tcol].apply(google_quote_url)
     show_cols: List[str] = ["Google"]
     if ncol:
         show_cols.append(ncol)
@@ -568,53 +552,116 @@ def render_top10_holdings(df: Optional[pd.DataFrame], wave_name: str) -> None:
     st.subheader(f"Top 10 Holdings — {wave_name}")
     st.table(display_df)
 
-def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
-    metrics: Dict[str, Optional[float]] = {
+
+def compute_wave_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
+    out: Dict[str, Optional[float]] = {
         "alpha_1d": None,
         "alpha_30d": None,
         "alpha_60d": None,
         "alpha_1y": None,
+        "ret_30d": None,
+        "ret_60d": None,
+        "ret_1y": None,
+        "vol_ann": None,
+        "alpha_ir": None,
+        "hit_rate": None,
     }
     if perf_df is None or perf_df.empty:
-        return metrics
-    last = perf_df.iloc[-1]
-    for k in metrics.keys():
-        if k in perf_df.columns:
+        return out
+
+    df = perf_df.copy()
+
+    last = df.iloc[-1]
+    for col, key in [
+        ("alpha_1d", "alpha_1d"),
+        ("alpha_30d", "alpha_30d"),
+        ("alpha_60d", "alpha_60d"),
+        ("alpha_1y", "alpha_1y"),
+        ("return_30d", "ret_30d"),
+        ("return_60d", "ret_60d"),
+        ("return_252d", "ret_1y"),
+    ]:
+        if col in df.columns and pd.notnull(last.get(col)):
             try:
-                metrics[k] = float(last[k])
+                out[key] = float(last[col])
             except Exception:
-                metrics[k] = None
-    return metrics
+                pass
+
+    # Volatility & IR & Hit Rate from daily alpha
+    if "return_1d" in df.columns:
+        try:
+            vol = float(df["return_1d"].dropna().std()) * np.sqrt(252.0)
+            out["vol_ann"] = vol
+        except Exception:
+            pass
+
+    if "alpha_1d" in df.columns:
+        series = df["alpha_1d"].dropna()
+        if len(series) > 5:
+            try:
+                mean_a = float(series.mean())
+                std_a = float(series.std())
+                if std_a > 0:
+                    out["alpha_ir"] = (mean_a / std_a) * np.sqrt(252.0)
+            except Exception:
+                pass
+            try:
+                out["hit_rate"] = float((series > 0).mean())
+            except Exception:
+                pass
+
+    return out
+
 
 def format_pct(x: Optional[float]) -> str:
-    if x is None:
+    if x is None or pd.isna(x):
         return "N/A"
     try:
         return f"{x * 100:.2f}%"
     except Exception:
         return "N/A"
 
-def compute_multi_wave_snapshot(waves: List[str], mode: str) -> pd.DataFrame:
+
+def format_number(x: Optional[float]) -> str:
+    if x is None or pd.isna(x):
+        return "N/A"
+    try:
+        return f"{x:.2f}"
+    except Exception:
+        return "N/A"
+
+
+def compute_multi_wave_metrics(waves: List[str], mode: str) -> pd.DataFrame:
     rows = []
     for w in waves:
         perf_df = load_performance_history(w)
         if perf_df is None or perf_df.empty:
             perf_df, _ = generate_sandbox_logs_if_missing(w)
         mode_df = apply_mode_overlay(perf_df, mode)
-        m = compute_summary_metrics(mode_df)
+        m = compute_wave_metrics(mode_df)
         meta = WAVE_METADATA.get(w, {})
-        rows.append({
-            "Wave": w,
-            "Category": meta.get("category", ""),
-            "Benchmark": meta.get("benchmark", ""),
-            "Intraday Alpha": m["alpha_1d"],
-            "30d Alpha": m["alpha_30d"],
-            "60d Alpha": m["alpha_60d"],
-            "1y Alpha": m["alpha_1y"],
-        })
+        rows.append(
+            {
+                "Wave": w,
+                "Category": meta.get("category", ""),
+                "Benchmark": meta.get("benchmark", ""),
+                "Alpha_1d": m["alpha_1d"],
+                "Alpha_30d": m["alpha_30d"],
+                "Alpha_60d": m["alpha_60d"],
+                "Alpha_1y": m["alpha_1y"],
+                "Return_30d": m["ret_30d"],
+                "Return_60d": m["ret_60d"],
+                "Return_1y": m["ret_1y"],
+                "Vol_Ann": m["vol_ann"],
+                "Alpha_IR": m["alpha_ir"],
+                "Hit_Rate": m["hit_rate"],
+            }
+        )
     return pd.DataFrame(rows)
 
-# ---------- Tabs ----------
+
+# ----------------- Tabs -----------------
+
 
 def render_wavescore_tab() -> None:
     st.subheader("WAVESCORE™ v1.0 — Wave Quality Dashboard")
@@ -624,13 +671,52 @@ def render_wavescore_tab() -> None:
         return
     st.dataframe(df, use_container_width=True)
 
-def render_alpha_capture_tab() -> None:
-    st.subheader("Alpha Capture Matrix")
-    df = load_alpha_capture_matrix()
-    if df is None or df.empty:
-        st.info("Alpha Capture Matrix not yet generated.")
+
+def render_alpha_capture_tab(waves: List[str], mode: str) -> None:
+    st.subheader(f"Alpha Capture Matrix — {mode}")
+    df = compute_multi_wave_metrics(waves, mode)
+    if df.empty:
+        st.info("No data available yet for Alpha Capture Matrix.")
         return
-    st.dataframe(df, use_container_width=True)
+
+    # Format for display
+    disp = df.copy()
+    pct_cols = [
+        "Alpha_1d",
+        "Alpha_30d",
+        "Alpha_60d",
+        "Alpha_1y",
+        "Return_30d",
+        "Return_60d",
+        "Return_1y",
+        "Hit_Rate",
+    ]
+    for c in pct_cols:
+        disp[c] = disp[c].apply(format_pct)
+    disp["Vol_Ann"] = disp["Vol_Ann"].apply(format_pct)
+    disp["Alpha_IR"] = disp["Alpha_IR"].apply(format_number)
+
+    st.dataframe(
+        disp[
+            [
+                "Wave",
+                "Category",
+                "Benchmark",
+                "Alpha_1d",
+                "Alpha_30d",
+                "Alpha_60d",
+                "Alpha_1y",
+                "Return_30d",
+                "Return_60d",
+                "Return_1y",
+                "Vol_Ann",
+                "Alpha_IR",
+                "Hit_Rate",
+            ]
+        ],
+        use_container_width=True,
+    )
+
 
 def render_human_override_tab(selected_wave: str) -> None:
     st.subheader("Human Override — View Only")
@@ -650,6 +736,7 @@ def render_human_override_tab(selected_wave: str) -> None:
         else:
             st.info(f"No overrides for {selected_wave}.")
 
+
 def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
     if path is None or not os.path.exists(path):
         return None
@@ -657,6 +744,7 @@ def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
         return datetime.fromtimestamp(os.path.getmtime(path))
     except Exception:
         return None
+
 
 def render_system_status_tab(waves: List[str]) -> None:
     st.subheader("System Status — Engine & Data Health")
@@ -676,15 +764,19 @@ def render_system_status_tab(waves: List[str]) -> None:
         st.markdown("#### Latest Files per Wave")
         rows = []
         for w in waves:
-            perf_path = MATCH_DEBUG["performance"].get(w) or find_best_performance_path(w)
+            perf_path = MATCH_DEBUG["performance"].get(w) or find_best_performance_path(
+                w
+            )
             pos_path = MATCH_DEBUG["positions"].get(w) or find_latest_positions_path(w)
-            rows.append({
-                "Wave": w,
-                "Perf File": perf_path or "(none)",
-                "Positions File": pos_path or "(none)",
-                "Last Perf Update": get_last_update_time(perf_path),
-                "Last Pos Update": get_last_update_time(pos_path),
-            })
+            rows.append(
+                {
+                    "Wave": w,
+                    "Perf File": perf_path or "(none)",
+                    "Positions File": pos_path or "(none)",
+                    "Last Perf Update": get_last_update_time(perf_path),
+                    "Last Pos Update": get_last_update_time(pos_path),
+                }
+            )
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
         else:
@@ -696,11 +788,14 @@ def render_system_status_tab(waves: List[str]) -> None:
         for f in fs:
             if f.endswith(".csv"):
                 full = os.path.join(root, f)
-                files.append({"File": full, "Last Modified": get_last_update_time(full)})
+                files.append(
+                    {"File": full, "Last Modified": get_last_update_time(full)}
+                )
     if files:
         st.dataframe(pd.DataFrame(files), use_container_width=True)
     else:
         st.info("No CSV files present in /logs folder.")
+
 
 def render_mode_logic_tab(selected_mode: str) -> None:
     st.subheader("Mode Logic Viewer — Alpha-Minus-Beta / Private Logic™")
@@ -727,6 +822,7 @@ def render_mode_logic_tab(selected_mode: str) -> None:
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
+
 def render_engine_activity_tab() -> None:
     st.subheader("Engine Activity Log")
     df = load_engine_activity()
@@ -735,7 +831,9 @@ def render_engine_activity_tab() -> None:
         return
     st.dataframe(df, use_container_width=True)
 
-# ---------- Main app ----------
+
+# ----------------- Main app -----------------
+
 
 def main() -> None:
     ensure_dirs()
@@ -747,7 +845,7 @@ def main() -> None:
         st.error("No Waves discovered (11-wave rotation).")
         return
 
-    # Guarantee sandbox data for every wave
+    # Ensure each wave has some logs (real or sandbox)
     for w in waves:
         perf_path = find_best_performance_path(w)
         pos_path = find_latest_positions_path(w)
@@ -775,33 +873,44 @@ def main() -> None:
     if meta.get("benchmark"):
         st.sidebar.caption(f"Benchmark: **{meta['benchmark']}**")
 
-    # Load selected wave data (raw)
+    # Load selected wave data
     perf_df_raw = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
-    if (perf_df_raw is None or perf_df_raw.empty) or (positions_df is None or positions_df.empty):
+    if (perf_df_raw is None or perf_df_raw.empty) or (
+        positions_df is None or positions_df.empty
+    ):
         perf_df_raw, positions_df = generate_sandbox_logs_if_missing(selected_wave)
 
-    # Apply mode overlay for what we DISPLAY
     perf_df_mode = apply_mode_overlay(perf_df_raw, mode)
-    metrics = compute_summary_metrics(perf_df_mode)
+    summary = compute_wave_metrics(perf_df_mode)
 
     col_main, col_side = st.columns([2, 1])
     with col_main:
         st.subheader(f"{selected_wave} — Overview ({mode})")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Intraday Alpha", format_pct(metrics["alpha_1d"]))
-        c2.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
-        c3.metric("60-Day Alpha", format_pct(metrics["alpha_60d"]))
-        c4.metric("1-Year Alpha", format_pct(metrics["alpha_1y"]))
+        c1.metric("Intraday Alpha", format_pct(summary["alpha_1d"]))
+        c2.metric("30-Day Alpha", format_pct(summary["alpha_30d"]))
+        c3.metric("60-Day Alpha", format_pct(summary["alpha_60d"]))
+        c4.metric("1-Year Alpha", format_pct(summary["alpha_1y"]))
 
         if perf_df_mode is not None and not perf_df_mode.empty and "date" in perf_df_mode.columns:
-            alpha_cols = [c for c in ["alpha_30d", "alpha_60d", "alpha_1y"] if c in perf_df_mode.columns]
+            alpha_cols = [
+                c
+                for c in ["alpha_30d", "alpha_60d", "alpha_1y"]
+                if c in perf_df_mode.columns
+            ]
             if alpha_cols:
                 st.line_chart(perf_df_mode.set_index("date")[alpha_cols])
 
         st.markdown("###### Debug: Matched Files (raw logs)")
-        st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
-        st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
+        st.write(
+            "Performance file:",
+            MATCH_DEBUG["performance"].get(selected_wave) or "(none)",
+        )
+        st.write(
+            "Positions file:",
+            MATCH_DEBUG["positions"].get(selected_wave) or "(none)",
+        )
 
     with col_side:
         render_top10_holdings(positions_df, selected_wave)
@@ -843,7 +952,7 @@ def main() -> None:
             st.info("No performance history yet for this Wave.")
 
     with tab2:
-        render_alpha_capture_tab()
+        render_alpha_capture_tab(waves, mode)
 
     with tab3:
         render_wavescore_tab()
@@ -856,11 +965,16 @@ def main() -> None:
 
     with tab6:
         st.subheader(f"All Waves — Snapshot ({mode})")
-        snap = compute_multi_wave_snapshot(waves, mode)
+        snap = compute_multi_wave_metrics(waves, mode)
         if not snap.empty:
             disp = snap.copy()
-            for c in ["Intraday Alpha", "30d Alpha", "60d Alpha", "1y Alpha"]:
+            for c in ["Alpha_1d", "Alpha_30d", "Alpha_60d", "Alpha_1y"]:
                 disp[c] = disp[c].apply(format_pct)
+            for c in ["Return_30d", "Return_60d", "Return_1y"]:
+                disp[c] = disp[c].apply(format_pct)
+            disp["Vol_Ann"] = disp["Vol_Ann"].apply(format_pct)
+            disp["Alpha_IR"] = disp["Alpha_IR"].apply(format_number)
+            disp["Hit_Rate"] = disp["Hit_Rate"].apply(format_pct)
             st.dataframe(disp, use_container_width=True)
         else:
             st.info("No snapshot data available.")
@@ -870,6 +984,7 @@ def main() -> None:
 
     with tab8:
         render_engine_activity_tab()
+
 
 if __name__ == "__main__":
     main()
