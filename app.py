@@ -482,6 +482,51 @@ def generate_sandbox_logs_if_missing(
 
     return perf_df, pos_df
 
+# ---------- Mode overlay ----------
+
+def apply_mode_overlay(perf_df: Optional[pd.DataFrame], mode: str) -> Optional[pd.DataFrame]:
+    """
+    Apply mode-specific scaling to alpha and return columns so that:
+      - Standard: raw data
+      - Alpha-Minus-Beta: lower beta / lower volatility (scale down)
+      - Private Logic™: higher alpha / more aggressive (scale up)
+    This affects what is DISPLAYED in the Overview + Snapshot, without
+    overwriting the stored raw performance.
+    """
+    if perf_df is None or perf_df.empty:
+        return perf_df
+
+    df = perf_df.copy()
+
+    if mode == "Standard":
+        return df
+
+    alpha_cols = [c for c in df.columns if c.lower().startswith("alpha_")]
+    ret_cols = [c for c in df.columns if c.lower().startswith("return_")]
+
+    if mode == "Alpha-Minus-Beta":
+        scale_alpha = 0.75
+        scale_return = 0.85
+    elif mode == "Private Logic™":
+        scale_alpha = 1.25
+        scale_return = 1.10
+    else:
+        return df
+
+    for col in alpha_cols:
+        try:
+            df[col] = df[col].astype(float) * scale_alpha
+        except Exception:
+            pass
+
+    for col in ret_cols:
+        try:
+            df[col] = df[col].astype(float) * scale_return
+        except Exception:
+            pass
+
+    return df
+
 # ---------- Display helpers ----------
 
 def google_quote_url(ticker: str) -> str:
@@ -549,13 +594,14 @@ def format_pct(x: Optional[float]) -> str:
     except Exception:
         return "N/A"
 
-def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
+def compute_multi_wave_snapshot(waves: List[str], mode: str) -> pd.DataFrame:
     rows = []
     for w in waves:
         perf_df = load_performance_history(w)
         if perf_df is None or perf_df.empty:
             perf_df, _ = generate_sandbox_logs_if_missing(w)
-        m = compute_summary_metrics(perf_df)
+        mode_df = apply_mode_overlay(perf_df, mode)
+        m = compute_summary_metrics(mode_df)
         meta = WAVE_METADATA.get(w, {})
         rows.append({
             "Wave": w,
@@ -729,30 +775,34 @@ def main() -> None:
     if meta.get("benchmark"):
         st.sidebar.caption(f"Benchmark: **{meta['benchmark']}**")
 
-    # Load selected wave data (or sandbox)
-    perf_df = load_performance_history(selected_wave)
+    # Load selected wave data (raw)
+    perf_df_raw = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
-    if (perf_df is None or perf_df.empty) or (positions_df is None or positions_df.empty):
-        perf_df, positions_df = generate_sandbox_logs_if_missing(selected_wave)
+    if (perf_df_raw is None or perf_df_raw.empty) or (positions_df is None or positions_df.empty):
+        perf_df_raw, positions_df = generate_sandbox_logs_if_missing(selected_wave)
 
-    metrics = compute_summary_metrics(perf_df)
+    # Apply mode overlay for what we DISPLAY
+    perf_df_mode = apply_mode_overlay(perf_df_raw, mode)
+    metrics = compute_summary_metrics(perf_df_mode)
 
     col_main, col_side = st.columns([2, 1])
     with col_main:
-        st.subheader(f"{selected_wave} — Overview")
+        st.subheader(f"{selected_wave} — Overview ({mode})")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Intraday Alpha", format_pct(metrics["alpha_1d"]))
         c2.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
         c3.metric("60-Day Alpha", format_pct(metrics["alpha_60d"]))
         c4.metric("1-Year Alpha", format_pct(metrics["alpha_1y"]))
 
-        if perf_df is not None and not perf_df.empty and "date" in perf_df.columns:
-            alpha_cols = [c for c in ["alpha_30d", "alpha_60d", "alpha_1y"] if c in perf_df.columns]
+        if perf_df_mode is not None and not perf_df_mode.empty and "date" in perf_df_mode.columns:
+            alpha_cols = [c for c in ["alpha_30d", "alpha_60d", "alpha_1y"] if c in perf_df_mode.columns]
             if alpha_cols:
-                st.line_chart(perf_df.set_index("date")[alpha_cols])
-        st.markdown("###### Debug: Matched Files")
+                st.line_chart(perf_df_mode.set_index("date")[alpha_cols])
+
+        st.markdown("###### Debug: Matched Files (raw logs)")
         st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
         st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
+
     with col_side:
         render_top10_holdings(positions_df, selected_wave)
 
@@ -786,9 +836,9 @@ def main() -> None:
             st.dataframe(positions_df, use_container_width=True)
         else:
             st.info("No detailed positions available.")
-        st.subheader(f"{selected_wave} — Raw Performance")
-        if perf_df is not None and not perf_df.empty:
-            st.dataframe(perf_df, use_container_width=True)
+        st.subheader(f"{selected_wave} — Raw Performance (unadjusted)")
+        if perf_df_raw is not None and not perf_df_raw.empty:
+            st.dataframe(perf_df_raw, use_container_width=True)
         else:
             st.info("No performance history yet for this Wave.")
 
@@ -805,8 +855,8 @@ def main() -> None:
         render_human_override_tab(selected_wave)
 
     with tab6:
-        st.subheader("All Waves — Snapshot")
-        snap = compute_multi_wave_snapshot(waves)
+        st.subheader(f"All Waves — Snapshot ({mode})")
+        snap = compute_multi_wave_snapshot(waves, mode)
         if not snap.empty:
             disp = snap.copy()
             for c in ["Intraday Alpha", "30d Alpha", "60d Alpha", "1y Alpha"]:
