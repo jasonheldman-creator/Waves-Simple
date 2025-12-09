@@ -2,7 +2,7 @@
 app.py
 
 WAVES Intelligence™ Institutional Console — Clean Version
-Works with the simplified waves_engine.py (no circular imports).
+Works with the Vector 2.0 waves_engine.py (no circular imports).
 
 Features:
   • Multi-tab Streamlit app:
@@ -324,10 +324,10 @@ with tab_matrix:
                 "Alpha 30D (%)": perf["alpha_30d"] * 100,
                 "Alpha 60D (%)": perf["alpha_60d"] * 100,
                 "Alpha 1Y (%)": perf["alpha_1y"] * 100,
-                "1Y Wave Return (%)": (perf["return_1y_wave"] or 0) * 100
+                "1Y Wave Return (%)": perf["return_1y_wave"] * 100
                 if perf["return_1y_wave"] is not None
                 else np.nan,
-                "1Y BM Return (%)": (perf["return_1y_benchmark"] or 0) * 100
+                "1Y BM Return (%)": perf["return_1y_benchmark"] * 100
                 if perf["return_1y_benchmark"] is not None
                 else np.nan,
             }
