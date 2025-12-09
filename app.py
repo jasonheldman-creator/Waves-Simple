@@ -26,7 +26,8 @@ except Exception:
 
 APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
 APP_SUBTITLE = (
-    "11-Wave Rotation • Alpha-Minus-Beta • Private Logic™ • WaveScore™ • SmartSafe™ • UAPV™ Preview"
+    "11-Wave Rotation + SmartSafe™ • Alpha-Minus-Beta • Private Logic™ • "
+    "WaveScore™ • SmartSafe™ • UAPV™ Preview"
 )
 
 LOGS_DIR = "logs"
@@ -65,6 +66,7 @@ EQUITY_WAVES: List[str] = [
     "Infinity Wave",
     "International Developed Wave",
     "Emerging Markets Wave",
+    "SmartSafe Wave",  # NEW
 ]
 
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
@@ -86,7 +88,7 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "Small to Mid Cap Growth Wave": {
         "category": "SMID Growth",
         "benchmark": "IJH",
-        "tagline": "Blended small–mid cap growth with smoother ride.",
+        "tagline": "Blended small–mid cap growth with a smoother ride.",
     },
     "Future Power & Energy Wave": {
         "category": "Thematic Equity",
@@ -122,6 +124,11 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
         "category": "Global Equity",
         "benchmark": "EEM",
         "tagline": "Emerging markets growth engine with risk discipline.",
+    },
+    "SmartSafe Wave": {  # NEW
+        "category": "SmartSafe / Cash",
+        "benchmark": "CASH / BIL",
+        "tagline": "High-grade cash sleeve with money-market-like yield and low volatility.",
     },
 }
 
@@ -242,7 +249,7 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 def get_available_waves() -> List[str]:
     """
     Discover waves from the engine / wave_weights, but ALWAYS include
-    the full EQUITY_WAVES lineup so all equity Waves appear in the UI.
+    the full EQUITY_WAVES lineup so all Waves appear in the UI.
     """
     waves: Set[str] = set()
 
@@ -261,7 +268,7 @@ def get_available_waves() -> List[str]:
         except Exception:
             pass
 
-    # 2) ALWAYS include the full equity lineup
+    # 2) ALWAYS include the full lineup
     waves = waves.union(set(EQUITY_WAVES))
 
     # 3) Sort and return
@@ -363,6 +370,9 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
         tickers = ["NOVO-B.CO", "NESN.SW", "ASML", "SONY", "BP", "BHP", "RIO"]
     elif wave == "Emerging Markets Wave":
         tickers = ["TSM", "BABA", "PDD", "INFY", "VALE", "PBR", "MELI"]
+    elif wave == "SmartSafe Wave":  # NEW
+        # Short-duration treasuries / cash-equivalents
+        tickers = ["BIL", "SHV", "SGOV", "JPST", "TFLO"]
     else:
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
 
@@ -381,12 +391,22 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
 
 
 def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
+    """
+    Sandbox performance generator, tuned per Wave type.
+
+    SmartSafe Wave is handled as a low-volatility, steady-yield series.
+    """
     end_date = datetime.today().date()
     dates = pd.bdate_range(end=end_date, periods=days)
     n = len(dates)
 
+    # Default benchmark: equity-like
     bench_mu = 0.08 / 252.0
     bench_sigma = 0.15 / np.sqrt(252.0)
+
+    # Defaults for alpha
+    alpha_mu = 0.03 / 252.0
+    alpha_sigma = 0.06 / np.sqrt(252.0)
 
     if wave == "S&P 500 Wave":
         alpha_mu = 0.01 / 252.0
@@ -408,9 +428,12 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     elif wave in ["International Developed Wave", "Emerging Markets Wave"]:
         alpha_mu = 0.02 / 252.0
         alpha_sigma = 0.05 / np.sqrt(252.0)
-    else:
-        alpha_mu = 0.03 / 252.0
-        alpha_sigma = 0.06 / np.sqrt(252.0)
+    if wave == "SmartSafe Wave":
+        # Cash-like benchmark & small positive alpha
+        bench_mu = 0.03 / 252.0   # ~3% annual yield
+        bench_sigma = 0.01 / np.sqrt(252.0)
+        alpha_mu = 0.005 / 252.0  # +0.5% annual alpha vs cash
+        alpha_sigma = 0.005 / np.sqrt(252.0)
 
     bench_ret = np.random.normal(bench_mu, bench_sigma, size=n)
     alpha_noise = np.random.normal(alpha_mu, alpha_sigma, size=n)
@@ -898,7 +921,7 @@ def main() -> None:
 
     waves = get_available_waves()
     if not waves:
-        st.error("No Waves discovered (11-wave rotation).")
+        st.error("No Waves discovered (11-wave rotation + SmartSafe).")
         return
 
     # Ensure logs exist for each Wave
