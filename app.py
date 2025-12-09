@@ -69,10 +69,10 @@ def get_file_version_info(filepath: str) -> Dict[str, str]:
             "size": size,
         }
     except OSError as e:
-        # Return error with more detail for debugging
+        # File exists but cannot be accessed or stat failed
         return {
             "path": filepath,
-            "exists": True,
+            "exists": False,  # Cannot access = effectively doesn't exist
             "mtime": f"Error: {str(e)}",
             "size": f"Error: {str(e)}"
         }
