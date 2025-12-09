@@ -1,28 +1,33 @@
+# waves_engine.py
 """
-waves_engine.py — Real-History Engine (Vector1)
+WAVES Intelligence™ Engine — Real History + SmartSafe™ (Vector 1.5)
 
-- Loads wave_weights.csv (+ list.csv for names)
+This engine:
+- Loads wave_weights.csv (+ optional list.csv for names/sectors)
 - Maps each Wave to a benchmark ETF (SPY, QQQ, etc.)
-- Fetches real price history via yfinance
+- Fetches real price history via yfinance when available
 - Computes daily, 30d, 60d, 1y returns and alpha vs benchmark
+- Applies SmartSafe™ overlay:
+    * dynamic SmartSafe allocation based on realized vol & drawdown
+    * SmartSafe earns stable yield (money-market-like)
+    * Combined NAV = SmartSafe sleeve + risk sleeve
 - Writes logs:
     logs/performance/<Wave>_performance_daily.csv
     logs/positions/<Wave>_positions_YYYYMMDD.csv
-- Provides:
+- Exposes:
     load_wave_weights()
     get_strategy_recipe()
     run_all_waves()
 """
 
 import os
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
 
-# ---------- Optional yfinance import (real prices) ----------
-
+# Optional yfinance import (for real prices)
 try:
     import yfinance as yf  # type: ignore
 
@@ -59,7 +64,6 @@ EQUITY_WAVES: List[str] = [
     "Emerging Markets Wave",
 ]
 
-# Mapping from Wave name to benchmark ticker
 WAVE_BENCHMARKS: Dict[str, str] = {
     "S&P 500 Wave": "SPY",
     "Growth Wave": "QQQ",
@@ -67,14 +71,14 @@ WAVE_BENCHMARKS: Dict[str, str] = {
     "Small to Mid Cap Growth Wave": "IJH",
     "Future Power & Energy Wave": "XLE",
     "Quantum Computing Wave": "QQQ",
-    "Clean Transit-Infrastructure Wave": "IDEV",  # or ITA/IFRA/XTN etc.
-    "AI Wave": "QQQ",  # proxy AI-heavy index
+    "Clean Transit-Infrastructure Wave": "IDEV",  # proxy, can change later
+    "AI Wave": "QQQ",
     "Infinity Wave": "ACWI",
     "International Developed Wave": "EFA",
     "Emerging Markets Wave": "EEM",
 }
 
-# ---------- Strategy recipes (used by UI; not critical to math) ----------
+# ---------- Strategy recipes (for UI) ----------
 
 STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
     "S&P 500 Wave": {
@@ -95,7 +99,7 @@ STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
         "alpha_sigma_annual": 0.10,
         "turnover_annual_max": 0.80,
         "max_drawdown_target": 0.30,
-        "notes": "High growth focus with volatility-aware sizing.",
+        "notes": "High growth with volatility-aware sizing.",
     },
     "Small Cap Growth Wave": {
         "style": "Small Cap Growth",
@@ -213,7 +217,7 @@ def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
 
 def load_wave_weights() -> pd.DataFrame:
     """
-    Load wave_weights.csv (required for real engine).
+    Load wave_weights.csv.
     Expected columns: wave, ticker, weight (case-insensitive).
     """
     path = os.path.join(ROOT_DIR, "wave_weights.csv")
@@ -224,7 +228,6 @@ def load_wave_weights() -> pd.DataFrame:
     if df.empty:
         raise ValueError("wave_weights.csv is empty")
 
-    # Normalize column names
     cols = {c.lower(): c for c in df.columns}
     wave_col = cols.get("wave")
     ticker_col = cols.get("ticker")
@@ -242,7 +245,7 @@ def load_wave_weights() -> pd.DataFrame:
     df["ticker"] = df["ticker"].astype(str).str.upper()
     df["weight"] = df["weight"].astype(float)
 
-    # Keep only known equity waves (if other Waves exist in the file)
+    # Keep only known equity waves (if other Waves exist)
     df = df[df["wave"].isin(EQUITY_WAVES)]
 
     # Normalize weights within each wave
@@ -305,7 +308,6 @@ def get_price_history(
         group_by="ticker",
     )
 
-    # Normalize into a DataFrame: index = date, columns = tickers
     if isinstance(data.columns, pd.MultiIndex):
         px = data["Adj Close"] if "Adj Close" in data.columns.levels[0] else data["Close"]
     else:
@@ -314,11 +316,93 @@ def get_price_history(
     if isinstance(px, pd.Series):
         px = px.to_frame(name=tickers[0])
 
-    # Ensure columns match tickers order
     px = px[tickers].copy()
     px.index = pd.to_datetime(px.index)
     px = px.sort_index()
     return px
+
+
+# ---------- SmartSafe overlay ----------
+
+
+def apply_smartsafe_overlay(
+    df: pd.DataFrame,
+    smartsafe_yield_annual: float = 0.045,
+    vol_window: int = 21,
+    vol_low: float = 0.16,
+    vol_high: float = 0.24,
+    dd_low: float = 0.03,
+    dd_high: float = 0.08,
+    max_smartsafe: float = 0.60,
+    step: float = 0.10,
+) -> pd.DataFrame:
+    """
+    SmartSafe overlay:
+      - uses realized volatility and drawdown on the risk NAV
+      - ramps SmartSafe allocation up/down
+      - SmartSafe earns constant yield (money-market-like)
+      - returns DataFrame with:
+           nav (SmartSafe-adjusted)
+           smartsafe_weight
+           smartsafe_nav
+           smartsafe_yield_annual
+    """
+    out = df.copy().sort_index()
+    risk_nav = out["nav_risk"].values.astype(float)
+    n = len(out)
+    if n == 0:
+        return out
+
+    # Realized vol (annualized) and drawdown on risk-only series
+    risk_ret = pd.Series(risk_nav).pct_change()
+    vol_roll = risk_ret.rolling(vol_window).std() * np.sqrt(252.0)
+    running_max = pd.Series(risk_nav).cummax()
+    dd = risk_nav / running_max - 1.0  # negative when in drawdown
+
+    smartsafe_weight = np.zeros(n)
+    sm_nav = np.zeros(n)
+    sm_nav[0] = risk_nav[0]
+
+    # Daily SmartSafe yield
+    y_daily = (1.0 + smartsafe_yield_annual) ** (1.0 / 252.0) - 1.0
+    w = 0.0  # starting SmartSafe allocation
+
+    for i in range(1, n):
+        sm_nav[i] = sm_nav[i - 1] * (1.0 + y_daily)
+
+        v = vol_roll.iloc[i]
+        d = dd.iloc[i]
+        try:
+            v_val = float(v)
+        except Exception:
+            v_val = float("nan")
+        try:
+            d_val = float(d)
+        except Exception:
+            d_val = float("nan")
+
+        if not np.isnan(v_val) and not np.isnan(d_val):
+            # Risk-off: high vol or deep drawdown → increase SmartSafe
+            if v_val > vol_high or d_val < -dd_high:
+                w = min(max_smartsafe, w + step)
+            # Risk-on: calm vol and shallow drawdown → decrease SmartSafe
+            elif v_val < vol_low and d_val > -dd_low:
+                w = max(0.0, w - step)
+
+        smartsafe_weight[i] = w
+
+    if n > 1:
+        smartsafe_weight[0] = smartsafe_weight[1]
+    else:
+        smartsafe_weight[0] = w
+
+    combined_nav = smartsafe_weight * sm_nav + (1.0 - smartsafe_weight) * risk_nav
+
+    out["smartsafe_nav"] = sm_nav
+    out["smartsafe_weight"] = smartsafe_weight
+    out["smartsafe_yield_annual"] = smartsafe_yield_annual
+    out["nav"] = combined_nav
+    return out
 
 
 # ---------- NAV & alpha calculations ----------
@@ -330,8 +414,10 @@ def compute_wave_nav(
     wave_name: str,
 ) -> Tuple[pd.DataFrame, str]:
     """
-    Given a price panel (date x ticker) and this wave's weights,
-    compute Wave NAV and benchmark NAV, plus returns & alpha.
+    Compute risk-only NAV, apply SmartSafe overlay, and produce:
+      - nav (SmartSafe-adjusted)
+      - bench_nav
+      - returns, horizon returns, alphas
     """
     this_wave = weights_df[weights_df["wave"] == wave_name].copy()
     if this_wave.empty:
@@ -340,43 +426,36 @@ def compute_wave_nav(
     tickers = this_wave["ticker"].tolist()
     w = this_wave["weight"].values
 
-    # Ensure all tickers exist in price_panel
     missing = [t for t in tickers if t not in price_panel.columns]
     if missing:
         raise ValueError(f"Missing price history for tickers: {missing}")
 
     prices = price_panel[tickers].copy()
-    # Wave "price" as weighted sum of component prices
-    wave_price = (prices * w).sum(axis=1)
+    wave_px = (prices * w).sum(axis=1)
 
-    # Benchmark mapping
     bench_ticker = WAVE_BENCHMARKS.get(wave_name, "SPY")
     if bench_ticker not in price_panel.columns:
         raise ValueError(f"Missing price history for benchmark {bench_ticker}")
-
     bench_price = price_panel[bench_ticker].copy()
 
-    # Align indexes (drop dates where either side is NaN)
-    df = pd.DataFrame({"wave_px": wave_price, "bench_px": bench_price})
-    df = df.dropna().copy()
+    df = pd.DataFrame({"wave_px": wave_px, "bench_px": bench_price}).dropna()
     df.index.name = "date"
 
-    # Turn into NAV (100 starting index)
-    df["nav"] = df["wave_px"] / df["wave_px"].iloc[0] * 100.0
+    # Risk-only NAV and benchmark NAV
+    df["nav_risk"] = df["wave_px"] / df["wave_px"].iloc[0] * 100.0
     df["bench_nav"] = df["bench_px"] / df["bench_px"].iloc[0] * 100.0
 
-    # Daily returns
+    # Apply SmartSafe overlay → combined nav
+    df = apply_smartsafe_overlay(df)
+
+    # Returns based on SmartSafe-adjusted NAV
     df["return_1d"] = df["nav"].pct_change()
     df["bench_return_1d"] = df["bench_nav"].pct_change()
 
-    # Horizon returns (21 ≈ 30d, 42 ≈ 60d, 252 ≈ 1y)
     horizons = [(21, "30d"), (42, "60d"), (252, "252d")]
-
     for h, label in horizons:
         df[f"return_{label}"] = df["nav"] / df["nav"].shift(h) - 1.0
-        df[f"bench_return_{label}"] = (
-            df["bench_nav"] / df["bench_nav"].shift(h) - 1.0
-        )
+        df[f"bench_return_{label}"] = df["bench_nav"] / df["bench_nav"].shift(h) - 1.0
 
     # Alphas
     df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
@@ -386,7 +465,7 @@ def compute_wave_nav(
 
     df["wave"] = wave_name
     df["benchmark_ticker"] = bench_ticker
-    df["regime"] = "LIVE_PRICES" if HAS_YF else "SANDBOX"
+    df["regime"] = "LIVE_SMARTSAFE" if HAS_YF else "SANDBOX_SMARTSAFE"
 
     return df.reset_index(), bench_ticker
 
@@ -395,7 +474,9 @@ def compute_wave_nav(
 
 
 def build_positions_snapshot(
-    weights_df: pd.DataFrame, master_list: Optional[pd.DataFrame], wave_name: str
+    weights_df: pd.DataFrame,
+    master_list: Optional[pd.DataFrame],
+    wave_name: str,
 ) -> pd.DataFrame:
     this_wave = weights_df[weights_df["wave"] == wave_name].copy()
     if this_wave.empty:
@@ -407,14 +488,12 @@ def build_positions_snapshot(
         merged = this_wave.merge(
             master_list, on="ticker", how="left", suffixes=("", "_list")
         )
-        # Prefer 'name' column from list.csv if it exists
         cols = {c.lower(): c for c in merged.columns}
         name_col = cols.get("name")
         if name_col:
             merged = merged.rename(columns={name_col: "name"})
         else:
             merged["name"] = merged["ticker"]
-        # Keep a clean subset
         out = merged[["wave", "ticker", "name", "weight"]].copy()
     else:
         out = this_wave.copy()
@@ -452,9 +531,6 @@ def run_wave_update(
 ) -> Tuple[str, str]:
     """
     Generate performance + positions logs for a single Wave.
-
-    If price_panel is provided, it must contain all component tickers
-    and the appropriate benchmark ticker. Otherwise, we fetch prices.
     """
     weights_df = load_wave_weights()
     master_list = load_master_list()
@@ -481,15 +557,11 @@ def run_wave_update(
 def run_all_waves(years: int = 3) -> None:
     """
     Main entrypoint: recompute performance logs for all EQUITY_WAVES.
-
-    - Reads wave_weights.csv (and list.csv if available)
-    - Downloads price history for all tickers + all benchmarks
-    - Writes performance & positions logs for each wave
     """
     if not HAS_YF:
         raise RuntimeError(
             "yfinance is not available. Install it in this environment "
-            "to use real price history."
+            "to fetch real prices."
         )
 
     weights_df = load_wave_weights()
@@ -522,12 +594,9 @@ def run_all_waves(years: int = 3) -> None:
 # ---------- Script entrypoint ----------
 
 if __name__ == "__main__":
-    print("Running WAVES Intelligence™ real-history engine (Vector1)...")
+    print("Running WAVES Intelligence™ engine with SmartSafe™ (Vector 1.5)...")
     if not HAS_YF:
-        print(
-            "ERROR: yfinance not installed. Install it in this environment "
-            "to fetch real prices."
-        )
+        print("ERROR: yfinance not installed. Install it to fetch real prices.")
     else:
         run_all_waves(years=3)
     print("Done.")
