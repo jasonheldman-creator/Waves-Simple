@@ -64,7 +64,7 @@ EQUITY_WAVES: List[str] = [
     "Future Power & Energy Wave",
     "Quantum Computing Wave",
     "Clean Transit-Infrastructure Wave",
-    "Crypto Income Wave",
+    "AI Wave",
     "Infinity Wave",
 ]
 
@@ -104,10 +104,10 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
         "benchmark": "IDEV",
         "tagline": "Clean transit, infrastructure, and mobility.",
     },
-    "Crypto Income Wave": {
-        "category": "Crypto / Thematic",
-        "benchmark": "BTC-ETH Basket",
-        "tagline": "Yield-oriented crypto positioning with risk overlays.",
+    "AI Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "AI Basket",
+        "tagline": "Pure AI exposure across chips, cloud, and software leaders.",
     },
     "Infinity Wave": {
         "category": "Flagship Multi-Theme",
@@ -350,8 +350,8 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
         tickers = ["NVDA", "AMD", "IBM", "QCOM", "AVGO", "TSM", "MSFT", "GOOGL"]
     elif wave == "S&P 500 Wave":
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "BRK.B", "JPM", "JNJ", "XOM", "PG"]
-    elif wave == "Crypto Income Wave":
-        tickers = ["BTC-USD", "ETH-USD", "MSTR", "COIN", "RIOT", "MARA"]
+    elif wave == "AI Wave":
+        tickers = ["NVDA", "MSFT", "GOOGL", "META", "AVGO", "CRM", "SNOW", "ADBE"]
     elif wave == "Future Power & Energy Wave":
         tickers = ["NEE", "ENPH", "FSLR", "XOM", "CVX", "PLUG", "SEDG"]
     elif wave == "Infinity Wave":
@@ -395,7 +395,7 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     elif wave in ["Growth Wave", "Small Cap Growth Wave", "Small to Mid Cap Growth Wave"]:
         alpha_mu = 0.03 / 252.0
         alpha_sigma = 0.07 / np.sqrt(252.0)
-    elif wave in ["Quantum Computing Wave", "Future Power & Energy Wave", "Clean Transit-Infrastructure Wave", "Crypto Income Wave"]:
+    elif wave in ["Quantum Computing Wave", "Future Power & Energy Wave", "Clean Transit-Infrastructure Wave", "AI Wave"]:
         alpha_mu = 0.05 / 252.0
         alpha_sigma = 0.10 / np.sqrt(252.0)
     else:
