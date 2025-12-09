@@ -58,9 +58,17 @@ def clear_cache_on_startup() -> None:
 def get_file_version_info(filepath: str) -> Dict[str, str]:
     """
     Get version information for a file (last modified time and size).
+    Returns a dictionary with file information including existence, accessibility,
+    modification time, and size.
     """
     if not os.path.exists(filepath):
-        return {"path": filepath, "exists": False, "mtime": "N/A", "size": "N/A"}
+        return {
+            "path": filepath,
+            "exists": False,
+            "accessible": False,
+            "mtime": "N/A",
+            "size": "N/A"
+        }
     
     try:
         stat = os.stat(filepath)
@@ -69,16 +77,18 @@ def get_file_version_info(filepath: str) -> Dict[str, str]:
         return {
             "path": filepath,
             "exists": True,
+            "accessible": True,
             "mtime": mtime,
             "size": size,
         }
     except OSError as e:
-        # File exists but cannot be accessed or stat failed
+        # File exists but cannot be accessed
         return {
             "path": filepath,
-            "exists": False,  # Cannot access = effectively doesn't exist
-            "mtime": f"Error: {str(e)}",
-            "size": f"Error: {str(e)}"
+            "exists": True,
+            "accessible": False,
+            "mtime": f"Access Error: {str(e)}",
+            "size": f"Access Error: {str(e)}"
         }
 
 APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
@@ -891,16 +901,25 @@ def render_system_status_tab(waves: List[str]) -> None:
     app_info = get_file_version_info("app.py")
     engine_info = get_file_version_info("waves_engine.py")
     
+    def format_status(info: Dict[str, str]) -> str:
+        """Format file status with exists and accessible info."""
+        if not info["exists"]:
+            return "✗ Not Found"
+        elif not info.get("accessible", True):
+            return "⚠ Not Accessible"
+        else:
+            return "✓ OK"
+    
     version_df = pd.DataFrame([
         {
             "File": "app.py",
-            "Exists": "✓" if app_info["exists"] else "✗",
+            "Status": format_status(app_info),
             "Last Modified": app_info["mtime"],
             "Size": app_info["size"],
         },
         {
             "File": "waves_engine.py",
-            "Exists": "✓" if engine_info["exists"] else "✗",
+            "Status": format_status(engine_info),
             "Last Modified": engine_info["mtime"],
             "Size": engine_info["size"],
         }

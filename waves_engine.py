@@ -40,7 +40,10 @@ def _get_engine_last_updated() -> str:
             if os.path.exists(engine_file):
                 mtime = os.path.getmtime(engine_file)
                 return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
+    except (OSError, AttributeError, TypeError):
+        # OSError: file operations failed
+        # AttributeError: inspect operations failed
+        # TypeError: invalid file path
         pass
     return "N/A"
 
