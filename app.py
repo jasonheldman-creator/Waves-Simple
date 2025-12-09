@@ -1,3 +1,4 @@
+# app.py
 import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -19,14 +20,15 @@ except Exception:
 # Optional engine import
 try:
     import waves_engine  # type: ignore
+
     HAS_ENGINE = True
 except Exception:
     waves_engine = None
     HAS_ENGINE = False
 
-APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector1"
+APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
 APP_SUBTITLE = (
-    "11-Wave Rotation • Alpha-Minus-Beta • Private Logic™ • WaveScore™ • UAPV™ Preview"
+    "11-Wave Rotation • Alpha-Minus-Beta • Private Logic™ • WaveScore™ • SmartSafe™ • UAPV™ Preview"
 )
 
 LOGS_DIR = "logs"
@@ -257,7 +259,6 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 def get_available_waves() -> List[str]:
     waves: set[str] = set()
 
-    # Prefer engine’s wave_weights if available
     if HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
         try:
             weights_df = waves_engine.load_wave_weights()  # type: ignore
@@ -399,7 +400,6 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     bench_mu = 0.08 / 252.0
     bench_sigma = 0.15 / np.sqrt(252.0)
 
-    # simple per-wave differences
     if wave == "S&P 500 Wave":
         alpha_mu = 0.01 / 252.0
         alpha_sigma = 0.03 / np.sqrt(252.0)
@@ -441,7 +441,6 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
         }
     )
 
-    # Horizon returns/alpha
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
     df["return_252d"] = np.nan
@@ -955,7 +954,6 @@ def main() -> None:
     if meta.get("benchmark"):
         st.sidebar.caption(f"Benchmark: **{meta['benchmark']}**")
 
-    # Optional: show strategy recipe if engine exposes it
     if HAS_ENGINE and hasattr(waves_engine, "get_strategy_recipe"):
         try:
             cfg = waves_engine.get_strategy_recipe(selected_wave)  # type: ignore
@@ -986,7 +984,7 @@ def main() -> None:
         c3.metric("60-Day Alpha", format_pct(summary["alpha_60d"]))
         c4.metric("1-Year Alpha", format_pct(summary["alpha_1y"]))
 
-        # Optional: show any VIX/risk_regime from perf_df_raw if present
+        # Optional VIX display if present (future use)
         if perf_df_raw is not None and not perf_df_raw.empty:
             vix_val = None
             regime_val = None
@@ -1001,6 +999,38 @@ def main() -> None:
                 st.caption(
                     f"VIX Ladder: **{vix_val:.1f}** → Regime: **{regime_val or 'Unknown'}**"
                 )
+
+        # SmartSafe display if available
+        if (
+            perf_df_raw is not None
+            and not perf_df_raw.empty
+            and "smartsafe_weight" in perf_df_raw.columns
+        ):
+            try:
+                latest_safe = float(perf_df_raw["smartsafe_weight"].iloc[-1])
+            except Exception:
+                latest_safe = None
+
+            latest_yield = None
+            if "smartsafe_yield_annual" in perf_df_raw.columns:
+                try:
+                    latest_yield = float(
+                        perf_df_raw["smartsafe_yield_annual"].iloc[-1]
+                    )
+                except Exception:
+                    latest_yield = None
+
+            if latest_safe is not None:
+                if latest_yield is not None and not np.isnan(latest_yield):
+                    st.caption(
+                        f"SmartSafe allocation: **{latest_safe*100:.1f}%** "
+                        f"(cash-like sleeve, ~{latest_yield*100:.1f}% yield)"
+                    )
+                else:
+                    st.caption(
+                        f"SmartSafe allocation: **{latest_safe*100:.1f}%** "
+                        "(cash-like sleeve)"
+                    )
 
         if (
             perf_df_mode is not None
@@ -1065,7 +1095,6 @@ def main() -> None:
         else:
             st.info("No performance history yet for this Wave.")
 
-        # UAPV preview section
         render_uapv_section(perf_df_raw, selected_wave)
 
     with tab2:
