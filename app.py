@@ -23,6 +23,30 @@ from waves_engine import WavesEngine
 
 
 # ----------------------------------------------------------------------
+# Formatting Helpers (must be defined BEFORE use)
+# ----------------------------------------------------------------------
+def _fmt_pct(x):
+    """Format a decimal value as a percent string."""
+    if x is None or pd.isna(x):
+        return "—"
+    return f"{x * 100:0.2f}%"
+
+
+def _fmt_pct_diff(wave, bm):
+    """Format difference between wave and benchmark returns."""
+    if (
+        wave is None
+        or bm is None
+        or pd.isna(wave)
+        or pd.isna(bm)
+    ):
+        return "—"
+    diff = (wave - bm) * 100
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:0.2f} pts vs BM"
+
+
+# ----------------------------------------------------------------------
 # Hard cache reset on app start
 # ----------------------------------------------------------------------
 def clear_streamlit_cache_once():
@@ -53,7 +77,8 @@ st.set_page_config(
 
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption(
-    "Live Wave Engine • Beta-Adjusted Alpha Captured • Intraday + 30/60/1-Year • S&P Wave + Full Lineup"
+    "Live Wave Engine • Beta-Adjusted Alpha Captured • "
+    "Intraday + 30/60/1-Year • S&P Wave + Full Lineup"
 )
 
 # ----------------------------------------------------------------------
@@ -137,7 +162,7 @@ with perf_col:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(
             "Intraday Alpha Captured",
-            f"{perf['intraday_alpha_captured'] * 100:0.2f}%",
+            _fmt_pct(perf["intraday_alpha_captured"]),
         )
         c2.metric("30-Day Alpha Captured", _fmt_pct(perf["alpha_30d"]))
         c3.metric("60-Day Alpha Captured", _fmt_pct(perf["alpha_60d"]))
@@ -151,34 +176,24 @@ with perf_col:
         r1.metric(
             "30-Day Wave Return",
             _fmt_pct(perf["return_30d_wave"]),
-            delta=_fmt_pct_diff(perf["return_30d_wave"], perf["return_30d_benchmark"]),
+            delta=_fmt_pct_diff(
+                perf["return_30d_wave"], perf["return_30d_benchmark"]
+            ),
         )
         r2.metric(
             "60-Day Wave Return",
             _fmt_pct(perf["return_60d_wave"]),
-            delta=_fmt_pct_diff(perf["return_60d_wave"], perf["return_60d_benchmark"]),
+            delta=_fmt_pct_diff(
+                perf["return_60d_wave"], perf["return_60d_benchmark"]
+            ),
         )
         r3.metric(
             "1-Year Wave Return",
             _fmt_pct(perf["return_1y_wave"]),
-            delta=_fmt_pct_diff(perf["return_1y_wave"], perf["return_1y_benchmark"]),
+            delta=_fmt_pct_diff(
+                perf["return_1y_wave"], perf["return_1y_benchmark"]
+            ),
         )
-
-
-# Helpers for formatting percentages
-def _fmt_pct(x: float | None) -> str:
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x * 100:0.2f}%"
-
-
-def _fmt_pct_diff(wave: float | None, bm: float | None) -> str:
-    if wave is None or bm is None or pd.isna(wave) or pd.isna(bm):
-        return "vs BM: —"
-    diff = (wave - bm) * 100
-    sign = "+" if diff >= 0 else ""
-    return f"{sign}{diff:0.2f} pts vs BM"
-
 
 # ----------------------------------------------------------------------
 # Chart + History Table (30-Day)
@@ -186,7 +201,7 @@ def _fmt_pct_diff(wave: float | None, bm: float | None) -> str:
 with chart_col:
     if perf is not None:
         st.markdown(
-            f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve (β Adj Alpha)"
+            f"### {selected_wave} vs {perf['benchmark']} — 30-Day Curve (β-Adj Alpha)"
         )
 
         history = perf["history_30d"]
@@ -235,7 +250,7 @@ with holdings_col:
     if top10 is not None and not top10.empty:
 
         def google_finance_url(ticker: str) -> str:
-            # Adjust exchange suffix if you want; NASDAQ is a simple default
+            # Adjust exchange suffix if needed
             return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
 
         display_df = top10.copy()
@@ -257,6 +272,6 @@ with holdings_col:
 st.markdown("---")
 st.caption(
     "Engine: WAVES Intelligence™ • list.csv = total market universe • "
-    "wave_weights.csv = Wave definitions • Alpha = Beta-Adjusted Alpha Captured "
-    "• Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
+    "wave_weights.csv = Wave definitions • Alpha = Beta-Adjusted Alpha Captured • "
+    "Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
 )
