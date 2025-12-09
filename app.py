@@ -1,233 +1,153 @@
 """
-WAVES Intelligence™ Institutional Console – Streamlit UI
-Uses the rebuilt waves_engine.run_full_engine()
+app.py
+
+WAVES Intelligence™ Institutional Console (Streamlit)
+
+- Clears Streamlit cache on startup
+- Uses ONLY the latest waves_engine.py logic
+- Loads list.csv (universe) and wave_weights.csv (wave definitions)
+- Auto-discovers Waves
+- Shows intraday + 30-day return & alpha
+- Displays top 10 holdings with Google Finance links
 """
 
-from __future__ import annotations
-
-import traceback
-
-import numpy as np
-import pandas as pd
 import streamlit as st
 
-from waves_engine import ENGINE_VERSION, run_full_engine
+from waves_engine import WavesEngine
 
-# ---------------------------------------------------------------------
-# Page config & cache clearing
-# ---------------------------------------------------------------------
 
-st.set_page_config(
-    page_title="WAVES Intelligence – Institutional Console",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+# ----------------------------------------------------------------------
+# Hard cache reset on app start
+# ----------------------------------------------------------------------
+def clear_streamlit_cache_once():
+    if "cache_cleared" in st.session_state:
+        return
 
-# Clear Streamlit caches at startup so ONLY latest code/data are used
-try:
-    st.cache_data.clear()
-    st.cache_resource.clear()
-except Exception:
-    # Older Streamlit versions may not have these; ignore
-    pass
-
-# ---------------------------------------------------------------------
-# Load engine results
-# ---------------------------------------------------------------------
-
-with st.spinner("Starting WAVES Engine and computing live metrics…"):
     try:
-        engine_result = run_full_engine()
-    except Exception as e:
-        st.error("Engine failed to start. See details below.")
-        st.exception(e)
-        st.stop()
+        # Newer Streamlit APIs
+        if hasattr(st, "cache_data"):
+            st.cache_data.clear()
+        if hasattr(st, "cache_resource"):
+            st.cache_resource.clear()
+    except Exception:
+        # Fall back silently if not supported
+        pass
 
-# Convenience handles
-wave_list = engine_result.wave_list
-alpha_capture = engine_result.alpha_capture  # dict of mode -> df
-top_holdings = engine_result.top_holdings
-system_status = engine_result.system_status
+    st.session_state["cache_cleared"] = True
 
-# ---------------------------------------------------------------------
-# Layout: header
-# ---------------------------------------------------------------------
 
-st.markdown(
-    f"""
-    <h1 style="margin-bottom:0.2rem;">WAVES Intelligence™ – Institutional Console</h1>
-    <p style="color:#AAAAAA;margin-top:0;">
-        Engine version <b>{ENGINE_VERSION}</b> • As of <b>{engine_result.as_of:%Y-%m-%d %H:%M} UTC</b>
-    </p>
-    """,
-    unsafe_allow_html=True,
+clear_streamlit_cache_once()
+
+# ----------------------------------------------------------------------
+# Page configuration
+# ----------------------------------------------------------------------
+st.set_page_config(
+    page_title="WAVES Intelligence™ Institutional Console",
+    layout="wide",
 )
 
-tabs = st.tabs(["Wave Details", "Alpha Capture", "WaveScore", "System Status"])
+st.title("WAVES Intelligence™ Institutional Console")
+st.caption("Live Wave Engine • Intraday + 30-Day Alpha • S&P Wave + Full Lineup")
 
-# ---------------------------------------------------------------------
-# Tab 1 – Wave Details
-# ---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Initialize engine
+# ----------------------------------------------------------------------
+try:
+    engine = WavesEngine(list_path="list.csv", weights_path="wave_weights.csv")
+except Exception as e:
+    st.error(f"Engine failed to initialize: {e}")
+    st.stop()
 
-with tabs[0]:
-    st.subheader("Wave Lineup")
+waves = engine.get_wave_names()
+if not waves:
+    st.error("No Waves detected in wave_weights.csv.")
+    st.stop()
 
-    st.dataframe(
-        wave_list.rename(
-            columns={
-                "wave": "Wave",
-                "category": "Category",
-                "benchmark": "Benchmark",
-            }
-        ),
-        use_container_width=True,
-    )
+# Sidebar
+st.sidebar.header("Wave Selector")
+selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
 
-    st.markdown("---")
-    st.subheader("Top 10 Holdings per Wave")
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Files in use:**")
+st.sidebar.code("list.csv\nwave_weights.csv", language="text")
 
-    selected_wave = st.selectbox(
-        "Select Wave to view holdings",
-        options=["All Waves"] + sorted(wave_list["wave"].tolist()),
-        index=0,
-    )
+# ----------------------------------------------------------------------
+# Main layout
+# ----------------------------------------------------------------------
+col_perf, col_holdings = st.columns([2.0, 1.4])
 
-    holdings_df = top_holdings.copy()
-    # Convert weights to % for nicer display
-    holdings_df["Weight_%"] = (holdings_df["Weight"] * 100.0).round(2)
+# ---------------- Performance Panel ----------------
+with col_perf:
+    st.subheader(f"{selected_wave} — Performance")
 
-    if selected_wave != "All Waves":
-        holdings_df = holdings_df[holdings_df["Wave"] == selected_wave]
+    try:
+        perf = engine.get_wave_performance(selected_wave, days=30, log=True)
+    except Exception as e:
+        st.error(f"Could not compute performance for {selected_wave}: {e}")
+        perf = None
 
-    st.dataframe(
-        holdings_df[["Wave", "Ticker", "Weight_%", "Google_Finance_URL"]],
-        use_container_width=True,
-    )
-
-# ---------------------------------------------------------------------
-# Tab 2 – Alpha Capture
-# ---------------------------------------------------------------------
-
-def _format_alpha_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    for col in [
-        "Alpha_1d",
-        "Alpha_30d",
-        "Alpha_60d",
-        "Alpha_1y",
-        "Return_1d",
-        "Return_30d",
-        "Return_60d",
-        "Return_1y",
-    ]:
-        if col in df.columns:
-            df[col] = (df[col] * 100.0).round(2)
-    return df
-
-
-with tabs[1]:
-    st.subheader("Alpha Capture Matrix")
-
-    mode = st.radio(
-        "Mode",
-        ["Standard", "Alpha-Minus-Beta", "Private Logic"],
-        horizontal=True,
-    )
-
-    df_mode = alpha_capture.get(mode, pd.DataFrame())
-    if df_mode.empty:
-        st.warning("No alpha data available for this mode.")
-    else:
-        df_display = _format_alpha_df(df_mode)
-        # Reorder columns for readability
-        col_order = [
-            "Wave",
-            "Category",
-            "Benchmark",
-            "Alpha_1d",
-            "Alpha_30d",
-            "Alpha_60d",
-            "Alpha_1y",
-            "Return_1d",
-            "Return_30d",
-            "Return_60d",
-            "Return_1y",
-        ]
-        df_display = df_display[[c for c in col_order if c in df_display.columns]]
-
-        st.dataframe(df_display, use_container_width=True)
-
-# ---------------------------------------------------------------------
-# Tab 3 – WaveScore (simple placeholder based on alpha)
-# ---------------------------------------------------------------------
-
-with tabs[2]:
-    st.subheader("WaveScore™ – Prototype")
-
-    # Use Standard mode as base scoring input
-    base = alpha_capture.get("Standard", pd.DataFrame()).copy()
-    if base.empty:
-        st.info("WaveScore prototype requires Standard alpha data.")
-    else:
-        df = base.copy()
-
-        # Simple prototype: focus on 1y alpha & 60d alpha
-        for col in ["Alpha_60d", "Alpha_1y"]:
-            if col not in df.columns:
-                df[col] = np.nan
-
-        # Raw numeric scores (0–100 scaled by alpha)
-        df["WaveScore"] = (
-            (df["Alpha_1y"].fillna(0) * 100.0)
-            + (df["Alpha_60d"].fillna(0) * 50.0)
+    if perf is not None:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(
+            "Intraday Return",
+            f"{perf['intraday_return'] * 100:0.2f}%",
+        )
+        c2.metric(
+            "Intraday Alpha",
+            f"{perf['intraday_alpha'] * 100:0.2f}%",
+        )
+        c3.metric(
+            "30-Day Return",
+            f"{perf['return_30d'] * 100:0.2f}%",
+        )
+        c4.metric(
+            "30-Day Alpha",
+            f"{perf['alpha_30d'] * 100:0.2f}%",
         )
 
-        # Normalize to 0–100 band
-        if df["WaveScore"].abs().max() > 0:
-            max_abs = df["WaveScore"].abs().max()
-            df["WaveScore"] = 50 + 50 * (df["WaveScore"] / max_abs)
+        st.markdown("### Wave vs Benchmark — 30-Day Curve")
+        history = perf["history"]
+        # Only intraday + 30-day; no 60-day / 1-year as requested
+        chart_data = history[["wave_value", "benchmark_value"]]
+        st.line_chart(chart_data)
 
-        df["WaveScore"] = df["WaveScore"].clip(0, 100).round(1)
+# ---------------- Holdings Panel ----------------
+with col_holdings:
+    st.subheader(f"{selected_wave} — Top 10 Holdings")
 
-        df_display = df[["Wave", "Category", "Benchmark", "Alpha_60d", "Alpha_1y", "WaveScore"]].copy()
-        df_display["Alpha_60d"] = (df_display["Alpha_60d"] * 100.0).round(2)
-        df_display["Alpha_1y"] = (df_display["Alpha_1y"] * 100.0).round(2)
+    try:
+        top10 = engine.get_top_holdings(selected_wave, n=10)
+    except Exception as e:
+        st.error(f"Could not load holdings for {selected_wave}: {e}")
+        top10 = None
+
+    if top10 is not None and not top10.empty:
+        # Build Google Finance URLs (simple default: NASDAQ; edit if needed)
+        def google_finance_url(ticker: str) -> str:
+            # You can adjust the suffix logic here if you want NYSE/other handling
+            return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
+
+        display_df = top10.copy()
+        if "company" not in display_df.columns:
+            display_df["company"] = ""
+
+        display_df = display_df[["ticker", "company", "weight"]].copy()
+        display_df["weight"] = display_df["weight"].round(4)
+        display_df["Google Finance"] = display_df["ticker"].apply(google_finance_url)
 
         st.dataframe(
-            df_display.sort_values("WaveScore", ascending=False).reset_index(drop=True),
+            display_df,
+            hide_index=True,
             use_container_width=True,
         )
+    else:
+        st.write("No holdings found for this Wave.")
 
-        st.caption(
-            "Prototype WaveScore™: scaled off 60-day and 1-year alpha. "
-            "Final spec is governed by locked WAVESCORE™ v1.0."
-        )
-
-# ---------------------------------------------------------------------
-# Tab 4 – System Status
-# ---------------------------------------------------------------------
-
-with tabs[3]:
-    st.subheader("System Status — Engine & Data Health")
-
-    st.success("waves_engine module loaded — engine AVAILABLE.")
-
-    st.markdown("### Engine")
-    st.json(system_status)
-
-    st.markdown("### Controls")
-
-    if st.button("Force hard refresh (clear cache & rerun)"):
-        try:
-            st.cache_data.clear()
-            st.cache_resource.clear()
-        except Exception:
-            pass
-        st.experimental_rerun()
-
-    st.markdown("---")
-    st.caption(
-        "This console is a live simulation using market data via yfinance. "
-        "Results are for research & demonstration only and do not represent "
-        "actual trading or investment performance."
-    )
+# ----------------------------------------------------------------------
+# Footer / Debug Info
+# ----------------------------------------------------------------------
+st.markdown("---")
+st.caption(
+    "Engine: WAVES Intelligence™ • list.csv = total market universe • "
+    "wave_weights.csv = Wave definitions • Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
+)
