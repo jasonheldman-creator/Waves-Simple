@@ -1,594 +1,477 @@
+"""
+waves_engine.py — Vector1 Stub Engine
+
+This file:
+- Defines per-wave strategy recipes
+- Implements a VIX ladder / risk-off overlay
+- Generates SANDBOX performance & positions logs for all Waves
+- Provides load_wave_weights() for compatibility with the app
+"""
+
 import os
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, date
+from typing import Dict, List, Tuple
 
+import numpy as np
 import pandas as pd
-from urllib.parse import quote_plus
 
-try:
-    import streamlit as st
-except Exception:  # for environments without Streamlit during linting
-    class _Dummy:
-        def __getattr__(self, name):
-            def f(*a, **k):
-                pass
-            return f
-    st = _Dummy()
+# ----------------- Paths -----------------
 
-# Try to import your engine (optional)
-try:
-    import waves_engine  # type: ignore
-    HAS_ENGINE = True
-except Exception:
-    waves_engine = None
-    HAS_ENGINE = False
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+LOGS_PERFORMANCE_DIR = os.path.join(LOGS_DIR, "performance")
+LOGS_POSITIONS_DIR = os.path.join(LOGS_DIR, "positions")
+LOGS_MARKET_DIR = os.path.join(LOGS_DIR, "market")
 
-APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector1"
-APP_SUBTITLE = "Adaptive Portfolio Waves™ • Alpha-Minus-Beta • Private Logic™ • SmartSafe™"
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
+os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
+os.makedirs(LOGS_MARKET_DIR, exist_ok=True)
 
-LOGS_POSITIONS_DIR = os.path.join("logs", "positions")
-LOGS_PERFORMANCE_DIR = os.path.join("logs", "performance")
-HUMAN_OVERRIDE_DIR = os.path.join("logs", "human_overrides")
+# ----------------- Wave lineup -----------------
 
-ALPHA_CAPTURE_CANDIDATES = [
-    os.path.join(LOGS_PERFORMANCE_DIR, "alpha_capture_matrix.csv"),
-    "alpha_capture_matrix.csv",
+EQUITY_WAVES: List[str] = [
+    "S&P 500 Wave",
+    "Growth Wave",
+    "Small Cap Growth Wave",
+    "Small to Mid Cap Growth Wave",
+    "Future Power & Energy Wave",
+    "Quantum Computing Wave",
+    "Clean Transit-Infrastructure Wave",
+    "AI Wave",
+    "Infinity Wave",
+    "International Developed Wave",
+    "Emerging Markets Wave",
 ]
 
-WAVESCORE_CANDIDATES = [
-    os.path.join(LOGS_PERFORMANCE_DIR, "wavescore_summary.csv"),
-    "wavescore_summary.csv",
-]
+# ----------------- Strategy recipes -----------------
 
-# Basic metadata (compact for mobile pasting)
-WAVE_METADATA: Dict[str, Dict[str, str]] = {
+STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
     "S&P 500 Wave": {
-        "category": "Core Equity",
-        "benchmark": "SPY",
-        "tagline": "Core S&P 500 exposure with adaptive overlays.",
+        "style": "Core Equity",
+        "universe": "S&P 500",
+        "target_beta": 1.00,
+        "alpha_mu_annual": 0.01,      # +1% alpha / yr
+        "alpha_sigma_annual": 0.04,   # mild tracking error
+        "turnover_annual_max": 0.30,
+        "max_drawdown_target": 0.20,
+        "notes": "Low-turnover core with mild tilts.",
     },
     "Growth Wave": {
-        "category": "Growth Equity",
-        "benchmark": "QQQ",
-        "tagline": "High-growth exposure tuned for volatility and drawdowns.",
+        "style": "US Growth",
+        "universe": "Large/Mid Growth",
+        "target_beta": 1.10,
+        "alpha_mu_annual": 0.03,
+        "alpha_sigma_annual": 0.10,
+        "turnover_annual_max": 0.80,
+        "max_drawdown_target": 0.30,
+        "notes": "High growth focus with volatility-aware sizing.",
+    },
+    "Small Cap Growth Wave": {
+        "style": "Small Cap Growth",
+        "universe": "US Small Growth",
+        "target_beta": 1.20,
+        "alpha_mu_annual": 0.04,
+        "alpha_sigma_annual": 0.14,
+        "turnover_annual_max": 1.20,
+        "max_drawdown_target": 0.35,
+        "notes": "Higher-octane small-cap alpha with strict brakes.",
+    },
+    "Small to Mid Cap Growth Wave": {
+        "style": "SMID Growth",
+        "universe": "US Small+Mid",
+        "target_beta": 1.10,
+        "alpha_mu_annual": 0.03,
+        "alpha_sigma_annual": 0.11,
+        "turnover_annual_max": 0.90,
+        "max_drawdown_target": 0.32,
+        "notes": "Blends small and mid cap for smoother growth ride.",
+    },
+    "Future Power & Energy Wave": {
+        "style": "Thematic Energy",
+        "universe": "Energy + Renewables",
+        "target_beta": 1.15,
+        "alpha_mu_annual": 0.04,
+        "alpha_sigma_annual": 0.12,
+        "turnover_annual_max": 1.00,
+        "max_drawdown_target": 0.35,
+        "notes": "Energy transition, infra, and power grid plays.",
     },
     "Quantum Computing Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "QQQ",
-        "tagline": "Quantum, AI, and deep-tech acceleration.",
+        "style": "Deep-Tech / Quantum",
+        "universe": "AI + Semi + Quantum",
+        "target_beta": 1.25,
+        "alpha_mu_annual": 0.05,
+        "alpha_sigma_annual": 0.18,
+        "turnover_annual_max": 1.50,
+        "max_drawdown_target": 0.40,
+        "notes": "Concentrated deep-tech themes with risk brakes.",
     },
     "Clean Transit-Infrastructure Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "IDEV",
-        "tagline": "Clean transit, infrastructure and mobility.",
+        "style": "Clean Transit & Infra",
+        "universe": "EVs, rail, infra",
+        "target_beta": 1.10,
+        "alpha_mu_annual": 0.04,
+        "alpha_sigma_annual": 0.13,
+        "turnover_annual_max": 1.00,
+        "max_drawdown_target": 0.35,
+        "notes": "Mobility + infrastructure with quality bias.",
     },
-    "Income Wave": {
-        "category": "Income / Fixed Income",
-        "benchmark": "AGG",
-        "tagline": "Income-oriented engine with downside awareness.",
+    "AI Wave": {
+        "style": "AI Flagship",
+        "universe": "AI leaders + stack",
+        "target_beta": 1.20,
+        "alpha_mu_annual": 0.05,
+        "alpha_sigma_annual": 0.16,
+        "turnover_annual_max": 1.40,
+        "max_drawdown_target": 0.38,
+        "notes": "AI infrastructure and applications, concentrated.",
     },
-    "SmartSafe Wave": {
-        "category": "SmartSafe™ Stable",
-        "benchmark": "BIL",
-        "tagline": "SmartSafe™ cash-equivalent Wave with 3-mode structure.",
+    "Infinity Wave": {
+        "style": "Multi-Theme Flagship",
+        "universe": "Cross-asset AI/Tech/Growth",
+        "target_beta": 1.05,
+        "alpha_mu_annual": 0.04,
+        "alpha_sigma_annual": 0.10,
+        "turnover_annual_max": 1.20,
+        "max_drawdown_target": 0.30,
+        "notes": "Adaptive multi-theme flagship (Tesla Roadster Wave).",
+    },
+    "International Developed Wave": {
+        "style": "Intl Developed",
+        "universe": "DM ex-US",
+        "target_beta": 0.95,
+        "alpha_mu_annual": 0.02,
+        "alpha_sigma_annual": 0.08,
+        "turnover_annual_max": 0.80,
+        "max_drawdown_target": 0.28,
+        "notes": "DM ex-US with currency and macro overlays.",
+    },
+    "Emerging Markets Wave": {
+        "style": "Emerging Markets",
+        "universe": "EM Equity",
+        "target_beta": 1.10,
+        "alpha_mu_annual": 0.03,
+        "alpha_sigma_annual": 0.14,
+        "turnover_annual_max": 1.00,
+        "max_drawdown_target": 0.35,
+        "notes": "EM growth with downside controls and FX awareness.",
     },
 }
 
-# Alternate legacy names used in logs
-ALT_WAVE_NAMES: Dict[str, List[str]] = {
-    "Clean Transit-Infrastructure Wave": [
-        "Clean Transit & Infrastructure Wave",
-        "Clean Transit Infrastructure Wave",
-        "Clean Transit & Infra Wave",
-    ],
-    # Add more aliases here if any other wave names were changed
-}
 
-# ---------- Path helpers ----------
-
-def ensure_dirs() -> None:
-    os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
-    os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
-    os.makedirs(HUMAN_OVERRIDE_DIR, exist_ok=True)
-
-
-def safe_wave_to_file_prefix(wave_name: str) -> str:
-    return wave_name.replace(" ", "_")
+def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
+    """Return strategy config for this wave with safe defaults."""
+    default = {
+        "style": "Generic Equity",
+        "universe": "Global",
+        "target_beta": 1.0,
+        "alpha_mu_annual": 0.03,
+        "alpha_sigma_annual": 0.10,
+        "turnover_annual_max": 1.0,
+        "max_drawdown_target": 0.30,
+        "notes": "",
+    }
+    cfg = STRATEGY_RECIPES.get(wave_name, {})
+    merged = default.copy()
+    merged.update(cfg)
+    return merged
 
 
-def iter_possible_prefixes(canonical_wave: str) -> List[str]:
+# ----------------- VIX ladder -----------------
+
+def _simulate_vix_path(dates: pd.DatetimeIndex) -> np.ndarray:
+    """Fallback VIX simulation if no real history is present."""
+    n = len(dates)
+    vix = []
+    level = 18.0
+    for _ in range(n):
+        level = max(10.0, min(50.0, level + np.random.normal(0, 1)))
+        vix.append(level)
+    return np.array(vix)
+
+
+def load_or_generate_vix(dates: pd.DatetimeIndex) -> np.ndarray:
     """
-    For a given Wave name, generate all possible filename prefixes
-    based on current + legacy names.
+    Try to load VIX from logs/market/vix_history.csv, otherwise simulate.
+    If we simulate, we also write it to the CSV for consistency.
     """
-    names = [canonical_wave]
-    names.extend(ALT_WAVE_NAMES.get(canonical_wave, []))
-    prefixes: List[str] = []
-    seen = set()
-    for name in names:
-        if name not in seen:
-            seen.add(name)
-            prefixes.append(safe_wave_to_file_prefix(name))
-    return prefixes
+    path = os.path.join(LOGS_MARKET_DIR, "vix_history.csv")
+    n = len(dates)
 
-
-def performance_path_for_wave(wave: str) -> Optional[str]:
-    """
-    Find a performance CSV for this Wave, trying canonical and legacy prefixes.
-    """
-    if not os.path.isdir(LOGS_PERFORMANCE_DIR):
-        return None
-    for prefix in iter_possible_prefixes(wave):
-        direct = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
-        if os.path.exists(direct):
-            return direct
-        for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-            if fname.endswith(".csv") and "_performance" in fname and fname.startswith(prefix):
-                return os.path.join(LOGS_PERFORMANCE_DIR, fname)
-    return None
-
-
-def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
-    base = os.path.basename(fname)
-    stem = base.replace(".csv", "")
-    parts = stem.split("_")
-    if not parts:
-        return None
-    candidate = parts[-1]
-    if len(candidate) == 8 and candidate.isdigit():
+    if os.path.exists(path):
         try:
-            return datetime.strptime(candidate, "%Y%m%d")
-        except Exception:
-            return None
-    return None
-
-
-def latest_positions_path_for_wave(wave: str) -> Optional[str]:
-    """
-    Find the latest positions CSV for this Wave, trying canonical and legacy prefixes.
-    """
-    if not os.path.isdir(LOGS_POSITIONS_DIR):
-        return None
-    candidates: List[Tuple[datetime, str]] = []
-    for prefix in iter_possible_prefixes(wave):
-        for fname in os.listdir(LOGS_POSITIONS_DIR):
-            if fname.endswith(".csv") and "_positions_" in fname and fname.startswith(prefix):
-                dt = parse_date_from_positions_filename(fname)
-                if dt is not None:
-                    candidates.append((dt, fname))
-    if not candidates:
-        return None
-    latest = max(candidates, key=lambda x: x[0])[1]
-    return os.path.join(LOGS_POSITIONS_DIR, latest)
-
-
-# ---------- Data loaders ----------
-
-def get_available_waves() -> List[str]:
-    waves: set[str] = set()
-
-    # From performance logs
-    if os.path.isdir(LOGS_PERFORMANCE_DIR):
-        for fname in os.listdir(LOGS_PERFORMANCE_DIR):
-            if fname.endswith(".csv") and "_performance" in fname:
-                base = fname.replace(".csv", "")
-                wave_part = base.split("_performance")[0]
-                waves.add(wave_part.replace("_", " ").strip())
-
-    # Fallback to weights via engine
-    if not waves and HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
-        try:
-            weights_df = waves_engine.load_wave_weights()  # type: ignore
-            if weights_df is not None and not weights_df.empty:
-                cols = {c.lower(): c for c in weights_df.columns}
-                wave_col = cols.get("wave")
-                if wave_col:
-                    waves.update(weights_df[wave_col].dropna().astype(str).unique().tolist())
+            vdf = pd.read_csv(path)
+            if "date" in vdf.columns and "vix" in vdf.columns:
+                vdf["date"] = pd.to_datetime(vdf["date"]).dt.normalize()
+                idx = pd.Index(dates.normalize(), name="date")
+                merged = (
+                    pd.DataFrame({"date": idx})
+                    .merge(vdf[["date", "vix"]], on="date", how="left")
+                    .ffill()
+                    .bfill()
+                )
+                if merged["vix"].notna().any():
+                    return merged["vix"].to_numpy()
         except Exception:
             pass
 
-    # Last resort: metadata keys
-    if not waves:
-        waves.update(WAVE_METADATA.keys())
+    # If not found or invalid, simulate and persist
+    vix = _simulate_vix_path(dates)
+    vdf_new = pd.DataFrame({"date": dates.normalize(), "vix": vix})
+    vdf_new.to_csv(path, index=False)
+    return vix
 
-    return sorted(waves)
+
+def apply_vix_ladder_to_returns(
+    bench_mu: float,
+    bench_sigma: float,
+    alpha_mu: float,
+    alpha_sigma: float,
+    dates: pd.DatetimeIndex,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
+    """
+    Generate daily returns for benchmark and alpha component
+    scaled by a simple VIX ladder:
+      < 18  -> Risk-On   (slightly higher alpha, normal beta)
+      18-25 -> Neutral
+      > 25  -> Risk-Off  (lower exposure, lower alpha, lower vol)
+    """
+    n = len(dates)
+    vix = load_or_generate_vix(dates)
+
+    risk_mult_alpha = np.ones(n)
+    risk_mult_beta = np.ones(n)
+    regime: List[str] = []
+
+    for i, v in enumerate(vix):
+        if v < 18:
+            risk_mult_alpha[i] = 1.10
+            risk_mult_beta[i] = 1.00
+            regime.append("Risk-On")
+        elif v <= 25:
+            risk_mult_alpha[i] = 1.00
+            risk_mult_beta[i] = 1.00
+            regime.append("Neutral")
+        else:
+            risk_mult_alpha[i] = 0.70
+            risk_mult_beta[i] = 0.80
+            regime.append("Risk-Off")
+
+    bench_ret = np.random.normal(
+        bench_mu * risk_mult_beta,
+        bench_sigma * np.abs(risk_mult_beta),
+        size=n,
+    )
+    alpha_noise = np.random.normal(
+        alpha_mu * risk_mult_alpha,
+        alpha_sigma * np.abs(risk_mult_alpha),
+        size=n,
+    )
+    wave_ret = bench_ret + alpha_noise
+
+    return bench_ret, wave_ret, vix, regime
 
 
-def load_performance_history(wave: str) -> Optional[pd.DataFrame]:
-    path = performance_path_for_wave(wave)
-    if path is None or not os.path.exists(path):
-        return None
-    df = pd.read_csv(path)
-    if "date" in df.columns:
-        try:
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.sort_values("date")
-        except Exception:
-            pass
+# ----------------- Performance simulation -----------------
+
+def simulate_wave_path_with_recipe(
+    wave_name: str,
+    days: int = 260,
+) -> pd.DataFrame:
+    """
+    Generate a SANDBOX performance path for one Wave using:
+      - its strategy recipe
+      - VIX ladder overlay
+    """
+    end_date: date = datetime.today().date()
+    dates = pd.bdate_range(end=end_date, periods=days)
+    n = len(dates)
+
+    cfg = get_strategy_recipe(wave_name)
+
+    # Benchmark process (generic equity index)
+    bench_mu_annual = 0.08        # 8%/year
+    bench_sigma_annual = 0.15     # 15%/year
+
+    bench_mu = bench_mu_annual / 252.0
+    bench_sigma = bench_sigma_annual / np.sqrt(252.0)
+
+    alpha_mu = cfg["alpha_mu_annual"] / 252.0
+    alpha_sigma = cfg["alpha_sigma_annual"] / np.sqrt(252.0)
+
+    bench_ret, wave_ret, vix, regime = apply_vix_ladder_to_returns(
+        bench_mu, bench_sigma, alpha_mu, alpha_sigma, dates
+    )
+
+    bench_nav = 100 * (1 + bench_ret).cumprod()
+    wave_nav = 100 * (1 + wave_ret).cumprod()
+
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "nav": wave_nav,
+            "return_1d": wave_ret,
+            "bench_nav": bench_nav,
+            "bench_return_1d": bench_ret,
+            "vix": vix,
+            "risk_regime": regime,
+        }
+    )
+
+    # Horizon returns / alpha
+    df["return_30d"] = np.nan
+    df["return_60d"] = np.nan
+    df["return_252d"] = np.nan
+    df["bench_return_30d"] = np.nan
+    df["bench_return_60d"] = np.nan
+    df["bench_return_252d"] = np.nan
+
+    for i in range(n):
+        if i >= 21:
+            df.loc[df.index[i], "return_30d"] = wave_nav[i] / wave_nav[i - 21] - 1.0
+            df.loc[df.index[i], "bench_return_30d"] = (
+                bench_nav[i] / bench_nav[i - 21] - 1.0
+            )
+        if i >= 42:
+            df.loc[df.index[i], "return_60d"] = wave_nav[i] / wave_nav[i - 42] - 1.0
+            df.loc[df.index[i], "bench_return_60d"] = (
+                bench_nav[i] / bench_nav[i - 42] - 1.0
+            )
+        if i >= 252:
+            df.loc[df.index[i], "return_252d"] = wave_nav[i] / wave_nav[i - 252] - 1.0
+            df.loc[df.index[i], "bench_return_252d"] = (
+                bench_nav[i] / bench_nav[i - 252] - 1.0
+            )
+
+    df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
+    df["alpha_30d"] = df["return_30d"] - df["bench_return_30d"]
+    df["alpha_60d"] = df["return_60d"] - df["bench_return_60d"]
+    df["alpha_1y"] = df["return_252d"] - df["bench_return_252d"]
+
+    df["wave"] = wave_name
+    df["regime"] = "SANDBOX"
     return df
 
 
-def load_latest_positions(wave: str) -> Optional[pd.DataFrame]:
-    path = latest_positions_path_for_wave(wave)
-    if path is None or not os.path.exists(path):
-        return None
-    return pd.read_csv(path)
+# ----------------- Positions simulation -----------------
 
-
-def load_alpha_capture_matrix() -> Optional[pd.DataFrame]:
-    for path in ALPHA_CAPTURE_CANDIDATES:
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path)
-                if not df.empty:
-                    return df
-            except Exception:
-                continue
-    return None
-
-
-def load_wavescore_summary() -> Optional[pd.DataFrame]:
-    for path in WAVESCORE_CANDIDATES:
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path)
-                if not df.empty:
-                    return df
-            except Exception:
-                continue
-    return None
-
-
-def load_human_overrides() -> Optional[pd.DataFrame]:
-    """
-    Optional human override view.
-
-    Expected file (if used): logs/human_overrides/overrides.csv
-    or logs/human_overrides/human_overrides.csv
-    """
-    candidates = [
-        os.path.join(HUMAN_OVERRIDE_DIR, "overrides.csv"),
-        os.path.join(HUMAN_OVERRIDE_DIR, "human_overrides.csv"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path)
-                if not df.empty:
-                    return df
-            except Exception:
-                continue
-    return None
-
-
-# ---------- Google Finance links & metrics ----------
-
-def google_quote_url(ticker: str) -> str:
-    if not isinstance(ticker, str):
-        return "https://www.google.com/finance"
-    clean = ticker.strip().upper()
-    if not clean:
-        return "https://www.google.com/finance"
-    return f"https://www.google.com/finance?q={quote_plus(clean)}"
-
-
-def render_top10_holdings(holdings_df: Optional[pd.DataFrame], wave_name: str) -> None:
-    if holdings_df is None or holdings_df.empty:
-        st.info(f"No holdings available for {wave_name}.")
-        return
-
-    df = holdings_df.copy()
-    cols = {c.lower(): c for c in df.columns}
-    ticker_col = cols.get("ticker")
-    name_col = cols.get("name") or cols.get("security") or cols.get("company")
-    weight_col = cols.get("weight") or cols.get("portfolio_weight") or cols.get("weight_%")
-
-    if ticker_col is None or weight_col is None:
-        st.warning(f"Cannot render Top 10 for {wave_name} (missing Ticker/Weight columns).")
-        return
-
-    df[ticker_col] = df[ticker_col].astype(str).str.strip().str.upper()
-    try:
-        df[weight_col] = df[weight_col].astype(float)
-    except Exception:
-        pass
-
-    df = df.sort_values(weight_col, ascending=False).head(10)
-    df["Google Quote"] = df[ticker_col].apply(lambda t: f"[{t}]({google_quote_url(t)})")
-
-    display_cols: List[str] = ["Google Quote"]
-    if name_col:
-        display_cols.append(name_col)
-    display_cols.append(weight_col)
-
-    display_df = df[display_cols].rename(columns={
-        name_col: "Name" if name_col else name_col,
-        weight_col: "Weight",
-    })
-
-    st.subheader(f"Top 10 Holdings — {wave_name}")
-    st.markdown(display_df.to_markdown(index=False), unsafe_allow_html=True)
-
-
-def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
-    metrics: Dict[str, Optional[float]] = {
-        "intraday_return": None,
-        "return_30d": None,
-        "return_60d": None,
-        "alpha_30d": None,
-    }
-
-    if perf_df is None or perf_df.empty:
-        return metrics
-
-    last = perf_df.iloc[-1]
-
-    def pull(cands: List[str]) -> Optional[float]:
-        for c in cands:
-            if c in perf_df.columns:
-                try:
-                    return float(last[c])
-                except Exception:
-                    continue
-        return None
-
-    metrics["intraday_return"] = pull(["return_1d", "intraday_return", "daily_return", "r_1d"])
-    metrics["return_30d"] = pull(["return_30d", "r_30d", "total_return_30d"])
-    metrics["return_60d"] = pull(["return_60d", "r_60d", "total_return_60d"])
-    metrics["alpha_30d"] = pull(["alpha_30d", "alpha30", "alpha_1m", "alpha_30"])
-
-    return metrics
-
-
-def format_pct(x: Optional[float]) -> str:
-    if x is None:
-        return "N/A"
-    try:
-        return f"{x * 100:.2f}%"
-    except Exception:
-        return "N/A"
-
-
-def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
-    records = []
-    for wave in waves:
-        perf_df = load_performance_history(wave)
-        m = compute_summary_metrics(perf_df)
-        meta = WAVE_METADATA.get(wave, {})
-        records.append({
-            "Wave": wave,
-            "Category": meta.get("category", ""),
-            "Benchmark": meta.get("benchmark", ""),
-            "Intraday": m["intraday_return"],
-            "30d Return": m["return_30d"],
-            "60d Return": m["return_60d"],
-            "30d Alpha": m["alpha_30d"],
-        })
-    return pd.DataFrame(records)
-
-
-# ---------- Tabs ----------
-
-def render_wavescore_tab() -> None:
-    st.subheader("WAVESCORE™ v1.0 — Wave Quality Dashboard")
-    df = load_wavescore_summary()
-    if df is None or df.empty:
-        st.info("WaveScore summary file not found yet.")
-        return
-    st.dataframe(df, use_container_width=True)
-
-
-def render_alpha_capture_tab() -> None:
-    st.subheader("Alpha Capture Matrix")
-    df = load_alpha_capture_matrix()
-    if df is None or df.empty:
-        st.info("Alpha Capture Matrix not yet generated.")
-        return
-    st.dataframe(df, use_container_width=True)
-
-
-def render_human_override_tab(selected_wave: str) -> None:
-    st.subheader("Human Override — View Only")
-
-    df = load_human_overrides()
-    if df is None or df.empty:
-        st.info(
-            "No human overrides found. If overrides are used, they will be read from "
-            "`logs/human_overrides/overrides.csv`."
-        )
-        return
-
-    st.markdown("#### All Overrides")
-    st.dataframe(df, use_container_width=True)
-
-    cols = {c.lower(): c for c in df.columns}
-    wave_col = cols.get("wave")
-    if wave_col:
-        st.markdown(f"#### Overrides for {selected_wave}")
-        this_wave_df = df[df[wave_col] == selected_wave]
-        if not this_wave_df.empty:
-            st.dataframe(this_wave_df, use_container_width=True)
-        else:
-            st.info(f"No overrides currently filed for {selected_wave}.")
-
-
-def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
-    if path is None or not os.path.exists(path):
-        return None
-    try:
-        ts = os.path.getmtime(path)
-        return datetime.fromtimestamp(ts)
-    except Exception:
-        return None
-
-
-def render_system_status_tab(waves: List[str]) -> None:
-    st.subheader("System Status — Engine & Data Health")
-
-    engine_col, logs_col = st.columns(2)
-
-    with engine_col:
-        st.markdown("#### Engine")
-        if HAS_ENGINE:
-            st.success("waves_engine module detected.")
-        else:
-            st.error("waves_engine module NOT found.")
-
-        st.markdown("#### Directories")
-        st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
-        st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
-        st.write(f"Human Overrides: `{HUMAN_OVERRIDE_DIR}`")
-
-    with logs_col:
-        st.markdown("#### Latest Updates per Wave")
-        rows = []
-        for wave in waves:
-            perf_path = performance_path_for_wave(wave)
-            pos_path = latest_positions_path_for_wave(wave)
-            rows.append({
-                "Wave": wave,
-                "Last Perf Update": get_last_update_time(perf_path),
-                "Last Positions Update": get_last_update_time(pos_path),
-            })
-        if rows:
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("No updates found yet.")
-
-    st.markdown("---")
-    st.markdown("#### Files Present in /logs")
-    present_files = []
-    for root, _, files in os.walk("logs"):
-        for f in files:
-            if f.endswith(".csv"):
-                full_path = os.path.join(root, f)
-                present_files.append({
-                    "File": full_path,
-                    "Last Modified": get_last_update_time(full_path),
-                })
-    if present_files:
-        df_files = pd.DataFrame(present_files)
-        st.dataframe(df_files, use_container_width=True)
+def _sample_tickers_for_wave(wave: str) -> List[str]:
+    """Simple universe definition for each wave."""
+    if wave == "Clean Transit-Infrastructure Wave":
+        return ["TSLA", "NIO", "RIVN", "CHPT", "BLNK", "F", "GM", "CAT", "DE", "UNP"]
+    elif wave == "Quantum Computing Wave":
+        return ["NVDA", "AMD", "IBM", "QCOM", "AVGO", "TSM", "MSFT", "GOOGL"]
+    elif wave == "S&P 500 Wave":
+        return ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "BRK.B", "JPM", "JNJ", "XOM", "PG"]
+    elif wave == "AI Wave":
+        return ["NVDA", "MSFT", "GOOGL", "META", "AVGO", "CRM", "SNOW", "ADBE"]
+    elif wave == "Future Power & Energy Wave":
+        return ["NEE", "ENPH", "FSLR", "XOM", "CVX", "PLUG", "SEDG"]
+    elif wave == "Infinity Wave":
+        return ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "GOOGL", "META", "AVGO"]
+    elif wave == "International Developed Wave":
+        return ["NOVO-B.CO", "NESN.SW", "ASML", "SONY", "BP", "BHP", "RIO"]
+    elif wave == "Emerging Markets Wave":
+        return ["TSM", "BABA", "PDD", "INFY", "VALE", "PBR", "MELI"]
     else:
-        st.info("No log CSV files detected in /logs.")
+        return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
 
 
-# ---------- Main app ----------
+def simulate_positions_for_wave(wave: str) -> pd.DataFrame:
+    """
+    Generate a static positions snapshot for a Wave.
+    The app will show the top-10 from this.
+    """
+    tickers = _sample_tickers_for_wave(wave)
+    n = len(tickers)
+    raw = np.abs(np.random.rand(n))
+    weights = raw / raw.sum()
 
-def main() -> None:
-    ensure_dirs()
-
-    st.title(APP_TITLE)
-    st.caption(APP_SUBTITLE)
-
-    waves = get_available_waves()
-    if not waves:
-        st.error("No Waves discovered yet.")
-        return
-
-    st.sidebar.header("Wave & Mode")
-    selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
-
-    mode = st.sidebar.radio(
-        "Mode",
-        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-        index=0,
+    df = pd.DataFrame(
+        {
+            "wave": [wave] * n,
+            "ticker": tickers,
+            "name": tickers,
+            "weight": weights,
+        }
     )
+    return df
 
-    st.sidebar.markdown("---")
 
-    if HAS_ENGINE and hasattr(waves_engine, "run_all_waves"):
-        if st.sidebar.button("Run Engine for ALL Waves (Manual Kick)"):
-            try:
-                waves_engine.run_all_waves(mode=mode, debug=True)  # type: ignore
-                st.sidebar.success("Engine run triggered successfully.")
-            except Exception as e:
-                st.sidebar.error(f"Error running engine: {e}")
-    else:
-        st.sidebar.info("Engine module not loaded or run_all_waves() not available here.")
+# ----------------- Log writers -----------------
 
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"Active Wave: **{selected_wave}**")
-    if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
-        st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
+def write_performance_log(df: pd.DataFrame, wave_name: str) -> str:
+    prefix = wave_name.replace(" ", "_")
+    path = os.path.join(
+        LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv"
+    )
+    df.to_csv(path, index=False)
+    return path
 
-    # Load data (may be empty if engine never ran for this wave)
-    perf_df = load_performance_history(selected_wave)
-    positions_df = load_latest_positions(selected_wave)
 
-    # Auto-kick engine ONCE if there is no data for this wave
-    if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
+def write_positions_log(df: pd.DataFrame, wave_name: str) -> str:
+    today_str = datetime.today().strftime("%Y%m%d")
+    prefix = wave_name.replace(" ", "_")
+    path = os.path.join(
+        LOGS_POSITIONS_DIR, f"{prefix}_positions_{today_str}.csv"
+    )
+    df.to_csv(path, index=False)
+    return path
+
+
+# ----------------- Public API -----------------
+
+def load_wave_weights() -> pd.DataFrame:
+    """
+    For compatibility with the app.
+    If wave_weights.csv exists, load it.
+    Otherwise, synthesize a minimal one listing the Waves and equal weights.
+    """
+    candidate = os.path.join(ROOT_DIR, "wave_weights.csv")
+    if os.path.exists(candidate):
         try:
-            waves_engine.run_wave(selected_wave)  # type: ignore
-            st.sidebar.success(f"Engine auto-run for {selected_wave}.")
-            perf_df = load_performance_history(selected_wave)
-            positions_df = load_latest_positions(selected_wave)
-        except Exception as e:
-            st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
+            df = pd.read_csv(candidate)
+            if not df.empty:
+                return df
+        except Exception:
+            pass
 
-    metrics = compute_summary_metrics(perf_df)
-
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
-        st.subheader(f"{selected_wave} — Overview")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Intraday Return", format_pct(metrics["intraday_return"]))
-        m2.metric("30-Day Return", format_pct(metrics["return_30d"]))
-        m3.metric("60-Day Return", format_pct(metrics["return_60d"]))
-        m4.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
-
-        if perf_df is not None and not perf_df.empty and "date" in perf_df.columns:
-            chart_cols = [c for c in ["return_30d", "return_60d", "alpha_30d"] if c in perf_df.columns]
-            if chart_cols:
-                chart_data = perf_df.set_index("date")[chart_cols]
-                st.line_chart(chart_data)
-
-    with col_right:
-        render_top10_holdings(positions_df, selected_wave)
-
-    st.markdown("---")
-
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Wave Details", "Alpha Capture", "WaveScore", "Human Override", "System Status", "All Waves Snapshot"]
+    # Fallback synthetic weights
+    df = pd.DataFrame(
+        {
+            "wave": EQUITY_WAVES,
+            "weight": [1.0 / len(EQUITY_WAVES)] * len(EQUITY_WAVES),
+        }
     )
+    return df
 
-    with tab1:
-        st.subheader(f"{selected_wave} — Detailed Positions")
-        if positions_df is not None and not positions_df.empty:
-            st.dataframe(positions_df, use_container_width=True)
-        else:
-            st.info("No detailed positions available.")
-        st.markdown("### Raw Performance History")
-        if perf_df is not None and not perf_df.empty:
-            st.dataframe(perf_df, use_container_width=True)
-        else:
-            st.info("No performance history yet.")
 
-    with tab2:
-        render_alpha_capture_tab()
+def run_wave_update(wave_name: str, days: int = 260) -> Tuple[str, str]:
+    """
+    Generate SANDBOX performance + positions logs for a single Wave.
+    Returns (performance_log_path, positions_log_path).
+    """
+    perf_df = simulate_wave_path_with_recipe(wave_name, days=days)
+    pos_df = simulate_positions_for_wave(wave_name)
 
-    with tab3:
-        render_wavescore_tab()
+    perf_path = write_performance_log(perf_df, wave_name)
+    pos_path = write_positions_log(pos_df, wave_name)
+    return perf_path, pos_path
 
-    with tab4:
-        render_human_override_tab(selected_wave)
 
-    with tab5:
-        render_system_status_tab(waves)
+def run_all_waves(days: int = 260) -> None:
+    """Generate logs for all EQUITY_WAVES."""
+    for w in EQUITY_WAVES:
+        perf_path, pos_path = run_wave_update(w, days=days)
+        print(f"[waves_engine] Updated {w}")
+        print(f"  Performance: {perf_path}")
+        print(f"  Positions:   {pos_path}")
 
-    with tab6:
-        st.subheader("All Waves — Snapshot")
-        snapshot_df = compute_multi_wave_snapshot(waves)
-        if not snapshot_df.empty:
-            display_df = snapshot_df.copy()
-            for c in ["Intraday", "30d Return", "60d Return", "30d Alpha"]:
-                display_df[c] = display_df[c].apply(format_pct)
-            st.dataframe(display_df, use_container_width=True)
-        else:
-            st.info("No data available yet for multi-Wave snapshot.")
 
+# ----------------- Script entry -----------------
 
 if __name__ == "__main__":
-    main()
+    print("Running WAVES stub engine (Vector1 SANDBOX)...")
+    run_all_waves(days=260)
+    print("Done.")
