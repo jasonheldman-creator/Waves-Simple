@@ -27,6 +27,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+# Engine version tracking
+ENGINE_VERSION = "1.5.0"
+ENGINE_LAST_UPDATED = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
 # Optional deps: requests + yfinance
 try:
     import requests
@@ -817,6 +821,8 @@ def get_engine_status() -> Dict[str, str]:
     Lightweight engine status summary for the console.
     """
     status: Dict[str, str] = {}
+    status["engine_version"] = ENGINE_VERSION
+    status["engine_updated"] = ENGINE_LAST_UPDATED
     status["positions_dir_exists"] = str(LOG_POSITIONS_DIR.exists())
     status["performance_dir_exists"] = str(LOG_PERFORMANCE_DIR.exists())
     status["positions_csv_count"] = str(len(glob.glob(str(LOG_POSITIONS_DIR / "*.csv"))))
@@ -833,8 +839,19 @@ def get_engine_status() -> Dict[str, str]:
         status["vix_latest"] = f"{float(vix_hist.iloc[-1]):.2f}"
     return status
 
+def get_engine_version_info() -> Dict[str, str]:
+    """
+    Get engine version information.
+    """
+    return {
+        "version": ENGINE_VERSION,
+        "last_updated": ENGINE_LAST_UPDATED,
+    }
+
 
 __all__ = [
+    "ENGINE_VERSION",
+    "ENGINE_LAST_UPDATED",
     "WaveRecipe",
     "WAVE_RECIPES",
     "list_wave_names",
@@ -852,4 +869,5 @@ __all__ = [
     "compute_alpha_capture_matrix",
     "list_waves_with_data",
     "get_engine_status",
+    "get_engine_version_info",
 ]
