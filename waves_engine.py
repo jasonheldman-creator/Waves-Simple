@@ -25,7 +25,8 @@ Responsibilities
       - get_wave_performance(wave, mode, days, log=False)
 
 All array operations are strictly 1-dimensional to avoid
-“Data must be 1-dimensional, got shape (N, 1)” errors.
+“Data must be 1-dimensional” errors, and the price-matrix builder
+fetches tickers one-by-one to avoid MultiIndex/length mismatches.
 """
 
 from __future__ import annotations
@@ -115,8 +116,9 @@ class WavesEngine:
 
         # drop invalid rows
         df = df.dropna(subset=["ticker", "weight"])
-        # normalize per Wave so weights sum to 1
         df["weight"] = df["weight"].astype(float)
+
+        # normalize per Wave so weights sum to 1
         weight_sum = df.groupby("wave")["weight"].transform("sum")
         weight_sum = weight_sum.replace(0, np.nan)
         df["weight"] = df["weight"] / weight_sum
@@ -166,9 +168,7 @@ class WavesEngine:
         if data.empty:
             raise ValueError(f"No price data for {ticker}")
         close = data["Close"]
-        # ensure 1-D Series
         if isinstance(close, pd.DataFrame):
-            # sometimes yfinance returns a DataFrame with one column
             close = close.iloc[:, 0]
         close = close.astype(float)
         close.name = ticker
@@ -176,32 +176,25 @@ class WavesEngine:
 
     def _get_price_matrix(self, tickers: List[str], period: str = "1y") -> pd.DataFrame:
         """
-        Fetches adjusted close for multiple tickers as a 2-D DataFrame [date x ticker].
+        Fetches adjusted close for multiple tickers as a clean DataFrame [date x ticker].
+        We fetch each ticker individually to avoid MultiIndex / shape surprises.
         """
-        if len(tickers) == 0:
-            raise ValueError("No tickers provided to _get_price_matrix()")
+        frames = []
+        valid_tickers = []
+        for t in tickers:
+            try:
+                s = self._get_price_series(t, period=period)
+                frames.append(s)
+                valid_tickers.append(t)
+            except Exception:
+                # skip tickers we can't price
+                continue
 
-        # yfinance supports list of tickers
-        data = yf.download(
-            tickers=tickers,
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
-
-        if data.empty:
+        if not frames:
             raise ValueError(f"No price data for tickers: {tickers}")
 
-        # For multiple tickers, data['Close'] is DataFrame with one column per ticker
-        if isinstance(data, pd.DataFrame) and "Close" in data.columns:
-            closes = data["Close"]
-        else:
-            # fallback — some yfinance versions behave differently
-            closes = data.xs("Close", axis=1, level=0)
-
-        # Keep only our requested tickers, drop all-NaN columns
-        closes = closes[[c for c in closes.columns if c in tickers]]
+        closes = pd.concat(frames, axis=1)
+        closes.columns = valid_tickers
         closes = closes.dropna(how="all")
         closes = closes.astype(float)
         return closes
@@ -219,17 +212,6 @@ class WavesEngine:
         """
         Compute full metrics for a given Wave + mode.
         All returns are daily; alpha is Wave − Benchmark.
-
-        Returns dict with keys used by the Streamlit app:
-          - benchmark
-          - beta_realized
-          - exposure_final
-          - intraday_alpha_captured
-          - alpha_30d, alpha_60d, alpha_1y
-          - return_30d_wave, return_30d_benchmark
-          - return_60d_wave, return_60d_benchmark
-          - return_1y_wave, return_1y_benchmark
-          - history_30d (DataFrame)
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
@@ -239,7 +221,6 @@ class WavesEngine:
         tickers = sorted(holdings["ticker"].unique())
         weights = holdings.set_index("ticker")["weight"]
 
-        # choose enough history to cover 1Y
         history_period = "1y"
 
         # --- Wave prices & returns (portfolio) ---
@@ -248,7 +229,7 @@ class WavesEngine:
         except Exception:
             return None
 
-        # align weights to available price columns
+        # align weights to available columns
         common = [t for t in price_matrix.columns if t in weights.index]
         if not common:
             return None
@@ -257,16 +238,15 @@ class WavesEngine:
         w_vec = weights.loc[common].values.astype(float)
 
         # daily returns per ticker
-        ret_matrix = price_matrix.pct_change().dropna(how="all")
+        ret_matrix = price_matrix.pct_change().dropna(how="all").astype(float)
 
-        # ensure 2-D (date x ticker)
-        ret_matrix = ret_matrix.astype(float)
+        if ret_matrix.shape[1] != len(w_vec):
+            # something badly misaligned; bail out gracefully
+            return None
 
         # portfolio daily return: (ret * weights).sum(axis=1)
         wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
-
-        # ensure 1-D Series
-        wave_ret_series = pd.Series(wave_ret_series, index=ret_matrix.index, name="wave_return")
+        wave_ret_series.name = "wave_return"
 
         wave_value = (1.0 + wave_ret_series).cumprod()
         wave_value.name = "wave_value"
@@ -288,7 +268,6 @@ class WavesEngine:
         if df.empty:
             return None
 
-        # daily alpha captured
         df["alpha_captured"] = df["wave_return"] - df["benchmark_return"]
 
         # --- alpha windows ---
@@ -338,7 +317,6 @@ class WavesEngine:
         # --- VIX-gated exposure by mode ---
         exposure_final = self._compute_exposure(mode, beta_realized)
 
-        # --- history_30d slice for the app ---
         history_30d = df.tail(30).copy()
 
         result = {
@@ -358,7 +336,6 @@ class WavesEngine:
             "history_30d": history_30d,
         }
 
-        # optional logging hook (currently off in app)
         if log:
             self._log_performance_row(wave, result)
 
@@ -376,7 +353,6 @@ class WavesEngine:
           • alpha-minus-beta– target 0.7-0.9 beta, stronger VIX throttling
           • private_logic   – 1.1x in calm markets, but still cut in high VIX
         """
-        # base by mode
         mode = (mode or "standard").lower()
         beta = beta_realized if beta_realized is not None and not np.isnan(beta_realized) else 1.0
 
@@ -387,10 +363,8 @@ class WavesEngine:
         else:  # standard
             base = 1.0
 
-        # VIX regime
-        vix_level = self._get_vix_level()  # float or None
+        vix_level = self._get_vix_level()
 
-        # regime multipliers
         if vix_level is None:
             vix_mult = 1.0
         elif vix_level < 14:
@@ -401,7 +375,6 @@ class WavesEngine:
             vix_mult = 0.7 if mode != "alpha-minus-beta" else 0.6
 
         exposure = base * vix_mult
-        # clamp to a reasonable range
         exposure = float(np.clip(exposure, 0.2, 1.4))
         return exposure
 
@@ -418,18 +391,12 @@ class WavesEngine:
         return float(vix.iloc[-1])
 
     # ---------------------------------------------------------
-    # LOGGING (optional)
+    # LOGGING (optional, safe)
     # ---------------------------------------------------------
     def _log_performance_row(self, wave: str, result: dict) -> None:
-        """
-        Append a single performance row to logs/performance/<Wave>_performance_daily.csv.
-        The app currently calls get_wave_performance(..., log=False), so this is a
-        future-proof hook.
-        """
         try:
             perf_dir = self.logs_root / "performance"
             perf_dir.mkdir(parents=True, exist_ok=True)
-
             fname = perf_dir / f"{wave.replace(' ', '_')}_performance_daily.csv"
 
             row = {
