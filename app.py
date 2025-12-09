@@ -30,6 +30,7 @@ APP_SUBTITLE = "Adaptive Portfolio Waves™ • Alpha-Minus-Beta • Private Log
 LOGS_POSITIONS_DIR = os.path.join("logs", "positions")
 LOGS_PERFORMANCE_DIR = os.path.join("logs", "performance")
 HUMAN_OVERRIDE_DIR = os.path.join("logs", "human_overrides")
+ENGINE_LOG_DIR = os.path.join("logs", "engine")
 
 ALPHA_CAPTURE_CANDIDATES = [
     os.path.join(LOGS_PERFORMANCE_DIR, "alpha_capture_matrix.csv"),
@@ -39,6 +40,12 @@ ALPHA_CAPTURE_CANDIDATES = [
 WAVESCORE_CANDIDATES = [
     os.path.join(LOGS_PERFORMANCE_DIR, "wavescore_summary.csv"),
     "wavescore_summary.csv",
+]
+
+ENGINE_ACTIVITY_CANDIDATES = [
+    os.path.join(ENGINE_LOG_DIR, "engine_activity.csv"),
+    os.path.join(ENGINE_LOG_DIR, "engine_log.csv"),
+    "engine_activity.csv",
 ]
 
 # Debug tracker: which files each wave is using
@@ -87,6 +94,7 @@ def ensure_dirs() -> None:
     os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
     os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
     os.makedirs(HUMAN_OVERRIDE_DIR, exist_ok=True)
+    os.makedirs(ENGINE_LOG_DIR, exist_ok=True)
 
 
 def normalize_for_match(s: str) -> str:
@@ -96,7 +104,7 @@ def normalize_for_match(s: str) -> str:
     s = s.lower()
     for ch in ["&", "-", "_"]:
         s = s.replace(ch, " ")
-    for token in ["wave", "portfolio", "positions", "performance", "daily"]:
+    for token in ["wave", "portfolio", "positions", "position", "performance", "daily"]:
         s = s.replace(token, " ")
     s = " ".join(s.split())
     return s
@@ -150,7 +158,6 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
             best_score = score
             best_path = os.path.join(LOGS_PERFORMANCE_DIR, fname)
 
-    # threshold for “good enough” match
     if best_score < 0.2:
         MATCH_DEBUG["performance"][wave_name] = None
         return None
@@ -201,7 +208,6 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
     if not candidates:
         return None
 
-    # choose latest date; if tie, highest score
     latest = max(candidates, key=lambda x: (x[0], x[2]))
     latest_fname = latest[1]
     best_path = os.path.join(LOGS_POSITIONS_DIR, latest_fname)
@@ -295,6 +301,18 @@ def load_human_overrides() -> Optional[pd.DataFrame]:
     return None
 
 
+def load_engine_activity() -> Optional[pd.DataFrame]:
+    for path in ENGINE_ACTIVITY_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                if not df.empty:
+                    return df
+            except Exception:
+                continue
+    return None
+
+
 # ---------- SANDBOX data generator (code-only fallback) ----------
 
 def demo_positions_for_wave(wave: str) -> pd.DataFrame:
@@ -315,7 +333,7 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
     df = pd.DataFrame({
         "wave": [wave] * n,
         "ticker": tickers,
-        "name": tickers,  # simple name = ticker
+        "name": tickers,
         "weight": weights,
     })
     return df
@@ -327,7 +345,6 @@ def demo_performance_for_wave(wave: str, days: int = 90) -> pd.DataFrame:
     dates = pd.bdate_range(end=end_date, periods=days)
     n = len(dates)
 
-    # simple random walk around 0.08 annualized, 15% vol (approx)
     daily_mu = 0.08 / 252.0
     daily_sigma = 0.15 / np.sqrt(252.0)
     daily_ret = np.random.normal(daily_mu, daily_sigma, size=n)
@@ -340,17 +357,14 @@ def demo_performance_for_wave(wave: str, days: int = 90) -> pd.DataFrame:
         "return_1d": daily_ret,
     })
 
-    # trailing returns
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
     for i in range(n):
-        # 30 business days
         if i >= 21:
             df.loc[df.index[i], "return_30d"] = nav[i] / nav[i - 21] - 1.0
         if i >= 42:
             df.loc[df.index[i], "return_60d"] = nav[i] / nav[i - 42] - 1.0
 
-    # simple alpha: 30d alpha = 30d return minus 2%/yr baseline
     baseline_daily = 0.02 / 252.0
     df["alpha_30d"] = df["return_30d"] - (baseline_daily * 21)
 
@@ -369,18 +383,15 @@ def generate_sandbox_logs_if_missing(wave: str) -> Tuple[Optional[pd.DataFrame],
     pos_path = find_latest_positions_path(wave)
 
     if perf_path is not None or pos_path is not None:
-        # Something already exists; don't overwrite
         perf_df = load_performance_history(wave)
         pos_df = load_latest_positions(wave)
         return perf_df, pos_df
 
-    # No files at all: generate SANDBOX
     prefix = wave.replace(" ", "_")
 
     perf_df = demo_performance_for_wave(wave)
     pos_df = demo_positions_for_wave(wave)
 
-    # Write to logs so future reads pick it up
     perf_log_path = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
     pos_log_path = os.path.join(
         LOGS_POSITIONS_DIR,
@@ -494,7 +505,6 @@ def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
     records = []
     for wave in waves:
         perf_df = load_performance_history(wave)
-        # if still missing, allow SANDBOX fill-in for snapshot as well
         if perf_df is None or perf_df.empty:
             perf_df, _ = generate_sandbox_logs_if_missing(wave)
         m = compute_summary_metrics(perf_df)
@@ -580,6 +590,7 @@ def render_system_status_tab(waves: List[str]) -> None:
         st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
         st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
         st.write(f"Human Overrides: `{HUMAN_OVERRIDE_DIR}`")
+        st.write(f"Engine Logs: `{ENGINE_LOG_DIR}`")
 
     with logs_col:
         st.markdown("#### Latest Updates per Wave")
@@ -616,6 +627,88 @@ def render_system_status_tab(waves: List[str]) -> None:
         st.dataframe(df_files, use_container_width=True)
     else:
         st.info("No log CSV files detected in /logs.")
+
+
+def render_mode_logic_tab(selected_mode: str) -> None:
+    st.subheader("Mode Logic Viewer — Alpha-Minus-Beta / Private Logic™")
+
+    st.markdown("##### Current Selected Mode")
+    st.write(f"**Mode:** {selected_mode}")
+
+    # Static explanation if engine does not expose config:
+    mode_rows = [
+        {
+            "Mode": "Standard",
+            "Beta Target": "~1.00",
+            "Risk Focus": "Balanced",
+            "Notes": "Default tracking of benchmark with moderate alpha target.",
+        },
+        {
+            "Mode": "Alpha-Minus-Beta",
+            "Beta Target": "0.78–0.90",
+            "Risk Focus": "Downside control",
+            "Notes": "Scaled exposure, capped beta; prioritizes smoother ride with alpha over time.",
+        },
+        {
+            "Mode": "Private Logic™",
+            "Beta Target": "0.90–1.10 (dynamic)",
+            "Risk Focus": "Aggressive alpha capture",
+            "Notes": "Higher turnover and tracking error allowed; PL rules & signals drive behavior.",
+        },
+    ]
+    df = pd.DataFrame(mode_rows)
+    st.dataframe(df, use_container_width=True)
+
+    if HAS_ENGINE and hasattr(waves_engine, "get_mode_config"):
+        st.markdown("##### Live Mode Config from Engine")
+        try:
+            cfg = waves_engine.get_mode_config(selected_mode)  # type: ignore
+            if isinstance(cfg, dict):
+                cfg_df = pd.DataFrame(
+                    [{"Parameter": k, "Value": v} for k, v in cfg.items()]
+                )
+                st.dataframe(cfg_df, use_container_width=True)
+            else:
+                st.write(cfg)
+        except Exception as e:
+            st.info(f"Could not read live mode config from engine: {e}")
+    else:
+        st.caption("Engine does not expose get_mode_config(); showing default spec instead.")
+
+
+def render_engine_activity_tab() -> None:
+    st.subheader("Engine Activity Log")
+
+    df = load_engine_activity()
+    if df is None or df.empty:
+        st.info(
+            "No engine activity log detected yet. "
+            "If you write `logs/engine/engine_activity.csv`, it will appear here."
+        )
+        return
+
+    cols = {c.lower(): c for c in df.columns}
+    ts_col = cols.get("timestamp") or cols.get("time") or cols.get("run_time")
+    wave_col = cols.get("wave")
+    mode_col = cols.get("mode")
+    status_col = cols.get("status") or cols.get("result")
+
+    st.markdown("##### Recent Engine Runs")
+    show_cols: List[str] = []
+    if ts_col:
+        show_cols.append(ts_col)
+    if wave_col:
+        show_cols.append(wave_col)
+    if mode_col:
+        show_cols.append(mode_col)
+    if status_col:
+        show_cols.append(status_col)
+
+    if show_cols:
+        st.dataframe(df[show_cols].sort_values(ts_col if ts_col else show_cols[0], ascending=False),
+                     use_container_width=True)
+    else:
+        st.dataframe(df, use_container_width=True)
 
 
 # ---------- Main app ----------
@@ -721,14 +814,26 @@ def main() -> None:
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    # Full institutional console tab set
+    (
+        tab1,
+        tab2,
+        tab3,
+        tab4,
+        tab5,
+        tab6,
+        tab7,
+        tab8,
+    ) = st.tabs(
         [
             "Wave Details",
             "Alpha Capture",
             "WaveScore",
-            "Human Override",
             "System Status",
+            "Human Override",
             "All Waves Snapshot",
+            "Mode Logic Viewer",
+            "Engine Activity Log",
         ]
     )
 
@@ -751,10 +856,10 @@ def main() -> None:
         render_wavescore_tab()
 
     with tab4:
-        render_human_override_tab(selected_wave)
+        render_system_status_tab(waves)
 
     with tab5:
-        render_system_status_tab(waves)
+        render_human_override_tab(selected_wave)
 
     with tab6:
         st.subheader("All Waves — Snapshot")
@@ -767,7 +872,12 @@ def main() -> None:
         else:
             st.info("No data available yet for multi-Wave snapshot.")
 
+    with tab7:
+        render_mode_logic_tab(mode)
+
+    with tab8:
+        render_engine_activity_tab()
+
 
 if __name__ == "__main__":
     main()
-    
