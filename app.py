@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -54,7 +54,7 @@ MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
     "positions": {},
 }
 
-# ---- Wave metadata (display names) ----
+# ---- Wave metadata ----
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "S&P 500 Wave": {
         "category": "Core Equity",
@@ -98,7 +98,7 @@ def ensure_dirs() -> None:
 
 
 def normalize_for_match(s: str) -> str:
-    """Normalize wave names / filenames for fuzzy matching."""
+    """Normalize names / filenames for fuzzy matching."""
     if not isinstance(s, str):
         return ""
     s = s.lower()
@@ -127,10 +127,7 @@ def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
 
 
 def find_best_performance_path(wave_name: str) -> Optional[str]:
-    """
-    Fuzzy match performance file for a wave.
-    Stores result in MATCH_DEBUG['performance'][wave_name].
-    """
+    """Fuzzy match performance file for a wave."""
     MATCH_DEBUG["performance"][wave_name] = None
 
     if not os.path.isdir(LOGS_PERFORMANCE_DIR):
@@ -167,10 +164,7 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
 
 
 def find_latest_positions_path(wave_name: str) -> Optional[str]:
-    """
-    Fuzzy match LATEST positions file for a wave.
-    Stores result in MATCH_DEBUG['positions'][wave_name].
-    """
+    """Fuzzy match LATEST positions file for a wave."""
     MATCH_DEBUG["positions"][wave_name] = None
 
     if not os.path.isdir(LOGS_POSITIONS_DIR):
@@ -209,8 +203,7 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
         return None
 
     latest = max(candidates, key=lambda x: (x[0], x[2]))
-    latest_fname = latest[1]
-    best_path = os.path.join(LOGS_POSITIONS_DIR, latest_fname)
+    best_path = os.path.join(LOGS_POSITIONS_DIR, latest[1])
     MATCH_DEBUG["positions"][wave_name] = best_path
     return best_path
 
@@ -340,40 +333,71 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
 
 
 def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
-    """Generate synthetic performance history for a wave if none exist."""
+    """
+    Generate synthetic performance + benchmark history for a wave.
+    Alpha is computed as Wave return minus Benchmark return over each window.
+    """
     end_date = datetime.today().date()
     dates = pd.bdate_range(end=end_date, periods=days)
     n = len(dates)
 
-    daily_mu = 0.08 / 252.0
-    daily_sigma = 0.15 / np.sqrt(252.0)
-    daily_ret = np.random.normal(daily_mu, daily_sigma, size=n)
+    # Benchmark: ~8%/yr, ~15% vol
+    bench_mu = 0.08 / 252.0
+    bench_sigma = 0.15 / np.sqrt(252.0)
 
-    nav = 100 * (1 + daily_ret).cumprod()
+    # Wave alpha profile:
+    if wave == "S&P 500 Wave":
+        # S&P overlay: small, realistic alpha with low tracking error
+        alpha_mu = 0.01 / 252.0   # ~1%/yr expected alpha
+        alpha_sigma = 0.03 / np.sqrt(252.0)  # modest TE
+    elif wave == "SmartSafe Wave":
+        # Cash-like: near-zero alpha vs T-bills
+        alpha_mu = 0.002 / 252.0
+        alpha_sigma = 0.01 / np.sqrt(252.0)
+    else:
+        # Thematic / Growth: more alpha potential, more tracking error
+        alpha_mu = 0.03 / 252.0   # ~3%/yr alpha
+        alpha_sigma = 0.06 / np.sqrt(252.0)
+
+    bench_ret = np.random.normal(bench_mu, bench_sigma, size=n)
+    alpha_noise = np.random.normal(alpha_mu, alpha_sigma, size=n)
+    wave_ret = bench_ret + alpha_noise
+
+    bench_nav = 100 * (1 + bench_ret).cumprod()
+    wave_nav = 100 * (1 + wave_ret).cumprod()
 
     df = pd.DataFrame({
         "date": dates,
-        "nav": nav,
-        "return_1d": daily_ret,
+        "nav": wave_nav,
+        "return_1d": wave_ret,
+        "bench_nav": bench_nav,
+        "bench_return_1d": bench_ret,
     })
 
+    # Rolling windows: 30d (~21 bdays), 60d (~42), 1y (~252)
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
     df["return_252d"] = np.nan
+    df["bench_return_30d"] = np.nan
+    df["bench_return_60d"] = np.nan
+    df["bench_return_252d"] = np.nan
 
     for i in range(n):
         if i >= 21:
-            df.loc[df.index[i], "return_30d"] = nav[i] / nav[i - 21] - 1.0
+            df.loc[df.index[i], "return_30d"] = wave_nav[i] / wave_nav[i - 21] - 1.0
+            df.loc[df.index[i], "bench_return_30d"] = bench_nav[i] / bench_nav[i - 21] - 1.0
         if i >= 42:
-            df.loc[df.index[i], "return_60d"] = nav[i] / nav[i - 42] - 1.0
+            df.loc[df.index[i], "return_60d"] = wave_nav[i] / wave_nav[i - 42] - 1.0
+            df.loc[df.index[i], "bench_return_60d"] = bench_nav[i] / bench_nav[i - 42] - 1.0
         if i >= 252:
-            df.loc[df.index[i], "return_252d"] = nav[i] / nav[i - 252] - 1.0
+            df.loc[df.index[i], "return_252d"] = wave_nav[i] / wave_nav[i - 252] - 1.0
+            df.loc[df.index[i], "bench_return_252d"] = bench_nav[i] / bench_nav[i - 252] - 1.0
 
-    baseline_daily = 0.02 / 252.0
-    df["alpha_1d"] = df["return_1d"] - baseline_daily
-    df["alpha_30d"] = df["return_30d"] - (baseline_daily * 21)
-    df["alpha_60d"] = df["return_60d"] - (baseline_daily * 42)
-    df["alpha_1y"] = df["return_252d"] - (baseline_daily * 252)
+    # Advanced-style alpha: Wave minus Benchmark
+    df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
+    df["alpha_30d"] = df["return_30d"] - df["bench_return_30d"]
+    df["alpha_60d"] = df["return_60d"] - df["bench_return_60d"]
+    df["alpha_1y"] = df["return_252d"] - df["bench_return_252d"]
 
     df["wave"] = wave
     df["regime"] = "SANDBOX"
@@ -469,7 +493,15 @@ def render_top10_holdings(holdings_df: Optional[pd.DataFrame], wave_name: str) -
     st.markdown(display_df.to_markdown(index=False), unsafe_allow_html=True)
 
 
+# ---------- Alpha metrics (advanced logic) ----------
+
 def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
+    """
+    Priority:
+    1) If engine already wrote alpha_1d / alpha_30d / alpha_60d / alpha_1y, use those.
+    2) Else, if we have Wave + Benchmark returns, compute alpha now.
+    3) Else, return N/A.
+    """
     metrics: Dict[str, Optional[float]] = {
         "alpha_1d": None,
         "alpha_30d": None,
@@ -480,21 +512,63 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
     if perf_df is None or perf_df.empty:
         return metrics
 
-    last = perf_df.iloc[-1]
+    df = perf_df.copy()
+    last = df.iloc[-1]
 
-    def pull(cands: List[str]) -> Optional[float]:
-        for c in cands:
-            if c in perf_df.columns:
-                try:
-                    return float(last[c])
-                except Exception:
-                    continue
-        return None
+    cols = {c.lower(): c for c in df.columns}
 
-    metrics["alpha_1d"] = pull(["alpha_1d", "alpha1d", "alpha_daily", "alpha_intraday"])
-    metrics["alpha_30d"] = pull(["alpha_30d", "alpha30", "alpha_1m", "alpha_30"])
-    metrics["alpha_60d"] = pull(["alpha_60d", "alpha60", "alpha_2m", "alpha_60"])
-    metrics["alpha_1y"] = pull(["alpha_1y", "alpha1y", "alpha_12m", "alpha_252d", "alpha_365d"])
+    # 1) Direct alpha columns
+    alpha_1d_col = cols.get("alpha_1d") or cols.get("alpha1d") or cols.get("alpha_daily") or cols.get("alpha_intraday")
+    alpha_30d_col = cols.get("alpha_30d") or cols.get("alpha30") or cols.get("alpha_1m") or cols.get("alpha_30")
+    alpha_60d_col = cols.get("alpha_60d") or cols.get("alpha60") or cols.get("alpha_2m") or cols.get("alpha_60")
+    alpha_1y_col = cols.get("alpha_1y") or cols.get("alpha1y") or cols.get("alpha_12m") or cols.get("alpha_252d") or cols.get("alpha_365d")
+
+    def safe_float(val) -> Optional[float]:
+        try:
+            return float(val)
+        except Exception:
+            return None
+
+    if alpha_1d_col:
+        metrics["alpha_1d"] = safe_float(last[alpha_1d_col])
+    if alpha_30d_col:
+        metrics["alpha_30d"] = safe_float(last[alpha_30d_col])
+    if alpha_60d_col:
+        metrics["alpha_60d"] = safe_float(last[alpha_60d_col])
+    if alpha_1y_col:
+        metrics["alpha_1y"] = safe_float(last[alpha_1y_col])
+
+    # If we already got everything from engine, stop here
+    if all(v is not None for v in metrics.values()):
+        return metrics
+
+    # 2) Compute from Wave vs Benchmark returns if cols exist
+    ret_1d_col = cols.get("return_1d") or cols.get("r_1d") or cols.get("daily_return")
+    bret_1d_col = cols.get("bench_return_1d") or cols.get("benchmark_return_1d") or cols.get("b_1d")
+
+    ret_30d_col = cols.get("return_30d") or cols.get("r_30d") or cols.get("total_return_30d")
+    bret_30d_col = cols.get("bench_return_30d") or cols.get("benchmark_return_30d") or cols.get("b_30d")
+
+    ret_60d_col = cols.get("return_60d") or cols.get("r_60d") or cols.get("total_return_60d")
+    bret_60d_col = cols.get("bench_return_60d") or cols.get("benchmark_return_60d") or cols.get("b_60d")
+
+    ret_1y_col = cols.get("return_252d") or cols.get("return_365d") or cols.get("return_1y") or cols.get("r_1y")
+    bret_1y_col = cols.get("bench_return_252d") or cols.get("bench_return_365d") or cols.get("benchmark_return_1y") or cols.get("b_1y")
+
+    if metrics["alpha_1d"] is None and ret_1d_col and bret_1d_col:
+        metrics["alpha_1d"] = safe_float(last[ret_1d_col]) - safe_float(last[bret_1d_col]) if safe_float(last[ret_1d_col]) is not None and safe_float(last[bret_1d_col]) is not None else None
+    if metrics["alpha_30d"] is None and ret_30d_col and bret_30d_col:
+        r = safe_float(last[ret_30d_col])
+        b = safe_float(last[bret_30d_col])
+        metrics["alpha_30d"] = r - b if r is not None and b is not None else None
+    if metrics["alpha_60d"] is None and ret_60d_col and bret_60d_col:
+        r = safe_float(last[ret_60d_col])
+        b = safe_float(last[bret_60d_col])
+        metrics["alpha_60d"] = r - b if r is not None and b is not None else None
+    if metrics["alpha_1y"] is None and ret_1y_col and bret_1y_col:
+        r = safe_float(last[ret_1y_col])
+        b = safe_float(last[bret_1y_col])
+        metrics["alpha_1y"] = r - b if r is not None and b is not None else None
 
     return metrics
 
@@ -780,11 +854,11 @@ def main() -> None:
     if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
         st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
 
-    # Load data (may be empty if engine never ran for this wave)
+    # Load data
     perf_df = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
 
-    # Auto-kick engine ONCE if there is no data for this wave
+    # Auto-kick engine if missing
     if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
         try:
             waves_engine.run_wave(selected_wave)  # type: ignore
@@ -794,7 +868,7 @@ def main() -> None:
         except Exception as e:
             st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
 
-    # If still no data, generate SANDBOX logs via code only
+    # Still missing? SANDBOX
     if (perf_df is None or perf_df.empty) and (positions_df is None or positions_df.empty):
         st.sidebar.info(f"Generating SANDBOX data for {selected_wave} (code-only demo).")
         perf_df, positions_df = generate_sandbox_logs_if_missing(selected_wave)
@@ -819,7 +893,7 @@ def main() -> None:
         else:
             st.caption("No performance history yet for this Wave.")
 
-        # Show which files this wave is currently using
+        # Debug: show matched files
         st.markdown("###### Debug — Matched Files for This Wave")
         st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
         st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
