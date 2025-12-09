@@ -30,22 +30,26 @@ def clear_cache_on_startup() -> None:
     """
     Clear Streamlit cache on application startup to ensure fresh data.
     This runs only once per session using session state.
+    
+    Note: Requires Streamlit >= 1.18.0 (released 2022) for st.cache_data and st.cache_resource.
+    The legacy st.cache API was deprecated in Streamlit 1.18.0.
     """
     if "cache_cleared" not in st.session_state:
         try:
-            # Clear both cache_data and cache_resource caches
+            # Clear both cache_data and cache_resource caches (Streamlit >= 1.18.0)
             st.cache_data.clear()
             st.cache_resource.clear()
             st.session_state.cache_cleared = True
             st.session_state.cache_clear_time = datetime.now()
-        except Exception:
-            # Fallback for older Streamlit versions
+        except AttributeError:
+            # For older Streamlit versions, try legacy cache API
             try:
-                st.cache.clear()
+                st.cache.clear()  # type: ignore
                 st.session_state.cache_cleared = True
                 st.session_state.cache_clear_time = datetime.now()
             except Exception:
-                pass
+                # If cache clearing fails, continue anyway
+                st.session_state.cache_cleared = False
 
 def get_file_version_info(filepath: str) -> Dict[str, str]:
     """
@@ -64,8 +68,14 @@ def get_file_version_info(filepath: str) -> Dict[str, str]:
             "mtime": mtime,
             "size": size,
         }
-    except Exception as e:
-        return {"path": filepath, "exists": True, "mtime": "Error", "size": "Error"}
+    except OSError as e:
+        # Return error with more detail for debugging
+        return {
+            "path": filepath,
+            "exists": True,
+            "mtime": f"Error: {str(e)}",
+            "size": f"Error: {str(e)}"
+        }
 
 APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
 APP_SUBTITLE = (

@@ -29,7 +29,20 @@ import pandas as pd
 
 # Engine version tracking
 ENGINE_VERSION = "1.5.0"
-ENGINE_LAST_UPDATED = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+def _get_engine_last_updated() -> str:
+    """Get the last modification time of this file."""
+    try:
+        import inspect
+        engine_file = inspect.getfile(inspect.currentframe())
+        if os.path.exists(engine_file):
+            mtime = os.path.getmtime(engine_file)
+            return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        pass
+    return "Unknown"
+
+ENGINE_LAST_UPDATED = _get_engine_last_updated()
 
 # Optional deps: requests + yfinance
 try:
