@@ -1,602 +1,616 @@
-# waves_engine.py
 """
-WAVES Intelligence™ Engine — Real History + SmartSafe™ (Vector 1.6)
+waves_engine.py — Engine v2 (Institutional Mode)
 
-Key features
-------------
-- Loads wave_weights.csv (+ optional list.csv for names/sectors)
-- 11 equity Waves with benchmark mappings
-- Fetches real price history via yfinance (if available)
-- Computes:
-    • risk-only NAV (nav_risk)
-    • SmartSafe-adjusted NAV (nav)
-    • benchmark NAV (bench_nav)
-    • returns & alpha horizons: 30d / 60d / 1y
-- SmartSafe™ overlay:
-    • gentle dynamic allocation based on volatility & drawdown
-    • SmartSafe earns a stable yield (cash-like)
-    • nav (client experience) includes SmartSafe
-    • alpha_* is computed from nav_risk vs benchmark, so
-      SmartSafe doesn’t crush the measured alpha
-- Writes logs:
-    logs/performance/<Wave>_performance_daily.csv
-    logs/positions/<Wave>_positions_YYYYMMDD.csv
+Core ideas:
+- Per-wave strategy recipes (benchmark, target beta, category)
+- VIX ladder -> SmartSafe allocation
+- Mode-specific exposure rules:
+    * Standard
+    * Alpha-Minus-Beta
+    * Private Logic™
+- Alpha capture metrics on 1d / 30d / 60d / 1y horizons
 
-Public API
-----------
-- load_wave_weights()
-- get_strategy_recipe(wave_name)
-- run_wave_update(wave_name, price_panel=None, years=3)
-- run_all_waves(years=3)
+This module is intentionally self-contained and conservative:
+- It NEVER crashes the UI: all I/O is wrapped with safe fallbacks.
+- If data is missing, it returns empty DataFrames or NaNs instead of raising.
+- All outputs are pandas DataFrames ready for Streamlit display.
+
+Directories expected by the console:
+- logs/performance/<Wave>_performance_daily.csv
+- logs/positions/<Wave>_positions_YYYYMMDD.csv  (not strictly required here)
+
+You can safely drop this file into your repo as waves_engine.py.
 """
+
+from __future__ import annotations
 
 import os
+import glob
+import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-# Optional yfinance import
 try:
-    import yfinance as yf  # type: ignore
+    import yfinance as yf
+except ImportError:
+    yf = None  # Console will still work from existing logs
 
-    HAS_YF = True
-except Exception:
-    HAS_YF = False
 
-# ---------- Paths ----------
+# -----------------------------------------------------------------------------
+# Paths / constants
+# -----------------------------------------------------------------------------
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-LOGS_DIR = os.path.join(ROOT_DIR, "logs")
-LOGS_PERFORMANCE_DIR = os.path.join(LOGS_DIR, "performance")
-LOGS_POSITIONS_DIR = os.path.join(LOGS_DIR, "positions")
-LOGS_MARKET_DIR = os.path.join(LOGS_DIR, "market")
+ROOT_DIR = Path(".")
+LOG_POSITIONS_DIR = ROOT_DIR / "logs" / "positions"
+LOG_PERFORMANCE_DIR = ROOT_DIR / "logs" / "performance"
 
-os.makedirs(LOGS_DIR, exist_ok=True)
-os.makedirs(LOGS_PERFORMANCE_DIR, exist_ok=True)
-os.makedirs(LOGS_POSITIONS_DIR, exist_ok=True)
-os.makedirs(LOGS_MARKET_DIR, exist_ok=True)
+VIX_TICKER = "^VIX"
 
-# ---------- Wave lineup & benchmarks ----------
+MODES = ["Standard", "AlphaMinusBeta", "PrivateLogic"]
 
-EQUITY_WAVES: List[str] = [
-    "S&P 500 Wave",
-    "Growth Wave",
-    "Small Cap Growth Wave",
-    "Small to Mid Cap Growth Wave",
-    "Future Power & Energy Wave",
-    "Quantum Computing Wave",
-    "Clean Transit-Infrastructure Wave",
-    "AI Wave",
-    "Infinity Wave",
-    "International Developed Wave",
-    "Emerging Markets Wave",
-]
+# -----------------------------------------------------------------------------
+# Wave recipes (institutional spec)
+# -----------------------------------------------------------------------------
 
-WAVE_BENCHMARKS: Dict[str, str] = {
-    "S&P 500 Wave": "SPY",
-    "Growth Wave": "QQQ",
-    "Small Cap Growth Wave": "IWM",
-    "Small to Mid Cap Growth Wave": "IJH",
-    "Future Power & Energy Wave": "XLE",
-    "Quantum Computing Wave": "QQQ",
-    "Clean Transit-Infrastructure Wave": "IDEV",  # proxy
-    "AI Wave": "QQQ",
-    "Infinity Wave": "ACWI",
-    "International Developed Wave": "EFA",
-    "Emerging Markets Wave": "EEM",
-}
 
-# ---------- Strategy recipes (for UI snapshot) ----------
+@dataclass
+class WaveRecipe:
+    name: str
+    category: str
+    benchmark: str        # ETF / index proxy (e.g., SPY, QQQ, EFA)
+    target_beta: float    # Target equity beta vs benchmark
+    risk_band: str        # "Core", "Growth", "Thematic", "Flagship", "SmartSafe"
+    use_smartsafe: bool = True
+    # Mode-specific multipliers applied to target_beta (pre-SmartSafe)
+    mode_scalars: Dict[str, float] = None
 
-STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
-    "S&P 500 Wave": {
-        "style": "Core Equity",
-        "universe": "S&P 500",
-        "target_beta": 1.00,
-        "alpha_mu_annual": 0.01,
-        "alpha_sigma_annual": 0.04,
-        "turnover_annual_max": 0.30,
-        "max_drawdown_target": 0.20,
-        "notes": "Low-turnover core with mild tilts.",
-    },
-    "Growth Wave": {
-        "style": "US Growth",
-        "universe": "Large/Mid Growth",
-        "target_beta": 1.10,
-        "alpha_mu_annual": 0.03,
-        "alpha_sigma_annual": 0.10,
-        "turnover_annual_max": 0.80,
-        "max_drawdown_target": 0.30,
-        "notes": "High growth with volatility-aware sizing.",
-    },
-    "Small Cap Growth Wave": {
-        "style": "Small Cap Growth",
-        "universe": "US Small Growth",
-        "target_beta": 1.20,
-        "alpha_mu_annual": 0.04,
-        "alpha_sigma_annual": 0.14,
-        "turnover_annual_max": 1.20,
-        "max_drawdown_target": 0.35,
-        "notes": "Higher-octane small-cap growth with strict brakes.",
-    },
-    "Small to Mid Cap Growth Wave": {
-        "style": "SMID Growth",
-        "universe": "US Small+Mid",
-        "target_beta": 1.10,
-        "alpha_mu_annual": 0.03,
-        "alpha_sigma_annual": 0.11,
-        "turnover_annual_max": 0.90,
-        "max_drawdown_target": 0.32,
-        "notes": "Blends small and mid cap for smoother growth ride.",
-    },
-    "Future Power & Energy Wave": {
-        "style": "Thematic Energy",
-        "universe": "Energy + Renewables",
-        "target_beta": 1.15,
-        "alpha_mu_annual": 0.04,
-        "alpha_sigma_annual": 0.12,
-        "turnover_annual_max": 1.00,
-        "max_drawdown_target": 0.35,
-        "notes": "Energy transition, infra, and power grid plays.",
-    },
-    "Quantum Computing Wave": {
-        "style": "Deep-Tech / Quantum",
-        "universe": "AI + Semi + Quantum",
-        "target_beta": 1.25,
-        "alpha_mu_annual": 0.05,
-        "alpha_sigma_annual": 0.18,
-        "turnover_annual_max": 1.50,
-        "max_drawdown_target": 0.40,
-        "notes": "Concentrated deep-tech themes with risk brakes.",
-    },
-    "Clean Transit-Infrastructure Wave": {
-        "style": "Clean Transit & Infra",
-        "universe": "EVs, rail, infra",
-        "target_beta": 1.10,
-        "alpha_mu_annual": 0.04,
-        "alpha_sigma_annual": 0.13,
-        "turnover_annual_max": 1.00,
-        "max_drawdown_target": 0.35,
-        "notes": "Mobility + infrastructure with quality bias.",
-    },
-    "AI Wave": {
-        "style": "AI Flagship",
-        "universe": "AI leaders + stack",
-        "target_beta": 1.20,
-        "alpha_mu_annual": 0.05,
-        "alpha_sigma_annual": 0.16,
-        "turnover_annual_max": 1.40,
-        "max_drawdown_target": 0.38,
-        "notes": "AI infrastructure and applications, concentrated.",
-    },
-    "Infinity Wave": {
-        "style": "Multi-Theme Flagship",
-        "universe": "Cross-asset AI/Tech/Growth",
-        "target_beta": 1.05,
-        "alpha_mu_annual": 0.04,
-        "alpha_sigma_annual": 0.10,
-        "turnover_annual_max": 1.20,
-        "max_drawdown_target": 0.30,
-        "notes": "Adaptive multi-theme flagship (Tesla Roadster Wave).",
-    },
-    "International Developed Wave": {
-        "style": "Intl Developed",
-        "universe": "DM ex-US",
-        "target_beta": 0.95,
-        "alpha_mu_annual": 0.02,
-        "alpha_sigma_annual": 0.08,
-        "turnover_annual_max": 0.80,
-        "max_drawdown_target": 0.28,
-        "notes": "DM ex-US with currency and macro overlays.",
-    },
-    "Emerging Markets Wave": {
-        "style": "Emerging Markets",
-        "universe": "EM Equity",
-        "target_beta": 1.10,
-        "alpha_mu_annual": 0.03,
-        "alpha_sigma_annual": 0.14,
-        "turnover_annual_max": 1.00,
-        "max_drawdown_target": 0.35,
-        "notes": "EM growth with downside controls and FX awareness.",
-    },
+    def scalar_for_mode(self, mode: str) -> float:
+        if self.mode_scalars is None:
+            # Reasonable defaults
+            base = {
+                "Standard": 1.00,
+                "AlphaMinusBeta": 0.80,
+                "PrivateLogic": 1.10,
+            }
+        else:
+            base = self.mode_scalars
+        return float(base.get(mode, 1.0))
+
+
+# IMPORTANT:
+# These are *strategic* definitions. They do NOT change historical prices,
+# but they change how we interpret exposure, alpha and SmartSafe usage.
+WAVE_RECIPES: Dict[str, WaveRecipe] = {
+    "AI Wave": WaveRecipe(
+        name="AI Wave",
+        category="Thematic Equity",
+        benchmark="QQQ",
+        target_beta=1.25,
+        risk_band="Growth",
+        use_smartsafe=True,
+        mode_scalars={
+            "Standard": 1.10,
+            "AlphaMinusBeta": 0.85,
+            "PrivateLogic": 1.30,
+        },
+    ),
+    "Clean Transit-Infrastructure Wave": WaveRecipe(
+        name="Clean Transit-Infrastructure Wave",
+        category="Thematic Equity",
+        benchmark="SPY",
+        target_beta=1.15,
+        risk_band="Growth",
+        use_smartsafe=True,
+    ),
+    "Emerging Markets Wave": WaveRecipe(
+        name="Emerging Markets Wave",
+        category="Global Equity",
+        benchmark="EEM",
+        target_beta=1.05,
+        risk_band="Core",
+        use_smartsafe=True,
+    ),
+    "Future Power & Energy Wave": WaveRecipe(
+        name="Future Power & Energy Wave",
+        category="Thematic Equity",
+        benchmark="XLE",
+        target_beta=1.10,
+        risk_band="Growth",
+        use_smartsafe=True,
+    ),
+    "Growth Wave": WaveRecipe(
+        name="Growth Wave",
+        category="Growth Equity",
+        benchmark="SPYG",
+        target_beta=1.05,
+        risk_band="Core",
+        use_smartsafe=True,
+    ),
+    "Infinity Wave": WaveRecipe(
+        name="Infinity Wave",
+        category="Flagship Multi-Theme",
+        benchmark="ACWI",
+        target_beta=1.10,
+        risk_band="Flagship",
+        use_smartsafe=True,
+        mode_scalars={
+            "Standard": 1.05,
+            "AlphaMinusBeta": 0.85,
+            "PrivateLogic": 1.20,
+        },
+    ),
+    "International Developed Wave": WaveRecipe(
+        name="International Developed Wave",
+        category="Global Equity",
+        benchmark="EFA",
+        target_beta=1.00,
+        risk_band="Core",
+        use_smartsafe=True,
+    ),
+    "Quantum Computing Wave": WaveRecipe(
+        name="Quantum Computing Wave",
+        category="Thematic Equity",
+        benchmark="QQQ",
+        target_beta=1.30,
+        risk_band="Thematic",
+        use_smartsafe=True,
+    ),
+    "S&P 500 Wave": WaveRecipe(
+        name="S&P 500 Wave",
+        category="Core Equity",
+        benchmark="SPY",
+        target_beta=0.90,   # disciplined beta < 1.0
+        risk_band="Core",
+        use_smartsafe=True,
+        mode_scalars={
+            "Standard": 1.00,
+            "AlphaMinusBeta": 0.80,
+            "PrivateLogic": 1.05,
+        },
+    ),
+    "Small Cap Growth Wave": WaveRecipe(
+        name="Small Cap Growth Wave",
+        category="Small Cap Growth",
+        benchmark="IWO",
+        target_beta=1.20,
+        risk_band="Growth",
+        use_smartsafe=True,
+    ),
+    "SmartSafe Wave": WaveRecipe(
+        name="SmartSafe Wave",
+        category="SmartSafe / Cash",
+        benchmark="BIL",    # T-Bill proxy
+        target_beta=0.05,
+        risk_band="SmartSafe",
+        use_smartsafe=False,  # SmartSafe is the destination, not user
+        mode_scalars={
+            "Standard": 0.05,
+            "AlphaMinusBeta": 0.05,
+            "PrivateLogic": 0.05,
+        },
+    ),
 }
 
 
-def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
-    default = {
-        "style": "Generic Equity",
-        "universe": "Global",
-        "target_beta": 1.0,
-        "alpha_mu_annual": 0.03,
-        "alpha_sigma_annual": 0.10,
-        "turnover_annual_max": 1.0,
-        "max_drawdown_target": 0.30,
-        "notes": "",
-    }
-    cfg = STRATEGY_RECIPES.get(wave_name, {})
-    merged = default.copy()
-    merged.update(cfg)
-    return merged
+def list_wave_names(include_smartsafe: bool = True) -> List[str]:
+    names = list(WAVE_RECIPES.keys())
+    if not include_smartsafe:
+        names = [n for n in names if n != "SmartSafe Wave"]
+    return names
 
 
-# ---------- Data loaders ----------
+# -----------------------------------------------------------------------------
+# VIX ladder & SmartSafe allocation
+# -----------------------------------------------------------------------------
 
 
-def load_wave_weights() -> pd.DataFrame:
-    """
-    Load wave_weights.csv. Required columns (case-insensitive):
-    - wave
-    - ticker
-    - weight
-    """
-    path = os.path.join(ROOT_DIR, "wave_weights.csv")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"wave_weights.csv not found at {path}")
-
-    df = pd.read_csv(path)
-    if df.empty:
-        raise ValueError("wave_weights.csv is empty")
-
-    cols = {c.lower(): c for c in df.columns}
-    wave_col = cols.get("wave")
-    ticker_col = cols.get("ticker")
-    weight_col = cols.get("weight")
-
-    if wave_col is None or ticker_col is None or weight_col is None:
-        raise ValueError(
-            "wave_weights.csv must contain columns 'wave', 'ticker', 'weight'"
-        )
-
-    df = df[[wave_col, ticker_col, weight_col]].rename(
-        columns={wave_col: "wave", ticker_col: "ticker", weight_col: "weight"}
-    )
-    df["wave"] = df["wave"].astype(str)
-    df["ticker"] = df["ticker"].astype(str).str.upper()
-    df["weight"] = df["weight"].astype(float)
-
-    # Only keep our lineup
-    df = df[df["wave"].isin(EQUITY_WAVES)]
-
-    # Normalize weights within Wave
-    df["weight"] = df.groupby("wave")["weight"].transform(
-        lambda x: x / x.sum() if x.sum() != 0 else x
-    )
-
-    return df
-
-
-def load_master_list() -> Optional[pd.DataFrame]:
-    """
-    Optional list.csv with columns like ticker, name, sector.
-    """
-    candidate = os.path.join(ROOT_DIR, "list.csv")
-    if not os.path.exists(candidate):
+def fetch_vix_history(days: int = 365) -> Optional[pd.Series]:
+    """Fetch VIX daily close series; returns None if yfinance is unavailable."""
+    if yf is None:
         return None
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=days + 5)
     try:
-        df = pd.read_csv(candidate)
-        if df.empty:
+        data = yf.download(VIX_TICKER, start=start, end=end, progress=False)
+        if data.empty:
             return None
-        cols = {c.lower(): c for c in df.columns}
-        ticker_col = cols.get("ticker")
-        if ticker_col is None:
-            return None
-        df = df.rename(columns={ticker_col: "ticker"})
-        df["ticker"] = df["ticker"].astype(str).str.upper()
-        return df
+        s = data["Adj Close"].copy()
+        s.index = s.index.tz_localize(None)
+        s.name = "VIX"
+        return s
     except Exception:
         return None
 
 
-def get_price_history(tickers: List[str], years: int = 3) -> pd.DataFrame:
+def latest_vix_level(vix_series: Optional[pd.Series] = None) -> float:
+    if vix_series is None:
+        vix_series = fetch_vix_history(60)
+    if vix_series is None or vix_series.empty:
+        # Fallback approximate "calm" regime
+        return 18.0
+    return float(vix_series.iloc[-1])
+
+
+def smartsafe_allocation_from_vix(vix: float) -> float:
     """
-    Download adjusted close prices for all tickers over the last `years` years.
+    VIX ladder -> SmartSafe allocation (0..1).
+    Institutional-ish mapping:
+        VIX < 16   -> 5%
+        16-20      -> 10%
+        20-25      -> 20%
+        25-30      -> 35%
+        30-40      -> 55%
+        > 40       -> 75%
     """
-    if not HAS_YF:
-        raise RuntimeError("yfinance not installed; cannot fetch prices.")
-
-    tickers = sorted(set(tickers))
-    if not tickers:
-        raise ValueError("No tickers provided for get_price_history().")
-
-    end = datetime.today().date()
-    start = end - timedelta(days=365 * years + 30)
-
-    data = yf.download(
-        tickers=tickers,
-        start=start,
-        end=end,
-        progress=False,
-        auto_adjust=True,
-        group_by="ticker",
-    )
-
-    if isinstance(data.columns, pd.MultiIndex):
-        px = data["Adj Close"] if "Adj Close" in data.columns.levels[0] else data["Close"]
+    if vix < 16:
+        return 0.05
+    elif vix < 20:
+        return 0.10
+    elif vix < 25:
+        return 0.20
+    elif vix < 30:
+        return 0.35
+    elif vix < 40:
+        return 0.55
     else:
-        px = data
-
-    if isinstance(px, pd.Series):
-        px = px.to_frame(name=tickers[0])
-
-    px = px[tickers].copy()
-    px.index = pd.to_datetime(px.index)
-    px = px.sort_index()
-    return px
+        return 0.75
 
 
-# ---------- SmartSafe overlay (gentler) ----------
-
-
-def apply_smartsafe_overlay(
-    df: pd.DataFrame,
-    smartsafe_yield_annual: float = 0.04,
-    vol_window: int = 21,
-    vol_low: float = 0.18,   # calmer threshold
-    vol_high: float = 0.30,  # high-vol threshold
-    dd_low: float = 0.05,
-    dd_high: float = 0.12,
-    max_smartsafe: float = 0.35,  # cap allocation to SmartSafe
-    step: float = 0.05,
-) -> pd.DataFrame:
+def effective_equity_exposure(recipe: WaveRecipe, mode: str, vix_level: Optional[float] = None) -> Tuple[float, float]:
     """
-    SmartSafe overlay:
-      - Uses realized volatility & drawdown on risk NAV (nav_risk).
-      - Moves some weight into a stable-yield SmartSafe sleeve when
-        things are rough; moves back out when calm.
-      - nav_risk is NOT changed, nav is the blended client NAV.
+    Compute effective equity exposure and SmartSafe allocation (0..1) for a wave
+    under a given mode and VIX level.
+
+    Returns: (equity_exposure, smartsafe_allocation)
     """
-    out = df.copy().sort_index()
+    if vix_level is None:
+        vix_level = latest_vix_level()
 
-    if "nav_risk" not in out.columns:
-        raise ValueError("apply_smartsafe_overlay expects 'nav_risk' in df")
+    scalar = recipe.scalar_for_mode(mode)
+    base_beta = recipe.target_beta * scalar
 
-    risk_nav = out["nav_risk"].values.astype(float)
-    n = len(out)
-    if n == 0:
-        return out
+    ss_alloc = smartsafe_allocation_from_vix(vix_level) if recipe.use_smartsafe else 0.0
+    ss_alloc = max(0.0, min(1.0, ss_alloc))
 
-    risk_ret = pd.Series(risk_nav).pct_change()
-    vol_roll = risk_ret.rolling(vol_window).std() * np.sqrt(252.0)
-    running_max = pd.Series(risk_nav).cummax()
-    dd = risk_nav / running_max - 1.0
+    # Equity exposure scaled down by SmartSafe slice
+    equity_exposure = base_beta * (1.0 - ss_alloc)
 
-    smartsafe_weight = np.zeros(n)
-    sm_nav = np.zeros(n)
-    sm_nav[0] = risk_nav[0]
+    return float(equity_exposure), float(ss_alloc)
 
-    y_daily = (1.0 + smartsafe_yield_annual) ** (1.0 / 252.0) - 1.0
-    w = 0.0  # initial SmartSafe allocation
 
-    for i in range(1, n):
-        sm_nav[i] = sm_nav[i - 1] * (1.0 + y_daily)
+# -----------------------------------------------------------------------------
+# Performance history loaders
+# -----------------------------------------------------------------------------
 
-        v = vol_roll.iloc[i]
-        d = dd.iloc[i]
 
-        v_val = float(v) if pd.notnull(v) else float("nan")
-        d_val = float(d) if pd.notnull(d) else float("nan")
+def _latest_matching_file(pattern: str) -> Optional[Path]:
+    files = sorted(glob.glob(pattern))
+    if not files:
+        return None
+    return Path(files[-1])
 
-        if not np.isnan(v_val) and not np.isnan(d_val):
-            if v_val > vol_high or d_val < -dd_high:
-                # risk-off → add SmartSafe
-                w = min(max_smartsafe, w + step)
-            elif v_val < vol_low and d_val > -dd_low:
-                # calm + shallow drawdown → reduce SmartSafe
-                w = max(0.0, w - step)
 
-        smartsafe_weight[i] = w
+def load_wave_performance_history(wave_name: str) -> pd.DataFrame:
+    """
+    Load daily performance history for a wave from logs/performance.
 
-    smartsafe_weight[0] = smartsafe_weight[1] if n > 1 else w
+    Expected CSV columns (flexible, but typical):
+    - date
+    - return (daily pct or decimal)
+    - benchmark_return (optional)
+    """
+    safe_name = wave_name.replace(" ", "_").replace("&", "and")
+    pattern = str(LOG_PERFORMANCE_DIR / f"{safe_name}_performance_daily*.csv")
+    latest = _latest_matching_file(pattern)
+    if latest is None or not latest.exists():
+        return pd.DataFrame()
 
-    combined_nav = smartsafe_weight * sm_nav + (1.0 - smartsafe_weight) * risk_nav
+    try:
+        df = pd.read_csv(latest)
+    except Exception:
+        return pd.DataFrame()
 
-    out["smartsafe_nav"] = sm_nav
-    out["smartsafe_weight"] = smartsafe_weight
-    out["smartsafe_yield_annual"] = smartsafe_yield_annual
-    out["nav"] = combined_nav
+    # Normalize column names
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Expect at least a date and a return column
+    if "date" not in df.columns:
+        # try index or other date-like columns
+        for alt in ["as_of", "timestamp"]:
+            if alt in df.columns:
+                df["date"] = df[alt]
+                break
+    if "date" not in df.columns:
+        return pd.DataFrame()
+
+    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+
+    # normalize return column
+    if "return" not in df.columns:
+        for alt in ["daily_return", "wave_return", "portfolio_return"]:
+            if alt in df.columns:
+                df["return"] = df[alt]
+                break
+
+    if "return" not in df.columns:
+        return pd.DataFrame()
+
+    # Ensure returns are decimals, not percents
+    if df["return"].abs().mean() > 0.5:  # crude check
+        df["return"] = df["return"] / 100.0
+
+    # Keep relevant columns
+    keep_cols = ["date", "return"]
+    if "benchmark_return" in df.columns:
+        keep_cols.append("benchmark_return")
+        if df["benchmark_return"].abs().mean() > 0.5:
+            df["benchmark_return"] = df["benchmark_return"] / 100.0
+
+    df = df[keep_cols].dropna(subset=["date", "return"]).sort_values("date")
+
+    return df.reset_index(drop=True)
+
+
+def fetch_benchmark_returns(ticker: str, dates: pd.Series) -> pd.Series:
+    """
+    Fetch benchmark total returns aligned to given dates.
+    If yfinance is unavailable, returns zeros.
+    """
+    if yf is None or dates.empty:
+        return pd.Series(0.0, index=dates, name="benchmark_return")
+
+    start = dates.min() - pd.Timedelta(days=5)
+    end = dates.max() + pd.Timedelta(days=2)
+
+    try:
+        px = yf.download(ticker, start=start, end=end, progress=False)["Adj Close"]
+        px = px.tz_localize(None)
+        px = px.reindex(sorted(px.index)).ffill()
+        rets = px.pct_change().fillna(0.0)
+        rets.name = "benchmark_return"
+        # align to our dates
+        aligned = rets.reindex(dates, method="ffill").fillna(0.0)
+        aligned.index = dates
+        return aligned
+    except Exception:
+        return pd.Series(0.0, index=dates, name="benchmark_return")
+
+
+# -----------------------------------------------------------------------------
+# Return / alpha utilities
+# -----------------------------------------------------------------------------
+
+
+def _horizon_total_return(returns: pd.Series, days: int) -> float:
+    if returns.empty:
+        return float("nan")
+    # last N trading days
+    r = returns.iloc[-days:].copy()
+    if r.empty:
+        return float("nan")
+    total = (1.0 + r).prod() - 1.0
+    return float(total)
+
+
+def _ensure_series(x) -> pd.Series:
+    if isinstance(x, pd.Series):
+        return x
+    return pd.Series(x)
+
+
+def compute_horizon_metrics(
+    wave_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    horizons: List[int] = [1, 30, 60, 252],
+) -> Dict[str, float]:
+    """
+    Compute horizon total returns and alpha for given horizons (in trading days).
+    Keys:
+        Return_1d, Return_30d, Return_60d, Return_1y
+        Alpha_1d, Alpha_30d, Alpha_60d, Alpha_1y
+    """
+    wave_returns = _ensure_series(wave_returns).fillna(0.0)
+    benchmark_returns = _ensure_series(benchmark_returns).fillna(0.0)
+    # align
+    df = pd.DataFrame({"wave": wave_returns, "bench": benchmark_returns}).fillna(0.0)
+
+    out: Dict[str, float] = {}
+
+    for d in horizons:
+        label = "1d" if d == 1 else ("1y" if d >= 250 else f"{d}d")
+        w_total = _horizon_total_return(df["wave"], d)
+        b_total = _horizon_total_return(df["bench"], d)
+        alpha = w_total - b_total
+        out[f"Return_{label}"] = w_total
+        out[f"Alpha_{label}"] = alpha
 
     return out
 
 
-# ---------- NAV & alpha (alpha from risk-only) ----------
-
-
-def compute_wave_nav(
-    price_panel: pd.DataFrame,
-    weights_df: pd.DataFrame,
+def compute_alpha_capture_for_wave(
     wave_name: str,
-) -> Tuple[pd.DataFrame, str]:
+    mode: str = "Standard",
+    vix_series: Optional[pd.Series] = None,
+) -> Dict[str, float]:
     """
-    Compute NAV and alpha for a single Wave:
-
-      • nav_risk      : risk-only NAV from holdings
-      • nav           : SmartSafe-adjusted NAV (client experience)
-      • bench_nav     : benchmark NAV
-      • return_*      : returns on nav (client experience)
-      • alpha_*       : alpha from nav_risk vs benchmark
+    Core engine function:
+    - loads wave performance history
+    - fetches / derives benchmark returns
+    - applies mode + SmartSafe exposure adjustments
+    - computes horizon total returns and alpha
     """
-    this_wave = weights_df[weights_df["wave"] == wave_name].copy()
-    if this_wave.empty:
-        raise ValueError(f"No weights found for wave '{wave_name}'")
+    if mode not in MODES:
+        mode = "Standard"
 
-    tickers = this_wave["ticker"].tolist()
-    w = this_wave["weight"].values
+    recipe = WAVE_RECIPES.get(wave_name)
+    if recipe is None:
+        return {}
 
-    missing = [t for t in tickers if t not in price_panel.columns]
-    if missing:
-        raise ValueError(f"Missing price history for tickers: {missing}")
+    perf = load_wave_performance_history(wave_name)
+    if perf.empty:
+        return {}
 
-    prices = price_panel[tickers].copy()
-    wave_px = (prices * w).sum(axis=1)
+    perf = perf.copy().sort_values("date")
+    perf["return"] = perf["return"].astype(float).fillna(0.0)
 
-    bench_ticker = WAVE_BENCHMARKS.get(wave_name, "SPY")
-    if bench_ticker not in price_panel.columns:
-        raise ValueError(f"Missing price history for benchmark {bench_ticker}")
-    bench_price = price_panel[bench_ticker].copy()
+    # Get benchmark series: either from file or via yfinance
+    if "benchmark_return" in perf.columns:
+        bench = perf["benchmark_return"].astype(float).fillna(0.0)
+    else:
+        bench = fetch_benchmark_returns(recipe.benchmark, perf["date"])
 
-    df = pd.DataFrame({"wave_px": wave_px, "bench_px": bench_price}).dropna()
-    df.index.name = "date"
+    # Exposure + SmartSafe adjustment
+    equity_exp, ss_alloc = effective_equity_exposure(
+        recipe, mode, latest_vix_level(vix_series)
+    )
 
-    # Risk-only and benchmark NAV
-    df["nav_risk"] = df["wave_px"] / df["wave_px"].iloc[0] * 100.0
-    df["bench_nav"] = df["bench_px"] / df["bench_px"].iloc[0] * 100.0
+    # Interpret recorded returns as *pre*-mode scaling equity returns.
+    # We re-scale them by equity exposure; SmartSafe assumed ~0 return.
+    adjusted_wave_returns = perf["return"] * equity_exp
 
-    # SmartSafe overlay -> nav (client experience)
-    df = apply_smartsafe_overlay(df)
+    metrics = compute_horizon_metrics(
+        wave_returns=adjusted_wave_returns,
+        benchmark_returns=bench,
+        horizons=[1, 30, 60, 252],
+    )
 
-    # Client-experience returns (SmartSafe-adjusted)
-    df["return_1d"] = df["nav"].pct_change()
-    df["bench_return_1d"] = df["bench_nav"].pct_change()
+    # Optional: simple information ratio over 1y
+    df = pd.DataFrame({"wave": adjusted_wave_returns, "bench": bench})
+    df["excess"] = df["wave"] - df["bench"]
+    if len(df) > 20:
+        mean_excess = df["excess"].mean()
+        std_excess = df["excess"].std(ddof=1)
+        ir = mean_excess / std_excess * math.sqrt(252) if std_excess > 0 else float("nan")
+    else:
+        ir = float("nan")
 
-    horizons = [(21, "30d"), (42, "60d"), (252, "252d")]
-    for h, label in horizons:
-        df[f"return_{label}"] = df["nav"] / df["nav"].shift(h) - 1.0
-        df[f"bench_return_{label}"] = df["bench_nav"] / df["bench_nav"].shift(h) - 1.0
-
-    # Risk-sleeve returns (for alpha)
-    df["risk_return_1d"] = df["nav_risk"].pct_change()
-    df["risk_return_30d"] = df["nav_risk"] / df["nav_risk"].shift(21) - 1.0
-    df["risk_return_60d"] = df["nav_risk"] / df["nav_risk"].shift(42) - 1.0
-    df["risk_return_252d"] = df["nav_risk"] / df["nav_risk"].shift(252) - 1.0
-
-    # Alpha from risk-only vs benchmark
-    df["alpha_1d"] = df["risk_return_1d"] - df["bench_return_1d"]
-    df["alpha_30d"] = df["risk_return_30d"] - df["bench_return_30d"]
-    df["alpha_60d"] = df["risk_return_60d"] - df["bench_return_60d"]
-    df["alpha_1y"] = df["risk_return_252d"] - df["bench_return_252d"]
-
-    df["wave"] = wave_name
-    df["benchmark_ticker"] = bench_ticker
-    df["regime"] = "LIVE_SMARTSAFE" if HAS_YF else "SANDBOX_SMARTSAFE"
-
-    return df.reset_index(), bench_ticker
-
-
-# ---------- Positions snapshot & logging ----------
+    metrics.update(
+        {
+            "Wave": wave_name,
+            "Category": recipe.category,
+            "Benchmark": recipe.benchmark,
+            "Mode": mode,
+            "Target_Beta": recipe.target_beta,
+            "Equity_Exposure": equity_exp,
+            "SmartSafe_Alloc": ss_alloc,
+            "Alpha_IR": ir,
+        }
+    )
+    return metrics
 
 
-def build_positions_snapshot(
-    weights_df: pd.DataFrame,
-    master_list: Optional[pd.DataFrame],
-    wave_name: str,
-) -> pd.DataFrame:
-    this_wave = weights_df[weights_df["wave"] == wave_name].copy()
-    if this_wave.empty:
-        raise ValueError(f"No weights found for wave '{wave_name}'")
+# -----------------------------------------------------------------------------
+# Public API for the console
+# -----------------------------------------------------------------------------
 
-    this_wave["wave"] = wave_name
 
-    if master_list is not None:
-        merged = this_wave.merge(
-            master_list, on="ticker", how="left", suffixes=("", "_list")
-        )
-        cols = {c.lower(): c for c in merged.columns}
-        name_col = cols.get("name")
-        if name_col:
-            merged = merged.rename(columns={name_col: "name"})
+def compute_alpha_capture_matrix(mode: str = "Standard") -> pd.DataFrame:
+    """
+    Compute alpha capture for all waves in a given mode.
+    Output columns (for each wave):
+        Wave, Category, Benchmark,
+        Return_1d, Return_30d, Return_60d, Return_1y,
+        Alpha_1d, Alpha_30d, Alpha_60d, Alpha_1y,
+        Equity_Exposure, SmartSafe_Alloc, Alpha_IR
+    """
+    rows: List[Dict[str, float]] = []
+    vix_hist = fetch_vix_history(90)
+
+    for wave in list_wave_names(include_smartsafe=True):
+        row = compute_alpha_capture_for_wave(wave, mode=mode, vix_series=vix_hist)
+        if row:
+            rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # Sort: put SmartSafe last
+    df["_sort"] = df["Wave"].apply(lambda w: 999 if "SmartSafe" in w else 0)
+    df = df.sort_values(["_sort", "Wave"]).drop(columns=["_sort"]).reset_index(drop=True)
+
+    # Pretty percentages for UI can be done in app.py; here we keep decimals.
+    return df
+
+
+def get_engine_status() -> Dict[str, str]:
+    """
+    Lightweight status summary for the System Status tab.
+    """
+    status = {}
+
+    # Check directories
+    status["positions_dir_exists"] = str(LOG_POSITIONS_DIR.exists())
+    status["performance_dir_exists"] = str(LOG_PERFORMANCE_DIR.exists())
+
+    # Count CSVs
+    status["positions_csv_count"] = str(len(glob.glob(str(LOG_POSITIONS_DIR / "*.csv"))))
+    status["performance_csv_count"] = str(len(glob.glob(str(LOG_PERFORMANCE_DIR / "*.csv"))))
+
+    # VIX
+    vix_hist = fetch_vix_history(30)
+    if vix_hist is None or vix_hist.empty:
+        status["vix_status"] = "UNAVAILABLE"
+        status["vix_latest"] = "N/A"
+    else:
+        status["vix_status"] = "OK"
+        status["vix_latest"] = f"{latest_vix_level(vix_hist):.2f}"
+
+    return status
+
+
+def list_waves_with_data() -> pd.DataFrame:
+    """
+    Helper for System Status — shows which waves actually have performance logs.
+    """
+    rows = []
+    for wave in list_wave_names(include_smartsafe=True):
+        perf = load_wave_performance_history(wave)
+        if perf.empty:
+            rows.append(
+                {
+                    "Wave": wave,
+                    "Has_Performance": False,
+                    "First_Date": None,
+                    "Last_Date": None,
+                    "Row_Count": 0,
+                }
+            )
         else:
-            merged["name"] = merged["ticker"]
-        out = merged[["wave", "ticker", "name", "weight"]].copy()
-    else:
-        out = this_wave.copy()
-        out["name"] = out["ticker"]
-        out = out[["wave", "ticker", "name", "weight"]]
-
-    return out.sort_values("weight", ascending=False)
-
-
-def write_performance_log(df: pd.DataFrame, wave_name: str) -> str:
-    prefix = wave_name.replace(" ", "_")
-    path = os.path.join(LOGS_PERFORMANCE_DIR, f"{prefix}_performance_daily.csv")
-    df.to_csv(path, index=False)
-    return path
+            rows.append(
+                {
+                    "Wave": wave,
+                    "Has_Performance": True,
+                    "First_Date": perf["date"].min(),
+                    "Last_Date": perf["date"].max(),
+                    "Row_Count": len(perf),
+                }
+            )
+    return pd.DataFrame(rows)
 
 
-def write_positions_log(df: pd.DataFrame, wave_name: str) -> str:
-    today_str = datetime.today().strftime("%Y%m%d")
-    prefix = wave_name.replace(" ", "_")
-    path = os.path.join(LOGS_POSITIONS_DIR, f"{prefix}_positions_{today_str}.csv")
-    df.to_csv(path, index=False)
-    return path
+# You can add a "run_engine_once" here later to generate fresh logs from
+# list.csv + wave_weights.csv if you want the app to trigger a full rebalance.
 
-
-# ---------- Public engine API ----------
-
-
-def run_wave_update(
-    wave_name: str,
-    price_panel: Optional[pd.DataFrame] = None,
-    years: int = 3,
-) -> Tuple[str, str]:
-    """
-    Generate performance + positions logs for a single Wave.
-    """
-    weights_df = load_wave_weights()
-    master_list = load_master_list()
-
-    this_wave = weights_df[weights_df["wave"] == wave_name]
-    if this_wave.empty:
-        raise ValueError(f"Wave '{wave_name}' not present in wave_weights.csv")
-
-    all_wave_tickers = weights_df["ticker"].unique().tolist()
-    bench_ticker = WAVE_BENCHMARKS.get(wave_name, "SPY")
-
-    if price_panel is None:
-        tickers_needed = list(set(all_wave_tickers + [bench_ticker]))
-        price_panel = get_price_history(tickers_needed, years=years)
-
-    perf_df, _ = compute_wave_nav(price_panel, weights_df, wave_name)
-    pos_df = build_positions_snapshot(weights_df, master_list, wave_name)
-
-    perf_path = write_performance_log(perf_df, wave_name)
-    pos_path = write_positions_log(pos_df, wave_name)
-    return perf_path, pos_path
-
-
-def run_all_waves(years: int = 3) -> None:
-    """
-    Recompute performance logs for all EQUITY_WAVES.
-    """
-    if not HAS_YF:
-        raise RuntimeError(
-            "yfinance is not available. Install it to fetch real prices."
-        )
-
-    weights_df = load_wave_weights()
-    master_list = load_master_list()
-
-    all_wave_tickers = weights_df["ticker"].unique().tolist()
-    bench_tickers = list(set(WAVE_BENCHMARKS.values()))
-    all_tickers = sorted(set(all_wave_tickers + bench_tickers))
-
-    print(f"[waves_engine] Fetching prices for {len(all_tickers)} tickers...")
-    price_panel = get_price_history(all_tickers, years=years)
-    print(f"[waves_engine] Price panel shape: {price_panel.shape}")
-
-    for wave_name in EQUITY_WAVES:
-        if wave_name not in weights_df["wave"].unique():
-            print(f"[waves_engine] Skipping {wave_name} (no weights).")
-            continue
-        try:
-            perf_df, bench = compute_wave_nav(price_panel, weights_df, wave_name)
-            pos_df = build_positions_snapshot(weights_df, master_list, wave_name)
-            perf_path = write_performance_log(perf_df, wave_name)
-            pos_path = write_positions_log(pos_df, wave_name)
-            print(f"[waves_engine] Updated {wave_name} (benchmark: {bench})")
-            print(f"  Performance: {perf_path}")
-            print(f"  Positions:   {pos_path}")
-        except Exception as exc:
-            print(f"[waves_engine] ERROR on {wave_name}: {exc}")
-
-
-# ---------- Script entry ----------
-
-if __name__ == "__main__":
-    print("Running WAVES Intelligence™ engine with SmartSafe™ (Vector 1.6)...")
-    if not HAS_YF:
-        print("ERROR: yfinance not installed. Install it to fetch prices.")
-    else:
-        run_all_waves(years=3)
-    print("Done.")
+__all__ = [
+    "WaveRecipe",
+    "WAVE_RECIPES",
+    "list_wave_names",
+    "fetch_vix_history",
+    "latest_vix_level",
+    "smartsafe_allocation_from_vix",
+    "effective_equity_exposure",
+    "load_wave_performance_history",
+    "fetch_benchmark_returns",
+    "compute_horizon_metrics",
+    "compute_alpha_capture_for_wave",
+    "compute_alpha_capture_matrix",
+    "get_engine_status",
+    "list_waves_with_data",
+]
