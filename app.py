@@ -16,7 +16,7 @@ except Exception:  # for environments without Streamlit during linting
             return f
     st = _Dummy()
 
-# Try to import your engine (optional)
+# Optional engine import
 try:
     import waves_engine  # type: ignore
     HAS_ENGINE = True
@@ -48,7 +48,6 @@ ENGINE_ACTIVITY_CANDIDATES = [
     "engine_activity.csv",
 ]
 
-# Debug tracker: which files each wave is using
 MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
     "performance": {},
     "positions": {},
@@ -138,7 +137,6 @@ def ensure_dirs() -> None:
 
 
 def normalize_for_match(s: str) -> str:
-    """Normalize names / filenames for fuzzy matching."""
     if not isinstance(s, str):
         return ""
     s = s.lower()
@@ -151,7 +149,6 @@ def normalize_for_match(s: str) -> str:
 
 
 def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
-    """Try to parse YYYYMMDD from ..._YYYYMMDD.csv."""
     base = os.path.basename(fname)
     stem = base.replace(".csv", "")
     parts = stem.split("_")
@@ -167,9 +164,7 @@ def parse_date_from_positions_filename(fname: str) -> Optional[datetime]:
 
 
 def find_best_performance_path(wave_name: str) -> Optional[str]:
-    """Fuzzy match performance file for a wave."""
     MATCH_DEBUG["performance"][wave_name] = None
-
     if not os.path.isdir(LOGS_PERFORMANCE_DIR):
         return None
     target = normalize_for_match(wave_name)
@@ -203,9 +198,7 @@ def find_best_performance_path(wave_name: str) -> Optional[str]:
 
 
 def find_latest_positions_path(wave_name: str) -> Optional[str]:
-    """Fuzzy match LATEST positions file for a wave."""
     MATCH_DEBUG["positions"][wave_name] = None
-
     if not os.path.isdir(LOGS_POSITIONS_DIR):
         return None
     target = normalize_for_match(wave_name)
@@ -248,11 +241,6 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 
 
 def get_available_waves() -> List[str]:
-    """
-    Prefer waves discovered from engine weights,
-    but intersect with the 11-wave rotation. If engine
-    is missing, just use EQUITY_WAVES.
-    """
     waves: set[str] = set()
 
     if HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
@@ -274,7 +262,6 @@ def get_available_waves() -> List[str]:
         waves = set(EQUITY_WAVES)
 
     return sorted(waves)
-
 
 # ---------- Data loaders ----------
 
@@ -350,11 +337,9 @@ def load_engine_activity() -> Optional[pd.DataFrame]:
                 continue
     return None
 
-
-# ---------- SANDBOX generator (11-wave universe) ----------
+# ---------- SANDBOX generator ----------
 
 def demo_positions_for_wave(wave: str) -> pd.DataFrame:
-    """Generate synthetic positions for a wave if none exist (Top 10-ish)."""
     if wave == "Clean Transit-Infrastructure Wave":
         tickers = ["TSLA", "NIO", "RIVN", "CHPT", "BLNK", "F", "GM", "CAT", "DE", "UNP"]
     elif wave == "Quantum Computing Wave":
@@ -388,24 +373,18 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
 
 
 def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
-    """
-    Generate synthetic performance + benchmark history for a wave.
-    Alpha = Wave return − Benchmark return over each window.
-    """
     end_date = datetime.today().date()
     dates = pd.bdate_range(end=end_date, periods=days)
     n = len(dates)
 
-    # Benchmark: ~8%/yr, ~15% vol
     bench_mu = 0.08 / 252.0
     bench_sigma = 0.15 / np.sqrt(252.0)
 
-    # Wave alpha profile
     if wave == "S&P 500 Wave":
-        alpha_mu = 0.01 / 252.0   # ~1%/yr alpha
+        alpha_mu = 0.01 / 252.0
         alpha_sigma = 0.03 / np.sqrt(252.0)
     elif wave == "Infinity Wave":
-        alpha_mu = 0.04 / 252.0   # ~4%/yr alpha
+        alpha_mu = 0.04 / 252.0
         alpha_sigma = 0.08 / np.sqrt(252.0)
     elif wave in ["Growth Wave", "Small Cap Growth Wave", "Small to Mid Cap Growth Wave"]:
         alpha_mu = 0.03 / 252.0
@@ -465,14 +444,12 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
 
     df["wave"] = wave
     df["regime"] = "SANDBOX"
-
     return df
 
 
 def generate_sandbox_logs_if_missing(
     wave: str,
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-    """If a wave has no positions/performance files, generate SANDBOX logs."""
     perf_path = find_best_performance_path(wave)
     pos_path = find_latest_positions_path(wave)
 
@@ -505,8 +482,7 @@ def generate_sandbox_logs_if_missing(
 
     return perf_df, pos_df
 
-
-# ---------- Google Finance links & metrics ----------
+# ---------- Display helpers ----------
 
 def google_quote_url(ticker: str) -> str:
     if not isinstance(ticker, str):
@@ -521,70 +497,49 @@ def render_top10_holdings(df: Optional[pd.DataFrame], wave_name: str) -> None:
     if df is None or df.empty:
         st.info(f"No holdings available for {wave_name}.")
         return
-
     df = df.copy()
     cols = {c.lower(): c for c in df.columns}
     tcol = cols.get("ticker")
     wcol = cols.get("weight")
     ncol = cols.get("name")
-
     if tcol is None or wcol is None:
         st.warning("Missing Ticker/Weight columns for holdings.")
         return
-
     df[tcol] = df[tcol].astype(str).str.upper()
     try:
         df[wcol] = df[wcol].astype(float)
     except Exception:
         pass
-
     df = df.sort_values(wcol, ascending=False).head(10)
-    df["Google"] = df[tcol].apply(lambda t: f"[{t}]({google_quote_url(t)})")
-
-    cols_show: List[str] = ["Google"]
+    df["Google"] = df[tcol].apply(lambda t: google_quote_url(t))
+    show_cols: List[str] = ["Google"]
     if ncol:
-        cols_show.append(ncol)
-    cols_show.append(wcol)
-
-    display_df = df[cols_show].rename(columns={
+        show_cols.append(ncol)
+    show_cols.append(wcol)
+    display_df = df[show_cols].rename(columns={
         ncol: "Name" if ncol else ncol,
         wcol: "Weight",
     })
-
     st.subheader(f"Top 10 Holdings — {wave_name}")
-    st.markdown(display_df.to_markdown(index=False), unsafe_allow_html=True)
-
-
-# ---------- Alpha metrics (advanced logic) ----------
+    st.table(display_df)
 
 def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Optional[float]]:
-    """
-    Priority:
-    1) If alpha_1d / alpha_30d / alpha_60d / alpha_1y exist, use them.
-    2) Otherwise, leave as None (we already compute in demo_performance).
-    """
     metrics: Dict[str, Optional[float]] = {
         "alpha_1d": None,
         "alpha_30d": None,
         "alpha_60d": None,
         "alpha_1y": None,
     }
-
     if perf_df is None or perf_df.empty:
         return metrics
-
-    df = perf_df
-    last = df.iloc[-1]
-
-    for key in ["alpha_1d", "alpha_30d", "alpha_60d", "alpha_1y"]:
-        if key in df.columns:
+    last = perf_df.iloc[-1]
+    for k in metrics.keys():
+        if k in perf_df.columns:
             try:
-                metrics[key] = float(last[key])
+                metrics[k] = float(last[k])
             except Exception:
-                metrics[key] = None
-
+                metrics[k] = None
     return metrics
-
 
 def format_pct(x: Optional[float]) -> str:
     if x is None:
@@ -594,17 +549,16 @@ def format_pct(x: Optional[float]) -> str:
     except Exception:
         return "N/A"
 
-
 def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
-    records = []
-    for wave in waves:
-        perf_df = load_performance_history(wave)
+    rows = []
+    for w in waves:
+        perf_df = load_performance_history(w)
         if perf_df is None or perf_df.empty:
-            perf_df, _ = generate_sandbox_logs_if_missing(wave)
+            perf_df, _ = generate_sandbox_logs_if_missing(w)
         m = compute_summary_metrics(perf_df)
-        meta = WAVE_METADATA.get(wave, {})
-        records.append({
-            "Wave": wave,
+        meta = WAVE_METADATA.get(w, {})
+        rows.append({
+            "Wave": w,
             "Category": meta.get("category", ""),
             "Benchmark": meta.get("benchmark", ""),
             "Intraday Alpha": m["alpha_1d"],
@@ -612,10 +566,9 @@ def compute_multi_wave_snapshot(waves: List[str]) -> pd.DataFrame:
             "60d Alpha": m["alpha_60d"],
             "1y Alpha": m["alpha_1y"],
         })
-    return pd.DataFrame(records)
+    return pd.DataFrame(rows)
 
-
-# ---------- Aux tabs ----------
+# ---------- Tabs ----------
 
 def render_wavescore_tab() -> None:
     st.subheader("WAVESCORE™ v1.0 — Wave Quality Dashboard")
@@ -625,7 +578,6 @@ def render_wavescore_tab() -> None:
         return
     st.dataframe(df, use_container_width=True)
 
-
 def render_alpha_capture_tab() -> None:
     st.subheader("Alpha Capture Matrix")
     df = load_alpha_capture_matrix()
@@ -634,107 +586,85 @@ def render_alpha_capture_tab() -> None:
         return
     st.dataframe(df, use_container_width=True)
 
-
 def render_human_override_tab(selected_wave: str) -> None:
     st.subheader("Human Override — View Only")
     df = load_human_overrides()
     if df is None or df.empty:
-        st.info(
-            "No human overrides found. If overrides are used, they will be read from "
-            "`logs/human_overrides/overrides.csv`."
-        )
+        st.info("No human overrides found.")
         return
-
     st.markdown("#### All Overrides")
     st.dataframe(df, use_container_width=True)
-
     cols = {c.lower(): c for c in df.columns}
     wave_col = cols.get("wave")
     if wave_col:
         st.markdown(f"#### Overrides for {selected_wave}")
-        this_wave_df = df[df[wave_col] == selected_wave]
-        if not this_wave_df.empty:
-            st.dataframe(this_wave_df, use_container_width=True)
+        this_wave = df[df[wave_col] == selected_wave]
+        if not this_wave.empty:
+            st.dataframe(this_wave, use_container_width=True)
         else:
-            st.info(f"No overrides currently filed for {selected_wave}.")
-
+            st.info(f"No overrides for {selected_wave}.")
 
 def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
     if path is None or not os.path.exists(path):
         return None
     try:
-        ts = os.path.getmtime(path)
-        return datetime.fromtimestamp(ts)
+        return datetime.fromtimestamp(os.path.getmtime(path))
     except Exception:
         return None
 
-
 def render_system_status_tab(waves: List[str]) -> None:
     st.subheader("System Status — Engine & Data Health")
-
-    engine_col, logs_col = st.columns(2)
-
-    with engine_col:
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown("#### Engine")
         if HAS_ENGINE:
-            st.success("waves_engine module loaded — WAVES engine is AVAILABLE.")
+            st.success("waves_engine module loaded — engine AVAILABLE.")
         else:
-            st.error("waves_engine module NOT found — console is running in SANDBOX mode only.")
+            st.warning("waves_engine module NOT found — running SANDBOX only.")
         st.markdown("#### Directories")
-        st.write(f"Logs - Positions: `{LOGS_POSITIONS_DIR}`")
-        st.write(f"Logs - Performance: `{LOGS_PERFORMANCE_DIR}`")
-        st.write(f"Human Overrides: `{HUMAN_OVERRIDE_DIR}`")
+        st.write(f"Positions: `{LOGS_POSITIONS_DIR}`")
+        st.write(f"Performance: `{LOGS_PERFORMANCE_DIR}`")
+        st.write(f"Overrides: `{HUMAN_OVERRIDE_DIR}`")
         st.write(f"Engine Logs: `{ENGINE_LOG_DIR}`")
-
-    with logs_col:
-        st.markdown("#### Latest Updates per Wave")
+    with col2:
+        st.markdown("#### Latest Files per Wave")
         rows = []
-        for wave in waves:
-            perf_path = MATCH_DEBUG["performance"].get(wave) or find_best_performance_path(wave)
-            pos_path = MATCH_DEBUG["positions"].get(wave) or find_latest_positions_path(wave)
+        for w in waves:
+            perf_path = MATCH_DEBUG["performance"].get(w) or find_best_performance_path(w)
+            pos_path = MATCH_DEBUG["positions"].get(w) or find_latest_positions_path(w)
             rows.append({
-                "Wave": wave,
+                "Wave": w,
                 "Perf File": perf_path or "(none)",
                 "Positions File": pos_path or "(none)",
                 "Last Perf Update": get_last_update_time(perf_path),
-                "Last Positions Update": get_last_update_time(pos_path),
+                "Last Pos Update": get_last_update_time(pos_path),
             })
         if rows:
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
         else:
-            st.info("No updates found yet.")
-
+            st.info("No log files detected yet.")
     st.markdown("---")
-    st.markdown("#### Files Present in /logs")
-    present_files = []
-    for root, _, files in os.walk("logs"):
-        for f in files:
+    st.markdown("#### All log CSVs")
+    files = []
+    for root, _, fs in os.walk("logs"):
+        for f in fs:
             if f.endswith(".csv"):
-                full_path = os.path.join(root, f)
-                present_files.append({
-                    "File": full_path,
-                    "Last Modified": get_last_update_time(full_path),
-                })
-    if present_files:
-        df_files = pd.DataFrame(present_files)
-        st.dataframe(df_files, use_container_width=True)
+                full = os.path.join(root, f)
+                files.append({"File": full, "Last Modified": get_last_update_time(full)})
+    if files:
+        st.dataframe(pd.DataFrame(files), use_container_width=True)
     else:
-        st.info("No log CSV files detected in /logs.")
-
+        st.info("No CSV files present in /logs folder.")
 
 def render_mode_logic_tab(selected_mode: str) -> None:
     st.subheader("Mode Logic Viewer — Alpha-Minus-Beta / Private Logic™")
-
-    st.markdown("##### Current Selected Mode")
     st.write(f"**Mode:** {selected_mode}")
-
-    mode_rows = [
+    rows = [
         {
             "Mode": "Standard",
             "Beta Target": "~1.00",
             "Risk Focus": "Balanced",
-            "Notes": "Default tracking of benchmark with moderate alpha target.",
+            "Notes": "Default benchmark-style exposure with moderate alpha target.",
         },
         {
             "Mode": "Alpha-Minus-Beta",
@@ -746,80 +676,32 @@ def render_mode_logic_tab(selected_mode: str) -> None:
             "Mode": "Private Logic™",
             "Beta Target": "0.90–1.10 (dynamic)",
             "Risk Focus": "Aggressive alpha capture",
-            "Notes": "Higher turnover and tracking error allowed; PL rules drive behavior.",
+            "Notes": "Allows more tracking error and turnover when conditions warrant.",
         },
     ]
-    df = pd.DataFrame(mode_rows)
-    st.dataframe(df, use_container_width=True)
-
-    if HAS_ENGINE and hasattr(waves_engine, "get_mode_config"):
-        st.markdown("##### Live Mode Config from Engine")
-        try:
-            cfg = waves_engine.get_mode_config(selected_mode)  # type: ignore
-            if isinstance(cfg, dict):
-                cfg_df = pd.DataFrame(
-                    [{"Parameter": k, "Value": v} for k, v in cfg.items()]
-                )
-                st.dataframe(cfg_df, use_container_width=True)
-            else:
-                st.write(cfg)
-        except Exception as e:
-            st.info(f"Could not read live mode config from engine: {e}")
-    else:
-        st.caption("Engine does not expose get_mode_config(); showing default spec instead.")
-
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 def render_engine_activity_tab() -> None:
     st.subheader("Engine Activity Log")
-
     df = load_engine_activity()
     if df is None or df.empty:
-        st.info(
-            "No engine activity log detected yet. "
-            "If you write `logs/engine/engine_activity.csv`, it will appear here."
-        )
+        st.info("No engine activity log detected yet.")
         return
-
-    cols = {c.lower(): c for c in df.columns}
-    ts_col = cols.get("timestamp") or cols.get("time") or cols.get("run_time")
-    wave_col = cols.get("wave")
-    mode_col = cols.get("mode")
-    status_col = cols.get("status") or cols.get("result")
-
-    st.markdown("##### Recent Engine Runs")
-    show_cols: List[str] = []
-    if ts_col:
-        show_cols.append(ts_col)
-    if wave_col:
-        show_cols.append(wave_col)
-    if mode_col:
-        show_cols.append(mode_col)
-    if status_col:
-        show_cols.append(status_col)
-
-    if show_cols:
-        st.dataframe(
-            df[show_cols].sort_values(ts_col if ts_col else show_cols[0], ascending=False),
-            use_container_width=True,
-        )
-    else:
-        st.dataframe(df, use_container_width=True)
-
+    st.dataframe(df, use_container_width=True)
 
 # ---------- Main app ----------
 
 def main() -> None:
     ensure_dirs()
-
     st.title(APP_TITLE)
     st.caption(APP_SUBTITLE)
 
     waves = get_available_waves()
     if not waves:
-        st.error("No Waves discovered yet (11-Wave rotation).")
+        st.error("No Waves discovered (11-wave rotation).")
         return
 
-    # Ensure EVERY wave has at least SANDBOX data if no logs exist
+    # Guarantee sandbox data for every wave
     for w in waves:
         perf_path = find_best_performance_path(w)
         pos_path = find_latest_positions_path(w)
@@ -828,87 +710,50 @@ def main() -> None:
 
     st.sidebar.header("Wave & Mode")
     selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
-
     mode = st.sidebar.radio(
         "Mode",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
         index=0,
     )
 
-    # Engine status + control buttons
-    st.sidebar.markdown("---")
     if HAS_ENGINE:
-        st.sidebar.success("Engine status: ON (waves_engine loaded).")
+        st.sidebar.success("Engine module detected (waves_engine).")
     else:
-        st.sidebar.warning("Engine status: SANDBOX (no waves_engine.py on this host).")
-
-    if HAS_ENGINE and hasattr(waves_engine, "run_wave"):
-        if st.sidebar.button(f"Run Engine for THIS Wave ({selected_wave})"):
-            try:
-                waves_engine.run_wave(selected_wave)  # type: ignore
-                st.sidebar.success(f"Engine run triggered for {selected_wave}.")
-            except Exception as e:
-                st.sidebar.error(f"Error running engine for {selected_wave}: {e}")
-
-    if HAS_ENGINE and hasattr(waves_engine, "run_all_waves"):
-        if st.sidebar.button("Run Engine for ALL Waves"):
-            try:
-                waves_engine.run_all_waves(mode=mode, debug=True)  # type: ignore
-                st.sidebar.success("Engine run triggered for ALL Waves.")
-            except Exception as e:
-                st.sidebar.error(f"Error running engine for ALL Waves: {e}")
-    elif HAS_ENGINE:
-        st.sidebar.info("run_all_waves() not available on waves_engine.")
-    else:
-        st.sidebar.info("Engine not loaded; using SANDBOX data where needed.")
+        st.sidebar.info("Running in SANDBOX demo mode (no engine module).")
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"Active Wave: **{selected_wave}**")
-    if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
-        st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
+    meta = WAVE_METADATA.get(selected_wave, {})
+    if meta.get("tagline"):
+        st.sidebar.caption(meta["tagline"])
+    if meta.get("benchmark"):
+        st.sidebar.caption(f"Benchmark: **{meta['benchmark']}**")
 
-    # Load data for selected wave
+    # Load selected wave data (or sandbox)
     perf_df = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
-
-    if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
-        try:
-            waves_engine.run_wave(selected_wave)  # type: ignore
-            st.sidebar.info(f"Auto-run: engine kicked for {selected_wave}.")
-            perf_df = load_performance_history(selected_wave)
-            positions_df = load_latest_positions(selected_wave)
-        except Exception as e:
-            st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
-
-    if (perf_df is None or perf_df.empty) and (positions_df is None or positions_df.empty):
-        st.sidebar.info(f"Generating SANDBOX data for {selected_wave} (code-only demo).")
+    if (perf_df is None or perf_df.empty) or (positions_df is None or positions_df.empty):
         perf_df, positions_df = generate_sandbox_logs_if_missing(selected_wave)
 
     metrics = compute_summary_metrics(perf_df)
 
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
+    col_main, col_side = st.columns([2, 1])
+    with col_main:
         st.subheader(f"{selected_wave} — Overview")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Intraday Alpha", format_pct(metrics["alpha_1d"]))
-        m2.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
-        m3.metric("60-Day Alpha", format_pct(metrics["alpha_60d"]))
-        m4.metric("1-Year Alpha", format_pct(metrics["alpha_1y"]))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Intraday Alpha", format_pct(metrics["alpha_1d"]))
+        c2.metric("30-Day Alpha", format_pct(metrics["alpha_30d"]))
+        c3.metric("60-Day Alpha", format_pct(metrics["alpha_60d"]))
+        c4.metric("1-Year Alpha", format_pct(metrics["alpha_1y"]))
 
         if perf_df is not None and not perf_df.empty and "date" in perf_df.columns:
             alpha_cols = [c for c in ["alpha_30d", "alpha_60d", "alpha_1y"] if c in perf_df.columns]
             if alpha_cols:
-                chart_data = perf_df.set_index("date")[alpha_cols]
-                st.line_chart(chart_data)
-        else:
-            st.caption("No performance history yet for this Wave.")
-
-        st.markdown("###### Debug — Matched Files for This Wave")
+                st.line_chart(perf_df.set_index("date")[alpha_cols])
+        st.markdown("###### Debug: Matched Files")
         st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
         st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
-
-    with col_right:
+    with col_side:
         render_top10_holdings(positions_df, selected_wave)
 
     st.markdown("---")
@@ -940,8 +785,8 @@ def main() -> None:
         if positions_df is not None and not positions_df.empty:
             st.dataframe(positions_df, use_container_width=True)
         else:
-            st.info("No detailed positions available for this Wave.")
-        st.markdown("### Raw Performance History")
+            st.info("No detailed positions available.")
+        st.subheader(f"{selected_wave} — Raw Performance")
         if perf_df is not None and not perf_df.empty:
             st.dataframe(perf_df, use_container_width=True)
         else:
@@ -961,21 +806,20 @@ def main() -> None:
 
     with tab6:
         st.subheader("All Waves — Snapshot")
-        snapshot_df = compute_multi_wave_snapshot(waves)
-        if not snapshot_df.empty:
-            display_df = snapshot_df.copy()
+        snap = compute_multi_wave_snapshot(waves)
+        if not snap.empty:
+            disp = snap.copy()
             for c in ["Intraday Alpha", "30d Alpha", "60d Alpha", "1y Alpha"]:
-                display_df[c] = display_df[c].apply(format_pct)
-            st.dataframe(display_df, use_container_width=True)
+                disp[c] = disp[c].apply(format_pct)
+            st.dataframe(disp, use_container_width=True)
         else:
-            st.info("No data available yet for multi-Wave snapshot.")
+            st.info("No snapshot data available.")
 
     with tab7:
         render_mode_logic_tab(mode)
 
     with tab8:
         render_engine_activity_tab()
-
 
 if __name__ == "__main__":
     main()
