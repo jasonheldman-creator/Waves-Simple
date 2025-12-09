@@ -54,81 +54,61 @@ MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
 
 # ----------------- Wave lineup -----------------
 
-EQUITY_WAVES: List[str] = [
-    "S&P 500 Wave",
-    "Growth Wave",
-    "Small Cap Growth Wave",
-    "Small to Mid Cap Growth Wave",
-    "Future Power & Energy Wave",
-    "Quantum Computing Wave",
-    "Clean Transit-Infrastructure Wave",
-    "AI Wave",
-    "Infinity Wave",
-    "International Developed Wave",
-    "Emerging Markets Wave",
-    "SmartSafe Wave",  # NEW
-]
-
-WAVE_METADATA: Dict[str, Dict[str, str]] = {
-    "S&P 500 Wave": {
-        "category": "Core Equity",
-        "benchmark": "SPY",
-        "tagline": "Core S&P 500 exposure with adaptive overlays.",
-    },
-    "Growth Wave": {
-        "category": "Growth Equity",
-        "benchmark": "QQQ",
-        "tagline": "High-growth exposure tuned for volatility and drawdowns.",
-    },
-    "Small Cap Growth Wave": {
-        "category": "Small Cap Growth",
-        "benchmark": "IWM",
-        "tagline": "High-octane small-cap growth with disciplined risk controls.",
-    },
-    "Small to Mid Cap Growth Wave": {
-        "category": "SMID Growth",
-        "benchmark": "IJH",
-        "tagline": "Blended small–mid cap growth with a smoother ride.",
-    },
-    "Future Power & Energy Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "XLE",
-        "tagline": "Future power, infrastructure, renewables, and next-gen energy.",
-    },
-    "Quantum Computing Wave": {
+WAVE_LINEUP = {
+    "AI Wave": {
         "category": "Thematic Equity",
         "benchmark": "QQQ",
-        "tagline": "Quantum, AI, and deep-tech acceleration.",
+        "description": "AI & automation leaders across semis, cloud, and software.",
     },
     "Clean Transit-Infrastructure Wave": {
         "category": "Thematic Equity",
-        "benchmark": "IDEV",
-        "tagline": "Clean transit, infrastructure, and mobility.",
-    },
-    "AI Wave": {
-        "category": "Thematic Equity",
-        "benchmark": "AI Basket",
-        "tagline": "Pure AI exposure across chips, cloud, and software leaders.",
-    },
-    "Infinity Wave": {
-        "category": "Flagship Multi-Theme",
-        "benchmark": "ACWI",
-        "tagline": "Flagship multi-theme alpha engine — “Tesla Roadster” Wave.",
-    },
-    "International Developed Wave": {
-        "category": "Global Equity",
-        "benchmark": "EFA",
-        "tagline": "Developed international exposure with adaptive overlays.",
+        "benchmark": "IYT",
+        "description": "EVs, clean transit, infrastructure, and logistics rails.",
     },
     "Emerging Markets Wave": {
         "category": "Global Equity",
         "benchmark": "EEM",
-        "tagline": "Emerging markets growth engine with risk discipline.",
+        "description": "Broad EM exposure with an AI bias toward quality and growth.",
     },
-    "SmartSafe Wave": {  # NEW
+    "Future Power & Energy Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "XLE",
+        "description": "Next-gen energy, grid, storage, and related infrastructure.",
+    },
+    "Growth Wave": {
+        "category": "Growth Equity",
+        "benchmark": "SPYG",
+        "description": "Core U.S. growth tilt across sectors.",
+    },
+    "Infinity Wave": {
+        "category": "Flagship Multi-Theme",
+        "benchmark": "SPY",
+        "description": "Flagship multi-theme AI Wave spanning all core playbooks.",
+    },
+    "International Developed Wave": {
+        "category": "Global Equity",
+        "benchmark": "EFA",
+        "description": "Developed ex-U.S. exposure with quality / FX aware tilts.",
+    },
+    "Quantum Computing Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "XLK",
+        "description": "Quantum, HPC, and enabling hardware / software stack.",
+    },
+    "S&P 500 Wave": {
+        "category": "Core Equity",
+        "benchmark": "SPY",
+        "description": "Core S&P 500 exposure with AI-driven tilts vs the index.",
+    },
+    "Small Cap Growth Wave": {
+        "category": "Small Cap Growth",
+        "benchmark": "IWO",
+        "description": "U.S. small-cap growth with quality and liquidity screens.",
+    },
+    "SmartSafe Wave": {
         "category": "SmartSafe / Cash",
-        "benchmark": "CASH / BIL",
-        "tagline": "High-grade cash sleeve with money-market-like yield and low volatility.",
+        "benchmark": "BIL",
+        "description": "Cash-plus AI ladder with risk-off sweep behavior.",
     },
 }
 
