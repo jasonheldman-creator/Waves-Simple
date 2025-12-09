@@ -54,7 +54,20 @@ MATCH_DEBUG: Dict[str, Dict[str, Optional[str]]] = {
     "positions": {},
 }
 
-# ---- Wave metadata ----
+# ---------- Equity Rotation (9 Waves) ----------
+
+EQUITY_WAVES: List[str] = [
+    "S&P 500 Wave",
+    "Growth Wave",
+    "Small Cap Growth Wave",
+    "Small to Mid Cap Growth Wave",
+    "Future Power & Energy Wave",
+    "Quantum Computing Wave",
+    "Clean Transit-Infrastructure Wave",
+    "Crypto Income Wave",
+    "Infinity Wave",
+]
+
 WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "S&P 500 Wave": {
         "category": "Core Equity",
@@ -66,6 +79,21 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
         "benchmark": "QQQ",
         "tagline": "High-growth exposure tuned for volatility and drawdowns.",
     },
+    "Small Cap Growth Wave": {
+        "category": "Small Cap Growth",
+        "benchmark": "IWM",
+        "tagline": "High-octane small-cap growth with disciplined risk controls.",
+    },
+    "Small to Mid Cap Growth Wave": {
+        "category": "SMID Growth",
+        "benchmark": "IJH",
+        "tagline": "Blended small–mid cap growth engine with smoother risk profile.",
+    },
+    "Future Power & Energy Wave": {
+        "category": "Thematic Equity",
+        "benchmark": "XLE",
+        "tagline": "Future power, infrastructure, renewables, and next-gen energy.",
+    },
     "Quantum Computing Wave": {
         "category": "Thematic Equity",
         "benchmark": "QQQ",
@@ -74,17 +102,17 @@ WAVE_METADATA: Dict[str, Dict[str, str]] = {
     "Clean Transit-Infrastructure Wave": {
         "category": "Thematic Equity",
         "benchmark": "IDEV",
-        "tagline": "Clean transit, infrastructure and mobility.",
+        "tagline": "Clean transit, infrastructure, and mobility.",
     },
-    "Income Wave": {
-        "category": "Income / Fixed Income",
-        "benchmark": "AGG",
-        "tagline": "Income-oriented engine with downside awareness.",
+    "Crypto Income Wave": {
+        "category": "Crypto / Thematic",
+        "benchmark": "BTC-ETH Basket",
+        "tagline": "Yield-oriented crypto positioning with risk overlays.",
     },
-    "SmartSafe Wave": {
-        "category": "SmartSafe™ Stable",
-        "benchmark": "BIL",
-        "tagline": "SmartSafe™ cash-equivalent Wave with 3-mode structure.",
+    "Infinity Wave": {
+        "category": "Flagship Multi-Theme",
+        "benchmark": "ACWI",
+        "tagline": "The flagship “Tesla Roadster” Wave — multi-theme alpha engine.",
     },
 }
 
@@ -211,7 +239,10 @@ def find_latest_positions_path(wave_name: str) -> Optional[str]:
 # ---------- Data loaders ----------
 
 def get_available_waves() -> List[str]:
-    """Waves from engine weights, falling back to metadata."""
+    """
+    Waves from engine weights, but filtered to the 9 equity Waves.
+    If engine has more, they’re ignored; if engine is missing, fallback to EQUITY_WAVES.
+    """
     waves: set[str] = set()
 
     if HAS_ENGINE and hasattr(waves_engine, "load_wave_weights"):
@@ -227,8 +258,11 @@ def get_available_waves() -> List[str]:
         except Exception:
             pass
 
-    if not waves:
-        waves.update(WAVE_METADATA.keys())
+    # Intersect with the 9-wave equity rotation
+    if waves:
+        waves = waves.intersection(set(EQUITY_WAVES))
+    else:
+        waves = set(EQUITY_WAVES)
 
     return sorted(waves)
 
@@ -306,7 +340,7 @@ def load_engine_activity() -> Optional[pd.DataFrame]:
     return None
 
 
-# ---------- SANDBOX data generator (code-only fallback) ----------
+# ---------- SANDBOX generator (equity only) ----------
 
 def demo_positions_for_wave(wave: str) -> pd.DataFrame:
     """Generate synthetic positions for a wave if none exist."""
@@ -316,6 +350,12 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
         tickers = ["NVDA", "AMD", "IBM", "QCOM", "AVGO", "TSM", "MSFT", "GOOGL"]
     elif wave == "S&P 500 Wave":
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "BRK.B", "JPM", "JNJ", "XOM", "PG"]
+    elif wave == "Crypto Income Wave":
+        tickers = ["BTC-USD", "ETH-USD", "MSTR", "COIN", "RIOT", "MARA"]
+    elif wave == "Future Power & Energy Wave":
+        tickers = ["NEE", "ENPH", "FSLR", "XOM", "CVX", "PLUG", "SEDG"]
+    elif wave == "Infinity Wave":
+        tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "GOOGL", "META", "AVGO"]
     else:
         tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META"]
 
@@ -335,7 +375,7 @@ def demo_positions_for_wave(wave: str) -> pd.DataFrame:
 def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     """
     Generate synthetic performance + benchmark history for a wave.
-    Alpha is computed as Wave return minus Benchmark return over each window.
+    Alpha = Wave return − Benchmark return over each window.
     """
     end_date = datetime.today().date()
     dates = pd.bdate_range(end=end_date, periods=days)
@@ -345,18 +385,21 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
     bench_mu = 0.08 / 252.0
     bench_sigma = 0.15 / np.sqrt(252.0)
 
-    # Wave alpha profile:
+    # Wave alpha profile
     if wave == "S&P 500 Wave":
-        # S&P overlay: small, realistic alpha with low tracking error
-        alpha_mu = 0.01 / 252.0   # ~1%/yr expected alpha
-        alpha_sigma = 0.03 / np.sqrt(252.0)  # modest TE
-    elif wave == "SmartSafe Wave":
-        # Cash-like: near-zero alpha vs T-bills
-        alpha_mu = 0.002 / 252.0
-        alpha_sigma = 0.01 / np.sqrt(252.0)
+        alpha_mu = 0.01 / 252.0   # ~1%/yr alpha
+        alpha_sigma = 0.03 / np.sqrt(252.0)
+    elif wave == "Infinity Wave":
+        alpha_mu = 0.04 / 252.0   # ~4%/yr alpha
+        alpha_sigma = 0.08 / np.sqrt(252.0)
+    elif wave in ["Growth Wave", "Small Cap Growth Wave", "Small to Mid Cap Growth Wave"]:
+        alpha_mu = 0.03 / 252.0
+        alpha_sigma = 0.07 / np.sqrt(252.0)
+    elif wave in ["Quantum Computing Wave", "Future Power & Energy Wave", "Clean Transit-Infrastructure Wave", "Crypto Income Wave"]:
+        alpha_mu = 0.05 / 252.0
+        alpha_sigma = 0.10 / np.sqrt(252.0)
     else:
-        # Thematic / Growth: more alpha potential, more tracking error
-        alpha_mu = 0.03 / 252.0   # ~3%/yr alpha
+        alpha_mu = 0.03 / 252.0
         alpha_sigma = 0.06 / np.sqrt(252.0)
 
     bench_ret = np.random.normal(bench_mu, bench_sigma, size=n)
@@ -374,7 +417,6 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
         "bench_return_1d": bench_ret,
     })
 
-    # Rolling windows: 30d (~21 bdays), 60d (~42), 1y (~252)
     df["return_30d"] = np.nan
     df["return_60d"] = np.nan
     df["return_252d"] = np.nan
@@ -393,7 +435,6 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
             df.loc[df.index[i], "return_252d"] = wave_nav[i] / wave_nav[i - 252] - 1.0
             df.loc[df.index[i], "bench_return_252d"] = bench_nav[i] / bench_nav[i - 252] - 1.0
 
-    # Advanced-style alpha: Wave minus Benchmark
     df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
     df["alpha_30d"] = df["return_30d"] - df["bench_return_30d"]
     df["alpha_60d"] = df["return_60d"] - df["bench_return_60d"]
@@ -406,10 +447,7 @@ def demo_performance_for_wave(wave: str, days: int = 260) -> pd.DataFrame:
 
 
 def generate_sandbox_logs_if_missing(wave: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-    """
-    If a wave has no positions/performance files at all,
-    generate synthetic SANDBOX data and write logs to /logs.
-    """
+    """If a wave has no positions/performance files, generate SANDBOX logs."""
     perf_path = find_best_performance_path(wave)
     pos_path = find_latest_positions_path(wave)
 
@@ -500,7 +538,6 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
     Priority:
     1) If engine already wrote alpha_1d / alpha_30d / alpha_60d / alpha_1y, use those.
     2) Else, if we have Wave + Benchmark returns, compute alpha now.
-    3) Else, return N/A.
     """
     metrics: Dict[str, Optional[float]] = {
         "alpha_1d": None,
@@ -517,7 +554,7 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
 
     cols = {c.lower(): c for c in df.columns}
 
-    # 1) Direct alpha columns
+    # Direct alpha columns from engine
     alpha_1d_col = cols.get("alpha_1d") or cols.get("alpha1d") or cols.get("alpha_daily") or cols.get("alpha_intraday")
     alpha_30d_col = cols.get("alpha_30d") or cols.get("alpha30") or cols.get("alpha_1m") or cols.get("alpha_30")
     alpha_60d_col = cols.get("alpha_60d") or cols.get("alpha60") or cols.get("alpha_2m") or cols.get("alpha_60")
@@ -538,11 +575,11 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
     if alpha_1y_col:
         metrics["alpha_1y"] = safe_float(last[alpha_1y_col])
 
-    # If we already got everything from engine, stop here
+    # If all alphas provided by engine, stop
     if all(v is not None for v in metrics.values()):
         return metrics
 
-    # 2) Compute from Wave vs Benchmark returns if cols exist
+    # Compute alpha from Wave vs Benchmark returns where needed
     ret_1d_col = cols.get("return_1d") or cols.get("r_1d") or cols.get("daily_return")
     bret_1d_col = cols.get("bench_return_1d") or cols.get("benchmark_return_1d") or cols.get("b_1d")
 
@@ -556,15 +593,20 @@ def compute_summary_metrics(perf_df: Optional[pd.DataFrame]) -> Dict[str, Option
     bret_1y_col = cols.get("bench_return_252d") or cols.get("bench_return_365d") or cols.get("benchmark_return_1y") or cols.get("b_1y")
 
     if metrics["alpha_1d"] is None and ret_1d_col and bret_1d_col:
-        metrics["alpha_1d"] = safe_float(last[ret_1d_col]) - safe_float(last[bret_1d_col]) if safe_float(last[ret_1d_col]) is not None and safe_float(last[bret_1d_col]) is not None else None
+        r = safe_float(last[ret_1d_col])
+        b = safe_float(last[bret_1d_col])
+        metrics["alpha_1d"] = r - b if r is not None and b is not None else None
+
     if metrics["alpha_30d"] is None and ret_30d_col and bret_30d_col:
         r = safe_float(last[ret_30d_col])
         b = safe_float(last[bret_30d_col])
         metrics["alpha_30d"] = r - b if r is not None and b is not None else None
+
     if metrics["alpha_60d"] is None and ret_60d_col and bret_60d_col:
         r = safe_float(last[ret_60d_col])
         b = safe_float(last[bret_60d_col])
         metrics["alpha_60d"] = r - b if r is not None and b is not None else None
+
     if metrics["alpha_1y"] is None and ret_1y_col and bret_1y_col:
         r = safe_float(last[ret_1y_col])
         b = safe_float(last[bret_1y_col])
@@ -803,10 +845,10 @@ def main() -> None:
 
     waves = get_available_waves()
     if not waves:
-        st.error("No Waves discovered yet.")
+        st.error("No Waves discovered yet (9-Wave equity rotation).")
         return
 
-    # Ensure EVERY wave has at least SANDBOX data if no logs exist
+    # Ensure EVERY equity wave has at least SANDBOX data if no logs exist
     for w in waves:
         perf_path = find_best_performance_path(w)
         pos_path = find_latest_positions_path(w)
@@ -854,11 +896,10 @@ def main() -> None:
     if selected_wave in WAVE_METADATA and WAVE_METADATA[selected_wave].get("tagline"):
         st.sidebar.caption(WAVE_METADATA[selected_wave]["tagline"])
 
-    # Load data
+    # Load data for selected wave
     perf_df = load_performance_history(selected_wave)
     positions_df = load_latest_positions(selected_wave)
 
-    # Auto-kick engine if missing
     if HAS_ENGINE and hasattr(waves_engine, "run_wave") and (perf_df is None or positions_df is None):
         try:
             waves_engine.run_wave(selected_wave)  # type: ignore
@@ -868,7 +909,6 @@ def main() -> None:
         except Exception as e:
             st.sidebar.error(f"Auto-run error for {selected_wave}: {e}")
 
-    # Still missing? SANDBOX
     if (perf_df is None or perf_df.empty) and (positions_df is None or positions_df.empty):
         st.sidebar.info(f"Generating SANDBOX data for {selected_wave} (code-only demo).")
         perf_df, positions_df = generate_sandbox_logs_if_missing(selected_wave)
@@ -893,7 +933,6 @@ def main() -> None:
         else:
             st.caption("No performance history yet for this Wave.")
 
-        # Debug: show matched files
         st.markdown("###### Debug — Matched Files for This Wave")
         st.write("Performance file:", MATCH_DEBUG["performance"].get(selected_wave) or "(none)")
         st.write("Positions file:", MATCH_DEBUG["positions"].get(selected_wave) or "(none)")
@@ -903,7 +942,6 @@ def main() -> None:
 
     st.markdown("---")
 
-    # Full institutional console tab set
     (
         tab1,
         tab2,
