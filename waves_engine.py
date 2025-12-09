@@ -1,284 +1,557 @@
-# app.py
-#
-# WAVES Intelligence™ Institutional Console — Hard Reset Edition
-#
-# - On each run, calls run_engine_once_for_all_waves(), which wipes logs and rebuilds them.
-# - Shows Wave details (returns + alpha + top 10 holdings).
-# - Shows Alpha Capture matrix across waves & modes.
-# - Shows Engine version + log tag + universe.
+"""
+WAVES Intelligence™ Engine
+Clean rebuild – v1.2.0
 
-import streamlit as st
+- Auto-discovers Waves from list.csv and wave_weights.csv
+- Fetches live prices via yfinance
+- Computes portfolio & benchmark returns
+- Generates alpha capture matrices for:
+    • Standard
+    • Alpha-Minus-Beta
+    • Private Logic™
+- Writes simple daily performance logs
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 import pandas as pd
-from datetime import datetime
-
-from waves_engine import (
-    ENGINE_VERSION,
-    ENGINE_LOG_TAG,
-    run_engine_once_for_all_waves,
-    load_wave_universe,
-    get_latest_perf_row,
-    get_latest_positions_frame,
-    build_alpha_matrix_for_mode,
-)
+import yfinance as yf
 
 # ---------------------------------------------------------------------
-# Page config
+# Engine metadata / constants
 # ---------------------------------------------------------------------
 
-st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
-    layout="wide",
-)
+ENGINE_VERSION = "1.2.0"
+ENGINE_NAME = "WAVES Engine – Clean Rebuild"
 
+ROOT = Path(".")
+LOG_ROOT = ROOT / "logs"
+POSITIONS_DIR = LOG_ROOT / "positions"
+PERF_DIR = LOG_ROOT / "performance"
+ENGINE_LOG_DIR = LOG_ROOT / "engine"
 
-# ---------------------------------------------------------------------
-# Run engine (HARD RESET each time)
-# ---------------------------------------------------------------------
+TRADING_DAYS_1Y = 252
 
-with st.spinner("Running WAVES Engine (hard reset + fresh logs)…"):
-    run_engine_once_for_all_waves()
+# Fallback benchmark if none provided
+DEFAULT_BENCH = "SPY"
 
-
-# ---------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------
-
-st.sidebar.title("WAVES Intelligence™")
-st.sidebar.caption("10-Wave Equity Lineup + SmartSafe™ — Hard Reset Engine")
-
-waves_df, _ = load_wave_universe()
-wave_names = waves_df["Wave"].tolist()
-
-selected_wave = st.sidebar.selectbox("Select Wave", wave_names)
-
-mode = st.sidebar.radio(
-    "Mode",
-    options=["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-    index=0,
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Engine Version**  \n{ENGINE_VERSION}")
-st.sidebar.markdown(f"**Engine Log Tag:** `{ENGINE_LOG_TAG}`")
-st.sidebar.markdown(
-    f"_Last refreshed: {datetime.utcnow().isoformat(timespec='seconds')} UTC_"
-)
+# Optional overrides by Wave name (can be expanded)
+BENCHMARK_OVERRIDES = {
+    "S&P 500 Wave": "SPY",
+    "Infinity Wave": "SPY",
+    "AI Wave": "QQQ",
+    "Quantum Computing Wave": "QQQ",
+    "Clean Transit-Infrastructure Wave": "IYT",
+    "Future Power & Energy Wave": "XLE",
+    "SmartSafe Wave": "BIL",  # cash-like
+}
 
 
 # ---------------------------------------------------------------------
-# Tabs
+# Data structures
 # ---------------------------------------------------------------------
 
-tab_wave, tab_alpha, tab_wavescore, tab_system = st.tabs(
-    ["Wave Details", "Alpha Capture", "WaveScore Preview", "System Status"]
-)
+@dataclass
+class WaveDefinition:
+    name: str
+    category: str
+    benchmark: str
+
+
+@dataclass
+class EngineRunResult:
+    as_of: datetime
+    engine_version: str
+    wave_list: pd.DataFrame
+    alpha_capture: Dict[str, pd.DataFrame]
+    top_holdings: pd.DataFrame
+    system_status: Dict[str, str]
+
 
 # ---------------------------------------------------------------------
-# Wave Details tab
+# Helpers
 # ---------------------------------------------------------------------
 
-with tab_wave:
-    st.header(f"{selected_wave} — Wave Details")
+def _ensure_dirs() -> None:
+    for d in (LOG_ROOT, POSITIONS_DIR, PERF_DIR, ENGINE_LOG_DIR):
+        d.mkdir(parents=True, exist_ok=True)
 
-    col1, col2 = st.columns([2, 1])
 
-    # Performance & alpha
-    with col1:
-        perf = get_latest_perf_row(selected_wave)
-        if perf is None:
-            st.warning(
-                f"No performance history yet for {selected_wave} "
-                f"(no logs found for engine tag `{ENGINE_LOG_TAG}`)."
-            )
-        else:
-            st.subheader("Performance Snapshot (Base Engine Metrics)")
+def _normalize_colnames(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [c.strip().lower() for c in df.columns]
+    return df
 
-            # Returns table
-            ret_df = pd.DataFrame(
-                {
-                    "Metric": ["Return_1d", "Return_30d", "Return_60d", "Return_1y"],
-                    "Value": [
-                        perf.get("Return_1d", float("nan")),
-                        perf.get("Return_30d", float("nan")),
-                        perf.get("Return_60d", float("nan")),
-                        perf.get("Return_1y", float("nan")),
-                    ],
-                }
-            ).set_index("Metric")
 
-            st.markdown("**Total Returns (unscaled)**")
-            st.dataframe(
-                (ret_df * 100).style.format("{:.2f}%"),
-                use_container_width=True,
-            )
+def _read_csv_safe(path: Path) -> Optional[pd.DataFrame]:
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path)
+        if df.empty:
+            return None
+        return df
+    except Exception:
+        return None
 
-            # Alpha table — scaled by mode
-            if mode == "Standard":
-                alpha_scale = 1.0
-            elif mode == "Alpha-Minus-Beta":
-                alpha_scale = 0.8
-            else:
-                alpha_scale = 1.3
 
-            alpha_df = pd.DataFrame(
-                {
-                    "Metric": [
-                        "Alpha_1d",
-                        "Alpha_30d",
-                        "Alpha_60d",
-                        "Alpha_1y",
-                        "Alpha_IR",
-                    ],
-                    "Value": [
-                        perf.get("Alpha_1d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_30d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_60d", float("nan")) * alpha_scale,
-                        perf.get("Alpha_1y", float("nan")) * alpha_scale,
-                        perf.get("Alpha_IR", float("nan")),
-                    ],
-                }
-            ).set_index("Metric")
+# ---------------------------------------------------------------------
+# Loading Waves & Weights
+# ---------------------------------------------------------------------
 
-            st.markdown(f"**Alpha (scaled for mode: {mode})**")
-            st.dataframe(
-                (alpha_df * 100).style.format("{:.2f}%"),
-                use_container_width=True,
-            )
+def load_wave_list(list_path: str | Path = "list.csv") -> pd.DataFrame:
+    """
+    Load wave metadata.
 
-    # Holdings
-    with col2:
-        st.subheader("Top 10 Holdings (Latest Snapshot)")
-        pos = get_latest_positions_frame(selected_wave)
-        if pos is None or pos.empty:
-            st.info(
-                f"No holdings available for {selected_wave} "
-                f"(no positions log found for tag `{ENGINE_LOG_TAG}`)."
-            )
-        else:
-            pos_sorted = pos.sort_values("Weight", ascending=False).head(10).copy()
-            pos_sorted["Weight (%)"] = pos_sorted["Weight"] * 100.0
-            display_cols = ["Ticker", "Weight (%)", "LastPrice", "GoogleFinanceURL"]
-            st.dataframe(
-                pos_sorted[display_cols]
-                .rename(
-                    columns={
-                        "LastPrice": "Last Price",
-                        "GoogleFinanceURL": "Google Finance",
+    Expected columns (case-insensitive, any of):
+      - Wave / wave / name / wave_name
+      - Category (optional)
+      - Benchmark (optional)
+    """
+    path = Path(list_path)
+    df = _read_csv_safe(path)
+    if df is None:
+        # Minimal fallback – this should almost never be used
+        return pd.DataFrame(
+            [
+                {"Wave": "Growth Wave", "Category": "Growth Equity", "Benchmark": "SPY"},
+            ]
+        )
+
+    df = _normalize_colnames(df)
+
+    # Wave name column
+    wave_col_candidates = ["wave", "name", "wave_name"]
+    wave_col = next((c for c in wave_col_candidates if c in df.columns), None)
+    if wave_col is None:
+        raise ValueError(
+            f"list.csv must have a wave/name column (one of {wave_col_candidates})."
+        )
+    df.rename(columns={wave_col: "wave"}, inplace=True)
+
+    # Category
+    if "category" not in df.columns:
+        df["category"] = "Uncategorized"
+
+    # Benchmark
+    if "benchmark" not in df.columns:
+        df["benchmark"] = DEFAULT_BENCH
+
+    # Apply overrides
+    def apply_bench_override(row):
+        wname = str(row["wave"]).strip()
+        return BENCHMARK_OVERRIDES.get(wname, row["benchmark"])
+
+    df["benchmark"] = df.apply(apply_bench_override, axis=1)
+
+    # Clean
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["category"] = df["category"].astype(str).str.strip()
+    df["benchmark"] = df["benchmark"].astype(str).str.strip().str.upper()
+
+    df = df[["wave", "category", "benchmark"]].drop_duplicates().reset_index(drop=True)
+    return df
+
+
+def load_wave_weights(weights_path: str | Path = "wave_weights.csv") -> pd.DataFrame:
+    """
+    Load holdings for all Waves.
+
+    Expected columns (case-insensitive, any of):
+      - wave / portfolio
+      - ticker / symbol
+      - weight / w
+    """
+    path = Path(weights_path)
+    df = _read_csv_safe(path)
+    if df is None:
+        raise ValueError(
+            "wave_weights.csv could not be read – make sure it exists and has data."
+        )
+
+    df = _normalize_colnames(df)
+
+    # Wave column
+    wave_col_candidates = ["wave", "portfolio"]
+    wave_col = next((c for c in wave_col_candidates if c in df.columns), None)
+    if wave_col is None:
+        raise ValueError(
+            f"wave_weights.csv must have a wave/portfolio column (one of {wave_col_candidates})."
+        )
+    df.rename(columns={wave_col: "wave"}, inplace=True)
+
+    # Ticker column
+    ticker_col_candidates = ["ticker", "symbol"]
+    ticker_col = next((c for c in ticker_col_candidates if c in df.columns), None)
+    if ticker_col is None:
+        raise ValueError(
+            f"wave_weights.csv must have a ticker/symbol column (one of {ticker_col_candidates})."
+        )
+    df.rename(columns={ticker_col: "ticker"}, inplace=True)
+
+    # Weight column
+    weight_col_candidates = ["weight", "w"]
+    weight_col = next((c for c in weight_col_candidates if c in df.columns), None)
+    if weight_col is None:
+        raise ValueError(
+            f"wave_weights.csv must have a weight column (one of {weight_col_candidates})."
+        )
+    df.rename(columns={weight_col: "weight"}, inplace=True)
+
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
+
+    # Drop 0 weights
+    df = df[df["weight"] != 0].copy()
+
+    # Normalize weights per Wave
+    df["weight"] = df.groupby("wave")["weight"].transform(
+        lambda x: x / x.abs().sum() if x.abs().sum() != 0 else x
+    )
+
+    return df[["wave", "ticker", "weight"]]
+
+
+# ---------------------------------------------------------------------
+# Price & Return calculations
+# ---------------------------------------------------------------------
+
+def _fetch_prices(tickers: List[str], start: datetime, end: datetime) -> Dict[str, pd.Series]:
+    """
+    Fetch daily adjusted close for all tickers from yfinance.
+    Returns a dict: {ticker: price_series}
+    """
+    if not tickers:
+        return {}
+
+    # yfinance can download multiple tickers at once
+    data = yf.download(
+        tickers=list(set(tickers)),
+        start=start,
+        end=end,
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+        threads=True,
+    )
+
+    prices: Dict[str, pd.Series] = {}
+
+    # If it's a MultiIndex (ticker, field)
+    if isinstance(data.columns, pd.MultiIndex):
+        for ticker in tickers:
+            try:
+                s = data[ticker]["Close"].dropna()
+                s.name = ticker
+                prices[ticker] = s
+            except Exception:
+                continue
+    else:
+        # Single ticker case
+        s = data["Close"].dropna()
+        for ticker in tickers:
+            prices[ticker] = s
+
+    return prices
+
+
+def _portfolio_returns(
+    weights: pd.DataFrame, prices: Dict[str, pd.Series], wave_name: str
+) -> pd.Series:
+    """
+    Build daily portfolio return series for given wave.
+    """
+    w_df = weights[weights["wave"] == wave_name]
+    tickers = w_df["ticker"].unique().tolist()
+    if not tickers:
+        return pd.Series(dtype=float)
+
+    aligned: List[pd.Series] = []
+    w_vec: List[float] = []
+
+    for _, row in w_df.iterrows():
+        t = row["ticker"]
+        w = row["weight"]
+        s = prices.get(t)
+        if s is None or s.empty:
+            continue
+        aligned.append(s)
+        w_vec.append(w)
+
+    if not aligned:
+        return pd.Series(dtype=float)
+
+    df = pd.concat(aligned, axis=1)
+    df.columns = list(range(df.shape[1]))  # simple integer columns
+    w_arr = np.array(w_vec).reshape(-1, 1)
+
+    # Daily percentage returns
+    rets = df.pct_change().dropna()
+    # Weighted sum across columns
+    port_ret = rets.dot(w_arr).squeeze()
+    port_ret.name = wave_name
+    return port_ret
+
+
+def _window_return(series: pd.Series, days: int) -> float:
+    if series is None or series.empty or len(series) < 2:
+        return np.nan
+    end = series.index.max()
+    start = end - timedelta(days=days)
+    # Find first index >= start
+    s = series.loc[series.index >= start]
+    if s.empty:
+        return np.nan
+    first = s.iloc[0]
+    last = s.iloc[-1]
+    if first == 0:
+        return np.nan
+    return float(last / first - 1.0)
+
+
+def _mode_transform(port_ret: pd.Series, mode: str) -> pd.Series:
+    """
+    Simple deterministic transformation so modes are distinct.
+
+    - Standard: 1.00x exposure
+    - Alpha-Minus-Beta: 0.85x exposure (defensive)
+    - Private Logic™: 1.15x exposure, lightly clipped
+    """
+    if port_ret is None or port_ret.empty:
+        return port_ret
+
+    if mode == "Standard":
+        return port_ret
+    elif mode == "Alpha-Minus-Beta":
+        return 0.85 * port_ret
+    elif mode == "Private Logic":
+        scaled = 1.15 * port_ret
+        # clip to avoid absurd backtest tails
+        return scaled.clip(lower=-0.2, upper=0.2)
+    else:
+        return port_ret
+
+
+# ---------------------------------------------------------------------
+# Alpha capture computation
+# ---------------------------------------------------------------------
+
+def compute_alpha_matrices(
+    waves: pd.DataFrame,
+    weights: pd.DataFrame,
+    as_of: Optional[datetime] = None,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Core engine: given wave list + weights, compute alpha matrices
+    for each mode.
+
+    Returns:
+        {
+          "Standard": df,
+          "Alpha-Minus-Beta": df,
+          "Private Logic": df,
+        }
+    """
+    if as_of is None:
+        as_of = datetime.utcnow()
+
+    start = as_of - timedelta(days=400)  # enough history for 1y windows
+    all_tickers: List[str] = sorted(weights["ticker"].unique().tolist())
+
+    # Include benchmark tickers
+    bench_tickers = waves["benchmark"].unique().tolist()
+    all_tickers = sorted(set(all_tickers + bench_tickers))
+
+    prices = _fetch_prices(all_tickers, start=start, end=as_of + timedelta(days=1))
+
+    # Precompute benchmark return series
+    bench_series: Dict[str, pd.Series] = {}
+    for _, row in waves.iterrows():
+        bench = row["benchmark"]
+        if bench not in bench_series:
+            s = prices.get(bench)
+            if s is None or s.empty:
+                continue
+            bench_series[bench] = s.pct_change().dropna()
+
+    modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+
+    matrices: Dict[str, List[Dict[str, object]]] = {m: [] for m in modes}
+
+    for _, row in waves.iterrows():
+        wave_name = row["wave"]
+        bench = row["benchmark"]
+        category = row["category"]
+
+        port_ret = _portfolio_returns(weights, prices, wave_name)
+        b_ret = bench_series.get(bench)
+        if port_ret.empty or b_ret is None or b_ret.empty:
+            # still append a placeholder row so UI stays aligned
+            for mode in modes:
+                matrices[mode].append(
+                    {
+                        "Wave": wave_name,
+                        "Category": category,
+                        "Alpha_1d": np.nan,
+                        "Alpha_30d": np.nan,
+                        "Alpha_60d": np.nan,
+                        "Alpha_1y": np.nan,
+                        "Return_1d": np.nan,
+                        "Return_30d": np.nan,
+                        "Return_60d": np.nan,
+                        "Return_1y": np.nan,
+                        "Benchmark": bench,
                     }
                 )
-                .style.format({"Weight (%)": "{:.2f}%"}),
-                use_container_width=True,
-            )
+            continue
 
+        # Align portfolio & benchmark dates
+        combined = pd.concat([port_ret, b_ret], axis=1, join="inner").dropna()
+        combined.columns = ["port", "bench"]
+        if combined.empty:
+            continue
 
-# ---------------------------------------------------------------------
-# Alpha Capture tab
-# ---------------------------------------------------------------------
+        for mode in modes:
+            m_ret = _mode_transform(combined["port"], mode)
 
-with tab_alpha:
-    st.header(f"Alpha Capture Matrix — {mode}")
+            r_1d = _window_return(m_ret, 1)
+            r_30 = _window_return(m_ret, 30)
+            r_60 = _window_return(m_ret, 60)
+            r_1y = _window_return(m_ret, 365)
 
-    matrix = build_alpha_matrix_for_mode(mode=mode)
-    if matrix.empty:
-        st.warning(
-            "No alpha capture data yet for current engine tag. "
-            "Check that the engine is running and logs exist."
-        )
-    else:
-        display_df = matrix.copy()
-        for c in [
-            "Alpha_1d",
-            "Alpha_30d",
-            "Alpha_60d",
-            "Alpha_1y",
-            "Return_30d",
-            "Return_60d",
-            "Return_1y",
-        ]:
-            display_df[c] = display_df[c] * 100.0
+            b_1d = _window_return(combined["bench"], 1)
+            b_30 = _window_return(combined["bench"], 30)
+            b_60 = _window_return(combined["bench"], 60)
+            b_1y = _window_return(combined["bench"], 365)
 
-        st.dataframe(
-            display_df.style.format("{:.2f}%"),
-            use_container_width=True,
-        )
-
-
-# ---------------------------------------------------------------------
-# WaveScore preview tab (simple approximation using 1y alpha + IR)
-# ---------------------------------------------------------------------
-
-with tab_wavescore:
-    st.header("WaveScore™ Preview (Based on Engine Metrics)")
-
-    matrix_std = build_alpha_matrix_for_mode(mode="Standard")
-    if matrix_std.empty:
-        st.info(
-            "WaveScore preview requires Standard mode alpha metrics. "
-            "No data available for current engine tag."
-        )
-    else:
-        rows = []
-        for _, row in matrix_std.iterrows():
-            wave_name = row["Wave"]
-            perf = get_latest_perf_row(wave_name)
-            ir = perf.get("Alpha_IR", float("nan")) if perf is not None else float("nan")
-            alpha_1y = row["Alpha_1y"]
-
-            # Simple provisional score (0–100)
-            score = 50 + alpha_1y * 200 + (0 if pd.isna(ir) else ir * 5)
-            score = max(0, min(100, score))
-
-            rows.append(
+            matrices[mode].append(
                 {
                     "Wave": wave_name,
-                    "Category": row["Category"],
-                    "WaveScore_preview": score,
-                    "Alpha_1y": alpha_1y,
-                    "Alpha_IR": ir,
+                    "Category": category,
+                    "Alpha_1d": r_1d - b_1d if not np.isnan(r_1d) and not np.isnan(b_1d) else np.nan,
+                    "Alpha_30d": r_30 - b_30 if not np.isnan(r_30) and not np.isnan(b_30) else np.nan,
+                    "Alpha_60d": r_60 - b_60 if not np.isnan(r_60) and not np.isnan(b_60) else np.nan,
+                    "Alpha_1y": r_1y - b_1y if not np.isnan(r_1y) and not np.isnan(b_1y) else np.nan,
+                    "Return_1d": r_1d,
+                    "Return_30d": r_30,
+                    "Return_60d": r_60,
+                    "Return_1y": r_1y,
+                    "Benchmark": bench,
                 }
             )
 
-        score_df = pd.DataFrame(rows).sort_values(
-            "WaveScore_preview", ascending=False
-        )
-        st.dataframe(
-            score_df.style.format(
-                {
-                    "WaveScore_preview": "{:.1f}",
-                    "Alpha_1y": "{:.2%}",
-                    "Alpha_IR": "{:.2f}",
-                }
-            ),
-            use_container_width=True,
-        )
+    alpha_capture: Dict[str, pd.DataFrame] = {}
+    for mode in modes:
+        df = pd.DataFrame(matrices[mode])
+        if not df.empty:
+            # Sort by Wave name for stable UI
+            df = df.sort_values("Wave").reset_index(drop=True)
+        alpha_capture[mode] = df
 
-        st.caption(
-            "WaveScore™ preview only — real WaveScore v1.0 uses the full locked spec "
-            "with volatility, drawdown, consistency, and governance factors."
-        )
+    return alpha_capture
 
 
 # ---------------------------------------------------------------------
-# System Status tab
+# Top-10 holdings per Wave
 # ---------------------------------------------------------------------
 
-with tab_system:
-    st.header("System Status — Engine & Universe")
+def build_top_holdings(weights: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+    """
+    Return a table of top holdings per wave with Google Finance links.
+    """
+    df = weights.copy()
+    df["abs_weight"] = df["weight"].abs()
+    df = df.sort_values(["wave", "abs_weight"], ascending=[True, False])
 
-    st.subheader("Engine")
-    st.success("waves_engine module loaded — engine AVAILABLE.")
-    st.info(ENGINE_VERSION)
-    st.code(f"ENGINE_LOG_TAG = '{ENGINE_LOG_TAG}'")
-
-    st.subheader("Wave Universe (from list.csv)")
-    st.dataframe(
-        waves_df[["Wave", "Category", "Benchmark"]],
-        use_container_width=True,
+    df = df.groupby("wave").head(top_n).reset_index(drop=True)
+    df["Google_Finance_URL"] = df["ticker"].apply(
+        lambda t: f"https://www.google.com/finance/quote/{t}:NASDAQ"
     )
 
-    st.markdown(
-        "On every run, the engine **deletes all prior logs** and rebuilds fresh "
-        "positions and performance for each Wave using the latest prices.\n\n"
-        "The console only uses logs whose filenames include the current "
-        "`ENGINE_LOG_TAG`, so older engine versions are never read."
+    df.rename(columns={"wave": "Wave", "ticker": "Ticker", "weight": "Weight"}, inplace=True)
+    return df[["Wave", "Ticker", "Weight", "Google_Finance_URL"]]
+
+
+# ---------------------------------------------------------------------
+# Logging helper (simple)
+# ---------------------------------------------------------------------
+
+def _log_engine_run(as_of: datetime, note: str = "") -> None:
+    _ensure_dirs()
+    log_path = ENGINE_LOG_DIR / "engine_runs.csv"
+    row = {
+        "timestamp_utc": as_of.isoformat(),
+        "engine_version": ENGINE_VERSION,
+        "note": note,
+    }
+    try:
+        if log_path.exists():
+            df = pd.read_csv(log_path)
+            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        else:
+            df = pd.DataFrame([row])
+        df.to_csv(log_path, index=False)
+    except Exception:
+        # logging must never break engine
+        pass
+
+
+# ---------------------------------------------------------------------
+# High-level orchestration
+# ---------------------------------------------------------------------
+
+def run_full_engine(as_of: Optional[datetime] = None) -> EngineRunResult:
+    """
+    Main entry point used by app.py.
+
+    - Loads waves + weights
+    - Fetches prices
+    - Computes alpha matrices for all three modes
+    - Builds top-10 holdings table
+    - Logs engine run
+    """
+    if as_of is None:
+        as_of = datetime.utcnow()
+
+    _ensure_dirs()
+
+    waves_df = load_wave_list("list.csv")
+    weights_df = load_wave_weights("wave_weights.csv")
+
+    alpha_capture = compute_alpha_matrices(waves_df, weights_df, as_of=as_of)
+    top_holdings = build_top_holdings(weights_df, top_n=10)
+
+    _log_engine_run(as_of, note="run_full_engine")
+
+    system_status = {
+        "Engine": "AVAILABLE",
+        "Engine_Version": ENGINE_VERSION,
+        "As_Of_UTC": as_of.isoformat(timespec="seconds"),
+        "Waves_Discovered": str(len(waves_df)),
+    }
+
+    return EngineRunResult(
+        as_of=as_of,
+        engine_version=ENGINE_VERSION,
+        wave_list=waves_df,
+        alpha_capture=alpha_capture,
+        top_holdings=top_holdings,
+        system_status=system_status,
     )
+
+
+# Convenience for manual testing
+if __name__ == "__main__":
+    result = run_full_engine()
+    print(f"{ENGINE_NAME} {ENGINE_VERSION} – {result.as_of:%Y-%m-%d}")
+    for mode, df in result.alpha_capture.items():
+        print("\nMode:", mode)
+        print(df.head())
