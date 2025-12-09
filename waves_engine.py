@@ -1,23 +1,33 @@
 # waves_engine.py
 """
-WAVES Intelligence™ Engine — Real History + SmartSafe™ (Vector 1.5)
+WAVES Intelligence™ Engine — Real History + SmartSafe™ (Vector 1.6)
 
-This engine:
+Key features
+------------
 - Loads wave_weights.csv (+ optional list.csv for names/sectors)
-- Maps each Wave to a benchmark ETF (SPY, QQQ, etc.)
-- Fetches real price history via yfinance when available
-- Computes daily, 30d, 60d, 1y returns and alpha vs benchmark
-- Applies SmartSafe™ overlay:
-    * dynamic SmartSafe allocation based on realized vol & drawdown
-    * SmartSafe earns stable yield (money-market-like)
-    * Combined NAV = SmartSafe sleeve + risk sleeve
+- 11 equity Waves with benchmark mappings
+- Fetches real price history via yfinance (if available)
+- Computes:
+    • risk-only NAV (nav_risk)
+    • SmartSafe-adjusted NAV (nav)
+    • benchmark NAV (bench_nav)
+    • returns & alpha horizons: 30d / 60d / 1y
+- SmartSafe™ overlay:
+    • gentle dynamic allocation based on volatility & drawdown
+    • SmartSafe earns a stable yield (cash-like)
+    • nav (client experience) includes SmartSafe
+    • alpha_* is computed from nav_risk vs benchmark, so
+      SmartSafe doesn’t crush the measured alpha
 - Writes logs:
     logs/performance/<Wave>_performance_daily.csv
     logs/positions/<Wave>_positions_YYYYMMDD.csv
-- Exposes:
-    load_wave_weights()
-    get_strategy_recipe()
-    run_all_waves()
+
+Public API
+----------
+- load_wave_weights()
+- get_strategy_recipe(wave_name)
+- run_wave_update(wave_name, price_panel=None, years=3)
+- run_all_waves(years=3)
 """
 
 import os
@@ -27,7 +37,7 @@ from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 
-# Optional yfinance import (for real prices)
+# Optional yfinance import
 try:
     import yfinance as yf  # type: ignore
 
@@ -71,14 +81,14 @@ WAVE_BENCHMARKS: Dict[str, str] = {
     "Small to Mid Cap Growth Wave": "IJH",
     "Future Power & Energy Wave": "XLE",
     "Quantum Computing Wave": "QQQ",
-    "Clean Transit-Infrastructure Wave": "IDEV",  # proxy, can change later
+    "Clean Transit-Infrastructure Wave": "IDEV",  # proxy
     "AI Wave": "QQQ",
     "Infinity Wave": "ACWI",
     "International Developed Wave": "EFA",
     "Emerging Markets Wave": "EEM",
 }
 
-# ---------- Strategy recipes (for UI) ----------
+# ---------- Strategy recipes (for UI snapshot) ----------
 
 STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
     "S&P 500 Wave": {
@@ -109,7 +119,7 @@ STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
         "alpha_sigma_annual": 0.14,
         "turnover_annual_max": 1.20,
         "max_drawdown_target": 0.35,
-        "notes": "Higher-octane small-cap alpha with strict brakes.",
+        "notes": "Higher-octane small-cap growth with strict brakes.",
     },
     "Small to Mid Cap Growth Wave": {
         "style": "SMID Growth",
@@ -195,7 +205,6 @@ STRATEGY_RECIPES: Dict[str, Dict[str, float]] = {
 
 
 def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
-    """Used by the app sidebar for the 'Strategy Snapshot' section."""
     default = {
         "style": "Generic Equity",
         "universe": "Global",
@@ -212,13 +221,15 @@ def get_strategy_recipe(wave_name: str) -> Dict[str, float]:
     return merged
 
 
-# ---------- Wave weights & list.csv ----------
+# ---------- Data loaders ----------
 
 
 def load_wave_weights() -> pd.DataFrame:
     """
-    Load wave_weights.csv.
-    Expected columns: wave, ticker, weight (case-insensitive).
+    Load wave_weights.csv. Required columns (case-insensitive):
+    - wave
+    - ticker
+    - weight
     """
     path = os.path.join(ROOT_DIR, "wave_weights.csv")
     if not os.path.exists(path):
@@ -245,10 +256,10 @@ def load_wave_weights() -> pd.DataFrame:
     df["ticker"] = df["ticker"].astype(str).str.upper()
     df["weight"] = df["weight"].astype(float)
 
-    # Keep only known equity waves (if other Waves exist)
+    # Only keep our lineup
     df = df[df["wave"].isin(EQUITY_WAVES)]
 
-    # Normalize weights within each wave
+    # Normalize weights within Wave
     df["weight"] = df.groupby("wave")["weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else x
     )
@@ -258,8 +269,7 @@ def load_wave_weights() -> pd.DataFrame:
 
 def load_master_list() -> Optional[pd.DataFrame]:
     """
-    Optional: list.csv (for security names/sectors).
-    Expected columns: ticker, name, sector (flexible).
+    Optional list.csv with columns like ticker, name, sector.
     """
     candidate = os.path.join(ROOT_DIR, "list.csv")
     if not os.path.exists(candidate):
@@ -279,22 +289,16 @@ def load_master_list() -> Optional[pd.DataFrame]:
         return None
 
 
-# ---------- Price history (via yfinance) ----------
-
-
-def get_price_history(
-    tickers: List[str],
-    years: int = 3,
-) -> pd.DataFrame:
+def get_price_history(tickers: List[str], years: int = 3) -> pd.DataFrame:
     """
     Download adjusted close prices for all tickers over the last `years` years.
     """
     if not HAS_YF:
-        raise RuntimeError("yfinance not installed in this environment.")
+        raise RuntimeError("yfinance not installed; cannot fetch prices.")
 
     tickers = sorted(set(tickers))
     if not tickers:
-        raise ValueError("No tickers provided for get_price_history()")
+        raise ValueError("No tickers provided for get_price_history().")
 
     end = datetime.today().date()
     start = end - timedelta(days=365 * years + 30)
@@ -322,79 +326,69 @@ def get_price_history(
     return px
 
 
-# ---------- SmartSafe overlay ----------
+# ---------- SmartSafe overlay (gentler) ----------
 
 
 def apply_smartsafe_overlay(
     df: pd.DataFrame,
-    smartsafe_yield_annual: float = 0.045,
+    smartsafe_yield_annual: float = 0.04,
     vol_window: int = 21,
-    vol_low: float = 0.16,
-    vol_high: float = 0.24,
-    dd_low: float = 0.03,
-    dd_high: float = 0.08,
-    max_smartsafe: float = 0.60,
-    step: float = 0.10,
+    vol_low: float = 0.18,   # calmer threshold
+    vol_high: float = 0.30,  # high-vol threshold
+    dd_low: float = 0.05,
+    dd_high: float = 0.12,
+    max_smartsafe: float = 0.35,  # cap allocation to SmartSafe
+    step: float = 0.05,
 ) -> pd.DataFrame:
     """
     SmartSafe overlay:
-      - uses realized volatility and drawdown on the risk NAV
-      - ramps SmartSafe allocation up/down
-      - SmartSafe earns constant yield (money-market-like)
-      - returns DataFrame with:
-           nav (SmartSafe-adjusted)
-           smartsafe_weight
-           smartsafe_nav
-           smartsafe_yield_annual
+      - Uses realized volatility & drawdown on risk NAV (nav_risk).
+      - Moves some weight into a stable-yield SmartSafe sleeve when
+        things are rough; moves back out when calm.
+      - nav_risk is NOT changed, nav is the blended client NAV.
     """
     out = df.copy().sort_index()
+
+    if "nav_risk" not in out.columns:
+        raise ValueError("apply_smartsafe_overlay expects 'nav_risk' in df")
+
     risk_nav = out["nav_risk"].values.astype(float)
     n = len(out)
     if n == 0:
         return out
 
-    # Realized vol (annualized) and drawdown on risk-only series
     risk_ret = pd.Series(risk_nav).pct_change()
     vol_roll = risk_ret.rolling(vol_window).std() * np.sqrt(252.0)
     running_max = pd.Series(risk_nav).cummax()
-    dd = risk_nav / running_max - 1.0  # negative when in drawdown
+    dd = risk_nav / running_max - 1.0
 
     smartsafe_weight = np.zeros(n)
     sm_nav = np.zeros(n)
     sm_nav[0] = risk_nav[0]
 
-    # Daily SmartSafe yield
     y_daily = (1.0 + smartsafe_yield_annual) ** (1.0 / 252.0) - 1.0
-    w = 0.0  # starting SmartSafe allocation
+    w = 0.0  # initial SmartSafe allocation
 
     for i in range(1, n):
         sm_nav[i] = sm_nav[i - 1] * (1.0 + y_daily)
 
         v = vol_roll.iloc[i]
         d = dd.iloc[i]
-        try:
-            v_val = float(v)
-        except Exception:
-            v_val = float("nan")
-        try:
-            d_val = float(d)
-        except Exception:
-            d_val = float("nan")
+
+        v_val = float(v) if pd.notnull(v) else float("nan")
+        d_val = float(d) if pd.notnull(d) else float("nan")
 
         if not np.isnan(v_val) and not np.isnan(d_val):
-            # Risk-off: high vol or deep drawdown → increase SmartSafe
             if v_val > vol_high or d_val < -dd_high:
+                # risk-off → add SmartSafe
                 w = min(max_smartsafe, w + step)
-            # Risk-on: calm vol and shallow drawdown → decrease SmartSafe
             elif v_val < vol_low and d_val > -dd_low:
+                # calm + shallow drawdown → reduce SmartSafe
                 w = max(0.0, w - step)
 
         smartsafe_weight[i] = w
 
-    if n > 1:
-        smartsafe_weight[0] = smartsafe_weight[1]
-    else:
-        smartsafe_weight[0] = w
+    smartsafe_weight[0] = smartsafe_weight[1] if n > 1 else w
 
     combined_nav = smartsafe_weight * sm_nav + (1.0 - smartsafe_weight) * risk_nav
 
@@ -402,10 +396,11 @@ def apply_smartsafe_overlay(
     out["smartsafe_weight"] = smartsafe_weight
     out["smartsafe_yield_annual"] = smartsafe_yield_annual
     out["nav"] = combined_nav
+
     return out
 
 
-# ---------- NAV & alpha calculations ----------
+# ---------- NAV & alpha (alpha from risk-only) ----------
 
 
 def compute_wave_nav(
@@ -414,10 +409,13 @@ def compute_wave_nav(
     wave_name: str,
 ) -> Tuple[pd.DataFrame, str]:
     """
-    Compute risk-only NAV, apply SmartSafe overlay, and produce:
-      - nav (SmartSafe-adjusted)
-      - bench_nav
-      - returns, horizon returns, alphas
+    Compute NAV and alpha for a single Wave:
+
+      • nav_risk      : risk-only NAV from holdings
+      • nav           : SmartSafe-adjusted NAV (client experience)
+      • bench_nav     : benchmark NAV
+      • return_*      : returns on nav (client experience)
+      • alpha_*       : alpha from nav_risk vs benchmark
     """
     this_wave = weights_df[weights_df["wave"] == wave_name].copy()
     if this_wave.empty:
@@ -441,14 +439,14 @@ def compute_wave_nav(
     df = pd.DataFrame({"wave_px": wave_px, "bench_px": bench_price}).dropna()
     df.index.name = "date"
 
-    # Risk-only NAV and benchmark NAV
+    # Risk-only and benchmark NAV
     df["nav_risk"] = df["wave_px"] / df["wave_px"].iloc[0] * 100.0
     df["bench_nav"] = df["bench_px"] / df["bench_px"].iloc[0] * 100.0
 
-    # Apply SmartSafe overlay → combined nav
+    # SmartSafe overlay -> nav (client experience)
     df = apply_smartsafe_overlay(df)
 
-    # Returns based on SmartSafe-adjusted NAV
+    # Client-experience returns (SmartSafe-adjusted)
     df["return_1d"] = df["nav"].pct_change()
     df["bench_return_1d"] = df["bench_nav"].pct_change()
 
@@ -457,11 +455,17 @@ def compute_wave_nav(
         df[f"return_{label}"] = df["nav"] / df["nav"].shift(h) - 1.0
         df[f"bench_return_{label}"] = df["bench_nav"] / df["bench_nav"].shift(h) - 1.0
 
-    # Alphas
-    df["alpha_1d"] = df["return_1d"] - df["bench_return_1d"]
-    df["alpha_30d"] = df["return_30d"] - df["bench_return_30d"]
-    df["alpha_60d"] = df["return_60d"] - df["bench_return_60d"]
-    df["alpha_1y"] = df["return_252d"] - df["bench_return_252d"]
+    # Risk-sleeve returns (for alpha)
+    df["risk_return_1d"] = df["nav_risk"].pct_change()
+    df["risk_return_30d"] = df["nav_risk"] / df["nav_risk"].shift(21) - 1.0
+    df["risk_return_60d"] = df["nav_risk"] / df["nav_risk"].shift(42) - 1.0
+    df["risk_return_252d"] = df["nav_risk"] / df["nav_risk"].shift(252) - 1.0
+
+    # Alpha from risk-only vs benchmark
+    df["alpha_1d"] = df["risk_return_1d"] - df["bench_return_1d"]
+    df["alpha_30d"] = df["risk_return_30d"] - df["bench_return_30d"]
+    df["alpha_60d"] = df["risk_return_60d"] - df["bench_return_60d"]
+    df["alpha_1y"] = df["risk_return_252d"] - df["bench_return_252d"]
 
     df["wave"] = wave_name
     df["benchmark_ticker"] = bench_ticker
@@ -470,7 +474,7 @@ def compute_wave_nav(
     return df.reset_index(), bench_ticker
 
 
-# ---------- Positions snapshot ----------
+# ---------- Positions snapshot & logging ----------
 
 
 def build_positions_snapshot(
@@ -501,9 +505,6 @@ def build_positions_snapshot(
         out = out[["wave", "ticker", "name", "weight"]]
 
     return out.sort_values("weight", ascending=False)
-
-
-# ---------- Log writers ----------
 
 
 def write_performance_log(df: pd.DataFrame, wave_name: str) -> str:
@@ -556,12 +557,11 @@ def run_wave_update(
 
 def run_all_waves(years: int = 3) -> None:
     """
-    Main entrypoint: recompute performance logs for all EQUITY_WAVES.
+    Recompute performance logs for all EQUITY_WAVES.
     """
     if not HAS_YF:
         raise RuntimeError(
-            "yfinance is not available. Install it in this environment "
-            "to fetch real prices."
+            "yfinance is not available. Install it to fetch real prices."
         )
 
     weights_df = load_wave_weights()
@@ -591,13 +591,12 @@ def run_all_waves(years: int = 3) -> None:
             print(f"[waves_engine] ERROR on {wave_name}: {exc}")
 
 
-# ---------- Script entrypoint ----------
+# ---------- Script entry ----------
 
 if __name__ == "__main__":
-    print("Running WAVES Intelligence™ engine with SmartSafe™ (Vector 1.5)...")
+    print("Running WAVES Intelligence™ engine with SmartSafe™ (Vector 1.6)...")
     if not HAS_YF:
-        print("ERROR: yfinance not installed. Install it to fetch real prices.")
+        print("ERROR: yfinance not installed. Install it to fetch prices.")
     else:
         run_all_waves(years=3)
     print("Done.")
-    
