@@ -2,21 +2,24 @@
 waves_engine.py
 
 WAVES Intelligence™ Engine
-- Uses list.csv as the TOTAL MARKET universe (no wave column required)
-- Uses wave_weights.csv as the authoritative Wave definition file
+
+- list.csv = TOTAL MARKET universe (no wave column required)
+- wave_weights.csv = authoritative Wave definition file (wave,ticker,weight)
 - Auto-detects Waves from wave_weights.csv
 - Normalizes weights per Wave
 - Merges universe metadata (company, sector, etc.)
-- Computes intraday + 30-day returns and alpha vs benchmark
-- Writes simple logs for positions and performance
+- Computes beta-adjusted Alpha Captured:
+    * Intraday
+    * 30-Day
+    * 60-Day
+    * 1-Year (~252 trading days)
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,12 +32,10 @@ class WavesEngine:
         list_path: str | Path = "list.csv",
         weights_path: str | Path = "wave_weights.csv",
         logs_root: str | Path = "logs",
-        default_lookback_days: int = 30,
     ) -> None:
         self.list_path = Path(list_path)
         self.weights_path = Path(weights_path)
         self.logs_root = Path(logs_root)
-        self.default_lookback_days = default_lookback_days
 
         self._prepare_log_dirs()
 
@@ -43,7 +44,7 @@ class WavesEngine:
         self.wave_weights = self._load_wave_weights()
         self.wave_definitions = self._build_wave_definitions()
 
-        # Benchmarks per wave (EDIT these tickers if you want different benchmarks)
+        # Benchmarks per wave
         self.benchmark_map = self._default_benchmark_map()
 
     # ------------------------------------------------------------------
@@ -59,7 +60,7 @@ class WavesEngine:
 
         Requirements:
         - Must contain a ticker column (Ticker/ticker/symbol)
-        - Other columns are optional and treated as metadata:
+        - Other columns are treated as metadata:
           Company, Sector, Weight, etc.
         """
         if not self.list_path.exists():
@@ -74,11 +75,12 @@ class WavesEngine:
                 "list.csv must contain a 'Ticker' or 'ticker' (or 'symbol') column. "
                 f"Found columns: {list(df.columns)}"
             )
+
         ticker_col = ticker_cols[0]
         df = df.rename(columns={ticker_col: "ticker"})
 
         # Standardize a few common metadata columns
-        rename_map = {}
+        rename_map: Dict[str, str] = {}
         for col in df.columns:
             cl = col.lower()
             if cl == "company":
@@ -87,10 +89,10 @@ class WavesEngine:
                 rename_map[col] = "universe_weight"
             elif cl == "sector":
                 rename_map[col] = "sector"
+
         if rename_map:
             df = df.rename(columns=rename_map)
 
-        # Clean tickers
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
 
         return df
@@ -108,7 +110,7 @@ class WavesEngine:
         df = pd.read_csv(self.weights_path)
 
         # Normalize column names
-        col_map = {}
+        col_map: Dict[str, str] = {}
         for col in df.columns:
             cl = col.lower()
             if cl == "wave":
@@ -149,7 +151,7 @@ class WavesEngine:
             lambda x: x / x.sum() if x.sum() != 0 else x
         )
 
-        # Merge with universe metadata (left join: keep weights even if no metadata)
+        # Merge with universe metadata (left join)
         merged = df.merge(self.universe, how="left", on="ticker", suffixes=("", "_u"))
 
         return merged
@@ -176,12 +178,11 @@ class WavesEngine:
     def _default_benchmark_map(self) -> Dict[str, str]:
         """
         Default benchmark tickers per Wave.
-
-        You can EDIT this mapping as needed.
+        Edit this mapping as needed.
         """
         return {
-            "S&P Wave": "SPY",  # S&P 500
-            "Growth Wave": "QQQ",  # Nasdaq 100 / growth proxy
+            "S&P Wave": "SPY",
+            "Growth Wave": "QQQ",
             "Future Power & Energy Wave": "XLE",
             "Clean Transit-Infrastructure Wave": "ICLN",
             # Fallback for all others: SPY
@@ -190,11 +191,7 @@ class WavesEngine:
     def get_benchmark(self, wave: str) -> str:
         return self.benchmark_map.get(wave, "SPY")
 
-    def _fetch_history(
-        self,
-        tickers: List[str],
-        days: int,
-    ) -> pd.DataFrame:
+    def _fetch_history(self, tickers: List[str], days: int) -> pd.DataFrame:
         """
         Fetch daily adjusted close prices for a list of tickers over the last N days.
         """
@@ -202,7 +199,7 @@ class WavesEngine:
             raise ValueError("No tickers provided to _fetch_history")
 
         end = datetime.now()
-        start = end - timedelta(days=days + 3)  # small buffer for weekends/holidays
+        start = end - timedelta(days=days + 5)  # buffer for weekends/holidays
 
         data = yf.download(
             tickers,
@@ -212,9 +209,6 @@ class WavesEngine:
             progress=False,
         )
 
-        # data["Close"] yields:
-        # - DataFrame with columns as tickers (for multiple tickers)
-        # - Series (for a single ticker)
         close = data["Close"]
         if isinstance(close, pd.Series):
             close = close.to_frame(name=tickers[0])
@@ -222,92 +216,157 @@ class WavesEngine:
         close = close.dropna(how="all")
         return close
 
+    def _compute_beta(self, wave_ret: pd.Series, bm_ret: pd.Series, lookback: int = 60) -> float:
+        """
+        Compute realized beta using the last 'lookback' days.
+        """
+        df = pd.concat([wave_ret, bm_ret], axis=1).dropna()
+        if df.empty:
+            return 1.0
+
+        if len(df) > lookback:
+            df = df.iloc[-lookback:]
+
+        bm_var = df.iloc[:, 1].var()
+        if bm_var is None or bm_var == 0:
+            return 1.0
+
+        cov = df.iloc[:, 0].cov(df.iloc[:, 1])
+        beta = cov / bm_var
+
+        if np.isnan(beta) or np.isinf(beta):
+            return 1.0
+
+        return float(beta)
+
     def get_wave_performance(
         self,
         wave: str,
-        days: Optional[int] = None,
+        days: int = 30,  # chart days
         log: bool = True,
     ) -> Dict[str, object]:
         """
-        Compute intraday and 30-day performance + alpha vs benchmark.
+        Compute beta-adjusted Alpha Captured and returns.
 
         Returns dict:
         {
-            "wave": wave,
-            "benchmark": benchmark,
-            "intraday_return": float,
-            "intraday_alpha": float,
-            "return_30d": float,
+            "wave": str,
+            "benchmark": str,
+            "beta_realized": float,
+            "intraday_alpha_captured": float,
             "alpha_30d": float,
-            "history": DataFrame[w_* and benchmark_* columns]
+            "alpha_60d": float,
+            "alpha_1y": float,
+            "return_30d_wave": float,
+            "return_30d_benchmark": float,
+            "return_60d_wave": float,
+            "return_60d_benchmark": float,
+            "return_1y_wave": float,
+            "return_1y_benchmark": float,
+            "history_30d": DataFrame
         }
         """
-        if days is None:
-            days = self.default_lookback_days
-
         holdings = self.get_wave_holdings(wave)
         benchmark = self.get_benchmark(wave)
 
         tickers = sorted(holdings["ticker"].unique().tolist())
         all_tickers = sorted(set(tickers + [benchmark]))
 
-        prices = self._fetch_history(all_tickers, days=days)
+        # We need up to ~1 year of history for the longest window
+        max_window_days = 252  # ~1 trading year
+        prices = self._fetch_history(all_tickers, days=max_window_days)
         if prices.empty:
             raise RuntimeError("No price history returned from yfinance.")
 
         returns = prices.pct_change().dropna(how="all")
 
-        # Align weights & returns
+        # Align weights and returns
         weight_series = holdings.set_index("ticker")["weight"]
         common_tickers = [t for t in tickers if t in returns.columns]
 
         if not common_tickers:
-            raise RuntimeError(f"No overlapping tickers between weights and price data for wave {wave}")
+            raise RuntimeError(
+                f"No overlapping tickers between weights and price data for wave {wave}"
+            )
 
         w = weight_series.loc[common_tickers]
-        w = w / w.sum()  # re-normalize on common universe
+        w = w / w.sum()
 
         wave_daily = (returns[common_tickers] * w).sum(axis=1)
 
         if benchmark in returns.columns:
             bm_daily = returns[benchmark]
         else:
-            # Fallback: zero benchmark if we cannot find it
-            bm_daily = pd.Series(
-                index=wave_daily.index,
-                data=0.0,
-                name="benchmark",
-            )
+            bm_daily = pd.Series(index=wave_daily.index, data=0.0, name="benchmark")
 
-        # Cumulative curves
-        wave_curve = (1.0 + wave_daily).cumprod()
-        bm_curve = (1.0 + bm_daily).cumprod()
+        # Compute realized beta
+        beta_real = self._compute_beta(wave_daily, bm_daily, lookback=60)
 
-        intraday_return = float(wave_daily.iloc[-1])
-        bm_intraday = float(bm_daily.iloc[-1])
-        intraday_alpha = intraday_return - bm_intraday
+        # Beta-adjusted residual returns
+        residual_daily = wave_daily - beta_real * bm_daily
 
-        total_wave_ret = float(wave_curve.iloc[-1] - 1.0)
-        total_bm_ret = float(bm_curve.iloc[-1] - 1.0)
-        alpha_30d = total_wave_ret - total_bm_ret
+        # Intraday Alpha Captured (last day residual)
+        intraday_alpha_captured = float(residual_daily.iloc[-1])
 
-        history = pd.DataFrame(
+        def _window_cum(series: pd.Series, window: int) -> Optional[float]:
+            if len(series) < window:
+                return None
+            subset = series.iloc[-window:]
+            return float((1.0 + subset).prod() - 1.0)
+
+        # Windows
+        w30 = 30
+        w60 = 60
+        w1y = 252
+
+        alpha_30d = _window_cum(residual_daily, w30)
+        alpha_60d = _window_cum(residual_daily, w60)
+        alpha_1y = _window_cum(residual_daily, w1y)
+
+        ret_30_wave = _window_cum(wave_daily, w30)
+        ret_30_bm = _window_cum(bm_daily, w30)
+        ret_60_wave = _window_cum(wave_daily, w60)
+        ret_60_bm = _window_cum(bm_daily, w60)
+        ret_1y_wave = _window_cum(wave_daily, w1y)
+        ret_1y_bm = _window_cum(bm_daily, w1y)
+
+        # Build 30-day history for chart/table
+        chart_days = min(days, 30)
+        if len(wave_daily) < chart_days:
+            chart_days = len(wave_daily)
+
+        wave_30 = wave_daily.iloc[-chart_days:]
+        bm_30 = bm_daily.iloc[-chart_days:]
+        resid_30 = residual_daily.iloc[-chart_days:]
+
+        wave_curve_30 = (1.0 + wave_30).cumprod()
+        bm_curve_30 = (1.0 + bm_30).cumprod()
+
+        history_30d = pd.DataFrame(
             {
-                "wave_return": wave_daily,
-                "benchmark_return": bm_daily,
-                "wave_value": wave_curve,
-                "benchmark_value": bm_curve,
+                "wave_return": wave_30,
+                "benchmark_return": bm_30,
+                "alpha_captured": resid_30,
+                "wave_value": wave_curve_30,
+                "benchmark_value": bm_curve_30,
             }
         )
 
-        result = {
+        result: Dict[str, object] = {
             "wave": wave,
             "benchmark": benchmark,
-            "intraday_return": intraday_return,
-            "intraday_alpha": intraday_alpha,
-            "return_30d": total_wave_ret,
+            "beta_realized": beta_real,
+            "intraday_alpha_captured": intraday_alpha_captured,
             "alpha_30d": alpha_30d,
-            "history": history,
+            "alpha_60d": alpha_60d,
+            "alpha_1y": alpha_1y,
+            "return_30d_wave": ret_30_wave,
+            "return_30d_benchmark": ret_30_bm,
+            "return_60d_wave": ret_60_wave,
+            "return_60d_benchmark": ret_60_bm,
+            "return_1y_wave": ret_1y_wave,
+            "return_1y_benchmark": ret_1y_bm,
+            "history_30d": history_30d,
         }
 
         if log:
@@ -329,14 +388,22 @@ class WavesEngine:
 
     def _log_performance(self, wave: str, perf: Dict[str, object]) -> None:
         path = self.logs_root / "performance" / f"{wave.replace(' ', '_')}_performance_daily.csv"
+
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "wave": perf["wave"],
             "benchmark": perf["benchmark"],
-            "intraday_return": perf["intraday_return"],
-            "intraday_alpha": perf["intraday_alpha"],
-            "return_30d": perf["return_30d"],
+            "beta_realized": perf["beta_realized"],
+            "intraday_alpha_captured": perf["intraday_alpha_captured"],
             "alpha_30d": perf["alpha_30d"],
+            "alpha_60d": perf["alpha_60d"],
+            "alpha_1y": perf["alpha_1y"],
+            "return_30d_wave": perf["return_30d_wave"],
+            "return_30d_benchmark": perf["return_30d_benchmark"],
+            "return_60d_wave": perf["return_60d_wave"],
+            "return_60d_benchmark": perf["return_60d_benchmark"],
+            "return_1y_wave": perf["return_1y_wave"],
+            "return_1y_benchmark": perf["return_1y_benchmark"],
         }
 
         if path.exists():
