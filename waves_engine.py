@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import math
 import glob
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,27 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+# Engine version tracking
+ENGINE_VERSION = "1.5.0"
+
+def _get_engine_last_updated() -> str:
+    """Get the last modification time of this file (in local time)."""
+    try:
+        frame = inspect.currentframe()
+        if frame is not None:
+            engine_file = inspect.getfile(frame)
+            if os.path.exists(engine_file):
+                mtime = os.path.getmtime(engine_file)
+                return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, AttributeError, TypeError):
+        # OSError: file operations failed
+        # AttributeError: inspect operations failed
+        # TypeError: invalid file path
+        pass
+    return "N/A"
+
+ENGINE_LAST_UPDATED = _get_engine_last_updated()
 
 # Optional deps: requests + yfinance
 try:
@@ -817,6 +839,8 @@ def get_engine_status() -> Dict[str, str]:
     Lightweight engine status summary for the console.
     """
     status: Dict[str, str] = {}
+    status["engine_version"] = ENGINE_VERSION
+    status["engine_updated"] = ENGINE_LAST_UPDATED
     status["positions_dir_exists"] = str(LOG_POSITIONS_DIR.exists())
     status["performance_dir_exists"] = str(LOG_PERFORMANCE_DIR.exists())
     status["positions_csv_count"] = str(len(glob.glob(str(LOG_POSITIONS_DIR / "*.csv"))))
@@ -833,8 +857,19 @@ def get_engine_status() -> Dict[str, str]:
         status["vix_latest"] = f"{float(vix_hist.iloc[-1]):.2f}"
     return status
 
+def get_engine_version_info() -> Dict[str, str]:
+    """
+    Get engine version information.
+    """
+    return {
+        "version": ENGINE_VERSION,
+        "last_updated": ENGINE_LAST_UPDATED,
+    }
+
 
 __all__ = [
+    "ENGINE_VERSION",
+    "ENGINE_LAST_UPDATED",
     "WaveRecipe",
     "WAVE_RECIPES",
     "list_wave_names",
@@ -852,4 +887,5 @@ __all__ = [
     "compute_alpha_capture_matrix",
     "list_waves_with_data",
     "get_engine_status",
+    "get_engine_version_info",
 ]

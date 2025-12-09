@@ -24,6 +24,73 @@ except Exception:
     waves_engine = None
     HAS_ENGINE = False
 
+# ----------------- Cache clearing on startup -----------------
+
+def clear_cache_on_startup() -> None:
+    """
+    Clear Streamlit cache on application startup to ensure fresh data.
+    This runs only once per session using session state.
+    
+    Note: Requires Streamlit >= 1.18.0 (released 2022) for st.cache_data and st.cache_resource.
+    The legacy st.cache API was deprecated in Streamlit 1.18.0.
+    """
+    # Check if Streamlit is properly initialized (not the dummy implementation)
+    if not hasattr(st, 'session_state'):
+        return
+    
+    if "cache_cleared" not in st.session_state:
+        try:
+            # Clear both cache_data and cache_resource caches (Streamlit >= 1.18.0)
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.session_state.cache_cleared = True
+            st.session_state.cache_clear_time = datetime.now()
+        except AttributeError:
+            # For older Streamlit versions, try legacy cache API
+            try:
+                st.cache.clear()  # type: ignore
+                st.session_state.cache_cleared = True
+                st.session_state.cache_clear_time = datetime.now()
+            except Exception:
+                # If cache clearing fails, continue anyway
+                st.session_state.cache_cleared = False
+
+def get_file_version_info(filepath: str) -> Dict[str, str]:
+    """
+    Get version information for a file (last modified time and size).
+    Returns a dictionary with file information including existence, accessibility,
+    modification time, and size.
+    """
+    if not os.path.exists(filepath):
+        return {
+            "path": filepath,
+            "exists": False,
+            "accessible": False,
+            "mtime": "N/A",
+            "size": "N/A"
+        }
+    
+    try:
+        stat = os.stat(filepath)
+        mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        size = f"{stat.st_size:,} bytes"
+        return {
+            "path": filepath,
+            "exists": True,
+            "accessible": True,
+            "mtime": mtime,
+            "size": size,
+        }
+    except OSError as e:
+        # File exists but cannot be accessed
+        return {
+            "path": filepath,
+            "exists": True,
+            "accessible": False,
+            "mtime": f"Access Error: {str(e)}",
+            "size": f"Access Error: {str(e)}"
+        }
+
 APP_TITLE = "WAVES Intelligence™ Institutional Console — Vector 1.5"
 APP_SUBTITLE = (
     "10-Wave Lineup (9 Equity + SmartSafe™) • Alpha-Minus-Beta • Private Logic™ • "
@@ -820,11 +887,59 @@ def get_last_update_time(path: Optional[str]) -> Optional[datetime]:
 
 def render_system_status_tab(waves: List[str]) -> None:
     st.subheader("System Status — Engine & Data Health")
+    
+    # Cache status
+    st.markdown("#### Cache Status")
+    if "cache_cleared" in st.session_state and st.session_state.cache_cleared:
+        clear_time = st.session_state.get("cache_clear_time", "Unknown")
+        st.success(f"✓ Cache cleared at startup: {clear_time}")
+    else:
+        st.info("Cache clearing status: Not yet cleared this session")
+    
+    # File version information
+    st.markdown("#### Application File Versions")
+    app_info = get_file_version_info("app.py")
+    engine_info = get_file_version_info("waves_engine.py")
+    
+    def format_status(info: Dict[str, str]) -> str:
+        """Format file status with exists and accessible info."""
+        if not info["exists"]:
+            return "✗ Not Found"
+        elif not info.get("accessible", False):  # Default to False (not accessible)
+            return "⚠ Not Accessible"
+        else:
+            return "✓ OK"
+    
+    version_df = pd.DataFrame([
+        {
+            "File": "app.py",
+            "Status": format_status(app_info),
+            "Last Modified": app_info["mtime"],
+            "Size": app_info["size"],
+        },
+        {
+            "File": "waves_engine.py",
+            "Status": format_status(engine_info),
+            "Last Modified": engine_info["mtime"],
+            "Size": engine_info["size"],
+        }
+    ])
+    st.dataframe(version_df, use_container_width=True)
+    
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("#### Engine")
         if HAS_ENGINE:
             st.success("waves_engine module loaded — engine AVAILABLE.")
+            try:
+                if hasattr(waves_engine, "get_engine_version_info"):
+                    version_info = waves_engine.get_engine_version_info()  # type: ignore
+                    st.caption(f"Engine Version: {version_info.get('version', 'N/A')}")
+                    st.caption(f"Engine Updated: {version_info.get('last_updated', 'N/A')}")
+                elif hasattr(waves_engine, "ENGINE_VERSION"):
+                    st.caption(f"Engine Version: {waves_engine.ENGINE_VERSION}")  # type: ignore
+            except Exception:
+                pass
         else:
             st.warning("waves_engine module NOT found — running SANDBOX only.")
         st.markdown("#### Directories")
@@ -910,6 +1025,10 @@ def render_engine_activity_tab() -> None:
 def main() -> None:
     ensure_dirs()
     st.set_page_config(page_title="WAVES Console", layout="wide")
+    
+    # Clear cache on startup to ensure fresh data
+    clear_cache_on_startup()
+    
     st.title(APP_TITLE)
     st.caption(APP_SUBTITLE)
 
