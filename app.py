@@ -5,7 +5,7 @@ WAVES Intelligence™ Institutional Console (Streamlit)
 
 - Clears Streamlit cache on startup
 - Uses ONLY the latest waves_engine.py logic
-- Auto-discovers Waves
+- Auto-discovers Waves from wave_weights.csv
 - Shows beta-adjusted Alpha Captured:
     * Intraday
     * 30-Day
@@ -34,12 +34,7 @@ def _fmt_pct(x):
 
 def _fmt_pct_diff(wave, bm):
     """Format difference between wave and benchmark returns."""
-    if (
-        wave is None
-        or bm is None
-        or pd.isna(wave)
-        or pd.isna(bm)
-    ):
+    if wave is None or bm is None or pd.isna(wave) or pd.isna(bm):
         return "—"
     diff = (wave - bm) * 100
     sign = "+" if diff >= 0 else ""
@@ -60,6 +55,7 @@ def clear_streamlit_cache_once():
         if hasattr(st, "cache_resource"):
             st.cache_resource.clear()
     except Exception:
+        # Fail quietly; app will still run
         pass
 
     st.session_state["cache_cleared"] = True
@@ -208,9 +204,16 @@ with chart_col:
         chart_data = history[["wave_value", "benchmark_value"]]
         st.line_chart(chart_data)
 
+        # Robust handling of the date index (avoids KeyError)
         hist_df = history.copy()
-        hist_df = hist_df.reset_index().rename(columns={"index": "date"})
+        hist_df = hist_df.reset_index()
+
+        # First column after reset_index() is always the date/time index
+        date_col = hist_df.columns[0]
+        hist_df = hist_df.rename(columns={date_col: "date"})
         hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.date
+
+        # Add percentage columns
         hist_df["wave_return_pct"] = hist_df["wave_return"] * 100
         hist_df["benchmark_return_pct"] = hist_df["benchmark_return"] * 100
         hist_df["alpha_captured_pct"] = hist_df["alpha_captured"] * 100
