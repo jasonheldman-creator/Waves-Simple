@@ -1,18 +1,14 @@
 """
 app.py
 
-WAVES Intelligence™ Institutional Console — Phase 2 (Tabs + All-Wave Alpha View)
+WAVES Intelligence™ Institutional Console — Phase 2.5
 
 - Mode selector: Standard / Alpha-Minus-Beta / Private Logic
 - Tabs:
-    1) Overview (All Waves): Intraday / 30D / 60D / 1Y Alpha Captured for ALL Waves
+    1) Overview (All Waves): Intraday / 30D / 60D / 1Y Alpha Captured for ALL *active* Waves
     2) Selected Wave Detail: full dashboard for the chosen Wave
-- Uses mode-aware WavesEngine to compute:
-  • Intraday Alpha Captured (β-adjusted)
-  • 30-Day / 60-Day / 1-Year Alpha Captured
-  • 30/60/1Y Wave vs Benchmark returns
-  • 30-Day curve + daily alpha table
-  • Top 10 holdings with Google links
+- Uses mode-aware + VIX-gated WavesEngine.
+- Explicitly excludes Crypto Income variants from the console.
 """
 
 import streamlit as st
@@ -25,14 +21,12 @@ from waves_engine import WavesEngine
 # Formatting Helpers
 # ----------------------------------------------------------------------
 def _fmt_pct(x):
-    """Format a decimal value as a percent string."""
     if x is None or pd.isna(x):
         return "—"
     return f"{x * 100:0.2f}%"
 
 
 def _fmt_pct_diff(wave, bm):
-    """Format difference between wave and benchmark returns."""
     if wave is None or bm is None or pd.isna(wave) or pd.isna(bm):
         return "—"
     diff = (wave - bm) * 100
@@ -44,7 +38,6 @@ def _fmt_pct_diff(wave, bm):
 # Hard cache reset on app start
 # ----------------------------------------------------------------------
 def clear_streamlit_cache_once():
-    """Force Streamlit to forget any older cached state on first load."""
     if "cache_cleared" in st.session_state:
         return
 
@@ -71,7 +64,7 @@ st.set_page_config(
 
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption(
-    "Live Wave Engine • Mode-Aware Beta-Adjusted Alpha Captured • "
+    "Live Wave Engine • Mode-Aware + VIX-Gated Beta-Adjusted Alpha Captured • "
     "Intraday + 30/60/1-Year • S&P Wave + Full Lineup"
 )
 
@@ -84,9 +77,20 @@ except Exception as e:
     st.error(f"Engine failed to initialize: {e}")
     st.stop()
 
-waves = engine.get_wave_names()
+# Filter out unwanted waves (Crypto Income, etc.)
+EXCLUDED_WAVES = {
+    "Crypto Income Wave",
+    "Crypto Income",
+    "Crypto Wave",
+    "Crypto Income APW",
+    "Crypto Income AIW",
+}
+
+all_waves = engine.get_wave_names()
+waves = [w for w in all_waves if w not in EXCLUDED_WAVES]
+
 if not waves:
-    st.error("No Waves detected in wave_weights.csv.")
+    st.error("No active Waves detected (after exclusions).")
     st.stop()
 
 # Sidebar
@@ -130,8 +134,7 @@ with tab_overview:
             perf = engine.get_wave_performance(
                 wave_name, mode=selected_mode_key, days=30, log=False
             )
-        except Exception as e:
-            # If a single wave fails, continue and mark as NaN
+        except Exception:
             perf = None
 
         if perf is not None:
@@ -139,6 +142,7 @@ with tab_overview:
                 "Wave": wave_name,
                 "Benchmark": perf["benchmark"],
                 "Realized Beta (≈60d)": perf["beta_realized"],
+                "Exposure (Net)": perf.get("exposure_final", None),
                 "Intraday Alpha Captured (%)": perf["intraday_alpha_captured"] * 100
                 if perf["intraday_alpha_captured"] is not None
                 else None,
@@ -157,6 +161,7 @@ with tab_overview:
                 "Wave": wave_name,
                 "Benchmark": "—",
                 "Realized Beta (≈60d)": None,
+                "Exposure (Net)": None,
                 "Intraday Alpha Captured (%)": None,
                 "30-Day Alpha Captured (%)": None,
                 "60-Day Alpha Captured (%)": None,
@@ -166,9 +171,10 @@ with tab_overview:
         overview_rows.append(row)
 
     overview_df = pd.DataFrame(overview_rows)
-    # Round numeric columns
+
     for col in [
         "Realized Beta (≈60d)",
+        "Exposure (Net)",
         "Intraday Alpha Captured (%)",
         "30-Day Alpha Captured (%)",
         "60-Day Alpha Captured (%)",
@@ -181,21 +187,20 @@ with tab_overview:
 
     st.caption(
         "Alpha Captured is beta-adjusted residual performance vs benchmark. "
-        "Values above 0 indicate excess return beyond what beta alone explains."
+        "Exposure (Net) reflects combined Mode + VIX overlay."
     )
 
 # ----------------------------------------------------------------------
 # TAB 2: Selected Wave Detail
 # ----------------------------------------------------------------------
 with tab_detail:
-    # Layout
     top_row = st.columns([2.2, 1.2])
     perf_col, snapshot_col = top_row
 
     bottom_row = st.columns([2.0, 1.4])
     chart_col, holdings_col = bottom_row
 
-    # -------------------- Wave Snapshot --------------------
+    # ----- Wave Snapshot -----
     with snapshot_col:
         st.subheader("Wave Snapshot")
 
@@ -219,14 +224,16 @@ with tab_detail:
 
         if holdings_df is not None and "sector" in holdings_df.columns:
             sector_weights = (
-                holdings_df.groupby("sector")["weight"].sum().sort_values(ascending=False)
+                holdings_df.groupby("sector")["weight"]
+                .sum()
+                .sort_values(ascending=False)
             )
             if not sector_weights.empty:
                 top_sector = sector_weights.index[0]
                 top_sector_weight = float(sector_weights.iloc[0])
                 st.write(f"**Top Sector:** {top_sector} ({top_sector_weight:.1%})")
 
-    # -------------------- Performance Panel --------------------
+    # ----- Performance Panel -----
     with perf_col:
         st.subheader(f"{selected_wave} — Alpha Captured (β-Adjusted)")
 
@@ -240,6 +247,7 @@ with tab_detail:
 
         if perf is not None:
             beta = perf["beta_realized"]
+            exposure = perf.get("exposure_final", None)
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric(
@@ -251,6 +259,8 @@ with tab_detail:
             c4.metric("1-Year Alpha Captured", _fmt_pct(perf["alpha_1y"]))
 
             st.markdown(f"**Realized Beta (≈60d):** {beta:0.2f}")
+            if exposure is not None:
+                st.markdown(f"**Net Exposure (Mode + VIX):** {exposure:0.2f}×")
             st.markdown(f"**Benchmark:** {perf['benchmark']}")
 
             st.write("")
@@ -277,7 +287,7 @@ with tab_detail:
                 ),
             )
 
-    # -------------------- Chart + History Table (30-Day) --------------------
+    # ----- Chart + History -----
     with chart_col:
         if perf is not None:
             st.markdown(
@@ -318,7 +328,7 @@ with tab_detail:
             st.markdown("#### Recent Daily Returns & Alpha Captured (Last 15 Days)")
             st.dataframe(hist_display, hide_index=True, use_container_width=True)
 
-    # -------------------- Holdings Panel (Top 10 + Google links) --------------------
+    # ----- Holdings -----
     with holdings_col:
         st.subheader(f"{selected_wave} — Top 10 Holdings")
 
@@ -331,7 +341,6 @@ with tab_detail:
         if top10 is not None and not top10.empty:
 
             def google_finance_url(ticker: str) -> str:
-                # Adjust exchange suffix if needed
                 return f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
 
             display_df = top10.copy()
@@ -355,6 +364,7 @@ with tab_detail:
 st.markdown("---")
 st.caption(
     "Engine: WAVES Intelligence™ • list.csv = total market universe • "
-    "wave_weights.csv = Wave definitions • Alpha = Mode-Aware Beta-Adjusted Alpha Captured • "
-    "Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
+    "wave_weights.csv = Wave definitions • Alpha = Mode-Aware + VIX-Gated, "
+    "Beta-Adjusted Alpha Captured • Modes: Standard / Alpha-Minus-Beta / "
+    "Private Logic fully handled in engine logic."
 )
