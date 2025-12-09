@@ -532,3 +532,4 @@ class WavesEngine:
             df = pd.DataFrame([row])
 
         df.to_csv(path, index=False)
+        
