@@ -1,19 +1,15 @@
 """
 app.py
 
-WAVES Intelligence™ Institutional Console (Streamlit)
+WAVES Intelligence™ Institutional Console — Phase 2 (Mode-Aware)
 
-- Clears Streamlit cache on startup
-- Uses ONLY the latest waves_engine.py logic
-- Auto-discovers Waves from wave_weights.csv
-- Shows beta-adjusted Alpha Captured:
-    * Intraday
-    * 30-Day
-    * 60-Day
-    * 1-Year
-- Also shows 30/60/1Y Wave vs Benchmark returns
-- 30-Day chart + daily alpha table
-- Displays top 10 holdings with Google Finance links
+- Mode selector: Standard / Alpha-Minus-Beta / Private Logic
+- Uses mode-aware WavesEngine to compute:
+  • Intraday Alpha Captured (β-adjusted)
+  • 30-Day / 60-Day / 1-Year Alpha Captured
+  • 30/60/1Y Wave vs Benchmark returns
+  • 30-Day curve + daily alpha table
+  • Top 10 holdings with Google links
 """
 
 import streamlit as st
@@ -23,7 +19,7 @@ from waves_engine import WavesEngine
 
 
 # ----------------------------------------------------------------------
-# Formatting Helpers (must be defined BEFORE use)
+# Formatting Helpers
 # ----------------------------------------------------------------------
 def _fmt_pct(x):
     """Format a decimal value as a percent string."""
@@ -55,7 +51,6 @@ def clear_streamlit_cache_once():
         if hasattr(st, "cache_resource"):
             st.cache_resource.clear()
     except Exception:
-        # Fail quietly; app will still run
         pass
 
     st.session_state["cache_cleared"] = True
@@ -73,7 +68,7 @@ st.set_page_config(
 
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption(
-    "Live Wave Engine • Beta-Adjusted Alpha Captured • "
+    "Live Wave Engine • Mode-Aware Beta-Adjusted Alpha Captured • "
     "Intraday + 30/60/1-Year • S&P Wave + Full Lineup"
 )
 
@@ -94,6 +89,20 @@ if not waves:
 # Sidebar
 st.sidebar.header("Wave Selector")
 selected_wave = st.sidebar.selectbox("Select Wave", waves, index=0)
+
+st.sidebar.header("Mode")
+mode_label = st.sidebar.selectbox(
+    "Select Mode",
+    ["Standard", "Alpha-Minus-Beta", "Private Logic"],
+    index=0,
+)
+
+mode_map = {
+    "Standard": "standard",
+    "Alpha-Minus-Beta": "alpha-minus-beta",
+    "Private Logic": "private_logic",
+}
+selected_mode_key = mode_map[mode_label]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Files in use:**")
@@ -129,6 +138,7 @@ with snapshot_col:
     snapshot2.metric("Benchmark", benchmark)
 
     st.write("")
+    st.write(f"**Mode:** {mode_label}")
     st.write(f"**Holdings:** {num_holdings:,}")
 
     if holdings_df is not None and "sector" in holdings_df.columns:
@@ -147,7 +157,9 @@ with perf_col:
     st.subheader(f"{selected_wave} — Alpha Captured (β-Adjusted)")
 
     try:
-        perf = engine.get_wave_performance(selected_wave, days=30, log=True)
+        perf = engine.get_wave_performance(
+            selected_wave, mode=selected_mode_key, days=30, log=True
+        )
     except Exception as e:
         st.error(f"Could not compute performance for {selected_wave}: {e}")
         perf = None
@@ -204,16 +216,12 @@ with chart_col:
         chart_data = history[["wave_value", "benchmark_value"]]
         st.line_chart(chart_data)
 
-        # Robust handling of the date index (avoids KeyError)
         hist_df = history.copy()
         hist_df = hist_df.reset_index()
-
-        # First column after reset_index() is always the date/time index
         date_col = hist_df.columns[0]
         hist_df = hist_df.rename(columns={date_col: "date"})
         hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.date
 
-        # Add percentage columns
         hist_df["wave_return_pct"] = hist_df["wave_return"] * 100
         hist_df["benchmark_return_pct"] = hist_df["benchmark_return"] * 100
         hist_df["alpha_captured_pct"] = hist_df["alpha_captured"] * 100
@@ -275,6 +283,6 @@ with holdings_col:
 st.markdown("---")
 st.caption(
     "Engine: WAVES Intelligence™ • list.csv = total market universe • "
-    "wave_weights.csv = Wave definitions • Alpha = Beta-Adjusted Alpha Captured • "
+    "wave_weights.csv = Wave definitions • Alpha = Mode-Aware Beta-Adjusted Alpha Captured • "
     "Modes: Standard / Alpha-Minus-Beta / Private Logic handled in engine logic."
 )
