@@ -1,5 +1,5 @@
 """
-waves_engine.py — WAVES Intelligence™ Engine (Restored Baseline)
+waves_engine.py — WAVES Intelligence™ Engine (Restored Baseline, Hardened Headers)
 
 This version is a clean, stable restoration with:
 - 12 Waves (auto-discovered from wave_weights.csv)
@@ -8,9 +8,15 @@ This version is a clean, stable restoration with:
 - Top holdings computation
 - Log writing stubs for positions and performance
 
+Improvements in this revision:
+- Robust header detection for wave_weights.csv and list.csv:
+  * Trims whitespace
+  * Case-insensitive
+  * Fixes errors like: "Error loading wave list: 'wave'"
+
 Assumptions:
-- wave_weights.csv contains at least: Wave, Ticker, Weight
-- list.csv contains at least: Ticker (and optionally Name, Sector, etc.)
+- wave_weights.csv contains columns for Wave, Ticker, Weight (any reasonable capitalization/spacing)
+- list.csv contains at least a Ticker column (optional)
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
 # Benchmarks per Wave (fallback to SPY if not found)
 BENCHMARK_MAP: Dict[str, str] = {
     "S&P 500 Wave": "SPY",
+    "S&P Wave": "SPY",
     "AI Wave": "QQQ",
     "AI & Innovation Wave": "QQQ",
     "Quantum Computing Wave": "QQQ",
@@ -56,19 +63,44 @@ BENCHMARK_MAP: Dict[str, str] = {
     "SmartSafe Money Market Wave": "BIL",
 }
 
-
 # ---------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------
 
+
+def _normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Trim whitespace and make header matching robust.
+    (We keep original casing but strip spaces.)
+    """
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
 def _standardize_column(df: pd.DataFrame, candidates: List[str], target: str) -> pd.DataFrame:
     """
-    Given a DataFrame and a list of candidate column names, rename the first one found to target.
+    Given a DataFrame and a list of candidate column names, rename the first one found to `target`.
+
+    Matching is:
+    - case-insensitive
+    - leading/trailing whitespace-insensitive
     """
-    for c in candidates:
-        if c in df.columns:
-            df = df.rename(columns={c: target})
+    df = _normalize_headers(df)
+
+    # Map normalized header -> original header
+    norm_to_original = {
+        str(col).strip().lower(): col for col in df.columns
+    }
+
+    for cand in candidates:
+        key = str(cand).strip().lower()
+        if key in norm_to_original:
+            original = norm_to_original[key]
+            if original != target:
+                df = df.rename(columns={original: target})
             break
+
     return df
 
 
@@ -76,6 +108,7 @@ def _load_universe() -> pd.DataFrame:
     if not UNIVERSE_CSV.exists():
         # Not fatal; we can still run with just weights
         return pd.DataFrame(columns=["ticker"])
+
     df = pd.read_csv(UNIVERSE_CSV)
     df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
     df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
@@ -85,10 +118,24 @@ def _load_universe() -> pd.DataFrame:
 def _load_wave_weights() -> pd.DataFrame:
     if not WEIGHTS_CSV.exists():
         raise FileNotFoundError(f"wave_weights.csv not found at {WEIGHTS_CSV}")
+
     df = pd.read_csv(WEIGHTS_CSV)
-    df = _standardize_column(df, ["Wave", "wave", "Portfolio"], "wave")
+
+    # Robust header normalization
+    df = _normalize_headers(df)
+
+    df = _standardize_column(df, ["Wave", "wave", "Portfolio", "portfolio", "Name"], "wave")
     df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
     df = _standardize_column(df, ["Weight", "weight", "Wgt", "wgt"], "weight")
+
+    # Safety check: ensure required columns exist
+    required_cols = ["wave", "ticker", "weight"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required column(s) in wave_weights.csv: {missing}. "
+            f"Found columns: {list(df.columns)}"
+        )
 
     df["wave"] = df["wave"].astype(str).str.strip()
     df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
@@ -107,6 +154,10 @@ def get_available_waves() -> List[str]:
     Return sorted list of distinct wave names from wave_weights.csv
     """
     weights = _load_wave_weights()
+    if "wave" not in weights.columns:
+        raise ValueError(
+            f"'wave' column not found after normalization. Columns: {list(weights.columns)}"
+        )
     waves = sorted(weights["wave"].unique().tolist())
     return waves
 
@@ -117,7 +168,7 @@ def _get_benchmark_for_wave(wave_name: str) -> str:
     """
     if wave_name in BENCHMARK_MAP:
         return BENCHMARK_MAP[wave_name]
-    # Simple heuristics
+
     name_lower = wave_name.lower()
     if "crypto" in name_lower or "digital" in name_lower:
         return "BITO"
@@ -129,6 +180,8 @@ def _get_benchmark_for_wave(wave_name: str) -> str:
         return "SCHD"
     if "smartsafe" in name_lower:
         return "BIL"
+    if "s&p" in name_lower:
+        return "SPY"
     return "SPY"
 
 
@@ -176,6 +229,7 @@ def _get_fast_intraday_return(ticker: str) -> Tuple[float, float]:
 # SmartSafe 2.0 (placeholder hook)
 # ---------------------------------------------------------------------
 
+
 def apply_smartsafe_sweep(positions: pd.DataFrame) -> pd.DataFrame:
     """
     SmartSafe 2.0 sweep *hook*.
@@ -187,13 +241,13 @@ def apply_smartsafe_sweep(positions: pd.DataFrame) -> pd.DataFrame:
 
     Currently: returns positions unchanged.
     """
-    # If you want to add light sweep rules later, you can do it here.
     return positions
 
 
 # ---------------------------------------------------------------------
 # Core Wave Snapshot / Metrics
 # ---------------------------------------------------------------------
+
 
 def _build_wave_positions(wave_name: str) -> pd.DataFrame:
     """
@@ -244,7 +298,6 @@ def _compute_portfolio_trailing_returns(
             price_frames.append(s)
 
     if not price_frames:
-        # No data -> zero returns
         return {
             "ret_30d": 0.0,
             "ret_60d": 0.0,
@@ -276,7 +329,6 @@ def _compute_portfolio_trailing_returns(
     def _window_total_return(r: pd.Series, days: int) -> float:
         if r.empty:
             return 0.0
-        # Use last N observations
         sub = r.tail(days)
         if sub.empty:
             return 0.0
@@ -327,7 +379,6 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
     try:
         if file_path.exists():
             existing = pd.read_csv(file_path)
-            # Avoid duplicate date rows
             existing = existing[existing["date"] != today_str]
             existing = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
             existing.to_csv(file_path, index=False)
@@ -366,7 +417,11 @@ def get_wave_snapshot(wave_name: str) -> Dict:
     else:
         intraday_ret = 0.0
 
-    trailing = _compute_portfolio_trailing_returns(positions, benchmark_ticker=benchmark, period="90d")
+    trailing = _compute_portfolio_trailing_returns(
+        positions,
+        benchmark_ticker=benchmark,
+        period="90d",
+    )
 
     metrics = {
         "intraday_return": intraday_ret,
