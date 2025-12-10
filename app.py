@@ -1,97 +1,145 @@
-# app.py – WAVES Intelligence™ Institutional Console
-# Compatible with the NEW waves_engine.py (WavesEngine class)
+# app.py
 
 import streamlit as st
-from waves_engine import WavesEngine
+import pandas as pd
+
+from waves_engine import build_engine
+
+# ------------------------------------------------------------
+# Page config / styling
+# ------------------------------------------------------------
 
 st.set_page_config(
     page_title="WAVES Intelligence™ Institutional Console",
     layout="wide",
 )
 
-# ----------------------------------------------------
-# Cache the engine + metrics for performance
-# ----------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .main {
+        background-color: #05070D;
+        color: #FFFFFF;
+    }
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-@st.cache_resource
-def load_engine():
-    return WavesEngine()   # NEW — replaces build_engine()
+st.title("WAVES Intelligence\u2122 Institutional Console")
+st.caption("Live Wave Engine • Alpha Capture • Benchmarks • Diagnostics")
+
+# ------------------------------------------------------------
+# Data loading (cached)
+# ------------------------------------------------------------
+
+@st.cache_data(show_spinner=True)
+def load_metrics() -> pd.DataFrame:
+    return build_engine()
 
 
-@st.cache_data
-def load_metrics():
-    eng = load_engine()
-    return eng.metrics_snapshot_df()
+# ------------------------------------------------------------
+# Try to build engine
+# ------------------------------------------------------------
 
-
-# ----------------------------------------------------
-# UI Layout
-# ----------------------------------------------------
-
-st.title("WAVES Intelligence™ Institutional Console")
-st.caption("**Live Wave Engine • Alpha Capture • Benchmarks • Diagnostics**")
-
-# Load metrics table
 try:
     metrics_df = load_metrics()
+    engine_error = None
 except Exception as e:
-    st.error("Engine failed while computing metrics.")
-    with st.expander("Full error traceback"):
-        st.write(e)
-    st.stop()
+    metrics_df = pd.DataFrame()
+    engine_error = str(e)
 
-st.subheader("All Waves Snapshot")
-st.dataframe(metrics_df.style.format("{:.2%}"))
+# ------------------------------------------------------------
+# Layout
+# ------------------------------------------------------------
 
-# ----------------------------------------------------
-# Per-Wave Explorer
-# ----------------------------------------------------
+tab_dashboard, tab_explorer, tab_diag = st.tabs(
+    ["Dashboard", "Wave Explorer", "Diagnostics"]
+)
 
-st.subheader("Wave Explorer")
+# ---------------- Dashboard ----------------
 
-eng = load_engine()
-wave_list = sorted(list(eng.wave_weights.keys()))
-selected_wave = st.selectbox("Select Wave", wave_list)
+with tab_dashboard:
+    st.subheader("All Waves Snapshot")
 
-if selected_wave:
-    try:
-        metrics = eng.compute_wave_metrics(selected_wave)
+    if engine_error:
+        st.error("Engine failed while computing metrics. See Diagnostics tab for details.")
+    elif metrics_df.empty:
+        st.warning("No metrics available yet. Check Diagnostics for details.")
+    else:
+        display_df = metrics_df.copy()
+
+        # Convert to percentage strings for nicer display
+        for col in ["Return 60D", "Alpha 60D", "Return 1Y", "Alpha 1Y"]:
+            if col in display_df.columns:
+                display_df[col] = (display_df[col] * 100).map(lambda x: f"{x:0.2f}%" if pd.notnull(x) else "—")
+
+        st.dataframe(
+            display_df[
+                ["Return 60D", "Alpha 60D", "Return 1Y", "Alpha 1Y", "Benchmark", "Notes"]
+            ],
+            use_container_width=True,
+        )
+
+# ---------------- Wave Explorer ----------------
+
+with tab_explorer:
+    st.subheader("Wave Explorer")
+
+    if engine_error or metrics_df.empty:
+        st.info("Engine is not currently available. See Diagnostics.")
+    else:
+        wave_names = list(metrics_df.index)
+        default_wave = "S&P Wave" if "S&P Wave" in wave_names else wave_names[0]
+        wave_choice = st.selectbox("Select Wave", wave_names, index=wave_names.index(default_wave))
+
+        row = metrics_df.loc[wave_choice]
 
         col1, col2 = st.columns(2)
 
         with col1:
-            st.metric("60D Alpha", f"{metrics.alpha_60d:.2%}")
-            st.metric("60D Return", f"{metrics.total_return_60d:.2%}")
-            st.metric("60D Benchmark", f"{metrics.bench_return_60d:.2%}")
+            st.metric(
+                label="60D Total Return",
+                value=f"{row['Return 60D']*100:0.2f}%" if pd.notnull(row['Return 60D']) else "—",
+            )
+            st.metric(
+                label="1Y Total Return",
+                value=f"{row['Return 1Y']*100:0.2f}%" if pd.notnull(row['Return 1Y']) else "—",
+            )
 
         with col2:
-            st.metric("1Y Alpha", f"{metrics.alpha_1y:.2%}")
-            st.metric("1Y Return", f"{metrics.total_return_1y:.2%}")
-            st.metric("1Y Benchmark", f"{metrics.bench_return_1y:.2%}")
+            st.metric(
+                label="60D Alpha vs Benchmark",
+                value=f"{row['Alpha 60D']*100:0.2f}%" if pd.notnull(row['Alpha 60D']) else "—",
+            )
+            st.metric(
+                label="1Y Alpha vs Benchmark",
+                value=f"{row['Alpha 1Y']*100:0.2f}%" if pd.notnull(row['Alpha 1Y']) else "—",
+            )
 
-        st.line_chart(metrics.nav_series, height=300)
-        st.caption("Wave NAV")
+        st.markdown("**Benchmark Blend**")
+        st.write(row.get("Benchmark", "—"))
 
-        st.line_chart(metrics.benchmark_nav, height=300)
-        st.caption("Benchmark NAV")
+        if isinstance(row.get("Notes", None), str) and row["Notes"].strip():
+            st.markdown("**Engine Notes**")
+            st.info(row["Notes"])
 
-    except Exception as e:
-        st.error(f"Failed to compute metrics for {selected_wave}.")
-        with st.expander("Diagnostics"):
-            st.write(e)
+# ---------------- Diagnostics ----------------
 
+with tab_diag:
+    st.subheader("Engine Diagnostics")
 
-# ----------------------------------------------------
-# Diagnostics – optional helper
-# ----------------------------------------------------
-
-with st.expander("Engine Diagnostics"):
-    st.write("### Loaded Waves:")
-    st.write(wave_list)
-
-    st.write("### Raw Wave Weights:")
-    st.write(eng.wave_weights)
-
-    if eng.price_data is not None:
-        st.write("### Available Price Data (tickers):")
-        st.write(list(eng.price_data.columns))
+    if engine_error:
+        st.error("Engine error:")
+        st.code(engine_error)
+    else:
+        st.success("Engine loaded successfully.")
+        st.write(
+            "If you want deeper diagnostics (per-ticker price gaps, "
+            "dropped symbols, etc.), we can extend the engine to return "
+            "a richer diagnostics table."
+        )
