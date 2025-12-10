@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -247,11 +247,12 @@ class WavesEngine:
         turnover = pd.Series(0.01, index=returns.index)  # 1% daily turnover
         slippage_cost = turnover * 0.0005  # 5 bps slippage
         
-        # Determine benchmark (simplified)
+        # Determine benchmark (simplified - currently uses SPY)
+        # Future enhancement: Load benchmark from config per wave
+        # Supports both string ticker (e.g., "SPY") or dict of {ticker: weight}
         benchmark = "SPY"  # Default benchmark
         
-        # This is where the original truncated file begins
-        # The code below is from the original waves_engine.py
+        # Benchmark processing - handles both dict and string benchmarks
         if isinstance(benchmark, dict):
             bm_tickers = list(benchmark.keys())
             bm_data = {}
@@ -439,7 +440,7 @@ class SmartSafeSweepEngine:
         self.engine = engine
         self.smartsafe_wave_name = smartsafe_wave_name
 
-    def _split_waves(self) -> tuple[List[str], List[str]]:
+    def _split_waves(self) -> Tuple[List[str], List[str]]:
         all_waves = self.engine.get_wave_names()
         smart = [w for w in all_waves if self.smartsafe_wave_name.lower() in w.lower()]
         risk = [w for w in all_waves if w not in smart]
