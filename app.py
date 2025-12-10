@@ -1,15 +1,17 @@
 """
-app.py — WAVES Intelligence™ Institutional Console (Restored Baseline)
+app.py — WAVES Intelligence™ Institutional Console
+(Restored Baseline + Overview Grid)
 
 Key behaviors:
-- Auto-discovers 12 Waves from wave_weights.csv via waves_engine.get_available_waves()
+- Auto-discovers Waves from wave_weights.csv via waves_engine.get_available_waves()
 - No SmartSafe 3.0 logic. Only SmartSafe 2.0 hooks via engine (no-op).
-- Overview metrics: Intraday, 30-day, 60-day returns and alpha vs benchmark.
-- Top 10 holdings with clickable Google Finance quote links.
-
-To use:
-- Ensure waves_engine.py is present in the same repo.
-- Ensure wave_weights.csv and list.csv exist in the working directory.
+- Tabs:
+    1) Overview (all Waves grid)
+    2) Wave Detail (single-Wave dashboard)
+- Metrics:
+    Intraday, 30-Day, 60-Day returns and alpha vs benchmark.
+- Per-Wave view:
+    Top 10 holdings with clickable Google Finance quote links.
 """
 
 from __future__ import annotations
@@ -47,7 +49,62 @@ def load_wave_list():
 
 @st.cache_data(show_spinner=False)
 def load_wave_snapshot(wave_name: str):
+    """
+    Snapshot for a single Wave (used in detail tab).
+    """
     return we.get_wave_snapshot(wave_name)
+
+
+@st.cache_data(show_spinner=True)
+def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
+    """
+    Build an overview DataFrame with metrics for all Waves.
+    """
+    rows = []
+    for w in waves:
+        try:
+            snap = we.get_wave_snapshot(w)
+            m = snap["metrics"]
+            rows.append(
+                {
+                    "Wave": w,
+                    "Benchmark": snap["benchmark"],
+                    "Intraday Return": m.get("intraday_return", 0.0),
+                    "30D Return": m.get("ret_30d", 0.0),
+                    "30D Alpha": m.get("alpha_30d", 0.0),
+                    "60D Return": m.get("ret_60d", 0.0),
+                    "60D Alpha": m.get("alpha_60d", 0.0),
+                }
+            )
+        except Exception:
+            # Non-fatal; we still show other waves
+            rows.append(
+                {
+                    "Wave": w,
+                    "Benchmark": "",
+                    "Intraday Return": 0.0,
+                    "30D Return": 0.0,
+                    "30D Alpha": 0.0,
+                    "60D Return": 0.0,
+                    "60D Alpha": 0.0,
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "Wave",
+                "Benchmark",
+                "Intraday Return",
+                "30D Return",
+                "30D Alpha",
+                "60D Return",
+                "60D Alpha",
+            ]
+        )
+
+    df = pd.DataFrame(rows)
+    return df
 
 
 # ---------------------------------------------------------------------
@@ -95,7 +152,7 @@ def render_header():
 
 def render_sidebar(waves: list) -> str:
     st.sidebar.markdown("### Waves Intelligence™")
-    st.sidebar.write("Select a Wave to inspect:")
+    st.sidebar.write("Select a Wave to inspect in the **Wave Detail** tab:")
 
     if not waves:
         st.sidebar.error("No Waves found in wave_weights.csv.")
@@ -128,7 +185,6 @@ def render_metrics(snapshot: dict):
     with col4:
         st.metric("30-Day Alpha vs " + benchmark, format_pct(metrics["alpha_30d"]))
 
-    # Second row of metrics (60-day alpha only, keep overview tight)
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("60-Day Alpha vs " + benchmark, format_pct(metrics["alpha_60d"]))
@@ -193,18 +249,47 @@ def render_positions_raw(snapshot: dict):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-# ---------------------------------------------------------------------
-# Main app
-# ---------------------------------------------------------------------
+def render_overview_tab(waves: list[str]):
+    st.subheader("Overview — All Waves")
 
-def main():
-    render_header()
+    if not waves:
+        st.info("No Waves found.")
+        return
 
-    waves = load_wave_list()
-    selected_wave = render_sidebar(waves)
+    df = load_all_snapshots(waves)
+    if df.empty:
+        st.info("No metrics available yet.")
+        return
 
+    # Format for display
+    df_display = df.copy()
+    for col in [
+        "Intraday Return",
+        "30D Return",
+        "30D Alpha",
+        "60D Return",
+        "60D Alpha",
+    ]:
+        df_display[col] = df_display[col].apply(format_pct)
+
+    st.markdown(
+        """
+        This grid shows Intraday, 30-Day, and 60-Day performance and alpha for each Wave.
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.dataframe(
+        df_display,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_wave_detail_tab(selected_wave: str):
     if not selected_wave:
-        st.stop()
+        st.info("Select a Wave in the sidebar to view details.")
+        return
 
     with st.spinner(f"Loading Wave: {selected_wave}"):
         snapshot = load_wave_snapshot(selected_wave)
@@ -238,6 +323,25 @@ def main():
         """,
         unsafe_allow_html=True,
     )
+
+
+# ---------------------------------------------------------------------
+# Main app
+# ---------------------------------------------------------------------
+
+def main():
+    render_header()
+
+    waves = load_wave_list()
+    selected_wave = render_sidebar(waves)
+
+    tab_overview, tab_detail = st.tabs(["Overview", "Wave Detail"])
+
+    with tab_overview:
+        render_overview_tab(waves)
+
+    with tab_detail:
+        render_wave_detail_tab(selected_wave)
 
 
 if __name__ == "__main__":
