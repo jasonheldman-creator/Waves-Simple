@@ -1,6 +1,11 @@
 """
 waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine + Strategy Overlay
-Benchmark Map v1.0 (LOCKED) + Dynamic VIX-Gated Exposure
+Benchmark Map v1.1 (LOCKED)
+
+Changes in this version:
+• Rename "Crypto Income Wave" → "Crypto Equity Wave"
+• Remove "Future Power & Energy Wave"
+• Add "AI Wave" with an AI-focused blended benchmark
 
 What this does
 --------------
@@ -18,14 +23,14 @@ What this does
        - Mode: standard / alpha-minus-beta / private_logic
        - VIX level on that day
    • daily Wave returns are scaled by exposure_t
-   → this approximates the live risk-controls/algos instead of naive buy & hold.
+   → approximates live risk-controls/algos instead of naive buy & hold.
 6) Supports blended benchmarks:
-   • Growth Wave → 50% QQQ + 50% IWF
-   • Small-Mid Cap Growth Wave → 50% VTWG + 50% VO
-   • Future Power & Energy Wave → 55% ICLN + 45% IXE
-   • Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
-   • Quantum Computing Wave → 70% IYW + 30% SOXX
-   • Crypto Income Wave → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
+   • Growth Wave              → 50% QQQ + 50% IWF
+   • Small-Mid Cap Growth     → 50% VTWG + 50% VO
+   • AI Wave                  → 40% QQQ + 60% SOXX
+   • Clean Transit-Infrastructure → 50% ICLN + 50% IGF
+   • Quantum Computing Wave   → 70% IYW + 30% SOXX
+   • Crypto Equity Wave       → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
 """
 
 from __future__ import annotations
@@ -65,16 +70,16 @@ class WavesEngine:
             "Small Cap Growth Wave": "VTWG",
             "Small-Mid Cap Growth Wave": "VO",  # overridden by blend logic
             "Small to Mid Cap Growth Wave": "VO",
-            "Future Power & Energy Wave": "ICLN",  # overridden by blend logic
             "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blend logic
-            "Quantum Computing Wave": "IYW",  # overridden by blend logic
+            "Quantum Computing Wave": "IYW",              # overridden by blend logic
+            "AI Wave": "QQQ",                             # overridden by blend logic
             "Total Market Wave": "VTI",
             "SmartSafe Wave": "SHV",
             "SmartSafe": "SHV",
             "SmartSafe™": "SHV",
-            "Crypto Income Wave": "BTC-USD",  # overridden by blend logic
+            "Crypto Equity Wave": "BTC-USD",              # overridden by blend logic
             "Crypto Wave": "BTC-USD",
-            "Growth Wave": "QQQ",  # overridden by blend logic
+            "Growth Wave": "QQQ",                         # overridden by blend logic
         }
 
     # ---------------------------------------------------------
@@ -138,7 +143,7 @@ class WavesEngine:
         """
         wave = wave.strip()
 
-        # --------- Custom blended benchmarks (Benchmark Map v1.0) ----------
+        # --------- Custom blended benchmarks (Benchmark Map v1.1) ----------
         if wave == "Growth Wave":
             # 50% QQQ + 50% IWF
             return {"QQQ": 0.50, "IWF": 0.50}
@@ -147,9 +152,9 @@ class WavesEngine:
             # 50% VTWG + 50% VO
             return {"VTWG": 0.50, "VO": 0.50}
 
-        if wave == "Future Power & Energy Wave":
-            # 55% ICLN + 45% IXE
-            return {"ICLN": 0.55, "IXE": 0.45}
+        if wave == "AI Wave":
+            # AI megacap + semis: 40% QQQ + 60% SOXX
+            return {"QQQ": 0.40, "SOXX": 0.60}
 
         if wave == "Clean Transit-Infrastructure Wave":
             # 50% ICLN + 50% IGF
@@ -159,7 +164,7 @@ class WavesEngine:
             # 70% IYW + 30% SOXX
             return {"IYW": 0.70, "SOXX": 0.30}
 
-        if wave == "Crypto Income Wave":
+        if wave == "Crypto Equity Wave":
             # Broad crypto index approximation
             return {"BTC-USD": 0.50, "ETH-USD": 0.30, "SOL-USD": 0.20}
 
@@ -261,8 +266,8 @@ class WavesEngine:
     def _compute_exposure_series(self, mode: str, vix_series: pd.Series) -> pd.Series:
         """
         Compute a per-day exposure series based on mode + daily VIX level.
-        This is the core "trading algo" overlay: it tells us how much
-        of the raw portfolio return to actually take each day.
+        Core "trading algo" overlay: how much of the raw portfolio return
+        to actually take each day.
 
         Rough rules:
           - standard:
