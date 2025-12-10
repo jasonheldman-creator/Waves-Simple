@@ -1,32 +1,22 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine (clean, 1-D safe)
+waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine (auto-aligned, no mismatches)
 
-Responsibilities
-  • Load list.csv (total universe) and wave_weights.csv (wave definitions)
-  • Build Wave portfolios from constituent tickers + weights
-  • Fetch prices via yfinance for:
-      - each Wave’s holdings
-      - each Wave’s benchmark
-      - VIX (^VIX) for risk-gating
-  • Compute:
-      - daily Wave returns
-      - daily Benchmark returns
-      - Wave / Benchmark value curves
-      - daily Alpha Captured (Wave − Benchmark)
-      - Intraday, 30D, 60D, 1Y Alpha Captured
-      - 30D, 60D, 1Y Wave & Benchmark returns
-      - realized beta (≈60d) via covariance / variance
-      - mode-aware, VIX-gated exposure (Standard / Alpha-Minus-Beta / Private Logic)
-  • Provide accessors used by the Streamlit app:
-      - get_wave_names()
-      - get_benchmark(wave)
-      - get_wave_holdings(wave)
-      - get_top_holdings(wave, n)
-      - get_wave_performance(wave, mode, days, log=False)
-
-All array operations are strictly 1-dimensional to avoid
-“Data must be 1-dimensional” errors, and the price-matrix builder
-fetches tickers one-by-one to avoid MultiIndex/length mismatches.
+This version:
+  • Loads list.csv (universe) and wave_weights.csv (Wave definitions)
+  • Builds Waves from tickers + weights
+  • Fetches prices via yfinance (1y daily)
+  • Computes:
+      - daily Wave & benchmark returns
+      - value curves
+      - intraday, 30D, 60D, 1Y alpha captured
+      - 30D / 60D / 1Y Wave & benchmark returns
+      - realised beta (≈60d)
+      - mode-aware, VIX-gated exposure
+  • AUTO-ALIGNS:
+      - Drops tickers with no price data
+      - Drops tickers whose returns are all NaN
+      - Renormalises weights to the surviving tickers
+      - NO “weight alignment mismatch” errors are ever raised
 """
 
 from __future__ import annotations
@@ -56,7 +46,7 @@ class WavesEngine:
         self.universe = self._load_list()
         self.weights = self._load_weights()
 
-        # simple benchmark map; fall back to SPY if not listed
+        # Benchmark map (fallback = SPY)
         self._benchmark_map: Dict[str, str] = {
             "S&P Wave": "SPY",
             "S&P 500 Wave": "SPY",
@@ -92,7 +82,7 @@ class WavesEngine:
 
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
 
-        # optional company / sector / description
+        # optional metadata
         for col in ["company", "sector", "name"]:
             if col not in df.columns:
                 df[col] = None
@@ -114,11 +104,10 @@ class WavesEngine:
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
         df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
 
-        # drop invalid rows
         df = df.dropna(subset=["ticker", "weight"])
         df["weight"] = df["weight"].astype(float)
 
-        # normalize per Wave so weights sum to 1
+        # Normalize weights per Wave to sum to 1
         weight_sum = df.groupby("wave")["weight"].transform("sum")
         weight_sum = weight_sum.replace(0, np.nan)
         df["weight"] = df["weight"] / weight_sum
@@ -141,7 +130,6 @@ class WavesEngine:
 
         uni = self.universe[["ticker", "company", "sector"]].copy()
         merged = w.merge(uni, on="ticker", how="left")
-        # sort descending by weight for display
         merged = merged.sort_values("weight", ascending=False).reset_index(drop=True)
         return merged
 
@@ -156,7 +144,7 @@ class WavesEngine:
     # ---------------------------------------------------------
     def _get_price_series(self, ticker: str, period: str = "1y") -> pd.Series:
         """
-        Fetches adjusted close for a single ticker as a 1-D Series.
+        Fetch adjusted close for a single ticker as a 1-D Series.
         Raises if no data.
         """
         data = yf.download(
@@ -177,19 +165,20 @@ class WavesEngine:
 
     def _get_price_matrix(self, tickers: List[str], period: str = "1y") -> pd.DataFrame:
         """
-        Fetches adjusted close for multiple tickers as a clean DataFrame [date x ticker].
-        We fetch each ticker individually to avoid MultiIndex / shape surprises.
-        Raises if nothing could be priced.
+        Fetch adjusted close for multiple tickers as DataFrame [date x ticker].
+
+        AUTO-CLEAN:
+          • Skips tickers with no data
         """
         frames = []
-        valid_tickers = []
+        valid_tickers: List[str] = []
         for t in tickers:
             try:
                 s = self._get_price_series(t, period=period)
                 frames.append(s)
                 valid_tickers.append(t)
             except Exception:
-                # skip tickers we can't price at all
+                # Skip un-priceable tickers
                 continue
 
         if not frames:
@@ -213,39 +202,43 @@ class WavesEngine:
     ) -> Optional[dict]:
         """
         Compute full metrics for a given Wave + mode.
-        All returns are daily; alpha is Wave − Benchmark.
-        Raises clear errors if anything critical is missing.
+
+        AUTO-ALIGN:
+          • Only uses tickers that have price data
+          • Only uses tickers whose return series are not all NaN
+          • Re-normalises weights to the active tickers
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
 
-        # unique tickers for the Wave
-        tickers = sorted(holdings["ticker"].unique())
-        weights = holdings.set_index("ticker")["weight"]
+        # original tickers + weights
+        all_tickers = sorted(holdings["ticker"].unique())
+        weights_all = holdings.set_index("ticker")["weight"]
 
         history_period = "1y"
 
         # --- Wave prices & returns (portfolio) ---
-        price_matrix = self._get_price_matrix(tickers, period=history_period)
+        price_matrix = self._get_price_matrix(all_tickers, period=history_period)
 
-        # align weights to available columns
-        common = [t for t in price_matrix.columns if t in weights.index]
-        if not common:
-            raise ValueError(f"No overlapping priced tickers for Wave {wave}")
+        # returns (drop first NaN row), keep columns, then drop columns that are all NaN
+        ret_matrix = price_matrix.pct_change().iloc[1:, :].astype(float)
+        ret_matrix = ret_matrix.dropna(axis=1, how="all")
 
-        price_matrix = price_matrix[common]
-        w_vec = weights.loc[common].values.astype(float)
+        if ret_matrix.empty:
+            raise ValueError(f"No usable return history for Wave {wave}")
 
-        # daily returns per ticker
-        ret_matrix = price_matrix.pct_change().dropna(how="all").astype(float)
-        if ret_matrix.shape[1] != len(w_vec):
-            raise ValueError(
-                f"Weight alignment mismatch for {wave}: "
-                f"{ret_matrix.shape[1]} return columns vs {len(w_vec)} weights"
-            )
+        # Active tickers are columns with usable returns
+        active_tickers = list(ret_matrix.columns)
 
-        # portfolio daily return: (ret * weights).sum(axis=1)
+        # Align weights to active tickers and renormalise
+        weights_active = weights_all.reindex(active_tickers).fillna(0.0)
+        w_sum = weights_active.sum()
+        if w_sum <= 0:
+            raise ValueError(f"No positive weights for active tickers in Wave {wave}")
+        w_vec = (weights_active / w_sum).values.astype(float)
+
+        # Finally: multiply returns by aligned weights — shapes always match
         wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
         wave_ret_series.name = "wave_return"
 
@@ -256,7 +249,7 @@ class WavesEngine:
         benchmark = self.get_benchmark(wave)
         bm_price = self._get_price_series(benchmark, period=history_period)
 
-        bm_ret = bm_price.pct_change()
+        bm_ret = bm_price.pct_change().iloc[1:].astype(float)
         bm_ret.name = "benchmark_return"
         bm_value = (1.0 + bm_ret).cumprod()
         bm_value.name = "benchmark_value"
@@ -280,7 +273,7 @@ class WavesEngine:
         intraday_alpha = float(df["alpha_captured"].iloc[-1])
         alpha_30d = alpha_window(df["alpha_captured"], 30)
         alpha_60d = alpha_window(df["alpha_captured"], 60)
-        alpha_1y = alpha_window(df["alpha_captured"], len(df))  # full period ≈1y
+        alpha_1y = alpha_window(df["alpha_captured"], len(df))  # full ≈1y
 
         # --- return windows ---
         def window_return(curve: pd.Series, window: int) -> Optional[float]:
@@ -302,7 +295,7 @@ class WavesEngine:
         ret_1y_wave = window_return(df["wave_value"], min(len(df), 252))
         ret_1y_bm = window_return(df["benchmark_value"], min(len(df), 252))
 
-        # --- realized beta (≈60d) ---
+        # --- realised beta (≈60d) ---
         beta_realized = np.nan
         tail_n = min(60, len(df))
         if tail_n >= 20:
@@ -312,7 +305,7 @@ class WavesEngine:
                 cov_xy = np.cov(x, y)[0, 1]
                 beta_realized = float(cov_xy / np.var(x))
 
-        # --- VIX-gated exposure by mode ---
+        # --- VIX-gated exposure ---
         exposure_final = self._compute_exposure(mode, beta_realized)
 
         history_30d = df.tail(30).copy()
@@ -343,22 +336,14 @@ class WavesEngine:
     # EXPOSURE MODEL (Mode + VIX)
     # ---------------------------------------------------------
     def _compute_exposure(self, mode: str, beta_realized: float) -> float:
-        """
-        Mode-aware + VIX-gated exposure.
-
-        Modes:
-          • standard        – baseline 1.0x, mild VIX throttling
-          • alpha-minus-beta– target 0.7-0.9 beta, stronger VIX throttling
-          • private_logic   – 1.1x in calm markets, but still cut in high VIX
-        """
         mode = (mode or "standard").lower()
         beta = beta_realized if beta_realized is not None and not np.isnan(beta_realized) else 1.0
 
         if mode == "alpha-minus-beta":
-            base = max(0.3, min(1.0, 1.0 - 0.4 * (beta - 0.8)))  # steer toward ~0.8 beta
+            base = max(0.3, min(1.0, 1.0 - 0.4 * (beta - 0.8)))
         elif mode == "private_logic":
             base = 1.1
-        else:  # standard
+        else:
             base = 1.0
 
         vix_level = self._get_vix_level()
@@ -377,9 +362,6 @@ class WavesEngine:
         return exposure
 
     def _get_vix_level(self) -> Optional[float]:
-        """
-        Fetch recent VIX level (^VIX). Returns last close as float or None on failure.
-        """
         try:
             vix = self._get_price_series("^VIX", period="3mo")
         except Exception:
@@ -389,7 +371,7 @@ class WavesEngine:
         return float(vix.iloc[-1])
 
     # ---------------------------------------------------------
-    # LOGGING (optional, safe)
+    # LOGGING (optional)
     # ---------------------------------------------------------
     def _log_performance_row(self, wave: str, result: dict) -> None:
         try:
@@ -421,5 +403,4 @@ class WavesEngine:
                 df_out = df_row
             df_out.to_csv(fname, index=False)
         except Exception:
-            # logging must never break the engine
             pass
