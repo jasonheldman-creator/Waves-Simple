@@ -24,34 +24,21 @@ st.markdown(
 )
 st.caption(
     "Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • "
-    "SmartSafe™ Sweep • Benchmark-Relative Performance"
+    "Benchmark-Relative Performance • SmartSafe 3.0 Household Sweep"
 )
 
 # ---------------------------------------------------------
 # Helper formatting
 # ---------------------------------------------------------
-SMARTSAFE_EST_YIELD = 0.0425  # 4.25% estimated annual yield
-
-
 def fmt_pct(x):
-    if x is None:
+    if x is None or (isinstance(x, float) and (np.isnan(x))):
         return "—"
-    try:
-        if isinstance(x, float) and np.isnan(x):
-            return "—"
-    except Exception:
-        pass
     return f"{x * 100:0.2f}%"
 
 
 def fmt_beta(x):
-    if x is None:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
         return "—"
-    try:
-        if isinstance(x, float) and np.isnan(x):
-            return "—"
-    except Exception:
-        pass
     return f"{x:0.2f}"
 
 
@@ -70,8 +57,13 @@ def get_engine() -> WavesEngine:
     return WavesEngine(list_path="list.csv", weights_path="wave_weights.csv", logs_root="logs")
 
 
+@st.cache_resource(show_spinner=False)
+def get_sweep_engine(engine: WavesEngine) -> SmartSafeSweepEngine:
+    return SmartSafeSweepEngine(engine)
+
+
 engine = get_engine()
-sweep_engine = SmartSafeSweepEngine(engine)
+sweep_engine = get_sweep_engine(engine)
 
 # ---------------------------------------------------------
 # Cached metric helpers
@@ -121,12 +113,6 @@ mode = st.sidebar.radio(
     }[m],
 )
 
-risk_level = st.sidebar.selectbox(
-    "SmartSafe™ Household Risk Level (for Sweep Engine)",
-    options=["Conservative", "Moderate", "Aggressive"],
-    index=1,
-)
-
 if st.sidebar.button("Force Reload Engine & Data"):
     st.cache_data.clear()
     st.cache_resource.clear()
@@ -141,6 +127,8 @@ rows = []
 for w in waves:
     try:
         m = get_wave_metrics(w, mode)
+        estimated_yield = 0.0425 if "smartsafe" in w.lower() else np.nan
+
         rows.append(
             {
                 "Wave": w,
@@ -164,6 +152,7 @@ for w in waves:
                 "TLH Candidates": m["tlh_candidate_count"],
                 "TLH Weight": m["tlh_candidate_weight"],
                 "UAPV Unit Price": m["uapv_unit_price"],
+                "Estimated Yield": estimated_yield,
             }
         )
     except Exception as e:
@@ -190,23 +179,17 @@ for w in waves:
                 "TLH Candidates": np.nan,
                 "TLH Weight": np.nan,
                 "UAPV Unit Price": np.nan,
+                "Estimated Yield": np.nan,
             }
         )
 
 metrics_df = pd.DataFrame(rows)
 
 # ---------------------------------------------------------
-# Tabs
+# Tabs (SmartSafe 3.0 added)
 # ---------------------------------------------------------
-tab_dashboard, tab_explorer, tab_alpha, tab_sweep, tab_history, tab_about = st.tabs(
-    [
-        "Dashboard",
-        "Wave Explorer",
-        "Alpha Matrix",
-        "SmartSafe™ / Sweep",
-        "History (30-Day)",
-        "About / Diagnostics",
-    ]
+tab_dashboard, tab_explorer, tab_alpha, tab_history, tab_smartsafe, tab_about = st.tabs(
+    ["Dashboard", "Wave Explorer", "Alpha Matrix", "History (30-Day)", "SmartSafe 3.0 (Sweep Engine)", "About / Diagnostics"]
 )
 
 # ---------------------------------------------------------
@@ -217,7 +200,7 @@ with tab_dashboard:
 
     valid = metrics_df.replace([np.inf, -np.inf], np.nan)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         avg_30d_alpha = valid["Alpha 30D"].mean(skipna=True)
         st.metric("Avg 30-Day Alpha", fmt_pct(avg_30d_alpha))
@@ -227,8 +210,6 @@ with tab_dashboard:
     with c3:
         avg_1y_alpha = valid["Alpha 1Y"].mean(skipna=True)
         st.metric("Avg 1-Year Alpha", fmt_pct(avg_1y_alpha))
-    with c4:
-        st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
 
     display_df = metrics_df.copy()
     pct_cols = [
@@ -242,6 +223,7 @@ with tab_dashboard:
         "Return 60D (BM)",
         "Return 1Y (Wave)",
         "Return 1Y (BM)",
+        "Estimated Yield",
     ]
 
     for col in pct_cols:
@@ -277,6 +259,7 @@ with tab_dashboard:
                 "Exposure",
                 "VIX Last",
                 "Regime",
+                "Estimated Yield",
                 "UAPV Unit Price",
             ]
         ],
@@ -358,7 +341,6 @@ with tab_explorer:
             links = []
             for _, row in dyn_holdings.iterrows():
                 ticker = row["ticker"]
-                # Default to NASDAQ suffix; still works for many large caps/ETFs
                 url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
                 links.append(f"[{ticker}]({url})")
 
@@ -415,79 +397,6 @@ with tab_alpha:
     st.dataframe(disp.set_index("Wave"), use_container_width=True)
 
 # ---------------------------------------------------------
-# SMARTSAFE / SWEEP TAB
-# ---------------------------------------------------------
-with tab_sweep:
-    st.subheader("SmartSafe™ Sweep Engine — Household Allocation")
-
-    st.markdown(
-        """
-        This view uses the **SmartSafeSweepEngine** on top of all active Waves to suggest a 
-        household-level allocation between **risk Waves** and the **SmartSafe Wave**, based on:
-        - Selected **Mode** (Standard / Alpha-Minus-Beta / Private Logic™)
-        - Sidebar **Risk Level** (Conservative / Moderate / Aggressive)
-        - Current **volatility regime** inferred from the Wave engine
-
-        SmartSafe™ is modeled as a capital-preservation anchor with an estimated annual yield 
-        of approximately **4.25%**, and risk Waves are blended to optimize risk-adjusted exposure.
-        """
-    )
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric("Selected Mode", mode)
-    with c2:
-        st.metric("Household Risk Level", risk_level)
-
-    st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
-
-    if st.button("Run SmartSafe™ Sweep Allocation"):
-        try:
-            alloc = sweep_engine.recommend_allocation(mode=mode, risk_level=risk_level)
-            eval_result = sweep_engine.evaluate_portfolio(allocations=alloc, mode=mode)
-
-            st.markdown("### Recommended Allocation by Wave")
-            alloc_df = pd.DataFrame(
-                [
-                    {"Wave": w, "Allocation Weight": float(a)}
-                    for w, a in alloc.items()
-                ]
-            ).sort_values("Allocation Weight", ascending=False)
-            alloc_df["Allocation Weight"] = alloc_df["Allocation Weight"].apply(fmt_pct)
-            st.dataframe(alloc_df.set_index("Wave"), use_container_width=True)
-
-            st.markdown("### Blended Portfolio Alpha & Return (Approximate)")
-            if eval_result:
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    st.metric("Blended 30D Alpha", fmt_pct(eval_result.get("alpha_30d_blended")))
-                with m2:
-                    st.metric("Blended 60D Alpha", fmt_pct(eval_result.get("alpha_60d_blended")))
-                with m3:
-                    st.metric("Blended 1Y Alpha", fmt_pct(eval_result.get("alpha_1y_blended")))
-
-                r1, r2, r3 = st.columns(3)
-                with r1:
-                    st.metric(
-                        "Blended 30D Return (Wave)",
-                        fmt_pct(eval_result.get("return_30d_wave_blended")),
-                    )
-                with r2:
-                    st.metric(
-                        "Blended 60D Return (Wave)",
-                        fmt_pct(eval_result.get("return_60d_wave_blended")),
-                    )
-                with r3:
-                    st.metric(
-                        "Blended 1Y Return (Wave)",
-                        fmt_pct(eval_result.get("return_1y_wave_blended")),
-                    )
-            else:
-                st.info("Unable to compute blended portfolio metrics for the current configuration.")
-        except Exception as e:
-            st.error(f"Error running SmartSafe™ Sweep Engine: {e}")
-
-# ---------------------------------------------------------
 # HISTORY TAB
 # ---------------------------------------------------------
 with tab_history:
@@ -509,6 +418,70 @@ with tab_history:
         st.info("No 30-day history available for this Wave yet.")
 
 # ---------------------------------------------------------
+# SMARTSAFE 3.0 — HOUSEHOLD SWEEP ENGINE
+# ---------------------------------------------------------
+with tab_smartsafe:
+    st.subheader("SmartSafe 3.0 — Household Sweep Engine")
+
+    risk_level = st.radio(
+        "Household Risk Level",
+        options=["Conservative", "Moderate", "Aggressive"],
+        index=1,
+        horizontal=True,
+    )
+
+    try:
+        allocations = sweep_engine.recommend_allocation(mode=mode, risk_level=risk_level)
+    except Exception as e:
+        st.error(f"Unable to compute SmartSafe allocation: {e}")
+        allocations = {}
+
+    if allocations:
+        try:
+            blended = sweep_engine.evaluate_portfolio(allocations, mode=mode)
+        except Exception as e:
+            st.error(f"Unable to compute blended portfolio metrics: {e}")
+            blended = {}
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Blended 1Y Alpha", fmt_pct(blended.get("alpha_1y_blended")))
+        with c2:
+            st.metric("Blended 30D Return", fmt_pct(blended.get("return_30d_wave_blended")))
+        with c3:
+            st.metric("Blended 1Y Return", fmt_pct(blended.get("return_1y_wave_blended")))
+
+        st.markdown("### Wave Allocations (Including SmartSafe)")
+        alloc_rows = []
+        for w, a in allocations.items():
+            row = {"Wave": w, "Allocation": a}
+            idx = metrics_df["Wave"] == w
+            if idx.any():
+                row["Alpha 1Y"] = metrics_df.loc[idx, "Alpha 1Y"].values[0]
+                row["Return 1Y (Wave)"] = metrics_df.loc[idx, "Return 1Y (Wave)"].values[0]
+                row["Estimated Yield"] = metrics_df.loc[idx, "Estimated Yield"].values[0]
+            else:
+                row["Alpha 1Y"] = np.nan
+                row["Return 1Y (Wave)"] = np.nan
+                row["Estimated Yield"] = np.nan
+            alloc_rows.append(row)
+
+        alloc_df = pd.DataFrame(alloc_rows)
+        alloc_df["Allocation"] = alloc_df["Allocation"].apply(fmt_pct)
+        alloc_df["Alpha 1Y"] = alloc_df["Alpha 1Y"].apply(fmt_pct)
+        alloc_df["Return 1Y (Wave)"] = alloc_df["Return 1Y (Wave)"].apply(fmt_pct)
+        alloc_df["Estimated Yield"] = alloc_df["Estimated Yield"].apply(fmt_pct)
+
+        st.dataframe(
+            alloc_df.set_index("Wave")[
+                ["Allocation", "Alpha 1Y", "Return 1Y (Wave)", "Estimated Yield"]
+            ],
+            use_container_width=True,
+        )
+    else:
+        st.info("SmartSafe allocation is not available yet. Try a different mode or reload the engine.")
+
+# ---------------------------------------------------------
 # ABOUT / DIAGNOSTICS
 # ---------------------------------------------------------
 with tab_about:
@@ -521,17 +494,14 @@ with tab_about:
         **Benchmarks:** Custom blended ETF & index mappings for each Wave  
         **Alpha:** Wave return − Benchmark return (with VIX-gated exposure and slippage)  
 
-        **SmartSafe™:**  
-        - Modeled as a capital-preservation Wave with an estimated yield of ~4.25%  
-        - Acts as a stable anchor in the SmartSafe™ Sweep Engine  
-        - Designed as the cash-equivalent Wave for multi-Wave household allocations  
-
         - TLH signals show how many holdings are >10% below their 60-day high and how
           much of the Wave's dynamic weight they represent.  
         - Turnover and slippage drag are annualized approximations based on dynamic
           weights and a 5 bps slippage assumption.  
         - UAPV Unit Price is the current Wave value starting from 1.0, suitable as a
           live token/unit price for a UAPV-style ledger.  
+        - SmartSafe 3.0 shows a household-level allocation using SmartSafe Wave as the
+          sweep / cash buffer to smooth volatility and stabilize alpha capture.
         """
     )
 
@@ -553,6 +523,7 @@ with tab_about:
     diag["UAPV Unit Price"] = diag["UAPV Unit Price"].apply(
         lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.4f}"
     )
+    diag["Estimated Yield"] = diag["Estimated Yield"].apply(fmt_pct)
 
     st.markdown("### Engine & Risk Diagnostics")
     st.dataframe(
@@ -567,6 +538,7 @@ with tab_about:
                 "Slippage Drag Annual",
                 "TLH Candidates",
                 "TLH Weight",
+                "Estimated Yield",
                 "UAPV Unit Price",
             ]
         ],
