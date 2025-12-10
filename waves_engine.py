@@ -1131,3 +1131,4 @@ class SmartSafeSweepEngine:
             "return_30d_wave_blended": _blend("return_30d_wave"),
             "return_60d_wave_blended": _blend("return_60d_wave"),
             "return_1y_wave_blended": _blend("return_1y_wave"),
+        }
