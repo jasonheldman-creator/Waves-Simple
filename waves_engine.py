@@ -1,398 +1,532 @@
+# waves_engine.py
 """
-WAVES Intelligence™ – Engine v3
---------------------------------
-Single-file engine used by the Streamlit Institutional Console.
+WAVES Intelligence™ Engine (Safe Mode)
 
-Responsibilities:
-- Load wave_weights.csv
-- Normalize Wave names to the official 10-Wave lineup
-- Fetch prices via yfinance for holdings + benchmarks
-- Compute daily returns and Wave vs. benchmark alpha
-- Expose:
-    - build_engine()  -> WavesEngine
-    - load_metrics()  -> pd.DataFrame for the UI
+- Loads wave_weights.csv
+- Builds 10 Waves (including AI & SmartSafe)
+- Downloads price history via yfinance
+- Computes Wave & Benchmark returns
+- Computes 60D and 1Y alpha
+- Safe Mode: any missing/failed ticker is dropped,
+  the Wave still runs as long as ≥1 ticker has data.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Iterable, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional
 
+import logging
 import datetime as dt
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from pathlib import Path
+
+# ---------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------
+logger = logging.getLogger("waves_engine")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler()
+    fmt = logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s")
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
 
 
-# ---------------------------------------------------------------------------
-# Config – paths
-# ---------------------------------------------------------------------------
-
-ROOT = Path(".")
-WEIGHTS_CSV = ROOT / "wave_weights.csv"
-
-LOGS_DIR = ROOT / "logs"
-PERF_DIR = LOGS_DIR / "performance"
-PERF_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# ---------------------------------------------------------------------------
-# Official 10-Wave lineup + normalization
-# ---------------------------------------------------------------------------
-
-STANDARD_WAVES = {
-    "S&P Wave": "S&P Wave",
-    "Growth Wave": "Growth Wave",
-    "Small-Mid Cap Growth Wave": "Small-Mid Cap Growth Wave",
-    "Clean Transit-Infrastructure Wave": "Clean Transit-Infrastructure Wave",
-    "Cloud & Enterprise Software Growth Wave": "Cloud & Enterprise Software Growth Wave",
-    "Crypto Equity Wave (mid/large cap)": "Crypto Equity Wave (mid/large cap)",
-    "Income Wave": "Income Wave",
-    "Quantum Computing Wave": "Quantum Computing Wave",
-    "AI Wave": "AI Wave",
-    "SmartSafe Wave": "SmartSafe Wave",
-}
-
-
-def normalize_wave_name(name: str) -> str:
-    """Normalize raw wave name from CSV to the official 10-Wave label."""
-    raw = name.strip()
-    for key in STANDARD_WAVES:
-        if raw.lower() == key.lower():
-            return STANDARD_WAVES[key]
-    raise RuntimeError(f"Unknown wave name in CSV: '{name}'")
-
-
-# ---------------------------------------------------------------------------
-# Benchmarks – ETF blends per Wave (weights sum to 1.0)
-# NOTE: only using tickers that exist in yfinance.
-# ---------------------------------------------------------------------------
-
-WAVE_BENCHMARKS: Dict[str, Dict[str, float]] = {
-    # Broad market
-    "S&P Wave": {"SPY": 1.0},
-
-    # Large-cap growth (megacap tech tilt)
-    # User preference: QQQ + IWF blend
-    "Growth Wave": {"QQQ": 0.6, "IWF": 0.4},
-
-    # Small / mid-cap growth – Russell 2000 growth proxies
-    "Small-Mid Cap Growth Wave": {"VTWG": 0.5, "SLYG": 0.5},
-
-    # Clean transit / infra – Industrials + Consumer Discretionary + SPY
-    "Clean Transit-Infrastructure Wave": {"FIDU": 0.45, "FDIS": 0.45, "SPY": 0.10},
-
-    # Cloud / Enterprise software – IGV + WCLD + SPY
-    "Cloud & Enterprise Software Growth Wave": {"IGV": 0.6, "WCLD": 0.2, "SPY": 0.2},
-
-    # Crypto Equity (mid / large cap) – 70% spot BTC proxy, 30% digital assets equity
-    "Crypto Equity Wave (mid/large cap)": {"FBTC": 0.7, "DAPP": 0.3},
-
-    # Dividend / quality income
-    "Income Wave": {"SCHD": 1.0},
-
-    # Quantum computing – tech growth proxies
-    "Quantum Computing Wave": {"IYW": 0.7, "QQQ": 0.3},
-
-    # AI Wave – diversified AI / software growth blend
-    "AI Wave": {"IGV": 0.5, "VGT": 0.25, "QQQ": 0.15, "SPY": 0.10},
-
-    # SmartSafe – ultra-short ladder (matches your SGOV/BIL/SHY holdings)
-    "SmartSafe Wave": {"SGOV": 0.7, "BIL": 0.2, "SHY": 0.1},
-}
-
-
-# ---------------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------------
-
+# ---------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------
 @dataclass
 class WaveMetrics:
     wave: str
-    start_date: dt.date
-    end_date: dt.date
-
-    # Return metrics
     ret_60d: float
-    ret_1y: float
-    ret_intraday: float
-
-    # Benchmark metrics
-    bench_ret_60d: float
-    bench_ret_1y: float
-    bench_ret_intraday: float
-
-    # Alpha metrics
     alpha_60d: float
+    ret_1y: float
     alpha_1y: float
-    alpha_intraday: float
-
-    # Diagnostics
-    n_holdings: int
-    n_days: int
+    n_holdings_used: int
+    n_holdings_defined: int
+    warnings: List[str]
 
 
-# ---------------------------------------------------------------------------
-# Core engine
-# ---------------------------------------------------------------------------
-
+# ---------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------
 class WavesEngine:
-    def __init__(
-        self,
-        weights_df: pd.DataFrame,
-        price_start: dt.date,
-        price_end: dt.date,
-    ):
+    """
+    Core engine responsible for:
+    - loading weights
+    - downloading prices
+    - computing Wave & benchmark returns
+    - returning metrics in a pandas DataFrame
+    """
+
+    def __init__(self, base_dir: Optional[Path] = None):
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).parent
+        self.weights_path = self.base_dir / "wave_weights.csv"
+
+        if not self.weights_path.exists():
+            raise FileNotFoundError(f"wave_weights.csv not found at {self.weights_path}")
+
+        self.wave_weights = self._load_wave_weights()
+
+        # Pre-compute universe of all tickers we need
+        self.all_tickers = sorted(self.wave_weights["ticker"].unique())
+
+        # Benchmark blends per Wave: {wave: {ticker: weight}}
+        # Weights must sum to 1.
+        self.benchmarks: Dict[str, Dict[str, float]] = self._build_benchmark_map()
+
+        # Price history cache
+        self.price_history: Optional[pd.DataFrame] = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def compute_all_metrics(self) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
         """
-        weights_df: columns [wave, ticker, weight] with normalized wave names
+        Returns:
+            metrics_df: DataFrame with one row per Wave.
+            warnings:   dict[wave -> list of warning strings]
         """
-        self.weights_df = weights_df.copy()
-        self.price_start = price_start
-        self.price_end = price_end
+        logger.info("Computing all Wave metrics (Safe Mode)...")
 
-        # Build wave -> {ticker: weight}
-        self.wave_to_weights: Dict[str, Dict[str, float]] = (
-            self._build_wave_weight_map(self.weights_df)
-        )
+        self.price_history = self._download_price_history(self.all_tickers)
 
-        # Universe of tickers to download (holdings + all benchmarks)
-        universe = set(self.weights_df["ticker"].unique())
+        metrics: List[WaveMetrics] = []
+        warnings: Dict[str, List[str]] = {}
 
-        for wave, bm in WAVE_BENCHMARKS.items():
-            for tkr in bm.keys():
-                universe.add(tkr)
+        for wave_name in sorted(self.wave_weights["wave"].unique()):
+            wave_warn: List[str] = []
+            try:
+                wm = self._compute_metrics_for_wave(wave_name, wave_warn)
+                if wm is not None:
+                    metrics.append(wm)
+            except Exception as exc:  # Safe mode: never kill entire engine
+                msg = f"Wave '{wave_name}' failed entirely: {exc}"
+                logger.exception(msg)
+                wave_warn.append(msg)
 
-        self.universe: List[str] = sorted(universe)
+            if wave_warn:
+                warnings[wave_name] = wave_warn
 
-        # Lazy-loaded price frame (Adj Close)
-        self._price_df: pd.DataFrame | None = None
-        self._ret_df: pd.DataFrame | None = None
-
-    # ---------------------- utility builders ---------------------- #
-
-    @staticmethod
-    def _build_wave_weight_map(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
-        result: Dict[str, Dict[str, float]] = {}
-        for wave, grp in df.groupby("wave"):
-            tickers = grp["ticker"].tolist()
-            weights = grp["weight"].astype(float).tolist()
-            w = np.array(weights, dtype=float)
-            if w.sum() <= 0:
-                raise RuntimeError(f"Wave '{wave}' has non-positive total weight.")
-            w = w / w.sum()
-            result[wave] = {tkr: float(wi) for tkr, wi in zip(tickers, w)}
-        return result
-
-    # ---------------------- price loading ---------------------- #
-
-    def _load_prices(self) -> pd.DataFrame:
-        """Download adjusted close prices for the full universe."""
-        if self._price_df is not None:
-            return self._price_df
-
-        data = yf.download(
-            tickers=self.universe,
-            start=self.price_start,
-            end=self.price_end + dt.timedelta(days=1),
-            progress=False,
-            auto_adjust=True,
-            group_by="ticker",
-        )
-
-        # yfinance returns a different shape depending on ticker count
-        if isinstance(data.columns, pd.MultiIndex):
-            # Extract only "Adj Close"
-            close_frames = []
-            for tkr in self.universe:
-                if (tkr, "Adj Close") in data.columns:
-                    s = data[(tkr, "Adj Close")].rename(tkr)
-                    close_frames.append(s)
-            if not close_frames:
-                raise RuntimeError("No price data found for any tickers in universe.")
-            prices = pd.concat(close_frames, axis=1)
-        else:
-            # Single ticker
-            prices = data.rename(columns={"Adj Close": self.universe[0]})
-
-        prices = prices.dropna(how="all")
-        if prices.empty:
-            raise RuntimeError("Price DataFrame is empty after dropping NaNs.")
-
-        self._price_df = prices
-        return prices
-
-    def _load_returns(self) -> pd.DataFrame:
-        if self._ret_df is not None:
-            return self._ret_df
-        prices = self._load_prices()
-        rets = prices.pct_change().dropna(how="all")
-        self._ret_df = rets
-        return rets
-
-    # ---------------------- helpers ---------------------- #
-
-    def _weighted_series(
-        self, weights: Dict[str, float], ret_df: pd.DataFrame
-    ) -> pd.Series:
-        """Return a weighted return series given ticker weights."""
-        cols = [t for t in weights.keys() if t in ret_df.columns]
-        if not cols:
-            raise RuntimeError(
-                f"No price data found for tickers: {list(weights.keys())}"
+        if not metrics:
+            logger.warning("No Wave produced metrics – check benchmark/ticker configuration.")
+            metrics_df = pd.DataFrame(
+                columns=[
+                    "Wave",
+                    "Return 60D",
+                    "Alpha 60D",
+                    "Return 1Y",
+                    "Alpha 1Y",
+                    "# Holdings Used",
+                    "# Holdings Defined",
+                ]
             )
-        w = np.array([weights[t] for t in cols], dtype=float)
-        w = w / w.sum()
-        sub = ret_df[cols]
-        series = (sub * w).sum(axis=1)
-        return series
+            return metrics_df, warnings
 
-    def _window_return(self, series: pd.Series, days: int) -> float:
-        if series.empty:
-            return np.nan
-        if days <= 0:
-            return np.nan
-        tail = series.tail(days)
-        if tail.empty:
-            return np.nan
-        cum = (1 + tail).prod() - 1
-        return float(cum)
+        metrics_df = pd.DataFrame(
+            [
+                {
+                    "Wave": m.wave,
+                    "Return 60D": m.ret_60d,
+                    "Alpha 60D": m.alpha_60d,
+                    "Return 1Y": m.ret_1y,
+                    "Alpha 1Y": m.alpha_1y,
+                    "# Holdings Used": m.n_holdings_used,
+                    "# Holdings Defined": m.n_holdings_defined,
+                }
+                from waves_engine import WavesEngine, WaveMetrics
 
-    # ---------------------- core metric computation ---------------------- #
+                compute_all_metrics(): Tuple[pd.DataFrame, Dict[str, List[str]]]
+                """
+                Returns:
+                    metrics_df: DataFrame with one row per Wave.
+                    warnings:   dict[wave -> list of warning strings]
+                """
+                logger.info("Computing all Wave metrics (Safe Mode)...")
 
-    def compute_wave_metrics(self, wave: str) -> WaveMetrics:
-        if wave not in self.wave_to_weights:
-            raise RuntimeError(f"Wave '{wave}' not found in weights map.")
+                self.price_history = self._download_price_history(self.all_tickers)
 
-        rets = self._load_returns()
+                metrics: List[WaveMetrics] = []
+                warnings: Dict[str, List[str]] = {}
 
-        # holdings series
-        wave_weights = self.wave_to_weights[wave]
-        wave_series = self._weighted_series(wave_weights, rets)
+                for wave_name in sorted(self.wave_weights["wave"].unique()):
+                    wave_warn: List[str] = []
+                    try:
+                        wm = self._compute_metrics_for_wave(wave_name, wave_warn)
+                        if wm is not None:
+                            metrics.append(wm)
+                    except Exception as exc:  # Safe mode: never kill entire engine
+                        msg = f"Wave '{wave_name}' failed entirely: {exc}"
+                        logger.exception(msg)
+                        wave_warn.append(msg)
 
-        # benchmark series
-        bm_cfg = WAVE_BENCHMARKS.get(wave)
-        if bm_cfg is None:
-            raise RuntimeError(f"No benchmark configured for wave '{wave}'.")
-        bench_series = self._weighted_series(bm_cfg, rets)
+                    if wave_warn:
+                        warnings[wave_name] = wave_warn
 
-        # Align indexes
-        wave_series, bench_series = wave_series.align(bench_series, join="inner")
-        if wave_series.empty:
-            raise RuntimeError(f"Empty aligned series for wave '{wave}'.")
+                if not metrics:
+                    logger.warning("No Wave produced metrics – check benchmark/ticker configuration.")
+                    metrics_df = pd.DataFrame(
+                        columns=[
+                            "Wave",
+                            "Return 60D",
+                            "Alpha 60D",
+                            "Return 1Y",
+                            "Alpha 1Y",
+                            "# Holdings Used",
+                            "# Holdings Defined",
+                        ]
+                    )
+                    return metrics_df, warnings
 
-        n_days = len(wave_series)
-        start_date = wave_series.index[0].date()
-        end_date = wave_series.index[-1].date()
+                metrics_df = pd.DataFrame(
+                    [
+                        {
+                            "Wave": m.wave,
+                            "Return 60D": m.ret_60d,
+                            "Alpha 60D": m.alpha_60d,
+                            "Return 1Y": m.ret_1y,
+                            "Alpha 1Y": m.alpha_1y,
+                            "# Holdings Used": m.n_holdings_used,
+                            "# Holdings Defined": m.n_holdings_defined,
+                        }
+                        for m in metrics
+                    ]
+                )
 
-        # Intraday = 1 trading day
-        ret_intraday = self._window_return(wave_series, 1)
-        bench_intraday = self._window_return(bench_series, 1)
-        alpha_intraday = ret_intraday - bench_intraday
+                metrics_df = metrics_df.sort_values("Wave").reset_index(drop=True)
+                logger.info("Finished computing Wave metrics.")
+                return metrics_df, warnings
 
-        # 60D
-        ret_60d = self._window_return(wave_series, 60)
-        bench_60d = self._window_return(bench_series, 60)
-        alpha_60d = ret_60d - bench_60d
+        # ------------------------------------------------------------------
+        # Internal helpers
+        # ------------------------------------------------------------------
+        def _load_wave_weights(self) -> pd.DataFrame:
+            df = pd.read_csv(self.weights_path)
 
-        # 1Y (252 trading days)
-        ret_1y = self._window_return(wave_series, 252)
-        bench_1y = self._window_return(bench_series, 252)
-        alpha_1y = ret_1y - bench_1y
+            required_cols = {"wave", "ticker", "weight"}
+            missing = required_cols - set(df.columns)
+            if missing:
+                raise ValueError(f"wave_weights.csv missing columns: {missing}")
 
-        return WaveMetrics(
-            wave=wave,
-            start_date=start_date,
-            end_date=end_date,
-            ret_60d=ret_60d,
-            ret_1y=ret_1y,
-            ret_intraday=ret_intraday,
-            bench_ret_60d=bench_60d,
-            bench_ret_1y=bench_1y,
-            bench_ret_intraday=bench_intraday,
-            alpha_60d=alpha_60d,
-            alpha_1y=alpha_1y,
-            alpha_intraday=alpha_intraday,
-            n_holdings=len(wave_weights),
-            n_days=n_days,
-        )
+            df["wave"] = df["wave"].astype(str).str.strip()
+            df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+            df["weight"] = df["weight"].astype(float)
 
-    def compute_all_metrics(self) -> Dict[str, WaveMetrics]:
-        results: Dict[str, WaveMetrics] = {}
-        for wave in sorted(self.wave_to_weights.keys()):
-            metrics = self.compute_wave_metrics(wave)
-            results[wave] = metrics
-        return results
+            # Drop rows with zero weight, just in case
+            df = df[df["weight"] > 0].copy()
 
+            return df
 
-# ---------------------------------------------------------------------------
-# Engine builder + public helpers for Streamlit
-# ---------------------------------------------------------------------------
+        def _download_price_history(self, tickers: List[str]) -> pd.DataFrame:
+            logger.info("Downloading price history for %d tickers...", len(tickers))
+            if not tickers:
+                raise ValueError("No tickers provided to download_price_history")
 
-def _load_weights_csv() -> pd.DataFrame:
-    if not WEIGHTS_CSV.exists():
-        raise RuntimeError(f"weights file not found at {WEIGHTS_CSV}")
+            unique = sorted(set(tickers))
 
-    df = pd.read_csv(WEIGHTS_CSV)
+            data = yf.download(
+                unique,
+                period="5y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
 
-    required_cols = {"wave", "ticker", "weight"}
-    if not required_cols.issubset(df.columns):
-        raise RuntimeError(
-            f"wave_weights.csv must contain columns {required_cols}, "
-            f"found {list(df.columns)}"
-        )
+            # Handle single vs multi-ticker shapes
+            if isinstance(data, pd.Series):
+                prices = data.to_frame(name=unique[0])
+            else:
+                if isinstance(data.columns, pd.MultiIndex):
+                    # Use 'Adj Close' if present; otherwise 'Close'
+                    level_1 = set(data.columns.get_level_values(0))
+                    if "Adj Close" in level_1:
+                        prices = data["Adj Close"].copy()
+                    elif "Close" in level_1:
+                        prices = data["Close"].copy()
+                    else:
+                        prices = data.copy()
+                else:
+                    prices = data.copy()
 
-    # Normalize names
-    df["wave"] = df["wave"].apply(normalize_wave_name)
+            prices = prices.sort_index()
+            prices = prices.ffill().bfill()
 
-    # Strip ticker whitespace
-    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+            logger.info("Price history shape: %s", prices.shape)
+            return prices
 
-    return df
+        def _build_benchmark_map(self) -> Dict[str, Dict[str, float]]:
+            """
+            Benchmark blends per Wave.
 
+            These are based on the Google AI recommendations you provided.
+            Adjust here if you ever want to change benchmark construction.
+            """
+            benchmarks: Dict[str, Dict[str, float]] = {
+                # S&P Wave: pure S&P 500 exposure
+                "S&P Wave": {"SPY": 1.0},
 
-def build_engine() -> WavesEngine:
-    """Create a WavesEngine with a reasonable price window."""
-    today = dt.date.today()
-    start = today - dt.timedelta(days=365 * 3)  # 3y window for now
+                # Core large-cap growth
+                "Growth Wave": {
+                    "QQQ": 0.40,
+                    "IWF": 0.60,  # Russell 1000 Growth
+                },
 
-    weights_df = _load_weights_csv()
-    engine = WavesEngine(weights_df=weights_df, price_start=start, price_end=today)
-    return engine
+                # Small-Mid Cap Growth
+                "Small-Mid Cap Growth Wave": {
+                    "CSMD": 0.50,   # or IVOG/MDYG equivalent
+                    "IWO": 0.30,    # small-cap growth tilt (fallback)
+                    "SPY": 0.20,
+                },
 
+                # Clean Transit-Infrastructure Wave
+                # Industrials + Consumer Discretionary + broad market
+                "Clean Transit-Infrastructure Wave": {
+                    "FIDU": 0.45,
+                    "FDIS": 0.45,
+                    "SPY": 0.10,
+                },
 
-def load_metrics() -> pd.DataFrame:
-    """
-    Public entry for Streamlit.
+                # Cloud & Enterprise Software Growth Wave
+                "Cloud & Enterprise Software Growth Wave": {
+                    "IGV": 0.60,
+                    "WCLD": 0.20,  # CLOU also acceptable
+                    "SPY": 0.20,
+                },
 
-    Returns a DataFrame with:
-        Wave | 60D | Alpha 1Y | Ret 60D | Ret 1Y | Intraday | Alpha Intraday | ...
-    UI can pick/format whichever columns it wants.
-    """
-    engine = build_engine()
-    metrics_dict = engine.compute_all_metrics()
+                # Crypto Equity Wave (mid/large cap)
+                "Crypto Equity Wave (mid/large cap)": {
+                    "FBTC": 0.70,  # or IBIT
+                    "DAPP": 0.30,
+                },
 
-    rows: List[Dict] = []
-    for m in metrics_dict.values():
-        d = asdict(m)
-        rows.append(d)
+                # Income Wave
+                "Income Wave": {
+                    "SCHD": 0.70,
+                    "SPY": 0.30,
+                },
 
-    df = pd.DataFrame(rows)
+                # Quantum Computing Wave – specialist index preferred; use QQQ fallback
+                "Quantum Computing Wave": {
+                    "QQQ": 0.60,
+                    "IYW": 0.20,
+                    "SPY": 0.20,
+                },
 
-    # Human-friendly columns used by the dashboard table
-    df["60D"] = df["alpha_60d"]     # main alpha column
-    df["Alpha 1Y"] = df["alpha_1y"]
+                # AI Wave – diversified software & cloud benchmarks
+                "AI Wave": {
+                    "IGV": 0.50,
+                    "VGT": 0.25,
+                    "QQQ": 0.15,
+                    "SPY": 0.10,
+                },
 
-    # Sort in a stable, nice order
-    df = df.sort_values("wave").reset_index(drop=True)
+                # SmartSafe Wave – ultra-short government & T-bill ladder
+                "SmartSafe Wave": {
+                    "SGOV": 0.70,
+                    "BIL": 0.20,
+                    "SHY": 0.10,
+                },
+            }
 
-    # Optional: write daily snapshot log
-    snap_path = PERF_DIR / f"wave_metrics_snapshot_{dt.date.today().isoformat()}.csv"
-    try:
-        df.to_csv(snap_path, index=False)
-    except Exception:
-        # Logging failure should never break the app
-        pass
+            # Normalize just in case any rounding makes them slightly off
+            normed: Dict[str, Dict[str, float]] = {}
+            for wave, comp in benchmarks.items():
+                total = float(sum(comp.values()))
+                if total <= 0:
+                    continue
+                normed[wave] = {t: w / total for t, w in comp.items()}
 
-    return df
+            return normed
+
+        def _compute_metrics_for_wave(
+            self, wave_name: str, warnings: List[str]
+        ) -> Optional[WaveMetrics]:
+            """
+            Compute metrics for a single Wave in Safe Mode.
+            Returns None if absolutely nothing can be computed.
+            """
+            if self.price_history is None:
+                raise RuntimeError("Price history has not been downloaded yet.")
+
+            # Slice weights for this wave
+            wdf = self.wave_weights[self.wave_weights["wave"] == wave_name].copy()
+            if wdf.empty:
+                warnings.append(f"No weights found for Wave '{wave_name}'.")
+                return None
+
+            defined_tickers = wdf["ticker"].tolist()
+            weights = wdf["weight"].values.astype(float)
+
+            # Restrict to tickers that actually have price data
+            available_cols = [t for t in defined_tickers if t in self.price_history.columns]
+
+            if not available_cols:
+                warnings.append(
+                    f"No price data available for any tickers in Wave '{wave_name}'. "
+                    f"Defined tickers: {defined_tickers}"
+                )
+                return None
+
+            missing = sorted(set(defined_tickers) - set(available_cols))
+            if missing:
+                warnings.append(
+                    f"Dropping {len(missing)} tickers with no price data in Wave "
+                    f"'{wave_name}': {missing}"
+                )
+
+            # Align weights to available tickers
+            mask = [t in available_cols for t in defined_tickers]
+            used_weights = weights[mask].astype(float)
+            used_tickers = [t for t in defined_tickers if t in available_cols]
+
+            if used_weights.sum() <= 0:
+                warnings.append(
+                    f"Non-positive total weight after filtering for Wave '{wave_name}'."
+                )
+                return None
+
+            used_weights = used_weights / used_weights.sum()
+
+            # --- Wave returns ---
+            price_slice = self.price_history[used_tickers]
+            ret_slice = price_slice.pct_change().dropna(how="all")
+            # rows that are fully NaN -> drop
+            ret_slice = ret_slice.dropna(axis=0, how="any")
+
+            if ret_slice.empty:
+                warnings.append(f"No return data after pct_change for Wave '{wave_name}'.")
+                return None
+
+            wave_ret = (ret_slice * used_weights).sum(axis=1)
+
+            # --- Benchmark returns ---
+            bench_comp = self.benchmarks.get(wave_name)
+            if not bench_comp:
+                # Fallback: use SPY if available, otherwise Wave vs itself (alpha=0)
+                if "SPY" in self.price_history.columns:
+                    bench_comp = {"SPY": 1.0}
+                    warnings.append(
+                        f"No explicit benchmark blend defined for '{wave_name}'. "
+                        f"Using SPY as fallback."
+                    )
+                else:
+                    warnings.append(
+                        f"No benchmark blend or SPY price for '{wave_name}'. "
+                        f"Alpha will be zero (self-benchmark)."
+                    )
+                    bench_ret = wave_ret.copy()
+                    return self._build_wave_metrics(
+                        wave_name,
+                        wave_ret,
+                        bench_ret,
+                        len(used_tickers),
+                        len(defined_tickers),
+                        warnings,
+                    )
+
+            bench_tickers = list(bench_comp.keys())
+            bench_weights = np.array(list(bench_comp.values()), dtype=float)
+
+            bench_available = [t for t in bench_tickers if t in self.price_history.columns]
+            if not bench_available:
+                warnings.append(
+                    f"No benchmark tickers available with price data for '{wave_name}'. "
+                    f"Using Wave itself as benchmark (alpha=0)."
+                )
+                bench_ret = wave_ret.copy()
+            else:
+                missing_bench = sorted(set(bench_tickers) - set(bench_available))
+                if missing_bench:
+                    warnings.append(
+                        f"Dropping benchmark tickers with no data for '{wave_name}': "
+                        f"{missing_bench}"
+                    )
+
+                mask_b = [t in bench_available for t in bench_tickers]
+                bench_weights_used = bench_weights[mask_b]
+                if bench_weights_used.sum() <= 0:
+                    warnings.append(
+                        f"Benchmark weights collapsed for '{wave_name}'. "
+                        f"Using equal weights for available benchmark tickers."
+                    )
+                    bench_weights_used = np.ones(len(bench_available), dtype=float)
+
+                bench_weights_used = bench_weights_used / bench_weights_used.sum()
+
+                bench_prices = self.price_history[bench_available]
+                bench_rets_raw = bench_prices.pct_change().dropna(how="any", axis=0)
+                if bench_rets_raw.empty:
+                    warnings.append(
+                        f"No benchmark return data after pct_change for '{wave_name}'. "
+                        f"Using Wave itself as benchmark."
+                    )
+                    bench_ret = wave_ret.copy()
+                else:
+                    bench_ret = (bench_rets_raw * bench_weights_used).sum(axis=1)
+
+            # Align index
+            both = pd.concat(
+                [wave_ret.rename("wave"), bench_ret.rename("bench")],
+                axis=1,
+                join="inner",
+            ).dropna()
+
+            if both.empty:
+                warnings.append(
+                    f"No overlapping dates between Wave and benchmark for '{wave_name}'."
+                )
+                return None
+
+            wave_ret = both["wave"]
+            bench_ret = both["bench"]
+
+            return self._build_wave_metrics(
+                wave_name,
+                wave_ret,
+                bench_ret,
+                len(used_tickers),
+                len(defined_tickers),
+                warnings,
+            )
+
+        # ------------------------------------------------------------------
+        def _build_wave_metrics(
+            self,
+            wave_name: str,
+            wave_ret: pd.Series,
+            bench_ret: pd.Series,
+            n_used: int,
+            n_defined: int,
+            warnings: List[str],
+        ) -> WaveMetrics:
+            def window_total(series: pd.Series, days: int) -> float:
+                if series.empty:
+                    return np.nan
+                if len(series) <= days:
+                    window = series
+                else:
+                    window = series.iloc[-days:]
+                return float((1.0 + window).prod() - 1.0)
+
+            ret_60 = window_total(wave_ret, 60)
+            bench_60 = window_total(bench_ret, 60)
+            ret_1y = window_total(wave_ret, 252)
+            bench_1y = window_total(bench_ret, 252)
+
+            alpha_60 = ret_60 - bench_60 if not np.isnan(ret_60) and not np.isnan(bench_60) else np.nan
+            alpha_1y = ret_1y - bench_1y if not np.isnan(ret_1y) and not np.isnan(bench_1y) else np.nan
+
+            return WaveMetrics(
+                wave=wave_name,
+                ret_60d=ret_60,
+                alpha_60d=alpha_60,
+                ret_1y=ret_1y,
+                alpha_1y=alpha_1y,
+                n_holdings_used=n_used,
+                n_holdings_defined=n_defined,
+                warnings=list(warnings),
+            )
