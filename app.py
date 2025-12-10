@@ -24,15 +24,54 @@ st.markdown(
 )
 st.caption(
     "Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • "
-    "SmartSafe™ Sweep • Benchmark-Relative Performance"
+    "SmartSafe™ 3.0 Sweep • Benchmark-Relative Performance"
 )
+
+# ---------------------------------------------------------
+# SmartSafe 3.0 yield table (by vol regime & flavor)
+# ---------------------------------------------------------
+SMARTSAFE_YIELD_TABLE = {
+    "calm": {
+        "core": 0.0425,      # 4.25%
+        "enhanced": 0.0475,  # 4.75%
+        "tax_free": 0.0350,  # 3.50% tax-free (approx TEY)
+    },
+    "normal": {
+        "core": 0.0425,
+        "enhanced": 0.0450,
+        "tax_free": 0.0325,
+    },
+    "elevated": {
+        "core": 0.0410,
+        "enhanced": 0.0425,
+        "tax_free": 0.0310,
+    },
+    "extreme": {
+        "core": 0.0400,
+        "enhanced": 0.0400,
+        "tax_free": 0.0300,
+    },
+    "unknown": {
+        "core": 0.0425,
+        "enhanced": 0.0450,
+        "tax_free": 0.0325,
+    },
+}
+
+
+def get_smartsafe_yield(regime: str, flavor_key: str) -> float:
+    reg = (regime or "unknown").lower()
+    if reg not in SMARTSAFE_YIELD_TABLE:
+        reg = "unknown"
+    flavor_key = flavor_key.lower()
+    if flavor_key not in SMARTSAFE_YIELD_TABLE[reg]:
+        flavor_key = "core"
+    return SMARTSAFE_YIELD_TABLE[reg][flavor_key]
+
 
 # ---------------------------------------------------------
 # Helper formatting
 # ---------------------------------------------------------
-SMARTSAFE_EST_YIELD = 0.0425  # 4.25% estimated annual yield
-
-
 def fmt_pct(x):
     if x is None:
         return "—"
@@ -196,6 +235,29 @@ for w in waves:
 metrics_df = pd.DataFrame(rows)
 
 # ---------------------------------------------------------
+# Derive a proxy vol regime & VIX for SmartSafe (e.g., from S&P Wave)
+# ---------------------------------------------------------
+proxy_regime = "unknown"
+proxy_vix = np.nan
+
+try:
+    proxy_wave = None
+    if "S&P 500 Wave" in metrics_df["Wave"].values:
+        proxy_wave = "S&P 500 Wave"
+    elif "S&P Wave" in metrics_df["Wave"].values:
+        proxy_wave = "S&P Wave"
+    elif len(metrics_df) > 0:
+        proxy_wave = metrics_df["Wave"].iloc[0]
+
+    if proxy_wave is not None:
+        row = metrics_df[metrics_df["Wave"] == proxy_wave].iloc[0]
+        proxy_regime = str(row.get("Regime", "unknown")).lower()
+        proxy_vix = row.get("VIX Last", np.nan)
+except Exception:
+    proxy_regime = "unknown"
+    proxy_vix = np.nan
+
+# ---------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------
 tab_dashboard, tab_explorer, tab_alpha, tab_sweep, tab_history, tab_about = st.tabs(
@@ -203,7 +265,7 @@ tab_dashboard, tab_explorer, tab_alpha, tab_sweep, tab_history, tab_about = st.t
         "Dashboard",
         "Wave Explorer",
         "Alpha Matrix",
-        "SmartSafe™ / Sweep",
+        "SmartSafe™ 3.0 / Sweep",
         "History (30-Day)",
         "About / Diagnostics",
     ]
@@ -228,7 +290,9 @@ with tab_dashboard:
         avg_1y_alpha = valid["Alpha 1Y"].mean(skipna=True)
         st.metric("Avg 1-Year Alpha", fmt_pct(avg_1y_alpha))
     with c4:
-        st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
+        # Core SmartSafe yield in NORMAL regime as a simple dashboard anchor
+        core_normal_yield = SMARTSAFE_YIELD_TABLE["normal"]["core"]
+        st.metric("SmartSafe™ Core Anchor (Normal Regime)", fmt_pct(core_normal_yield))
 
     display_df = metrics_df.copy()
     pct_cols = [
@@ -332,7 +396,7 @@ with tab_explorer:
         with b2:
             st.metric(
                 "Current Exposure",
-                "—" if m["exposure_final"] is None else f"{m['exposure_final']:0.2f}",
+                "—" if m["exposure_final"] is None else f"{m['exposure_final"]:0.2f}",
             )
         with b3:
             vix_val = m.get("vix_last", None)
@@ -358,7 +422,6 @@ with tab_explorer:
             links = []
             for _, row in dyn_holdings.iterrows():
                 ticker = row["ticker"]
-                # Default to NASDAQ suffix; still works for many large caps/ETFs
                 url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
                 links.append(f"[{ticker}]({url})")
 
@@ -415,38 +478,93 @@ with tab_alpha:
     st.dataframe(disp.set_index("Wave"), use_container_width=True)
 
 # ---------------------------------------------------------
-# SMARTSAFE / SWEEP TAB
+# SMARTSAFE 3.0 / SWEEP TAB
 # ---------------------------------------------------------
 with tab_sweep:
-    st.subheader("SmartSafe™ Sweep Engine — Household Allocation")
+    st.subheader("SmartSafe™ 3.0 — Core / Enhanced / Tax-Free + Sweep Engine")
 
     st.markdown(
         """
-        This view uses the **SmartSafeSweepEngine** on top of all active Waves to suggest a 
-        household-level allocation between **risk Waves** and the **SmartSafe Wave**, based on:
-        - Selected **Mode** (Standard / Alpha-Minus-Beta / Private Logic™)
-        - Sidebar **Risk Level** (Conservative / Moderate / Aggressive)
-        - Current **volatility regime** inferred from the Wave engine
+        SmartSafe™ 3.0 is modeled as a **family of capital-preservation Waves** with 
+        three flavors:
 
-        SmartSafe™ is modeled as a capital-preservation anchor with an estimated annual yield 
-        of approximately **4.25%**, and risk Waves are blended to optimize risk-adjusted exposure.
+        - **Core:** T-bill / cash-plus profile, ~4.25% in normal regimes  
+        - **Enhanced:** Slightly higher yield when volatility is calm/normal  
+        - **Tax-Free:** Tax-aware version (muni-like), shown as tax-equivalent yield  
+
+        The SmartSafe™ Sweep Engine allocates between **risk Waves** and **SmartSafe** 
+        based on:
+
+        - Selected **Mode** (Standard / Alpha-Minus-Beta / Private Logic™)  
+        - Sidebar **Risk Level** (Conservative / Moderate / Aggressive)  
+        - Current **volatility regime** derived from the Wave engine  
         """
     )
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric("Selected Mode", mode)
     with c2:
         st.metric("Household Risk Level", risk_level)
+    with c3:
+        if proxy_vix is None or (isinstance(proxy_vix, float) and np.isnan(proxy_vix)):
+            st.metric("Proxy VIX / Regime", "—")
+        else:
+            st.metric("Proxy VIX / Regime", f"{proxy_vix:0.2f} ({proxy_regime})")
 
-    st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
+    # SmartSafe flavor selector
+    flavor_label = st.radio(
+        "SmartSafe™ Flavor",
+        options=["Core", "Enhanced", "Tax-Free"],
+        index=0,
+        horizontal=True,
+    )
+    flavor_key = {
+        "Core": "core",
+        "Enhanced": "enhanced",
+        "Tax-Free": "tax_free",
+    }[flavor_label]
 
-    if st.button("Run SmartSafe™ Sweep Allocation"):
+    effective_yield = get_smartsafe_yield(proxy_regime, flavor_key)
+
+    st.metric(
+        "Effective SmartSafe™ Yield (Current Regime)",
+        fmt_pct(effective_yield),
+    )
+
+    # Regime-aware yield table
+    st.markdown("### Regime-Aware SmartSafe™ Yield Table")
+    table_rows = []
+    for reg, vals in SMARTSAFE_YIELD_TABLE.items():
+        if reg == "unknown":
+            continue
+        table_rows.append(
+            {
+                "Regime": reg.capitalize(),
+                "Core": fmt_pct(vals["core"]),
+                "Enhanced": fmt_pct(vals["enhanced"]),
+                "Tax-Free (TEY)": fmt_pct(vals["tax_free"]),
+            }
+        )
+    yield_df = pd.DataFrame(table_rows)
+    # Highlight current regime row conceptually by reordering
+    if proxy_regime in ["calm", "normal", "elevated", "extreme"]:
+        yield_df["__order"] = yield_df["Regime"].str.lower().apply(
+            lambda r: 0 if r == proxy_regime else 1
+        )
+        yield_df = yield_df.sort_values("__order").drop(columns="__order")
+    st.dataframe(yield_df.set_index("Regime"), use_container_width=True)
+
+    st.markdown("---")
+
+    st.markdown("### SmartSafe™ Sweep Allocation & Blended Portfolio Metrics")
+
+    if st.button("Run SmartSafe™ 3.0 Sweep Allocation"):
         try:
             alloc = sweep_engine.recommend_allocation(mode=mode, risk_level=risk_level)
             eval_result = sweep_engine.evaluate_portfolio(allocations=alloc, mode=mode)
 
-            st.markdown("### Recommended Allocation by Wave")
+            st.markdown("#### Recommended Allocation by Wave")
             alloc_df = pd.DataFrame(
                 [
                     {"Wave": w, "Allocation Weight": float(a)}
@@ -456,7 +574,7 @@ with tab_sweep:
             alloc_df["Allocation Weight"] = alloc_df["Allocation Weight"].apply(fmt_pct)
             st.dataframe(alloc_df.set_index("Wave"), use_container_width=True)
 
-            st.markdown("### Blended Portfolio Alpha & Return (Approximate)")
+            st.markdown("#### Blended Portfolio Alpha & Return (Approximate)")
             if eval_result:
                 m1, m2, m3 = st.columns(3)
                 with m1:
@@ -521,10 +639,11 @@ with tab_about:
         **Benchmarks:** Custom blended ETF & index mappings for each Wave  
         **Alpha:** Wave return − Benchmark return (with VIX-gated exposure and slippage)  
 
-        **SmartSafe™:**  
-        - Modeled as a capital-preservation Wave with an estimated yield of ~4.25%  
-        - Acts as a stable anchor in the SmartSafe™ Sweep Engine  
-        - Designed as the cash-equivalent Wave for multi-Wave household allocations  
+        **SmartSafe™ 3.0:**  
+        - Core, Enhanced, and Tax-Free (TEY) yield profiles  
+        - Regime-aware yield mapping across calm / normal / elevated / extreme volatility  
+        - Integrated with SmartSafe™ Sweep Engine for household-level allocations  
+        - Designed as the cash-equivalent Wave and capital-preservation OS for the platform  
 
         - TLH signals show how many holdings are >10% below their 60-day high and how
           much of the Wave's dynamic weight they represent.  
