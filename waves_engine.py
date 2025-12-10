@@ -53,6 +53,8 @@ import yfinance as yf
 
 class WavesEngine:
     # Default VIX value representing normal market regime
+    # 20.0 is chosen as it represents the long-term VIX median (~19-20),
+    # falling in the "normal" regime (14-22) between calm and elevated volatility
     # Used as fallback when VIX data is unavailable
     DEFAULT_VIX_VALUE = 20.0
     
@@ -258,6 +260,28 @@ class WavesEngine:
         # Fallback single-ticker
         return self._benchmark_map.get(wave, "SPY")
 
+    # ---------------------------------------------------------
+    # HELPER METHODS
+    # ---------------------------------------------------------
+    def _validate_and_normalize_mode(self, mode: str) -> str:
+        """
+        Validate and normalize mode parameter.
+        
+        Args:
+            mode: Mode string to validate
+            
+        Returns:
+            Normalized mode string (lowercased)
+            
+        Raises:
+            ValueError: If mode is not one of the valid modes
+        """
+        mode = (mode or "standard").lower()
+        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+        return mode
+
     def _filter_valid_tickers(self, df: pd.DataFrame, ticker_col: str = "ticker") -> pd.DataFrame:
         """
         Filter out invalid ticker entries.
@@ -382,8 +406,9 @@ class WavesEngine:
             
             vix_aligned.name = "VIX"
             return vix_aligned
-        except Exception as e:
+        except Exception:
             # Fallback: return a default VIX series (normal regime)
+            # Exception details not logged as this is an expected fallback scenario
             return pd.Series(self.DEFAULT_VIX_VALUE, index=pd.to_datetime(index_like), name="VIX")
 
     def _get_vol_regime(self, v: float) -> str:
@@ -402,12 +427,11 @@ class WavesEngine:
         Per-day exposure based on mode + daily VIX level + wave-specific tweaks.
         """
         wave = (wave or "").strip()
-        mode = (mode or "standard").lower()
-        
-        # Validate mode
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
-            mode = "standard"  # Fallback to standard if invalid
+        # Validate mode (silently defaults to standard if invalid in this method)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
 
         # Base exposure by mode
         if mode == "alpha-minus-beta":
@@ -469,12 +493,11 @@ class WavesEngine:
           • Wave-specific customizations
         """
         wave_name = (wave or "").strip()
-        mode = (mode or "standard").lower()
-        
-        # Validate mode
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
-            mode = "standard"  # Fallback to standard if invalid
+        # Validate mode (silently defaults to standard if invalid in this method)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
         
         # Validate inputs
         if ret_matrix.empty:
@@ -731,10 +754,7 @@ class WavesEngine:
             raise ValueError("Wave name must be a non-empty string")
         
         # Normalize and validate mode
-        mode = (mode or "standard").lower()
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
-            raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+        mode = self._validate_and_normalize_mode(mode)
         
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
@@ -937,10 +957,7 @@ class WavesEngine:
             raise ValueError("Price matrix must be a non-empty DataFrame")
         
         # Normalize and validate mode
-        mode = (mode or "standard").lower()
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
-            raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+        mode = self._validate_and_normalize_mode(mode)
         
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
@@ -1188,10 +1205,10 @@ class SmartSafeSweepEngine:
         if not risk_level or not isinstance(risk_level, str):
             risk_level = "Moderate"
         
-        # Normalize and validate mode
-        mode = (mode or "standard").lower()
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
+        # Normalize and validate mode (silently defaults to standard if invalid)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
             mode = "standard"
 
         risk_waves, smart_waves = self._split_waves()
@@ -1250,10 +1267,10 @@ class SmartSafeSweepEngine:
         if not allocations or not isinstance(allocations, dict):
             raise ValueError("Allocations must be a non-empty dictionary")
         
-        # Normalize and validate mode
-        mode = (mode or "standard").lower()
-        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
-        if mode not in valid_modes:
+        # Normalize and validate mode (silently defaults to standard if invalid)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
             mode = "standard"
 
         waves = list(allocations.keys())
