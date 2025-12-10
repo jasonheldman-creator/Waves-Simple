@@ -1,10 +1,11 @@
 wave,ticker,weight
+
 S&P Wave,AAPL,0.1
 S&P Wave,MSFT,0.1
 S&P Wave,AMZN,0.1
 S&P Wave,GOOGL,0.1
 S&P Wave,META,0.1
-S&P Wave,BRK.B,0.1
+S&P Wave,BRK-B,0.1
 S&P Wave,JPM,0.1
 S&P Wave,JNJ,0.1
 S&P Wave,V,0.1
@@ -54,16 +55,16 @@ Quantum Computing Wave,QUBT,0.1
 Quantum Computing Wave,BRKS,0.1
 Quantum Computing Wave,INTC,0.1
 
-Crypto Income Wave,COIN,0.1
-Crypto Income Wave,MSTR,0.1
-Crypto Income Wave,RIOT,0.1
-Crypto Income Wave,MARA,0.1
-Crypto Income Wave,HUT,0.1
-Crypto Income Wave,CLSK,0.1
-Crypto Income Wave,BITO,0.1
-Crypto Income Wave,IBIT,0.1
-Crypto Income Wave,FBTC,0.1
-Crypto Income Wave,DEFI,0.1
+Crypto Equity Wave (mid/large cap),COIN,0.1
+Crypto Equity Wave (mid/large cap),MSTR,0.1
+Crypto Equity Wave (mid/large cap),RIOT,0.1
+Crypto Equity Wave (mid/large cap),MARA,0.1
+Crypto Equity Wave (mid/large cap),HUT,0.1
+Crypto Equity Wave (mid/large cap),CLSK,0.1
+Crypto Equity Wave (mid/large cap),BITO,0.1
+Crypto Equity Wave (mid/large cap),IBIT,0.1
+Crypto Equity Wave (mid/large cap),FBTC,0.1
+Crypto Equity Wave (mid/large cap),DEFI,0.1
 
 Income Wave,TLT,0.1
 Income Wave,LQD,0.1
@@ -76,16 +77,16 @@ Income Wave,XLU,0.1
 Income Wave,O,0.1
 Income Wave,VZ,0.1
 
-Small Cap Growth Wave,TTD,0.1
-Small Cap Growth Wave,PLTR,0.1
-Small Cap Growth Wave,TWLO,0.1
-Small Cap Growth Wave,OKTA,0.1
-Small Cap Growth Wave,ZS,0.1
-Small Cap Growth Wave,DDOG,0.1
-Small Cap Growth Wave,APPF,0.1
-Small Cap Growth Wave,MDB,0.1
-Small Cap Growth Wave,ESTC,0.1
-Small Cap Growth Wave,SMAR,0.1
+Cloud & Enterprise Software Growth Wave,TTD,0.1
+Cloud & Enterprise Software Growth Wave,PLTR,0.1
+Cloud & Enterprise Software Growth Wave,TWLO,0.1
+Cloud & Enterprise Software Growth Wave,OKTA,0.1
+Cloud & Enterprise Software Growth Wave,ZS,0.1
+Cloud & Enterprise Software Growth Wave,DDOG,0.1
+Cloud & Enterprise Software Growth Wave,APPF,0.1
+Cloud & Enterprise Software Growth Wave,MDB,0.1
+Cloud & Enterprise Software Growth Wave,ESTC,0.1
+Cloud & Enterprise Software Growth Wave,SMAR,0.1
 
 Small-Mid Cap Growth Wave,CRWD,0.1
 Small-Mid Cap Growth Wave,ZS,0.1
