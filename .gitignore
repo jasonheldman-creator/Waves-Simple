@@ -1,15 +1,45 @@
-import streamlit as st
-import pandas as pd
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-st.set_page_config(page_title="Waves Simple Console", layout="wide")
+# Backup files
+*_backup.*
+*.bak
 
-st.title("🌊 WAVES SIMPLE CONSOLE")
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-uploaded_file = st.file_uploader("Upload your CSV snapshot", type="csv")
+# OS
+.DS_Store
+Thumbs.db
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.subheader("CSV Preview")
-    st.dataframe(df)
-else:
-    st.info("Upload a CSV file to begin.")
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
