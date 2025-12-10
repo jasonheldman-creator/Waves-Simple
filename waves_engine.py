@@ -1,269 +1,388 @@
-bm_prices.pct_change().iloc[1:, :].astype(float)
-            w_bm = pd.Series(benchmark).reindex(bm_rets.columns).fillna(0.0)
-            if w_bm.sum() <= 0:
-                w_bm = pd.Series(1.0, index=bm_rets.columns)
-            else:
-                w_bm = w_bm / w_bm.sum()
-            bm_ret = bm_rets.mul(w_bm.values, axis=1).sum(axis=1)
-            bm_ret.name = "benchmark_return"
-            bm_value = (1.0 + bm_ret).cumprod()
-            bm_value.name = "benchmark_value"
-        else:
-            bm_price = self._get_price_series(benchmark, period="1y")
-            bm_ret = bm_price.pct_change().iloc[1:].astype(float)
-            bm_ret.name = "benchmark_return"
-            bm_value = (1.0 + bm_ret).cumprod()
-            bm_value.name = "benchmark_value"
+"""
+waves_engine.py — WAVES Intelligence™ Engine (Restored Baseline)
 
-        df = pd.concat([wave_ret_series, bm_ret, wave_value, bm_value], axis=1).dropna()
+This version is a clean, stable restoration with:
+- 12 Waves (auto-discovered from wave_weights.csv)
+- SmartSafe 2.0 *hooks only* (no SmartSafe 3.0 logic)
+- Intraday, 30-day, and 60-day performance and alpha vs benchmark
+- Top holdings computation
+- Log writing stubs for positions and performance
+
+Assumptions:
+- wave_weights.csv contains at least: Wave, Ticker, Weight
+- list.csv contains at least: Ticker (and optionally Name, Sector, etc.)
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+# ---------------------------------------------------------------------
+# Paths / Constants
+# ---------------------------------------------------------------------
+
+BASE_DIR = Path(".")
+DATA_DIR = BASE_DIR
+WEIGHTS_CSV = DATA_DIR / "wave_weights.csv"
+UNIVERSE_CSV = DATA_DIR / "list.csv"
+
+LOGS_DIR = BASE_DIR / "logs"
+POSITIONS_LOG_DIR = LOGS_DIR / "positions"
+PERF_LOG_DIR = LOGS_DIR / "performance"
+
+for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+# Benchmarks per Wave (fallback to SPY if not found)
+BENCHMARK_MAP: Dict[str, str] = {
+    "S&P 500 Wave": "SPY",
+    "AI Wave": "QQQ",
+    "AI & Innovation Wave": "QQQ",
+    "Quantum Computing Wave": "QQQ",
+    "Future Power & Energy Wave": "XLE",
+    "Clean Transit-Infrastructure Wave": "IYT",
+    "Crypto Income Wave": "BITO",
+    "Income Wave": "SCHD",
+    "Small Cap Growth Wave": "IWM",
+    "Small to Mid Cap Growth Wave": "VO",
+    "Cloud & Software Wave": "IGV",
+    "SmartSafe Money Market Wave": "BIL",
+}
+
+
+# ---------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------
+
+def _standardize_column(df: pd.DataFrame, candidates: List[str], target: str) -> pd.DataFrame:
+    """
+    Given a DataFrame and a list of candidate column names, rename the first one found to target.
+    """
+    for c in candidates:
+        if c in df.columns:
+            df = df.rename(columns={c: target})
+            break
+    return df
+
+
+def _load_universe() -> pd.DataFrame:
+    if not UNIVERSE_CSV.exists():
+        # Not fatal; we can still run with just weights
+        return pd.DataFrame(columns=["ticker"])
+    df = pd.read_csv(UNIVERSE_CSV)
+    df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
+    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+    return df
+
+
+def _load_wave_weights() -> pd.DataFrame:
+    if not WEIGHTS_CSV.exists():
+        raise FileNotFoundError(f"wave_weights.csv not found at {WEIGHTS_CSV}")
+    df = pd.read_csv(WEIGHTS_CSV)
+    df = _standardize_column(df, ["Wave", "wave", "Portfolio"], "wave")
+    df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
+    df = _standardize_column(df, ["Weight", "weight", "Wgt", "wgt"], "weight")
+
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
+
+    # Aggregate duplicates and normalize within each wave
+    grouped = df.groupby(["wave", "ticker"], as_index=False)["weight"].sum()
+    grouped["weight"] = grouped.groupby("wave")["weight"].transform(
+        lambda x: x / x.sum() if x.sum() != 0 else x
+    )
+    return grouped
+
+
+def get_available_waves() -> List[str]:
+    """
+    Return sorted list of distinct wave names from wave_weights.csv
+    """
+    weights = _load_wave_weights()
+    waves = sorted(weights["wave"].unique().tolist())
+    return waves
+
+
+def _get_benchmark_for_wave(wave_name: str) -> str:
+    """
+    Map a wave to its benchmark ticker. Fallback to SPY.
+    """
+    if wave_name in BENCHMARK_MAP:
+        return BENCHMARK_MAP[wave_name]
+    # Simple heuristics
+    name_lower = wave_name.lower()
+    if "crypto" in name_lower or "digital" in name_lower:
+        return "BITO"
+    if "ai" in name_lower or "tech" in name_lower or "cloud" in name_lower:
+        return "QQQ"
+    if "small" in name_lower:
+        return "IWM"
+    if "income" in name_lower:
+        return "SCHD"
+    if "smartsafe" in name_lower:
+        return "BIL"
+    return "SPY"
+
+
+def _download_price_series(ticker: str, period: str = "90d") -> pd.Series:
+    """
+    Download daily adjusted close for a single ticker.
+    """
+    try:
+        df = yf.download(
+            ticker,
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
         if df.empty:
-            raise ValueError(f"No overlapping Wave/benchmark history for {wave} (custom prices)")
+            return pd.Series(dtype=float)
+        s = df["Adj Close"].copy()
+        s.name = ticker
+        return s
+    except Exception:
+        return pd.Series(dtype=float)
 
-        df["alpha_captured"] = df["wave_return"] - df["benchmark_return"]
 
-        # Alpha windows
-        def alpha_window(series: pd.Series, window: int) -> Optional[float]:
-            if series is None or series.empty:
-                return None
-            n = min(window, len(series))
-            if n <= 0:
-                return None
-            return float(series.tail(n).sum())
+def _get_fast_intraday_return(ticker: str) -> Tuple[float, float]:
+    """
+    Use fast_info to approximate intraday return for a single ticker.
+    Returns (last_price, pct_return).
+    """
+    try:
+        t = yf.Ticker(ticker)
+        info = t.fast_info
+        last_price = float(info.get("last_price", np.nan))
+        prev_close = float(info.get("previous_close", np.nan))
+        if np.isfinite(last_price) and np.isfinite(prev_close) and prev_close != 0:
+            ret = (last_price / prev_close) - 1.0
+        else:
+            ret = 0.0
+        return last_price, ret
+    except Exception:
+        return np.nan, 0.0
 
-        intraday_alpha = float(df["alpha_captured"].iloc[-1])
-        alpha_30d = alpha_window(df["alpha_captured"], 30)
-        alpha_60d = alpha_window(df["alpha_captured"], 60)
-        alpha_1y = alpha_window(df["alpha_captured"], len(df))
 
-        def window_return(curve: pd.Series, window: int) -> Optional[float]:
-            if curve is None or curve.empty:
-                return None
-            n = min(window, len(curve))
-            if n <= 1:
-                return None
-            start = float(curve.iloc[-n])
-            end = float(curve.iloc[-1])
-            if start == 0:
-                return None
-            return (end / start) - 1.0
+# ---------------------------------------------------------------------
+# SmartSafe 2.0 (placeholder hook)
+# ---------------------------------------------------------------------
 
-        ret_30_wave = window_return(df["wave_value"], 30)
-        ret_30_bm = window_return(df["benchmark_value"], 30)
-        ret_60_wave = window_return(df["wave_value"], 60)
-        ret_60_bm = window_return(df["benchmark_value"], 60)
-        ret_1y_wave = window_return(df["wave_value"], min(len(df), 252))
-        ret_1y_bm = window_return(df["benchmark_value"], min(len(df), 252))
+def apply_smartsafe_sweep(positions: pd.DataFrame) -> pd.DataFrame:
+    """
+    SmartSafe 2.0 sweep *hook*.
 
-        # Realized beta (~60 bars)
-        beta_realized = np.nan
-        tail_n = min(60, len(df))
-        if tail_n >= 20:
-            x = df["benchmark_return"].tail(tail_n).values.flatten()
-            y = df["wave_return"].tail(tail_n).values.flatten()
-            if np.var(x) > 0:
-                cov_xy = np.cov(x, y)[0, 1]
-                beta_realized = float(cov_xy / np.var(x))
+    IMPORTANT:
+    - This is intentionally minimal and non-destructive.
+    - It exists so the console and engine have the same interface as the
+      last stable version, but does NOT introduce SmartSafe 3.0 behavior.
 
-        exposure_final = float(exposure_series.iloc[-1])
-        vix_last = float(vix_series.iloc[-1])
-        regime_last = self._get_vol_regime(vix_last)
+    Currently: returns positions unchanged.
+    """
+    # If you want to add light sweep rules later, you can do it here.
+    return positions
 
-        current_weights = weights_time.iloc[-1].dropna()
-        current_weights = current_weights[current_weights > 0.0]
 
-        history_30d = df.tail(30).copy()
+# ---------------------------------------------------------------------
+# Core Wave Snapshot / Metrics
+# ---------------------------------------------------------------------
 
-        turnover_daily_avg = float(turnover.mean())
-        turnover_annual = turnover_daily_avg * 252.0
-        slippage_daily_avg = float(slippage_cost.mean())
-        slippage_annual_drag = slippage_daily_avg * 252.0
+def _build_wave_positions(wave_name: str) -> pd.DataFrame:
+    """
+    Return a positions DataFrame for a given wave, with columns:
+    ticker, weight, last_price, intraday_return
+    """
+    weights = _load_wave_weights()
+    wave_df = weights[weights["wave"] == wave_name].copy()
+    if wave_df.empty:
+        return pd.DataFrame(columns=["ticker", "weight", "last_price", "intraday_return"])
 
-        tlh_signals = self._compute_tlh_signals(price_matrix, current_weights)
-        uapv_unit_price = float(df["wave_value"].iloc[-1])
+    prices = []
+    intraday_returns = []
+    for _, row in wave_df.iterrows():
+        ticker = row["ticker"]
+        last_price, intraday_ret = _get_fast_intraday_return(ticker)
+        prices.append(last_price)
+        intraday_returns.append(intraday_ret)
 
-        result = {
-            "benchmark": benchmark,
-            "beta_realized": beta_realized,
-            "exposure_final": exposure_final,
-            "intraday_alpha_captured": intraday_alpha,
-            "alpha_30d": alpha_30d,
-            "alpha_60d": alpha_60d,
-            "alpha_1y": alpha_1y,
-            "return_30d_wave": ret_30_wave,
-            "return_30d_benchmark": ret_30_bm,
-            "return_60d_wave": ret_60_wave,
-            "return_60d_benchmark": ret_60_bm,
-            "return_1y_wave": ret_1y_wave,
-            "return_1y_benchmark": ret_1y_bm,
-            "history_30d": history_30d,
-            "vix_last": vix_last,
-            "vol_regime": regime_last,
-            "current_weights": current_weights,
-            "turnover_annual": turnover_annual,
-            "slippage_annual_drag": slippage_annual_drag,
-            "tlh_candidate_count": tlh_signals["tlh_candidate_count"],
-            "tlh_candidate_weight": tlh_signals["tlh_candidate_weight"],
-            "tlh_details": tlh_signals["tlh_details"],
-            "uapv_unit_price": uapv_unit_price,
+    wave_df["last_price"] = prices
+    wave_df["intraday_return"] = intraday_returns
+
+    # Apply SmartSafe 2.0 hook (no-op for now)
+    wave_df = apply_smartsafe_sweep(wave_df)
+
+    return wave_df
+
+
+def _compute_portfolio_trailing_returns(
+    positions: pd.DataFrame,
+    benchmark_ticker: str,
+    period: str = "90d",
+) -> Dict[str, float]:
+    """
+    Compute 30d and 60d total returns and alpha vs benchmark.
+    Returns keys:
+        ret_30d, ret_60d, alpha_30d, alpha_60d
+    """
+    tickers = positions["ticker"].unique().tolist()
+    weights = positions.set_index("ticker")["weight"]
+    weights = weights / weights.sum() if weights.sum() != 0 else weights
+
+    # Download history for each ticker
+    price_frames = []
+    for t in tickers:
+        s = _download_price_series(t, period=period)
+        if not s.empty:
+            price_frames.append(s)
+
+    if not price_frames:
+        # No data -> zero returns
+        return {
+            "ret_30d": 0.0,
+            "ret_60d": 0.0,
+            "alpha_30d": 0.0,
+            "alpha_60d": 0.0,
         }
 
-        if log:
-            self._log_performance_row(wave, result)
+    prices_df = pd.concat(price_frames, axis=1).sort_index()
+    prices_df = prices_df.ffill().dropna(how="all")
 
-        return result
+    # Align weights to columns (missing tickers -> 0)
+    aligned_weights = weights.reindex(prices_df.columns).fillna(0.0)
+    aligned_weights = aligned_weights / aligned_weights.sum() if aligned_weights.sum() != 0 else aligned_weights
 
-    # ---------------------------------------------------------
-    # LOGGING (optional, non-blocking)
-    # ---------------------------------------------------------
-    def _log_performance_row(self, wave: str, result: dict) -> None:
-        try:
-            perf_dir = self.logs_root / "performance"
-            perf_dir.mkdir(parents=True, exist_ok=True)
-            fname = perf_dir / f"{wave.replace(' ', '_')}_performance_daily.csv"
+    # Portfolio daily values and returns
+    port_values = (prices_df * aligned_weights).sum(axis=1)
+    port_returns = port_values.pct_change().dropna()
 
-            row = {
-                "benchmark": result.get("benchmark"),
-                "beta_realized": result.get("beta_realized"),
-                "exposure_final": result.get("exposure_final"),
-                "intraday_alpha_captured": result.get("intraday_alpha_captured"),
-                "alpha_30d": result.get("alpha_30d"),
-                "alpha_60d": result.get("alpha_60d"),
-                "alpha_1y": result.get("alpha_1y"),
-                "return_30d_wave": result.get("return_30d_wave"),
-                "return_30d_benchmark": result.get("return_30d_benchmark"),
-                "return_60d_wave": result.get("return_60d_wave"),
-                "return_60d_benchmark": result.get("return_60d_benchmark"),
-                "return_1y_wave": result.get("return_1y_wave"),
-                "return_1y_benchmark": result.get("return_1y_benchmark"),
-                "vix_last": result.get("vix_last"),
-                "vol_regime": result.get("vol_regime"),
-                "turnover_annual": result.get("turnover_annual"),
-                "slippage_annual_drag": result.get("slippage_annual_drag"),
-                "tlh_candidate_count": result.get("tlh_candidate_count"),
-                "tlh_candidate_weight": result.get("tlh_candidate_weight"),
-                "uapv_unit_price": result.get("uapv_unit_price"),
-            }
+    # Benchmark
+    bench_series = _download_price_series(benchmark_ticker, period=period)
+    if bench_series.empty:
+        bench_returns = pd.Series(0.0, index=port_returns.index)
+    else:
+        bench_series = bench_series.reindex(port_returns.index).ffill()
+        bench_returns = bench_series.pct_change().dropna()
+        # Align again in case of dropna
+        port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
 
-            df_row = pd.DataFrame([row])
-            if fname.exists():
-                df_existing = pd.read_csv(fname)
-                df_out = pd.concat([df_existing, df_row], ignore_index=True)
-            else:
-                df_out = df_row
-            df_out.to_csv(fname, index=False)
-        except Exception:
-            # Logging must never break engine
-            pass
+    def _window_total_return(r: pd.Series, days: int) -> float:
+        if r.empty:
+            return 0.0
+        # Use last N observations
+        sub = r.tail(days)
+        if sub.empty:
+            return 0.0
+        return float((1 + sub).prod() - 1.0)
+
+    port_30 = _window_total_return(port_returns, 30)
+    port_60 = _window_total_return(port_returns, 60)
+    bench_30 = _window_total_return(bench_returns, 30)
+    bench_60 = _window_total_return(bench_returns, 60)
+
+    metrics = {
+        "ret_30d": port_30,
+        "ret_60d": port_60,
+        "alpha_30d": port_30 - bench_30,
+        "alpha_60d": port_60 - bench_60,
+    }
+    return metrics
 
 
-# -------------------------------------------------------------
-# SmartSafeSweepEngine — multi-Wave + SmartSafe allocator layer
-# -------------------------------------------------------------
-class SmartSafeSweepEngine:
+def _log_positions(wave_name: str, positions: pd.DataFrame) -> None:
     """
-    SmartSafeSweepEngine — multi-Wave + SmartSafe allocator
-
-    This is a light "household" layer on top of WavesEngine. It does NOT place
-    trades; it just suggests how much to put in:
-      • risk Waves (all non-SmartSafe waves)
-      • SmartSafe Wave
-    based on a simple risk level and current VIX regime.
+    Write a daily snapshot of positions to logs/positions.
     """
+    if positions.empty:
+        return
+    today_str = datetime.now().strftime("%Y%m%d")
+    file_path = POSITIONS_LOG_DIR / f"{wave_name.replace(' ', '_')}_positions_{today_str}.csv"
+    try:
+        positions.to_csv(file_path, index=False)
+    except Exception:
+        # Logging errors are non-fatal
+        pass
 
-    def __init__(self, engine: WavesEngine, smartsafe_wave_name: str = "SmartSafe Wave"):
-        self.engine = engine
-        self.smartsafe_wave_name = smartsafe_wave_name
 
-    def _split_waves(self) -> tuple[List[str], List[str]]:
-        all_waves = self.engine.get_wave_names()
-        smart = [w for w in all_waves if self.smartsafe_wave_name.lower() in w.lower()]
-        risk = [w for w in all_waves if w not in smart]
-        return risk, smart
-
-    def recommend_allocation(self, mode: str, risk_level: str) -> dict:
-        """
-        Returns a dict of {Wave: allocation_weight} that sums to 1.0.
-
-        risk_level: "Conservative", "Moderate", "Aggressive"
-        """
-
-        risk_waves, smart_waves = self._split_waves()
-        if not smart_waves:
-            # no SmartSafe found — allocate only across risk waves
-            w = 1.0 / max(1, len(risk_waves))
-            return {rw: w for rw in risk_waves}
-
-        smart_wave = smart_waves[0]
-
-        rl = risk_level.lower()
-        if rl.startswith("con"):
-            smart_alloc = 0.60
-        elif rl.startswith("agg"):
-            smart_alloc = 0.20
+def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
+    """
+    Append or create performance log for a wave.
+    """
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    row = {
+        "date": today_str,
+        "ret_30d": metrics.get("ret_30d", 0.0),
+        "ret_60d": metrics.get("ret_60d", 0.0),
+        "alpha_30d": metrics.get("alpha_30d", 0.0),
+        "alpha_60d": metrics.get("alpha_60d", 0.0),
+    }
+    file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
+    try:
+        if file_path.exists():
+            existing = pd.read_csv(file_path)
+            # Avoid duplicate date rows
+            existing = existing[existing["date"] != today_str]
+            existing = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
+            existing.to_csv(file_path, index=False)
         else:
-            smart_alloc = 0.40  # Moderate default
+            pd.DataFrame([row]).to_csv(file_path, index=False)
+    except Exception:
+        pass
 
-        # Simple VIX-based tweak: push more to SmartSafe if regime is elevated/extreme
-        try:
-            # Just inspect the first risk wave for VIX regime
-            m0 = self.engine.get_wave_performance(risk_waves[0], mode=mode, log=False)
-            regime = m0.get("vol_regime", "normal")
-            if regime in ("elevated", "extreme"):
-                smart_alloc = min(0.80, smart_alloc + 0.10)
-        except Exception:
-            pass
 
-        risk_alloc_total = 1.0 - smart_alloc
-        per_risk = risk_alloc_total / max(1, len(risk_waves))
+def get_wave_snapshot(wave_name: str) -> Dict:
+    """
+    High-level function used by app.py.
 
-        alloc = {rw: per_risk for rw in risk_waves}
-        alloc[smart_wave] = smart_alloc
-        return alloc
+    Returns:
+        {
+            "wave_name": str,
+            "benchmark": str,
+            "positions": DataFrame,
+            "metrics": {
+                "intraday_return": float,
+                "ret_30d": float,
+                "ret_60d": float,
+                "alpha_30d": float,
+                "alpha_60d": float,
+            }
+        }
+    """
+    positions = _build_wave_positions(wave_name)
+    benchmark = _get_benchmark_for_wave(wave_name)
 
-    def evaluate_portfolio(self, allocations: dict, mode: str) -> dict:
-        """
-        Given {Wave: allocation} weights (sum ≈ 1.0),
-        compute blended Wave performance across Waves.
-        """
+    # Portfolio intraday return: weighted sum of individual intraday returns
+    if not positions.empty:
+        w = positions["weight"]
+        w = w / w.sum() if w.sum() != 0 else w
+        intraday_ret = float((positions["intraday_return"] * w).sum())
+    else:
+        intraday_ret = 0.0
 
-        waves = list(allocations.keys())
-        weights = np.array([allocations[w] for w in waves], dtype=float)
-        if weights.sum() <= 0:
-            return {}
+    trailing = _compute_portfolio_trailing_returns(positions, benchmark_ticker=benchmark, period="90d")
 
-        weights = weights / weights.sum()
+    metrics = {
+        "intraday_return": intraday_ret,
+        "ret_30d": trailing["ret_30d"],
+        "ret_60d": trailing["ret_60d"],
+        "alpha_30d": trailing["alpha_30d"],
+        "alpha_60d": trailing["alpha_60d"],
+    }
 
-        entries = []
-        for i, w in enumerate(waves):
-            try:
-                m = self.engine.get_wave_performance(w, mode=mode, log=False)
-                entries.append((w, m, weights[i]))
-            except Exception:
-                continue
+    # Log (non-fatal if fails)
+    _log_positions(wave_name, positions)
+    _log_performance(wave_name, metrics)
 
-        if not entries:
-            return {}
-
-        def _blend(key: str) -> Optional[float]:
-            vals = []
-            ws = []
-            for wname, m, wgt in entries:
-                v = m.get(key, None)
-                if v is None or (isinstance(v, float) and np.isnan(v)):
-                    continue
-                vals.append(v)
-                ws.append(wgt)
-            if not vals or sum(ws) <= 0:
-                return None
-            ws = np.array(ws)
-            ws = ws / ws.sum()
-            return float(np.dot(ws, np.array(vals)))
-
-        return {
-            "allocations": {w: float(a) for w, a in allocations.items()},
-            "alpha_30d_blended": _blend("alpha_30d"),
-            "alpha_60d_blended": _blend("alpha_60d"),
-            "alpha_1y_blended": _blend("alpha_1y"),
-            "return_30d_wave_blended": _blend("return_30d_wave"),
-            "return_60d_wave_blended": _blend("return_60d_wave"),
-            "return_1y_wave_blended": _blend("return_1y_wave"),
+    return {
+        "wave_name": wave_name,
+        "benchmark": benchmark,
+        "positions": positions,
+        "metrics": metrics,
+    }
