@@ -1,6 +1,6 @@
 """
 waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine
--------------------------------------------------------
+Benchmark Map v1.0 (LOCKED)
 
 Features
 --------
@@ -20,7 +20,11 @@ Features
     - re-normalises weights to surviving tickers
 • Supports blended benchmarks:
     - Future Power & Energy Wave → 55% ICLN + 45% IXE
-    - Clean Transit-Infrastructure Wave → 50% HAIL + 50% IGF
+    - Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
+    - Growth Wave → 50% QQQ + 50% IWF
+    - Small-Mid Cap Growth Wave → 50% VTWG + 50% VO
+    - Quantum Computing Wave → 70% IYW + 30% SOXX
+    - Crypto Income Wave → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
 """
 
 from __future__ import annotations
@@ -40,7 +44,7 @@ class WavesEngine:
     def __init__(
         self,
         list_path: Union[str, Path] = "list.csv",
-        weights_path: Union[str, Path] = "wave_weights.csv",
+        weights_path: Union[str[str], Path] = "wave_weights.csv",
         logs_root: Union[str, Path] = "logs",
     ):
         self.list_path = Path(list_path)
@@ -50,25 +54,26 @@ class WavesEngine:
         self.universe = self._load_list()
         self.weights = self._load_weights()
 
-        # Single-ticker benchmark map (fallback = SPY)
+        # Single-ticker benchmark defaults (used when not overridden by blend logic)
         self._benchmark_map: Dict[str, str] = {
             "S&P Wave": "SPY",
             "S&P 500 Wave": "SPY",
             "S&P Wave ": "SPY",
-            "Growth Wave": "QQQ",
-            "Small Cap Growth Wave": "IWM",
-            "Small to Mid Cap Growth Wave": "VO",
             "Income Wave": "SCHD",
             "Dividend Income Wave": "SCHD",
-            "Future Power & Energy Wave": "ICLN",  # overridden by blended logic
-            "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blended logic
-            "Quantum Computing Wave": "IYW",
+            "Small Cap Growth Wave": "VTWG",
+            "Small-Mid Cap Growth Wave": "VO",  # overridden by blend logic
+            "Small to Mid Cap Growth Wave": "VO",
+            "Future Power & Energy Wave": "ICLN",  # overridden by blend logic
+            "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blend logic
+            "Quantum Computing Wave": "IYW",  # overridden by blend logic
             "Total Market Wave": "VTI",
             "SmartSafe Wave": "SHV",
             "SmartSafe": "SHV",
             "SmartSafe™": "SHV",
+            "Crypto Income Wave": "BTC-USD",  # overridden by blend logic
             "Crypto Wave": "BTC-USD",
-            "Crypto Income Wave": "BTC-USD",
+            "Growth Wave": "QQQ",  # overridden by blend logic
         }
 
     # ---------------------------------------------------------
@@ -132,16 +137,32 @@ class WavesEngine:
         """
         wave = wave.strip()
 
-        # Custom blended benchmarks
+        # --------- Custom blended benchmarks (Benchmark Map v1.0) ----------
+        if wave == "Growth Wave":
+            # 50% QQQ + 50% IWF
+            return {"QQQ": 0.50, "IWF": 0.50}
+
+        if wave == "Small-Mid Cap Growth Wave" or wave == "Small to Mid Cap Growth Wave":
+            # 50% VTWG + 50% VO
+            return {"VTWG": 0.50, "VO": 0.50}
+
         if wave == "Future Power & Energy Wave":
             # 55% ICLN + 45% IXE
             return {"ICLN": 0.55, "IXE": 0.45}
 
         if wave == "Clean Transit-Infrastructure Wave":
-            # 50% HAIL + 50% IGF
-            return {"HAIL": 0.50, "IGF": 0.50}
+            # 50% ICLN + 50% IGF
+            return {"ICLN": 0.50, "IGF": 0.50}
 
-        # Default: single-ticker benchmark
+        if wave == "Quantum Computing Wave":
+            # 70% IYW + 30% SOXX
+            return {"IYW": 0.70, "SOXX": 0.30}
+
+        if wave == "Crypto Income Wave":
+            # Broad crypto index approximation
+            return {"BTC-USD": 0.50, "ETH-USD": 0.30, "SOL-USD": 0.20}
+
+        # --------- Standard single-ticker benchmarks ---------
         return self._benchmark_map.get(wave, "SPY")
 
     def get_wave_holdings(self, wave: str) -> pd.DataFrame:
@@ -208,7 +229,7 @@ class WavesEngine:
                 frames.append(s)
                 valid_tickers.append(t)
             except Exception:
-                # Skip un-priceable names
+                # Skip un-priceable names (delisted, etc.)
                 continue
 
         if not frames:
@@ -392,9 +413,9 @@ class WavesEngine:
     def _compute_exposure(self, mode: str, beta_realized: float) -> float:
         """
         Simple mode + VIX-gated exposure model:
-          • standard       → base 1.0
+          • standard         → base 1.0
           • alpha-minus-beta → target lower beta
-          • private_logic  → slightly higher base exposure
+          • private_logic    → slightly higher base exposure
         """
         mode = (mode or "standard").lower()
         beta = beta_realized if beta_realized is not None and not np.isnan(beta_realized) else 1.0
