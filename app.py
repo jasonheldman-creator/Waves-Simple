@@ -1,166 +1,132 @@
 # app.py
-
-from __future__ import annotations
-
-import traceback
-from typing import Dict, List, Tuple
-
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
-from waves_engine import WavesEngine, WaveMetrics, build_engine
-
+from waves_engine import WavesEngine
 
 st.set_page_config(
     page_title="WAVES Intelligence™ Institutional Console",
     layout="wide",
 )
 
-# ----------------- Helpers & Caching ----------------- #
+# ---------------------------------------------------------------------
+# Cached engine + metrics loader
+# ---------------------------------------------------------------------
+@st.cache_data(show_spinner=True)
+def load_engine_and_metrics():
+    eng = WavesEngine()
+    metrics_df, warnings = eng.compute_all_metrics()
+    return metrics_df, warnings
 
 
-@st.cache_data(show_spinner=False)
-def load_metrics_cached() -> Tuple[Dict[str, WaveMetrics], List[str]]:
-    engine = build_engine()
-    metrics_dict, warnings = engine.compute_all_metrics()
-    return metrics_dict, warnings
-
-
-def format_pct(x: float) -> str:
+# ---------------------------------------------------------------------
+# UI helpers
+# ---------------------------------------------------------------------
+def format_percent(x):
     if pd.isna(x):
         return "—"
-    return f"{x * 100:0.2f}%"
+    return f"{x*100:0.2f}%"
 
 
-# ----------------- UI Layout ----------------- #
+# ---------------------------------------------------------------------
+# Main App
+# ---------------------------------------------------------------------
+st.title("WAVES Intelligence™ Institutional Console")
+st.caption("**Live Wave Engine • Alpha Capture • Benchmarks • Diagnostics**")
 
-st.markdown(
-    """
-    # WAVES Intelligence™ Institutional Console
+metrics_df, warnings = load_engine_and_metrics()
 
-    **Live Wave Engine • Alpha Capture • Benchmarks • Diagnostics**
-    """.strip()
-)
-
-tab_dashboard, tab_wave_explorer, tab_diag = st.tabs(
+tab_dashboard, tab_explorer, tab_diag = st.tabs(
     ["Dashboard", "Wave Explorer", "Diagnostics"]
 )
 
-# ----------------- Dashboard Tab ----------------- #
-
+# ---------------------------------------------------------------------
+# DASHBOARD
+# ---------------------------------------------------------------------
 with tab_dashboard:
     st.subheader("All Waves Snapshot")
 
-    try:
-        metrics_dict, warnings = load_metrics_cached()
-    except Exception as e:
-        st.error("Engine failed while computing metrics. See Diagnostics tab for details.")
-        with st.expander("Full error traceback"):
-            st.code("".join(traceback.format_exc()))
-        st.stop()
-
-    if not metrics_dict:
-        st.error("No Wave metrics available. Check Diagnostics tab for details.")
+    if metrics_df.empty:
+        st.error(
+            "No Wave metrics available. This usually means **all** Wave tickers "
+            "failed to load price data. Check the Diagnostics tab for details."
+        )
     else:
-        rows = []
-        for wave_name, wm in sorted(metrics_dict.items(), key=lambda kv: kv[0]):
-            stats = wm.stats
-            rows.append(
-                {
-                    "Wave": wave_name,
-                    "60D": stats.get("60D"),
-                    "Alpha 1Y": stats.get("Alpha 1Y"),
-                }
-            )
-
-        df = pd.DataFrame(rows).set_index("Wave")
-        df_display = df.copy()
-        df_display["60D"] = df_display["60D"].map(format_pct)
-        df_display["Alpha 1Y"] = df_display["Alpha 1Y"].map(format_pct)
+        display_df = metrics_df.copy()
+        display_df["Return 60D"] = display_df["Return 60D"].apply(format_percent)
+        display_df["Alpha 60D"] = display_df["Alpha 60D"].apply(format_percent)
+        display_df["Return 1Y"] = display_df["Return 1Y"].apply(format_percent)
+        display_df["Alpha 1Y"] = display_df["Alpha 1Y"].apply(format_percent)
 
         st.dataframe(
-            df_display,
+            display_df,
             use_container_width=True,
+            hide_index=True,
         )
 
         st.caption(
-            "• 60D = cumulative Wave return over the last 60 trading days.  "
-            "• Alpha 1Y = Wave return minus benchmark over the last ~252 trading days."
+            "Alpha is Wave return minus its benchmark blend over the same window. "
+            "Safe Mode: any holdings with missing prices are dropped per-Wave; "
+            "the engine keeps running even if some tickers fail."
         )
 
-# ----------------- Wave Explorer Tab ----------------- #
-
-with tab_wave_explorer:
+# ---------------------------------------------------------------------
+# WAVE EXPLORER
+# ---------------------------------------------------------------------
+with tab_explorer:
     st.subheader("Wave Explorer")
 
-    metrics_dict, warnings = load_metrics_cached()
-
-    if not metrics_dict:
-        st.info("No Waves available to explore.")
+    if metrics_df.empty:
+        st.info("No Waves to explore – fix data issues first (see Diagnostics).")
     else:
-        wave_names = sorted(metrics_dict.keys())
-        selected = st.selectbox("Select Wave", wave_names)
+        wave_names = metrics_df["Wave"].tolist()
+        selected_wave = st.selectbox("Choose a Wave", wave_names)
 
-        wm = metrics_dict[selected]
+        row = metrics_df[metrics_df["Wave"] == selected_wave].iloc[0]
 
-        col_a, col_b = st.columns(2)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Return 60D", format_percent(row["Return 60D"]))
+            st.metric("Return 1Y", format_percent(row["Return 1Y"]))
+        with col2:
+            st.metric("Alpha 60D", format_percent(row["Alpha 60D"]))
+            st.metric("Alpha 1Y", format_percent(row["Alpha 1Y"]))
 
-        # Cumulative growth of $1
-        port_cum = (1.0 + wm.portfolio_returns).cumprod()
-        bench_cum = (1.0 + wm.benchmark_returns).cumprod()
-        alpha_cum = (1.0 + wm.alpha_daily).cumprod()
+        st.markdown(
+            f"- **# Holdings Defined:** {int(row['# Holdings Defined'])}  \n"
+            f"- **# Holdings Used (with price data):** {int(row['# Holdings Used'])}"
+        )
 
-        with col_a:
-            st.markdown("#### Cumulative Return vs Benchmark")
-            chart_df = pd.DataFrame(
-                {
-                    "Wave": port_cum,
-                    "Benchmark": bench_cum,
-                }
-            )
-            st.line_chart(chart_df)
+        # Simple explanation
+        st.markdown(
+            """
+            **How this is calculated (Safe Mode)**  
+            - Take all tickers for this Wave from `wave_weights.csv`.  
+            - Drop any ticker that has no price history from yfinance.  
+            - Normalize the remaining weights and compute a daily Wave return series.  
+            - Build the benchmark blend you specified (per-Wave ETF mix).  
+            - Compute 60-day and 1-year total returns for both Wave and benchmark.  
+            - Alpha = Wave return − Benchmark return.
+            """
+        )
 
-        with col_b:
-            st.markdown("#### Cumulative Alpha (Wave − Benchmark)")
-            st.line_chart(alpha_cum.to_frame(name="Alpha"))
-
-        with st.expander("Raw Daily Series"):
-            st.write("Daily returns (Wave, Benchmark, Alpha):")
-            daily_df = pd.DataFrame(
-                {
-                    "Wave": wm.portfolio_returns,
-                    "Benchmark": wm.benchmark_returns,
-                    "Alpha": wm.alpha_daily,
-                }
-            )
-            st.dataframe(daily_df.tail(252), use_container_width=True)
-
-# ----------------- Diagnostics Tab ----------------- #
-
+# ---------------------------------------------------------------------
+# DIAGNOSTICS
+# ---------------------------------------------------------------------
 with tab_diag:
-    st.subheader("Diagnostics")
+    st.subheader("Diagnostics & Warnings")
 
-    metrics_dict, warnings = load_metrics_cached()
-
-    if warnings:
-        st.markdown("### Engine Warnings")
-        for w in warnings:
-            st.warning(w)
+    if not warnings:
+        st.success("No warnings reported by the engine. All Waves computed successfully.")
     else:
-        st.success("No engine warnings recorded.")
+        for wave, msgs in warnings.items():
+            with st.expander(f"{wave} — {len(msgs)} warning(s)"):
+                for m in msgs:
+                    st.write("- ", m)
 
-    st.markdown("### Internal Status")
-    st.write(f"Total Waves computed: **{len(metrics_dict)}**")
-
-    st.markdown(
-        """
-        **Notes**
-
-        - This console is running the *benchmark-aware* WAVES Engine with:
-          - 10 Waves (including **AI Wave** and **SmartSafe Wave**).
-          - ETF benchmark blends per Wave.
-          - Defensive handling of missing tickers / missing price data (waves with no data are skipped, not fatal).
-        - To adjust benchmarks, edit `BENCHMARK_MAP` in `waves_engine.py`.
-        - To adjust holdings, edit `wave_weights.csv` (wave name, ticker, weight) and redeploy.
-        """
+    st.markdown("---")
+    st.caption(
+        "Safe Mode is enabled. The engine will **never** crash because of a single "
+        "invalid or missing ticker. Instead, it drops problem tickers per Wave and "
+        "reports them here."
     )
