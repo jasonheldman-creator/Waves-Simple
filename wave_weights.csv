@@ -4,11 +4,12 @@ S&P Wave,MSFT,0.1
 S&P Wave,AMZN,0.1
 S&P Wave,GOOGL,0.1
 S&P Wave,META,0.1
-S&P Wave,BRK.B,0.1
+S&P Wave,BRK-B,0.1
 S&P Wave,JPM,0.1
 S&P Wave,JNJ,0.1
 S&P Wave,V,0.1
 S&P Wave,PG,0.1
+
 Growth Wave,TSLA,0.1
 Growth Wave,NVDA,0.1
 Growth Wave,AMD,0.1
@@ -19,6 +20,7 @@ Growth Wave,SHOP,0.1
 Growth Wave,NOW,0.1
 Growth Wave,NFLX,0.1
 Growth Wave,INTU,0.1
+
 Future Power & Energy Wave,XOM,0.1
 Future Power & Energy Wave,CVX,0.1
 Future Power & Energy Wave,NEE,0.1
@@ -29,6 +31,7 @@ Future Power & Energy Wave,LNG,0.1
 Future Power & Energy Wave,SLB,0.1
 Future Power & Energy Wave,PSX,0.1
 Future Power & Energy Wave,PLUG,0.1
+
 Clean Transit-Infrastructure Wave,TSLA,0.1
 Clean Transit-Infrastructure Wave,NIO,0.1
 Clean Transit-Infrastructure Wave,GM,0.1
@@ -39,6 +42,7 @@ Clean Transit-Infrastructure Wave,CHPT,0.1
 Clean Transit-Infrastructure Wave,ABB,0.1
 Clean Transit-Infrastructure Wave,DE,0.1
 Clean Transit-Infrastructure Wave,URI,0.1
+
 Quantum Computing Wave,NVDA,0.1
 Quantum Computing Wave,AMD,0.1
 Quantum Computing Wave,IBM,0.1
@@ -49,6 +53,7 @@ Quantum Computing Wave,IONQ,0.1
 Quantum Computing Wave,QUBT,0.1
 Quantum Computing Wave,BRKS,0.1
 Quantum Computing Wave,INTC,0.1
+
 Crypto Income Wave,COIN,0.1
 Crypto Income Wave,MSTR,0.1
 Crypto Income Wave,RIOT,0.1
@@ -59,6 +64,7 @@ Crypto Income Wave,BITO,0.1
 Crypto Income Wave,IBIT,0.1
 Crypto Income Wave,FBTC,0.1
 Crypto Income Wave,DEFI,0.1
+
 Income Wave,TLT,0.1
 Income Wave,LQD,0.1
 Income Wave,HYG,0.1
@@ -69,6 +75,7 @@ Income Wave,PEP,0.1
 Income Wave,XLU,0.1
 Income Wave,O,0.1
 Income Wave,VZ,0.1
+
 Small Cap Growth Wave,TTD,0.1
 Small Cap Growth Wave,PLTR,0.1
 Small Cap Growth Wave,TWLO,0.1
@@ -79,6 +86,7 @@ Small Cap Growth Wave,APPF,0.1
 Small Cap Growth Wave,MDB,0.1
 Small Cap Growth Wave,ESTC,0.1
 Small Cap Growth Wave,SMAR,0.1
+
 Small-Mid Cap Growth Wave,CRWD,0.1
 Small-Mid Cap Growth Wave,ZS,0.1
 Small-Mid Cap Growth Wave,DDOG,0.1
