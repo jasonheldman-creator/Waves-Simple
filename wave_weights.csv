@@ -1,4 +1,4 @@
-wave,ticker,weight
+ wave,ticker,weight
 S&P Wave,AAPL,0.1
 S&P Wave,MSFT,0.1
 S&P Wave,AMZN,0.1
@@ -109,13 +109,10 @@ AI Wave,PATH,0.1
 AI Wave,IONQ,0.1
 AI Wave,ASML,0.1
 
-SmartSafe Wave,TLT,0.1
-SmartSafe Wave,SHY,0.1
-SmartSafe Wave,LQD,0.1
-SmartSafe Wave,JNJ,0.1
-SmartSafe Wave,PG,0.1
-SmartSafe Wave,KO,0.1
-SmartSafe Wave,PEP,0.1
-SmartSafe Wave,BRK-B,0.1
-SmartSafe Wave,JPM,0.1
-SmartSafe Wave,V,0.1
+SmartSafe Wave,LQD,0.50
+SmartSafe Wave,TLT,0.15
+SmartSafe Wave,HYG,0.05
+SmartSafe Wave,JNJ,0.10
+SmartSafe Wave,PG,0.075
+SmartSafe Wave,KO,0.075
+SmartSafe Wave,PEP,0.05
