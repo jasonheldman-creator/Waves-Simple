@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from waves_engine import WavesEngine
+from waves_engine import WavesEngine, SmartSafeSweepEngine
 
 # ---------------------------------------------------------
 # Hard reset caches each run so we never see stale logic
@@ -22,20 +22,36 @@ st.markdown(
     "<h1 style='font-size: 2.6rem;'>WAVES Intelligence™ Institutional Console</h1>",
     unsafe_allow_html=True,
 )
-st.caption("Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • Benchmark-Relative Performance")
+st.caption(
+    "Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • "
+    "SmartSafe™ Sweep • Benchmark-Relative Performance"
+)
 
 # ---------------------------------------------------------
 # Helper formatting
 # ---------------------------------------------------------
+SMARTSAFE_EST_YIELD = 0.0425  # 4.25% estimated annual yield
+
+
 def fmt_pct(x):
-    if x is None or (isinstance(x, float) and (np.isnan(x))):
+    if x is None:
         return "—"
+    try:
+        if isinstance(x, float) and np.isnan(x):
+            return "—"
+    except Exception:
+        pass
     return f"{x * 100:0.2f}%"
 
 
 def fmt_beta(x):
-    if x is None or (isinstance(x, float) and np.isnan(x)):
+    if x is None:
         return "—"
+    try:
+        if isinstance(x, float) and np.isnan(x):
+            return "—"
+    except Exception:
+        pass
     return f"{x:0.2f}"
 
 
@@ -55,6 +71,7 @@ def get_engine() -> WavesEngine:
 
 
 engine = get_engine()
+sweep_engine = SmartSafeSweepEngine(engine)
 
 # ---------------------------------------------------------
 # Cached metric helpers
@@ -102,6 +119,12 @@ mode = st.sidebar.radio(
         "alpha-minus-beta": "Alpha-Minus-Beta",
         "private_logic": "Private Logic™",
     }[m],
+)
+
+risk_level = st.sidebar.selectbox(
+    "SmartSafe™ Household Risk Level (for Sweep Engine)",
+    options=["Conservative", "Moderate", "Aggressive"],
+    index=1,
 )
 
 if st.sidebar.button("Force Reload Engine & Data"):
@@ -175,8 +198,15 @@ metrics_df = pd.DataFrame(rows)
 # ---------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------
-tab_dashboard, tab_explorer, tab_alpha, tab_history, tab_about = st.tabs(
-    ["Dashboard", "Wave Explorer", "Alpha Matrix", "History (30-Day)", "About / Diagnostics"]
+tab_dashboard, tab_explorer, tab_alpha, tab_sweep, tab_history, tab_about = st.tabs(
+    [
+        "Dashboard",
+        "Wave Explorer",
+        "Alpha Matrix",
+        "SmartSafe™ / Sweep",
+        "History (30-Day)",
+        "About / Diagnostics",
+    ]
 )
 
 # ---------------------------------------------------------
@@ -187,7 +217,7 @@ with tab_dashboard:
 
     valid = metrics_df.replace([np.inf, -np.inf], np.nan)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         avg_30d_alpha = valid["Alpha 30D"].mean(skipna=True)
         st.metric("Avg 30-Day Alpha", fmt_pct(avg_30d_alpha))
@@ -197,6 +227,8 @@ with tab_dashboard:
     with c3:
         avg_1y_alpha = valid["Alpha 1Y"].mean(skipna=True)
         st.metric("Avg 1-Year Alpha", fmt_pct(avg_1y_alpha))
+    with c4:
+        st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
 
     display_df = metrics_df.copy()
     pct_cols = [
@@ -326,6 +358,7 @@ with tab_explorer:
             links = []
             for _, row in dyn_holdings.iterrows():
                 ticker = row["ticker"]
+                # Default to NASDAQ suffix; still works for many large caps/ETFs
                 url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
                 links.append(f"[{ticker}]({url})")
 
@@ -364,20 +397,95 @@ with tab_alpha:
     }
     alpha_df = alpha_df.sort_values(sort_map[sort_choice], ascending=False)
 
-    disp = alpha_df[[
-        "Wave",
-        "Benchmark",
-        "Alpha 30D",
-        "Alpha 60D",
-        "Alpha 1Y",
-        "Return 1Y (Wave)",
-        "Return 1Y (BM)",
-    ]].copy()
+    disp = alpha_df[
+        [
+            "Wave",
+            "Benchmark",
+            "Alpha 30D",
+            "Alpha 60D",
+            "Alpha 1Y",
+            "Return 1Y (Wave)",
+            "Return 1Y (BM)",
+        ]
+    ].copy()
 
     for col in ["Alpha 30D", "Alpha 60D", "Alpha 1Y", "Return 1Y (Wave)", "Return 1Y (BM)"]:
         disp[col] = disp[col].apply(fmt_pct)
 
     st.dataframe(disp.set_index("Wave"), use_container_width=True)
+
+# ---------------------------------------------------------
+# SMARTSAFE / SWEEP TAB
+# ---------------------------------------------------------
+with tab_sweep:
+    st.subheader("SmartSafe™ Sweep Engine — Household Allocation")
+
+    st.markdown(
+        """
+        This view uses the **SmartSafeSweepEngine** on top of all active Waves to suggest a 
+        household-level allocation between **risk Waves** and the **SmartSafe Wave**, based on:
+        - Selected **Mode** (Standard / Alpha-Minus-Beta / Private Logic™)
+        - Sidebar **Risk Level** (Conservative / Moderate / Aggressive)
+        - Current **volatility regime** inferred from the Wave engine
+
+        SmartSafe™ is modeled as a capital-preservation anchor with an estimated annual yield 
+        of approximately **4.25%**, and risk Waves are blended to optimize risk-adjusted exposure.
+        """
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Selected Mode", mode)
+    with c2:
+        st.metric("Household Risk Level", risk_level)
+
+    st.metric("SmartSafe™ Estimated Yield", fmt_pct(SMARTSAFE_EST_YIELD))
+
+    if st.button("Run SmartSafe™ Sweep Allocation"):
+        try:
+            alloc = sweep_engine.recommend_allocation(mode=mode, risk_level=risk_level)
+            eval_result = sweep_engine.evaluate_portfolio(allocations=alloc, mode=mode)
+
+            st.markdown("### Recommended Allocation by Wave")
+            alloc_df = pd.DataFrame(
+                [
+                    {"Wave": w, "Allocation Weight": float(a)}
+                    for w, a in alloc.items()
+                ]
+            ).sort_values("Allocation Weight", ascending=False)
+            alloc_df["Allocation Weight"] = alloc_df["Allocation Weight"].apply(fmt_pct)
+            st.dataframe(alloc_df.set_index("Wave"), use_container_width=True)
+
+            st.markdown("### Blended Portfolio Alpha & Return (Approximate)")
+            if eval_result:
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    st.metric("Blended 30D Alpha", fmt_pct(eval_result.get("alpha_30d_blended")))
+                with m2:
+                    st.metric("Blended 60D Alpha", fmt_pct(eval_result.get("alpha_60d_blended")))
+                with m3:
+                    st.metric("Blended 1Y Alpha", fmt_pct(eval_result.get("alpha_1y_blended")))
+
+                r1, r2, r3 = st.columns(3)
+                with r1:
+                    st.metric(
+                        "Blended 30D Return (Wave)",
+                        fmt_pct(eval_result.get("return_30d_wave_blended")),
+                    )
+                with r2:
+                    st.metric(
+                        "Blended 60D Return (Wave)",
+                        fmt_pct(eval_result.get("return_60d_wave_blended")),
+                    )
+                with r3:
+                    st.metric(
+                        "Blended 1Y Return (Wave)",
+                        fmt_pct(eval_result.get("return_1y_wave_blended")),
+                    )
+            else:
+                st.info("Unable to compute blended portfolio metrics for the current configuration.")
+        except Exception as e:
+            st.error(f"Error running SmartSafe™ Sweep Engine: {e}")
 
 # ---------------------------------------------------------
 # HISTORY TAB
@@ -412,6 +520,11 @@ with tab_about:
         **Weighting:** Dynamic risk-parity + signal tilt + VIX regime + mode overlay  
         **Benchmarks:** Custom blended ETF & index mappings for each Wave  
         **Alpha:** Wave return − Benchmark return (with VIX-gated exposure and slippage)  
+
+        **SmartSafe™:**  
+        - Modeled as a capital-preservation Wave with an estimated yield of ~4.25%  
+        - Acts as a stable anchor in the SmartSafe™ Sweep Engine  
+        - Designed as the cash-equivalent Wave for multi-Wave household allocations  
 
         - TLH signals show how many holdings are >10% below their 60-day high and how
           much of the Wave's dynamic weight they represent.  
