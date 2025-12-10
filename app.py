@@ -22,15 +22,13 @@ st.markdown(
     "<h1 style='font-size: 2.6rem;'>WAVES Intelligence™ Institutional Console</h1>",
     unsafe_allow_html=True,
 )
-st.caption(
-    "Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • Benchmark-Relative Performance"
-)
+st.caption("Live Wave Engine • Dynamic Weights • VIX-Aware Alpha Capture • Benchmark-Relative Performance")
 
 # ---------------------------------------------------------
 # Helper formatting
 # ---------------------------------------------------------
 def fmt_pct(x):
-    if x is None or (isinstance(x, float) and np.isnan(x)):
+    if x is None or (isinstance(x, float) and (np.isnan(x))):
         return "—"
     return f"{x * 100:0.2f}%"
 
@@ -68,9 +66,7 @@ def get_wave_metrics(wave: str, mode: str):
 
 @st.cache_data(show_spinner=False)
 def get_wave_top_holdings_dynamic(wave: str, mode: str, n: int = 10) -> pd.DataFrame:
-    """
-    Top holdings using dynamic current_weights merged with static metadata.
-    """
+    """Top holdings using dynamic current_weights merged with static metadata."""
     base = engine.get_wave_holdings(wave)
     if base is None or base.empty:
         return base
@@ -89,11 +85,7 @@ def get_wave_top_holdings_dynamic(wave: str, mode: str, n: int = 10) -> pd.DataF
     if base.empty:
         return base
 
-    base = (
-        base.sort_values("dynamic_weight", ascending=False)
-        .head(n)
-        .reset_index(drop=True)
-    )
+    base = base.sort_values("dynamic_weight", ascending=False).head(n).reset_index(drop=True)
     return base
 
 
@@ -225,19 +217,13 @@ with tab_dashboard:
 
     display_df["Beta (≈60D)"] = display_df["Beta (≈60D)"].apply(fmt_beta)
     display_df["Exposure"] = display_df["Exposure"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.2f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.2f}"
     )
     display_df["VIX Last"] = display_df["VIX Last"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.2f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.2f}"
     )
     display_df["UAPV Unit Price"] = display_df["UAPV Unit Price"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.4f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.4f}"
     )
 
     st.markdown("### All Waves Snapshot")
@@ -314,9 +300,7 @@ with tab_explorer:
         with b2:
             st.metric(
                 "Current Exposure",
-                "—"
-                if m["exposure_final"] is None
-                else f"{m['exposure_final']:0.2f}",
+                "—" if m["exposure_final"] is None else f"{m['exposure_final']:0.2f}",
             )
         with b3:
             vix_val = m.get("vix_last", None)
@@ -347,9 +331,7 @@ with tab_explorer:
 
             holdings_display = dyn_holdings.copy()
             holdings_display["Ticker"] = links
-            holdings_display["Dynamic Weight"] = holdings_display[
-                "dynamic_weight"
-            ].apply(fmt_pct)
+            holdings_display["Dynamic Weight"] = holdings_display["dynamic_weight"].apply(fmt_pct)
             holdings_display.rename(
                 columns={"company": "Company", "sector": "Sector"},
                 inplace=True,
@@ -382,17 +364,15 @@ with tab_alpha:
     }
     alpha_df = alpha_df.sort_values(sort_map[sort_choice], ascending=False)
 
-    disp = alpha_df[
-        [
-            "Wave",
-            "Benchmark",
-            "Alpha 30D",
-            "Alpha 60D",
-            "Alpha 1Y",
-            "Return 1Y (Wave)",
-            "Return 1Y (BM)",
-        ]
-    ].copy()
+    disp = alpha_df[[
+        "Wave",
+        "Benchmark",
+        "Alpha 30D",
+        "Alpha 60D",
+        "Alpha 1Y",
+        "Return 1Y (Wave)",
+        "Return 1Y (BM)",
+    ]].copy()
 
     for col in ["Alpha 30D", "Alpha 60D", "Alpha 1Y", "Return 1Y (Wave)", "Return 1Y (BM)"]:
         disp[col] = disp[col].apply(fmt_pct)
@@ -416,10 +396,7 @@ with tab_history:
         hist_df = None
 
     if hist_df is not None and not hist_df.empty:
-        st.line_chart(
-            hist_df[["wave_value", "benchmark_value"]],
-            use_container_width=True,
-        )
+        st.line_chart(hist_df[["wave_value", "benchmark_value"]], use_container_width=True)
     else:
         st.info("No 30-day history available for this Wave yet.")
 
@@ -448,30 +425,20 @@ with tab_about:
     diag = metrics_df.copy()
     diag["Beta (≈60D)"] = diag["Beta (≈60D)"].apply(fmt_beta)
     diag["Exposure"] = diag["Exposure"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.2f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.2f}"
     )
     diag["VIX Last"] = diag["VIX Last"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.2f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.2f}"
     )
     diag["Turnover Annual"] = diag["Turnover Annual"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.2f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.2f}"
     )
     diag["Slippage Drag Annual"] = diag["Slippage Drag Annual"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.4f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.4f}"
     )
     diag["TLH Weight"] = diag["TLH Weight"].apply(fmt_pct)
     diag["UAPV Unit Price"] = diag["UAPV Unit Price"].apply(
-        lambda x: "—"
-        if x is None or (isinstance(x, float) and np.isnan(x))
-        else f"{x:0.4f}"
+        lambda x: "—" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:0.4f}"
     )
 
     st.markdown("### Engine & Risk Diagnostics")
