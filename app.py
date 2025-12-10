@@ -408,7 +408,7 @@ with tab_about:
 
     st.markdown(
         """
-        **Engine:** WAVES Intelligence™ Vector 2.8  
+        **Engine:** WAVES Intelligence™ Vector 2.8+  
         **Weighting:** Dynamic risk-parity + signal tilt + VIX regime + mode overlay  
         **Benchmarks:** Custom blended ETF & index mappings for each Wave  
         **Alpha:** Wave return − Benchmark return (with VIX-gated exposure and slippage)  
