@@ -1,11 +1,12 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.8 Engine
+waves_engine.py — WAVES Intelligence™ Vector 2.8+ Engine
 
 Core features
 -------------
 • Loads list.csv (universe) and wave_weights.csv.
+• Normalizes legacy Wave names to canonical ones (Crypto, Cloud/Software, etc.).
 • Aggregates duplicate tickers per Wave & normalizes weights.
-• Fetches ~1-year daily prices via yfinance.
+• Fetches ~1-year daily prices via yfinance by default.
 • Builds dynamic Wave portfolios using:
 
     - Risk-parity base (inverse 60-day volatility).
@@ -14,7 +15,7 @@ Core features
     - Mode-aware tilt:
         * standard
         * alpha-minus-beta
-        * private_logic (aggressive)
+        * private_logic (more aggressive)
     - Wave-specific logic:
         * SmartSafe: minimal tilt, conservative exposure.
         * AI Wave: extra tilt in calm regimes (esp. Private Logic™).
@@ -28,12 +29,16 @@ Core features
     - Intraday alpha
     - 30D / 60D / 1Y alpha
     - 30D / 60D / 1Y Wave & Benchmark returns
-    - Realized beta (~60D)
+    - Realized beta (~60 bars)
     - UAPV unit price (Wave token/unit value)
-    - TLH opportunity stats
+    - TLH opportunity stats + details
     - Turnover & slippage drag
 
-This is a “full strategy brain” for WAVES.
+Additional:
+-----------
+• SmartSafeSweepEngine: multi-Wave + SmartSafe allocation layer.
+• get_wave_performance_with_prices(): run strategy on custom price matrices
+  (e.g., intraday or external data), instead of yfinance.
 """
 
 from __future__ import annotations
@@ -123,10 +128,29 @@ class WavesEngine:
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
         df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
 
+        # 🔁 NAME NORMALIZATION: map legacy labels to canonical names
+        name_map = {
+            # Crypto
+            "Crypto Income Wave": "Crypto Equity Wave (mid/large cap)",
+            "Crypto Equity Wave": "Crypto Equity Wave (mid/large cap)",
+
+            # Small cap growth → Cloud/Enterprise Software
+            "Small Cap Growth Wave": "Cloud & Enterprise Software Growth Wave",
+            "Cloud Computing & Enterprise Software Growth Fund": "Cloud & Enterprise Software Growth Wave",
+
+            # Future Power & Energy minor variants
+            "Future Power & Energy": "Future Power & Energy Wave",
+
+            # Clean Transit variants
+            "Clean Transit - Infrastructure Wave": "Clean Transit-Infrastructure Wave",
+            "Clean Transit & Infrastructure Wave": "Clean Transit-Infrastructure Wave",
+        }
+        df["wave"] = df["wave"].replace(name_map)
+
         df = df.dropna(subset=["ticker", "weight"])
         df["weight"] = df["weight"].astype(float)
 
-        # Normalize per Wave
+        # Normalize per Wave so weights sum to 1
         weight_sum = df.groupby("wave")["weight"].transform("sum")
         weight_sum = weight_sum.replace(0, np.nan)
         df["weight"] = df["weight"] / weight_sum
@@ -325,7 +349,7 @@ class WavesEngine:
                 v_mult = 0.6 if mode != "alpha-minus-beta" else 0.5
 
             # Wave-specific tweaks
-            if wave == "Crypto Equity Wave (mid/large cap)" or wave == "Crypto Equity Wave":
+            if wave in ("Crypto Equity Wave (mid/large cap)", "Crypto Equity Wave"):
                 if regime in ("elevated", "extreme"):
                     v_mult *= 0.9
             if wave == "AI Wave" and mode == "private_logic":
@@ -472,19 +496,41 @@ class WavesEngine:
         return weights_time
 
     # ---------------------------------------------------------
-    # TLH SIGNALS
+    # TLH SIGNALS (UPGRADED)
     # ---------------------------------------------------------
     def _compute_tlh_signals(
         self,
         price_matrix: pd.DataFrame,
         current_weights: pd.Series,
-    ) -> Dict[str, Union[float, int]]:
+    ) -> Dict[str, object]:
+        """
+        TLH signal engine (still heuristic, NOT legal/tax advice):
+
+        • Looks back 60 days, finds max price for each ticker.
+        • Computes current drawdown (% below 60D high).
+        • Flags tickers below -self.tlh_drawdown_threshold (e.g., -10%).
+        • Summarizes:
+            - tlh_candidate_count
+            - tlh_candidate_weight
+        • Also produces a details DataFrame with suggested 'replacement' tickers.
+
+        NOTE: Replacement tickers are crude, illustrative proxies. A real TLH
+        engine would consider wash-sale rules, factor exposure, issuer, etc.
+        """
         if price_matrix.empty or current_weights is None or current_weights.empty:
-            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+            return {
+                "tlh_candidate_count": 0,
+                "tlh_candidate_weight": 0.0,
+                "tlh_details": None,
+            }
 
         roll_high = price_matrix.rolling(60).max()
         if roll_high.empty:
-            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+            return {
+                "tlh_candidate_count": 0,
+                "tlh_candidate_weight": 0.0,
+                "tlh_details": None,
+            }
 
         dd = price_matrix / roll_high - 1.0
         dd_last = dd.iloc[-1]
@@ -492,21 +538,68 @@ class WavesEngine:
         threshold = -abs(self.tlh_drawdown_threshold)
         candidates_mask = dd_last <= threshold
 
-        tickers = [t for t in dd_last.index if candidates_mask.get(t, False)]
+        tickers = [t for t in dd_last.index if bool(candidates_mask.get(t, False))]
         count = len(tickers)
         if count == 0:
-            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+            return {
+                "tlh_candidate_count": 0,
+                "tlh_candidate_weight": 0.0,
+                "tlh_details": None,
+            }
 
         weights_aligned = current_weights.reindex(dd_last.index).fillna(0.0)
         tlh_weight = float(weights_aligned[tickers].sum())
 
+        # Very simple "replacement" mapping for illustration
+        replacement_map: Dict[str, str] = {
+            "SPY": "VOO",
+            "VOO": "SPY",
+            "IVV": "SPY",
+            "QQQ": "VUG",
+            "IWF": "VUG",
+            "VUG": "QQQ",
+            "VTWG": "IJT",
+            "IJT": "VTWG",
+            "VO": "IWR",
+            "IWR": "VO",
+            "SCHD": "VYM",
+            "VYM": "SCHD",
+            "IGV": "VGT",
+            "VGT": "IGV",
+            "WCLD": "CLOU",
+            "SOXX": "SMH",
+            "SMH": "SOXX",
+            "IYW": "XLK",
+            "XLK": "IYW",
+            "FBTC": "IBIT",
+            "IBIT": "FBTC",
+            "DAPP": "BKCH",
+            "BKCH": "DAPP",
+        }
+
+        rows = []
+        for t in tickers:
+            rows.append(
+                {
+                    "ticker": t,
+                    "current_weight": float(weights_aligned.get(t, 0.0)),
+                    "drawdown_from_60d_high": float(dd_last[t]),
+                    "suggested_replacement": replacement_map.get(t, None),
+                }
+            )
+
+        details_df = pd.DataFrame(rows).sort_values(
+            "drawdown_from_60d_high"
+        ).reset_index(drop=True)
+
         return {
             "tlh_candidate_count": int(count),
             "tlh_candidate_weight": float(tlh_weight),
+            "tlh_details": details_df,
         }
 
     # ---------------------------------------------------------
-    # CORE PERFORMANCE
+    # CORE PERFORMANCE (DEFAULT, USING YFINANCE PRICES)
     # ---------------------------------------------------------
     def get_wave_performance(
         self,
@@ -515,7 +608,7 @@ class WavesEngine:
         log: bool = False,
     ) -> Optional[dict]:
         """
-        Full metrics for a given Wave + mode:
+        Full metrics for a given Wave + mode, using yfinance data:
           • Dynamic per-day weights
           • VIX-based exposure overlay
           • Slippage + turnover model
@@ -657,7 +750,6 @@ class WavesEngine:
         slippage_annual_drag = slippage_daily_avg * 252.0
 
         tlh_signals = self._compute_tlh_signals(price_matrix, current_weights)
-
         uapv_unit_price = float(df["wave_value"].iloc[-1])
 
         result = {
@@ -682,6 +774,200 @@ class WavesEngine:
             "slippage_annual_drag": slippage_annual_drag,
             "tlh_candidate_count": tlh_signals["tlh_candidate_count"],
             "tlh_candidate_weight": tlh_signals["tlh_candidate_weight"],
+            "tlh_details": tlh_signals["tlh_details"],
+            "uapv_unit_price": uapv_unit_price,
+        }
+
+        if log:
+            self._log_performance_row(wave, result)
+
+        return result
+
+    # ---------------------------------------------------------
+    # VARIANT: USE CUSTOM PRICE MATRIX (E.G. INTRADAY)
+    # ---------------------------------------------------------
+    def get_wave_performance_with_prices(
+        self,
+        wave: str,
+        mode: str,
+        price_matrix: pd.DataFrame,
+        log: bool = False,
+    ) -> Optional[dict]:
+        """
+        Variant of get_wave_performance that uses a caller-provided price_matrix
+        instead of pulling from yfinance.
+
+        price_matrix:
+            • DataFrame indexed by datetime
+            • Columns are tickers
+            • Should contain all tickers for the Wave (and benchmark if desired)
+            • Can be daily or intraday bars (strategy is time-step agnostic).
+
+        NOTE:
+            - You are responsible for ensuring the frequency & history are
+              appropriate (e.g., at least ~60–252 bars).
+            - For intraday, the alpha math is the same but over finer bars.
+        """
+        holdings = self.get_wave_holdings(wave)
+        if holdings.empty:
+            raise ValueError(f"No holdings defined for Wave: {wave}")
+
+        weights_all = (
+            holdings.groupby("ticker")["weight"]
+            .sum()
+            .astype(float)
+        )
+        all_tickers = list(weights_all.index)
+
+        # Subset the provided price_matrix to needed tickers
+        price_matrix = price_matrix.copy()
+        missing = [t for t in all_tickers if t not in price_matrix.columns]
+        if len(missing) == len(all_tickers):
+            raise ValueError(f"None of the Wave tickers are in the provided price matrix: {missing}")
+
+        price_matrix = price_matrix.loc[:, price_matrix.columns.isin(all_tickers)]
+        price_matrix = price_matrix.dropna(how="all")
+
+        ret_matrix = price_matrix.pct_change().iloc[1:, :].astype(float)
+        ret_matrix = ret_matrix.dropna(axis=1, how="all")
+        if ret_matrix.empty:
+            raise ValueError(f"No usable return history for Wave {wave} in provided prices")
+        ret_filled = ret_matrix.fillna(0.0)
+
+        # For now, reuse ^VIX (daily) and align to the custom index
+        vix_series = self._get_vix_series(ret_matrix.index, period="1y")
+
+        # Dynamic weights & performance identical to get_wave_performance
+        weights_time = self._compute_dynamic_weights(wave, ret_matrix, vix_series, mode)
+        weights_time = weights_time.reindex_like(ret_filled).fillna(0.0)
+
+        gross_wave_ret = (weights_time * ret_filled).sum(axis=1)
+        gross_wave_ret.name = "wave_return_gross"
+
+        turnover = weights_time.diff().abs().sum(axis=1) * 0.5
+        turnover = turnover.fillna(0.0)
+        slippage_cost = turnover * self.slippage_bps
+
+        raw_wave_ret = gross_wave_ret - slippage_cost
+        raw_wave_ret.name = "wave_return_raw"
+
+        exposure_series = self._compute_exposure_series(wave, mode, vix_series)
+        wave_ret_series = raw_wave_ret * exposure_series
+        wave_ret_series.name = "wave_return"
+
+        wave_value = (1.0 + wave_ret_series).cumprod()
+        wave_value.name = "wave_value"
+
+        # Benchmark still pulled via get_benchmark / yfinance for now
+        benchmark = self.get_benchmark(wave)
+        if isinstance(benchmark, dict):
+            bm_prices = self._get_price_matrix(list(benchmark.keys()), period="1y")
+            bm_rets = bm_prices.pct_change().iloc[1:, :].astype(float)
+            w_bm = pd.Series(benchmark).reindex(bm_rets.columns).fillna(0.0)
+            if w_bm.sum() <= 0:
+                w_bm = pd.Series(1.0, index=bm_rets.columns)
+            else:
+                w_bm = w_bm / w_bm.sum()
+            bm_ret = bm_rets.mul(w_bm.values, axis=1).sum(axis=1)
+            bm_ret.name = "benchmark_return"
+            bm_value = (1.0 + bm_ret).cumprod()
+            bm_value.name = "benchmark_value"
+        else:
+            bm_price = self._get_price_series(benchmark, period="1y")
+            bm_ret = bm_price.pct_change().iloc[1:].astype(float)
+            bm_ret.name = "benchmark_return"
+            bm_value = (1.0 + bm_ret).cumprod()
+            bm_value.name = "benchmark_value"
+
+        df = pd.concat([wave_ret_series, bm_ret, wave_value, bm_value], axis=1).dropna()
+        if df.empty:
+            raise ValueError(f"No overlapping Wave/benchmark history for {wave} (custom prices)")
+
+        df["alpha_captured"] = df["wave_return"] - df["benchmark_return"]
+
+        # Alpha windows
+        def alpha_window(series: pd.Series, window: int) -> Optional[float]:
+            if series is None or series.empty:
+                return None
+            n = min(window, len(series))
+            if n <= 0:
+                return None
+            return float(series.tail(n).sum())
+
+        intraday_alpha = float(df["alpha_captured"].iloc[-1])
+        alpha_30d = alpha_window(df["alpha_captured"], 30)
+        alpha_60d = alpha_window(df["alpha_captured"], 60)
+        alpha_1y = alpha_window(df["alpha_captured"], len(df))
+
+        def window_return(curve: pd.Series, window: int) -> Optional[float]:
+            if curve is None or curve.empty:
+                return None
+            n = min(window, len(curve))
+            if n <= 1:
+                return None
+            start = float(curve.iloc[-n])
+            end = float(curve.iloc[-1])
+            if start == 0:
+                return None
+            return (end / start) - 1.0
+
+        ret_30_wave = window_return(df["wave_value"], 30)
+        ret_30_bm = window_return(df["benchmark_value"], 30)
+        ret_60_wave = window_return(df["wave_value"], 60)
+        ret_60_bm = window_return(df["benchmark_value"], 60)
+        ret_1y_wave = window_return(df["wave_value"], min(len(df), 252))
+        ret_1y_bm = window_return(df["benchmark_value"], min(len(df), 252))
+
+        # Realized beta (~60 bars)
+        beta_realized = np.nan
+        tail_n = min(60, len(df))
+        if tail_n >= 20:
+            x = df["benchmark_return"].tail(tail_n).values.flatten()
+            y = df["wave_return"].tail(tail_n).values.flatten()
+            if np.var(x) > 0:
+                cov_xy = np.cov(x, y)[0, 1]
+                beta_realized = float(cov_xy / np.var(x))
+
+        exposure_final = float(exposure_series.iloc[-1])
+        vix_last = float(vix_series.iloc[-1])
+        regime_last = self._get_vol_regime(vix_last)
+
+        current_weights = weights_time.iloc[-1].dropna()
+        current_weights = current_weights[current_weights > 0.0]
+
+        history_30d = df.tail(30).copy()
+
+        turnover_daily_avg = float(turnover.mean())
+        turnover_annual = turnover_daily_avg * 252.0
+        slippage_daily_avg = float(slippage_cost.mean())
+        slippage_annual_drag = slippage_daily_avg * 252.0
+
+        tlh_signals = self._compute_tlh_signals(price_matrix, current_weights)
+        uapv_unit_price = float(df["wave_value"].iloc[-1])
+
+        result = {
+            "benchmark": benchmark,
+            "beta_realized": beta_realized,
+            "exposure_final": exposure_final,
+            "intraday_alpha_captured": intraday_alpha,
+            "alpha_30d": alpha_30d,
+            "alpha_60d": alpha_60d,
+            "alpha_1y": alpha_1y,
+            "return_30d_wave": ret_30_wave,
+            "return_30d_benchmark": ret_30_bm,
+            "return_60d_wave": ret_60_wave,
+            "return_60d_benchmark": ret_60_bm,
+            "return_1y_wave": ret_1y_wave,
+            "return_1y_benchmark": ret_1y_bm,
+            "history_30d": history_30d,
+            "vix_last": vix_last,
+            "vol_regime": regime_last,
+            "current_weights": current_weights,
+            "turnover_annual": turnover_annual,
+            "slippage_annual_drag": slippage_annual_drag,
+            "tlh_candidate_count": tlh_signals["tlh_candidate_count"],
+            "tlh_candidate_weight": tlh_signals["tlh_candidate_weight"],
+            "tlh_details": tlh_signals["tlh_details"],
             "uapv_unit_price": uapv_unit_price,
         }
 
@@ -732,3 +1018,117 @@ class WavesEngine:
         except Exception:
             # Logging must never break engine
             pass
+
+
+# -------------------------------------------------------------
+# SmartSafeSweepEngine — multi-Wave + SmartSafe allocator layer
+# -------------------------------------------------------------
+class SmartSafeSweepEngine:
+    """
+    SmartSafeSweepEngine — multi-Wave + SmartSafe allocator
+
+    This is a light "household" layer on top of WavesEngine. It does NOT place
+    trades; it just suggests how much to put in:
+      • risk Waves (all non-SmartSafe waves)
+      • SmartSafe Wave
+    based on a simple risk level and current VIX regime.
+    """
+
+    def __init__(self, engine: WavesEngine, smartsafe_wave_name: str = "SmartSafe Wave"):
+        self.engine = engine
+        self.smartsafe_wave_name = smartsafe_wave_name
+
+    def _split_waves(self) -> tuple[List[str], List[str]]:
+        all_waves = self.engine.get_wave_names()
+        smart = [w for w in all_waves if self.smartsafe_wave_name.lower() in w.lower()]
+        risk = [w for w in all_waves if w not in smart]
+        return risk, smart
+
+    def recommend_allocation(self, mode: str, risk_level: str) -> dict:
+        """
+        Returns a dict of {Wave: allocation_weight} that sums to 1.0.
+
+        risk_level: "Conservative", "Moderate", "Aggressive"
+        """
+
+        risk_waves, smart_waves = self._split_waves()
+        if not smart_waves:
+            # no SmartSafe found — allocate only across risk waves
+            w = 1.0 / max(1, len(risk_waves))
+            return {rw: w for rw in risk_waves}
+
+        smart_wave = smart_waves[0]
+
+        rl = risk_level.lower()
+        if rl.startswith("con"):
+            smart_alloc = 0.60
+        elif rl.startswith("agg"):
+            smart_alloc = 0.20
+        else:
+            smart_alloc = 0.40  # Moderate default
+
+        # Simple VIX-based tweak: push more to SmartSafe if regime is elevated/extreme
+        try:
+            # Just inspect the first risk wave for VIX regime
+            m0 = self.engine.get_wave_performance(risk_waves[0], mode=mode, log=False)
+            regime = m0.get("vol_regime", "normal")
+            if regime in ("elevated", "extreme"):
+                smart_alloc = min(0.80, smart_alloc + 0.10)
+        except Exception:
+            pass
+
+        risk_alloc_total = 1.0 - smart_alloc
+        per_risk = risk_alloc_total / max(1, len(risk_waves))
+
+        alloc = {rw: per_risk for rw in risk_waves}
+        alloc[smart_wave] = smart_alloc
+        return alloc
+
+    def evaluate_portfolio(self, allocations: dict, mode: str) -> dict:
+        """
+        Given {Wave: allocation} weights (sum ≈ 1.0),
+        compute blended Wave performance across Waves.
+        """
+
+        waves = list(allocations.keys())
+        weights = np.array([allocations[w] for w in waves], dtype=float)
+        if weights.sum() <= 0:
+            return {}
+
+        weights = weights / weights.sum()
+
+        entries = []
+        for i, w in enumerate(waves):
+            try:
+                m = self.engine.get_wave_performance(w, mode=mode, log=False)
+                entries.append((w, m, weights[i]))
+            except Exception:
+                continue
+
+        if not entries:
+            return {}
+
+        def _blend(key: str) -> Optional[float]:
+            vals = []
+            ws = []
+            for wname, m, wgt in entries:
+                v = m.get(key, None)
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                vals.append(v)
+                ws.append(wgt)
+            if not vals or sum(ws) <= 0:
+                return None
+            ws = np.array(ws)
+            ws = ws / ws.sum()
+            return float(np.dot(ws, np.array(vals)))
+
+        return {
+            "allocations": {w: float(a) for w, a in allocations.items()},
+            "alpha_30d_blended": _blend("alpha_30d"),
+            "alpha_60d_blended": _blend("alpha_60d"),
+            "alpha_1y_blended": _blend("alpha_1y"),
+            "return_30d_wave_blended": _blend("return_30d_wave"),
+            "return_60d_wave_blended": _blend("return_60d_wave"),
+            "return_1y_wave_blended": _blend("return_1y_wave"),
+        }
