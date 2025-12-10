@@ -1,12 +1,15 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-(Restored Baseline + Upgraded Performance)
+(VIX Ladder + SmartSafe 2.0 Weighted Sweep Enabled)
 
 This version:
 - Auto-discovers Waves from wave_weights.csv
-- Uses SmartSafe 2.0 *hook only* (no SmartSafe 3.0 logic)
+- Implements a real VIX-based risk ladder (no SmartSafe 3.0 anywhere)
+- Implements SmartSafe 2.0 *weighted sweep*:
+    * When VIX is high, trims highest-volatility holdings first
+    * Frees up X% of portfolio and reallocates to BIL (SmartSafe proxy)
 - Computes intraday, 30-day, and 60-day performance and alpha vs benchmark
-- Has more robust price download logic
+- Uses robust price download logic
 - Falls back to last logged performance metrics if live pulls fail
 
 Assumptions:
@@ -57,13 +60,30 @@ BENCHMARK_MAP: Dict[str, str] = {
     "SmartSafe Money Market Wave": "BIL",
 }
 
+# VIX ladder (Option B — second option)
+# VIX <20  -> 0% shift
+# 20–25    -> 15%
+# 25–30    -> 30%
+# 30–40    -> 50%
+# >40      -> 80%
+VIX_LEVELS = [
+    (40.0, 0.80),
+    (30.0, 0.50),
+    (25.0, 0.30),
+    (20.0, 0.15),
+]
+
+# Daily return clipping band (guardrail for extreme bad ticks)
+DAILY_RETURN_CLIP = 0.20  # +/- 20% per day max
+
+
 # ---------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------
 
 
 def _normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
-    """Trim whitespace on headers; keep casing but clean up weird spacing."""
+    """Trim whitespace on headers; keep casing but clean up spacing."""
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     return df
@@ -164,7 +184,7 @@ def _get_benchmark_for_wave(wave_name: str) -> str:
     return "SPY"
 
 
-def _download_price_series(ticker: str, period: str = "180d") -> pd.Series:
+def _download_price_series(ticker: str, period: str = "365d") -> pd.Series:
     """
     Download daily adjusted close for a single ticker.
 
@@ -218,21 +238,174 @@ def _get_fast_intraday_return(ticker: str) -> Tuple[float, float]:
 
 
 # ---------------------------------------------------------------------
-# SmartSafe 2.0 (placeholder hook)
+# VIX & SmartSafe 2.0
 # ---------------------------------------------------------------------
 
 
-def apply_smartsafe_sweep(positions: pd.DataFrame) -> pd.DataFrame:
+def _get_vix_level() -> Optional[float]:
     """
-    SmartSafe 2.0 sweep *hook*.
-
-    IMPORTANT:
-    - This is intentionally minimal and non-destructive.
-    - No SmartSafe 3.0 logic in this file.
-
-    Currently: returns positions unchanged.
+    Fetch latest VIX level using ^VIX.
+    If unavailable, return None (no sweep).
     """
-    return positions
+    try:
+        s = _download_price_series("^VIX", period="7d")
+        if s.empty:
+            return None
+        return float(s.dropna().iloc[-1])
+    except Exception:
+        return None
+
+
+def _compute_sweep_fraction_from_vix(vix_level: Optional[float]) -> float:
+    """
+    Ladder rule (Option B):
+
+    VIX <20   -> 0%
+    20–25     -> 15%
+    25–30     -> 30%
+    30–40     -> 50%
+    >40       -> 80%
+    """
+    if vix_level is None:
+        return 0.0
+    if vix_level < 20:
+        return 0.0
+
+    for threshold, frac in VIX_LEVELS:
+        if vix_level >= threshold:
+            return frac
+
+    # If between 20 and lowest threshold (20), we already handled <20; so:
+    return 0.15
+
+
+def _compute_vol_by_ticker(tickers: List[str], period: str = "90d") -> pd.DataFrame:
+    """
+    Compute simple historical volatility per ticker using daily returns over `period`.
+    Returns DataFrame with columns: ticker, vol
+    """
+    records = []
+    for t in tickers:
+        s = _download_price_series(t, period=period)
+        if s.empty:
+            continue
+        returns = s.pct_change().dropna()
+        if returns.empty:
+            continue
+        # Clip extreme moves for stability
+        returns = returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
+        vol = float(returns.std())
+        records.append({"ticker": t, "vol": vol})
+
+    if not records:
+        return pd.DataFrame(columns=["ticker", "vol"])
+
+    return pd.DataFrame(records)
+
+
+def apply_smartsafe_sweep(
+    wave_name: str,
+    positions: pd.DataFrame,
+    vix_level: Optional[float],
+) -> pd.DataFrame:
+    """
+    SmartSafe 2.0 weighted sweep (Option 2).
+
+    - If wave is the SmartSafe Money Market Wave itself, do nothing.
+    - Otherwise:
+        * Compute sweep_fraction from VIX ladder.
+        * Trim highest-volatility tickers first until that fraction is freed.
+        * Add a synthetic BIL position with the freed weight.
+
+    Returns a new positions DataFrame with adjusted weights (and BIL if used).
+    """
+    if positions.empty:
+        return positions
+
+    # Don't sweep SmartSafe Wave itself
+    if "smartsafe" in wave_name.lower():
+        return positions
+
+    sweep_fraction = _compute_sweep_fraction_from_vix(vix_level)
+    if sweep_fraction <= 0.0:
+        return positions
+
+    df = positions.copy()
+
+    # Normalize weights (just to be safe)
+    total_weight = df["weight"].sum()
+    if total_weight <= 0:
+        return positions
+    df["weight"] = df["weight"] / total_weight
+
+    # Compute volatility per ticker
+    tickers = df["ticker"].unique().tolist()
+    vol_df = _compute_vol_by_ticker(tickers, period="90d")
+
+    # If we can't compute vol, fall back to proportional sweep
+    if vol_df.empty:
+        trim_amount = sweep_fraction
+        df["weight"] = df["weight"] * (1.0 - sweep_fraction)
+        # Add BIL with swept weight
+        bil_last, bil_intraday = _get_fast_intraday_return("BIL")
+        bil_row = {
+            "ticker": "BIL",
+            "weight": trim_amount,
+            "last_price": bil_last,
+            "intraday_return": bil_intraday,
+        }
+        df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
+        return df
+
+    # Merge vol into positions, default vol=0 if missing
+    df = df.merge(vol_df, on="ticker", how="left")
+    df["vol"] = df["vol"].fillna(0.0)
+
+    # Sort by volatility descending (highest vol first = trimmed first)
+    df = df.sort_values("vol", ascending=False)
+
+    target_sweep = sweep_fraction
+    remaining_sweep = target_sweep
+    bil_weight = 0.0
+
+    new_weights = []
+    for _, row in df.iterrows():
+        w = float(row["weight"])
+        if remaining_sweep <= 0.0:
+            new_weights.append(w)
+            continue
+
+        cut = min(w, remaining_sweep)
+        new_w = w - cut
+        bil_weight += cut
+        remaining_sweep -= cut
+        new_weights.append(new_w)
+
+    df["weight"] = new_weights
+
+    # Drop vol column; it's just internal
+    df = df.drop(columns=["vol"])
+
+    # If we didn't actually sweep anything, return original
+    if bil_weight <= 0.0:
+        return positions
+
+    # Add BIL as SmartSafe allocation
+    bil_last, bil_intraday = _get_fast_intraday_return("BIL")
+    bil_row = {
+        "ticker": "BIL",
+        "weight": bil_weight,
+        "last_price": bil_last,
+        "intraday_return": bil_intraday,
+    }
+    df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
+
+    # Re-normalize to ensure sum of weights ~ 1
+    total_weight = df["weight"].sum()
+    if total_weight > 0:
+        df["weight"] = df["weight"] / total_weight
+
+    return df
 
 
 # ---------------------------------------------------------------------
@@ -290,6 +463,9 @@ def _compute_portfolio_trailing_returns(
     port_values = (prices_df * aligned_weights).sum(axis=1)
     port_returns = port_values.pct_change().dropna()
 
+    # Clip extreme daily moves (guardrail)
+    port_returns = port_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
+
     # Benchmark
     bench_series = _download_price_series(benchmark_ticker, period=period)
     if bench_series.empty:
@@ -297,6 +473,7 @@ def _compute_portfolio_trailing_returns(
     else:
         bench_series = bench_series.reindex(port_returns.index).ffill()
         bench_returns = bench_series.pct_change().dropna()
+        bench_returns = bench_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
         port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
 
     def _window_total_return(r: pd.Series, days: int) -> float:
@@ -358,7 +535,7 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
 
 def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
     """
-    If live price downloads fail and return zeros, we can fall back to
+    If live price downloads fail and return zeros, fall back to
     the last recorded performance row for this Wave.
     """
     file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
@@ -384,10 +561,11 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
 # ---------------------------------------------------------------------
 
 
-def _build_wave_positions(wave_name: str) -> pd.DataFrame:
+def _build_wave_positions(wave_name: str, vix_level: Optional[float]) -> pd.DataFrame:
     """
     Return a positions DataFrame for a given wave, with columns:
     ticker, weight, last_price, intraday_return
+    and apply SmartSafe 2.0 weighted sweep based on VIX.
     """
     weights = _load_wave_weights()
     wave_df = weights[weights["wave"] == wave_name].copy()
@@ -405,8 +583,8 @@ def _build_wave_positions(wave_name: str) -> pd.DataFrame:
     wave_df["last_price"] = prices
     wave_df["intraday_return"] = intraday_returns
 
-    # Apply SmartSafe 2.0 hook (no-op for now)
-    wave_df = apply_smartsafe_sweep(wave_df)
+    # Apply SmartSafe 2.0 weighted sweep (Option 2) based on VIX
+    wave_df = apply_smartsafe_sweep(wave_name, wave_df, vix_level)
 
     return wave_df
 
@@ -426,11 +604,18 @@ def get_wave_snapshot(wave_name: str) -> Dict:
                 "ret_60d": float,
                 "alpha_30d": float,
                 "alpha_60d": float,
+                "vix_level": float | None,
+                "smartsafe_sweep_fraction": float,
             }
         }
     """
-    positions = _build_wave_positions(wave_name)
     benchmark = _get_benchmark_for_wave(wave_name)
+
+    # Get VIX level once per snapshot
+    vix_level = _get_vix_level()
+    sweep_fraction = _compute_sweep_fraction_from_vix(vix_level)
+
+    positions = _build_wave_positions(wave_name, vix_level=vix_level)
 
     # Portfolio intraday return: weighted sum of individual intraday returns
     if not positions.empty:
@@ -463,6 +648,8 @@ def get_wave_snapshot(wave_name: str) -> Dict:
         "ret_60d": trailing["ret_60d"],
         "alpha_30d": trailing["alpha_30d"],
         "alpha_60d": trailing["alpha_60d"],
+        "vix_level": vix_level,
+        "smartsafe_sweep_fraction": sweep_fraction,
     }
 
     # Log (non-fatal if fails)
