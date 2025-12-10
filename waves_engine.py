@@ -1,34 +1,45 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine + Strategy Overlay
-Benchmark Map v1.1 (LOCKED)
+waves_engine.py — WAVES Intelligence™ Vector 2.6 Engine
+Dynamic Weights + Strategy Overlay + Benchmark Map v1.1 (LOCKED)
 
-Changes in this version:
-• Rename "Crypto Income Wave" → "Crypto Equity Wave"
-• Remove "Future Power & Energy Wave"
-• Add "AI Wave" with an AI-focused blended benchmark
-
-What this does
---------------
+Key features
+------------
 1) Loads list.csv (universe) and wave_weights.csv (Wave definitions).
 2) Aggregates duplicate tickers per Wave (sums weights).
-3) Fetches 1-year daily prices via yfinance.
-4) Computes:
-   • daily Wave & benchmark returns
-   • cumulative value curves
-   • intraday, 30D, 60D, 1Y alpha captured
+3) Fetches ~1-year daily prices via yfinance.
+4) Builds daily Wave returns using a FULL DYNAMIC WEIGHTING ENGINE:
+
+   • Risk-parity base:
+       weight_i(t) ∝ 1 / volatility_i(t)    (60-day realized vol)
+   • Signal tilt (moderate strength by default):
+       signal_i(t) = 0.6 * mom30_i(t) + 0.4 * mom60_i(t)
+       → cross-sectional z-score
+       → tilt up winners, tilt down laggards
+   • Volatility regime adjustment (via VIX):
+       calm / normal / high / extreme regimes adjust tilt strength
+   • Mode-aware behavior:
+       - standard         → balanced tilt
+       - alpha-minus-beta → lower tilt, more defensive
+       - private_logic    → stronger tilt, more aggressive
+
+   Final per-day weight_i(t) = normalized( RP_i(t) × tilt_factor_i(t) )
+   with min/max constraints, then portfolio return_t = Σ_i w_i(t) * r_i(t).
+
+5) Applies a DAILY exposure overlay using VIX (as before):
+      wave_return_final_t = wave_return_raw_t * exposure_t
+
+6) Computes:
+   • Intraday, 30D, 60D, 1Y alpha captured
    • 30D / 60D / 1Y Wave & benchmark returns
-   • realised beta (≈60 trading days)
-5) Applies a DAILY TRADING OVERLAY:
-   • per-day exposure is determined by:
-       - Mode: standard / alpha-minus-beta / private_logic
-       - VIX level on that day
-   • daily Wave returns are scaled by exposure_t
-   → approximates live risk-controls/algos instead of naive buy & hold.
-6) Supports blended benchmarks:
+   • Realised beta (≈60 trading days)
+   • Last-day exposure, VIX level & regime
+   • Current dynamic weights for display in the console
+
+7) Benchmarks (Map v1.1):
    • Growth Wave              → 50% QQQ + 50% IWF
    • Small-Mid Cap Growth     → 50% VTWG + 50% VO
    • AI Wave                  → 40% QQQ + 60% SOXX
-   • Clean Transit-Infrastructure → 50% ICLN + 50% IGF
+   • Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
    • Quantum Computing Wave   → 70% IYW + 30% SOXX
    • Crypto Equity Wave       → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
 """
@@ -68,18 +79,18 @@ class WavesEngine:
             "Income Wave": "SCHD",
             "Dividend Income Wave": "SCHD",
             "Small Cap Growth Wave": "VTWG",
-            "Small-Mid Cap Growth Wave": "VO",  # overridden by blend logic
+            "Small-Mid Cap Growth Wave": "VO",  # overridden by blend
             "Small to Mid Cap Growth Wave": "VO",
-            "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blend logic
-            "Quantum Computing Wave": "IYW",              # overridden by blend logic
-            "AI Wave": "QQQ",                             # overridden by blend logic
+            "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blend
+            "Quantum Computing Wave": "IYW",              # overridden by blend
+            "AI Wave": "QQQ",                             # overridden by blend
             "Total Market Wave": "VTI",
             "SmartSafe Wave": "SHV",
             "SmartSafe": "SHV",
             "SmartSafe™": "SHV",
-            "Crypto Equity Wave": "BTC-USD",              # overridden by blend logic
+            "Crypto Equity Wave": "BTC-USD",              # overridden by blend
             "Crypto Wave": "BTC-USD",
-            "Growth Wave": "QQQ",                         # overridden by blend logic
+            "Growth Wave": "QQQ",                         # overridden by blend
         }
 
     # ---------------------------------------------------------
@@ -122,7 +133,7 @@ class WavesEngine:
         df = df.dropna(subset=["ticker", "weight"])
         df["weight"] = df["weight"].astype(float)
 
-        # Normalise weights per Wave so they sum to 1.0
+        # Normalise weights per Wave so they sum to 1.0 (initial definition)
         weight_sum = df.groupby("wave")["weight"].transform("sum")
         weight_sum = weight_sum.replace(0, np.nan)
         df["weight"] = df["weight"] / weight_sum
@@ -148,7 +159,7 @@ class WavesEngine:
             # 50% QQQ + 50% IWF
             return {"QQQ": 0.50, "IWF": 0.50}
 
-        if wave == "Small-Mid Cap Growth Wave" or wave == "Small to Mid Cap Growth Wave":
+        if wave in ("Small-Mid Cap Growth Wave", "Small to Mid Cap Growth Wave"):
             # 50% VTWG + 50% VO
             return {"VTWG": 0.50, "VO": 0.50}
 
@@ -197,7 +208,7 @@ class WavesEngine:
         return holdings.sort_values("weight", ascending=False).head(n).reset_index(drop=True)
 
     # ---------------------------------------------------------
-    # PRICE HELPERS (1-D SAFE)
+    # PRICE HELPERS
     # ---------------------------------------------------------
     def _get_price_series(self, ticker: str, period: str = "1y") -> pd.Series:
         """
@@ -248,7 +259,7 @@ class WavesEngine:
         return closes
 
     # ---------------------------------------------------------
-    # STRATEGY OVERLAY — VIX-GATED DAILY EXPOSURE
+    # VIX + EXPOSURE HELPERS
     # ---------------------------------------------------------
     def _get_vix_series(self, index_like: pd.Index, period: str = "1y") -> pd.Series:
         """
@@ -258,31 +269,25 @@ class WavesEngine:
         vix.index = pd.to_datetime(vix.index)
         idx = pd.to_datetime(index_like)
         vix_aligned = vix.reindex(idx, method=None)
-        # fill gaps forward/back to avoid NaNs
         vix_aligned = vix_aligned.ffill().bfill()
         vix_aligned.name = "VIX"
         return vix_aligned
 
+    def _get_vol_regime(self, v: float) -> str:
+        if np.isnan(v):
+            return "unknown"
+        if v < 14:
+            return "calm"
+        if v < 22:
+            return "normal"
+        if v < 30:
+            return "elevated"
+        return "extreme"
+
     def _compute_exposure_series(self, mode: str, vix_series: pd.Series) -> pd.Series:
         """
         Compute a per-day exposure series based on mode + daily VIX level.
-        Core "trading algo" overlay: how much of the raw portfolio return
-        to actually take each day.
-
-        Rough rules:
-          - standard:
-              base = 1.0
-          - alpha-minus-beta:
-              base = 0.8  (more defensive)
-          - private_logic:
-              base = 1.1  (slightly more aggressive when VIX calm)
-
-          VIX ladder:
-              VIX < 14   → calm, can run full base (or +10% in PL)
-              14–22      → moderate, 0.9x base
-              > 22       → high stress, 0.6x base (0.5x for alpha-minus-beta)
-
-        Exposure is clipped into [0.2, 1.4].
+        This is the gross exposure overlay on top of dynamic weights.
         """
         mode = (mode or "standard").lower()
         if mode == "alpha-minus-beta":
@@ -300,13 +305,16 @@ class WavesEngine:
                 v_mult = 1.0
             elif v < 14:
                 # calm
-                v_mult = 1.1 if mode == "private_logic" else 1.0
+                v_mult = 1.05 if mode == "private_logic" else 1.0
             elif v < 22:
                 # moderate
-                v_mult = 0.9
+                v_mult = 0.95
+            elif v < 30:
+                # elevated
+                v_mult = 0.85
             else:
-                # stressed
-                v_mult = 0.5 if mode == "alpha-minus-beta" else 0.6
+                # extreme
+                v_mult = 0.6 if mode != "alpha-minus-beta" else 0.5
 
             exp_val = base * v_mult
             exp_val = float(np.clip(exp_val, 0.2, 1.4))
@@ -314,6 +322,119 @@ class WavesEngine:
 
         exposure_series = pd.Series(exposure_vals, index=vix_series.index, name="exposure")
         return exposure_series
+
+    # ---------------------------------------------------------
+    # DYNAMIC WEIGHT ENGINE
+    # ---------------------------------------------------------
+    def _compute_dynamic_weights(
+        self,
+        ret_matrix: pd.DataFrame,
+        vix_series: pd.Series,
+        mode: str,
+    ) -> pd.DataFrame:
+        """
+        Build a [date x ticker] weight matrix using:
+
+          • Risk-parity base (inverse 60-day volatility)
+          • Momentum-based signals (30D & 60D)
+          • Volatility regime adjustment (via VIX)
+          • Mode-based tilt strength
+
+        Returns a DataFrame of dynamic weights aligned with ret_matrix.
+        """
+        # 60-day realized vol
+        vol_60 = ret_matrix.rolling(60).std()
+
+        # Momentum signals (30D & 60D cumulative returns)
+        def window_return(arr: np.ndarray) -> float:
+            # product of (1+r) - 1
+            return float(np.prod(1.0 + arr) - 1.0)
+
+        mom30 = (1.0 + ret_matrix).rolling(30).apply(window_return, raw=True)
+        mom60 = (1.0 + ret_matrix).rolling(60).apply(window_return, raw=True)
+
+        signal_score = 0.6 * mom30 + 0.4 * mom60
+
+        # Base tilt strength by mode (Option 2: moderate tilt)
+        mode = (mode or "standard").lower()
+        if mode == "alpha-minus-beta":
+            base_tilt = 0.20
+        elif mode == "private_logic":
+            base_tilt = 0.50
+        else:
+            base_tilt = 0.30
+
+        # Constraints
+        w_min = 0.0025   # 0.25%
+        w_max = 0.10     # 10%
+
+        weights_time = pd.DataFrame(index=ret_matrix.index, columns=ret_matrix.columns, dtype=float)
+
+        for dt in ret_matrix.index:
+            vol_row = vol_60.loc[dt]
+            sig_row = signal_score.loc[dt]
+            vix_val = float(vix_series.loc[dt])
+
+            # Risk-parity base weights
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inv_vol = 1.0 / vol_row
+            inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan)
+            if inv_vol.notna().sum() == 0:
+                # fallback: equal weight across tickers with any data
+                valid = ret_matrix.loc[dt].replace(0.0, np.nan).notna()
+                if valid.sum() == 0:
+                    continue
+                rp = valid.astype(float) / valid.sum()
+            else:
+                inv_vol = inv_vol.fillna(0.0)
+                if inv_vol.sum() <= 0:
+                    valid = ret_matrix.loc[dt].replace(0.0, np.nan).notna()
+                    if valid.sum() == 0:
+                        continue
+                    rp = valid.astype(float) / valid.sum()
+                else:
+                    rp = inv_vol / inv_vol.sum()
+
+            # Signal z-scores (cross-sectional)
+            if sig_row.notna().sum() >= 2 and sig_row.std(skipna=True) > 0:
+                z = (sig_row - sig_row.mean(skipna=True)) / sig_row.std(skipna=True)
+            else:
+                z = pd.Series(0.0, index=sig_row.index)
+
+            z = z.clip(-2.5, 2.5)
+            scaled = z / 2.5  # now ∈ [-1, 1]
+
+            # Volatility regime adjustment to tilt strength
+            regime = self._get_vol_regime(vix_val)
+            if regime == "calm":
+                regime_mult = 1.10
+            elif regime == "normal":
+                regime_mult = 1.00
+            elif regime == "elevated":
+                regime_mult = 0.90
+            else:  # extreme
+                regime_mult = 0.75
+
+            tilt_strength = base_tilt * regime_mult
+
+            tilt_factor = 1.0 + (scaled * tilt_strength)
+            tilt_factor = tilt_factor.clip(lower=0.10)  # prevent sign flips
+
+            raw_w = rp * tilt_factor
+            if raw_w.sum() <= 0:
+                weights = rp
+            else:
+                weights = raw_w / raw_w.sum()
+
+            # Apply min/max caps and renormalise
+            weights = weights.clip(lower=w_min, upper=w_max)
+            if weights.sum() <= 0:
+                weights = rp
+            weights = weights / weights.sum()
+
+            weights_time.loc[dt] = weights
+
+        return weights_time
 
     # ---------------------------------------------------------
     # CORE PERFORMANCE
@@ -326,24 +447,18 @@ class WavesEngine:
         log: bool = False,
     ) -> Optional[dict]:
         """
-        Compute full metrics for a given Wave + mode.
+        Compute full metrics for a given Wave + mode using:
+          • Dynamic per-day weights
+          • VIX-based exposure overlay
+          • Benchmark Map v1.1
 
-        Auto-align:
-          • aggregates duplicate tickers
-          • uses only tickers with price data
-          • drops tickers whose returns are all NaN
-          • re-normalises weights to active tickers
-
-        Strategy overlay:
-          • builds raw portfolio daily return
-          • fetches daily VIX and computes exposure_t per day
-          • final Wave return_t = raw_return_t * exposure_t
+        Returns a dict with metrics + last-day dynamic weights.
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
 
-        # Unique tickers with aggregate weight
+        # Unique tickers with aggregate weight (definition only; dynamic engine overrides)
         weights_all = (
             holdings.groupby("ticker")["weight"]
             .sum()
@@ -363,25 +478,25 @@ class WavesEngine:
         if ret_matrix.empty:
             raise ValueError(f"No usable return history for Wave {wave}")
 
-        # Active tickers are columns with usable returns
-        active_tickers = list(ret_matrix.columns)
+        # Fill remaining NaNs in returns for computation
+        ret_filled = ret_matrix.fillna(0.0)
 
-        # Align weights to active tickers and renormalise
-        weights_active = weights_all.reindex(active_tickers).fillna(0.0)
-        w_sum = weights_active.sum()
-        if w_sum <= 0:
-            raise ValueError(f"No positive weights for active tickers in Wave {wave}")
-        w_vec = (weights_active / w_sum).values.astype(float)
+        # --- VIX series ---
+        vix_series = self._get_vix_series(ret_matrix.index, period=history_period)
 
-        # Raw portfolio daily return = weighted sum across columns
-        raw_wave_ret = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
+        # --- Dynamic weights over time ---
+        weights_time = self._compute_dynamic_weights(ret_matrix, vix_series, mode)
+
+        # Align shapes
+        weights_time = weights_time.reindex_like(ret_filled).fillna(0.0)
+
+        # Raw portfolio daily return = Σ_i w_i(t) * r_i(t)
+        raw_wave_ret = (weights_time * ret_filled).sum(axis=1)
         raw_wave_ret.name = "wave_return_raw"
 
         # --- Strategy overlay: daily VIX-gated exposure ---
-        vix_series = self._get_vix_series(raw_wave_ret.index, period=history_period)
         exposure_series = self._compute_exposure_series(mode, vix_series)
 
-        # final Wave daily return after overlay
         wave_ret_series = raw_wave_ret * exposure_series
         wave_ret_series.name = "wave_return"
 
@@ -391,16 +506,14 @@ class WavesEngine:
         # --- Benchmark prices & returns ---
         benchmark = self.get_benchmark(wave)
 
-        # Blended benchmark
         if isinstance(benchmark, dict):
+            # Blended benchmark
             bm_prices = self._get_price_matrix(list(benchmark.keys()), period=history_period)
             bm_rets = bm_prices.pct_change().iloc[1:, :].astype(float)
 
-            # align blend weights to tickers actually present
             w_bm = pd.Series(benchmark)
             w_bm = w_bm.reindex(bm_rets.columns).fillna(0.0)
             if w_bm.sum() <= 0:
-                # fallback: equal weight
                 w_bm = pd.Series(1.0, index=bm_rets.columns)
             w_bm = w_bm / w_bm.sum()
 
@@ -467,8 +580,13 @@ class WavesEngine:
                 cov_xy = np.cov(x, y)[0, 1]
                 beta_realized = float(cov_xy / np.var(x))
 
-        # --- Exposure final (last day) ---
+        # --- Last-day exposure, VIX, regime, weights ---
         exposure_final = float(exposure_series.iloc[-1])
+        vix_last = float(vix_series.iloc[-1])
+        regime_last = self._get_vol_regime(vix_last)
+
+        current_weights = weights_time.iloc[-1].dropna()
+        current_weights = current_weights[current_weights > 0.0]
 
         history_30d = df.tail(30).copy()
 
@@ -487,6 +605,9 @@ class WavesEngine:
             "return_1y_wave": ret_1y_wave,
             "return_1y_benchmark": ret_1y_bm,
             "history_30d": history_30d,
+            "vix_last": vix_last,
+            "vol_regime": regime_last,
+            "current_weights": current_weights,
         }
 
         if log:
@@ -517,6 +638,8 @@ class WavesEngine:
                 "return_60d_benchmark": result.get("return_60d_benchmark"),
                 "return_1y_wave": result.get("return_1y_wave"),
                 "return_1y_benchmark": result.get("return_1y_benchmark"),
+                "vix_last": result.get("vix_last"),
+                "vol_regime": result.get("vol_regime"),
             }
 
             df_row = pd.DataFrame([row])
