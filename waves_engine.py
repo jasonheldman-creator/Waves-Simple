@@ -1,27 +1,32 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine (auto-aligned, duplicate-safe)
+waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine
+-------------------------------------------------------
 
-This version:
-  • Loads list.csv (universe) and wave_weights.csv (Wave definitions)
-  • Aggregates duplicate tickers per Wave (sums weights)
-  • Fetches prices via yfinance (1y daily)
-  • Computes:
-      - daily Wave & benchmark returns
-      - value curves
-      - intraday, 30D, 60D, 1Y alpha captured
-      - 30D / 60D / 1Y Wave & benchmark returns
-      - realised beta (≈60d)
-      - mode-aware, VIX-gated exposure
-  • AUTO-ALIGNS:
-      - Uses only tickers with price data
-      - Drops tickers whose returns are all NaN
-      - Renormalises weights to surviving tickers
+Features
+--------
+• Loads list.csv (universe) and wave_weights.csv (Wave definitions)
+• Aggregates duplicate tickers per Wave (sums weights)
+• Fetches 1-year daily prices via yfinance
+• Computes:
+    - daily Wave & benchmark returns
+    - cumulative value curves
+    - intraday, 30D, 60D, 1Y alpha captured
+    - 30D / 60D / 1Y Wave & benchmark returns
+    - realised beta (≈60 trading days)
+    - VIX-gated exposure per mode (standard / alpha-minus-beta / private_logic)
+• Auto-cleans:
+    - uses only tickers with price data
+    - drops tickers whose returns are all NaN
+    - re-normalises weights to surviving tickers
+• Supports blended benchmarks:
+    - Future Power & Energy Wave → 55% ICLN + 45% IXE
+    - Clean Transit-Infrastructure Wave → 50% HAIL + 50% IGF
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -34,9 +39,9 @@ class WavesEngine:
     # ---------------------------------------------------------
     def __init__(
         self,
-        list_path: str | Path = "list.csv",
-        weights_path: str | Path = "wave_weights.csv",
-        logs_root: str | Path = "logs",
+        list_path: Union[str, Path] = "list.csv",
+        weights_path: Union[str, Path] = "wave_weights.csv",
+        logs_root: Union[str, Path] = "logs",
     ):
         self.list_path = Path(list_path)
         self.weights_path = Path(weights_path)
@@ -45,7 +50,7 @@ class WavesEngine:
         self.universe = self._load_list()
         self.weights = self._load_weights()
 
-        # Benchmark map (fallback = SPY)
+        # Single-ticker benchmark map (fallback = SPY)
         self._benchmark_map: Dict[str, str] = {
             "S&P Wave": "SPY",
             "S&P 500 Wave": "SPY",
@@ -55,8 +60,8 @@ class WavesEngine:
             "Small to Mid Cap Growth Wave": "VO",
             "Income Wave": "SCHD",
             "Dividend Income Wave": "SCHD",
-            "Future Power & Energy Wave": "ICLN",
-            "Clean Transit-Infrastructure Wave": "ICLN",
+            "Future Power & Energy Wave": "ICLN",  # overridden by blended logic
+            "Clean Transit-Infrastructure Wave": "ICLN",  # overridden by blended logic
             "Quantum Computing Wave": "IYW",
             "Total Market Wave": "VTI",
             "SmartSafe Wave": "SHV",
@@ -81,7 +86,7 @@ class WavesEngine:
 
         df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
 
-        # optional metadata
+        # Optional metadata columns
         for col in ["company", "sector", "name"]:
             if col not in df.columns:
                 df[col] = None
@@ -106,7 +111,7 @@ class WavesEngine:
         df = df.dropna(subset=["ticker", "weight"])
         df["weight"] = df["weight"].astype(float)
 
-        # Normalize weights per Wave to sum to 1
+        # Normalise weights per Wave so they sum to 1.0
         weight_sum = df.groupby("wave")["weight"].transform("sum")
         weight_sum = weight_sum.replace(0, np.nan)
         df["weight"] = df["weight"] / weight_sum
@@ -119,18 +124,35 @@ class WavesEngine:
     def get_wave_names(self) -> List[str]:
         return sorted(self.weights["wave"].unique())
 
-    def get_benchmark(self, wave: str) -> str:
+    def get_benchmark(self, wave: str) -> Union[str, Dict[str, float]]:
+        """
+        Returns one of:
+            • Single ticker string, e.g. "SPY"
+            • Dict of {ticker: weight} for blended benchmarks
+        """
+        wave = wave.strip()
+
+        # Custom blended benchmarks
+        if wave == "Future Power & Energy Wave":
+            # 55% ICLN + 45% IXE
+            return {"ICLN": 0.55, "IXE": 0.45}
+
+        if wave == "Clean Transit-Infrastructure Wave":
+            # 50% HAIL + 50% IGF
+            return {"HAIL": 0.50, "IGF": 0.50}
+
+        # Default: single-ticker benchmark
         return self._benchmark_map.get(wave, "SPY")
 
     def get_wave_holdings(self, wave: str) -> pd.DataFrame:
         """
-        Returns a holdings table for a wave, with duplicate tickers aggregated.
+        Holdings for a Wave, with duplicate tickers aggregated (weights summed).
         """
         w = self.weights[self.weights["wave"] == wave].copy()
         if w.empty:
             return w
 
-        # aggregate duplicate tickers within the wave
+        # Aggregate duplicates within Wave
         w = (
             w.groupby(["wave", "ticker"], as_index=False)["weight"]
             .sum()
@@ -175,8 +197,8 @@ class WavesEngine:
         """
         Fetch adjusted close for multiple tickers as DataFrame [date x ticker].
 
-        AUTO-CLEAN:
-          • Skips tickers with no data
+        Auto-clean:
+          • skips tickers with no data
         """
         frames = []
         valid_tickers: List[str] = []
@@ -186,7 +208,7 @@ class WavesEngine:
                 frames.append(s)
                 valid_tickers.append(t)
             except Exception:
-                # Skip un-priceable tickers
+                # Skip un-priceable names
                 continue
 
         if not frames:
@@ -211,17 +233,17 @@ class WavesEngine:
         """
         Compute full metrics for a given Wave + mode.
 
-        AUTO-ALIGN:
-          • Aggregates duplicate tickers
-          • Uses only tickers with price data
-          • Drops tickers whose returns are all NaN
-          • Renormalises weights to the active tickers
+        Auto-align:
+          • aggregates duplicate tickers
+          • uses only tickers with price data
+          • drops tickers whose returns are all NaN
+          • re-normalises weights to active tickers
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
 
-        # weights_all: unique tickers with total weight (duplicates already aggregated)
+        # Unique tickers with aggregate weight
         weights_all = (
             holdings.groupby("ticker")["weight"]
             .sum()
@@ -234,7 +256,7 @@ class WavesEngine:
         # --- Wave prices & returns (portfolio) ---
         price_matrix = self._get_price_matrix(all_tickers, period=history_period)
 
-        # returns (drop first NaN row), then drop columns that are all NaN
+        # Daily returns (drop first NaN row), then drop all-NaN columns
         ret_matrix = price_matrix.pct_change().iloc[1:, :].astype(float)
         ret_matrix = ret_matrix.dropna(axis=1, how="all")
 
@@ -251,7 +273,7 @@ class WavesEngine:
             raise ValueError(f"No positive weights for active tickers in Wave {wave}")
         w_vec = (weights_active / w_sum).values.astype(float)
 
-        # Multiply returns by aligned weights — shapes always match
+        # Portfolio daily return = weighted sum across columns
         wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
         wave_ret_series.name = "wave_return"
 
@@ -260,12 +282,31 @@ class WavesEngine:
 
         # --- Benchmark prices & returns ---
         benchmark = self.get_benchmark(wave)
-        bm_price = self._get_price_series(benchmark, period=history_period)
 
-        bm_ret = bm_price.pct_change().iloc[1:].astype(float)
-        bm_ret.name = "benchmark_return"
-        bm_value = (1.0 + bm_ret).cumprod()
-        bm_value.name = "benchmark_value"
+        # Blended benchmark
+        if isinstance(benchmark, dict):
+            bm_prices = self._get_price_matrix(list(benchmark.keys()), period=history_period)
+            bm_rets = bm_prices.pct_change().iloc[1:, :].astype(float)
+
+            # align blend weights to tickers actually present
+            w_bm = pd.Series(benchmark)
+            w_bm = w_bm.reindex(bm_rets.columns).fillna(0.0)
+            if w_bm.sum() <= 0:
+                # fallback: equal weight
+                w_bm = pd.Series(1.0, index=bm_rets.columns)
+            w_bm = w_bm / w_bm.sum()
+
+            bm_ret = bm_rets.mul(w_bm.values, axis=1).sum(axis=1)
+            bm_ret.name = "benchmark_return"
+            bm_value = (1.0 + bm_ret).cumprod()
+            bm_value.name = "benchmark_value"
+        else:
+            # Single-ticker benchmark
+            bm_price = self._get_price_series(benchmark, period=history_period)
+            bm_ret = bm_price.pct_change().iloc[1:].astype(float)
+            bm_ret.name = "benchmark_return"
+            bm_value = (1.0 + bm_ret).cumprod()
+            bm_value.name = "benchmark_value"
 
         # --- Merge Wave + Benchmark ---
         df = pd.concat([wave_ret_series, bm_ret, wave_value, bm_value], axis=1).dropna()
@@ -274,7 +315,7 @@ class WavesEngine:
 
         df["alpha_captured"] = df["wave_return"] - df["benchmark_return"]
 
-        # --- alpha windows ---
+        # --- Alpha windows ---
         def alpha_window(series: pd.Series, window: int) -> Optional[float]:
             if series is None or series.empty:
                 return None
@@ -286,9 +327,9 @@ class WavesEngine:
         intraday_alpha = float(df["alpha_captured"].iloc[-1])
         alpha_30d = alpha_window(df["alpha_captured"], 30)
         alpha_60d = alpha_window(df["alpha_captured"], 60)
-        alpha_1y = alpha_window(df["alpha_captured"], len(df))  # full ≈1y
+        alpha_1y = alpha_window(df["alpha_captured"], len(df))  # full ≈1y period
 
-        # --- return windows ---
+        # --- Return windows ---
         def window_return(curve: pd.Series, window: int) -> Optional[float]:
             if curve is None or curve.empty:
                 return None
@@ -308,7 +349,7 @@ class WavesEngine:
         ret_1y_wave = window_return(df["wave_value"], min(len(df), 252))
         ret_1y_bm = window_return(df["benchmark_value"], min(len(df), 252))
 
-        # --- realised beta (≈60d) ---
+        # --- Realised beta (≈60d) ---
         beta_realized = np.nan
         tail_n = min(60, len(df))
         if tail_n >= 20:
@@ -349,10 +390,17 @@ class WavesEngine:
     # EXPOSURE MODEL (Mode + VIX)
     # ---------------------------------------------------------
     def _compute_exposure(self, mode: str, beta_realized: float) -> float:
+        """
+        Simple mode + VIX-gated exposure model:
+          • standard       → base 1.0
+          • alpha-minus-beta → target lower beta
+          • private_logic  → slightly higher base exposure
+        """
         mode = (mode or "standard").lower()
         beta = beta_realized if beta_realized is not None and not np.isnan(beta_realized) else 1.0
 
         if mode == "alpha-minus-beta":
+            # steer exposure toward ~0.8 beta
             base = max(0.3, min(1.0, 1.0 - 0.4 * (beta - 0.8)))
         elif mode == "private_logic":
             base = 1.1
@@ -384,7 +432,7 @@ class WavesEngine:
         return float(vix.iloc[-1])
 
     # ---------------------------------------------------------
-    # LOGGING (optional)
+    # LOGGING (optional, non-blocking)
     # ---------------------------------------------------------
     def _log_performance_row(self, wave: str, result: dict) -> None:
         try:
@@ -416,4 +464,5 @@ class WavesEngine:
                 df_out = df_row
             df_out.to_csv(fname, index=False)
         except Exception:
+            # Logging should never break the engine
             pass
