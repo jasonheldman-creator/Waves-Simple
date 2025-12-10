@@ -1,9 +1,9 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine (auto-aligned, no mismatches)
+waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine (auto-aligned, duplicate-safe)
 
 This version:
   • Loads list.csv (universe) and wave_weights.csv (Wave definitions)
-  • Builds Waves from tickers + weights
+  • Aggregates duplicate tickers per Wave (sums weights)
   • Fetches prices via yfinance (1y daily)
   • Computes:
       - daily Wave & benchmark returns
@@ -13,10 +13,9 @@ This version:
       - realised beta (≈60d)
       - mode-aware, VIX-gated exposure
   • AUTO-ALIGNS:
-      - Drops tickers with no price data
+      - Uses only tickers with price data
       - Drops tickers whose returns are all NaN
-      - Renormalises weights to the surviving tickers
-      - NO “weight alignment mismatch” errors are ever raised
+      - Renormalises weights to surviving tickers
 """
 
 from __future__ import annotations
@@ -124,9 +123,18 @@ class WavesEngine:
         return self._benchmark_map.get(wave, "SPY")
 
     def get_wave_holdings(self, wave: str) -> pd.DataFrame:
+        """
+        Returns a holdings table for a wave, with duplicate tickers aggregated.
+        """
         w = self.weights[self.weights["wave"] == wave].copy()
         if w.empty:
             return w
+
+        # aggregate duplicate tickers within the wave
+        w = (
+            w.groupby(["wave", "ticker"], as_index=False)["weight"]
+            .sum()
+        )
 
         uni = self.universe[["ticker", "company", "sector"]].copy()
         merged = w.merge(uni, on="ticker", how="left")
@@ -204,24 +212,29 @@ class WavesEngine:
         Compute full metrics for a given Wave + mode.
 
         AUTO-ALIGN:
-          • Only uses tickers that have price data
-          • Only uses tickers whose return series are not all NaN
-          • Re-normalises weights to the active tickers
+          • Aggregates duplicate tickers
+          • Uses only tickers with price data
+          • Drops tickers whose returns are all NaN
+          • Renormalises weights to the active tickers
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
 
-        # original tickers + weights
-        all_tickers = sorted(holdings["ticker"].unique())
-        weights_all = holdings.set_index("ticker")["weight"]
+        # weights_all: unique tickers with total weight (duplicates already aggregated)
+        weights_all = (
+            holdings.groupby("ticker")["weight"]
+            .sum()
+            .astype(float)
+        )
+        all_tickers = list(weights_all.index)
 
         history_period = "1y"
 
         # --- Wave prices & returns (portfolio) ---
         price_matrix = self._get_price_matrix(all_tickers, period=history_period)
 
-        # returns (drop first NaN row), keep columns, then drop columns that are all NaN
+        # returns (drop first NaN row), then drop columns that are all NaN
         ret_matrix = price_matrix.pct_change().iloc[1:, :].astype(float)
         ret_matrix = ret_matrix.dropna(axis=1, how="all")
 
@@ -238,7 +251,7 @@ class WavesEngine:
             raise ValueError(f"No positive weights for active tickers in Wave {wave}")
         w_vec = (weights_active / w_sum).values.astype(float)
 
-        # Finally: multiply returns by aligned weights — shapes always match
+        # Multiply returns by aligned weights — shapes always match
         wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
         wave_ret_series.name = "wave_return"
 
