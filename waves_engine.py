@@ -1,47 +1,38 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.6 Engine
-Dynamic Weights + Strategy Overlay + Benchmark Map v1.1 (LOCKED)
+waves_engine.py — WAVES Intelligence™ Vector 2.7 Engine
+Dynamic Weights + Strategy Overlay + TLH Signals + Slippage + UAPV Unit Price
+Benchmark Map v1.1 (LOCKED)
 
-Key features
-------------
+New in this version (2.7)
+-------------------------
+• SmartSafe-aware behavior (low-vol, low-tilt profile).
+• Tax-loss harvesting signals:
+    - tlh_candidate_count
+    - tlh_candidate_weight (share of Wave weight in TLH candidates)
+• Slippage and turnover modeling:
+    - daily turnover from dynamic weights
+    - daily slippage cost (configurable bps)
+    - turnover_annual and slippage_annual_drag (approx)
+• UAPV-style unit price:
+    - uapv_unit_price = latest wave_value (starting from 1.0)
+• Wave-specific custom rules:
+    - AI Wave: extra tilt in calm/low-VIX regimes (especially Private Logic™)
+    - Quantum Computing Wave: similar but slightly gentler
+    - Crypto Equity Wave: aggressive in calm/normal, toned down in elevated/extreme VIX
+    - SmartSafe Wave: minimal tilt, conservative behavior
+
+Core functionality (unchanged in spirit)
+----------------------------------------
 1) Loads list.csv (universe) and wave_weights.csv (Wave definitions).
-2) Aggregates duplicate tickers per Wave (sums weights).
+2) Aggregates duplicate tickers per Wave.
 3) Fetches ~1-year daily prices via yfinance.
-4) Builds daily Wave returns using a FULL DYNAMIC WEIGHTING ENGINE:
-
-   • Risk-parity base:
-       weight_i(t) ∝ 1 / volatility_i(t)    (60-day realized vol)
-   • Signal tilt (moderate strength by default):
-       signal_i(t) = 0.6 * mom30_i(t) + 0.4 * mom60_i(t)
-       → cross-sectional z-score
-       → tilt up winners, tilt down laggards
-   • Volatility regime adjustment (via VIX):
-       calm / normal / high / extreme regimes adjust tilt strength
-   • Mode-aware behavior:
-       - standard         → balanced tilt
-       - alpha-minus-beta → lower tilt, more defensive
-       - private_logic    → stronger tilt, more aggressive
-
-   Final per-day weight_i(t) = normalized( RP_i(t) × tilt_factor_i(t) )
-   with min/max constraints, then portfolio return_t = Σ_i w_i(t) * r_i(t).
-
-5) Applies a DAILY exposure overlay using VIX (as before):
-      wave_return_final_t = wave_return_raw_t * exposure_t
-
-6) Computes:
-   • Intraday, 30D, 60D, 1Y alpha captured
-   • 30D / 60D / 1Y Wave & benchmark returns
-   • Realised beta (≈60 trading days)
-   • Last-day exposure, VIX level & regime
-   • Current dynamic weights for display in the console
-
-7) Benchmarks (Map v1.1):
-   • Growth Wave              → 50% QQQ + 50% IWF
-   • Small-Mid Cap Growth     → 50% VTWG + 50% VO
-   • AI Wave                  → 40% QQQ + 60% SOXX
-   • Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
-   • Quantum Computing Wave   → 70% IYW + 30% SOXX
-   • Crypto Equity Wave       → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
+4) Builds daily Wave returns via dynamic weights:
+   • Risk-parity base (inverse 60-day vol).
+   • Momentum-based signals (30D & 60D).
+   • VIX-regime-adjusted signal tilt.
+   • Mode-aware behavior (standard / alpha-minus-beta / private_logic).
+5) Applies VIX-based exposure overlay to get final Wave returns.
+6) Computes alpha and returns vs blended benchmarks (Benchmark Map v1.1).
 """
 
 from __future__ import annotations
@@ -63,10 +54,15 @@ class WavesEngine:
         list_path: Union[str, Path] = "list.csv",
         weights_path: Union[str, Path] = "wave_weights.csv",
         logs_root: Union[str, Path] = "logs",
+        slippage_bps: float = 0.0005,  # 5 bps per 100% turnover
+        tlh_drawdown_threshold: float = 0.10,  # 10% from recent high
     ):
         self.list_path = Path(list_path)
         self.weights_path = Path(weights_path)
         self.logs_root = Path(logs_root)
+
+        self.slippage_bps = float(slippage_bps)
+        self.tlh_drawdown_threshold = float(tlh_drawdown_threshold)
 
         self.universe = self._load_list()
         self.weights = self._load_weights()
@@ -156,11 +152,9 @@ class WavesEngine:
 
         # --------- Custom blended benchmarks (Benchmark Map v1.1) ----------
         if wave == "Growth Wave":
-            # 50% QQQ + 50% IWF
             return {"QQQ": 0.50, "IWF": 0.50}
 
         if wave in ("Small-Mid Cap Growth Wave", "Small to Mid Cap Growth Wave"):
-            # 50% VTWG + 50% VO
             return {"VTWG": 0.50, "VO": 0.50}
 
         if wave == "AI Wave":
@@ -168,15 +162,12 @@ class WavesEngine:
             return {"QQQ": 0.40, "SOXX": 0.60}
 
         if wave == "Clean Transit-Infrastructure Wave":
-            # 50% ICLN + 50% IGF
             return {"ICLN": 0.50, "IGF": 0.50}
 
         if wave == "Quantum Computing Wave":
-            # 70% IYW + 30% SOXX
             return {"IYW": 0.70, "SOXX": 0.30}
 
         if wave == "Crypto Equity Wave":
-            # Broad crypto index approximation
             return {"BTC-USD": 0.50, "ETH-USD": 0.30, "SOL-USD": 0.20}
 
         # --------- Standard single-ticker benchmarks ---------
@@ -246,7 +237,6 @@ class WavesEngine:
                 frames.append(s)
                 valid_tickers.append(t)
             except Exception:
-                # Skip un-priceable names (delisted, etc.)
                 continue
 
         if not frames:
@@ -262,9 +252,6 @@ class WavesEngine:
     # VIX + EXPOSURE HELPERS
     # ---------------------------------------------------------
     def _get_vix_series(self, index_like: pd.Index, period: str = "1y") -> pd.Series:
-        """
-        Fetch VIX (^VIX) and align it to the given date index (forward/back fill).
-        """
         vix = self._get_price_series("^VIX", period=period)
         vix.index = pd.to_datetime(vix.index)
         idx = pd.to_datetime(index_like)
@@ -284,12 +271,14 @@ class WavesEngine:
             return "elevated"
         return "extreme"
 
-    def _compute_exposure_series(self, mode: str, vix_series: pd.Series) -> pd.Series:
+    def _compute_exposure_series(self, wave: str, mode: str, vix_series: pd.Series) -> pd.Series:
         """
-        Compute a per-day exposure series based on mode + daily VIX level.
-        This is the gross exposure overlay on top of dynamic weights.
+        Per-day exposure based on mode + daily VIX level + wave-specific tweaks.
         """
+        wave = (wave or "").strip()
         mode = (mode or "standard").lower()
+
+        # Base exposure by mode
         if mode == "alpha-minus-beta":
             base = 0.8
         elif mode == "private_logic":
@@ -297,24 +286,35 @@ class WavesEngine:
         else:
             base = 1.0
 
+        # SmartSafe: keep exposure stable and conservative
+        if "smartsafe" in wave.lower():
+            base = 0.9
+
         vix_vals = vix_series.astype(float).values
         exposure_vals = []
 
         for v in vix_vals:
-            if np.isnan(v):
-                v_mult = 1.0
-            elif v < 14:
-                # calm
+            regime = self._get_vol_regime(v)
+
+            # Default regime multiplier
+            if regime == "calm":
                 v_mult = 1.05 if mode == "private_logic" else 1.0
-            elif v < 22:
-                # moderate
+            elif regime == "normal":
                 v_mult = 0.95
-            elif v < 30:
-                # elevated
+            elif regime == "elevated":
                 v_mult = 0.85
-            else:
-                # extreme
+            else:  # extreme
                 v_mult = 0.6 if mode != "alpha-minus-beta" else 0.5
+
+            # Wave-specific tweaks
+            if wave == "Crypto Equity Wave":
+                # Extra conservative in elevated/extreme regimes
+                if regime in ("elevated", "extreme"):
+                    v_mult *= 0.9
+            if wave == "AI Wave" and mode == "private_logic":
+                # Let AI Wave run a bit hotter in calm regimes
+                if regime == "calm":
+                    v_mult *= 1.10
 
             exp_val = base * v_mult
             exp_val = float(np.clip(exp_val, 0.2, 1.4))
@@ -328,26 +328,27 @@ class WavesEngine:
     # ---------------------------------------------------------
     def _compute_dynamic_weights(
         self,
+        wave: str,
         ret_matrix: pd.DataFrame,
         vix_series: pd.Series,
         mode: str,
     ) -> pd.DataFrame:
         """
         Build a [date x ticker] weight matrix using:
-
           • Risk-parity base (inverse 60-day volatility)
           • Momentum-based signals (30D & 60D)
           • Volatility regime adjustment (via VIX)
           • Mode-based tilt strength
-
-        Returns a DataFrame of dynamic weights aligned with ret_matrix.
+          • Wave-specific customizations
         """
+        wave_name = (wave or "").strip()
+        mode = (mode or "standard").lower()
+
         # 60-day realized vol
         vol_60 = ret_matrix.rolling(60).std()
 
         # Momentum signals (30D & 60D cumulative returns)
         def window_return(arr: np.ndarray) -> float:
-            # product of (1+r) - 1
             return float(np.prod(1.0 + arr) - 1.0)
 
         mom30 = (1.0 + ret_matrix).rolling(30).apply(window_return, raw=True)
@@ -356,7 +357,6 @@ class WavesEngine:
         signal_score = 0.6 * mom30 + 0.4 * mom60
 
         # Base tilt strength by mode (Option 2: moderate tilt)
-        mode = (mode or "standard").lower()
         if mode == "alpha-minus-beta":
             base_tilt = 0.20
         elif mode == "private_logic":
@@ -364,9 +364,17 @@ class WavesEngine:
         else:
             base_tilt = 0.30
 
-        # Constraints
+        # SmartSafe: near-zero tilt
+        if "smartsafe" in wave_name.lower():
+            base_tilt = 0.05
+
+        # Constraints (Can be tightened/loosened per wave)
         w_min = 0.0025   # 0.25%
         w_max = 0.10     # 10%
+
+        # More conservative caps for Crypto Equity Wave
+        if wave_name == "Crypto Equity Wave":
+            w_max = 0.07
 
         weights_time = pd.DataFrame(index=ret_matrix.index, columns=ret_matrix.columns, dtype=float)
 
@@ -380,7 +388,6 @@ class WavesEngine:
                 inv_vol = 1.0 / vol_row
             inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan)
             if inv_vol.notna().sum() == 0:
-                # fallback: equal weight across tickers with any data
                 valid = ret_matrix.loc[dt].replace(0.0, np.nan).notna()
                 if valid.sum() == 0:
                     continue
@@ -415,10 +422,23 @@ class WavesEngine:
             else:  # extreme
                 regime_mult = 0.75
 
+            # Wave-specific regime tweaks
+            if wave_name == "AI Wave" and mode == "private_logic":
+                if regime == "calm":
+                    regime_mult *= 1.15
+            if wave_name == "Quantum Computing Wave" and mode == "private_logic":
+                if regime == "calm":
+                    regime_mult *= 1.10
+            if wave_name == "Crypto Equity Wave":
+                if regime in ("elevated", "extreme"):
+                    regime_mult *= 0.8
+            if "smartsafe" in wave_name.lower():
+                regime_mult *= 0.8  # keep tilts subdued for SmartSafe
+
             tilt_strength = base_tilt * regime_mult
 
             tilt_factor = 1.0 + (scaled * tilt_strength)
-            tilt_factor = tilt_factor.clip(lower=0.10)  # prevent sign flips
+            tilt_factor = tilt_factor.clip(lower=0.10)
 
             raw_w = rp * tilt_factor
             if raw_w.sum() <= 0:
@@ -437,6 +457,49 @@ class WavesEngine:
         return weights_time
 
     # ---------------------------------------------------------
+    # TLH SIGNALS
+    # ---------------------------------------------------------
+    def _compute_tlh_signals(
+        self,
+        price_matrix: pd.DataFrame,
+        current_weights: pd.Series,
+    ) -> Dict[str, Union[float, int]]:
+        """
+        Simple TLH signal:
+          • Compute 60D rolling high.
+          • Measure drawdown from that high on the last date.
+          • Flag tickers down more than tlh_drawdown_threshold (e.g. 10%).
+        Returns:
+          - tlh_candidate_count
+          - tlh_candidate_weight (sum of current dynamic weights in these names)
+        """
+        if price_matrix.empty or current_weights is None or current_weights.empty:
+            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+
+        roll_high = price_matrix.rolling(60).max()
+        if roll_high.empty:
+            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+
+        dd = price_matrix / roll_high - 1.0
+        dd_last = dd.iloc[-1]
+
+        threshold = -abs(self.tlh_drawdown_threshold)
+        candidates_mask = dd_last <= threshold
+
+        tickers = [t for t in dd_last.index if candidates_mask.get(t, False)]
+        count = len(tickers)
+        if count == 0:
+            return {"tlh_candidate_count": 0, "tlh_candidate_weight": 0.0}
+
+        weights_aligned = current_weights.reindex(dd_last.index).fillna(0.0)
+        tlh_weight = float(weights_aligned[tickers].sum())
+
+        return {
+            "tlh_candidate_count": int(count),
+            "tlh_candidate_weight": float(tlh_weight),
+        }
+
+    # ---------------------------------------------------------
     # CORE PERFORMANCE
     # ---------------------------------------------------------
     def get_wave_performance(
@@ -450,15 +513,14 @@ class WavesEngine:
         Compute full metrics for a given Wave + mode using:
           • Dynamic per-day weights
           • VIX-based exposure overlay
-          • Benchmark Map v1.1
-
-        Returns a dict with metrics + last-day dynamic weights.
+          • Slippage + turnover model
+          • TLH opportunity diagnostics
+          • UAPV-style unit price
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
 
-        # Unique tickers with aggregate weight (definition only; dynamic engine overrides)
         weights_all = (
             holdings.groupby("ticker")["weight"]
             .sum()
@@ -471,31 +533,34 @@ class WavesEngine:
         # --- Wave prices & returns (portfolio) ---
         price_matrix = self._get_price_matrix(all_tickers, period=history_period)
 
-        # Daily returns (drop first NaN row), then drop all-NaN columns
         ret_matrix = price_matrix.pct_change().iloc[1:, :].astype(float)
         ret_matrix = ret_matrix.dropna(axis=1, how="all")
-
         if ret_matrix.empty:
             raise ValueError(f"No usable return history for Wave {wave}")
 
-        # Fill remaining NaNs in returns for computation
         ret_filled = ret_matrix.fillna(0.0)
 
         # --- VIX series ---
         vix_series = self._get_vix_series(ret_matrix.index, period=history_period)
 
         # --- Dynamic weights over time ---
-        weights_time = self._compute_dynamic_weights(ret_matrix, vix_series, mode)
-
-        # Align shapes
+        weights_time = self._compute_dynamic_weights(wave, ret_matrix, vix_series, mode)
         weights_time = weights_time.reindex_like(ret_filled).fillna(0.0)
 
-        # Raw portfolio daily return = Σ_i w_i(t) * r_i(t)
-        raw_wave_ret = (weights_time * ret_filled).sum(axis=1)
+        # --- Portfolio returns (before & after slippage) ---
+        gross_wave_ret = (weights_time * ret_filled).sum(axis=1)
+        gross_wave_ret.name = "wave_return_gross"
+
+        # Turnover + slippage
+        turnover = weights_time.diff().abs().sum(axis=1) * 0.5
+        turnover = turnover.fillna(0.0)
+        slippage_cost = turnover * self.slippage_bps
+
+        raw_wave_ret = gross_wave_ret - slippage_cost
         raw_wave_ret.name = "wave_return_raw"
 
-        # --- Strategy overlay: daily VIX-gated exposure ---
-        exposure_series = self._compute_exposure_series(mode, vix_series)
+        # --- Strategy overlay: VIX-gated exposure ---
+        exposure_series = self._compute_exposure_series(wave, mode, vix_series)
 
         wave_ret_series = raw_wave_ret * exposure_series
         wave_ret_series.name = "wave_return"
@@ -507,7 +572,6 @@ class WavesEngine:
         benchmark = self.get_benchmark(wave)
 
         if isinstance(benchmark, dict):
-            # Blended benchmark
             bm_prices = self._get_price_matrix(list(benchmark.keys()), period=history_period)
             bm_rets = bm_prices.pct_change().iloc[1:, :].astype(float)
 
@@ -522,7 +586,6 @@ class WavesEngine:
             bm_value = (1.0 + bm_ret).cumprod()
             bm_value.name = "benchmark_value"
         else:
-            # Single-ticker benchmark
             bm_price = self._get_price_series(benchmark, period=history_period)
             bm_ret = bm_price.pct_change().iloc[1:].astype(float)
             bm_ret.name = "benchmark_return"
@@ -548,7 +611,7 @@ class WavesEngine:
         intraday_alpha = float(df["alpha_captured"].iloc[-1])
         alpha_30d = alpha_window(df["alpha_captured"], 30)
         alpha_60d = alpha_window(df["alpha_captured"], 60)
-        alpha_1y = alpha_window(df["alpha_captured"], len(df))  # full ≈1y period
+        alpha_1y = alpha_window(df["alpha_captured"], len(df))
 
         # --- Return windows ---
         def window_return(curve: pd.Series, window: int) -> Optional[float]:
@@ -590,6 +653,18 @@ class WavesEngine:
 
         history_30d = df.tail(30).copy()
 
+        # --- Turnover & slippage (annualized approximations) ---
+        turnover_daily_avg = float(turnover.mean())
+        turnover_annual = turnover_daily_avg * 252.0
+        slippage_daily_avg = float(slippage_cost.mean())
+        slippage_annual_drag = slippage_daily_avg * 252.0
+
+        # --- TLH signals ---
+        tlh_signals = self._compute_tlh_signals(price_matrix, current_weights)
+
+        # --- UAPV-style unit price (Wave token price) ---
+        uapv_unit_price = float(df["wave_value"].iloc[-1])
+
         result = {
             "benchmark": benchmark,
             "beta_realized": beta_realized,
@@ -608,6 +683,11 @@ class WavesEngine:
             "vix_last": vix_last,
             "vol_regime": regime_last,
             "current_weights": current_weights,
+            "turnover_annual": turnover_annual,
+            "slippage_annual_drag": slippage_annual_drag,
+            "tlh_candidate_count": tlh_signals["tlh_candidate_count"],
+            "tlh_candidate_weight": tlh_signals["tlh_candidate_weight"],
+            "uapv_unit_price": uapv_unit_price,
         }
 
         if log:
@@ -640,6 +720,11 @@ class WavesEngine:
                 "return_1y_benchmark": result.get("return_1y_benchmark"),
                 "vix_last": result.get("vix_last"),
                 "vol_regime": result.get("vol_regime"),
+                "turnover_annual": result.get("turnover_annual"),
+                "slippage_annual_drag": result.get("slippage_annual_drag"),
+                "tlh_candidate_count": result.get("tlh_candidate_count"),
+                "tlh_candidate_weight": result.get("tlh_candidate_weight"),
+                "uapv_unit_price": result.get("uapv_unit_price"),
             }
 
             df_row = pd.DataFrame([row])
