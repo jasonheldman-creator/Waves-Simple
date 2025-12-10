@@ -52,6 +52,12 @@ import yfinance as yf
 
 
 class WavesEngine:
+    # Default VIX value representing normal market regime
+    # 20.0 is chosen as it represents the long-term VIX median (~19-20),
+    # falling in the "normal" regime (14-22) between calm and elevated volatility
+    # Used as fallback when VIX data is unavailable
+    DEFAULT_VIX_VALUE = 20.0
+    
     # ---------------------------------------------------------
     # INIT
     # ---------------------------------------------------------
@@ -95,67 +101,95 @@ class WavesEngine:
     # CSV LOADERS
     # ---------------------------------------------------------
     def _load_list(self) -> pd.DataFrame:
-        if not self.list_path.exists():
-            raise FileNotFoundError(f"Universe file not found: {self.list_path}")
+        """Load and validate the universe file with robust error handling."""
+        try:
+            if not self.list_path.exists():
+                raise FileNotFoundError(f"Universe file not found: {self.list_path}")
 
-        df = pd.read_csv(self.list_path)
-        df.columns = [c.strip().lower() for c in df.columns]
+            df = pd.read_csv(self.list_path)
+            if df.empty:
+                raise ValueError(f"Universe file is empty: {self.list_path}")
+            
+            df.columns = [c.strip().lower() for c in df.columns]
 
-        if "ticker" not in df.columns:
-            raise ValueError("list.csv must include a 'Ticker' column (case-insensitive).")
+            if "ticker" not in df.columns:
+                raise ValueError("list.csv must include a 'Ticker' column (case-insensitive).")
 
-        df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+            
+            # Remove any empty/invalid tickers
+            df = self._filter_valid_tickers(df, "ticker")
 
-        # Optional metadata
-        for col in ["company", "sector", "name"]:
-            if col not in df.columns:
-                df[col] = None
+            # Optional metadata
+            for col in ["company", "sector", "name"]:
+                if col not in df.columns:
+                    df[col] = None
 
-        return df
+            return df
+        except FileNotFoundError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to load universe file {self.list_path}: {e}") from e
 
     def _load_weights(self) -> pd.DataFrame:
-        if not self.weights_path.exists():
-            raise FileNotFoundError(f"Wave weights file not found: {self.weights_path}")
+        """Load and validate wave weights with robust error handling."""
+        try:
+            if not self.weights_path.exists():
+                raise FileNotFoundError(f"Wave weights file not found: {self.weights_path}")
 
-        df = pd.read_csv(self.weights_path)
-        df.columns = [c.strip().lower() for c in df.columns]
+            df = pd.read_csv(self.weights_path)
+            if df.empty:
+                raise ValueError(f"Wave weights file is empty: {self.weights_path}")
+            
+            df.columns = [c.strip().lower() for c in df.columns]
 
-        required = {"wave", "ticker", "weight"}
-        if not required.issubset(df.columns):
-            raise ValueError("wave_weights.csv must include columns: wave,ticker,weight")
+            required = {"wave", "ticker", "weight"}
+            if not required.issubset(df.columns):
+                raise ValueError("wave_weights.csv must include columns: wave,ticker,weight")
 
-        df["wave"] = df["wave"].astype(str).str.strip()
-        df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-        df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+            df["wave"] = df["wave"].astype(str).str.strip()
+            df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+            df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
 
-        # 🔁 NAME NORMALIZATION: map legacy labels to canonical names
-        name_map = {
-            # Crypto
-            "Crypto Income Wave": "Crypto Equity Wave (mid/large cap)",
-            "Crypto Equity Wave": "Crypto Equity Wave (mid/large cap)",
+            # 🔁 NAME NORMALIZATION: map legacy labels to canonical names
+            name_map = {
+                # Crypto
+                "Crypto Income Wave": "Crypto Equity Wave (mid/large cap)",
+                "Crypto Equity Wave": "Crypto Equity Wave (mid/large cap)",
 
-            # Small cap growth → Cloud/Enterprise Software
-            "Small Cap Growth Wave": "Cloud & Enterprise Software Growth Wave",
-            "Cloud Computing & Enterprise Software Growth Fund": "Cloud & Enterprise Software Growth Wave",
+                # Small cap growth → Cloud/Enterprise Software
+                "Small Cap Growth Wave": "Cloud & Enterprise Software Growth Wave",
+                "Cloud Computing & Enterprise Software Growth Fund": "Cloud & Enterprise Software Growth Wave",
 
-            # Future Power & Energy minor variants
-            "Future Power & Energy": "Future Power & Energy Wave",
+                # Future Power & Energy minor variants
+                "Future Power & Energy": "Future Power & Energy Wave",
 
-            # Clean Transit variants
-            "Clean Transit - Infrastructure Wave": "Clean Transit-Infrastructure Wave",
-            "Clean Transit & Infrastructure Wave": "Clean Transit-Infrastructure Wave",
-        }
-        df["wave"] = df["wave"].replace(name_map)
+                # Clean Transit variants
+                "Clean Transit - Infrastructure Wave": "Clean Transit-Infrastructure Wave",
+                "Clean Transit & Infrastructure Wave": "Clean Transit-Infrastructure Wave",
+            }
+            df["wave"] = df["wave"].replace(name_map)
 
-        df = df.dropna(subset=["ticker", "weight"])
-        df["weight"] = df["weight"].astype(float)
+            df = df.dropna(subset=["ticker", "weight"])
+            
+            # Remove invalid entries
+            df = self._filter_valid_tickers(df, "ticker")
+            df = df[df["weight"] > 0]  # Weights must be positive
+            df["weight"] = df["weight"].astype(float)
 
-        # Normalize per Wave so weights sum to 1
-        weight_sum = df.groupby("wave")["weight"].transform("sum")
-        weight_sum = weight_sum.replace(0, np.nan)
-        df["weight"] = df["weight"] / weight_sum
+            # Normalize per Wave so weights sum to 1
+            weight_sum = df.groupby("wave")["weight"].transform("sum")
+            weight_sum = weight_sum.replace(0, np.nan)
+            df["weight"] = df["weight"] / weight_sum
+            
+            # Drop any rows where normalization failed
+            df = df.dropna(subset=["weight"])
 
-        return df
+            return df
+        except FileNotFoundError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to load wave weights file {self.weights_path}: {e}") from e
 
     # ---------------------------------------------------------
     # PUBLIC ACCESSORS
@@ -226,6 +260,43 @@ class WavesEngine:
         # Fallback single-ticker
         return self._benchmark_map.get(wave, "SPY")
 
+    # ---------------------------------------------------------
+    # HELPER METHODS
+    # ---------------------------------------------------------
+    def _validate_and_normalize_mode(self, mode: str) -> str:
+        """
+        Validate and normalize mode parameter.
+        
+        Args:
+            mode: Mode string to validate
+            
+        Returns:
+            Normalized mode string (lowercased)
+            
+        Raises:
+            ValueError: If mode is not one of the valid modes
+        """
+        mode = (mode or "standard").lower()
+        valid_modes = {"standard", "alpha-minus-beta", "private_logic"}
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+        return mode
+
+    def _filter_valid_tickers(self, df: pd.DataFrame, ticker_col: str = "ticker") -> pd.DataFrame:
+        """
+        Filter out invalid ticker entries.
+        
+        Removes:
+        - NaN values
+        - Empty strings
+        - Common invalid patterns like "NAN" (case-insensitive)
+        """
+        df = df[df[ticker_col].notna()]
+        df = df[df[ticker_col] != ""]
+        # Filter out "NAN" in any case variation
+        df = df[df[ticker_col].str.upper() != "NAN"]
+        return df
+
     def get_wave_holdings(self, wave: str) -> pd.DataFrame:
         """
         Holdings for a Wave, with duplicate tickers aggregated (weights summed).
@@ -254,40 +325,64 @@ class WavesEngine:
     # PRICE HELPERS
     # ---------------------------------------------------------
     def _get_price_series(self, ticker: str, period: str = "1y") -> pd.Series:
-        data = yf.download(
-            tickers=ticker,
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
-        if data.empty:
-            raise ValueError(f"No price data for {ticker}")
-        close = data["Close"]
-        if isinstance(close, pd.DataFrame):
-            close = close.iloc[:, 0]
-        close = close.astype(float)
-        close.name = ticker
-        return close
+        """Fetch price series for a single ticker with robust error handling."""
+        try:
+            data = yf.download(
+                tickers=ticker,
+                period=period,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+            if data.empty:
+                raise ValueError(f"No price data returned for {ticker}")
+            
+            close = data["Close"]
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            
+            close = close.dropna()  # Remove NaN values
+            if close.empty:
+                raise ValueError(f"All price data is NaN for {ticker}")
+            
+            close = close.astype(float)
+            close.name = ticker
+            return close
+        except Exception as e:
+            raise ValueError(f"Failed to fetch price data for {ticker}: {e}") from e
 
     def _get_price_matrix(self, tickers: List[str], period: str = "1y") -> pd.DataFrame:
+        """Fetch price matrix for multiple tickers with graceful per-ticker error handling."""
+        if not tickers:
+            raise ValueError("No tickers provided to fetch prices for")
+        
         frames = []
         valid_tickers: List[str] = []
+        failed_tickers: List[str] = []
+        
         for t in tickers:
             try:
                 s = self._get_price_series(t, period=period)
                 frames.append(s)
                 valid_tickers.append(t)
-            except Exception:
-                # Skip tickers with no data
+            except Exception as e:
+                # Log ticker failure but continue with others
+                failed_tickers.append(t)
                 continue
 
         if not frames:
-            raise ValueError(f"No price data for any tickers in: {tickers}")
+            raise ValueError(
+                f"No price data for any tickers in: {tickers}. "
+                f"All {len(failed_tickers)} tickers failed to fetch."
+            )
 
         closes = pd.concat(frames, axis=1)
         closes.columns = valid_tickers
-        closes = closes.dropna(how="all")
+        closes = closes.dropna(how="all")  # Remove dates with no data for any ticker
+        
+        if closes.empty:
+            raise ValueError(f"Price matrix is empty after combining {len(valid_tickers)} tickers")
+        
         closes = closes.astype(float)
         return closes
 
@@ -295,13 +390,26 @@ class WavesEngine:
     # VIX + EXPOSURE HELPERS
     # ---------------------------------------------------------
     def _get_vix_series(self, index_like: pd.Index, period: str = "1y") -> pd.Series:
-        vix = self._get_price_series("^VIX", period=period)
-        vix.index = pd.to_datetime(vix.index)
-        idx = pd.to_datetime(index_like)
-        vix_aligned = vix.reindex(idx, method=None)
-        vix_aligned = vix_aligned.ffill().bfill()
-        vix_aligned.name = "VIX"
-        return vix_aligned
+        """Fetch VIX series aligned to given index with error handling."""
+        try:
+            vix = self._get_price_series("^VIX", period=period)
+            vix.index = pd.to_datetime(vix.index)
+            idx = pd.to_datetime(index_like)
+            vix_aligned = vix.reindex(idx, method=None)
+            vix_aligned = vix_aligned.ffill().bfill()
+            
+            # If still NaN after forward/backward fill, use default VIX value
+            if vix_aligned.isna().all():
+                vix_aligned = pd.Series(self.DEFAULT_VIX_VALUE, index=idx)
+            elif vix_aligned.isna().any():
+                vix_aligned = vix_aligned.fillna(self.DEFAULT_VIX_VALUE)
+            
+            vix_aligned.name = "VIX"
+            return vix_aligned
+        except Exception:
+            # Fallback: return a default VIX series (normal regime)
+            # Exception details not logged as this is an expected fallback scenario
+            return pd.Series(self.DEFAULT_VIX_VALUE, index=pd.to_datetime(index_like), name="VIX")
 
     def _get_vol_regime(self, v: float) -> str:
         if np.isnan(v):
@@ -319,7 +427,11 @@ class WavesEngine:
         Per-day exposure based on mode + daily VIX level + wave-specific tweaks.
         """
         wave = (wave or "").strip()
-        mode = (mode or "standard").lower()
+        # Validate mode (silently defaults to standard if invalid in this method)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
 
         # Base exposure by mode
         if mode == "alpha-minus-beta":
@@ -381,7 +493,17 @@ class WavesEngine:
           • Wave-specific customizations
         """
         wave_name = (wave or "").strip()
-        mode = (mode or "standard").lower()
+        # Validate mode (silently defaults to standard if invalid in this method)
+        try:
+            mode = self._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
+        
+        # Validate inputs
+        if ret_matrix.empty:
+            raise ValueError("Return matrix is empty for dynamic weight computation")
+        if vix_series.empty or len(vix_series) != len(ret_matrix):
+            raise ValueError("VIX series must match return matrix length")
 
         # 60-day realized vol
         vol_60 = ret_matrix.rolling(60).std()
@@ -420,20 +542,32 @@ class WavesEngine:
         for dt in ret_matrix.index:
             vol_row = vol_60.loc[dt]
             sig_row = signal_score.loc[dt]
-            vix_val = float(vix_series.loc[dt])
+            
+            # Safe VIX value extraction
+            try:
+                vix_val = float(vix_series.loc[dt])
+                if np.isnan(vix_val):
+                    vix_val = self.DEFAULT_VIX_VALUE
+            except (KeyError, ValueError, TypeError):
+                vix_val = self.DEFAULT_VIX_VALUE
 
-            # Risk-parity base
+            # Risk-parity base with robust handling
             with np.errstate(divide="ignore", invalid="ignore"):
                 inv_vol = 1.0 / vol_row
             inv_vol = inv_vol.replace([np.inf, -np.inf], np.nan)
+            
+            # Handle case where all volatilities are NaN or zero
             if inv_vol.notna().sum() == 0:
+                # Fallback to equal weight for valid tickers
                 valid = ret_matrix.loc[dt].replace(0.0, np.nan).notna()
                 if valid.sum() == 0:
+                    # No valid tickers, skip this date
                     continue
                 rp = valid.astype(float) / valid.sum()
             else:
                 inv_vol = inv_vol.fillna(0.0)
                 if inv_vol.sum() <= 0:
+                    # All inverse volatilities are zero or negative
                     valid = ret_matrix.loc[dt].replace(0.0, np.nan).notna()
                     if valid.sum() == 0:
                         continue
@@ -615,6 +749,13 @@ class WavesEngine:
           • TLH diagnostics
           • UAPV-style unit price
         """
+        # Validate inputs
+        if not wave or not isinstance(wave, str):
+            raise ValueError("Wave name must be a non-empty string")
+        
+        # Normalize and validate mode
+        mode = self._validate_and_normalize_mode(mode)
+        
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
@@ -808,6 +949,16 @@ class WavesEngine:
               appropriate (e.g., at least ~60–252 bars).
             - For intraday, the alpha math is the same but over finer bars.
         """
+        # Validate inputs
+        if not wave or not isinstance(wave, str):
+            raise ValueError("Wave name must be a non-empty string")
+        
+        if price_matrix is None or price_matrix.empty:
+            raise ValueError("Price matrix must be a non-empty DataFrame")
+        
+        # Normalize and validate mode
+        mode = self._validate_and_normalize_mode(mode)
+        
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
             raise ValueError(f"No holdings defined for Wave: {wave}")
@@ -1050,10 +1201,26 @@ class SmartSafeSweepEngine:
 
         risk_level: "Conservative", "Moderate", "Aggressive"
         """
+        # Validate inputs
+        if not risk_level or not isinstance(risk_level, str):
+            risk_level = "Moderate"
+        
+        # Normalize and validate mode (silently defaults to standard if invalid)
+        try:
+            mode = self.engine._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
 
         risk_waves, smart_waves = self._split_waves()
+        
+        # Handle case with no waves at all
+        if not risk_waves and not smart_waves:
+            raise ValueError("No waves available for allocation")
+        
         if not smart_waves:
             # no SmartSafe found — allocate only across risk waves
+            if not risk_waves:
+                raise ValueError("No waves available for allocation")
             w = 1.0 / max(1, len(risk_waves))
             return {rw: w for rw in risk_waves}
 
@@ -1070,14 +1237,21 @@ class SmartSafeSweepEngine:
         # Simple VIX-based tweak: push more to SmartSafe if regime is elevated/extreme
         try:
             # Just inspect the first risk wave for VIX regime
-            m0 = self.engine.get_wave_performance(risk_waves[0], mode=mode, log=False)
-            regime = m0.get("vol_regime", "normal")
-            if regime in ("elevated", "extreme"):
-                smart_alloc = min(0.80, smart_alloc + 0.10)
+            if risk_waves:
+                m0 = self.engine.get_wave_performance(risk_waves[0], mode=mode, log=False)
+                regime = m0.get("vol_regime", "normal") if m0 else "normal"
+                if regime in ("elevated", "extreme"):
+                    smart_alloc = min(0.80, smart_alloc + 0.10)
         except Exception:
+            # Silently continue with base allocation if VIX check fails
             pass
 
         risk_alloc_total = 1.0 - smart_alloc
+        
+        # Handle edge case where all allocation goes to SmartSafe
+        if not risk_waves:
+            return {smart_wave: 1.0}
+        
         per_risk = risk_alloc_total / max(1, len(risk_waves))
 
         alloc = {rw: per_risk for rw in risk_waves}
@@ -1089,11 +1263,28 @@ class SmartSafeSweepEngine:
         Given {Wave: allocation} weights (sum ≈ 1.0),
         compute blended Wave performance across Waves.
         """
+        # Validate inputs
+        if not allocations or not isinstance(allocations, dict):
+            raise ValueError("Allocations must be a non-empty dictionary")
+        
+        # Normalize and validate mode (silently defaults to standard if invalid)
+        try:
+            mode = self.engine._validate_and_normalize_mode(mode)
+        except ValueError:
+            mode = "standard"
 
         waves = list(allocations.keys())
-        weights = np.array([allocations[w] for w in waves], dtype=float)
-        if weights.sum() <= 0:
+        if not waves:
             return {}
+        
+        weights = np.array([allocations[w] for w in waves], dtype=float)
+        
+        # Handle invalid weights
+        if np.any(np.isnan(weights)) or np.any(weights < 0):
+            raise ValueError("Allocation weights must be non-negative and not NaN")
+        
+        if weights.sum() <= 0:
+            raise ValueError("Total allocation weights must be positive")
 
         weights = weights / weights.sum()
 
@@ -1101,12 +1292,14 @@ class SmartSafeSweepEngine:
         for i, w in enumerate(waves):
             try:
                 m = self.engine.get_wave_performance(w, mode=mode, log=False)
-                entries.append((w, m, weights[i]))
+                if m:  # Only add if performance data was successfully retrieved
+                    entries.append((w, m, weights[i]))
             except Exception:
+                # Continue with other waves if one fails
                 continue
 
         if not entries:
-            return {}
+            raise ValueError("Failed to retrieve performance data for any wave in allocation")
 
         def _blend(key: str) -> Optional[float]:
             vals = []
@@ -1128,4 +1321,10 @@ class SmartSafeSweepEngine:
             "alpha_30d_blended": _blend("alpha_30d"),
             "alpha_60d_blended": _blend("alpha_60d"),
             "alpha_1y_blended": _blend("alpha_1y"),
-            "return_30d_
+            "return_30d_blended": _blend("return_30d_wave"),
+            "return_60d_blended": _blend("return_60d_wave"),
+            "return_1y_blended": _blend("return_1y_wave"),
+            "beta_realized_blended": _blend("beta_realized"),
+            "turnover_annual_blended": _blend("turnover_annual"),
+            "slippage_annual_drag_blended": _blend("slippage_annual_drag"),
+        }
