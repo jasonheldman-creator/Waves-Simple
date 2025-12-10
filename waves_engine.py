@@ -1207,7 +1207,7 @@ class SmartSafeSweepEngine:
         
         # Normalize and validate mode (silently defaults to standard if invalid)
         try:
-            mode = self._validate_and_normalize_mode(mode)
+            mode = self.engine._validate_and_normalize_mode(mode)
         except ValueError:
             mode = "standard"
 
@@ -1269,7 +1269,7 @@ class SmartSafeSweepEngine:
         
         # Normalize and validate mode (silently defaults to standard if invalid)
         try:
-            mode = self._validate_and_normalize_mode(mode)
+            mode = self.engine._validate_and_normalize_mode(mode)
         except ValueError:
             mode = "standard"
 
