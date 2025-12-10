@@ -1,30 +1,31 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine
-Benchmark Map v1.0 (LOCKED)
+waves_engine.py — WAVES Intelligence™ Vector 2.0 Engine + Strategy Overlay
+Benchmark Map v1.0 (LOCKED) + Dynamic VIX-Gated Exposure
 
-Features
---------
-• Loads list.csv (universe) and wave_weights.csv (Wave definitions)
-• Aggregates duplicate tickers per Wave (sums weights)
-• Fetches 1-year daily prices via yfinance
-• Computes:
-    - daily Wave & benchmark returns
-    - cumulative value curves
-    - intraday, 30D, 60D, 1Y alpha captured
-    - 30D / 60D / 1Y Wave & benchmark returns
-    - realised beta (≈60 trading days)
-    - VIX-gated exposure per mode (standard / alpha-minus-beta / private_logic)
-• Auto-cleans:
-    - uses only tickers with price data
-    - drops tickers whose returns are all NaN
-    - re-normalises weights to surviving tickers
-• Supports blended benchmarks:
-    - Future Power & Energy Wave → 55% ICLN + 45% IXE
-    - Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
-    - Growth Wave → 50% QQQ + 50% IWF
-    - Small-Mid Cap Growth Wave → 50% VTWG + 50% VO
-    - Quantum Computing Wave → 70% IYW + 30% SOXX
-    - Crypto Income Wave → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
+What this does
+--------------
+1) Loads list.csv (universe) and wave_weights.csv (Wave definitions).
+2) Aggregates duplicate tickers per Wave (sums weights).
+3) Fetches 1-year daily prices via yfinance.
+4) Computes:
+   • daily Wave & benchmark returns
+   • cumulative value curves
+   • intraday, 30D, 60D, 1Y alpha captured
+   • 30D / 60D / 1Y Wave & benchmark returns
+   • realised beta (≈60 trading days)
+5) Applies a DAILY TRADING OVERLAY:
+   • per-day exposure is determined by:
+       - Mode: standard / alpha-minus-beta / private_logic
+       - VIX level on that day
+   • daily Wave returns are scaled by exposure_t
+   → this approximates the live risk-controls/algos instead of naive buy & hold.
+6) Supports blended benchmarks:
+   • Growth Wave → 50% QQQ + 50% IWF
+   • Small-Mid Cap Growth Wave → 50% VTWG + 50% VO
+   • Future Power & Energy Wave → 55% ICLN + 45% IXE
+   • Clean Transit-Infrastructure Wave → 50% ICLN + 50% IGF
+   • Quantum Computing Wave → 70% IYW + 30% SOXX
+   • Crypto Income Wave → 50% BTC-USD + 30% ETH-USD + 20% SOL-USD
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ class WavesEngine:
     def __init__(
         self,
         list_path: Union[str, Path] = "list.csv",
-        weights_path: Union[str[str], Path] = "wave_weights.csv",
+        weights_path: Union[str, Path] = "wave_weights.csv",
         logs_root: Union[str, Path] = "logs",
     ):
         self.list_path = Path(list_path)
@@ -242,6 +243,74 @@ class WavesEngine:
         return closes
 
     # ---------------------------------------------------------
+    # STRATEGY OVERLAY — VIX-GATED DAILY EXPOSURE
+    # ---------------------------------------------------------
+    def _get_vix_series(self, index_like: pd.Index, period: str = "1y") -> pd.Series:
+        """
+        Fetch VIX (^VIX) and align it to the given date index (forward/back fill).
+        """
+        vix = self._get_price_series("^VIX", period=period)
+        vix.index = pd.to_datetime(vix.index)
+        idx = pd.to_datetime(index_like)
+        vix_aligned = vix.reindex(idx, method=None)
+        # fill gaps forward/back to avoid NaNs
+        vix_aligned = vix_aligned.ffill().bfill()
+        vix_aligned.name = "VIX"
+        return vix_aligned
+
+    def _compute_exposure_series(self, mode: str, vix_series: pd.Series) -> pd.Series:
+        """
+        Compute a per-day exposure series based on mode + daily VIX level.
+        This is the core "trading algo" overlay: it tells us how much
+        of the raw portfolio return to actually take each day.
+
+        Rough rules:
+          - standard:
+              base = 1.0
+          - alpha-minus-beta:
+              base = 0.8  (more defensive)
+          - private_logic:
+              base = 1.1  (slightly more aggressive when VIX calm)
+
+          VIX ladder:
+              VIX < 14   → calm, can run full base (or +10% in PL)
+              14–22      → moderate, 0.9x base
+              > 22       → high stress, 0.6x base (0.5x for alpha-minus-beta)
+
+        Exposure is clipped into [0.2, 1.4].
+        """
+        mode = (mode or "standard").lower()
+        if mode == "alpha-minus-beta":
+            base = 0.8
+        elif mode == "private_logic":
+            base = 1.1
+        else:
+            base = 1.0
+
+        vix_vals = vix_series.astype(float).values
+        exposure_vals = []
+
+        for v in vix_vals:
+            if np.isnan(v):
+                v_mult = 1.0
+            elif v < 14:
+                # calm
+                v_mult = 1.1 if mode == "private_logic" else 1.0
+            elif v < 22:
+                # moderate
+                v_mult = 0.9
+            else:
+                # stressed
+                v_mult = 0.5 if mode == "alpha-minus-beta" else 0.6
+
+            exp_val = base * v_mult
+            exp_val = float(np.clip(exp_val, 0.2, 1.4))
+            exposure_vals.append(exp_val)
+
+        exposure_series = pd.Series(exposure_vals, index=vix_series.index, name="exposure")
+        return exposure_series
+
+    # ---------------------------------------------------------
     # CORE PERFORMANCE
     # ---------------------------------------------------------
     def get_wave_performance(
@@ -259,6 +328,11 @@ class WavesEngine:
           • uses only tickers with price data
           • drops tickers whose returns are all NaN
           • re-normalises weights to active tickers
+
+        Strategy overlay:
+          • builds raw portfolio daily return
+          • fetches daily VIX and computes exposure_t per day
+          • final Wave return_t = raw_return_t * exposure_t
         """
         holdings = self.get_wave_holdings(wave)
         if holdings.empty:
@@ -294,8 +368,16 @@ class WavesEngine:
             raise ValueError(f"No positive weights for active tickers in Wave {wave}")
         w_vec = (weights_active / w_sum).values.astype(float)
 
-        # Portfolio daily return = weighted sum across columns
-        wave_ret_series = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
+        # Raw portfolio daily return = weighted sum across columns
+        raw_wave_ret = ret_matrix.mul(w_vec, axis=1).sum(axis=1)
+        raw_wave_ret.name = "wave_return_raw"
+
+        # --- Strategy overlay: daily VIX-gated exposure ---
+        vix_series = self._get_vix_series(raw_wave_ret.index, period=history_period)
+        exposure_series = self._compute_exposure_series(mode, vix_series)
+
+        # final Wave daily return after overlay
+        wave_ret_series = raw_wave_ret * exposure_series
         wave_ret_series.name = "wave_return"
 
         wave_value = (1.0 + wave_ret_series).cumprod()
@@ -380,8 +462,8 @@ class WavesEngine:
                 cov_xy = np.cov(x, y)[0, 1]
                 beta_realized = float(cov_xy / np.var(x))
 
-        # --- VIX-gated exposure ---
-        exposure_final = self._compute_exposure(mode, beta_realized)
+        # --- Exposure final (last day) ---
+        exposure_final = float(exposure_series.iloc[-1])
 
         history_30d = df.tail(30).copy()
 
@@ -406,51 +488,6 @@ class WavesEngine:
             self._log_performance_row(wave, result)
 
         return result
-
-    # ---------------------------------------------------------
-    # EXPOSURE MODEL (Mode + VIX)
-    # ---------------------------------------------------------
-    def _compute_exposure(self, mode: str, beta_realized: float) -> float:
-        """
-        Simple mode + VIX-gated exposure model:
-          • standard         → base 1.0
-          • alpha-minus-beta → target lower beta
-          • private_logic    → slightly higher base exposure
-        """
-        mode = (mode or "standard").lower()
-        beta = beta_realized if beta_realized is not None and not np.isnan(beta_realized) else 1.0
-
-        if mode == "alpha-minus-beta":
-            # steer exposure toward ~0.8 beta
-            base = max(0.3, min(1.0, 1.0 - 0.4 * (beta - 0.8)))
-        elif mode == "private_logic":
-            base = 1.1
-        else:
-            base = 1.0
-
-        vix_level = self._get_vix_level()
-
-        if vix_level is None:
-            vix_mult = 1.0
-        elif vix_level < 14:
-            vix_mult = 1.1 if mode == "private_logic" else 1.0
-        elif vix_level < 22:
-            vix_mult = 0.9
-        else:
-            vix_mult = 0.7 if mode != "alpha-minus-beta" else 0.6
-
-        exposure = base * vix_mult
-        exposure = float(np.clip(exposure, 0.2, 1.4))
-        return exposure
-
-    def _get_vix_level(self) -> Optional[float]:
-        try:
-            vix = self._get_price_series("^VIX", period="3mo")
-        except Exception:
-            return None
-        if vix.empty:
-            return None
-        return float(vix.iloc[-1])
 
     # ---------------------------------------------------------
     # LOGGING (optional, non-blocking)
