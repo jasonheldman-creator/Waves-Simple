@@ -1128,4 +1128,6 @@ class SmartSafeSweepEngine:
             "alpha_30d_blended": _blend("alpha_30d"),
             "alpha_60d_blended": _blend("alpha_60d"),
             "alpha_1y_blended": _blend("alpha_1y"),
-            "return_30d_
+            "return_30d_wave_blended": _blend("return_30d_wave"),
+            "return_60d_wave_blended": _blend("return_60d_wave"),
+            "return_1y_wave_blended": _blend("return_1y_wave"),
