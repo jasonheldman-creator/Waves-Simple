@@ -1,17 +1,25 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-(Restored Baseline + Overview Grid)
+(Restored Baseline + Enhanced Overview Grid)
 
 Key behaviors:
 - Auto-discovers Waves from wave_weights.csv via waves_engine.get_available_waves()
 - No SmartSafe 3.0 logic. Only SmartSafe 2.0 hooks via engine (no-op).
 - Tabs:
-    1) Overview (all Waves grid)
+    1) Overview (all Waves grid, sortable, color-coded)
     2) Wave Detail (single-Wave dashboard)
-- Metrics:
-    Intraday, 30-Day, 60-Day returns and alpha vs benchmark.
-- Per-Wave view:
-    Top 10 holdings with clickable Google Finance quote links.
+
+Metrics:
+- Intraday Return
+- 30-Day Return
+- 60-Day Return
+- 30-Day Alpha vs benchmark
+- 60-Day Alpha vs benchmark
+
+Per-Wave view:
+- Metrics
+- Top 10 holdings with clickable Google Finance quote links
+- Raw positions
 """
 
 from __future__ import annotations
@@ -39,18 +47,20 @@ st.set_page_config(
 
 @st.cache_data(show_spinner=False)
 def load_wave_list():
+    """Load all Waves once (names come from wave_weights.csv)."""
     try:
         waves = we.get_available_waves()
         return waves
     except Exception as e:
-        st.error(f"Error loading wave list: {e}")
+        st.error(f"Error loading Waves from wave_weights.csv: {e}")
         return []
 
 
-@st.cache_data(show_spinner=False)
 def load_wave_snapshot(wave_name: str):
     """
-    Snapshot for a single Wave (used in detail tab).
+    Wrapper around we.get_wave_snapshot.
+
+    Not cached so intraday data is always fresh when the page reloads.
     """
     return we.get_wave_snapshot(wave_name)
 
@@ -77,7 +87,7 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
                 }
             )
         except Exception:
-            # Non-fatal; we still show other waves
+            # Non-fatal; still show row with zeros so the grid is complete
             rows.append(
                 {
                     "Wave": w,
@@ -108,7 +118,7 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------
-# UI Components
+# UI helpers
 # ---------------------------------------------------------------------
 
 def format_pct(x: float) -> str:
@@ -119,6 +129,7 @@ def format_pct(x: float) -> str:
 
 
 def top_holdings_table(positions: pd.DataFrame, max_rows: int = 10) -> pd.DataFrame:
+    """Prepare Top 10 holdings table with Google Finance links."""
     if positions.empty:
         return pd.DataFrame()
 
@@ -133,9 +144,10 @@ def top_holdings_table(positions: pd.DataFrame, max_rows: int = 10) -> pd.DataFr
         lambda t: f"[Quote](https://www.google.com/finance/quote/{t})"
     )
 
-    return df[["ticker", "Weight", "Last Price", "Google Finance"]].rename(
+    df = df[["ticker", "Weight", "Last Price", "Google Finance"]].rename(
         columns={"ticker": "Ticker"}
     )
+    return df
 
 
 def render_header():
@@ -151,6 +163,11 @@ def render_header():
 
 
 def render_sidebar(waves: list) -> str:
+    """
+    Sidebar:
+    - Wave selector (for detail tab)
+    - Mode selector (visual only)
+    """
     st.sidebar.markdown("### Waves Intelligence™")
     st.sidebar.write("Select a Wave to inspect in the **Wave Detail** tab:")
 
@@ -167,7 +184,7 @@ def render_sidebar(waves: list) -> str:
         index=0,
     )
     st.sidebar.markdown("---")
-    st.sidebar.caption("SmartSafe 2.0 sweep is wired but non-invasive in this version.")
+    st.sidebar.caption("SmartSafe 2.0 sweep is wired but conservative and non-invasive.")
     return selected_wave
 
 
@@ -206,9 +223,7 @@ def render_top_holdings(snapshot: dict):
         return
 
     st.markdown(
-        """
-        Click **Quote** to open the Google Finance page for each holding.
-        """,
+        "Click **Quote** to open the Google Finance page for each holding.",
         unsafe_allow_html=True,
     )
 
@@ -249,40 +264,94 @@ def render_positions_raw(snapshot: dict):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+# ---------------------------------------------------------------------
+# Overview tab
+# ---------------------------------------------------------------------
+
+def _color_metric(val: str) -> str:
+    """
+    Apply red/green coloring based on sign of the percent string, e.g. "1.23%".
+    """
+    if not isinstance(val, str):
+        return ""
+    if val.startswith("-"):
+        return "color: #ff4d4f;"  # red-ish
+    if val.endswith("%") and not val.startswith("0.00"):
+        return "color: #16c784;"  # green-ish
+    return ""
+
+
 def render_overview_tab(waves: list[str]):
     st.subheader("Overview — All Waves")
 
     if not waves:
-        st.info("No Waves found.")
+        st.info("No Waves available. Check wave_weights.csv.")
         return
 
-    df = load_all_snapshots(waves)
+    with st.spinner("Calculating Wave metrics..."):
+        df = load_all_snapshots(waves)
+
     if df.empty:
         st.info("No metrics available yet.")
         return
 
-    # Format for display
-    df_display = df.copy()
-    for col in [
+    st.markdown(
+        """
+        This grid shows Intraday, 30-Day, and 60-Day performance and alpha for each Wave.
+        Use the controls below to sort by any metric.
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Sorting controls
+    metric_options = [
         "Intraday Return",
         "30D Return",
         "30D Alpha",
         "60D Return",
         "60D Alpha",
-    ]:
+    ]
+    col_sort, col_dir = st.columns([2, 1])
+    with col_sort:
+        sort_col = st.selectbox("Sort by metric", metric_options, index=2)  # default: 30D Alpha
+    with col_dir:
+        sort_dir = st.radio("Direction", ["High → Low", "Low → High"], index=0)
+
+    ascending = sort_dir == "Low → High"
+    df_sorted = df.sort_values(sort_col, ascending=ascending)
+
+    # Create formatted copy for display
+    df_display = df_sorted.copy()
+    for col in metric_options:
         df_display[col] = df_display[col].apply(format_pct)
 
-    st.markdown(
-        """
-        This grid shows Intraday, 30-Day, and 60-Day performance and alpha for each Wave.
-        """,
-        unsafe_allow_html=True,
+    # Use Styler to color-code positives/negatives
+    styler = df_display.style.applymap(
+        _color_metric,
+        subset=metric_options,
     )
 
     st.dataframe(
-        df_display,
+        styler,
         use_container_width=True,
         hide_index=True,
+    )
+
+
+# ---------------------------------------------------------------------
+# Wave Detail tab
+# ---------------------------------------------------------------------
+
+def render_smartsafe_panel():
+    st.subheader("SmartSafe 2.0 Status")
+    st.write(
+        """
+        SmartSafe 2.0 sweep hooks are active but conservative and non-invasive
+        in this restored baseline.
+
+        - No SmartSafe 3.0 logic is running.
+        - Sweeps, if any, are simple and conservative.
+        """
     )
 
 
@@ -301,16 +370,10 @@ def render_wave_detail_tab(selected_wave: str):
 
     st.markdown("---")
     col_left, col_right = st.columns([2, 1])
-
     with col_left:
         render_top_holdings(snapshot)
     with col_right:
-        st.subheader("SmartSafe 2.0 Status")
-        st.write(
-            "SmartSafe 2.0 sweep hooks are active but non-invasive in this restored baseline.\n\n"
-            "- No SmartSafe 3.0 logic is running.\n"
-            "- Sweeps, if any, will be simple and conservative."
-        )
+        render_smartsafe_panel()
 
     st.markdown("---")
     render_positions_raw(snapshot)
@@ -318,7 +381,7 @@ def render_wave_detail_tab(selected_wave: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Restored baseline console. For internal / demo use only.
+        WAVES Intelligence™ — Restored baseline console (Detail). For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
