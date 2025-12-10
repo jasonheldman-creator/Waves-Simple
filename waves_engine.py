@@ -52,6 +52,10 @@ import yfinance as yf
 
 
 class WavesEngine:
+    # Default VIX value representing normal market regime
+    # Used as fallback when VIX data is unavailable
+    DEFAULT_VIX_VALUE = 20.0
+    
     # ---------------------------------------------------------
     # INIT
     # ---------------------------------------------------------
@@ -112,7 +116,7 @@ class WavesEngine:
             df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
             
             # Remove any empty/invalid tickers
-            df = df[df["ticker"].notna() & (df["ticker"] != "") & (df["ticker"] != "NAN")]
+            df = self._filter_valid_tickers(df, "ticker")
 
             # Optional metadata
             for col in ["company", "sector", "name"]:
@@ -167,7 +171,7 @@ class WavesEngine:
             df = df.dropna(subset=["ticker", "weight"])
             
             # Remove invalid entries
-            df = df[df["ticker"].notna() & (df["ticker"] != "") & (df["ticker"] != "NAN")]
+            df = self._filter_valid_tickers(df, "ticker")
             df = df[df["weight"] > 0]  # Weights must be positive
             df["weight"] = df["weight"].astype(float)
 
@@ -253,6 +257,21 @@ class WavesEngine:
 
         # Fallback single-ticker
         return self._benchmark_map.get(wave, "SPY")
+
+    def _filter_valid_tickers(self, df: pd.DataFrame, ticker_col: str = "ticker") -> pd.DataFrame:
+        """
+        Filter out invalid ticker entries.
+        
+        Removes:
+        - NaN values
+        - Empty strings
+        - Common invalid patterns like "NAN" (case-insensitive)
+        """
+        df = df[df[ticker_col].notna()]
+        df = df[df[ticker_col] != ""]
+        # Filter out "NAN" in any case variation
+        df = df[df[ticker_col].str.upper() != "NAN"]
+        return df
 
     def get_wave_holdings(self, wave: str) -> pd.DataFrame:
         """
@@ -357,15 +376,15 @@ class WavesEngine:
             
             # If still NaN after forward/backward fill, use default VIX value
             if vix_aligned.isna().all():
-                vix_aligned = pd.Series(20.0, index=idx)  # Default to normal regime
+                vix_aligned = pd.Series(self.DEFAULT_VIX_VALUE, index=idx)
             elif vix_aligned.isna().any():
-                vix_aligned = vix_aligned.fillna(20.0)
+                vix_aligned = vix_aligned.fillna(self.DEFAULT_VIX_VALUE)
             
             vix_aligned.name = "VIX"
             return vix_aligned
         except Exception as e:
             # Fallback: return a default VIX series (normal regime)
-            return pd.Series(20.0, index=pd.to_datetime(index_like), name="VIX")
+            return pd.Series(self.DEFAULT_VIX_VALUE, index=pd.to_datetime(index_like), name="VIX")
 
     def _get_vol_regime(self, v: float) -> str:
         if np.isnan(v):
@@ -505,9 +524,9 @@ class WavesEngine:
             try:
                 vix_val = float(vix_series.loc[dt])
                 if np.isnan(vix_val):
-                    vix_val = 20.0  # Default to normal regime
+                    vix_val = self.DEFAULT_VIX_VALUE
             except (KeyError, ValueError, TypeError):
-                vix_val = 20.0
+                vix_val = self.DEFAULT_VIX_VALUE
 
             # Risk-parity base with robust handling
             with np.errstate(divide="ignore", invalid="ignore"):
