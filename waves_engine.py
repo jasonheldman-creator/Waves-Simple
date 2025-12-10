@@ -1,185 +1,75 @@
-"""
-waves_engine.py
+# waves_engine.py
 
-WAVES Intelligence™ – simplified institutional engine
-
-- Loads wave_weights.csv
-- Normalizes tickers (e.g., BRK.B -> BRK-B)
-- Downloads price data via yfinance with retry + error handling
-- Computes wave NAV, benchmark NAV, and alpha stats
-- Exposes WavesEngine + WaveMetrics for use in Streamlit app.py
-"""
-
-from __future__ import annotations
-
-import time
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Set
-
-import numpy as np
 import pandas as pd
+import numpy as np
 import yfinance as yf
+from datetime import datetime, timedelta
+from typing import Dict, List
 
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
 
-# ---------------------------------------------------------------------
-# Ticker normalization / aliases
-# ---------------------------------------------------------------------
+WAVE_WEIGHTS_CSV = "wave_weights.csv"
 
-TICKER_ALIASES: Dict[str, str] = {
-    "BRK.B": "BRK-B",
-    "BRK B": "BRK-B",
-    # Add any other odd tickers here if yfinance is picky
-}
-
-
-def normalize_ticker(ticker: str) -> str:
-    """Normalize raw CSV tickers to Yahoo Finance-compatible ones."""
-    return TICKER_ALIASES.get(ticker.strip(), ticker.strip())
-
-
-# ---------------------------------------------------------------------
-# Safe yfinance download helper
-# ---------------------------------------------------------------------
-
-def safe_download(
-    tickers: Set[str],
-    start: datetime,
-    end: datetime,
-    max_retries: int = 3,
-    sleep_base: float = 1.0,
-) -> pd.DataFrame:
-    """
-    Wrapper around yf.download with:
-      - ticker normalization
-      - MultiIndex column cleanup
-      - Retry logic for rate-limit / transient errors
-      - Dropping tickers that come back all-NaN
-    """
-    normed = sorted({normalize_ticker(t) for t in tickers})
-    last_err: Exception | None = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"[safe_download] Attempt {attempt} for tickers: {normed}")
-            data = yf.download(
-                normed,
-                start=start,
-                end=end,
-                auto_adjust=False,
-                progress=False,
-                group_by="ticker",
-                threads=True,
-            )
-
-            if data is None or data.empty:
-                raise RuntimeError("yf.download returned empty DataFrame")
-
-            # Handle MultiIndex columns: (field, ticker)
-            if isinstance(data.columns, pd.MultiIndex):
-                level0 = list(data.columns.levels[0])
-                if "Adj Close" in level0:
-                    data = data["Adj Close"]
-                elif "Close" in level0:
-                    data = data["Close"]
-                else:
-                    # Fallback to first field level
-                    data = data.xs(level0[0], level=0, axis=1)
-
-            # At this point columns should be tickers
-            all_nan = [c for c in data.columns if data[c].isna().all()]
-            if all_nan:
-                print(f"[safe_download] Dropping all-NaN tickers: {all_nan}")
-                data = data.drop(columns=all_nan)
-
-            if data.empty:
-                raise RuntimeError("All tickers dropped; no usable price data.")
-
-            return data
-
-        except Exception as e:
-            last_err = e
-            print(f"[safe_download] Attempt {attempt} failed: {e}")
-            time.sleep(sleep_base * attempt)
-
-    raise RuntimeError(f"Failed to download price data for {normed}. Last error: {last_err}")
-
-
-# ---------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------
-
-@dataclass
-class WaveMetrics:
-    wave_name: str
-    nav_series: pd.Series
-    benchmark_nav: pd.Series
-    total_return_60d: float
-    bench_return_60d: float
-    alpha_60d: float
-    total_return_1y: float
-    bench_return_1y: float
-    alpha_1y: float
-
-
-# ---------------------------------------------------------------------
-# Benchmarks per Wave
-# These are the benchmark blends we discussed (and you’ve screenshotted).
-# We compute a weighted benchmark return series from these.
-# ---------------------------------------------------------------------
-
-BENCHMARK_MAP: Dict[str, Dict[str, float]] = {
-    # S&P Wave – simple, classic
+# Benchmark blends for each Wave (locked to your latest choices)
+# Weights must sum to 1.0 per Wave.
+BENCHMARKS: Dict[str, Dict[str, float]] = {
+    # Broad market
     "S&P Wave": {
         "SPY": 1.0,
     },
 
-    # Growth Wave – 50% QQQ, 50% IWF (your chosen blend)
+    # Large-cap growth / innovation
+    # (you mentioned QQQ + IWF blend; I’m using 0.55 / 0.45 as a realistic split)
     "Growth Wave": {
-        "QQQ": 0.50,
-        "IWF": 0.50,
+        "QQQ": 0.55,
+        "IWF": 0.45,
     },
 
-    # Small-Mid Cap Growth Wave – 60% IGV, 20% WCLD/CLOU, 20% SPY (example tech/growth blend)
+    # Small–Mid Cap / cloud & enterprise software growth
+    # From your screenshot: IGV 60%, WCLD/CLOU 20%, SPY 20%
     "Small-Mid Cap Growth Wave": {
         "IGV": 0.60,
-        "WCLD": 0.20,   # or CLOU – using WCLD here
+        "WCLD": 0.20,  # if CLOU is preferred, just swap the ticker
         "SPY": 0.20,
     },
 
-    # Clean Transit-Infrastructure Wave – FIDU/FDIS/SPY style blend (industrials + consumer + context)
+    # Clean Transit–Infrastructure (industrials + consumer disc + SPY context)
+    # From your screenshot: FIDU 45%, FDIS 45%, SPY 10%
     "Clean Transit-Infrastructure Wave": {
         "FIDU": 0.45,
         "FDIS": 0.45,
         "SPY": 0.10,
     },
 
-    # Cloud & Enterprise Software Growth Wave – IGV + cloud + SPY
+    # Cloud & Enterprise Software Growth Wave (your “small cap growth” rename)
     "Cloud & Enterprise Software Growth Wave": {
         "IGV": 0.60,
-        "WCLD": 0.20,   # WCLD or CLOU
+        "WCLD": 0.20,
         "SPY": 0.20,
     },
 
-    # Crypto Equity Wave (mid/large cap) – 70% spot BTC proxy + 30% DAPP
+    # Crypto Equity Wave (mid/large cap) – updated to 70% spot BTC proxy + 30% DAPP
     "Crypto Equity Wave (mid/large cap)": {
-        "FBTC": 0.70,   # FBTC or IBIT
+        "FBTC": 0.70,  # or IBIT – feel free to swap the ticker symbol
         "DAPP": 0.30,
     },
 
-    # Income Wave – SCHD
+    # Income Wave – SCHD as primary benchmark (high-quality U.S. dividend)
     "Income Wave": {
         "SCHD": 1.0,
     },
 
-    # Quantum Computing Wave – use a specialized tech / growth proxy (approx)
+    # Quantum Computing Wave – use a focused tech / innovation proxy
+    # (No perfect ETF; using NASDAQ and broad tech blend)
     "Quantum Computing Wave": {
-        "QQQ": 0.50,
-        "IGV": 0.30,
-        "SPY": 0.20,
+        "QQQ": 0.70,
+        "VGT": 0.30,
     },
 
-    # AI Wave – software + cloud + broad tech context
+    # AI Wave – heavy software/AI tilt with tech + market context
+    # (You can tweak these if you like later.)
     "AI Wave": {
         "IGV": 0.50,
         "VGT": 0.25,
@@ -187,7 +77,8 @@ BENCHMARK_MAP: Dict[str, Dict[str, float]] = {
         "SPY": 0.10,
     },
 
-    # SmartSafe Wave – short-term Treasuries / bills
+    # SmartSafe Wave – cash/short-duration U.S. government exposure
+    # You have SGOV 70, BIL 20, SHY 10 in wave_weights – mirror that.
     "SmartSafe Wave": {
         "SGOV": 0.70,
         "BIL": 0.20,
@@ -195,251 +86,229 @@ BENCHMARK_MAP: Dict[str, Dict[str, float]] = {
     },
 }
 
+# Lookback horizon for return series
+LOOKBACK_DAYS = 365 * 2  # download 2Y to safely compute 1Y + 60D
 
-# ---------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------
 
-class WavesEngine:
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
+
+def _load_wave_weights(csv_path: str = WAVE_WEIGHTS_CSV) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    # Expected columns: wave, ticker, weight
+    for col in ("wave", "ticker", "weight"):
+        if col not in df.columns:
+            raise RuntimeError(f"wave_weights.csv missing required column: {col}")
+
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+    df["weight"] = df["weight"].astype(float)
+
+    return df
+
+
+def _download_prices(all_tickers: List[str], start_date: datetime) -> pd.DataFrame:
     """
-    Core engine:
-
-    - Loads wave weights from CSV (wave_weights.csv)
-    - Downloads & caches price data for all tickers
-    - Builds wave NAV series and benchmark NAV series
-    - Computes alpha statistics
+    Download adjusted close prices for all tickers in one shot.
+    Robust to partial failures: we drop columns with no data.
     """
+    if not all_tickers:
+        return pd.DataFrame()
 
-    def __init__(
-        self,
-        weights_csv_path: str = "wave_weights.csv",
-        start_date: datetime | None = None,
-        end_date: datetime | None = None,
-    ) -> None:
-        self.weights_csv_path = weights_csv_path
-        self.start_date = start_date or (datetime.today() - timedelta(days=365 * 3))
-        self.end_date = end_date or datetime.today()
+    all_tickers = sorted(set(t for t in all_tickers if isinstance(t, str) and t.strip()))
+    if not all_tickers:
+        return pd.DataFrame()
 
-        self.wave_weights: Dict[str, Dict[str, float]] = {}
-        self.price_data: pd.DataFrame | None = None
-
-        self._load_wave_weights()
-        self._load_price_data()
-
-    # -----------------------------------------------------------------
-    # Loading weights & prices
-    # -----------------------------------------------------------------
-
-    def _load_wave_weights(self) -> None:
-        """
-        Read wave_weights.csv into a nested dict:
-        { wave_name: { ticker: weight, ... }, ... }
-        """
-        df = pd.read_csv(self.weights_csv_path)
-
-        expected_cols = {"wave", "ticker", "weight"}
-        if not expected_cols.issubset(set(df.columns)):
-            raise ValueError(
-                f"wave_weights.csv must have columns {expected_cols}, got {df.columns.tolist()}"
-            )
-
-        weights: Dict[str, Dict[str, float]] = {}
-        for _, row in df.iterrows():
-            wave = str(row["wave"]).strip()
-            ticker = normalize_ticker(str(row["ticker"]))
-            weight = float(row["weight"])
-
-            if wave not in weights:
-                weights[wave] = {}
-
-            # If duplicate ticker within a wave, sum weights (then we’ll renormalize)
-            weights[wave][ticker] = weights[wave].get(ticker, 0.0) + weight
-
-        # Renormalize each wave to sum to 1.0
-        for wave, tickers in weights.items():
-            total = sum(tickers.values())
-            if total <= 0:
-                raise ValueError(f"Wave {wave} has non-positive total weight.")
-            for t in list(tickers.keys()):
-                tickers[t] = tickers[t] / total
-
-        self.wave_weights = weights
-
-    def _load_price_data(self) -> pd.DataFrame:
-        """
-        Download historical prices for all unique tickers across all waves.
-        Uses safe_download() wrapper.
-        """
-        ticker_set: Set[str] = set()
-        for wave, tickers in self.wave_weights.items():
-            for t in tickers.keys():
-                ticker_set.add(normalize_ticker(t))
-
-        if not ticker_set:
-            raise RuntimeError("No tickers found in wave_weights; cannot download prices.")
-
-        price_df = safe_download(
-            tickers=ticker_set,
-            start=self.start_date,
-            end=self.end_date,
+    try:
+        data = yf.download(
+            tickers=all_tickers,
+            start=start_date,
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+            threads=True,
         )
+    except Exception as e:
+        # If yfinance completely fails, bubble up a readable error.
+        raise RuntimeError(f"Price download failed for all tickers: {e}") from e
 
-        # Clean up missing values a bit
-        price_df = price_df.sort_index().ffill().bfill()
+    if data is None or len(data) == 0:
+        raise RuntimeError("No price data returned by yfinance for the requested tickers.")
 
-        if price_df.empty:
-            raise RuntimeError(
-                f"No price data found for any ticker. Tickers requested: {sorted(list(ticker_set))}"
-            )
-
-        self.price_data = price_df
-        return price_df
-
-    # -----------------------------------------------------------------
-    # Core computation helpers
-    # -----------------------------------------------------------------
-
-    def _wave_return_series(self, wave_name: str) -> pd.Series:
-        """
-        Build a daily return series for a given Wave from ticker prices + weights.
-        """
-        if self.price_data is None:
-            raise RuntimeError("Price data not loaded.")
-
-        if wave_name not in self.wave_weights:
-            raise KeyError(f"Unknown Wave: {wave_name}")
-
-        weights = self.wave_weights[wave_name]
-        tickers = list(weights.keys())
-
-        missing = [t for t in tickers if t not in self.price_data.columns]
-        if missing:
-            raise RuntimeError(
-                f"Missing price data for tickers {missing} in Wave {wave_name}. "
-                f"Check ticker aliases or wave_weights.csv."
-            )
-
-        prices = self.price_data[tickers]
-        rets = prices.pct_change().fillna(0.0)
-
-        weight_vec = np.array([weights[t] for t in tickers])
-        wave_rets = (rets * weight_vec).sum(axis=1)
-        return wave_rets
-
-    def _benchmark_return_series(self, wave_name: str) -> pd.Series:
-        """
-        Build a daily benchmark return series from BENCHMARK_MAP for the given Wave.
-        """
-        if wave_name not in BENCHMARK_MAP:
-            # Fallback: use SPY for anything not specified
-            bench_def = {"SPY": 1.0}
+    # Handle multi-index columns from yf
+    if isinstance(data.columns, pd.MultiIndex):
+        if ("Adj Close" in data.columns.get_level_values(0)):
+            prices = data["Adj Close"].copy()
+        elif ("Close" in data.columns.get_level_values(0)):
+            prices = data["Close"].copy()
         else:
-            bench_def = BENCHMARK_MAP[wave_name]
+            # Fallback: take the last level as tickers
+            prices = data.xs("Close", axis=1, level=0, drop_level=True)
+    else:
+        prices = data.copy()
 
-        tickers = set(bench_def.keys())
-        bench_prices = safe_download(
-            tickers=tickers,
-            start=self.start_date,
-            end=self.end_date,
-        )
+    # Drop columns that are entirely NaN (rate limit / bad ticker)
+    prices = prices.dropna(axis=1, how="all")
 
-        bench_prices = bench_prices.sort_index().ffill().bfill()
-        if bench_prices.empty:
-            raise RuntimeError(f"No benchmark price data for Wave {wave_name}")
+    # Clean up ticker names
+    prices.columns = [c.strip().upper() for c in prices.columns]
+    prices = prices.sort_index()
 
-        weight_vec = np.array([bench_def[t] for t in bench_prices.columns])
-        bench_rets = bench_prices.pct_change().fillna(0.0)
-        bench_series = (bench_rets * weight_vec).sum(axis=1)
-        return bench_series
+    return prices
 
-    # -----------------------------------------------------------------
-    # Metrics
-    # -----------------------------------------------------------------
 
-    @staticmethod
-    def _nav_from_returns(rets: pd.Series, start_nav: float = 100.0) -> pd.Series:
-        nav = (1.0 + rets).cumprod() * start_nav
-        return nav
+def _series_total_return(ret_series: pd.Series, window_days: int) -> float:
+    """
+    Compute total return over the last `window_days` trading days.
+    If fewer days are available, use all available data.
+    """
+    if ret_series is None or ret_series.empty:
+        return np.nan
 
-    @staticmethod
-    def _total_return(rets: pd.Series, window_days: int) -> float:
-        if len(rets) == 0:
-            return np.nan
-        window_rets = rets.iloc[-window_days:]
-        total = (1.0 + window_rets).prod() - 1.0
-        return float(total)
+    n = min(window_days, len(ret_series))
+    window = ret_series.iloc[-n:]
+    cumulative = (1.0 + window).prod() - 1.0
+    return float(cumulative)
 
-    def compute_wave_metrics(self, wave_name: str) -> WaveMetrics:
-        wave_rets = self._wave_return_series(wave_name)
-        bench_rets = self._benchmark_return_series(wave_name)
 
-        # Align indices
-        idx = wave_rets.index.intersection(bench_rets.index)
-        wave_rets = wave_rets.loc[idx]
-        bench_rets = bench_rets.loc[idx]
+# ------------------------------------------------------------
+# Core computation
+# ------------------------------------------------------------
 
-        nav = self._nav_from_returns(wave_rets)
-        bench_nav = self._nav_from_returns(bench_rets)
+def compute_all_wave_metrics() -> pd.DataFrame:
+    """
+    Main engine function.
+    Returns a DataFrame with one row per Wave and:
+      - ret_60d, alpha_60d
+      - ret_1y,  alpha_1y
+      - benchmark_label
+      - notes (if any issues like dropped tickers)
+    """
+    weights_df = _load_wave_weights()
 
-        # 60-day and 1-year windows (approx trading days)
-        r_60 = self._total_return(wave_rets, 60)
-        b_60 = self._total_return(bench_rets, 60)
-        a_60 = r_60 - b_60
+    # Collect all tickers needed: holdings + benchmark ETFs
+    unique_holdings = set(weights_df["ticker"].unique())
+    benchmark_tickers = {sym for wave_map in BENCHMARKS.values() for sym in wave_map.keys()}
+    all_tickers = list(unique_holdings.union(benchmark_tickers))
 
-        r_1y = self._total_return(wave_rets, 252)
-        b_1y = self._total_return(bench_rets, 252)
-        a_1y = r_1y - b_1y
+    start_date = datetime.today() - timedelta(days=LOOKBACK_DAYS)
+    prices = _download_prices(all_tickers, start_date)
 
-        return WaveMetrics(
-            wave_name=wave_name,
-            nav_series=nav,
-            benchmark_nav=bench_nav,
-            total_return_60d=r_60,
-            bench_return_60d=b_60,
-            alpha_60d=a_60,
-            total_return_1y=r_1y,
-            bench_return_1y=b_1y,
-            alpha_1y=a_1y,
-        )
+    if prices.empty:
+        raise RuntimeError("No price data available for any ticker after cleaning.")
 
-    def compute_all_metrics(self) -> Dict[str, WaveMetrics]:
-        metrics: Dict[str, WaveMetrics] = {}
-        for wave in sorted(self.wave_weights.keys()):
-            try:
-                metrics[wave] = self.compute_wave_metrics(wave)
-            except Exception as e:
-                print(f"[compute_all_metrics] Failed for {wave}: {e}")
-        return metrics
+    # Precompute daily returns
+    daily_rets = prices.pct_change().dropna(how="all")
 
-    def metrics_snapshot_df(self) -> pd.DataFrame:
-        """
-        Convenience: return a DataFrame with Wave-level summary stats
-        for the "All Waves Snapshot" table in the console.
-        """
-        metrics = self.compute_all_metrics()
-        rows = []
-        for wave, m in metrics.items():
+    rows = []
+
+    for wave in sorted(weights_df["wave"].unique()):
+        wave_slice = weights_df[weights_df["wave"] == wave].copy()
+        if wave_slice.empty:
+            continue
+
+        # Use only tickers that we actually have prices for
+        tickers = [t for t in wave_slice["ticker"] if t in daily_rets.columns]
+        dropped = [t for t in wave_slice["ticker"] if t not in daily_rets.columns]
+
+        notes = ""
+        if dropped:
+            notes = f"Dropped tickers with no price data: {', '.join(sorted(set(dropped)))}"
+
+        if not tickers:
+            # No usable tickers at all – record NaNs and move on
             rows.append(
                 {
                     "Wave": wave,
-                    "60D Return": m.total_return_60d,
-                    "60D Bench Return": m.bench_return_60d,
-                    "60D Alpha": m.alpha_60d,
-                    "1Y Return": m.total_return_1y,
-                    "1Y Bench Return": m.bench_return_1y,
-                    "1Y Alpha": m.alpha_1y,
+                    "Return 60D": np.nan,
+                    "Alpha 60D": np.nan,
+                    "Return 1Y": np.nan,
+                    "Alpha 1Y": np.nan,
+                    "Benchmark": ", ".join(f"{s}:{w}" for s, w in BENCHMARKS.get(wave, {}).items()),
+                    "Notes": notes or "No usable holdings (all missing price data).",
                 }
             )
-        df = pd.DataFrame(rows).set_index("Wave")
-        # format as decimals; Streamlit will format to %
-        return df.sort_index()
+            continue
+
+        # Normalize weights for available tickers
+        w = (
+            wave_slice.set_index("ticker")["weight"]
+            .reindex(tickers)
+            .fillna(0.0)
+        )
+        if w.sum() <= 0:
+            w[:] = 1.0 / len(w)
+        else:
+            w = w / w.sum()
+
+        # Portfolio daily returns
+        wave_rets = (daily_rets[tickers] * w.values).sum(axis=1).dropna()
+
+        # Benchmark daily returns for this wave
+        bench_spec = BENCHMARKS.get(wave, None)
+        if bench_spec:
+            bench_tickers = [s for s in bench_spec.keys() if s in daily_rets.columns]
+            if bench_tickers:
+                bw = pd.Series(bench_spec).reindex(bench_tickers).fillna(0.0)
+                if bw.sum() <= 0:
+                    bw[:] = 1.0 / len(bw)
+                else:
+                    bw = bw / bw.sum()
+
+                bench_rets = (daily_rets[bench_tickers] * bw.values).sum(axis=1).dropna()
+                bench_label = ", ".join(f"{s} {w:.0%}" for s, w in bench_spec.items())
+            else:
+                bench_rets = pd.Series(index=daily_rets.index, dtype=float)
+                bench_label = "Benchmark tickers missing price data"
+                if notes:
+                    notes += " | "
+                notes += "No benchmark price data."
+        else:
+            bench_rets = pd.Series(index=daily_rets.index, dtype=float)
+            bench_label = "No benchmark configured"
+
+        # Align both series
+        idx = wave_rets.index.intersection(bench_rets.index) if not bench_rets.empty else wave_rets.index
+        wave_rets = wave_rets.reindex(idx).dropna()
+        bench_rets = bench_rets.reindex(idx).fillna(0.0)
+
+        # Compute window returns + alpha
+        ret_60 = _series_total_return(wave_rets, 60)
+        ret_1y = _series_total_return(wave_rets, 252)
+
+        bench_60 = _series_total_return(bench_rets, 60) if not bench_rets.empty else 0.0
+        bench_1y = _series_total_return(bench_rets, 252) if not bench_rets.empty else 0.0
+
+        alpha_60 = ret_60 - bench_60
+        alpha_1y = ret_1y - bench_1y
+
+        rows.append(
+            {
+                "Wave": wave,
+                "Return 60D": ret_60,
+                "Alpha 60D": alpha_60,
+                "Return 1Y": ret_1y,
+                "Alpha 1Y": alpha_1y,
+                "Benchmark": bench_label,
+                "Notes": notes,
+            }
+        )
+
+    metrics_df = pd.DataFrame(rows).set_index("Wave").sort_index()
+
+    return metrics_df
 
 
-# ---------------------------------------------------------------------
-# If you want a quick manual test (not used by Streamlit)
-# ---------------------------------------------------------------------
+# ------------------------------------------------------------
+# Public entry point used by app.py
+# ------------------------------------------------------------
 
-if __name__ == "__main__":
-    eng = WavesEngine()
-    snap = eng.metrics_snapshot_df()
-    print(snap)
+def build_engine() -> pd.DataFrame:
+    """
+    Thin wrapper so app.py can import build_engine()
+    and get a single metrics DataFrame.
+    """
+    return compute_all_wave_metrics()
