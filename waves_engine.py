@@ -31,7 +31,7 @@ All file paths are relative to the project root by default.
 
 import os
 import datetime as dt
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -45,10 +45,9 @@ except ImportError:
 # Configuration / Paths
 # -----------------------------#
 
-DATA_DIR = "data"
-LOG_DIR = "logs"
-WAVE_WEIGHTS_FILE = os.path.join(DATA_DIR, "wave_weights.csv")
-FULL_HISTORY_FILE = os.path.join(DATA_DIR, "Full_Wave_History.csv")
+# NOTE: We use root-level CSVs, because that is how your repo is structured.
+WAVE_WEIGHTS_FILE = "wave_weights.csv"
+FULL_HISTORY_FILE = "Full_Wave_History.csv"
 
 # Default lookbacks
 DEFAULT_LOOKBACK_DAYS = 365
@@ -83,6 +82,7 @@ def _ensure_date_index(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame
 def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
     """Load a CSV if it exists; otherwise return None."""
     if not os.path.exists(path):
+        print(f"[waves_engine] CSV not found at {path}")
         return None
     try:
         return pd.read_csv(path)
@@ -137,7 +137,7 @@ def get_wave_positions(wave_name: str) -> pd.DataFrame:
     """
     Return positions (weights) for a specific Wave.
 
-    Columns: Ticker, Weight, Wave
+    Columns: Wave, Ticker, Weight
     """
     df = load_wave_weights()
     mask = df["Wave"].str.lower() == wave_name.lower()
