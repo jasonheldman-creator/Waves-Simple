@@ -13,6 +13,10 @@
 #           Wave, Benchmark, NAV(last), 365D Return, 30D Return,
 #           365D Alpha vs Benchmark, 30D Alpha vs Benchmark
 #       - Shows a separate table listing each Benchmark & its ETF mix
+# • Multi-Window Alpha Capture Matrix (NEW):
+#       - For all Waves in one view:
+#           1D Return & Alpha, 30D Return & Alpha,
+#           60D Return & Alpha, 365D Return & Alpha
 # • Wave Detail:
 #       - NAV chart: selected Wave vs its composite Benchmark
 #       - Key stats: 365D / 30D returns & alpha vs benchmark
@@ -185,6 +189,134 @@ st.dataframe(
 st.caption(
     "NAV is normalized to 1.0 at the start of the 365D window. "
     "Returns and alpha are cumulative over the selected periods."
+)
+
+# ------------------------------------------------------------------------------
+# Multi-Window Alpha Capture Matrix (ALL WAVES) — NEW
+# ------------------------------------------------------------------------------
+
+st.markdown("### Multi-Window Alpha Capture (All Waves)")
+
+st.caption(
+    "For each Wave: latest 1-day move (approx intraday), 30-day, 60-day, and 365-day "
+    "returns vs its composite benchmark."
+)
+
+alpha_rows = []
+waves = get_all_waves()
+
+for w in waves:
+    bench_name = get_benchmark_wave_for(w)
+
+    try:
+        # Use 365D history for both and derive shorter windows from it
+        hist_wave = compute_history_nav(
+            w,
+            lookback_days=365,
+            mode=mode,
+            is_benchmark=False,
+        )
+        hist_bench = compute_history_nav(
+            bench_name,
+            lookback_days=365,
+            mode="Standard",
+            is_benchmark=True,
+        )
+
+        combo = pd.concat(
+            [
+                hist_wave[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
+                hist_bench[["NAV"]].rename(columns={"NAV": "NAV_bench"}),
+            ],
+            axis=1,
+            join="inner",
+        ).dropna()
+
+        if combo.empty or len(combo) < 2:
+            alpha_rows.append(
+                {
+                    "Wave": w,
+                    "1D Ret": "—",
+                    "1D Alpha": "—",
+                    "30D Ret": "—",
+                    "30D Alpha": "—",
+                    "60D Ret": "—",
+                    "60D Alpha": "—",
+                    "365D Ret": "—",
+                    "365D Alpha": "—",
+                }
+            )
+            continue
+
+        def window_ret(series: pd.Series, days: int) -> float:
+            if len(series) > days:
+                s = series.iloc[-days:]
+            else:
+                s = series
+            return float(s.iloc[-1] / s.iloc[0] - 1.0)
+
+        # 365D
+        ret_w_365 = window_ret(combo["NAV_wave"], 365)
+        ret_b_365 = window_ret(combo["NAV_bench"], 365)
+        alpha_365 = ret_w_365 - ret_b_365
+
+        # 60D
+        ret_w_60 = window_ret(combo["NAV_wave"], 60)
+        ret_b_60 = window_ret(combo["NAV_bench"], 60)
+        alpha_60 = ret_w_60 - ret_b_60
+
+        # 30D
+        ret_w_30 = window_ret(combo["NAV_wave"], 30)
+        ret_b_30 = window_ret(combo["NAV_bench"], 30)
+        alpha_30 = ret_w_30 - ret_b_30
+
+        # 1D (latest daily move ~ intraday approximation)
+        last = combo.iloc[-1]
+        prev = combo.iloc[-2]
+        ret_w_1d = float(last["NAV_wave"] / prev["NAV_wave"] - 1.0)
+        ret_b_1d = float(last["NAV_bench"] / prev["NAV_bench"] - 1.0)
+        alpha_1d = ret_w_1d - ret_b_1d
+
+        alpha_rows.append(
+            {
+                "Wave": w,
+                "1D Ret": pct(ret_w_1d),
+                "1D Alpha": pct(alpha_1d),
+                "30D Ret": pct(ret_w_30),
+                "30D Alpha": pct(alpha_30),
+                "60D Ret": pct(ret_w_60),
+                "60D Alpha": pct(alpha_60),
+                "365D Ret": pct(ret_w_365),
+                "365D Alpha": pct(alpha_365),
+            }
+        )
+
+    except Exception as e:
+        alpha_rows.append(
+            {
+                "Wave": w,
+                "1D Ret": f"Err: {e}",
+                "1D Alpha": "—",
+                "30D Ret": "—",
+                "30D Alpha": "—",
+                "60D Ret": "—",
+                "60D Alpha": "—",
+                "365D Ret": "—",
+                "365D Alpha": "—",
+            }
+        )
+
+alpha_df = pd.DataFrame(alpha_rows).sort_values("Wave").reset_index(drop=True)
+
+st.dataframe(
+    alpha_df,
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.caption(
+    "1D return is the most recent daily move (an intraday approximation). "
+    "Alpha = Wave return − Benchmark return for each window."
 )
 
 # ------------------------------------------------------------------------------
