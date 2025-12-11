@@ -1,26 +1,27 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 1: Mode Scaling (Standard / AMB / Private Logic) + 
-         VIX Ladder + SmartSafe 2.0 + Blended Benchmarks + 1Y & SI
+Stage 2: Mode Scaling + Alpha Quality & Risk Metrics
 
-This version:
-- Auto-discovers Waves from wave_weights.csv
-- Uses your custom blended benchmarks (multi-ETF) for specific Waves
-- Uses single-ETF benchmarks for all other Waves
-- Implements 3 modes:
+Includes:
+- Auto-discovered Waves from wave_weights.csv
+- Custom blended benchmarks
+- 3 modes:
     * standard  -> base Wave weights
-    * amb       -> shifts ~15% of equity weight into BIL (lower beta)
-    * pl        -> momentum tilt within equities toward recent winners
-- Implements VIX-based SmartSafe 2.0 weighted sweep (on top of modes)
-- Computes:
+    * amb       -> shift ~15% of equity sleeve into BIL (lower beta)
+    * pl        -> momentum tilt toward recent winners
+- VIX-based SmartSafe 2.0 sweep (no SmartSafe 3.0)
+- Performance metrics:
     * Intraday return
-    * 30D, 60D, 1Y, and Since-Inception return and alpha
-- Logs daily positions and performance per Wave
+    * 30D, 60D, 1Y, and Since-Inception returns
+    * 30D, 60D, 1Y, and Since-Inception alpha
+    * 1Y volatility (annualized)
+    * Max drawdown (since inception)
+    * 1Y information ratio (daily excess Sharpe-style)
+    * 1Y hit rate (pct of days with positive excess return)
+- Daily logging of positions & performance
 
-IMPORTANT:
-- No Waves are equal-weighted. We always respect weights in wave_weights.csv,
-  normalized per Wave.
-- SmartSafe 3.0 is NOT active.
+No Waves are ever equal-weighted; we always respect wave_weights.csv
+and only normalize inside each Wave.
 """
 
 from __future__ import annotations
@@ -53,52 +54,38 @@ for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
 # Benchmarks
 # ---------------------------------------------------------------------
 
-# Default single-ETF benchmarks (used when no custom blend is defined)
 BENCHMARK_MAP: Dict[str, str] = {
     "S&P 500 Wave": "SPY",
     "S&P Wave": "SPY",
-    "AI Wave": "QQQ",  # overridden by blended spec below
+    "AI Wave": "QQQ",  # overridden by blended spec
     "AI & Innovation Wave": "QQQ",
-    "Quantum Computing Wave": "QQQ",  # overridden below
-    "Future Power & Energy Wave": "XLE",  # overridden below
-    "Clean Transit-Infrastructure Wave": "IYT",  # overridden below
-    "Crypto Income Wave": "BITO",  # overridden below
-    "Crypto Equity Wave": "BITO",  # overridden below
+    "Quantum Computing Wave": "QQQ",  # overridden
+    "Future Power & Energy Wave": "XLE",  # overridden
+    "Clean Transit-Infrastructure Wave": "IYT",  # overridden
+    "Crypto Income Wave": "BITO",  # overridden
+    "Crypto Equity Wave": "BITO",  # overridden
     "Income Wave": "SCHD",
-    "Small Cap Growth Wave": "IWM",  # overridden below
+    "Small Cap Growth Wave": "IWM",  # overridden
     "Small to Mid Cap Growth Wave": "VO",
-    "Cloud & Software Wave": "IGV",  # overridden below
+    "Cloud & Software Wave": "IGV",  # overridden
     "SmartSafe Money Market Wave": "BIL",
 }
 
 # Custom blended benchmark specs
-# (raw weights normalized automatically)
 BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
-    # AI wave: 50/50 SMH and AIQ
     "AI Wave": {"SMH": 0.50, "AIQ": 0.50},
-    # Clean transit: SPY 40%, QQQ 40%, IWM 20%
     "Clean Transit-Infrastructure Wave": {"SPY": 0.40, "QQQ": 0.40, "IWM": 0.20},
-    # Cloud & Software: 50% QQQ, 40% WCLD, 30% HACK (normalized)
     "Cloud & Software Wave": {"QQQ": 0.50, "WCLD": 0.40, "HACK": 0.30},
-    # Crypto equity: 50% WGMI, 30% BLOK, 20% BITQ
+    # Crypto: 50% WGMI, 30% BLOK, 20% BITQ
     "Crypto Income Wave": {"WGMI": 0.50, "BLOK": 0.30, "BITQ": 0.20},
     "Crypto Equity Wave": {"WGMI": 0.50, "BLOK": 0.30, "BITQ": 0.20},
-    # Future power & energy: 40% QQQ, 30% BUG, 30% WCLD
     "Future Power & Energy Wave": {"QQQ": 0.40, "BUG": 0.30, "WCLD": 0.30},
-    # Growth: 40% QQQ, 30% BUG, 30% WCLD
     "Growth Wave": {"QQQ": 0.40, "BUG": 0.30, "WCLD": 0.30},
-    # Quantum computing: QQQ 50%, SOXX 25%, ARKK 25%
     "Quantum Computing Wave": {"QQQ": 0.50, "SOXX": 0.25, "ARKK": 0.25},
-    # Small cap growth: ARKK 40%, IPAY 30%, XLY 30%
     "Small Cap Growth Wave": {"ARKK": 0.40, "IPAY": 0.30, "XLY": 0.30},
 }
 
 # VIX ladder (Option B)
-# VIX <20  -> 0% shift
-# 20–25    -> 15%
-# 25–30    -> 30%
-# 30–40    -> 50%
-# >40      -> 80%
 VIX_LEVELS = [
     (40.0, 0.80),
     (30.0, 0.50),
@@ -106,13 +93,10 @@ VIX_LEVELS = [
     (20.0, 0.15),
 ]
 
-# Daily return clipping band (guardrail for extreme bad ticks)
-DAILY_RETURN_CLIP = 0.20  # +/- 20% per day max
-
-# Approx trading days per year
+DAILY_RETURN_CLIP = 0.20  # +/-20% clamp
 TRADING_DAYS_1Y = 252
 
-# Mode tokens used by the engine
+# Mode tokens
 MODE_STANDARD = "standard"
 MODE_AMB = "amb"
 MODE_PRIVATE_LOGIC = "pl"
@@ -186,8 +170,7 @@ def get_available_waves() -> List[str]:
         raise ValueError(
             f"'wave' column not found after normalization. Columns: {list(weights.columns)}"
         )
-    waves = sorted(weights["wave"].unique().tolist())
-    return waves
+    return sorted(weights["wave"].unique().tolist())
 
 
 def _get_single_benchmark_ticker(wave_name: str) -> str:
@@ -211,11 +194,6 @@ def _get_single_benchmark_ticker(wave_name: str) -> str:
 
 
 def _get_benchmark_for_wave(wave_name: str) -> Tuple[str, Dict[str, float]]:
-    """
-    Returns:
-        label: e.g. "50% SMH + 50% AIQ" or "QQQ"
-        spec: dict[ticker -> weight] normalized to sum 1
-    """
     if wave_name in BLENDED_BENCHMARKS:
         raw = BLENDED_BENCHMARKS[wave_name]
         total = float(sum(raw.values()))
@@ -293,7 +271,7 @@ def _compute_sweep_fraction_from_vix(vix_level: Optional[float]) -> float:
     for threshold, frac in VIX_LEVELS:
         if vix_level >= threshold:
             return frac
-    return 0.15  # between 20 and lowest threshold
+    return 0.15
 
 
 def _compute_vol_by_ticker(tickers: List[str], period: str = "90d") -> pd.DataFrame:
@@ -319,13 +297,11 @@ def apply_smartsafe_sweep(
     vix_level: Optional[float],
 ) -> pd.DataFrame:
     """
-    SmartSafe 2.0 weighted sweep (Option 2).
+    SmartSafe 2.0 weighted sweep:
 
-    - If wave is the SmartSafe Money Market Wave itself, do nothing.
-    - Otherwise:
-        * Compute sweep_fraction from VIX ladder.
-        * Trim highest-volatility tickers first until that fraction is freed.
-        * Add / increase BIL with the freed weight.
+    - Skip SmartSafe Wave itself.
+    - Use VIX ladder to compute sweep_fraction.
+    - Trim highest-vol equities first, route to BIL.
     """
     if positions.empty:
         return positions
@@ -345,7 +321,6 @@ def apply_smartsafe_sweep(
     tickers = df["ticker"].unique().tolist()
     vol_df = _compute_vol_by_ticker(tickers, period="90d")
     if vol_df.empty:
-        # proportional sweep
         df["weight"] = df["weight"] * (1.0 - sweep_fraction)
         bil_last, bil_intraday = _get_fast_intraday_return("BIL")
         bil_row = {
@@ -360,7 +335,6 @@ def apply_smartsafe_sweep(
     df = df.merge(vol_df, on="ticker", how="left")
     df["vol"] = df["vol"].fillna(0.0)
 
-    # sort high vol first, but keep BIL at the bottom if present
     df["is_bil"] = df["ticker"].str.upper().eq("BIL")
     df = df.sort_values(["is_bil", "vol"], ascending=[True, False])
 
@@ -423,9 +397,9 @@ def _apply_mode_adjustments(
     """
     Apply per-mode portfolio adjustments BEFORE SmartSafe 2.0.
 
-    - standard: no change (just normalize)
-    - amb: permanently move ~15% of equity weight to BIL
-    - pl: momentum tilt within equities based on intraday_return
+    - standard: normalize, no structural change
+    - amb: move ~15% of equity sleeve into BIL
+    - pl: momentum tilt toward recent winners (intraday_return proxy)
     """
     if df.empty:
         return df
@@ -433,7 +407,7 @@ def _apply_mode_adjustments(
     mode = (mode or MODE_STANDARD).lower()
     df = df.copy()
 
-    # Ensure BIL row exists (even if weight 0) so AMB can allocate to it
+    # Ensure we have a BIL row
     if not df["ticker"].str.upper().eq("BIL").any():
         bil_last, bil_intraday = _get_fast_intraday_return("BIL")
         bil_row = {
@@ -444,7 +418,6 @@ def _apply_mode_adjustments(
         }
         df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
 
-    # Normalize starting weights
     total_weight = df["weight"].sum()
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
@@ -452,8 +425,7 @@ def _apply_mode_adjustments(
     eq_mask = ~df["ticker"].str.upper().eq("BIL")
 
     if mode == MODE_AMB:
-        # Alpha-Minus-Beta: persistent lower beta by holding some BIL
-        base_cut = 0.15  # 15% of equity sleeve into BIL
+        base_cut = 0.15
         eq_weight = df.loc[eq_mask, "weight"].sum()
         if eq_weight > 0:
             cut_amount = eq_weight * base_cut
@@ -462,21 +434,18 @@ def _apply_mode_adjustments(
             df.loc[bil_mask, "weight"] += cut_amount
 
     elif mode == MODE_PRIVATE_LOGIC:
-        # Private Logic: tilt weights toward recent winners (simple momentum)
         eq_df = df.loc[eq_mask].copy()
         if not eq_df.empty:
             scores = eq_df["intraday_return"].fillna(0.0)
-
             if (scores != 0).any():
                 ranks = scores.rank(method="average", ascending=False)
                 n = len(ranks)
                 if n > 1:
-                    # Map ranks to [-1, +1]
                     center = (n - 1) / 2.0
                     tilt_raw = (n - ranks - center) / center
                 else:
                     tilt_raw = pd.Series(0.0, index=eq_df.index)
-                k = 0.5  # tilt strength
+                k = 0.5
                 eq_df["weight"] = eq_df["weight"] * (1.0 + k * tilt_raw)
                 eq_df["weight"] = eq_df["weight"].clip(lower=0.0)
 
@@ -487,7 +456,6 @@ def _apply_mode_adjustments(
 
                 df.loc[eq_mask, "weight"] = eq_df["weight"]
 
-    # Re-normalize final weights
     total_weight = df["weight"].sum()
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
@@ -496,7 +464,7 @@ def _apply_mode_adjustments(
 
 
 # ---------------------------------------------------------------------
-# Performance & logging
+# Performance & risk metrics
 # ---------------------------------------------------------------------
 
 def _compute_composite_benchmark_returns(
@@ -538,22 +506,48 @@ def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
     return float((1 + r).prod() - 1.0)
 
 
+def _max_drawdown(values: pd.Series) -> float:
+    """
+    Max drawdown over full series; negative number (e.g., -0.32 = -32%).
+    """
+    if values.empty:
+        return 0.0
+    values = values.dropna()
+    if values.empty:
+        return 0.0
+    running_max = values.cummax()
+    drawdowns = values / running_max - 1.0
+    return float(drawdowns.min())
+
+
 def _compute_portfolio_trailing_returns(
     positions: pd.DataFrame,
     benchmark_spec: Dict[str, float],
     period: str = "10y",
 ) -> Dict[str, float]:
+    """
+    Returns:
+        ret_30d, ret_60d, ret_1y, ret_si,
+        alpha_30d, alpha_60d, alpha_1y, alpha_si,
+        vol_1y, maxdd, ir_1y, hit_rate_1y
+    """
+    base_result = {
+        "ret_30d": 0.0,
+        "ret_60d": 0.0,
+        "ret_1y": 0.0,
+        "ret_si": 0.0,
+        "alpha_30d": 0.0,
+        "alpha_60d": 0.0,
+        "alpha_1y": 0.0,
+        "alpha_si": 0.0,
+        "vol_1y": 0.0,
+        "maxdd": 0.0,
+        "ir_1y": 0.0,
+        "hit_rate_1y": 0.0,
+    }
+
     if positions.empty:
-        return {
-            "ret_30d": 0.0,
-            "ret_60d": 0.0,
-            "ret_1y": 0.0,
-            "ret_si": 0.0,
-            "alpha_30d": 0.0,
-            "alpha_60d": 0.0,
-            "alpha_1y": 0.0,
-            "alpha_si": 0.0,
-        }
+        return base_result
 
     tickers = positions["ticker"].unique().tolist()
     weights = positions.set_index("ticker")["weight"]
@@ -565,16 +559,7 @@ def _compute_portfolio_trailing_returns(
         if not s.empty:
             price_frames.append(s)
     if not price_frames:
-        return {
-            "ret_30d": 0.0,
-            "ret_60d": 0.0,
-            "ret_1y": 0.0,
-            "ret_si": 0.0,
-            "alpha_30d": 0.0,
-            "alpha_60d": 0.0,
-            "alpha_1y": 0.0,
-            "alpha_si": 0.0,
-        }
+        return base_result
 
     prices_df = pd.concat(price_frames, axis=1).sort_index()
     prices_df = prices_df.ffill().dropna(how="all")
@@ -592,6 +577,7 @@ def _compute_portfolio_trailing_returns(
         bench_returns = pd.Series(0.0, index=port_returns.index)
     else:
         port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
+        port_values = port_values.loc[port_returns.index]
 
     port_30 = _window_total_return(port_returns, 30)
     port_60 = _window_total_return(port_returns, 60)
@@ -603,6 +589,28 @@ def _compute_portfolio_trailing_returns(
     bench_1y = _window_total_return(bench_returns, TRADING_DAYS_1Y)
     bench_si = _window_total_return(bench_returns, None)
 
+    excess = port_returns - bench_returns
+    excess_1y = excess.tail(TRADING_DAYS_1Y)
+    port_1y_window = port_returns.tail(TRADING_DAYS_1Y)
+
+    if not port_1y_window.empty:
+        vol_1y = float(port_1y_window.std() * np.sqrt(252))
+    else:
+        vol_1y = 0.0
+
+    if not excess_1y.empty:
+        std_excess = float(excess_1y.std())
+        if std_excess > 0:
+            ir_1y = float(excess_1y.mean() / std_excess * np.sqrt(252))
+        else:
+            ir_1y = 0.0
+        hit_rate_1y = float((excess_1y > 0).mean())
+    else:
+        ir_1y = 0.0
+        hit_rate_1y = 0.0
+
+    maxdd = _max_drawdown(port_values)
+
     return {
         "ret_30d": port_30,
         "ret_60d": port_60,
@@ -612,6 +620,10 @@ def _compute_portfolio_trailing_returns(
         "alpha_60d": port_60 - bench_60,
         "alpha_1y": port_1y - bench_1y,
         "alpha_si": port_si - bench_si,
+        "vol_1y": vol_1y,
+        "maxdd": maxdd,
+        "ir_1y": ir_1y,
+        "hit_rate_1y": hit_rate_1y,
     }
 
 
@@ -638,6 +650,10 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
         "alpha_60d": metrics.get("alpha_60d", 0.0),
         "alpha_1y": metrics.get("alpha_1y", 0.0),
         "alpha_si": metrics.get("alpha_si", 0.0),
+        "vol_1y": metrics.get("vol_1y", 0.0),
+        "maxdd": metrics.get("maxdd", 0.0),
+        "ir_1y": metrics.get("ir_1y", 0.0),
+        "hit_rate_1y": metrics.get("hit_rate_1y", 0.0),
     }
     file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
     try:
@@ -670,6 +686,10 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
             "alpha_60d": float(last.get("alpha_60d", 0.0)),
             "alpha_1y": float(last.get("alpha_1y", 0.0)),
             "alpha_si": float(last.get("alpha_si", 0.0)),
+            "vol_1y": float(last.get("vol_1y", 0.0)),
+            "maxdd": float(last.get("maxdd", 0.0)),
+            "ir_1y": float(last.get("ir_1y", 0.0)),
+            "hit_rate_1y": float(last.get("hit_rate_1y", 0.0)),
         }
     except Exception:
         return None
@@ -700,25 +720,13 @@ def _build_wave_positions(
     wave_df["last_price"] = prices
     wave_df["intraday_return"] = intraday_returns
 
-    # Apply mode adjustments first
     wave_df = _apply_mode_adjustments(wave_name, wave_df, mode)
-
-    # Then SmartSafe 2.0 VIX sweep
     wave_df = apply_smartsafe_sweep(wave_name, wave_df, vix_level)
 
     return wave_df
 
 
 def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
-    """
-    High-level function used by app.py.
-
-    mode token:
-        "standard" -> Standard
-        "amb"      -> Alpha-Minus-Beta
-        "pl"       -> Private Logic
-    """
-    # normalize mode token
     mode = (mode or MODE_STANDARD).lower()
     if mode not in {MODE_STANDARD, MODE_AMB, MODE_PRIVATE_LOGIC}:
         mode = MODE_STANDARD
@@ -767,6 +775,10 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
         "alpha_60d": trailing["alpha_60d"],
         "alpha_1y": trailing["alpha_1y"],
         "alpha_si": trailing["alpha_si"],
+        "vol_1y": trailing["vol_1y"],
+        "maxdd": trailing["maxdd"],
+        "ir_1y": trailing["ir_1y"],
+        "hit_rate_1y": trailing["hit_rate_1y"],
         "vix_level": vix_level,
         "smartsafe_sweep_fraction": sweep_fraction,
         "mode": mode,
