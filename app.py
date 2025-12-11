@@ -7,6 +7,7 @@ from waves_engine import (
     compute_history_nav,
     get_portfolio_overview,
     get_benchmark_wave_for,
+    get_benchmark_composition,
 )
 
 st.set_page_config(
@@ -47,6 +48,25 @@ def build_holdings_table(wave_name: str) -> str:
     return "\n".join(lines)
 
 
+def compute_vol_and_maxdd(nav_series: pd.Series, return_series: pd.Series):
+    """
+    Compute annualized volatility and max drawdown from NAV & returns.
+    """
+    if nav_series is None or nav_series.empty:
+        return float("nan"), float("nan")
+
+    # Annualized vol from daily returns (252 trading days)
+    vol = return_series.std() * (252 ** 0.5) if len(return_series) > 1 else float("nan")
+
+    # Max drawdown from NAV
+    nav = nav_series.values
+    running_max = pd.Series(nav).cummax().values
+    drawdowns = nav / running_max - 1.0
+    max_dd = drawdowns.min() if len(drawdowns) > 0 else float("nan")
+
+    return vol, max_dd
+
+
 # ----------------------------------------------------
 # Sidebar controls
 # ----------------------------------------------------
@@ -60,15 +80,31 @@ mode = st.sidebar.radio(
     index=0,
 )
 
-lookback_days = 365
-short_lookback_days = 30
+# History window (controls lookback_days)
+history_choice = st.sidebar.selectbox(
+    "History window",
+    ["1Y", "3Y", "5Y"],
+    index=0,
+)
+
+if history_choice == "1Y":
+    lookback_days = 365
+elif history_choice == "3Y":
+    lookback_days = 365 * 3
+else:
+    lookback_days = 365 * 5
+
+short_lookback_days = 30  # keep a 30D "tactical" window
 
 waves = get_all_waves()
 default_wave = "AI Wave" if "AI Wave" in waves else waves[0]
 selected_wave = st.sidebar.selectbox("Select Wave", waves, index=waves.index(default_wave))
 
 st.sidebar.markdown("---")
-st.sidebar.caption("NAV normalized to 1.0 at start of lookback window.")
+st.sidebar.caption(
+    "NAV normalized to 1.0 at start of selected window. "
+    "Alpha vs composite benchmark portfolios."
+)
 
 # ----------------------------------------------------
 # Portfolio-Level Overview
@@ -77,7 +113,7 @@ st.sidebar.caption("NAV normalized to 1.0 at start of lookback window.")
 st.title("Portfolio-Level Overview")
 
 st.markdown(
-    f"**Current Mode (table):** `{mode}`  •  Lookback: **{lookback_days} days**  •  "
+    f"**Current Mode (table):** `{mode}`  •  Window: **{history_choice}**  •  "
     f"Short window: **{short_lookback_days} days**"
 )
 
@@ -114,8 +150,8 @@ st.dataframe(
 
 st.caption(
     "Each Wave is compared to its own composite benchmark portfolio (see Benchmark column). "
-    "NAV is normalized to 1.0 at the start of the 365D window; returns and alpha "
-    "are cumulative over the selected periods."
+    "NAV is normalized to 1.0 at the start of the selected history window; returns and alpha "
+    "are cumulative over the window and the last 30 trading days."
 )
 
 st.markdown("---")
@@ -125,8 +161,19 @@ st.markdown("---")
 # ----------------------------------------------------
 
 benchmark_for_selected = get_benchmark_wave_for(selected_wave)
+benchmark_comp = get_benchmark_composition(benchmark_for_selected)
+
 st.header(f"Wave Detail — {selected_wave}")
-st.caption(f"Benchmark for this Wave: **{benchmark_for_selected}**")
+
+if benchmark_comp:
+    comp_str_parts = [f"{weight * 100:0.0f}% {ticker}" for ticker, weight in benchmark_comp.items()]
+    comp_str = " + ".join(comp_str_parts)
+    st.caption(
+        f"Benchmark for this Wave: **{benchmark_for_selected}**  "
+        f"= {comp_str}"
+    )
+else:
+    st.caption(f"Benchmark for this Wave: **{benchmark_for_selected}**")
 
 # NAV history for currently selected sidebar mode (Wave)
 try:
@@ -146,7 +193,7 @@ if hist is not None and not hist.empty:
     hist_reset = hist.reset_index()
 
     # Chart
-    st.subheader(f"NAV History ({mode})")
+    st.subheader(f"NAV History ({mode}, {history_choice})")
     st.line_chart(
         hist_reset.set_index("Date")[["NAV"]],
         use_container_width=True,
@@ -158,23 +205,22 @@ if hist is not None and not hist.empty:
 
     if len(hist) > short_lookback_days:
         short_slice = hist.iloc[-short_lookback_days:]
-        short_ret = fmt_pct(
-            short_slice["NAV"].iloc[-1] / short_slice["NAV"].iloc[0] - 1.0
-        )
+        short_ret_val = short_slice["NAV"].iloc[-1] / short_slice["NAV"].iloc[0] - 1.0
+        short_ret = fmt_pct(short_ret_val)
     else:
         short_ret = total_ret
 
     col1, col2, col3 = st.columns(3)
     col1.metric("NAV (last)", nav_last)
-    col2.metric(f"{lookback_days}D Return", total_ret)
+    col2.metric(f"{history_choice} Return", total_ret)
     col3.metric(f"{short_lookback_days}D Return", short_ret)
 else:
-    st.warning("No NAV history available for this Wave and lookback window.")
+    st.warning("No NAV history available for this Wave and window.")
 
 st.markdown("---")
 
 # ----------------------------------------------------
-# Mode Comparison Panel for Selected Wave (vs its composite benchmark)
+# Mode Comparison Panel for Selected Wave (vs composite benchmark)
 # ----------------------------------------------------
 
 st.subheader(f"Mode Comparison — {selected_wave}")
@@ -207,9 +253,9 @@ for m in modes:
 
         if len(h) > short_lookback_days:
             hs = h.iloc[-short_lookback_days:]
-            ret_short = hs["NAV"].iloc[-1] / hs["NAV"].iloc[0] - 1.0
+            ret_short_val = hs["NAV"].iloc[-1] / hs["NAV"].iloc[0] - 1.0
         else:
-            ret_short = ret_long
+            ret_short_val = ret_long
 
         alpha_long = float("nan")
         alpha_short = float("nan")
@@ -241,14 +287,22 @@ for m in modes:
                 bench_ret_s = nav_b_s.iloc[-1] / nav_b_s.iloc[0] - 1.0
                 alpha_short = wave_ret_s - bench_ret_s
 
+        # Risk analytics: vol & max drawdown (on full window)
+        vol, max_dd = compute_vol_and_maxdd(
+            nav_series=h["NAV"],
+            return_series=h["Return"],
+        )
+
         rows.append(
             {
                 "Mode": m,
                 "NAV (last)": fmt_nav(nav_last_val),
-                "365D Return": fmt_pct(ret_long),
-                "30D Return": fmt_pct(ret_short),
-                "365D Alpha vs Benchmark": fmt_pct(alpha_long),
+                f"{history_choice} Return": fmt_pct(ret_long),
+                "30D Return": fmt_pct(ret_short_val),
+                f"{history_choice} Alpha vs Benchmark": fmt_pct(alpha_long),
                 "30D Alpha vs Benchmark": fmt_pct(alpha_short),
+                "Ann. Volatility": fmt_pct(vol),
+                "Max Drawdown": fmt_pct(max_dd),
             }
         )
     except Exception as e:
@@ -256,16 +310,49 @@ for m in modes:
             {
                 "Mode": m,
                 "NAV (last)": "—",
-                "365D Return": "—",
+                f"{history_choice} Return": "—",
                 "30D Return": "—",
-                "365D Alpha vs Benchmark": "—",
+                f"{history_choice} Alpha vs Benchmark": "—",
                 "30D Alpha vs Benchmark": "—",
+                "Ann. Volatility": "—",
+                "Max Drawdown": "—",
             }
         )
         st.warning(f"Error computing mode '{m}' for {selected_wave}: {e}")
 
 mode_df = pd.DataFrame(rows)
 st.dataframe(mode_df, use_container_width=True, hide_index=True)
+
+st.caption(
+    "Mode comparison shows each risk mode's return, alpha vs composite benchmark, "
+    "and basic risk stats (annualized volatility and max drawdown) over the selected window."
+)
+
+st.markdown("---")
+
+# ----------------------------------------------------
+# Benchmark Composition Table
+# ----------------------------------------------------
+
+st.subheader("Benchmark Composition (ETFs & Weights)")
+
+if benchmark_comp:
+    rows_b = []
+    for ticker, weight in benchmark_comp.items():
+        link = f"[{ticker}](https://www.google.com/finance/quote/{ticker}:NYSEARCA)"
+        rows_b.append(
+            {
+                "ETF": link,
+                "Weight": fmt_pct(weight),
+            }
+        )
+    bench_df = pd.DataFrame(rows_b)
+    st.markdown(
+        bench_df.to_markdown(index=False),
+        unsafe_allow_html=True,
+    )
+else:
+    st.write("No benchmark composition data available for this Wave.")
 
 st.markdown("---")
 
