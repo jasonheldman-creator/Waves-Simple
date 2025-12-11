@@ -679,3 +679,4 @@ def get_wave_snapshot(wave: str, mode: str = "standard") -> Dict[str, object]:
     """
     weights_df = _load_wave_weights("wave_weights.csv")
     return _compute_wave_series(wave, mode, weights_df)
+    
