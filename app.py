@@ -1,23 +1,23 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-(Restored Baseline + Enhanced Overview Grid)
+(Leaderboard + 1Y & Since Inception Metrics)
 
 Key behaviors:
 - Auto-discovers Waves from wave_weights.csv via waves_engine.get_available_waves()
-- No SmartSafe 3.0 logic. Only SmartSafe 2.0 hooks via engine (no-op).
+- No SmartSafe 3.0 logic. Only SmartSafe 2.0 hooks via engine.
 - Tabs:
-    1) Overview (all Waves grid, sortable, color-coded)
+    1) Overview (all Waves grid, sortable, color-coded, ranked, CSV export)
     2) Wave Detail (single-Wave dashboard)
 
 Metrics:
 - Intraday Return
-- 30-Day Return
-- 60-Day Return
-- 30-Day Alpha vs benchmark
-- 60-Day Alpha vs benchmark
+- 30-Day Return & Alpha
+- 60-Day Return & Alpha
+- 1-Year Return & Alpha
+- Since-Inception Return & Alpha
 
 Per-Wave view:
-- Metrics
+- Metrics (all windows)
 - Top 10 holdings with clickable Google Finance quote links
 - Raw positions
 """
@@ -84,6 +84,10 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
                     "30D Alpha": m.get("alpha_30d", 0.0),
                     "60D Return": m.get("ret_60d", 0.0),
                     "60D Alpha": m.get("alpha_60d", 0.0),
+                    "1Y Return": m.get("ret_1y", 0.0),
+                    "1Y Alpha": m.get("alpha_1y", 0.0),
+                    "SI Return": m.get("ret_si", 0.0),
+                    "SI Alpha": m.get("alpha_si", 0.0),
                 }
             )
         except Exception:
@@ -97,6 +101,10 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
                     "30D Alpha": 0.0,
                     "60D Return": 0.0,
                     "60D Alpha": 0.0,
+                    "1Y Return": 0.0,
+                    "1Y Alpha": 0.0,
+                    "SI Return": 0.0,
+                    "SI Alpha": 0.0,
                 }
             )
 
@@ -110,6 +118,10 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
                 "30D Alpha",
                 "60D Return",
                 "60D Alpha",
+                "1Y Return",
+                "1Y Alpha",
+                "SI Return",
+                "SI Alpha",
             ]
         )
 
@@ -155,7 +167,7 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Restored baseline — 12 Waves, SmartSafe 2.0 hooks only, no SmartSafe 3.0 logic.
+            Restored baseline — VIX-aware, SmartSafe 2.0 sweeps, blended benchmarks, multi-horizon alpha.
         </p>
         """,
         unsafe_allow_html=True,
@@ -192,25 +204,42 @@ def render_metrics(snapshot: dict):
     metrics = snapshot["metrics"]
     benchmark = snapshot["benchmark"]
 
+    # Row 1: Short-horizon
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Intraday Return", format_pct(metrics["intraday_return"]))
+        st.metric("Intraday Return", format_pct(metrics.get("intraday_return", 0.0)))
     with col2:
-        st.metric("30-Day Return", format_pct(metrics["ret_30d"]))
+        st.metric("30-Day Return", format_pct(metrics.get("ret_30d", 0.0)))
     with col3:
-        st.metric("60-Day Return", format_pct(metrics["ret_60d"]))
+        st.metric("60-Day Return", format_pct(metrics.get("ret_60d", 0.0)))
     with col4:
-        st.metric("30-Day Alpha vs " + benchmark, format_pct(metrics["alpha_30d"]))
+        st.metric("30-Day Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_30d", 0.0)))
 
+    # Row 2: 60D alpha + 1Y
     col5, col6, col7, col8 = st.columns(4)
     with col5:
-        st.metric("60-Day Alpha vs " + benchmark, format_pct(metrics["alpha_60d"]))
+        st.metric("60-Day Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_60d", 0.0)))
     with col6:
-        st.empty()
+        st.metric("1-Year Return", format_pct(metrics.get("ret_1y", 0.0)))
     with col7:
-        st.empty()
+        st.metric("1-Year Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_1y", 0.0)))
     with col8:
         st.empty()
+
+    # Row 3: Since inception
+    col9, col10, col11, col12 = st.columns(4)
+    with col9:
+        st.metric("Since Inception Return", format_pct(metrics.get("ret_si", 0.0)))
+    with col10:
+        st.metric("Since Inception Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_si", 0.0)))
+    with col11:
+        vix_level = metrics.get("vix_level", None)
+        if vix_level is not None:
+            st.metric("VIX Level", f"{vix_level:,.2f}")
+    with col12:
+        sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
+        if sweep_frac and sweep_frac > 0:
+            st.metric("SmartSafe Sweep %", format_pct(sweep_frac))
 
 
 def render_top_holdings(snapshot: dict):
@@ -297,8 +326,8 @@ def render_overview_tab(waves: list[str]):
 
     st.markdown(
         """
-        This grid shows Intraday, 30-Day, and 60-Day performance and alpha for each Wave.
-        Use the controls below to sort by any metric.
+        This grid shows Intraday, 30-Day, 60-Day, 1-Year, and Since-Inception
+        performance and alpha for each Wave. Rank is applied after sorting.
         """,
         unsafe_allow_html=True,
     )
@@ -310,22 +339,31 @@ def render_overview_tab(waves: list[str]):
         "30D Alpha",
         "60D Return",
         "60D Alpha",
+        "1Y Return",
+        "1Y Alpha",
+        "SI Return",
+        "SI Alpha",
     ]
-    col_sort, col_dir = st.columns([2, 1])
+    col_sort, col_dir, col_spacer = st.columns([2, 1.5, 1])
     with col_sort:
         sort_col = st.selectbox("Sort by metric", metric_options, index=2)  # default: 30D Alpha
     with col_dir:
         sort_dir = st.radio("Direction", ["High → Low", "Low → High"], index=0)
+    with col_spacer:
+        st.write("")
 
     ascending = sort_dir == "Low → High"
-    df_sorted = df.sort_values(sort_col, ascending=ascending)
+    df_sorted = df.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
+
+    # Add Rank column after sorting
+    df_sorted.insert(0, "Rank", range(1, len(df_sorted) + 1))
 
     # Create formatted copy for display
     df_display = df_sorted.copy()
     for col in metric_options:
         df_display[col] = df_display[col].apply(format_pct)
 
-    # Use Styler to color-code positives/negatives
+    # Styler to color-code positives/negatives
     styler = df_display.style.applymap(
         _color_metric,
         subset=metric_options,
@@ -335,6 +373,15 @@ def render_overview_tab(waves: list[str]):
         styler,
         use_container_width=True,
         hide_index=True,
+    )
+
+    # CSV export (raw numeric values, including Rank and all metrics)
+    csv_data = df_sorted.to_csv(index=False)
+    st.download_button(
+        label="Download Overview as CSV",
+        data=csv_data,
+        file_name="waves_overview_leaderboard.csv",
+        mime="text/csv",
     )
 
 
@@ -350,7 +397,7 @@ def render_smartsafe_panel():
         in this restored baseline.
 
         - No SmartSafe 3.0 logic is running.
-        - Sweeps, if any, are simple and conservative.
+        - Sweeps are driven by the VIX ladder and applied to highest-vol holdings first.
         """
     )
 
@@ -381,7 +428,8 @@ def render_wave_detail_tab(selected_wave: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Restored baseline console (Detail). For internal / demo use only.
+        WAVES Intelligence™ — VIX-aware, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
+        For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
