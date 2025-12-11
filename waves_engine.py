@@ -59,18 +59,73 @@ BENCHMARK_MAP: Dict[str, str] = {
     "SmartSafe Money Market Wave": "BIL",
 }
 
-# Custom blended benchmark specs (locked)
+# Custom blended benchmark specs (locked — WAVES Benchmark Set v1.0)
 BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
-    "AI Wave": {"SMH": 0.50, "AIQ": 0.50},
-    "Clean Transit-Infrastructure Wave": {"SPY": 0.40, "QQQ": 0.40, "IWM": 0.20},
-    "Cloud & Software Wave": {"QQQ": 0.50, "WCLD": 0.40, "HACK": 0.30},
-    # Crypto: three-ETF benchmark 50/30/20 WGMI/BLOK/BITQ
-    "Crypto Income Wave": {"WGMI": 0.50, "BLOK": 0.30, "BITQ": 0.20},
-    "Crypto Equity Wave (mid/large cap)": {"WGMI": 0.50, "BLOK": 0.30, "BITQ": 0.20},
-    "Future Power & Energy Wave": {"QQQ": 0.40, "BUG": 0.30, "WCLD": 0.30},
-    "Growth Wave": {"QQQ": 0.40, "BUG": 0.30, "WCLD": 0.30},
-    "Quantum Computing Wave": {"QQQ": 0.50, "SOXX": 0.25, "ARKK": 0.25},
-    "Small Cap Growth Wave": {"ARKK": 0.40, "IPAY": 0.30, "XLY": 0.30},
+    # AI / Tech / Innovation complex
+    "AI Wave": {               # 40% SMH + 30% IGV + 30% AIQ
+        "SMH": 0.40,
+        "IGV": 0.30,
+        "AIQ": 0.30,
+    },
+    "Cloud & Software Wave": {  # 20% QQQ + 50% WCLD + 30% HACK
+        "QQQ": 0.20,
+        "WCLD": 0.50,
+        "HACK": 0.30,
+    },
+    "Quantum Computing Wave": {  # 40% QQQ + 35% SOXX + 25% ARKK
+        "QQQ": 0.40,
+        "SOXX": 0.35,
+        "ARKK": 0.25,
+    },
+    "Growth Wave": {            # 50% QQQ + 30% IWF + 20% WCLD
+        "QQQ": 0.50,
+        "IWF": 0.30,
+        "WCLD": 0.20,
+    },
+
+    # Crypto complex (miners + rails + crypto equity)
+    "Crypto Income Wave": {              # 50% WGMI + 30% BLOK + 20% BITQ
+        "WGMI": 0.50,
+        "BLOK": 0.30,
+        "BITQ": 0.20,
+    },
+    "Crypto Equity Wave (mid/large cap)": {  # 50% WGMI + 30% BLOK + 20% BITQ
+        "WGMI": 0.50,
+        "BLOK": 0.30,
+        "BITQ": 0.20,
+    },
+
+    # Future power / infrastructure complex
+    "Future Power & Energy Wave": {  # 40% QQQ + 30% ICLN + 30% XLE
+        "QQQ": 0.40,
+        "ICLN": 0.30,
+        "XLE": 0.30,
+    },
+    "Clean Transit-Infrastructure Wave": {  # 30% SPY + 30% QQQ + 20% IWM + 20% IYT
+        "SPY": 0.30,
+        "QQQ": 0.30,
+        "IWM": 0.20,
+        "IYT": 0.20,
+    },
+
+    # Size / style complex
+    "Small Cap Growth Wave": {  # 50% IWO + 25% ARKK + 25% IPAY
+        "IWO": 0.50,
+        "ARKK": 0.25,
+        "IPAY": 0.25,
+    },
+    "Small to Mid Cap Growth Wave": {  # 40% IWP + 30% IWO + 30% QQQ
+        "IWP": 0.40,
+        "IWO": 0.30,
+        "QQQ": 0.30,
+    },
+
+    # Income
+    "Income Wave": {  # 60% SCHD + 30% VYM + 10% LQD
+        "SCHD": 0.60,
+        "VYM": 0.30,
+        "LQD": 0.10,
+    },
 }
 
 # VIX ladder (SmartSafe 2.0)
@@ -191,7 +246,7 @@ DEFAULT_SMARTSAFE3_PARAMS = {
 }
 
 SMARTSAFE3_OVERRIDES: Dict[str, Dict[str, float]] = {
-    # AI / Cloud / Quantum: tolerate deeper DD before Panic. Still aggressive but not crypto.
+    # AI / Cloud / Quantum: tolerate deeper DD before Panic.
     "AI Wave": {
         "maxdd_panic": -0.55,
         "maxdd_stress": -0.40,
@@ -219,7 +274,7 @@ SMARTSAFE3_OVERRIDES: Dict[str, Dict[str, float]] = {
         "beta_panic": 0.20,
         "beta_stress": 0.12,
     },
-    # Crypto: more sensitive, keep defaults or slightly stricter
+    # Crypto: more sensitive
     "Crypto Income Wave": {
         "vix_panic": 30.0,
         "vix_stress": 25.0,
@@ -242,7 +297,7 @@ SMARTSAFE3_OVERRIDES: Dict[str, Dict[str, float]] = {
         "extra_stress": 0.20,
         "extra_caution": 0.10,
     },
-    # S&P core: almost never panic; it’s the benchmark.
+    # S&P core: almost never panic.
     "S&P 500 Wave": {
         "vix_panic": 45.0,
         "vix_stress": 35.0,
@@ -265,7 +320,7 @@ SMARTSAFE3_OVERRIDES: Dict[str, Dict[str, float]] = {
         "extra_stress": 0.10,
         "extra_caution": 0.05,
     },
-    # Income: very conservative, but less likely to hit big drawdowns
+    # Income: conservative
     "Income Wave": {
         "maxdd_panic": -0.35,
         "maxdd_stress": -0.25,
