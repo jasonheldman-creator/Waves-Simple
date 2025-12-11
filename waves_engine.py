@@ -1,8 +1,9 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 7: Adaptive Alpha + Engineered Concentration + SmartSafe 2.0 + SmartSafe 3.0 (LIVE)
+Stage 8+: Wave-Specific Alpha Engine + Adaptive Momentum + Engineered Concentration
+          + SmartSafe 2.0 + SmartSafe 3.0 (LIVE) + Turnover / Execution Telemetry
 
-Includes:
+Core stack (carried forward and enhanced):
 - Auto-discovered Waves from wave_weights.csv
 - Custom blended benchmarks (multi-ETF where specified)
 - 3 modes:
@@ -15,25 +16,26 @@ Includes:
     * Uses VIX, 60D return/alpha, max drawdown, and beta drift
     * Classifies regime: Normal / Caution / Stress / Panic
     * Applies extra sweep (0–30%) from highest-vol names into BIL on top of 2.0
-- Performance & risk metrics:
-    * Intraday return (post 3.0 overlay)
-    * 30D, 60D, 1Y, and Since-Inception returns
-    * 30D, 60D, 1Y, and Since-Inception alpha
-    * 1Y volatility (annualized)
-    * Max drawdown (since inception)
-    * 1Y information ratio (daily excess Sharpe-style)
-    * 1Y hit rate (pct of days with positive excess return)
-    * 1Y beta vs benchmark
-    * Beta target (per mode & Wave type)
-    * Beta drift (actual - target)
-    * SmartSafe 2.0 sweep fraction (from VIX ladder)
-    * SmartSafe 3.0 regime + extra sweep fraction (LIVE overlay)
+
+New Stage 8+ features:
+- Wave-specific configuration:
+    * Crypto, AI/Cloud/Quantum, Small Cap, Future Power, etc. all get tailored behavior
+- Adaptive momentum:
+    * 30D vs 90D weighting changes with VIX regime and Wave style
+- Wave-specific alpha tilt:
+    * Crypto & Small Cap allowed hotter momentum and higher beta ceiling
+    * Defensive / income waves stay calmer
+- Turnover / “rebalance pressure” telemetry:
+    * Compares today’s positions vs last logged positions
+    * Reports daily turnover and a simple “Rebalance Needed?” flag
+- Execution regime telemetry:
+    * Classifies environment: Calm / Normal / Busy / Stressed based on VIX + turnover
 
 Important:
-- No Waves are ever equal-weighted; we always respect wave_weights.csv
-  and only normalize inside each Wave.
-- Historical returns are still based on the pre-3.0 portfolio history.
-  SmartSafe 3.0 is a *live* overlay for current exposures going forward.
+- No Waves are ever equal-weighted; we always respect wave_weights.csv and only
+  transform weights inside each Wave.
+- SmartSafe 2.0 + 3.0 are both LIVE; historical returns still use a pre-3.0-style
+  portfolio as a proxy, with 3.0 being a live overlay going forward.
 """
 
 from __future__ import annotations
@@ -61,6 +63,14 @@ PERF_LOG_DIR = LOGS_DIR / "performance"
 
 for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+DAILY_RETURN_CLIP = 0.20  # +/-20% clamp
+TRADING_DAYS_1Y = 252
+
+# Mode tokens
+MODE_STANDARD = "standard"
+MODE_AMB = "amb"
+MODE_PRIVATE_LOGIC = "pl"
 
 # ---------------------------------------------------------------------
 # Benchmarks
@@ -105,13 +115,90 @@ VIX_LEVELS = [
     (20.0, 0.15),
 ]
 
-DAILY_RETURN_CLIP = 0.20  # +/-20% clamp
-TRADING_DAYS_1Y = 252
+# ---------------------------------------------------------------------
+# Wave-specific configuration (Stage 8)
+# ---------------------------------------------------------------------
 
-# Mode tokens
-MODE_STANDARD = "standard"
-MODE_AMB = "amb"
-MODE_PRIVATE_LOGIC = "pl"
+WAVE_CONFIG: Dict[str, Dict[str, float]] = {
+    # Growth / tech / AI-heavy
+    "AI Wave": {
+        "style": "ai",
+        "momentum_boost": 1.2,
+        "defensive_bias": 0.0,
+    },
+    "Cloud & Software Wave": {
+        "style": "ai",
+        "momentum_boost": 1.15,
+        "defensive_bias": 0.0,
+    },
+    "Quantum Computing Wave": {
+        "style": "ai",
+        "momentum_boost": 1.3,
+        "defensive_bias": -0.05,
+    },
+    "Future Power & Energy Wave": {
+        "style": "future_power",
+        "momentum_boost": 1.05,
+        "defensive_bias": 0.05,
+    },
+    "Clean Transit-Infrastructure Wave": {
+        "style": "future_power",
+        "momentum_boost": 1.0,
+        "defensive_bias": 0.05,
+    },
+    # Crypto / high-vol growth
+    "Crypto Income Wave": {
+        "style": "crypto",
+        "momentum_boost": 1.3,
+        "defensive_bias": -0.05,
+    },
+    "Crypto Equity Wave": {
+        "style": "crypto",
+        "momentum_boost": 1.3,
+        "defensive_bias": -0.05,
+    },
+    # Small cap / innovation
+    "Small Cap Growth Wave": {
+        "style": "smallcap",
+        "momentum_boost": 1.2,
+        "defensive_bias": -0.02,
+    },
+    "Small to Mid Cap Growth Wave": {
+        "style": "smallcap",
+        "momentum_boost": 1.1,
+        "defensive_bias": 0.0,
+    },
+    # Defensive / hybrid
+    "Income Wave": {
+        "style": "income",
+        "momentum_boost": 0.8,
+        "defensive_bias": 0.1,
+    },
+    "SmartSafe Money Market Wave": {
+        "style": "cash",
+        "momentum_boost": 0.0,
+        "defensive_bias": 0.3,
+    },
+    # S&P / core benchmark
+    "S&P 500 Wave": {
+        "style": "core",
+        "momentum_boost": 1.0,
+        "defensive_bias": 0.0,
+    },
+    "S&P Wave": {
+        "style": "core",
+        "momentum_boost": 1.0,
+        "defensive_bias": 0.0,
+    },
+}
+
+
+def _get_wave_config(wave_name: str) -> Dict[str, float]:
+    cfg = WAVE_CONFIG.get(wave_name, {})
+    style = cfg.get("style", "generic")
+    mboost = float(cfg.get("momentum_boost", 1.0))
+    defbias = float(cfg.get("defensive_bias", 0.0))
+    return {"style": style, "momentum_boost": mboost, "defensive_bias": defbias}
 
 
 # ---------------------------------------------------------------------
@@ -487,7 +574,7 @@ def apply_smartsafe3_extra_sweep(
 
 
 # ---------------------------------------------------------------------
-# Momentum (Alpha Engine)
+# Momentum (Alpha Engine) with adaptive behavior (Stage 10)
 # ---------------------------------------------------------------------
 
 def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
@@ -500,13 +587,46 @@ def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
     return float((1 + r).prod() - 1.0)
 
 
-def _compute_momentum_scores(tickers: List[str], period: str = "1y") -> pd.DataFrame:
+def _compute_momentum_scores(
+    tickers: List[str],
+    period: str = "1y",
+    vix_level: Optional[float] = None,
+    wave_style: str = "generic",
+) -> pd.DataFrame:
     """
     Compute 30D and 90D total returns for each ticker, plus a combined momentum score.
 
-    Returns DataFrame:
-        ticker, mom_30, mom_90, mom_combo
+    Adaptive behavior:
+    - Calm / low VIX: lean more on 90D (trend-following).
+    - Stress / high VIX: lean more on 30D (shorter horizon).
+    - Crypto / Small Cap: allowed hotter acceleration.
     """
+    # Choose base weights for 30D vs 90D by VIX regime
+    vix = vix_level if vix_level is not None else 18.0
+
+    if vix < 16:
+        w90, w30 = 0.7, 0.3
+    elif vix < 22:
+        w90, w30 = 0.6, 0.4
+    elif vix < 28:
+        w90, w30 = 0.5, 0.5
+    else:
+        w90, w30 = 0.4, 0.6
+
+    # Wave-style tweaks
+    if wave_style in {"crypto", "smallcap"}:
+        # Shorten focus slightly in high-vol waves
+        w90, w30 = w90 * 0.85, w30 * 1.15
+    elif wave_style in {"income", "cash"}:
+        # Longer horizon for defensive waves
+        w90, w30 = w90 * 1.1, w30 * 0.9
+
+    total = w90 + w30
+    if total <= 0:
+        w90, w30 = 0.6, 0.4
+        total = 1.0
+    w90, w30 = w90 / total, w30 / total
+
     records = []
     for t in tickers:
         s = _download_price_series(t, period=period)
@@ -518,7 +638,7 @@ def _compute_momentum_scores(tickers: List[str], period: str = "1y") -> pd.DataF
         r = r.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
         mom_30 = _window_total_return(r, 30)
         mom_90 = _window_total_return(r, 90)
-        mom_combo = 0.6 * mom_90 + 0.4 * mom_30
+        mom_combo = w90 * mom_90 + w30 * mom_30
         records.append(
             {
                 "ticker": t,
@@ -608,13 +728,14 @@ def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------
-# Mode adjustments (momentum + concentration)
+# Mode adjustments (momentum + concentration) with wave config
 # ---------------------------------------------------------------------
 
 def _apply_mode_adjustments(
     wave_name: str,
     df: pd.DataFrame,
     mode: str,
+    vix_level: Optional[float],
 ) -> pd.DataFrame:
     """
     Apply per-mode portfolio adjustments BEFORE SmartSafe 2.0.
@@ -622,8 +743,9 @@ def _apply_mode_adjustments(
     Pipeline:
     1) Ensure BIL row exists.
     2) Normalize starting weights.
-    3) Compute momentum scores (30D+90D) and apply mode-specific momentum tilt.
-    4) If AMB mode: move 15% of equity sleeve to BIL.
+    3) Compute adaptive momentum scores (30D+90D, VIX-aware, wave-style-aware)
+       and apply mode-specific + wave-specific momentum tilt.
+    4) If AMB mode: move ~15% of equity sleeve to BIL (beta cut).
     5) Apply engineered concentration on equity sleeve.
     """
     if df.empty:
@@ -631,6 +753,10 @@ def _apply_mode_adjustments(
 
     mode = (mode or MODE_STANDARD).lower()
     df = df.copy()
+    cfg = _get_wave_config(wave_name)
+    wave_style = cfg["style"]
+    momentum_boost = cfg["momentum_boost"]
+    defensive_bias = cfg["defensive_bias"]
 
     # Ensure BIL exists
     if not df["ticker"].str.upper().eq("BIL").any():
@@ -654,7 +780,12 @@ def _apply_mode_adjustments(
     # Momentum scores for equity sleeve
     eq_df = df.loc[eq_mask].copy()
     if not eq_df.empty:
-        mom_df = _compute_momentum_scores(eq_df["ticker"].tolist(), period="1y")
+        mom_df = _compute_momentum_scores(
+            eq_df["ticker"].tolist(),
+            period="1y",
+            vix_level=vix_level,
+            wave_style=wave_style,
+        )
     else:
         mom_df = pd.DataFrame(columns=["ticker", "mom_30", "mom_90", "mom_combo"])
 
@@ -671,19 +802,22 @@ def _apply_mode_adjustments(
         else:
             z = pd.Series(0.0, index=eq_df.index)
 
-        # Mode-specific momentum strength
+        # Mode-specific momentum strength (base)
         if mode == MODE_STANDARD:
-            k = 0.15   # mild tilt
+            k = 0.15
             min_factor, max_factor = 0.7, 1.3
         elif mode == MODE_AMB:
-            k = 0.10   # very light tilt
+            k = 0.10
             min_factor, max_factor = 0.8, 1.2
         elif mode == MODE_PRIVATE_LOGIC:
-            k = 0.60   # strong tilt
+            k = 0.60
             min_factor, max_factor = 0.5, 1.8
         else:
             k = 0.15
             min_factor, max_factor = 0.7, 1.3
+
+        # Wave-specific boost (Stage 8)
+        k *= momentum_boost
 
         tilt_factor = 1.0 + k * z
         tilt_factor = tilt_factor.clip(lower=min_factor, upper=max_factor)
@@ -698,9 +832,11 @@ def _apply_mode_adjustments(
 
         df.loc[eq_mask, "weight"] = eq_df["weight"]
 
-    # AMB mode beta cut: move 15% of equity sleeve to BIL after momentum
+    # AMB mode beta cut: move ~15% of equity sleeve to BIL after momentum
     if mode == MODE_AMB:
         base_cut = 0.15
+        # Apply a tiny amount of extra defense for income-style waves
+        base_cut += max(defensive_bias, 0.0) * 0.05
         eq_weight = df.loc[eq_mask, "weight"].sum()
         if eq_weight > 0:
             cut_amount = eq_weight * base_cut
@@ -722,32 +858,35 @@ def _get_beta_target(wave_name: str, mode: str) -> float:
     Mode- and Wave-type-specific beta targets.
 
     Defaults:
-        Standard: 0.90
-        AMB:      0.78
-        PL:       1.05
+        Standard: ~0.90
+        AMB:      ~0.78
+        PL:       ~1.05
 
-    Special cases:
-        SmartSafe: ~0.05
-        Income / defensive Waves: slightly lower base
-        S&P Wave: ~1.00 in Standard
+    Special cases (Stage 8):
+        - SmartSafe: ~0.05
+        - Income / defensive: slightly lower base
+        - Crypto / small cap: slightly higher base
+        - S&P Wave: ~1.00 in Standard
     """
     mode = (mode or MODE_STANDARD).lower()
     name_lower = wave_name.lower()
+    cfg = _get_wave_config(wave_name)
+    style = cfg["style"]
 
     # SmartSafe is basically cash
-    if "smartsafe" in name_lower:
+    if "smartsafe" in name_lower or style == "cash":
         return 0.05
 
+    # Base by style / label
     base = 0.90
-
-    if "s&p" in name_lower:
+    if "s&p" in name_lower or style == "core":
         base = 1.00
-    elif "income" in name_lower:
+    elif "income" in name_lower or style == "income":
         base = 0.80
-    elif "crypto" in name_lower:
-        base = 1.10  # crypto waves allowed hotter beta
-    elif "small cap" in name_lower:
-        base = 1.05
+    elif style in {"crypto", "smallcap"}:
+        base = 1.10
+    elif style in {"ai", "future_power"}:
+        base = 1.00
 
     if mode == MODE_AMB:
         return max(0.50, base - 0.12)
@@ -965,6 +1104,8 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
         "ir_1y": metrics.get("ir_1y", 0.0),
         "hit_rate_1y": metrics.get("hit_rate_1y", 0.0),
         "beta_1y": metrics.get("beta_1y", 0.0),
+        "turnover_1d": metrics.get("turnover_1d", 0.0),
+        "rebalance_flag": metrics.get("rebalance_flag", 0),
     }
     file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
     try:
@@ -1002,6 +1143,8 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
             "ir_1y": float(last.get("ir_1y", 0.0)),
             "hit_rate_1y": float(last.get("hit_rate_1y", 0.0)),
             "beta_1y": float(last.get("beta_1y", 0.0)),
+            "turnover_1d": float(last.get("turnover_1d", 0.0)) if "turnover_1d" in last else 0.0,
+            "rebalance_flag": int(last.get("rebalance_flag", 0)) if "rebalance_flag" in last else 0,
         }
     except Exception:
         return None
@@ -1063,6 +1206,83 @@ def _compute_smartsafe3_recommendation(
 
 
 # ---------------------------------------------------------------------
+# Turnover / execution telemetry (Stage 11)
+# ---------------------------------------------------------------------
+
+def _compute_turnover_since_last_positions(
+    wave_name: str,
+    positions: pd.DataFrame,
+) -> Tuple[float, int, str]:
+    """
+    Compare today's weights vs last logged weights to estimate daily turnover.
+
+    Returns:
+        turnover_1d (0–1),
+        rebalance_flag (0/1),
+        execution_regime ("Calm" | "Normal" | "Busy" | "Stressed")
+    """
+    if positions.empty:
+        return 0.0, 0, "Calm"
+
+    # Load most recent positions file prior to today
+    pattern_prefix = f"{wave_name.replace(' ', '_')}_positions_"
+    candidates = sorted(POSITIONS_LOG_DIR.glob(pattern_prefix + "*.csv"))
+    if not candidates:
+        return 0.0, 0, "Calm"
+
+    today_str = datetime.now().strftime("%Y%m%d")
+    prev_files = [p for p in candidates if p.stem.split("_positions_")[-1] < today_str]
+    if not prev_files:
+        # First day, nothing to compare
+        return 0.0, 0, "Calm"
+
+    last_file = prev_files[-1]
+    try:
+        prev_df = pd.read_csv(last_file)
+    except Exception:
+        return 0.0, 0, "Calm"
+
+    if "ticker" not in prev_df.columns or "weight" not in prev_df.columns:
+        return 0.0, 0, "Calm"
+
+    current = positions[["ticker", "weight"]].copy()
+    prev = prev_df[["ticker", "weight"]].copy()
+
+    current["ticker"] = current["ticker"].astype(str).str.upper().str.strip()
+    prev["ticker"] = prev["ticker"].astype(str).str.upper().str.strip()
+
+    # Align tickers
+    merged = pd.merge(
+        current,
+        prev,
+        on="ticker",
+        how="outer",
+        suffixes=("_cur", "_prev"),
+    ).fillna(0.0)
+
+    w_cur = merged["weight_cur"].values
+    w_prev = merged["weight_prev"].values
+
+    # Simple turnover estimate: 0.5 * sum(|w_new - w_old|)
+    turnover = float(0.5 * np.abs(w_cur - w_prev).sum())
+
+    # Rebalance flag – if turnover would exceed ~25%, flag as "heavy rebalance"
+    rebalance_flag = 1 if turnover > 0.25 else 0
+
+    # Execution regime – for the console narrative
+    if turnover < 0.05:
+        regime = "Calm"
+    elif turnover < 0.15:
+        regime = "Normal"
+    elif turnover < 0.30:
+        regime = "Busy"
+    else:
+        regime = "Stressed"
+
+    return turnover, rebalance_flag, regime
+
+
+# ---------------------------------------------------------------------
 # Core Wave Snapshot
 # ---------------------------------------------------------------------
 
@@ -1093,7 +1313,7 @@ def _build_wave_positions(
     wave_df["last_price"] = prices
     wave_df["intraday_return"] = intraday_returns
 
-    wave_df = _apply_mode_adjustments(wave_name, wave_df, mode)
+    wave_df = _apply_mode_adjustments(wave_name, wave_df, mode, vix_level)
     wave_df = apply_smartsafe_sweep(wave_name, wave_df, vix_level)
 
     return wave_df
@@ -1158,6 +1378,12 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
     else:
         intraday_ret = 0.0
 
+    # 5) Turnover / execution telemetry
+    turnover_1d, rebalance_flag, execution_regime = _compute_turnover_since_last_positions(
+        wave_name,
+        positions_live,
+    )
+
     metrics = {
         "intraday_return": intraday_ret,
         "ret_30d": trailing["ret_30d"],
@@ -1179,6 +1405,9 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
         "smartsafe_sweep_fraction": sweep_fraction,
         "smartsafe3_state": ss3_state,
         "smartsafe3_extra_fraction": ss3_extra,
+        "turnover_1d": turnover_1d,
+        "rebalance_flag": rebalance_flag,
+        "execution_regime": execution_regime,
         "mode": mode,
     }
 
