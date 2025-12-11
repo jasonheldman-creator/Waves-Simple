@@ -1,7 +1,7 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 7: Mode-aware + Momentum + Engineered Concentration
-         + SmartSafe 2.0 + SmartSafe 3.0 (LIVE overlay)
+Stage 8+: Mode-aware + Wave-specific momentum + Engineered Concentration
+          + SmartSafe 2.0 + SmartSafe 3.0 (LIVE) + Turnover / Execution Telemetry
 
 Features:
 - Mode selector in sidebar (Standard / AMB / Private Logic™)
@@ -14,6 +14,8 @@ Features:
     * 1Y Beta vs Benchmark, Beta Target, Beta Drift
     * SmartSafe 2.0 sweep fraction (VIX ladder, live)
     * SmartSafe 3.0 regime + extra sweep fraction (LIVE overlay)
+    * Turnover since last log + “Rebalance Needed?” flag
+    * Execution regime (Calm / Normal / Busy / Stressed)
 - Top 10 holdings with Google Finance links
 """
 
@@ -67,8 +69,6 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
             beta_1y = m.get("beta_1y", 0.0)
             beta_target = m.get("beta_target", 0.0)
             beta_drift = beta_1y - beta_target
-            ss3_state = m.get("smartsafe3_state", "")
-            ss3_extra = m.get("smartsafe3_extra_fraction", 0.0)
             rows.append(
                 {
                     "Wave": w,
@@ -88,8 +88,9 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "Max Drawdown": m.get("maxdd", 0.0),
                     "Beta 1Y": beta_1y,
                     "Beta Drift": beta_drift,
-                    "SS3 State": ss3_state,
-                    "SS3 Extra Sweep": ss3_extra,
+                    "SS3 State": m.get("smartsafe3_state", ""),
+                    "SS3 Extra Sweep": m.get("smartsafe3_extra_fraction", 0.0),
+                    "Turnover 1D": m.get("turnover_1d", 0.0),
                 }
             )
         except Exception:
@@ -114,6 +115,7 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "Beta Drift": 0.0,
                     "SS3 State": "",
                     "SS3 Extra Sweep": 0.0,
+                    "Turnover 1D": 0.0,
                 }
             )
 
@@ -139,6 +141,7 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                 "Beta Drift",
                 "SS3 State",
                 "SS3 Extra Sweep",
+                "Turnover 1D",
             ]
         )
 
@@ -189,9 +192,9 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Stage 7 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
-            blended benchmarks, multi-horizon alpha & beta discipline, and SmartSafe 3.0
-            <strong>LIVE overlay</strong> on portfolio exposures.
+            Stage 8+ — Wave-specific momentum, engineered concentration, SmartSafe 2.0,
+            blended benchmarks, multi-horizon alpha & beta discipline, SmartSafe 3.0
+            <strong>LIVE overlay</strong>, and turnover / execution telemetry.
         </p>
         """,
         unsafe_allow_html=True,
@@ -219,7 +222,8 @@ def render_sidebar(waves: list[str]) -> tuple[str, str]:
 
     st.sidebar.markdown("---")
     st.sidebar.caption(
-        "SmartSafe 2.0 sweeps and SmartSafe 3.0 extra sweeps are both live in this build."
+        "SmartSafe 2.0 sweeps, SmartSafe 3.0 extra sweeps, and turnover telemetry "
+        "are live in this build."
     )
 
     return selected_wave, mode_token
@@ -267,13 +271,15 @@ def render_metrics(snapshot: dict):
     beta_target = metrics.get("beta_target", 0.0)
     beta_drift = metrics.get("beta_drift", 0.0)
 
-    colb1, colb2, colb3, _ = st.columns(4)
+    colb1, colb2, colb3, colb4 = st.columns(4)
     with colb1:
         st.metric("1-Year Beta vs Benchmark", format_ratio(beta_1y))
     with colb2:
         st.metric("Beta Target", format_ratio(beta_target))
     with colb3:
         st.metric("Beta Drift (Actual - Target)", format_ratio(beta_drift))
+    with colb4:
+        st.metric("Turnover Since Last Log", format_pct(metrics.get("turnover_1d", 0.0)))
 
 
 def render_top_holdings(snapshot: dict):
@@ -356,8 +362,8 @@ def render_overview_tab(waves: list[str], mode_token: str):
         """
         This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
         performance and alpha for each Wave in the **selected mode**, plus
-        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, Beta discipline, and
-        SmartSafe 3.0 regime + extra sweep (LIVE overlay on top of 2.0).
+        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, Beta discipline, SmartSafe
+        3.0 regime, and Turnover since last log.
         """,
         unsafe_allow_html=True,
     )
@@ -399,6 +405,7 @@ def render_overview_tab(waves: list[str], mode_token: str):
         "1Y Hit Rate",
         "Max Drawdown",
         "SS3 Extra Sweep",
+        "Turnover 1D",
     ]
     for col in pct_cols:
         if col in df_display.columns:
@@ -437,12 +444,15 @@ def render_overview_tab(waves: list[str], mode_token: str):
 # ---------------------------------------------------------------------
 
 def render_smartsafe_panel(metrics: dict):
-    st.subheader("SmartSafe Status")
+    st.subheader("SmartSafe / Execution Status")
 
     vix_level = metrics.get("vix_level", None)
     sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
     ss3_state = metrics.get("smartsafe3_state", "Normal")
     ss3_extra = metrics.get("smartsafe3_extra_fraction", 0.0)
+    turnover_1d = metrics.get("turnover_1d", 0.0)
+    rebalance_flag = metrics.get("rebalance_flag", 0)
+    execution_regime = metrics.get("execution_regime", "Calm")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -462,9 +472,18 @@ def render_smartsafe_panel(metrics: dict):
     with col4:
         st.metric("SmartSafe 3.0 Extra Sweep (LIVE)", format_pct(ss3_extra))
 
+    st.markdown("---")
+
+    col5, col6 = st.columns(2)
+    with col5:
+        st.metric("Turnover Since Last Log", format_pct(turnover_1d))
+    with col6:
+        rebalance_text = "Yes" if rebalance_flag else "No"
+        st.metric("Rebalance Needed?", rebalance_text)
+
     st.caption(
-        "SmartSafe 3.0 applies an additional volatility-based sweep into BIL on top of "
-        "SmartSafe 2.0, driven by VIX, 60D returns, max drawdown, and beta drift."
+        f"Execution Regime: {execution_regime} — based on turnover vs last log. "
+        "Higher turnover implies more active rebalancing and execution."
     )
 
 
@@ -494,9 +513,8 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Stage 7 adaptive momentum + engineered concentration +
-        beta discipline, VIX-aware SmartSafe 2.0, and SmartSafe 3.0 LIVE overlay.
-        Blended benchmarks, multi-horizon alpha & risk. For internal / demo use only.
+        WAVES Intelligence™ — Stage 8+ wave-specific alpha engine, engineered concentration,
+        SmartSafe 2.0 & 3.0 LIVE, and turnover / execution telemetry. For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
