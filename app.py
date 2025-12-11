@@ -1,20 +1,6 @@
-"""
-app.py — WAVES Intelligence™ Institutional Console (History-Aware)
+# app.py — WAVES Intelligence™ Simple Console (History-Driven)
 
-Features
---------
-• Discovers Waves from wave_weights.csv.
-• Uses waves_engine.get_wave_snapshot() for all analytics.
-• Uses Full_Wave_History.csv (auto-built by build_full_wave_history.py).
-• Shows:
-    - Overview table: returns & alpha for all Waves
-    - Detail view per Wave with metrics, chart, and positions
-    - Mode selector: Standard / Alpha-Minus-Beta / Private Logic™
-
-This file is designed to be a clean, indentation-safe drop-in for Streamlit.
-"""
-
-from __future__ import annotations
+import datetime as dt
 
 import pandas as pd
 import streamlit as st
@@ -22,221 +8,311 @@ import streamlit as st
 from waves_engine import (
     get_available_waves,
     get_wave_snapshot,
-    get_wave_history,
+    get_wave_snapshots,  # dict of {wave_name: {"positions": df, "history": df}}
 )
 
-# ---------------------------------------------------------------------
-# Streamlit config
-# ---------------------------------------------------------------------
-
+# ------------------------------------------------------------
+# Streamlit page setup
+# ------------------------------------------------------------
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
 )
 
-st.title("🌊 WAVES Intelligence™ Console")
-st.caption("History-aware, benchmark-aware, alpha-oriented analytics.")
+st.markdown(
+    """
+    <style>
+    .main { padding-top: 1rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("WAVES Intelligence™ Institutional Console")
 
 
-# ---------------------------------------------------------------------
-# Sidebar controls
-# ---------------------------------------------------------------------
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
+def _safe_window(history: pd.DataFrame, days: int) -> pd.DataFrame | None:
+    """Return the last `days` rows (or all if shorter)."""
+    if history is None or history.empty:
+        return None
+
+    h = history.copy()
+    if "date" in h.columns:
+        h["date"] = pd.to_datetime(h["date"])
+        h = h.sort_values("date")
+    else:
+        h = h.sort_index()
+
+    if len(h) <= days:
+        return h
+    return h.iloc[-days:]
 
 
-@st.cache_data(show_spinner=False)
-def _cached_wave_list() -> list[str]:
-    return get_available_waves()
+def _window_returns(history: pd.DataFrame, days: int) -> tuple[float | None, float | None]:
+    """
+    Compute wave and benchmark returns over the last `days` rows
+    using daily return columns if available.
+    """
+    if history is None or history.empty:
+        return None, None
+
+    h = _safe_window(history, days)
+    if h is None or h.empty:
+        return None, None
+
+    # Prefer daily return columns if present; otherwise fall back to navs
+    wave_ret_col = None
+    bench_ret_col = None
+
+    for candidate in ["wave_return", "wave_ret", "ret_wave"]:
+        if candidate in h.columns:
+            wave_ret_col = candidate
+            break
+
+    for candidate in ["bench_return", "bench_ret", "ret_bench", "benchmark_return"]:
+        if candidate in h.columns:
+            bench_ret_col = candidate
+            break
+
+    if wave_ret_col and bench_ret_col:
+        # Daily returns assumed in decimal form (0.01 = 1%)
+        w = (1.0 + h[wave_ret_col].astype(float)).prod() - 1.0
+        b = (1.0 + h[bench_ret_col].astype(float)).prod() - 1.0
+        return float(w), float(b)
+
+    # Fallback: use nav columns
+    wave_nav_col = None
+    bench_nav_col = None
+
+    for candidate in ["wave_nav", "nav_wave", "portfolio_nav"]:
+        if candidate in h.columns:
+            wave_nav_col = candidate
+            break
+
+    for candidate in ["bench_nav", "nav_bench", "benchmark_nav"]:
+        if candidate in h.columns:
+            bench_nav_col = candidate
+            break
+
+    if wave_nav_col and bench_nav_col:
+        w_start = float(h[wave_nav_col].iloc[0])
+        w_end = float(h[wave_nav_col].iloc[-1])
+        b_start = float(h[bench_nav_col].iloc[0])
+        b_end = float(h[bench_nav_col].iloc[-1])
+
+        if w_start > 0 and b_start > 0:
+            w = w_end / w_start - 1.0
+            b = b_end / b_start - 1.0
+            return w, b
+
+    return None, None
 
 
-waves = _cached_wave_list()
-if not waves:
-    st.error("No Waves found in wave_weights.csv")
-    st.stop()
-
-with st.sidebar:
-    st.header("Wave Controls")
-
-    selected_wave = st.selectbox("Select Wave", waves, index=0)
-
-    mode_label = st.radio(
-        "Mode",
-        ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
-        index=0,
-    )
-
-    mode_map = {
-        "Standard": "standard",
-        "Alpha-Minus-Beta": "amb",
-        "Private Logic™": "pl",
+def compute_metrics(history: pd.DataFrame) -> dict:
+    """
+    Given a Wave's full history DataFrame with at least wave/benchmark
+    returns or navs, compute key windows.
+    All outputs are in PERCENT form (e.g., 5.23 = 5.23%).
+    """
+    metrics = {
+        "60D Return %": None,
+        "60D Alpha %": None,
+        "1Y Return %": None,
+        "1Y Alpha %": None,
+        "SI Return %": None,
+        "SI Alpha %": None,
     }
-    selected_mode = mode_map[mode_label]
 
-    st.markdown("---")
-    st.caption("Tip: metrics use historical daily returns from Full_Wave_History.csv.")
+    if history is None or history.empty:
+        return metrics
+
+    # 60-day window
+    w60, b60 = _window_returns(history, 60)
+    if w60 is not None and b60 is not None:
+        metrics["60D Return %"] = round(w60 * 100.0, 2)
+        metrics["60D Alpha %"] = round((w60 - b60) * 100.0, 2)
+
+    # 1-year window (~252 trading days)
+    w1y, b1y = _window_returns(history, 252)
+    if w1y is not None and b1y is not None:
+        metrics["1Y Return %"] = round(w1y * 100.0, 2)
+        metrics["1Y Alpha %"] = round((w1y - b1y) * 100.0, 2)
+
+    # Since inception: just use entire history
+    w_all, b_all = _window_returns(history, len(history))
+    if w_all is not None and b_all is not None:
+        metrics["SI Return %"] = round(w_all * 100.0, 2)
+        metrics["SI Alpha %"] = round((w_all - b_all) * 100.0, 2)
+
+    return metrics
 
 
-# ---------------------------------------------------------------------
-# Helper: cached snapshots
-# ---------------------------------------------------------------------
+# ------------------------------------------------------------
+# Cached loaders
+# ------------------------------------------------------------
+@st.cache_data(ttl=120)
+def load_all_snapshots(mode_key: str = "standard") -> dict:
+    """
+    mode_key is passed through to the engine; the engine can choose to
+    use or ignore it.
+    Returns: {wave_name: {"positions": df, "history": df}}
+    """
+    return get_wave_snapshots(mode=mode_key)
 
 
-@st.cache_data(show_spinner=False)
-def _cached_snapshot(wave: str, mode: str) -> dict:
-    return get_wave_snapshot(wave, mode)
+@st.cache_data(ttl=120)
+def load_wave_names() -> list[str]:
+    return sorted(get_available_waves())
 
 
-@st.cache_data(show_spinner=False)
-def _cached_all_snapshots(mode: str) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for w in waves:
-        out[w] = get_wave_snapshot(w, mode)
-    return out
+# ------------------------------------------------------------
+# Mode selection + data load
+# ------------------------------------------------------------
+mode = st.radio(
+    "Mode",
+    ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
+    horizontal=True,
+)
 
+mode_key = "standard"
+if "alpha" in mode.lower():
+    mode_key = "alpha_minus_beta"
+elif "private" in mode.lower():
+    mode_key = "private_logic"
 
-# ---------------------------------------------------------------------
-# Overview tab
-# ---------------------------------------------------------------------
-
+snapshots = load_all_snapshots(mode_key=mode_key)
+wave_names = sorted(list(snapshots.keys())) or load_wave_names()
 
 tab_overview, tab_detail = st.tabs(["📊 Overview", "📈 Wave Detail"])
 
+# ------------------------------------------------------------
+# OVERVIEW TAB
+# ------------------------------------------------------------
 with tab_overview:
     st.subheader("Portfolio-Level Overview")
 
-    snapshots = _cached_all_snapshots("standard")  # overview always uses standard
+    sort_options = [
+        "1Y Alpha %",
+        "1Y Return %",
+        "60D Alpha %",
+        "60D Return %",
+        "SI Alpha %",
+        "SI Return %",
+    ]
+    sort_by = st.selectbox("Sort by", sort_options, index=0)
+
+    direction = st.radio(
+        "Direction",
+        ["High → Low", "Low → High"],
+        horizontal=True,
+    )
+    ascending = direction.startswith("Low")
 
     rows = []
-    for w, snap in snapshots.items():
-        m = snap["metrics"]
-        rows.append(
-            {
-                "Wave": w,
-                "30D Return": m["ret_30d"],
-                "30D Alpha": m["alpha_30d"],
-                "60D Return": m["ret_60d"],
-                "60D Alpha": m["alpha_60d"],
-                "1Y Return": m["ret_1y"],
-                "1Y Alpha": m["alpha_1y"],
-                "SI Return": m["ret_si"],
-                "SI Alpha": m["alpha_si"],
-                "Vol (1Y)": m["vol_1y"],
-                "Max Drawdown": m["maxdd"],
-                "Beta (1Y)": m["beta_1y"],
-                "Info Ratio (1Y)": m["info_ratio_1y"],
-                "Hit Rate (1Y)": m["hit_rate_1y"],
-            }
+    for w in wave_names:
+        snap = snapshots.get(w, {})
+        positions = snap.get("positions")
+        history = snap.get("history")
+
+        holdings_count = len(positions) if positions is not None else 0
+        total_weight = (
+            float(positions["weight"].sum()) if positions is not None and "weight" in positions.columns else None
         )
 
-    df_overview = pd.DataFrame(rows)
-    df_overview = df_overview.set_index("Wave")
+        metrics = compute_metrics(history)
 
-    # Sort by 1Y Alpha descending
-    df_overview = df_overview.sort_values("1Y Alpha", ascending=False)
+        row = {
+            "Wave": w,
+            "Holdings": holdings_count,
+            "Total Weight": round(total_weight, 4) if total_weight is not None else None,
+        }
+        row.update(metrics)
+        rows.append(row)
+
+    overview_df = pd.DataFrame(rows)
+
+    # If the sort column is entirely NaN, fallback to Wave name
+    if sort_by in overview_df.columns and overview_df[sort_by].notna().any():
+        overview_df = overview_df.sort_values(sort_by, ascending=ascending)
+    else:
+        overview_df = overview_df.sort_values("Wave")
 
     st.dataframe(
-        df_overview.style.format(
-            {
-                "30D Return": "{:.2%}",
-                "30D Alpha": "{:.2%}",
-                "60D Return": "{:.2%}",
-                "60D Alpha": "{:.2%}",
-                "1Y Return": "{:.2%}",
-                "1Y Alpha": "{:.2%}",
-                "SI Return": "{:.2%}",
-                "SI Alpha": "{:.2%}",
-                "Vol (1Y)": "{:.2%}",
-                "Max Drawdown": "{:.2%}",
-                "Beta (1Y)": "{:.2f}",
-                "Info Ratio (1Y)": "{:.2f}",
-                "Hit Rate (1Y)": "{:.1%}",
-            }
-        ),
+        overview_df,
         use_container_width=True,
+        hide_index=True,
     )
 
-    st.markdown(
-        "_Note: Returns and alpha are computed from daily history; "
-        "alpha is vs each Wave's custom benchmark as defined in build_full_wave_history.py._"
+    # Download button
+    csv_bytes = overview_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download Overview as CSV",
+        data=csv_bytes,
+        file_name=f"waves_overview_{dt.date.today().isoformat()}.csv",
+        mime="text/csv",
     )
 
 
-# ---------------------------------------------------------------------
-# Detail tab
-# ---------------------------------------------------------------------
-
-
+# ------------------------------------------------------------
+# WAVE DETAIL TAB
+# ------------------------------------------------------------
 with tab_detail:
-    st.subheader(f"Wave Detail — {selected_wave} ({mode_label})")
+    st.subheader("Wave Detail")
 
-    snap = _cached_snapshot(selected_wave, selected_mode)
-    m = snap["metrics"]
-    positions_df = snap["positions"]
-    history_df = snap["history"]
-
-    # --- Top metrics row ---
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("30D Return", f"{m['ret_30d']:.2%}", f"{m['alpha_30d']:.2%} alpha")
-    col2.metric("60D Return", f"{m['ret_60d']:.2%}", f"{m['alpha_60d']:.2%} alpha")
-    col3.metric("1Y Return", f"{m['ret_1y']:.2%}", f"{m['alpha_1y']:.2%} alpha")
-    col4.metric("Since Inception", f"{m['ret_si']:.2%}", f"{m['alpha_si']:.2%} alpha")
-
-    st.markdown("### Risk & Quality")
-
-    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-    col_r1.metric("Volatility (1Y)", f"{m['vol_1y']:.2%}")
-    col_r2.metric("Max Drawdown", f"{m['maxdd']:.2%}")
-    col_r3.metric("Beta (1Y)", f"{m['beta_1y']:.2f}")
-    col_r4.metric("Info Ratio (1Y)", f"{m['info_ratio_1y']:.2f}")
-
-    col_r5, col_r6 = st.columns(2)
-    col_r5.metric("Hit Rate (1Y)", f"{m['hit_rate_1y']:.1%}")
-    col_r6.metric(
-        "SmartSafe",
-        f"{m['smartsafe_state']} ({m['smartsafe_sweep']:.0%} sweep)",
-        f"VIX {m['vix_level']:.1f}",
-    )
-
-    # --- Chart: NAV vs Benchmark NAV ---
-    st.markdown("### Performance vs Benchmark")
-
-    chart_df = history_df.copy()
-    chart_df = chart_df.sort_values("Date").set_index("Date")
-
-    # Rebuild benchmark NAV from returns
-    chart_df["WaveNAV"] = chart_df["NAV"]
-    chart_df["BenchNAV"] = (1.0 + chart_df["BenchReturn"]).cumprod()
-
-    chart_to_plot = chart_df[["WaveNAV", "BenchNAV"]].rename(
-        columns={"WaveNAV": "Wave NAV", "BenchNAV": "Benchmark NAV"}
-    )
-
-    st.line_chart(chart_to_plot, use_container_width=True)
-
-    # --- Positions table ---
-    st.markdown("### Current Positions (Top-Down)")
-
-    if not positions_df.empty:
-        # Format weights as %
-        pos_df = positions_df.copy()
-        pos_df["Weight"] = pos_df["Weight"].astype(float)
-        pos_df["Price"] = pos_df["Price"].astype(float)
-        pos_df["MarketValue"] = pos_df["MarketValue"].astype(float)
-
-        st.dataframe(
-            pos_df.style.format(
-                {
-                    "Weight": "{:.2%}",
-                    "Price": "{:.2f}",
-                    "MarketValue": "{:.4f}",
-                }
-            ),
-            use_container_width=True,
-        )
+    if not wave_names:
+        st.info("No Waves found. Check `wave_weights.csv` and the engine configuration.")
     else:
-        st.info("No positions data available for this Wave.")
+        wave_choice = st.selectbox("Select a Wave", wave_names)
 
-    st.markdown(
-        "_Note: Prices & market values are taken from the latest date in "
-        "Full_Wave_History.csv for this Wave._"
-    )
+        snap = snapshots.get(wave_choice)
+        if snap is None:
+            st.warning(f"No snapshot found for **{wave_choice}**.")
+        else:
+            positions = snap.get("positions")
+            history = snap.get("history")
+
+            # --- Summary metrics for this wave ---
+            metrics = compute_metrics(history)
+            cols = st.columns(3)
+            cols[0].metric("1Y Return", f"{metrics['1Y Return %'] or 0:.2f}%")
+            cols[1].metric("1Y Alpha", f"{metrics['1Y Alpha %'] or 0:.2f}%")
+            cols[2].metric("SI Alpha", f"{metrics['SI Alpha %'] or 0:.2f}%")
+
+            st.markdown("### Current Positions")
+            if positions is None or positions.empty:
+                st.info("No positions data available for this Wave.")
+            else:
+                st.dataframe(
+                    positions,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.markdown("### Performance History")
+            if history is None or history.empty:
+                st.info("No history data available for this Wave.")
+            else:
+                h = history.copy()
+                if "date" in h.columns:
+                    h["date"] = pd.to_datetime(h["date"])
+                    h = h.sort_values("date")
+                    h = h.set_index("date")
+
+                # Try to find nav columns for chart
+                nav_cols = []
+                for candidate in ["wave_nav", "portfolio_nav"]:
+                    if candidate in h.columns:
+                        nav_cols.append(candidate)
+                        break
+                for candidate in ["bench_nav", "benchmark_nav"]:
+                    if candidate in h.columns:
+                        nav_cols.append(candidate)
+                        break
+
+                if nav_cols:
+                    st.line_chart(h[nav_cols])
+                else:
+                    st.line_chart(h)
