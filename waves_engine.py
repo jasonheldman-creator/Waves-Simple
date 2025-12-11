@@ -67,6 +67,7 @@ BENCHMARK_MAP: Dict[str, str] = {
     "Future Power & Energy Wave": "XLE",  # overridden by blended spec below
     "Clean Transit-Infrastructure Wave": "IYT",  # overridden by blended spec below
     "Crypto Income Wave": "BITO",  # overridden by blended spec below
+    "Crypto Equity Wave": "BITO",  # overridden by blended spec below
     "Income Wave": "SCHD",
     "Small Cap Growth Wave": "IWM",  # overridden by blended spec below
     "Small to Mid Cap Growth Wave": "VO",
@@ -96,10 +97,17 @@ BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
         "WCLD": 0.40,
         "HACK": 0.30,
     },
-    # Crypto equity: BUG 50%, WCLD 50%
+    # Crypto equity: 50% WGMI, 30% BLOK, 20% BITQ
+    # Wire to both possible names so we're safe
     "Crypto Income Wave": {
-        "BUG": 0.50,
-        "WCLD": 0.50,
+        "WGMI": 0.50,
+        "BLOK": 0.30,
+        "BITQ": 0.20,
+    },
+    "Crypto Equity Wave": {
+        "WGMI": 0.50,
+        "BLOK": 0.30,
+        "BITQ": 0.20,
     },
     # Future power & energy: 40% QQQ, 30% BUG, 30% WCLD
     "Future Power & Energy Wave": {
