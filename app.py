@@ -60,7 +60,6 @@ mode = st.sidebar.radio(
     index=0,
 )
 
-# For now keep fixed windows; we can expose these later if you want sliders
 lookback_days = 365
 short_lookback_days = 30
 
@@ -114,7 +113,7 @@ st.dataframe(
 )
 
 st.caption(
-    "Each Wave is compared to its own benchmark (see Benchmark column). "
+    "Each Wave is compared to its own composite benchmark portfolio (see Benchmark column). "
     "NAV is normalized to 1.0 at the start of the 365D window; returns and alpha "
     "are cumulative over the selected periods."
 )
@@ -129,12 +128,13 @@ benchmark_for_selected = get_benchmark_wave_for(selected_wave)
 st.header(f"Wave Detail — {selected_wave}")
 st.caption(f"Benchmark for this Wave: **{benchmark_for_selected}**")
 
-# NAV history for currently selected sidebar mode
+# NAV history for currently selected sidebar mode (Wave)
 try:
     hist = compute_history_nav(
         selected_wave,
         lookback_days=lookback_days,
         mode=mode,
+        is_benchmark=False,
     )
 except Exception as e:
     st.error(f"Error computing NAV history for {selected_wave}: {e}")
@@ -174,7 +174,7 @@ else:
 st.markdown("---")
 
 # ----------------------------------------------------
-# Mode Comparison Panel for Selected Wave (vs its benchmark)
+# Mode Comparison Panel for Selected Wave (vs its composite benchmark)
 # ----------------------------------------------------
 
 st.subheader(f"Mode Comparison — {selected_wave}")
@@ -182,12 +182,13 @@ st.subheader(f"Mode Comparison — {selected_wave}")
 modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
 rows = []
 
-# Benchmark history for this Wave (always Standard mode for benchmark)
+# Benchmark history for this Wave (composite benchmark, Standard mode)
 try:
     bench_hist = compute_history_nav(
         benchmark_for_selected,
         lookback_days=lookback_days,
         mode="Standard",
+        is_benchmark=True,
     )
 except Exception as e:
     bench_hist = None
@@ -195,7 +196,12 @@ except Exception as e:
 
 for m in modes:
     try:
-        h = compute_history_nav(selected_wave, lookback_days=lookback_days, mode=m)
+        h = compute_history_nav(
+            selected_wave,
+            lookback_days=lookback_days,
+            mode=m,
+            is_benchmark=False,
+        )
         nav_last_val = h["NAV"].iloc[-1]
         ret_long = h["CumReturn"].iloc[-1]
 
