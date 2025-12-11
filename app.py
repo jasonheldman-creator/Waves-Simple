@@ -1,12 +1,12 @@
 # app.py — WAVES Intelligence™ Institutional Console
-# Mobile-friendly, single-file Streamlit UI
+# Mobile-friendly Streamlit UI
 #
-# Key sections (all preserved + extended):
+# Sections:
 #   • Portfolio-Level Overview (All Waves)
 #   • Multi-Window Alpha Capture (All Waves)
-#   • NEW: Risk & WaveScore Ingredients (All Waves)
+#   • Risk & WaveScore Ingredients (All Waves)
 #   • Benchmark ETF Mix
-#   • Wave Detail (NAV chart, stats, mode comparison, top-10 holdings)
+#   • Wave Detail (NAV chart, performance vs benchmark, mode comparison, top-10 holdings)
 
 import math
 from datetime import datetime, timedelta
@@ -165,7 +165,7 @@ selected_mode = st.sidebar.radio(
     help="Applies to Wave returns; benchmarks are always Standard.",
 )
 
-lookback_days = 365  # fixed 365D window for now (risk + alpha)
+lookback_days = 365  # fixed 365D window for now
 
 
 # ------------------------------------------------------------
@@ -174,7 +174,7 @@ lookback_days = 365  # fixed 365D window for now (risk + alpha)
 
 st.title("WAVES Intelligence™ Console")
 st.caption(
-    "Live Alpha Capture • Composite Benchmarks • Mode-aware NAV • "
+    "Live Alpha Capture • Composite Benchmarks • Mode-aware Dynamic NAV • "
     "Risk & WaveScore Ingredients (365D)"
 )
 
@@ -212,7 +212,6 @@ for wave in waves:
 
 overview_df = pd.DataFrame(overview_rows)
 
-# Display formatted table
 if not overview_df.empty:
     display_df = overview_df.copy()
     for col in ["30D Return", "30D Alpha", "365D Return", "365D Alpha"]:
@@ -259,7 +258,7 @@ else:
 
 
 # ------------------------------------------------------------
-# SECTION 3 — NEW: Risk & WaveScore Ingredients (All Waves)
+# SECTION 3 — Risk & WaveScore Ingredients (All Waves)
 # ------------------------------------------------------------
 
 st.subheader("Risk & WaveScore Ingredients (All Waves)")
@@ -287,7 +286,6 @@ risk_df = pd.DataFrame(risk_rows)
 if not risk_df.empty:
     display_risk = risk_df.copy()
 
-    # Format % columns
     for col in [
         "Wave Vol (365D)",
         "Benchmark Vol (365D)",
@@ -297,7 +295,6 @@ if not risk_df.empty:
     ]:
         display_risk[col] = display_risk[col].apply(lambda x: format_pct(x, 2))
 
-    # IR as plain number with 2 decimals
     display_risk["Information Ratio"] = display_risk["Information Ratio"].apply(
         lambda x: "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.2f}"
     )
@@ -402,12 +399,10 @@ else:
     if holdings_df is None or holdings_df.empty:
         st.info("No holdings data available for this Wave.", icon="ℹ️")
     else:
-        # Build Google Finance links
         def google_link(ticker: str) -> str:
             if not isinstance(ticker, str) or ticker.strip() == "":
                 return ""
             base = "https://www.google.com/finance/quote/"
-            # Let Google auto-resolve exchange; simple direct link
             return f"{base}{ticker}"
 
         holdings_display = holdings_df.copy()
