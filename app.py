@@ -51,7 +51,7 @@ def build_holdings_table(wave_name: str):
 # ----------------------------------------------------
 
 st.sidebar.title("WAVES Intelligence™")
-st.sidebar.markdown("**Mode:**")
+st.sidebar.markdown("**Risk Mode (table default):**")
 
 mode = st.sidebar.radio(
     "",
@@ -75,7 +75,7 @@ st.sidebar.caption("NAV normalized to 1.0 at start of lookback window.")
 st.title("Portfolio-Level Overview")
 
 st.markdown(
-    f"**Current Mode:** `{mode}`  •  Lookback: **{lookback_days} days**  •  "
+    f"**Current Mode (table):** `{mode}`  •  Lookback: **{lookback_days} days**  •  "
     f"Short window: **{short_lookback_days} days**"
 )
 
@@ -125,7 +125,7 @@ st.markdown("---")
 
 st.header(f"Wave Detail — {selected_wave}")
 
-# NAV history
+# NAV history for currently selected sidebar mode
 try:
     hist = compute_history_nav(selected_wave, lookback_days=lookback_days, mode=mode)
 except Exception as e:
@@ -138,7 +138,7 @@ if hist is not None and not hist.empty:
     hist_reset = hist.reset_index()
 
     # Chart
-    st.subheader("NAV History")
+    st.subheader(f"NAV History ({mode})")
     st.line_chart(
         hist_reset.set_index("Date")[["NAV"]],
         use_container_width=True,
@@ -160,6 +160,92 @@ if hist is not None and not hist.empty:
     col3.metric(f"{short_lookback_days}D Return", short_ret)
 else:
     st.warning("No NAV history available for this Wave and lookback window.")
+
+st.markdown("---")
+
+# ----------------------------------------------------
+# Mode Comparison Panel for Selected Wave
+# ----------------------------------------------------
+
+st.subheader(f"Mode Comparison — {selected_wave}")
+
+modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+rows = []
+
+# Benchmark history (S&P 500, Standard) for alpha calc
+try:
+    bench_hist = compute_history_nav("S&P 500 Wave", lookback_days=lookback_days, mode="Standard")
+except Exception as e:
+    bench_hist = None
+    st.warning(f"Benchmark history unavailable for alpha calc: {e}")
+
+for m in modes:
+    try:
+        h = compute_history_nav(selected_wave, lookback_days=lookback_days, mode=m)
+        nav_last = h["NAV"].iloc[-1]
+        ret_long = h["CumReturn"].iloc[-1]
+
+        if len(h) > short_lookback_days:
+            hs = h.iloc[-short_lookback_days:]
+            ret_short = hs["NAV"].iloc[-1] / hs["NAV"].iloc[0] - 1.0
+        else:
+            ret_short = ret_long
+
+        alpha_long = float("nan")
+        alpha_short = float("nan")
+
+        if bench_hist is not None:
+            combo = pd.concat(
+                [
+                    h[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
+                    bench_hist[["NAV"]].rename(columns={"NAV": "NAV_bench"}),
+                ],
+                axis=1,
+                join="inner",
+            ).dropna()
+
+            if not combo.empty:
+                nav_w = combo["NAV_wave"]
+                nav_b = combo["NAV_bench"]
+                wave_ret = nav_w.iloc[-1] / nav_w.iloc[0] - 1.0
+                bench_ret = nav_b.iloc[-1] / nav_b.iloc[0] - 1.0
+                alpha_long = wave_ret - bench_ret
+
+                if len(combo) > short_lookback_days:
+                    cs = combo.iloc[-short_lookback_days:]
+                else:
+                    cs = combo
+                nav_w_s = cs["NAV_wave"]
+                nav_b_s = cs["NAV_bench"]
+                wave_ret_s = nav_w_s.iloc[-1] / nav_w_s.iloc[0] - 1.0
+                bench_ret_s = nav_b_s.iloc[-1] / nav_b_s.iloc[0] - 1.0
+                alpha_short = wave_ret_s - bench_ret_s
+
+        rows.append(
+            {
+                "Mode": m,
+                "NAV (last)": fmt_nav(nav_last),
+                "365D Return": fmt_pct(ret_long),
+                "30D Return": fmt_pct(ret_short),
+                "365D Alpha vs S&P": fmt_pct(alpha_long),
+                "30D Alpha vs S&P": fmt_pct(alpha_short),
+            }
+        )
+    except Exception as e:
+        rows.append(
+            {
+                "Mode": m,
+                "NAV (last)": "—",
+                "365D Return": "—",
+                "30D Return": "—",
+                "365D Alpha vs S&P": "—",
+                "30D Alpha vs S&P": "—",
+            }
+        )
+        st.warning(f"Error computing mode '{m}' for {selected_wave}: {e}")
+
+mode_df = pd.DataFrame(rows)
+st.dataframe(mode_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 
