@@ -1,14 +1,14 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 2: Mode Scaling + Alpha Quality & Risk Metrics
+Stage 3: Adaptive Alpha Engine (Multi-Horizon Momentum) + Mode Scaling
 
 Includes:
 - Auto-discovered Waves from wave_weights.csv
 - Custom blended benchmarks
 - 3 modes:
-    * standard  -> base Wave weights
-    * amb       -> shift ~15% of equity sleeve into BIL (lower beta)
-    * pl        -> momentum tilt toward recent winners
+    * standard  -> base Wave weights + mild momentum tilt
+    * amb       -> base + very light momentum tilt + 15% equity sleeve into BIL
+    * pl        -> stronger momentum tilt (alpha-seeking) with no extra BIL cut
 - VIX-based SmartSafe 2.0 sweep (no SmartSafe 3.0)
 - Performance metrics:
     * Intraday return
@@ -20,8 +20,9 @@ Includes:
     * 1Y hit rate (pct of days with positive excess return)
 - Daily logging of positions & performance
 
-No Waves are ever equal-weighted; we always respect wave_weights.csv
-and only normalize inside each Wave.
+Important:
+- No Waves are ever equal-weighted; we always respect wave_weights.csv
+  and only normalize inside each Wave.
 """
 
 from __future__ import annotations
@@ -386,7 +387,54 @@ def apply_smartsafe_sweep(
 
 
 # ---------------------------------------------------------------------
-# Mode adjustments
+# Momentum (Stage 3 Alpha Engine)
+# ---------------------------------------------------------------------
+
+def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
+    if r.empty:
+        return 0.0
+    if days is not None:
+        r = r.tail(days)
+        if r.empty:
+            return 0.0
+    return float((1 + r).prod() - 1.0)
+
+
+def _compute_momentum_scores(tickers: List[str], period: str = "1y") -> pd.DataFrame:
+    """
+    Compute 30D and 90D total returns for each ticker, plus a combined momentum score.
+
+    Returns DataFrame:
+        ticker, mom_30, mom_90, mom_combo
+    """
+    records = []
+    for t in tickers:
+        s = _download_price_series(t, period=period)
+        if s.empty:
+            continue
+        r = s.pct_change().dropna()
+        if r.empty:
+            continue
+        r = r.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
+        mom_30 = _window_total_return(r, 30)
+        mom_90 = _window_total_return(r, 90)
+        # Combined momentum: more weight on 90D, some on 30D
+        mom_combo = 0.6 * mom_90 + 0.4 * mom_30
+        records.append(
+            {
+                "ticker": t,
+                "mom_30": mom_30,
+                "mom_90": mom_90,
+                "mom_combo": mom_combo,
+            }
+        )
+    if not records:
+        return pd.DataFrame(columns=["ticker", "mom_30", "mom_90", "mom_combo"])
+    return pd.DataFrame(records)
+
+
+# ---------------------------------------------------------------------
+# Mode adjustments (now momentum-aware)
 # ---------------------------------------------------------------------
 
 def _apply_mode_adjustments(
@@ -397,9 +445,9 @@ def _apply_mode_adjustments(
     """
     Apply per-mode portfolio adjustments BEFORE SmartSafe 2.0.
 
-    - standard: normalize, no structural change
-    - amb: move ~15% of equity sleeve into BIL
-    - pl: momentum tilt toward recent winners (intraday_return proxy)
+    - standard: normalize, mild positive tilt to higher-momentum names
+    - amb: same mild tilt + 15% of equity sleeve moved to BIL (lower beta)
+    - pl: stronger tilt to higher-momentum names (alpha-seeking), no extra BIL cut
     """
     if df.empty:
         return df
@@ -407,7 +455,7 @@ def _apply_mode_adjustments(
     mode = (mode or MODE_STANDARD).lower()
     df = df.copy()
 
-    # Ensure we have a BIL row
+    # Ensure we have a BIL row so AMB / SmartSafe logic always has a cash sleeve
     if not df["ticker"].str.upper().eq("BIL").any():
         bil_last, bil_intraday = _get_fast_intraday_return("BIL")
         bil_row = {
@@ -418,44 +466,79 @@ def _apply_mode_adjustments(
         }
         df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
 
+    # Normalize starting weights
     total_weight = df["weight"].sum()
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
 
-    eq_mask = ~df["ticker"].str.upper().eq("BIL")
+    # Equity vs BIL mask
+    is_bil = df["ticker"].str.upper().eq("BIL")
+    eq_mask = ~is_bil
 
+    # Momentum scores for equity sleeve
+    eq_df = df.loc[eq_mask].copy()
+    if not eq_df.empty:
+        mom_df = _compute_momentum_scores(eq_df["ticker"].tolist(), period="1y")
+    else:
+        mom_df = pd.DataFrame(columns=["ticker", "mom_30", "mom_90", "mom_combo"])
+
+    if not eq_df.empty and not mom_df.empty:
+        eq_df = eq_df.merge(mom_df, on="ticker", how="left")
+        # Fallback if any missing momentum
+        eq_df["mom_combo"] = eq_df["mom_combo"].fillna(0.0)
+
+        # Intraday snap as a light tie-breaker
+        intraday = eq_df["intraday_return"].fillna(0.0)
+
+        # Base combined score (momentum + small intraday spice)
+        base_score = eq_df["mom_combo"] + 0.1 * intraday
+
+        # Standardize scores to z-scores
+        mean = float(base_score.mean())
+        std = float(base_score.std())
+        if std > 0:
+            z = (base_score - mean) / std
+        else:
+            z = pd.Series(0.0, index=eq_df.index)
+
+        # Mode-specific tilt strengths
+        if mode == MODE_STANDARD:
+            k = 0.15   # mild tilt
+            min_factor, max_factor = 0.7, 1.3
+        elif mode == MODE_AMB:
+            k = 0.10   # very light tilt (since this mode already cuts beta via BIL)
+            min_factor, max_factor = 0.8, 1.2
+        elif mode == MODE_PRIVATE_LOGIC:
+            k = 0.60   # strong tilt
+            min_factor, max_factor = 0.5, 1.8
+        else:
+            k = 0.15
+            min_factor, max_factor = 0.7, 1.3
+
+        tilt_factor = 1.0 + k * z
+        tilt_factor = tilt_factor.clip(lower=min_factor, upper=max_factor)
+
+        eq_df["weight"] = eq_df["weight"] * tilt_factor
+        eq_df["weight"] = eq_df["weight"].clip(lower=0.0)
+
+        # Re-normalize equity sleeve back to original equity weight
+        eq_before = df.loc[eq_mask, "weight"].sum()
+        eq_after = eq_df["weight"].sum()
+        if eq_after > 0 and eq_before > 0:
+            eq_df["weight"] = eq_df["weight"] * (eq_before / eq_after)
+
+        df.loc[eq_mask, "weight"] = eq_df["weight"]
+
+    # AMB mode: move ~15% of equity sleeve to BIL after momentum tilt
     if mode == MODE_AMB:
         base_cut = 0.15
         eq_weight = df.loc[eq_mask, "weight"].sum()
         if eq_weight > 0:
             cut_amount = eq_weight * base_cut
             df.loc[eq_mask, "weight"] *= (1.0 - base_cut)
-            bil_mask = df["ticker"].str.upper().eq("BIL")
-            df.loc[bil_mask, "weight"] += cut_amount
+            df.loc[is_bil, "weight"] += cut_amount
 
-    elif mode == MODE_PRIVATE_LOGIC:
-        eq_df = df.loc[eq_mask].copy()
-        if not eq_df.empty:
-            scores = eq_df["intraday_return"].fillna(0.0)
-            if (scores != 0).any():
-                ranks = scores.rank(method="average", ascending=False)
-                n = len(ranks)
-                if n > 1:
-                    center = (n - 1) / 2.0
-                    tilt_raw = (n - ranks - center) / center
-                else:
-                    tilt_raw = pd.Series(0.0, index=eq_df.index)
-                k = 0.5
-                eq_df["weight"] = eq_df["weight"] * (1.0 + k * tilt_raw)
-                eq_df["weight"] = eq_df["weight"].clip(lower=0.0)
-
-                eq_before = df.loc[eq_mask, "weight"].sum()
-                eq_after = eq_df["weight"].sum()
-                if eq_after > 0 and eq_before > 0:
-                    eq_df["weight"] = eq_df["weight"] * (eq_before / eq_after)
-
-                df.loc[eq_mask, "weight"] = eq_df["weight"]
-
+    # Final normalization
     total_weight = df["weight"].sum()
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
@@ -494,16 +577,6 @@ def _compute_composite_benchmark_returns(
     bench_returns = bench_values.pct_change().dropna()
     bench_returns = bench_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
     return bench_returns
-
-
-def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
-    if r.empty:
-        return 0.0
-    if days is not None:
-        r = r.tail(days)
-        if r.empty:
-            return 0.0
-    return float((1 + r).prod() - 1.0)
 
 
 def _max_drawdown(values: pd.Series) -> float:
