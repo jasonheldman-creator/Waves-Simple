@@ -4,7 +4,7 @@
 # Sections:
 #   • Portfolio-Level Overview (All Waves)
 #   • Multi-Window Alpha Capture (All Waves)
-#   • Risk & WaveScore Ingredients (All Waves)
+#   • Risk & WaveScore Ingredients (All Waves, over selected window)
 #   • Benchmark ETF Mix
 #   • Wave Detail (NAV chart, performance vs benchmark, mode comparison, top-10 holdings)
 
@@ -76,11 +76,12 @@ def format_pct(x: float, decimals: int = 2) -> str:
 
 def compute_risk_metrics(hist: pd.DataFrame) -> dict:
     """
-    Compute risk stats from daily returns and NAV series.
+    Compute risk stats from daily returns and NAV series over the
+    *currently selected window* (whatever history length we pass in).
 
     Assumes hist has columns: ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret'].
 
-    Metrics (365D window, or available length):
+    Metrics:
         • Wave Vol (annualized)
         • Benchmark Vol (annualized)
         • Max Drawdown (Wave)
@@ -165,7 +166,18 @@ selected_mode = st.sidebar.radio(
     help="Applies to Wave returns; benchmarks are always Standard.",
 )
 
-lookback_days = 365  # fixed 365D window for now
+# History window selector
+history_options = {
+    "1Y (365D)": 365,
+    "3Y (756D)": 756,
+    "5Y (1260D)": 1260,
+}
+history_label = st.sidebar.selectbox(
+    "History Window",
+    options=list(history_options.keys()),
+    index=0,
+)
+lookback_days = history_options[history_label]
 
 
 # ------------------------------------------------------------
@@ -174,15 +186,14 @@ lookback_days = 365  # fixed 365D window for now
 
 st.title("WAVES Intelligence™ Console")
 st.caption(
-    "Live Alpha Capture • Composite Benchmarks • Mode-aware Dynamic NAV • "
-    "Risk & WaveScore Ingredients (365D)"
+    f"Live Alpha Capture • Composite Benchmarks • Mode-aware Dynamic NAV • "
+    f"Risk & WaveScore Ingredients ({history_label})"
 )
 
 if USE_FULL_WAVE_HISTORY:
     st.warning(
-        "USE_FULL_WAVE_HISTORY is True in waves_engine.py — but this UI is configured "
-        "for 365D rolling analytics. You can set USE_FULL_WAVE_HISTORY = False for "
-        "lighter, mobile-friendly operation.",
+        "USE_FULL_WAVE_HISTORY is True in waves_engine.py — this UI is configured "
+        "for rolling window analytics based on the selected History Window.",
         icon="⚠️",
     )
 
@@ -261,7 +272,7 @@ else:
 # SECTION 3 — Risk & WaveScore Ingredients (All Waves)
 # ------------------------------------------------------------
 
-st.subheader("Risk & WaveScore Ingredients (All Waves)")
+st.subheader(f"Risk & WaveScore Ingredients (All Waves, {history_label})")
 
 risk_rows = []
 
@@ -272,11 +283,11 @@ for wave in waves:
     risk_rows.append(
         {
             "Wave": wave,
-            "Wave Vol (365D)": metrics["wave_vol"],
-            "Benchmark Vol (365D)": metrics["bm_vol"],
+            "Wave Vol (Ann.)": metrics["wave_vol"],
+            "Benchmark Vol (Ann.)": metrics["bm_vol"],
             "Max Drawdown (Wave)": metrics["wave_maxdd"],
             "Max Drawdown (Benchmark)": metrics["bm_maxdd"],
-            "Tracking Error": metrics["tracking_error"],
+            "Tracking Error (Ann.)": metrics["tracking_error"],
             "Information Ratio": metrics["information_ratio"],
         }
     )
@@ -287,11 +298,11 @@ if not risk_df.empty:
     display_risk = risk_df.copy()
 
     for col in [
-        "Wave Vol (365D)",
-        "Benchmark Vol (365D)",
+        "Wave Vol (Ann.)",
+        "Benchmark Vol (Ann.)",
         "Max Drawdown (Wave)",
         "Max Drawdown (Benchmark)",
-        "Tracking Error",
+        "Tracking Error (Ann.)",
     ]:
         display_risk[col] = display_risk[col].apply(lambda x: format_pct(x, 2))
 
@@ -333,7 +344,7 @@ if detail_hist is None or detail_hist.empty:
     st.warning(f"No history available for {selected_wave}.", icon="⚠️")
 else:
     # NAV chart (Wave vs Benchmark)
-    st.markdown("**NAV (Wave vs Benchmark, 365D)**")
+    st.markdown(f"**NAV (Wave vs Benchmark, {history_label})**")
 
     nav_df = detail_hist[["wave_nav", "bm_nav"]].copy()
     nav_df.columns = ["Wave NAV", "Benchmark NAV"]
