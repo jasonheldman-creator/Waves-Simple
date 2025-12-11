@@ -1,118 +1,108 @@
- wave,ticker,weight
-S&P Wave,AAPL,0.1
-S&P Wave,MSFT,0.1
-S&P Wave,AMZN,0.1
-S&P Wave,GOOGL,0.1
-S&P Wave,META,0.1
-S&P Wave,BRK-B,0.1
-S&P Wave,JNJ,0.1
-S&P Wave,JPM,0.1
-S&P Wave,PG,0.1
-S&P Wave,XOM,0.1
+wave,ticker,weight
+S&P 500 Wave,NVDA,0.04
+S&P 500 Wave,AAPL,0.04
+S&P 500 Wave,MSFT,0.04
+S&P 500 Wave,AMZN,0.04
+S&P 500 Wave,META,0.04
+S&P 500 Wave,GOOGL,0.04
+S&P 500 Wave,TSLA,0.04
+S&P 500 Wave,BRK.B,0.04
+S&P 500 Wave,JPM,0.04
+S&P 500 Wave,LLY,0.04
 
-Growth Wave,NFLX,0.1
-Growth Wave,CRM,0.1
-Growth Wave,NOW,0.1
-Growth Wave,SNOW,0.1
-Growth Wave,SHOP,0.1
-Growth Wave,MDB,0.1
-Growth Wave,DDOG,0.1
-Growth Wave,ASML,0.1
-Growth Wave,AVGO,0.1
-Growth Wave,TSLA,0.1
+Growth Wave,NVDA,0.10
+Growth Wave,MSFT,0.10
+Growth Wave,META,0.10
+Growth Wave,AMZN,0.10
+Growth Wave,GOOGL,0.10
+Growth Wave,TSLA,0.10
+Growth Wave,NFLX,0.10
+Growth Wave,AVGO,0.10
+Growth Wave,ADBE,0.10
+Growth Wave,CRM,0.10
 
-Future Power & Energy Wave,NEE,0.1
-Future Power & Energy Wave,DUK,0.1
-Future Power & Energy Wave,SO,0.1
-Future Power & Energy Wave,XEL,0.1
-Future Power & Energy Wave,ENPH,0.1
-Future Power & Energy Wave,FSLR,0.1
-Future Power & Energy Wave,RUN,0.1
-Future Power & Energy Wave,BEP,0.1
-Future Power & Energy Wave,LNG,0.1
-Future Power & Energy Wave,TSLA,0.1
+Future Power & Energy Wave,XOM,0.10
+Future Power & Energy Wave,CVX,0.10
+Future Power & Energy Wave,NEE,0.10
+Future Power & Energy Wave,DUK,0.10
+Future Power & Energy Wave,ENPH,0.10
+Future Power & Energy Wave,PSX,0.10
+Future Power & Energy Wave,SLB,0.10
+Future Power & Energy Wave,MPC,0.10
+Future Power & Energy Wave,HAL,0.10
+Future Power & Energy Wave,LIN,0.10
 
-Clean Transit-Infrastructure Wave,TSLA,0.1
-Clean Transit-Infrastructure Wave,GM,0.1
-Clean Transit-Infrastructure Wave,F,0.1
-Clean Transit-Infrastructure Wave,NIO,0.1
-Clean Transit-Infrastructure Wave,LI,0.1
-Clean Transit-Infrastructure Wave,RIVN,0.1
-Clean Transit-Infrastructure Wave,BLDR,0.1
-Clean Transit-Infrastructure Wave,CAT,0.1
-Clean Transit-Infrastructure Wave,DE,0.1
-Clean Transit-Infrastructure Wave,ALB,0.1
+Small Cap Growth Wave,PLTR,0.10
+Small Cap Growth Wave,ROKU,0.10
+Small Cap Growth Wave,APP,0.10
+Small Cap Growth Wave,TTD,0.10
+Small Cap Growth Wave,PAYC,0.10
+Small Cap Growth Wave,ZS,0.10
+Small Cap Growth Wave,OKTA,0.10
+Small Cap Growth Wave,SQ,0.10
+Small Cap Growth Wave,COIN,0.10
+Small Cap Growth Wave,HOOD,0.10
 
-Quantum Computing Wave,IBM,0.1
-Quantum Computing Wave,GOOGL,0.1
-Quantum Computing Wave,MSFT,0.1
-Quantum Computing Wave,RGTI,0.1
-Quantum Computing Wave,IONQ,0.1
-Quantum Computing Wave,QBTS,0.1
-Quantum Computing Wave,NVDA,0.1
-Quantum Computing Wave,AMZN,0.1
-Quantum Computing Wave,HON,0.1
-Quantum Computing Wave,QCOM,0.1
+Crypto Income Wave,BTC-USD,0.20
+Crypto Income Wave,ETH-USD,0.20
+Crypto Income Wave,SOL-USD,0.10
+Crypto Income Wave,AVAX-USD,0.10
+Crypto Income Wave,LINK-USD,0.10
+Crypto Income Wave,ATOM-USD,0.10
+Crypto Income Wave,XRP-USD,0.10
+Crypto Income Wave,ADA-USD,0.10
 
-Crypto Equity Wave (mid/large cap),COIN,0.1
-Crypto Equity Wave (mid/large cap),MARA,0.1
-Crypto Equity Wave (mid/large cap),RIOT,0.1
-Crypto Equity Wave (mid/large cap),MSTR,0.1
-Crypto Equity Wave (mid/large cap),HIVE,0.1
-Crypto Equity Wave (mid/large cap),HUT,0.1
-Crypto Equity Wave (mid/large cap),CLSK,0.1
-Crypto Equity Wave (mid/large cap),BITF,0.1
-Crypto Equity Wave (mid/large cap),SQ,0.1
-Crypto Equity Wave (mid/large cap),HOOD,0.1
+AI Wave,NVDA,0.15
+AI Wave,MSFT,0.10
+AI Wave,GPTC,0.10
+AI Wave,GOOGL,0.10
+AI Wave,META,0.10
+AI Wave,TSLA,0.10
+AI Wave,AMD,0.10
+AI Wave,MU,0.10
+AI Wave,SMCI,0.10
+AI Wave,CRWD,0.05
 
-Income Wave,TLT,0.1
-Income Wave,LQD,0.1
-Income Wave,HYG,0.1
-Income Wave,JNJ,0.1
-Income Wave,PG,0.1
-Income Wave,KO,0.1
-Income Wave,PEP,0.1
-Income Wave,VZ,0.1
-Income Wave,MO,0.1
-Income Wave,O,0.1
+Cloud & Software Wave,CRM,0.10
+Cloud & Software Wave,ADBE,0.10
+Cloud & Software Wave,ORCL,0.10
+Cloud & Software Wave,SNOW,0.10
+Cloud & Software Wave,AMD,0.10
+Cloud & Software Wave,MSFT,0.10
+Cloud & Software Wave,PANW,0.10
+Cloud & Software Wave,ZS,0.10
+Cloud & Software Wave,DDOG,0.10
+Cloud & Software Wave,CRWD,0.10
 
-Cloud & Enterprise Software Growth Wave,DDOG,0.1
-Cloud & Enterprise Software Growth Wave,NET,0.1
-Cloud & Enterprise Software Growth Wave,ZS,0.1
-Cloud & Enterprise Software Growth Wave,CRWD,0.1
-Cloud & Enterprise Software Growth Wave,OKTA,0.1
-Cloud & Enterprise Software Growth Wave,MDB,0.1
-Cloud & Enterprise Software Growth Wave,SNOW,0.1
-Cloud & Enterprise Software Growth Wave,BILL,0.1
-Cloud & Enterprise Software Growth Wave,TWLO,0.1
-Cloud & Enterprise Software Growth Wave,DOCU,0.1
+Quantum Computing Wave,IBM,0.15
+Quantum Computing Wave,QUBT,0.10
+Quantum Computing Wave,IONQ,0.10
+Quantum Computing Wave,RIGL,0.10
+Quantum Computing Wave,ACLS,0.10
+Quantum Computing Wave,AMAT,0.10
+Quantum Computing Wave,TSM,0.10
+Quantum Computing Wave,ASML,0.10
+Quantum Computing Wave,MU,0.10
+Quantum Computing Wave,INTC,0.05
 
-Small-Mid Cap Growth Wave,GLBE,0.1
-Small-Mid Cap Growth Wave,SHOP,0.1
-Small-Mid Cap Growth Wave,U,0.1
-Small-Mid Cap Growth Wave,TOST,0.1
-Small-Mid Cap Growth Wave,AFRM,0.1
-Small-Mid Cap Growth Wave,UPST,0.1
-Small-Mid Cap Growth Wave,CELH,0.1
-Small-Mid Cap Growth Wave,ELF,0.1
-Small-Mid Cap Growth Wave,RBLX,0.1
-Small-Mid Cap Growth Wave,ABNB,0.1
+Clean Transit-Infrastructure Wave,TSLA,0.10
+Clean Transit-Infrastructure Wave,NIO,0.10
+Clean Transit-Infrastructure Wave,LI,0.10
+Clean Transit-Infrastructure Wave,GM,0.10
+Clean Transit-Infrastructure Wave,F,0.10
+Clean Transit-Infrastructure Wave,PLUG,0.10
+Clean Transit-Infrastructure Wave,CHPT,0.10
+Clean Transit-Infrastructure Wave,BLNK,0.10
+Clean Transit-Infrastructure Wave,RIVN,0.10
+Clean Transit-Infrastructure Wave,WKHS,0.10
 
-AI Wave,NVDA,0.1
-AI Wave,AMD,0.1
-AI Wave,SMCI,0.1
-AI Wave,PLTR,0.1
-AI Wave,AI,0.1
-AI Wave,SNOW,0.1
-AI Wave,MDB,0.1
-AI Wave,PATH,0.1
-AI Wave,IONQ,0.1
-AI Wave,ASML,0.1
+SmartSafe Wave,BIL,0.25
+SmartSafe Wave,SHV,0.25
+SmartSafe Wave,SGOV,0.25
+SmartSafe Wave,ICSH,0.25
 
-SmartSafe Wave,LQD,0.50
-SmartSafe Wave,TLT,0.15
-SmartSafe Wave,HYG,0.05
-SmartSafe Wave,JNJ,0.10
-SmartSafe Wave,PG,0.075
-SmartSafe Wave,KO,0.075
-SmartSafe Wave,PEP,0.05
+Income Wave,HDV,0.20
+Income Wave,VYM,0.20
+Income Wave,JNJ,0.20
+Income Wave,PG,0.20
+Income Wave,T,0.20
