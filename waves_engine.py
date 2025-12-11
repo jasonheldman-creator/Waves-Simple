@@ -1,6 +1,6 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-(VIX Ladder + SmartSafe 2.0 + Blended Benchmarks)
+(VIX Ladder + SmartSafe 2.0 + Blended Benchmarks + 1Y & Since Inception)
 
 This version:
 - Auto-discovers Waves from wave_weights.csv
@@ -10,7 +10,11 @@ This version:
 - Implements SmartSafe 2.0 *weighted sweep*:
     * When VIX is high, trims highest-volatility holdings first
     * Frees up X% of portfolio and reallocates to BIL (SmartSafe proxy)
-- Computes intraday, 30-day, and 60-day performance and alpha vs benchmark
+- Computes:
+    * Intraday return
+    * 30-day & 60-day return and alpha
+    * 1-year return and alpha (approx. 252 trading days)
+    * Since inception return and alpha (full history window)
 - Uses robust price download logic
 - Falls back to last logged performance metrics if live pulls fail
 
@@ -27,7 +31,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -62,7 +66,7 @@ BENCHMARK_MAP: Dict[str, str] = {
     "Quantum Computing Wave": "QQQ",  # overridden by blended spec below
     "Future Power & Energy Wave": "XLE",  # overridden by blended spec below
     "Clean Transit-Infrastructure Wave": "IYT",  # overridden by blended spec below
-    "Crypto Income Wave": "BITO",  # may be overridden (Crypto equity) below
+    "Crypto Income Wave": "BITO",  # overridden by blended spec below
     "Income Wave": "SCHD",
     "Small Cap Growth Wave": "IWM",  # overridden by blended spec below
     "Small to Mid Cap Growth Wave": "VO",
@@ -86,14 +90,13 @@ BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
         "QQQ": 0.40,
         "IWM": 0.20,
     },
-    # Cloud & Software: 50% QQQ, 40% WCLD, 30% HACK  (will be normalized)
+    # Cloud & Software: 50% QQQ, 40% WCLD, 30% HACK (normalized)
     "Cloud & Software Wave": {
         "QQQ": 0.50,
         "WCLD": 0.40,
         "HACK": 0.30,
     },
     # Crypto equity: BUG 50%, WCLD 50%
-    # Assuming this maps to Crypto Income Wave
     "Crypto Income Wave": {
         "BUG": 0.50,
         "WCLD": 0.50,
@@ -105,7 +108,6 @@ BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
         "WCLD": 0.30,
     },
     # Growth: 40% QQQ, 30% BUG, 30% WCLD
-    # Assuming Wave name is "Growth Wave"
     "Growth Wave": {
         "QQQ": 0.40,
         "BUG": 0.30,
@@ -140,6 +142,9 @@ VIX_LEVELS = [
 
 # Daily return clipping band (guardrail for extreme bad ticks)
 DAILY_RETURN_CLIP = 0.20  # +/- 20% per day max
+
+# Approx trading days per year
+TRADING_DAYS_1Y = 252
 
 
 # ---------------------------------------------------------------------
@@ -275,13 +280,14 @@ def _get_benchmark_for_wave(
     return t, {t: 1.0}
 
 
-def _download_price_series(ticker: str, period: str = "365d") -> pd.Series:
+def _download_price_series(ticker: str, period: str = "10y") -> pd.Series:
     """
     Download daily adjusted close for a single ticker.
 
     More robust:
     - Tries yf.download first.
     - If Adj Close missing, falls back to Close.
+    - Uses up to ~10 years to support 1Y & since-inception.
     """
     try:
         df = yf.download(
@@ -339,7 +345,7 @@ def _get_vix_level() -> Optional[float]:
     If unavailable, return None (no sweep).
     """
     try:
-        s = _download_price_series("^VIX", period="7d")
+        s = _download_price_series("^VIX", period="1y")
         if s.empty:
             return None
         return float(s.dropna().iloc[-1])
@@ -505,7 +511,7 @@ def apply_smartsafe_sweep(
 
 def _compute_composite_benchmark_returns(
     benchmark_spec: Dict[str, float],
-    period: str = "180d",
+    period: str = "10y",
 ) -> pd.Series:
     """
     Build a composite benchmark return series from a dict[ticker -> weight].
@@ -538,24 +544,47 @@ def _compute_composite_benchmark_returns(
     return bench_returns
 
 
+def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
+    """
+    Compute total return over the last `days` observations.
+    If days is None, use full history ("since inception" for the series).
+    """
+    if r.empty:
+        return 0.0
+    if days is not None:
+        r = r.tail(days)
+        if r.empty:
+            return 0.0
+    return float((1 + r).prod() - 1.0)
+
+
 def _compute_portfolio_trailing_returns(
     positions: pd.DataFrame,
     benchmark_spec: Dict[str, float],
-    period: str = "180d",
+    period: str = "10y",
 ) -> Dict[str, float]:
     """
-    Compute 30d and 60d total returns and alpha vs benchmark composite.
+    Compute total returns and alpha vs composite benchmark over multiple windows:
 
-    benchmark_spec: dict[ticker -> weight]
+    - 30d
+    - 60d
+    - 1y (252 trading days approx)
+    - Since inception (full available history)
+
     Returns keys:
-        ret_30d, ret_60d, alpha_30d, alpha_60d
+        ret_30d, ret_60d, ret_1y, ret_si,
+        alpha_30d, alpha_60d, alpha_1y, alpha_si
     """
     if positions.empty:
         return {
             "ret_30d": 0.0,
             "ret_60d": 0.0,
+            "ret_1y": 0.0,
+            "ret_si": 0.0,
             "alpha_30d": 0.0,
             "alpha_60d": 0.0,
+            "alpha_1y": 0.0,
+            "alpha_si": 0.0,
         }
 
     tickers = positions["ticker"].unique().tolist()
@@ -573,8 +602,12 @@ def _compute_portfolio_trailing_returns(
         return {
             "ret_30d": 0.0,
             "ret_60d": 0.0,
+            "ret_1y": 0.0,
+            "ret_si": 0.0,
             "alpha_30d": 0.0,
             "alpha_60d": 0.0,
+            "alpha_1y": 0.0,
+            "alpha_si": 0.0,
         }
 
     prices_df = pd.concat(price_frames, axis=1).sort_index()
@@ -597,24 +630,26 @@ def _compute_portfolio_trailing_returns(
     else:
         port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
 
-    def _window_total_return(r: pd.Series, days: int) -> float:
-        if r.empty:
-            return 0.0
-        sub = r.tail(days)
-        if sub.empty:
-            return 0.0
-        return float((1 + sub).prod() - 1.0)
-
+    # Returns
     port_30 = _window_total_return(port_returns, 30)
     port_60 = _window_total_return(port_returns, 60)
+    port_1y = _window_total_return(port_returns, TRADING_DAYS_1Y)
+    port_si = _window_total_return(port_returns, None)
+
     bench_30 = _window_total_return(bench_returns, 30)
     bench_60 = _window_total_return(bench_returns, 60)
+    bench_1y = _window_total_return(bench_returns, TRADING_DAYS_1Y)
+    bench_si = _window_total_return(bench_returns, None)
 
     metrics = {
         "ret_30d": port_30,
         "ret_60d": port_60,
+        "ret_1y": port_1y,
+        "ret_si": port_si,
         "alpha_30d": port_30 - bench_30,
         "alpha_60d": port_60 - bench_60,
+        "alpha_1y": port_1y - bench_1y,
+        "alpha_si": port_si - bench_si,
     }
     return metrics
 
@@ -638,8 +673,12 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
         "date": today_str,
         "ret_30d": metrics.get("ret_30d", 0.0),
         "ret_60d": metrics.get("ret_60d", 0.0),
+        "ret_1y": metrics.get("ret_1y", 0.0),
+        "ret_si": metrics.get("ret_si", 0.0),
         "alpha_30d": metrics.get("alpha_30d", 0.0),
         "alpha_60d": metrics.get("alpha_60d", 0.0),
+        "alpha_1y": metrics.get("alpha_1y", 0.0),
+        "alpha_si": metrics.get("alpha_si", 0.0),
     }
     file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
     try:
@@ -670,8 +709,12 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
         return {
             "ret_30d": float(last.get("ret_30d", 0.0)),
             "ret_60d": float(last.get("ret_60d", 0.0)),
+            "ret_1y": float(last.get("ret_1y", 0.0)),
+            "ret_si": float(last.get("ret_si", 0.0)),
             "alpha_30d": float(last.get("alpha_30d", 0.0)),
             "alpha_60d": float(last.get("alpha_60d", 0.0)),
+            "alpha_1y": float(last.get("alpha_1y", 0.0)),
+            "alpha_si": float(last.get("alpha_si", 0.0)),
         }
     except Exception:
         return None
@@ -723,8 +766,12 @@ def get_wave_snapshot(wave_name: str) -> Dict:
                 "intraday_return": float,
                 "ret_30d": float,
                 "ret_60d": float,
+                "ret_1y": float,
+                "ret_si": float,
                 "alpha_30d": float,
                 "alpha_60d": float,
+                "alpha_1y": float,
+                "alpha_si": float,
                 "vix_level": float | None,
                 "smartsafe_sweep_fraction": float,
             }
@@ -749,15 +796,19 @@ def get_wave_snapshot(wave_name: str) -> Dict:
     trailing = _compute_portfolio_trailing_returns(
         positions,
         benchmark_spec=benchmark_spec,
-        period="180d",
+        period="10y",
     )
 
     # If live computation produced all zeros, try to fall back to last logged values
     if (
         trailing["ret_30d"] == 0.0
         and trailing["ret_60d"] == 0.0
+        and trailing["ret_1y"] == 0.0
+        and trailing["ret_si"] == 0.0
         and trailing["alpha_30d"] == 0.0
         and trailing["alpha_60d"] == 0.0
+        and trailing["alpha_1y"] == 0.0
+        and trailing["alpha_si"] == 0.0
     ):
         logged = _load_last_logged_metrics(wave_name)
         if logged is not None:
@@ -767,8 +818,12 @@ def get_wave_snapshot(wave_name: str) -> Dict:
         "intraday_return": intraday_ret,
         "ret_30d": trailing["ret_30d"],
         "ret_60d": trailing["ret_60d"],
+        "ret_1y": trailing["ret_1y"],
+        "ret_si": trailing["ret_si"],
         "alpha_30d": trailing["alpha_30d"],
         "alpha_60d": trailing["alpha_60d"],
+        "alpha_1y": trailing["alpha_1y"],
+        "alpha_si": trailing["alpha_si"],
         "vix_level": vix_level,
         "smartsafe_sweep_fraction": sweep_fraction,
     }
