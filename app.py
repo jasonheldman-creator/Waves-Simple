@@ -1,6 +1,6 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 3/4: Mode-aware + Adaptive Alpha Engine + SmartSafe 2.0
+Stage 5: Mode-aware + Momentum + Engineered Concentration + Beta Telemetry
 
 Features:
 - Mode selector in sidebar (Standard / AMB / Private Logic™)
@@ -10,6 +10,7 @@ Features:
     * 1Y Info Ratio
     * 1Y Hit Rate
     * Max Drawdown
+    * 1Y Beta vs Benchmark, Beta Target, Beta Drift
 - Top 10 holdings with Google Finance links
 - SmartSafe 2.0 status (VIX + sweep%)
 """
@@ -61,6 +62,9 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
         try:
             snap = we.get_wave_snapshot(w, mode=mode_token)
             m = snap["metrics"]
+            beta_1y = m.get("beta_1y", 0.0)
+            beta_target = m.get("beta_target", 0.0)
+            beta_drift = beta_1y - beta_target
             rows.append(
                 {
                     "Wave": w,
@@ -78,6 +82,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "1Y IR": m.get("ir_1y", 0.0),
                     "1Y Hit Rate": m.get("hit_rate_1y", 0.0),
                     "Max Drawdown": m.get("maxdd", 0.0),
+                    "Beta 1Y": beta_1y,
+                    "Beta Drift": beta_drift,
                 }
             )
         except Exception:
@@ -98,6 +104,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "1Y IR": 0.0,
                     "1Y Hit Rate": 0.0,
                     "Max Drawdown": 0.0,
+                    "Beta 1Y": 0.0,
+                    "Beta Drift": 0.0,
                 }
             )
 
@@ -119,6 +127,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                 "1Y IR",
                 "1Y Hit Rate",
                 "Max Drawdown",
+                "Beta 1Y",
+                "Beta Drift",
             ]
         )
 
@@ -169,7 +179,8 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Stage 3/4 — Mode-aware adaptive engine, SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk.
+            Stage 5 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
+            blended benchmarks, multi-horizon alpha & beta discipline telemetry.
         </p>
         """,
         unsafe_allow_html=True,
@@ -237,6 +248,19 @@ def render_metrics(snapshot: dict):
         st.metric("1-Year Hit Rate", format_pct(metrics.get("hit_rate_1y", 0.0)))
     with col12:
         st.metric("Max Drawdown", format_pct(metrics.get("maxdd", 0.0)))
+
+    # Beta telemetry row
+    beta_1y = metrics.get("beta_1y", 0.0)
+    beta_target = metrics.get("beta_target", 0.0)
+    beta_drift = metrics.get("beta_drift", 0.0)
+
+    colb1, colb2, colb3, _ = st.columns(4)
+    with colb1:
+        st.metric("1-Year Beta vs Benchmark", format_ratio(beta_1y))
+    with colb2:
+        st.metric("Beta Target", format_ratio(beta_target))
+    with colb3:
+        st.metric("Beta Drift (Actual - Target)", format_ratio(beta_drift))
 
 
 def render_top_holdings(snapshot: dict):
@@ -319,7 +343,7 @@ def render_overview_tab(waves: list[str], mode_token: str):
         """
         This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
         performance and alpha for each Wave in the **selected mode**, plus
-        1Y Info Ratio, 1Y Hit Rate, and Max Drawdown.
+        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, and Beta telemetry.
         """,
         unsafe_allow_html=True,
     )
@@ -365,9 +389,13 @@ def render_overview_tab(waves: list[str], mode_token: str):
         if col in df_display.columns:
             df_display[col] = df_display[col].apply(format_pct)
 
-    # Format ratio column(s)
+    # Ratio columns
     if "1Y IR" in df_display.columns:
         df_display["1Y IR"] = df_display["1Y IR"].apply(format_ratio)
+    if "Beta 1Y" in df_display.columns:
+        df_display["Beta 1Y"] = df_display["Beta 1Y"].apply(format_ratio)
+    if "Beta Drift" in df_display.columns:
+        df_display["Beta Drift"] = df_display["Beta Drift"].apply(format_ratio)
 
     styler = df_display.style.applymap(
         _color_metric,
@@ -441,9 +469,9 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Adaptive alpha engine, mode-aware, VIX-aware,
-        SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk.
-        For internal / demo use only.
+        WAVES Intelligence™ — Stage 5 adaptive momentum + engineered concentration +
+        beta telemetry, mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks,
+        multi-horizon alpha & risk. For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
