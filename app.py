@@ -1,588 +1,419 @@
-# app.py — WAVES Intelligence™ • Vector OS • Institutional Console (Mobile-Friendly)
-# ------------------------------------------------------------------------------
-# Works with the mobile-optimized waves_engine.py (no terminal scripts required).
+# app.py — WAVES Intelligence™ Institutional Console
+# Mobile-friendly, single-file Streamlit UI
 #
-# Features
-# --------
-# • Sidebar:
-#       - Risk Mode: Standard / Alpha-Minus-Beta / Private Logic
-#       - Lookback Window (detail): 30D, 90D, 365D
-#       - Wave selector
-# • Portfolio-Level Overview:
-#       - For all Waves:
-#           Wave, Benchmark, NAV(last), 365D Return, 30D Return,
-#           365D Alpha vs Benchmark, 30D Alpha vs Benchmark
-#       - Shows a separate table listing each Benchmark & its ETF mix
-# • Multi-Window Alpha Capture Matrix (NEW):
-#       - For all Waves in one view:
-#           1D Return & Alpha, 30D Return & Alpha,
-#           60D Return & Alpha, 365D Return & Alpha
-# • Wave Detail:
-#       - NAV chart: selected Wave vs its composite Benchmark
-#       - Key stats: 365D / 30D returns & alpha vs benchmark
-#       - Mode comparison table (Standard vs Alpha-Minus-Beta vs Private Logic)
-#       - Top 10 holdings (with Google Finance links)
-#
-# Notes
-# -----
-# • All history is computed from live/simulated prices via waves_engine.py.
-# • Full_Wave_History.csv is optional and currently disabled in waves_engine.py.
+# Key sections (all preserved + extended):
+#   • Portfolio-Level Overview (All Waves)
+#   • Multi-Window Alpha Capture (All Waves)
+#   • NEW: Risk & WaveScore Ingredients (All Waves)
+#   • Benchmark ETF Mix
+#   • Wave Detail (NAV chart, stats, mode comparison, top-10 holdings)
 
 import math
-from typing import Dict, List
+from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 from waves_engine import (
+    USE_FULL_WAVE_HISTORY,
     get_all_waves,
-    get_wave_positions,
-    get_portfolio_overview,
+    get_modes,
     compute_history_nav,
-    get_benchmark_wave_for,
-    get_benchmark_composition,
+    get_benchmark_mix_table,
+    get_wave_holdings,
 )
 
-
-# ------------------------------------------------------------------------------
-# Utility formatting helpers
-# ------------------------------------------------------------------------------
-
-def pct(x: float) -> str:
-    """Format a float as percentage with 1 decimal; handle NaN safely."""
-    try:
-        if x is None or (isinstance(x, float) and math.isnan(x)):
-            return "—"
-        return f"{x * 100:.1f}%"
-    except Exception:
-        return "—"
-
-
-def nav_fmt(x: float) -> str:
-    try:
-        if x is None or (isinstance(x, float) and math.isnan(x)):
-            return "—"
-        return f"{x:.3f}"
-    except Exception:
-        return "—"
-
-
-def build_benchmark_mix_string(composition: Dict[str, float]) -> str:
-    """
-    Turn {"QQQ": 0.5, "IGV": 0.5} into "50% QQQ + 50% IGV".
-    """
-    if not composition:
-        return "—"
-    parts: List[str] = []
-    total = sum(composition.values())
-    if total <= 0:
-        return "—"
-    for ticker, w in composition.items():
-        pct_w = w / total * 100.0
-        parts.append(f"{pct_w:.0f}% {ticker}")
-    return " + ".join(parts)
-
-
-def google_finance_url(ticker: str) -> str:
-    """
-    Simple Google Finance link. We don't know the exact exchange, but
-    this still works well enough for demos.
-    """
-    t = ticker.strip().upper()
-    return f"https://www.google.com/finance/quote/{t}:NASDAQ"
-
-
-# ------------------------------------------------------------------------------
-# Streamlit App
-# ------------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Streamlit page config
+# ------------------------------------------------------------
 
 st.set_page_config(
-    page_title="WAVES Intelligence™ • Institutional Console",
-    page_icon="🌊",
+    page_title="WAVES Intelligence™ Console",
     layout="wide",
 )
 
-# Sidebar branding
-with st.sidebar:
-    st.markdown("### 🌊 WAVES Intelligence™")
-    st.markdown("##### Vector OS • Institutional Console")
+# ------------------------------------------------------------
+# Helper functions (cached history per Wave/mode)
+# ------------------------------------------------------------
 
-    # Risk Mode
-    mode = st.radio(
-        "Risk Mode",
-        options=["Standard", "Alpha-Minus-Beta", "Private Logic"],
-        index=0,
-        help=(
-            "Standard = base strategy.\n"
-            "Alpha-Minus-Beta = de-risked version.\n"
-            "Private Logic = enhanced version."
-        ),
-    )
+@st.cache_data(show_spinner=False)
+def get_history_cached(wave_name: str, mode: str, days: int = 365) -> pd.DataFrame:
+    """
+    Cached wrapper around compute_history_nav from waves_engine.py.
 
-    # Lookback window for detail charts
-    lookback_choice = st.selectbox(
-        "Lookback window (detail view)",
-        options=["30 days", "90 days", "365 days"],
-        index=2,
-    )
-    if lookback_choice == "30 days":
-        long_lookback_days = 365  # still use 1Y for overview
-        detail_lookback_days = 30
-    elif lookback_choice == "90 days":
-        long_lookback_days = 365
-        detail_lookback_days = 90
+    Returns a DataFrame indexed by Date with columns:
+        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
+    """
+    return compute_history_nav(wave_name, mode, days)
+
+
+def compute_window_stats(hist: pd.DataFrame, window: int) -> tuple[float, float]:
+    """
+    Compute cumulative total returns for Wave and Benchmark over the last `window` days.
+
+    Returns:
+        (wave_return, benchmark_return) as decimal returns (e.g. 0.12 = +12%)
+        If insufficient data, returns (nan, nan).
+    """
+    if hist is None or hist.empty:
+        return (np.nan, np.nan)
+
+    if len(hist) < max(2, window):
+        return (np.nan, np.nan)
+
+    window_hist = hist.iloc[-window:]
+    w_ret = (1.0 + window_hist["wave_ret"]).prod() - 1.0
+    b_ret = (1.0 + window_hist["bm_ret"]).prod() - 1.0
+    return (w_ret, b_ret)
+
+
+def format_pct(x: float, decimals: int = 2) -> str:
+    if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))):
+        return "—"
+    return f"{x * 100:.{decimals}f}%"
+
+
+def compute_risk_metrics(hist: pd.DataFrame) -> dict:
+    """
+    Compute risk stats from daily returns and NAV series.
+
+    Assumes hist has columns: ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret'].
+
+    Metrics (365D window, or available length):
+        • Wave Vol (annualized)
+        • Benchmark Vol (annualized)
+        • Max Drawdown (Wave)
+        • Max Drawdown (Benchmark)
+        • Tracking Error (annualized)
+        • Information Ratio (annualized excess / TE)
+    """
+    out = {
+        "wave_vol": np.nan,
+        "bm_vol": np.nan,
+        "wave_maxdd": np.nan,
+        "bm_maxdd": np.nan,
+        "tracking_error": np.nan,
+        "information_ratio": np.nan,
+    }
+
+    if hist is None or hist.empty or len(hist) < 10:
+        return out
+
+    wave_ret = hist["wave_ret"].dropna()
+    bm_ret = hist["bm_ret"].dropna()
+    common_index = wave_ret.index.intersection(bm_ret.index)
+    if len(common_index) < 10:
+        return out
+
+    wave_ret = wave_ret.loc[common_index]
+    bm_ret = bm_ret.loc[common_index]
+
+    # Annualized vol
+    wave_vol = wave_ret.std() * np.sqrt(252)
+    bm_vol = bm_ret.std() * np.sqrt(252)
+
+    # Max drawdown helper
+    def max_drawdown(nav: pd.Series) -> float:
+        if nav is None or nav.empty:
+            return np.nan
+        running_max = nav.cummax()
+        drawdowns = (nav / running_max) - 1.0
+        return drawdowns.min()  # will be ≤ 0
+
+    wave_nav = hist["wave_nav"].loc[common_index]
+    bm_nav = hist["bm_nav"].loc[common_index]
+
+    wave_maxdd = max_drawdown(wave_nav)
+    bm_maxdd = max_drawdown(bm_nav)
+
+    # Tracking error & Information Ratio
+    excess = wave_ret - bm_ret
+    te = excess.std() * np.sqrt(252)
+
+    if te > 0:
+        ann_excess_return = excess.mean() * 252.0
+        ir = ann_excess_return / te
     else:
-        long_lookback_days = 365
-        detail_lookback_days = 365
+        ir = np.nan
 
-    # Wave selector for detail pane
-    all_waves = get_all_waves()
-    default_wave_index = 0 if "AI Wave" not in all_waves else all_waves.index("AI Wave")
-    selected_wave = st.selectbox("Select Wave", all_waves, index=default_wave_index)
+    out["wave_vol"] = wave_vol
+    out["bm_vol"] = bm_vol
+    out["wave_maxdd"] = wave_maxdd
+    out["bm_maxdd"] = bm_maxdd
+    out["tracking_error"] = te
+    out["information_ratio"] = ir
 
-    st.markdown("---")
-    st.caption(
-        "NAV & returns are approximate and for demonstration only. "
-        "Not investment advice."
-    )
+    return out
 
-st.title("Portfolio-Level Overview")
 
-# ------------------------------------------------------------------------------
-# Portfolio-Level Overview (Waves + Benchmarks + Alpha)
-# ------------------------------------------------------------------------------
+# ------------------------------------------------------------
+# Sidebar controls
+# ------------------------------------------------------------
 
-with st.spinner("Computing portfolio overview…"):
-    overview_df = get_portfolio_overview(
-        mode=mode,
-        long_lookback_days=long_lookback_days,
-        short_lookback_days=30,
-    )
+st.sidebar.title("WAVES Intelligence™")
+st.sidebar.caption("Vector OS • Institutional Console")
 
-# Display the numbers in a nicely formatted table
-display_df = overview_df.copy()
-
-display_df["NAV (last)"] = display_df["NAV_last"].apply(nav_fmt)
-display_df["365D Return"] = display_df["Return_365D"].apply(pct)
-display_df["30D Return"] = display_df["Return_30D"].apply(pct)
-display_df["365D Alpha vs Benchmark"] = display_df["Alpha_365D"].apply(pct)
-display_df["30D Alpha vs Benchmark"] = display_df["Alpha_30D"].apply(pct)
-
-display_df = display_df[
-    [
-        "Wave",
-        "Benchmark",
-        "NAV (last)",
-        "365D Return",
-        "30D Return",
-        "365D Alpha vs Benchmark",
-        "30D Alpha vs Benchmark",
-    ]
-]
-
-st.dataframe(
-    display_df,
-    use_container_width=True,
-    hide_index=True,
-)
-
-st.caption(
-    "NAV is normalized to 1.0 at the start of the 365D window. "
-    "Returns and alpha are cumulative over the selected periods."
-)
-
-# ------------------------------------------------------------------------------
-# Multi-Window Alpha Capture Matrix (ALL WAVES) — NEW
-# ------------------------------------------------------------------------------
-
-st.markdown("### Multi-Window Alpha Capture (All Waves)")
-
-st.caption(
-    "For each Wave: latest 1-day move (approx intraday), 30-day, 60-day, and 365-day "
-    "returns vs its composite benchmark."
-)
-
-alpha_rows = []
 waves = get_all_waves()
+modes = get_modes()
+default_mode = "Standard" if "Standard" in modes else modes[0]
 
-for w in waves:
-    bench_name = get_benchmark_wave_for(w)
-
-    try:
-        # Use 365D history for both and derive shorter windows from it
-        hist_wave = compute_history_nav(
-            w,
-            lookback_days=365,
-            mode=mode,
-            is_benchmark=False,
-        )
-        hist_bench = compute_history_nav(
-            bench_name,
-            lookback_days=365,
-            mode="Standard",
-            is_benchmark=True,
-        )
-
-        combo = pd.concat(
-            [
-                hist_wave[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
-                hist_bench[["NAV"]].rename(columns={"NAV": "NAV_bench"}),
-            ],
-            axis=1,
-            join="inner",
-        ).dropna()
-
-        if combo.empty or len(combo) < 2:
-            alpha_rows.append(
-                {
-                    "Wave": w,
-                    "1D Ret": "—",
-                    "1D Alpha": "—",
-                    "30D Ret": "—",
-                    "30D Alpha": "—",
-                    "60D Ret": "—",
-                    "60D Alpha": "—",
-                    "365D Ret": "—",
-                    "365D Alpha": "—",
-                }
-            )
-            continue
-
-        def window_ret(series: pd.Series, days: int) -> float:
-            if len(series) > days:
-                s = series.iloc[-days:]
-            else:
-                s = series
-            return float(s.iloc[-1] / s.iloc[0] - 1.0)
-
-        # 365D
-        ret_w_365 = window_ret(combo["NAV_wave"], 365)
-        ret_b_365 = window_ret(combo["NAV_bench"], 365)
-        alpha_365 = ret_w_365 - ret_b_365
-
-        # 60D
-        ret_w_60 = window_ret(combo["NAV_wave"], 60)
-        ret_b_60 = window_ret(combo["NAV_bench"], 60)
-        alpha_60 = ret_w_60 - ret_b_60
-
-        # 30D
-        ret_w_30 = window_ret(combo["NAV_wave"], 30)
-        ret_b_30 = window_ret(combo["NAV_bench"], 30)
-        alpha_30 = ret_w_30 - ret_b_30
-
-        # 1D (latest daily move ~ intraday approximation)
-        last = combo.iloc[-1]
-        prev = combo.iloc[-2]
-        ret_w_1d = float(last["NAV_wave"] / prev["NAV_wave"] - 1.0)
-        ret_b_1d = float(last["NAV_bench"] / prev["NAV_bench"] - 1.0)
-        alpha_1d = ret_w_1d - ret_b_1d
-
-        alpha_rows.append(
-            {
-                "Wave": w,
-                "1D Ret": pct(ret_w_1d),
-                "1D Alpha": pct(alpha_1d),
-                "30D Ret": pct(ret_w_30),
-                "30D Alpha": pct(alpha_30),
-                "60D Ret": pct(ret_w_60),
-                "60D Alpha": pct(alpha_60),
-                "365D Ret": pct(ret_w_365),
-                "365D Alpha": pct(alpha_365),
-            }
-        )
-
-    except Exception as e:
-        alpha_rows.append(
-            {
-                "Wave": w,
-                "1D Ret": f"Err: {e}",
-                "1D Alpha": "—",
-                "30D Ret": "—",
-                "30D Alpha": "—",
-                "60D Ret": "—",
-                "60D Alpha": "—",
-                "365D Ret": "—",
-                "365D Alpha": "—",
-            }
-        )
-
-alpha_df = pd.DataFrame(alpha_rows).sort_values("Wave").reset_index(drop=True)
-
-st.dataframe(
-    alpha_df,
-    use_container_width=True,
-    hide_index=True,
+selected_mode = st.sidebar.radio(
+    "Select Mode",
+    options=modes,
+    index=modes.index(default_mode) if default_mode in modes else 0,
+    help="Applies to Wave returns; benchmarks are always Standard.",
 )
 
+lookback_days = 365  # fixed 365D window for now (risk + alpha)
+
+
+# ------------------------------------------------------------
+# Header
+# ------------------------------------------------------------
+
+st.title("WAVES Intelligence™ Console")
 st.caption(
-    "1D return is the most recent daily move (an intraday approximation). "
-    "Alpha = Wave return − Benchmark return for each window."
+    "Live Alpha Capture • Composite Benchmarks • Mode-aware NAV • "
+    "Risk & WaveScore Ingredients (365D)"
 )
 
-# ------------------------------------------------------------------------------
-# Benchmark composition table
-# ------------------------------------------------------------------------------
-
-st.markdown("### Benchmark — ETF Mix")
-
-bench_rows = []
-for wave_name in get_all_waves():
-    bench_name = get_benchmark_wave_for(wave_name)
-    comp = get_benchmark_composition(bench_name)
-    mix_str = build_benchmark_mix_string(comp)
-    bench_rows.append(
-        {"Wave": wave_name, "Benchmark (ETF mix)": f"{bench_name} ({mix_str})"}
+if USE_FULL_WAVE_HISTORY:
+    st.warning(
+        "USE_FULL_WAVE_HISTORY is True in waves_engine.py — but this UI is configured "
+        "for 365D rolling analytics. You can set USE_FULL_WAVE_HISTORY = False for "
+        "lighter, mobile-friendly operation.",
+        icon="⚠️",
     )
 
-bench_df = (
-    pd.DataFrame(bench_rows)
-    .drop_duplicates(subset=["Benchmark (ETF mix)"])
-    .sort_values("Wave")
-    .reset_index(drop=True)
-)
+# ------------------------------------------------------------
+# SECTION 1 — Portfolio-Level Overview (All Waves)
+# ------------------------------------------------------------
 
-st.dataframe(
-    bench_df[["Benchmark (ETF mix)"]],
-    use_container_width=True,
-    hide_index=True,
-)
+st.subheader("Portfolio-Level Overview (All Waves)")
 
-st.caption(
-    "Each Wave is compared to its own composite benchmark portfolio as shown above."
-)
+overview_rows = []
 
-# ------------------------------------------------------------------------------
-# Wave Detail
-# ------------------------------------------------------------------------------
+for wave in waves:
+    hist = get_history_cached(wave, selected_mode, days=lookback_days)
+    # 30D / 365D returns & alpha vs benchmark
+    w30, b30 = compute_window_stats(hist, 30)
+    w365, b365 = compute_window_stats(hist, 365)
 
-st.markdown("---")
-st.header(f"Wave Detail — {selected_wave}")
-
-col_left, col_right = st.columns([2, 1])
-
-benchmark_name = get_benchmark_wave_for(selected_wave)
-benchmark_comp = get_benchmark_composition(benchmark_name)
-benchmark_mix_str = build_benchmark_mix_string(benchmark_comp)
-
-with col_right:
-    st.subheader("Benchmark")
-    st.markdown(f"**{benchmark_name}**")
-    st.caption(benchmark_mix_str or "—")
-
-with col_left:
-    # NAV chart: Wave vs its benchmark (using detail_lookback_days)
-    try:
-        with st.spinner("Computing NAV history…"):
-            hist_wave = compute_history_nav(
-                selected_wave,
-                lookback_days=detail_lookback_days,
-                mode=mode,
-                is_benchmark=False,
-            )
-            hist_bench = compute_history_nav(
-                benchmark_name,
-                lookback_days=detail_lookback_days,
-                mode="Standard",
-                is_benchmark=True,
-            )
-
-            # Align the two series on dates
-            wave_nav = hist_wave[["NAV"]].rename(columns={"NAV": "Wave NAV"})
-            bench_nav = hist_bench[["NAV"]].rename(columns={"NAV": "Benchmark NAV"})
-            nav_combo = pd.concat([wave_nav, bench_nav], axis=1, join="inner").dropna()
-
-        if nav_combo.empty:
-            st.warning("No overlapping NAV history available for this Wave and benchmark.")
-        else:
-            # Normalize both to 1.0 at start for visual comparison
-            nav_combo = nav_combo / nav_combo.iloc[0]
-            st.line_chart(nav_combo, use_container_width=True)
-    except Exception as e:
-        st.error(f"Error computing NAV history: {e}")
-
-# ------------------------------------------------------------------------------
-# Wave vs Benchmark statistics (365D & 30D) for the selected mode
-# ------------------------------------------------------------------------------
-
-st.subheader("Performance vs Benchmark")
-
-try:
-    # Use 365D history for stats; fall back gracefully if shorter
-    hist_wave_full = compute_history_nav(
-        selected_wave,
-        lookback_days=365,
-        mode=mode,
-        is_benchmark=False,
-    )
-    hist_bench_full = compute_history_nav(
-        benchmark_name,
-        lookback_days=365,
-        mode="Standard",
-        is_benchmark=True,
-    )
-
-    stats_rows = []
-
-    for label, window in [("365D", 365), ("30D", 30)]:
-        combo = pd.concat(
-            [
-                hist_wave_full[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
-                hist_bench_full[["NAV"]].rename(columns={"NAV": "NAV_bench"}),
-            ],
-            axis=1,
-            join="inner",
-        ).dropna()
-
-        if combo.empty:
-            stats_rows.append(
-                {
-                    "Window": label,
-                    "Wave Return": "—",
-                    "Benchmark Return": "—",
-                    "Alpha": "—",
-                }
-            )
-            continue
-
-        if len(combo) > window:
-            combo_w = combo.iloc[-window:]
-        else:
-            combo_w = combo
-
-        nav_w = combo_w["NAV_wave"]
-        nav_b = combo_w["NAV_bench"]
-        wave_ret = nav_w.iloc[-1] / nav_w.iloc[0] - 1.0
-        bench_ret = nav_b.iloc[-1] / nav_b.iloc[0] - 1.0
-        alpha = wave_ret - bench_ret
-
-        stats_rows.append(
-            {
-                "Window": label,
-                "Wave Return": pct(wave_ret),
-                "Benchmark Return": pct(bench_ret),
-                "Alpha": pct(alpha),
-            }
-        )
-
-    stats_df = pd.DataFrame(stats_rows)
-    st.table(stats_df)
-
-except Exception as e:
-    st.error(f"Error computing performance statistics: {e}")
-
-# ------------------------------------------------------------------------------
-# Mode comparison table for the selected Wave (Standard vs AMB vs PL)
-# ------------------------------------------------------------------------------
-
-st.subheader("Mode Comparison (Wave vs Benchmark)")
-
-modes_to_compare = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
-mode_rows = []
-
-for m in modes_to_compare:
-    try:
-        hist_wave_m = compute_history_nav(
-            selected_wave,
-            lookback_days=365,
-            mode=m,
-            is_benchmark=False,
-        )
-        hist_bench_m = compute_history_nav(
-            benchmark_name,
-            lookback_days=365,
-            mode="Standard",
-            is_benchmark=True,
-        )
-
-        combo = pd.concat(
-            [
-                hist_wave_m[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
-                hist_bench_m[["NAV"]].rename(columns={"NAV": "NAV_bench"}),
-            ],
-            axis=1,
-            join="inner",
-        ).dropna()
-
-        if combo.empty:
-            mode_rows.append(
-                {
-                    "Mode": m,
-                    "Wave 365D Return": "—",
-                    "Benchmark 365D Return": "—",
-                    "365D Alpha": "—",
-                }
-            )
-            continue
-
-        nav_w = combo["NAV_wave"]
-        nav_b = combo["NAV_bench"]
-        wave_ret = nav_w.iloc[-1] / nav_w.iloc[0] - 1.0
-        bench_ret = nav_b.iloc[-1] / nav_b.iloc[0] - 1.0
-        alpha = wave_ret - bench_ret
-
-        mode_rows.append(
-            {
-                "Mode": m,
-                "Wave 365D Return": pct(wave_ret),
-                "Benchmark 365D Return": pct(bench_ret),
-                "365D Alpha": pct(alpha),
-            }
-        )
-
-    except Exception as e:
-        mode_rows.append(
-            {
-                "Mode": m,
-                "Wave 365D Return": f"Error: {e}",
-                "Benchmark 365D Return": "—",
-                "365D Alpha": "—",
-            }
-        )
-
-mode_df = pd.DataFrame(mode_rows)
-st.table(mode_df)
-
-# ------------------------------------------------------------------------------
-# Top 10 holdings with Google Finance links
-# ------------------------------------------------------------------------------
-
-st.subheader("Top 10 Holdings (by target weight)")
-
-try:
-    positions = get_wave_positions(selected_wave).copy()
-    positions = positions.sort_values("Weight", ascending=False).head(10).reset_index(
-        drop=True
-    )
-
-    # Build clickable link column
-    link_col = []
-    for _, row in positions.iterrows():
-        t = row["Ticker"]
-        url = google_finance_url(t)
-        link_col.append(f"[{t}]({url})")
-
-    positions_display = pd.DataFrame(
+    overview_rows.append(
         {
-            "Ticker": link_col,
-            "Weight": positions["Weight"].apply(lambda w: f"{w * 100:.2f}%"),
+            "Wave": wave,
+            "30D Return": w30,
+            "30D Alpha": (w30 - b30) if not (math.isnan(w30) or math.isnan(b30)) else np.nan,
+            "365D Return": w365,
+            "365D Alpha": (w365 - b365) if not (math.isnan(w365) or math.isnan(b365)) else np.nan,
         }
     )
 
-    st.markdown(
-        "Top 10 by target weight "
-        "(click ticker for Google Finance; weights are target portfolio weights)."
+overview_df = pd.DataFrame(overview_rows)
+
+# Display formatted table
+if not overview_df.empty:
+    display_df = overview_df.copy()
+    for col in ["30D Return", "30D Alpha", "365D Return", "365D Alpha"]:
+        display_df[col] = display_df[col].apply(lambda x: format_pct(x, 2))
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+else:
+    st.info("No overview data available yet for the configured Waves.", icon="ℹ️")
+
+
+# ------------------------------------------------------------
+# SECTION 2 — Multi-Window Alpha Capture (All Waves)
+# ------------------------------------------------------------
+
+st.subheader("Multi-Window Alpha Capture (All Waves)")
+
+alpha_rows = []
+windows = [1, 30, 60, 365]
+
+for wave in waves:
+    hist = get_history_cached(wave, selected_mode, days=lookback_days)
+    row = {"Wave": wave}
+    for w in windows:
+        w_ret, b_ret = compute_window_stats(hist, w)
+        row[f"{w}D Return"] = w_ret
+        row[f"{w}D Alpha"] = (
+            (w_ret - b_ret) if not (math.isnan(w_ret) or math.isnan(b_ret)) else np.nan
+        )
+    alpha_rows.append(row)
+
+alpha_df = pd.DataFrame(alpha_rows)
+
+if not alpha_df.empty:
+    display_alpha = alpha_df.copy()
+    for w in windows:
+        display_alpha[f"{w}D Return"] = display_alpha[f"{w}D Return"].apply(
+            lambda x: format_pct(x, 2)
+        )
+        display_alpha[f"{w}D Alpha"] = display_alpha[f"{w}D Alpha"].apply(
+            lambda x: format_pct(x, 2)
+        )
+    st.dataframe(display_alpha, use_container_width=True, hide_index=True)
+else:
+    st.info("No alpha capture data available yet for the configured Waves.", icon="ℹ️")
+
+
+# ------------------------------------------------------------
+# SECTION 3 — NEW: Risk & WaveScore Ingredients (All Waves)
+# ------------------------------------------------------------
+
+st.subheader("Risk & WaveScore Ingredients (All Waves)")
+
+risk_rows = []
+
+for wave in waves:
+    hist = get_history_cached(wave, selected_mode, days=lookback_days)
+    metrics = compute_risk_metrics(hist)
+
+    risk_rows.append(
+        {
+            "Wave": wave,
+            "Wave Vol (365D)": metrics["wave_vol"],
+            "Benchmark Vol (365D)": metrics["bm_vol"],
+            "Max Drawdown (Wave)": metrics["wave_maxdd"],
+            "Max Drawdown (Benchmark)": metrics["bm_maxdd"],
+            "Tracking Error": metrics["tracking_error"],
+            "Information Ratio": metrics["information_ratio"],
+        }
     )
-    st.write(positions_display.to_markdown(index=False), unsafe_allow_html=True)
 
-except Exception as e:
-    st.error(f"Error loading holdings: {e}")
+risk_df = pd.DataFrame(risk_rows)
 
-# ------------------------------------------------------------------------------
-# Footer
-# ------------------------------------------------------------------------------
+if not risk_df.empty:
+    display_risk = risk_df.copy()
 
-st.markdown("---")
-st.caption(
-    "WAVES Intelligence™ • Vector OS • For demonstration and research purposes only. "
-    "Not an offer to sell or solicitation to buy any security."
-)
+    # Format % columns
+    for col in [
+        "Wave Vol (365D)",
+        "Benchmark Vol (365D)",
+        "Max Drawdown (Wave)",
+        "Max Drawdown (Benchmark)",
+        "Tracking Error",
+    ]:
+        display_risk[col] = display_risk[col].apply(lambda x: format_pct(x, 2))
+
+    # IR as plain number with 2 decimals
+    display_risk["Information Ratio"] = display_risk["Information Ratio"].apply(
+        lambda x: "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.2f}"
+    )
+
+    st.dataframe(display_risk, use_container_width=True, hide_index=True)
+else:
+    st.info("No risk analytics available yet for the configured Waves.", icon="ℹ️")
+
+
+# ------------------------------------------------------------
+# SECTION 4 — Benchmark ETF Mix (Composite Benchmarks)
+# ------------------------------------------------------------
+
+st.subheader("Benchmark ETF Mix (Composite Benchmarks)")
+
+bmix_df = get_benchmark_mix_table()
+if bmix_df is not None and not bmix_df.empty:
+    st.dataframe(bmix_df, use_container_width=True, hide_index=True)
+else:
+    st.info("Benchmark mix table not available.", icon="ℹ️")
+
+
+# ------------------------------------------------------------
+# SECTION 5 — Wave Detail View
+# ------------------------------------------------------------
+
+st.subheader("Wave Detail View")
+
+col_sel, col_spacer = st.columns([2, 1])
+with col_sel:
+    selected_wave = st.selectbox("Select Wave", options=waves, index=0)
+
+detail_hist = get_history_cached(selected_wave, selected_mode, days=lookback_days)
+
+if detail_hist is None or detail_hist.empty:
+    st.warning(f"No history available for {selected_wave}.", icon="⚠️")
+else:
+    # NAV chart (Wave vs Benchmark)
+    st.markdown("**NAV (Wave vs Benchmark, 365D)**")
+
+    nav_df = detail_hist[["wave_nav", "bm_nav"]].copy()
+    nav_df.columns = ["Wave NAV", "Benchmark NAV"]
+    st.line_chart(nav_df, use_container_width=True)
+
+    # Performance vs benchmark (30D / 365D)
+    st.markdown("**Performance vs Benchmark (30D / 365D)**")
+
+    w30, b30 = compute_window_stats(detail_hist, 30)
+    w365, b365 = compute_window_stats(detail_hist, 365)
+
+    perf_df = pd.DataFrame(
+        {
+            "Window": ["30D", "365D"],
+            "Wave Return": [format_pct(w30), format_pct(w365)],
+            "Benchmark Return": [format_pct(b30), format_pct(b365)],
+            "Alpha": [
+                format_pct((w30 - b30) if not (math.isnan(w30) or math.isnan(b30)) else np.nan),
+                format_pct(
+                    (w365 - b365) if not (math.isnan(w365) or math.isnan(b365)) else np.nan
+                ),
+            ],
+        }
+    )
+
+    st.table(perf_df)
+
+    # Mode comparison (Standard vs AMB vs Private Logic) at 365D
+    st.markdown("**Mode Comparison (365D)**")
+
+    mode_rows = []
+    for m in modes:
+        h = get_history_cached(selected_wave, m, days=lookback_days)
+        if h is None or h.empty:
+            mode_rows.append(
+                {"Mode": m, "365D Return": np.nan, "365D Alpha": np.nan}
+            )
+            continue
+        mw, mb = compute_window_stats(h, 365)
+        mode_rows.append(
+            {
+                "Mode": m,
+                "365D Return": mw,
+                "365D Alpha": (mw - mb) if not (math.isnan(mw) or math.isnan(mb)) else np.nan,
+            }
+        )
+
+    mode_df = pd.DataFrame(mode_rows)
+    if not mode_df.empty:
+        display_mode = mode_df.copy()
+        display_mode["365D Return"] = display_mode["365D Return"].apply(
+            lambda x: format_pct(x, 2)
+        )
+        display_mode["365D Alpha"] = display_mode["365D Alpha"].apply(
+            lambda x: format_pct(x, 2)
+        )
+        st.table(display_mode)
+
+    # Top-10 holdings with Google Finance links
+    st.markdown("**Top-10 Holdings (Click for Google Finance)**")
+
+    holdings_df = get_wave_holdings(selected_wave)
+    if holdings_df is None or holdings_df.empty:
+        st.info("No holdings data available for this Wave.", icon="ℹ️")
+    else:
+        # Build Google Finance links
+        def google_link(ticker: str) -> str:
+            if not isinstance(ticker, str) or ticker.strip() == "":
+                return ""
+            base = "https://www.google.com/finance/quote/"
+            # Let Google auto-resolve exchange; simple direct link
+            return f"{base}{ticker}"
+
+        holdings_display = holdings_df.copy()
+        if "Ticker" in holdings_display.columns:
+            holdings_display["Google Finance"] = holdings_display["Ticker"].apply(
+                lambda t: google_link(t)
+            )
+
+        st.dataframe(holdings_display, use_container_width=True, hide_index=True)
