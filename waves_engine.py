@@ -1,4 +1,4 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (Dynamic Strategy Stack)
+# waves_engine.py — WAVES Intelligence™ Vector Engine (Dynamic Strategy + VIX + SmartSafe)
 #
 # Mobile-friendly:
 #   • No terminal, no CLI, no CSV requirement for core behavior.
@@ -7,11 +7,13 @@
 # Core behavior:
 #   • Builds synthetic NAV & daily returns for each Wave vs composite benchmark.
 #   • Wave returns use a dynamic multi-sleeve strategy:
-#       - Momentum tilts (winners overweighted, laggards trimmed)
-#       - Volatility targeting (keep Wave vol near a risk budget)
-#       - Regime / SmartSafe gating (risk-on vs risk-off based on SPY trend)
+#       - Momentum tilts (60D)
+#       - Volatility targeting (20D realized vol)
+#       - Regime gating (SPY 60D trend)
+#       - VIX-based exposure scaling
+#       - VIX-based SmartSafe sweep
 #       - Mode-specific risk appetites (Standard, Alpha-Minus-Beta, Private Logic)
-#       - Private Logic™ mean-reversion overlay on shocks
+#       - Private Logic™ mean-reversion overlay
 #   • Benchmarks stay passive composites (static weights).
 #
 # Public API used by app.py:
@@ -57,7 +59,7 @@ MODE_EXPOSURE_CAPS: Dict[str, tuple[float, float]] = {
     "Private Logic": (0.80, 1.50),
 }
 
-# Regime → additional exposure tilt
+# Regime → additional exposure tilt (from SPY 60D trend)
 REGIME_EXPOSURE: Dict[str, float] = {
     "panic": 0.80,
     "downtrend": 0.90,
@@ -65,7 +67,7 @@ REGIME_EXPOSURE: Dict[str, float] = {
     "uptrend": 1.10,
 }
 
-# Regime & mode → SmartSafe gating fraction (portion in safe asset)
+# Regime & mode → baseline SmartSafe gating fraction (portion in safe asset)
 REGIME_GATING: Dict[str, Dict[str, float]] = {
     "Standard": {
         "panic": 0.50,
@@ -90,6 +92,8 @@ REGIME_GATING: Dict[str, Dict[str, float]] = {
 # Volatility targeting
 PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized
 
+# VIX ticker
+VIX_TICKER = "^VIX"
 
 # ------------------------------------------------------------
 # Wave & Benchmark definitions
@@ -314,6 +318,69 @@ def _regime_from_return(ret_60d: float) -> str:
     return "uptrend"
 
 
+def _vix_exposure_factor(vix_level: float, mode: str) -> float:
+    """
+    Map VIX level to an exposure multiplier (before caps).
+    Higher VIX → lower exposure; lower VIX → allow modest expansion.
+    """
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 1.0
+
+    # Baseline by band
+    if vix_level < 15:
+        base = 1.15
+    elif vix_level < 20:
+        base = 1.05
+    elif vix_level < 25:
+        base = 0.95
+    elif vix_level < 30:
+        base = 0.85
+    elif vix_level < 40:
+        base = 0.75
+    else:
+        base = 0.60
+
+    # Mode tweaks
+    if mode == "Alpha-Minus-Beta":
+        # More defensive
+        base -= 0.05
+    elif mode == "Private Logic":
+        # Slightly more tolerant of vol
+        base += 0.05
+
+    # Soft clamp
+    return float(np.clip(base, 0.5, 1.3))
+
+
+def _vix_safe_fraction(vix_level: float, mode: str) -> float:
+    """
+    Additional SmartSafe allocation driven by VIX level.
+    This is ADDED to regime gating (capped later).
+    """
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 0.0
+
+    # Base schedule by VIX level
+    if vix_level < 18:
+        base = 0.00
+    elif vix_level < 24:
+        base = 0.05
+    elif vix_level < 30:
+        base = 0.15
+    elif vix_level < 40:
+        base = 0.25
+    else:
+        base = 0.40
+
+    # Mode-specific amplification
+    if mode == "Alpha-Minus-Beta":
+        base *= 1.5  # more aggressive SmartSafe use
+    elif mode == "Private Logic":
+        base *= 0.7  # trusts PL overlays more, less full sweep
+
+    return float(np.clip(base, 0.0, 0.8))
+
+
 def compute_history_nav(
     wave_name: str,
     mode: str = "Standard",
@@ -331,6 +398,7 @@ def compute_history_nav(
             - Momentum tilts
             - Volatility targeting
             - Regime / SmartSafe gating
+            - VIX-based exposure scaling + SmartSafe sweep
             - Mode-specific exposure and caps
             - Private Logic mean-reversion overlay
     """
@@ -348,12 +416,13 @@ def compute_history_nav(
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
 
-    # Always include SPY (regime index) and SGOV (SmartSafe proxy) for strategy logic.
+    # Always include SPY (regime index), VIX, and SGOV/BIL/SHY (SmartSafe proxies)
     base_index_ticker = "SPY"
     safe_candidates = ["SGOV", "BIL", "SHY"]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
+    all_tickers.add(VIX_TICKER)
     all_tickers.update(safe_candidates)
 
     all_tickers = sorted(all_tickers)
@@ -376,7 +445,7 @@ def compute_history_nav(
     # Daily returns
     ret_df = price_df.pct_change().fillna(0.0)
 
-    # Align weights to price columns
+    # Align weights to price columns (VIX will have weight zero)
     wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
     bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
 
@@ -400,6 +469,13 @@ def compute_history_nav(
     # Momentum signal: 60D return per asset
     mom_60 = price_df / price_df.shift(60) - 1.0
 
+    # VIX level series
+    if VIX_TICKER in price_df.columns:
+        vix_level_series = price_df[VIX_TICKER].copy()
+    else:
+        # Neutral fallback ~20
+        vix_level_series = pd.Series(20.0, index=price_df.index)
+
     # Choose safe asset ticker
     safe_ticker = None
     for t in safe_candidates:
@@ -420,35 +496,34 @@ def compute_history_nav(
     dates: List[pd.Timestamp] = []
 
     for i, dt in enumerate(ret_df.index):
-        # Current returns row
         rets = ret_df.loc[dt]
 
         # Regime now
         regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
         regime_exposure = REGIME_EXPOSURE[regime]
-        gating_fraction = REGIME_GATING[mode][regime]
+        regime_gate = REGIME_GATING[mode][regime]
+
+        # VIX level & its effects
+        vix_level = float(vix_level_series.get(dt, np.nan))
+        vix_exposure = _vix_exposure_factor(vix_level, mode)
+        vix_gate = _vix_safe_fraction(vix_level, mode)
 
         # Momentum tilt for this date
         mom_row = mom_60.loc[dt] if dt in mom_60.index else None
         if mom_row is not None:
             mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
-            # Clip momentum scores and convert to tilt factors
             mom_clipped = mom_series.clip(lower=-0.30, upper=0.30)
-            # Strong winners get up to ~+24% tilt, laggards up to ~-24%
             tilt_factor = 1.0 + 0.8 * mom_clipped
-            # Apply tilt only to Wave components
             effective_weights = wave_weights_aligned * tilt_factor
         else:
             effective_weights = wave_weights_aligned.copy()
 
-        # Normalize risk weights (only among risk assets, safe asset handled separately)
-        # Ensure no negative weights
+        # Normalize risk weights (only among risk assets; safe asset handled separately)
         effective_weights = effective_weights.clip(lower=0.0)
         risk_weight_total = effective_weights.sum()
         if risk_weight_total > 0:
             risk_weights = effective_weights / risk_weight_total
         else:
-            # Degenerate: fallback to original weights
             risk_weights = wave_weights_aligned.copy()
 
         # Base risk portfolio return (without SmartSafe / exposure scaling)
@@ -467,19 +542,18 @@ def compute_history_nav(
             vol_adjust = PORTFOLIO_VOL_TARGET / recent_vol
             vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
 
-        # Combined exposure factor
-        raw_exposure = mode_base_exposure * regime_exposure * vol_adjust
+        # Combined exposure factor (before caps)
+        raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
         exposure = float(np.clip(raw_exposure, exp_min, exp_max))
 
-        # Split between safe and risk sleeves
-        safe_fraction = gating_fraction
+        # SmartSafe fractions: regime + VIX, capped
+        safe_fraction = regime_gate + vix_gate
+        safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
         risk_fraction = 1.0 - safe_fraction
 
         base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
 
         # Private Logic™ mean-reversion overlay:
-        #   - If a daily move is a big negative shock vs recent vol → lean in slightly.
-        #   - If a daily move is a big positive spike → take some profits.
         total_ret = base_total_ret
         if mode == "Private Logic" and len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
