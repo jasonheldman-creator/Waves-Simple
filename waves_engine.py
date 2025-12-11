@@ -1,18 +1,21 @@
 """
-waves_engine.py — WAVES Intelligence™ Stage 9 Engine
+waves_engine.py — WAVES Intelligence™ Stage 10 Engine
 
 Features
 --------
 • Loads wave_weights.csv (wave, ticker, weight) and discovers all Waves.
-• Stage 9 logic:
+• Stage 10 logic:
     - Wave-specific benchmark blends (ETF baskets).
     - Momentum-tilted weights (6-month trend).
+    - Quarterly rebalancing simulation (drift + rebalance).
+    - Estimated annual turnover from those rebalances.
     - Beta discipline vs each Wave's benchmark.
     - SmartSafe 2.0 (VIX-based base sweep to BIL).
     - SmartSafe 3.0 (Wave-specific extra sweep based on stress / panic).
 • Computes intraday (placeholder), 30D, 60D, 1Y, and since-inception returns
   and alpha vs each Wave's benchmark.
-• Computes 1Y volatility, max drawdown, info ratio, hit rate, and beta.
+• Computes 1Y volatility, max drawdown, info ratio, hit rate, beta, and
+  turnover / execution telemetry.
 • Returns a snapshot dict per Wave compatible with app.py:
     {
         "benchmark": "<human readable blend>",
@@ -39,7 +42,7 @@ else:
     _YF_ERROR = None
 
 # ---------------------------------------------------------------------
-# Wave configuration: benchmarks + Stage 9 parameters
+# Wave configuration: benchmarks + Stage 10 parameters
 # ---------------------------------------------------------------------
 
 
@@ -79,7 +82,7 @@ WAVE_CONFIGS: Dict[str, WaveConfig] = {
         smartsafe_factor=1.0,
     ),
     "Small Cap Growth Wave": WaveConfig(
-        # Stage 9 improvement: small caps vs realistic benchmark
+        # Small caps vs realistic benchmark
         benchmark={"IWM": 0.6, "QQQ": 0.2, "ARKK": 0.2},
         beta_target=1.2,
         momentum_tilt_strength=0.8,
@@ -95,7 +98,7 @@ WAVE_CONFIGS: Dict[str, WaveConfig] = {
     ),
     # AI / Tech Waves
     "AI Wave": WaveConfig(
-        # Google-style blend you liked
+        # 40% SMH + 30% IGV + 30% AIQ
         benchmark={"SMH": 0.4, "IGV": 0.3, "AIQ": 0.3},
         beta_target=1.15,
         momentum_tilt_strength=0.9,
@@ -103,7 +106,7 @@ WAVE_CONFIGS: Dict[str, WaveConfig] = {
         smartsafe_factor=1.1,
     ),
     "Cloud & Software Wave": WaveConfig(
-        # Stage 9 improvement: SaaS-aligned benchmark
+        # SaaS-aligned benchmark
         benchmark={"WCLD": 0.6, "QQQ": 0.4},
         beta_target=1.1,
         momentum_tilt_strength=0.8,
@@ -111,7 +114,6 @@ WAVE_CONFIGS: Dict[str, WaveConfig] = {
         smartsafe_factor=1.0,
     ),
     "Quantum Computing Wave": WaveConfig(
-        # Stage 9 improvement: realistic, still demanding benchmark
         benchmark={"QQQ": 0.4, "ARKK": 0.3, "SOXX": 0.3},
         beta_target=1.25,
         momentum_tilt_strength=0.9,
@@ -134,7 +136,7 @@ WAVE_CONFIGS: Dict[str, WaveConfig] = {
     ),
     # Crypto Waves
     "Crypto Equity Wave (mid/large cap)": WaveConfig(
-        # WGMI/BLOK/BITQ composite
+        # 50/30/20 WGMI/BLOK/BITQ blend
         benchmark={"WGMI": 0.5, "BLOK": 0.3, "BITQ": 0.2},
         beta_target=1.5,
         momentum_tilt_strength=0.9,
@@ -244,7 +246,7 @@ def get_available_waves(csv_path: str = "wave_weights.csv") -> List[str]:
     return waves
 
 
-# Cache for prices to keep things reasonably fast
+# Price cache
 _PRICE_CACHE: Dict[Tuple[str, str], pd.DataFrame] = {}
 
 
@@ -391,7 +393,7 @@ _SMARTSAFE_BASE_SWEEP = {
 
 
 # ---------------------------------------------------------------------
-# Stage 9: core computation
+# Stage 10: core computation (with drift + quarterly rebalance)
 # ---------------------------------------------------------------------
 
 
@@ -401,7 +403,7 @@ def _compute_wave_series(
     weights_df: pd.DataFrame,
 ) -> Dict[str, object]:
     """
-    Build the Wave time series and metrics in Stage 9 style.
+    Build the Wave time series and metrics in Stage 10 style.
     Returns dict with keys: benchmark, metrics, positions
     """
 
@@ -415,9 +417,9 @@ def _compute_wave_series(
     # Mode-aware beta target tweaks (simple)
     mode_lower = (mode or "standard").lower()
     beta_target = cfg.beta_target
-    if "amb" in mode_lower:
+    if "amb" in mode_lower:   # Alpha-Minus-Beta
         beta_target = cfg.beta_target * 0.85
-    elif "pl" in mode_lower:
+    elif "pl" in mode_lower:  # Private Logic
         beta_target = cfg.beta_target * 1.10
 
     tickers = sub["ticker"].tolist()
@@ -433,14 +435,14 @@ def _compute_wave_series(
     returns = prices.pct_change().dropna(how="all")
 
     # Align base_weights with available tickers
-    valid_mask = sub["ticker"].isin(prices.columns)
+    valid_mask = sub["ticker"].isin(returns.columns)
     sub = sub[valid_mask]
     sub = sub.copy()
     sub["weight"] = sub["weight"] / sub["weight"].sum()
     tickers = sub["ticker"].tolist()
     base_weights = sub["weight"].values
 
-    # 6-month momentum for Stage 9 momentum tilts
+    # 6-month momentum for Stage 10 momentum tilts
     lookback_mom = 126  # ~6 months
     mom = {}
     for t in tickers:
@@ -485,21 +487,50 @@ def _compute_wave_series(
                 w[under] += excess * (w[under] / w[under].sum())
         adj_weights = w / w.sum()
 
-    # Build Wave daily return series
-    port_returns = pd.Series(0.0, index=returns.index)
-    for t, w in zip(tickers, adj_weights):
-        if t in returns.columns:
-            port_returns = port_returns.add(w * returns[t].fillna(0.0), fill_value=0.0)
+    # Stage 10: simulate daily drift + quarterly rebalancing
+    rebalance_every = 63  # ~63 trading days ≈ quarterly
+    dates = returns.index
+    port_ret_list: List[float] = []
+    turnover_list: List[float] = []
 
-    # Benchmark series
-    bench_returns = pd.Series(0.0, index=returns.index)
-    for t, w in bench_map.items():
+    # initialise weights
+    w = adj_weights.copy()
+    last_rebalance_w = w.copy()
+
+    ret_matrix = returns[tickers].fillna(0.0).values
+
+    for i, date in enumerate(dates):
+        r_vec = ret_matrix[i, :]
+        # portfolio return from current weights
+        port_ret = float(np.dot(w, r_vec))
+        port_ret_list.append(port_ret)
+
+        # update weights after returns (drift)
+        w = w * (1.0 + r_vec)
+        if w.sum() <= 0:
+            w = adj_weights.copy()
+        else:
+            w = w / w.sum()
+
+        # rebalance periodically back to target adj_weights
+        if (i + 1) % rebalance_every == 0:
+            # turnover is 0.5 * sum |w_new - w_old|
+            turnover = 0.5 * float(np.abs(adj_weights - w).sum())
+            turnover_list.append(turnover)
+            w = adj_weights.copy()
+            last_rebalance_w = w.copy()
+
+    port_returns = pd.Series(port_ret_list, index=dates)
+
+    # Benchmark series (static blend of ETFs)
+    bench_returns = pd.Series(0.0, index=dates)
+    for t, w_b in bench_map.items():
         if t not in returns.columns:
             extra = _load_price_history([t], period="3y").pct_change().dropna()
             if t in extra.columns:
                 returns[t] = extra[t]
         if t in returns.columns:
-            bench_returns = bench_returns.add(w * returns[t].fillna(0.0), fill_value=0.0)
+            bench_returns = bench_returns.add(w_b * returns[t].fillna(0.0), fill_value=0.0)
 
     # Clip to common period
     common_idx = port_returns.dropna().index.intersection(bench_returns.dropna().index)
@@ -564,7 +595,16 @@ def _compute_wave_series(
     base_sweep = _SMARTSAFE_BASE_SWEEP.get(regime, 0.0)
     extra_sweep = base_sweep * cfg.smartsafe_factor
 
-    turnover_1d = 0.0
+    # Turnover telemetry
+    if len(turnover_list) > 0:
+        # quarterly turnovers -> approximate 1Y turnover from last 4
+        last_turns = turnover_list[-4:] if len(turnover_list) >= 4 else turnover_list
+        turnover_1y_est = float(np.mean(last_turns))
+    else:
+        turnover_1y_est = 0.0
+
+    turnover_1d = float(turnover_1y_est / 252.0)
+
     if regime in ("Stress", "Panic"):
         execution_regime = "Defensive"
     elif regime == "Caution":
@@ -574,15 +614,15 @@ def _compute_wave_series(
 
     intraday_return = 0.0  # placeholder
 
-    # Positions DataFrame (top 10)
+    # Positions DataFrame (top 10) — show current tilted target weights
     latest_prices = prices.iloc[-1]
     pos_rows = []
-    for t, w in zip(tickers, adj_weights):
+    for t, w_t in zip(tickers, adj_weights):
         last_px = float(latest_prices.get(t, np.nan))
         pos_rows.append(
             {
                 "ticker": t,
-                "weight": float(w),
+                "weight": float(w_t),
                 "last_price": last_px if np.isfinite(last_px) else np.nan,
             }
         )
@@ -590,8 +630,8 @@ def _compute_wave_series(
 
     # Human-readable benchmark string
     bench_str_parts = []
-    for t, w in bench_map.items():
-        bench_str_parts.append(f"{int(round(w * 100))}% {t}")
+    for t, w_b in bench_map.items():
+        bench_str_parts.append(f"{int(round(w_b * 100))}% {t}")
     benchmark_str = " + ".join(bench_str_parts)
 
     metrics = {
@@ -617,6 +657,8 @@ def _compute_wave_series(
         "smartsafe3_state": regime,
         "smartsafe3_extra_fraction": extra_sweep,
         "turnover_1d": turnover_1d,
+        "turnover_1y_est": turnover_1y_est,
+        "rebalance_frequency_days": rebalance_every,
         "execution_regime": execution_regime,
     }
 
