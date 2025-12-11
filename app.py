@@ -1,219 +1,175 @@
-"""
-app.py — WAVES Intelligence™ Institutional Console (Restored)
-
-Key features
-------------
-- Imports compute_history_nav from waves_engine.py (Option B).
-- Portfolio-Level Overview:
-    • All Waves
-    • Last NAV
-    • 365D return
-    • 30D return
-- Wave Detail:
-    • NAV chart
-    • Metrics summary
-    • Top 10 holdings with clickable Google Finance links
-- Mode selection:
-    • Standard
-    • Alpha-Minus-Beta
-    • Private Logic
-"""
-
-import math
-
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from waves_engine import (
     get_all_waves,
-    get_portfolio_overview,
     get_wave_positions,
     compute_history_nav,
+    get_portfolio_overview,
 )
-
-# -----------------------------#
-# Streamlit page config
-# -----------------------------#
 
 st.set_page_config(
     page_title="WAVES Intelligence™ Institutional Console",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-# -----------------------------#
+
+# ----------------------------------------------------
+# Utility helpers
+# ----------------------------------------------------
+
+def fmt_pct(x):
+    if pd.isna(x):
+        return "—"
+    return f"{x * 100:0.1f}%"
+
+
+def fmt_nav(x):
+    if pd.isna(x):
+        return "—"
+    return f"{x:0.3f}"
+
+
+def build_holdings_table(wave_name: str):
+    df = get_wave_positions(wave_name).copy()
+    df = df.sort_values("Weight", ascending=False)
+    df_top = df.head(10).copy()
+    df_top["Weight"] = df_top["Weight"].apply(fmt_pct)
+
+    # Build Markdown table with clickable Google Finance links
+    lines = ["| Ticker | Weight |", "|--------|--------|"]
+    for _, row in df_top.iterrows():
+        t = row["Ticker"]
+        w = row["Weight"]
+        link = f"[{t}](https://www.google.com/finance/quote/{t}:NASDAQ)"
+        lines.append(f"| {link} | {w} |")
+    return "\n".join(lines)
+
+
+# ----------------------------------------------------
 # Sidebar controls
-# -----------------------------#
+# ----------------------------------------------------
 
 st.sidebar.title("WAVES Intelligence™")
-st.sidebar.caption("Vector OS · Institutional Console")
+st.sidebar.markdown("**Mode:**")
 
-# Mode selector
 mode = st.sidebar.radio(
-    "Risk Mode",
-    options=["Standard", "Alpha-Minus-Beta", "Private Logic"],
+    "",
+    ["Standard", "Alpha-Minus-Beta", "Private Logic"],
     index=0,
 )
 
-# Lookback for charts (detail view)
-lookback_days = st.sidebar.selectbox(
-    "Lookback window (detail view)",
-    options=[365, 730],
-    index=0,
-    format_func=lambda x: f"{x} days",
-)
+lookback_days = 365
+short_lookback_days = 30
 
-# Load Waves list
-try:
-    waves = get_all_waves()
-except Exception as e:
-    st.error(f"Error loading Waves from wave_weights.csv: {e}")
-    st.stop()
-
-if not waves:
-    st.error("No Waves found in wave_weights.csv.")
-    st.stop()
-
-selected_wave = st.sidebar.selectbox("Select Wave", options=waves, index=0)
+waves = get_all_waves()
+default_wave = "AI Wave" if "AI Wave" in waves else waves[0]
+selected_wave = st.sidebar.selectbox("Select Wave", waves, index=waves.index(default_wave))
 
 st.sidebar.markdown("---")
-st.sidebar.caption("NAV & returns are approximate and for demonstration only.\nNot investment advice.")
-
-
-# -----------------------------#
-# Main layout: Overview + Detail
-# -----------------------------#
+st.sidebar.caption("NAV normalized to 1.0 at start of lookback window.")
+# ----------------------------------------------------
+# Main Title
+# ----------------------------------------------------
 
 st.title("Portfolio-Level Overview")
 
-# --- Portfolio-Level Overview ---
-
-try:
-    overview_df = get_portfolio_overview(
-        mode=mode,
-        long_lookback_days=365,
-        short_lookback_days=30,
-    )
-except Exception as e:
-    st.error(f"Error computing portfolio overview: {e}")
-    overview_df = None
-
-if overview_df is not None:
-    display_df = overview_df.copy()
-
-    # Formatting for display
-    display_df["NAV (last)"] = display_df["NAV_last"].map(
-        lambda x: f"{x:,.3f}" if isinstance(x, (int, float)) and not math.isnan(x) else "—"
-    )
-    display_df["365D Return"] = display_df["Return_365D"].map(
-        lambda x: f"{x*100:,.1f}%" if isinstance(x, (int, float)) and not math.isnan(x) else "—"
-    )
-    display_df["30D Return"] = display_df["Return_30D"].map(
-        lambda x: f"{x*100:,.1f}%" if isinstance(x, (int, float)) and not math.isnan(x) else "—"
-    )
-
-    display_df = display_df[["Wave", "NAV (last)", "365D Return", "30D Return"]]
-
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
 st.markdown(
-    """
-NAV is normalized to 1.0 at the start of the 365D window.  
-Returns are cumulative over the selected periods.
-"""
+    f"**Current Mode:** `{mode}`  •  Lookback: **{lookback_days} days**  •  "
+    f"Short window: **{short_lookback_days} days**"
+)
+
+# ----------------------------------------------------
+# Overview Table (with alpha vs S&P 500)
+# ----------------------------------------------------
+
+overview_df = get_portfolio_overview(
+    mode=mode,
+    long_lookback_days=lookback_days,
+    short_lookback_days=short_lookback_days,
+).copy()
+
+display_df = overview_df.copy()
+display_df["NAV (last)"] = display_df["NAV_last"].apply(fmt_nav)
+display_df["365D Return"] = display_df["Return_365D"].apply(fmt_pct)
+display_df["30D Return"] = display_df["Return_30D"].apply(fmt_pct)
+display_df["365D Alpha vs S&P"] = display_df["Alpha_365D"].apply(fmt_pct)
+display_df["30D Alpha vs S&P"] = display_df["Alpha_30D"].apply(fmt_pct)
+
+display_df = display_df[
+    [
+        "Wave",
+        "NAV (last)",
+        "365D Return",
+        "30D Return",
+        "365D Alpha vs S&P",
+        "30D Alpha vs S&P",
+    ]
+]
+
+st.dataframe(
+    display_df,
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.caption(
+    "NAV is normalized to 1.0 at the start of the 365D window. "
+    "Returns and alpha are cumulative over the selected periods."
 )
 
 st.markdown("---")
-
-# -----------------------------#
+# ----------------------------------------------------
 # Wave Detail Section
-# -----------------------------#
+# ----------------------------------------------------
 
 st.header(f"Wave Detail — {selected_wave}")
 
-col1, col2 = st.columns([2, 1])
+# NAV history
+try:
+    hist = compute_history_nav(selected_wave, lookback_days=lookback_days, mode=mode)
+except Exception as e:
+    st.error(f"Error computing NAV history for {selected_wave}: {e}")
+    hist = None
 
-# --- Column 1: NAV chart ---
+if hist is not None and not hist.empty:
+    hist = hist.copy()
+    hist.index.name = "Date"
+    hist_reset = hist.reset_index()
 
-with col1:
+    # Chart
     st.subheader("NAV History")
+    st.line_chart(
+        hist_reset.set_index("Date")[["NAV"]],
+        use_container_width=True,
+    )
 
-    try:
-        nav_df = compute_history_nav(
-            wave_name=selected_wave,
-            lookback_days=lookback_days,
-            mode=mode,
-        )
-    except Exception as e:
-        st.error(f"Error computing NAV history for {selected_wave}: {e}")
-        nav_df = None
+    # Summary stats
+    nav_last = fmt_nav(hist["NAV"].iloc[-1])
+    total_ret = fmt_pct(hist["CumReturn"].iloc[-1])
 
-    if nav_df is not None and not nav_df.empty:
-        nav_display = nav_df.copy()
-        nav_display = nav_display.reset_index().rename(columns={"index": "Date"})
-        nav_display["Date"] = pd.to_datetime(nav_display.index)
-
-        st.line_chart(
-            nav_df["NAV"],
-            use_container_width=True,
-        )
-
-        # Summary stats
-        nav_last = float(nav_df["NAV"].iloc[-1])
-        cum_ret = float(nav_df["CumReturn"].iloc[-1])
-
-        st.metric(
-            label=f"{lookback_days}D Cumulative Return",
-            value=f"{cum_ret*100:,.1f}%",
-        )
+    if len(hist) > short_lookback_days:
+        short_slice = hist.iloc[-short_lookback_days:]
+        short_ret = fmt_pct(short_slice["NAV"].iloc[-1] / short_slice["NAV"].iloc[0] - 1.0)
     else:
-        st.info("No NAV history available for this Wave and lookback window.")
+        short_ret = total_ret
 
-# --- Column 2: Metrics + Top 10 ---
+    col1, col2, col3 = st.columns(3)
+    col1.metric("NAV (last)", nav_last)
+    col2.metric(f"{lookback_days}D Return", total_ret)
+    col3.metric(f"{short_lookback_days}D Return", short_ret)
+else:
+    st.warning("No NAV history available for this Wave and lookback window.")
 
-with col2:
-    st.subheader("Top 10 Holdings")
+st.markdown("---")
 
-    try:
-        positions_df = get_wave_positions(selected_wave)
-    except Exception as e:
-        st.error(f"Error loading positions for {selected_wave}: {e}")
-        positions_df = None
-
-    if positions_df is not None and not positions_df.empty:
-        positions_df = positions_df.sort_values("Weight", ascending=False).reset_index(drop=True)
-        top10 = positions_df.head(10).copy()
-
-        # Build Google Finance links
-        def google_link(ticker: str) -> str:
-            url = f"https://www.google.com/finance/quote/{ticker}:NASDAQ"
-            # Keep it simple; user can adjust exchange suffix as needed.
-            return f"[{ticker}]({url})"
-
-        top10["Ticker"] = top10["Ticker"].astype(str).str.upper()
-        top10["Weight"] = top10["Weight"].astype(float)
-
-        display_top10 = pd.DataFrame(
-            {
-                "Ticker": top10["Ticker"].apply(google_link),
-                "Weight": top10["Weight"].map(lambda x: f"{x*100:,.2f}%"),
-            }
-        )
-
-        # Use st.markdown to keep links clickable
-        st.markdown("Top 10 by target weight (click ticker for Google Finance):")
-        st.write(display_top10.to_markdown(index=False))
-    else:
-        st.info("No positions available for this Wave.")
-
-
-# -----------------------------#
-# Footer
-# -----------------------------#
+# Top 10 holdings
+st.subheader("Top 10 Holdings (by target weight)")
+try:
+    markdown_table = build_holdings_table(selected_wave)
+    st.markdown(markdown_table, unsafe_allow_html=True)
+except Exception as e:
+    st.error(f"Error loading holdings for {selected_wave}: {e}")
 
 st.markdown("---")
 st.caption(
