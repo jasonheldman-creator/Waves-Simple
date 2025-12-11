@@ -1,11 +1,349 @@
-date,symbol,close
-2024-06-01,SPY,425
-2024-06-01,VIX,16
-2024-06-02,SPY,426
-2024-06-02,VIX,17
-2024-06-03,SPY,427
-2024-06-03,VIX,18
-2024-06-04,SPY,430
-2024-06-04,VIX,19
-2024-06-05,SPY,433
-2024-06-05,VIX,20
+"""
+waves_history_engine.py — WAVES Intelligence™ Historical Rebuild
+
+Purpose
+-------
+Rebuilds daily NAV and alpha history for each Wave using:
+- Current target weights from wave_weights.csv
+- Monthly rebalancing (Option B)
+- Custom blended benchmarks per Wave
+
+Outputs
+-------
+For each Wave, writes logs/performance/<wave_slug>_history.csv with columns:
+    date
+    wave_nav
+    bench_nav
+    wave_return
+    bench_return
+    daily_alpha
+    cum_wave_return
+    cum_bench_return
+    cum_alpha
+
+Run
+---
+From your repo root (same folder as app.py):
+
+    python waves_history_engine.py
+
+Requires:
+    pip install yfinance pandas numpy
+"""
+
+import os
+import re
+import datetime as dt
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+
+# ---------- CONFIG ------------------------------------------------------------------ #
+
+WAVE_WEIGHTS_CSV = "wave_weights.csv"
+OUTPUT_DIR = os.path.join("logs", "performance")
+
+# Start date for historical rebuild (you can move earlier if you want)
+DEFAULT_START_DATE = "2015-01-01"
+
+# Map Wave names -> benchmark blend strings
+# Blend format: "40% SMH + 30% IGV + 30% AIQ"
+WAVE_BENCHMARKS: Dict[str, str] = {
+    # Core Waves
+    "S&P Wave": "SPY",
+    "SmartSafe Wave": "BIL",
+
+    # From your custom list (you can tweak tickers/weights here)
+    "AI Wave": "50% SMH + 50% AIQ",
+    "Clean Transit-Infrastructure Wave": "40% SPY + 40% QQQ + 20% IWM",
+    "Cloud & Software Wave": "50% QQQ + 40% WCLD + 30% HACK",
+    # Crypto Equity Wave updated per Copilot idea
+    "Crypto Equity Wave": "50% WGMI + 30% BLOK + 20% BITQ",
+    "Future Power & Energy Wave": "40% QQQ + 30% BUG + 30% WCLD",
+    "Growth Wave": "40% QQQ + 30% BUG + 30% WCLD",
+    "Quantum Computing Wave": "50% QQQ + 25% SOXX + 25% ARKK",
+    "Small-Cap Growth Wave": "40% ARKK + 30% IPAY + 30% XLY",
+
+    # Fallbacks (if a wave isn’t listed above, we’ll handle later)
+    # You can add more explicit mappings anytime.
+}
+
+
+# ---------- HELPERS ----------------------------------------------------------------- #
+
+def slugify(name: str) -> str:
+    """Convert Wave name to a filesystem-friendly slug."""
+    s = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
+    return s.lower() or "wave"
+
+
+def ensure_output_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+def parse_blend(blend: str) -> Dict[str, float]:
+    """
+    Parse a benchmark blend like '40% SMH + 30% IGV + 30% AIQ'
+    into {'SMH': 0.4, 'IGV': 0.3, 'AIQ': 0.3}.
+    """
+    blend = blend.replace(" ", "")
+    parts = blend.split("+")
+    weights = {}
+    for part in parts:
+        if "%" in part:
+            w_str, ticker = part.split("%")
+            w = float(w_str) / 100.0
+        else:
+            w = 1.0
+            ticker = part
+        weights[ticker.upper()] = weights.get(ticker.upper(), 0.0) + w
+
+    total = sum(weights.values())
+    if total <= 0:
+        raise ValueError(f"Invalid blend string: {blend}")
+    for k in list(weights.keys()):
+        weights[k] = weights[k] / total
+    return weights
+
+
+def load_wave_weights(csv_path: str) -> pd.DataFrame:
+    """
+    Load wave_weights.csv and do minimal cleaning.
+    Expected columns: wave, ticker, weight
+    """
+    df = pd.read_csv(csv_path)
+    expected = {"wave", "ticker", "weight"}
+    missing = expected - set(df.columns.str.lower())
+    if missing:
+        raise ValueError(f"wave_weights.csv missing columns: {missing}")
+
+    # Normalize column names
+    cols = {c: c.lower() for c in df.columns}
+    df.rename(columns=cols, inplace=True)
+
+    # Basic cleaning
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+    df["weight"] = df["weight"].astype(float)
+
+    # Re-normalize weights per wave to sum to 1
+    df["weight"] = df.groupby("wave")["weight"].transform(lambda x: x / x.sum())
+
+    return df
+
+
+def fetch_price_history(tickers: List[str], start_date: str) -> pd.DataFrame:
+    """
+    Fetch daily adjusted close prices for a list of tickers from yfinance.
+    Returns a DataFrame indexed by date with columns = tickers.
+    """
+    tickers_str = " ".join(sorted(set(tickers)))
+    print(f"Downloading price history for {len(tickers)} tickers since {start_date} ...")
+
+    data = yf.download(
+        tickers=tickers_str,
+        start=start_date,
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+    )
+
+    # yfinance returns different shapes for 1 vs many tickers
+    if isinstance(data.columns, pd.MultiIndex):
+        closes = {}
+        for t in sorted(set(tickers)):
+            if t in data.columns.get_level_values(0):
+                closes[t] = data[t]["Close"]
+        price_df = pd.DataFrame(closes)
+    else:
+        # Single ticker
+        price_df = pd.DataFrame({tickers[0]: data["Close"]})
+
+    price_df = price_df.dropna(how="all")
+    price_df = price_df.sort_index()
+    return price_df
+
+
+def build_portfolio_nav(price_df: pd.DataFrame,
+                        weights: Dict[str, float],
+                        start_value: float = 100.0) -> pd.Series:
+    """
+    Build a portfolio NAV series using constant weights WITH monthly rebalancing.
+
+    - price_df: DataFrame of prices with index=date, columns=tickers
+    - weights: dict ticker -> target weight (will be renormalized to tickers present)
+    - start_value: initial NAV (e.g., 100)
+
+    For each calendar month:
+        - We use the same weights for that month
+        - On month change, we "rebalance" (reset weights back to target)
+    """
+    price_df = price_df.dropna(how="all")
+    common_cols = [c for c in price_df.columns if c in weights]
+    if not common_cols:
+        raise ValueError("No overlapping tickers between price_df and weights.")
+
+    # Renormalize weights across available tickers
+    w_series = pd.Series({t: weights[t] for t in common_cols})
+    w_series = w_series / w_series.sum()
+
+    returns = price_df[common_cols].pct_change().fillna(0.0)
+
+    nav_values = []
+    nav = start_value
+    last_month = None
+
+    for date, row in returns.iterrows():
+        month = (date.year, date.month)
+        if last_month is None:
+            last_month = month
+        elif month != last_month:
+            # Rebalance: effectively reset drift, but since we always use
+            # target weights to compute daily return, just update month tag.
+            last_month = month
+
+        # Weighted daily return
+        day_ret = float((row * w_series).sum())
+        nav *= (1.0 + day_ret)
+        nav_values.append(nav)
+
+    nav_series = pd.Series(nav_values, index=returns.index, name="nav")
+    return nav_series
+
+
+def build_history_for_wave(wave_name: str,
+                           wave_df: pd.DataFrame,
+                           price_data: pd.DataFrame,
+                           bench_prices: pd.DataFrame,
+                           bench_blend: str) -> pd.DataFrame:
+    """
+    Build full history for a single Wave:
+    - nav vs own holdings
+    - nav vs benchmark blend
+    - daily & cumulative returns and alpha
+    """
+    print(f"\n=== Building history for Wave: {wave_name} ===")
+
+    # Prepare Wave weights dict
+    wave_slice = wave_df[wave_df["wave"] == wave_name].copy()
+    if wave_slice.empty:
+        raise ValueError(f"No rows found in wave_weights.csv for Wave '{wave_name}'")
+
+    weights = (
+        wave_slice
+        .groupby("ticker")["weight"]
+        .sum()
+        .to_dict()
+    )
+
+    # Price subset for this Wave
+    wave_tickers = [t for t in price_data.columns if t in weights]
+    wave_prices = price_data[wave_tickers].dropna(how="all")
+    if wave_prices.empty:
+        raise ValueError(f"No price history for any tickers in Wave '{wave_name}'")
+
+    # Wave NAV
+    wave_nav = build_portfolio_nav(wave_prices, weights, start_value=100.0)
+
+    # Benchmark NAV
+    bench_weights = parse_blend(bench_blend)
+    bench_tickers = [t for t in bench_prices.columns if t in bench_weights]
+    if not bench_tickers:
+        raise ValueError(
+            f"No benchmark tickers found for Wave '{wave_name}' with blend '{bench_blend}'"
+        )
+    bench_nav = build_portfolio_nav(
+        bench_prices[bench_tickers], bench_weights, start_value=100.0
+    )
+
+    # Align series
+    df = pd.DataFrame({
+        "wave_nav": wave_nav,
+        "bench_nav": bench_nav,
+    }).dropna()
+
+    # Daily returns
+    df["wave_return"] = df["wave_nav"].pct_change().fillna(0.0)
+    df["bench_return"] = df["bench_nav"].pct_change().fillna(0.0)
+
+    # Daily alpha
+    df["daily_alpha"] = df["wave_return"] - df["bench_return"]
+
+    # Cumulative returns (from 0 = start)
+    df["cum_wave_return"] = (1.0 + df["wave_return"]).cumprod() - 1.0
+    df["cum_bench_return"] = (1.0 + df["bench_return"]).cumprod() - 1.0
+    df["cum_alpha"] = df["cum_wave_return"] - df["cum_bench_return"]
+
+    df.index = df.index.rename("date")
+    return df
+
+
+# ---------- MAIN PIPELINE ---------------------------------------------------------- #
+
+def main(start_date: str = DEFAULT_START_DATE) -> None:
+    print("WAVES Intelligence™ — Historical Rebuild Utility")
+    print("Start date:", start_date)
+
+    ensure_output_dir(OUTPUT_DIR)
+
+    # 1) Load weights
+    wave_df = load_wave_weights(WAVE_WEIGHTS_CSV)
+    wave_names = sorted(wave_df["wave"].unique())
+    print(f"Found {len(wave_names)} Waves in {WAVE_WEIGHTS_CSV}.")
+
+    # 2) Determine universe of tickers (for Waves and benchmarks)
+    wave_tickers = sorted(wave_df["ticker"].unique())
+
+    bench_tickers = set()
+    for wave in wave_names:
+        blend = WAVE_BENCHMARKS.get(wave)
+        if blend:
+            bweights = parse_blend(blend)
+            bench_tickers.update(bweights.keys())
+
+    all_wave_tickers = wave_tickers
+    all_bench_tickers = sorted(bench_tickers)
+
+    # 3) Download prices
+    price_data = fetch_price_history(all_wave_tickers, start_date)
+    bench_price_data = fetch_price_history(all_bench_tickers, start_date)
+
+    # 4) Build history for each Wave
+    for wave in wave_names:
+        benchmark_blend = WAVE_BENCHMARKS.get(wave)
+
+        # Simple fallback rule: if no custom benchmark defined,
+        # try these in order: SPY, QQQ, BIL.
+        if not benchmark_blend:
+            if wave == "SmartSafe Wave":
+                benchmark_blend = "BIL"
+            else:
+                benchmark_blend = "SPY"
+
+        try:
+            hist_df = build_history_for_wave(
+                wave_name=wave,
+                wave_df=wave_df,
+                price_data=price_data,
+                bench_prices=bench_price_data,
+                bench_blend=benchmark_blend,
+            )
+        except Exception as e:
+            print(f"!! Failed for Wave '{wave}': {e}")
+            continue
+
+        # 5) Save to CSV
+        slug = slugify(wave)
+        out_path = os.path.join(OUTPUT_DIR, f"{slug}_history.csv")
+        hist_df.to_csv(out_path)
+        print(f"Saved history for '{wave}' to: {out_path}")
+
+    print("\nDone. Historical rebuild complete.")
+
+
+if __name__ == "__main__":
+    # You can change the start date here if you want longer history.
+    main(start_date=DEFAULT_START_DATE)
