@@ -1,1465 +1,639 @@
 """
-waves_engine.py — WAVES Intelligence™ Engine
-Stage 8+: Wave-Specific Alpha Engine + Adaptive Momentum + Engineered Concentration
-          + SmartSafe 2.0 + SmartSafe 3.0 (LIVE) + Turnover / Execution Telemetry
+waves_engine.py — WAVES Intelligence™ Stage 9 Engine
+
+Features
+--------
+• Loads wave_weights.csv (wave, ticker, weight) and discovers all Waves.
+• Stage 9 logic:
+    - Wave-specific benchmark blends (ETF baskets).
+    - Momentum-tilted weights (6-month trend).
+    - Beta discipline vs each Wave's benchmark.
+    - SmartSafe 2.0 (VIX-based base sweep to BIL).
+    - SmartSafe 3.0 (Wave-specific extra sweep based on stress / panic).
+• Computes intraday (placeholder), 30D, 60D, 1Y, and since-inception returns
+  and alpha vs each Wave's benchmark.
+• Computes 1Y volatility, max drawdown, info ratio, hit rate, and beta.
+• Returns a snapshot dict per Wave compatible with app.py:
+    {
+        "benchmark": "<human readable blend>",
+        "metrics": { ... },
+        "positions": pd.DataFrame([...])
+    }
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+import os
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+
+try:
+    import yfinance as yf
+except Exception as e:  # pragma: no cover
+    yf = None
+    _YF_ERROR = str(e)
+else:
+    _YF_ERROR = None
 
 # ---------------------------------------------------------------------
-# Paths / Constants
+# Wave configuration: benchmarks + Stage 9 parameters
 # ---------------------------------------------------------------------
 
-BASE_DIR = Path(".")
-DATA_DIR = BASE_DIR
-WEIGHTS_CSV = DATA_DIR / "wave_weights.csv"
-UNIVERSE_CSV = DATA_DIR / "list.csv"
 
-LOGS_DIR = BASE_DIR / "logs"
-POSITIONS_LOG_DIR = LOGS_DIR / "positions"
-PERF_LOG_DIR = LOGS_DIR / "performance"
+@dataclass
+class WaveConfig:
+    benchmark: Dict[str, float]  # ETF -> weight
+    beta_target: float = 1.0
+    momentum_tilt_strength: float = 0.5  # 0 = none, 1 = strong
+    max_weight: float = 0.12
+    smartsafe_factor: float = 1.0  # extra sweep amplification for 3.0
 
-for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
 
-DAILY_RETURN_CLIP = 0.20  # +/-20% clamp
-TRADING_DAYS_1Y = 252
-
-# Mode tokens
-MODE_STANDARD = "standard"
-MODE_AMB = "amb"
-MODE_PRIVATE_LOGIC = "pl"
-
-# ---------------------------------------------------------------------
-# Benchmarks
-# ---------------------------------------------------------------------
-
-BENCHMARK_MAP: Dict[str, str] = {
-    "S&P 500 Wave": "SPY",
-    "S&P Wave": "SPY",
-    "AI Wave": "QQQ",  # overridden by blended spec
-    "AI & Innovation Wave": "QQQ",
-    "Quantum Computing Wave": "QQQ",  # overridden
-    "Future Power & Energy Wave": "XLE",  # overridden
-    "Clean Transit-Infrastructure Wave": "IYT",  # overridden
-    "Crypto Income Wave": "BITO",  # overridden
-    "Crypto Equity Wave (mid/large cap)": "BITO",  # overridden
-    "Income Wave": "SCHD",
-    "Small Cap Growth Wave": "IWM",  # overridden
-    "Small to Mid Cap Growth Wave": "VO",
-    "Cloud & Software Wave": "IGV",  # overridden
-    "SmartSafe Money Market Wave": "BIL",
-}
-
-# Custom blended benchmark specs (locked — WAVES Benchmark Set v1.0)
-BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
-    # AI / Tech / Innovation complex
-    "AI Wave": {               # 40% SMH + 30% IGV + 30% AIQ
-        "SMH": 0.40,
-        "IGV": 0.30,
-        "AIQ": 0.30,
-    },
-    "Cloud & Software Wave": {  # 20% QQQ + 50% WCLD + 30% HACK
-        "QQQ": 0.20,
-        "WCLD": 0.50,
-        "HACK": 0.30,
-    },
-    "Quantum Computing Wave": {  # 40% QQQ + 35% SOXX + 25% ARKK
-        "QQQ": 0.40,
-        "SOXX": 0.35,
-        "ARKK": 0.25,
-    },
-    "Growth Wave": {            # 50% QQQ + 30% IWF + 20% WCLD
-        "QQQ": 0.50,
-        "IWF": 0.30,
-        "WCLD": 0.20,
-    },
-
-    # Crypto complex (miners + rails + crypto equity)
-    "Crypto Income Wave": {              # 50% WGMI + 30% BLOK + 20% BITQ
-        "WGMI": 0.50,
-        "BLOK": 0.30,
-        "BITQ": 0.20,
-    },
-    "Crypto Equity Wave (mid/large cap)": {  # 50% WGMI + 30% BLOK + 20% BITQ
-        "WGMI": 0.50,
-        "BLOK": 0.30,
-        "BITQ": 0.20,
-    },
-
-    # Future power / infrastructure complex
-    "Future Power & Energy Wave": {  # 40% QQQ + 30% ICLN + 30% XLE
-        "QQQ": 0.40,
-        "ICLN": 0.30,
-        "XLE": 0.30,
-    },
-    "Clean Transit-Infrastructure Wave": {  # 30% SPY + 30% QQQ + 20% IWM + 20% IYT
-        "SPY": 0.30,
-        "QQQ": 0.30,
-        "IWM": 0.20,
-        "IYT": 0.20,
-    },
-
-    # Size / style complex
-    "Small Cap Growth Wave": {  # 50% IWO + 25% ARKK + 25% IPAY
-        "IWO": 0.50,
-        "ARKK": 0.25,
-        "IPAY": 0.25,
-    },
-    "Small to Mid Cap Growth Wave": {  # 40% IWP + 30% IWO + 30% QQQ
-        "IWP": 0.40,
-        "IWO": 0.30,
-        "QQQ": 0.30,
-    },
-
-    # Income
-    "Income Wave": {  # 60% SCHD + 30% VYM + 10% LQD
-        "SCHD": 0.60,
-        "VYM": 0.30,
-        "LQD": 0.10,
-    },
-}
-
-# VIX ladder (SmartSafe 2.0)
-VIX_LEVELS = [
-    (40.0, 0.80),
-    (30.0, 0.50),
-    (25.0, 0.30),
-    (20.0, 0.15),
-]
-
-# ---------------------------------------------------------------------
-# Wave-specific configuration (Stage 8)
-# ---------------------------------------------------------------------
-
-WAVE_CONFIG: Dict[str, Dict[str, float]] = {
-    # Growth / tech / AI-heavy
-    "AI Wave": {
-        "style": "ai",
-        "momentum_boost": 1.2,
-        "defensive_bias": 0.0,
-    },
-    "Cloud & Software Wave": {
-        "style": "ai",
-        "momentum_boost": 1.15,
-        "defensive_bias": 0.0,
-    },
-    "Quantum Computing Wave": {
-        "style": "ai",
-        "momentum_boost": 1.3,
-        "defensive_bias": -0.05,
-    },
-    "Future Power & Energy Wave": {
-        "style": "future_power",
-        "momentum_boost": 1.05,
-        "defensive_bias": 0.05,
-    },
-    "Clean Transit-Infrastructure Wave": {
-        "style": "future_power",
-        "momentum_boost": 1.0,
-        "defensive_bias": 0.05,
-    },
-    # Crypto / high-vol growth
-    "Crypto Income Wave": {
-        "style": "crypto",
-        "momentum_boost": 1.3,
-        "defensive_bias": -0.05,
-    },
-    "Crypto Equity Wave (mid/large cap)": {
-        "style": "crypto",
-        "momentum_boost": 1.3,
-        "defensive_bias": -0.05,
-    },
-    # Small cap / innovation
-    "Small Cap Growth Wave": {
-        "style": "smallcap",
-        "momentum_boost": 1.2,
-        "defensive_bias": -0.02,
-    },
-    "Small to Mid Cap Growth Wave": {
-        "style": "smallcap",
-        "momentum_boost": 1.1,
-        "defensive_bias": 0.0,
-    },
-    # Defensive / hybrid
-    "Income Wave": {
-        "style": "income",
-        "momentum_boost": 0.8,
-        "defensive_bias": 0.1,
-    },
-    "SmartSafe Money Market Wave": {
-        "style": "cash",
-        "momentum_boost": 0.0,
-        "defensive_bias": 0.3,
-    },
-    # S&P / core benchmark
-    "S&P 500 Wave": {
-        "style": "core",
-        "momentum_boost": 1.0,
-        "defensive_bias": 0.0,
-    },
-    "S&P Wave": {
-        "style": "core",
-        "momentum_boost": 1.0,
-        "defensive_bias": 0.0,
-    },
+# Explicit configs for key Waves. Any Wave not listed falls back to
+# heuristic defaults based on its name.
+WAVE_CONFIGS: Dict[str, WaveConfig] = {
+    # Core equity
+    "S&P Wave": WaveConfig(
+        benchmark={"SPY": 1.0},
+        beta_target=0.95,
+        momentum_tilt_strength=0.3,
+        max_weight=0.10,
+        smartsafe_factor=0.6,
+    ),
+    "Income Wave": WaveConfig(
+        benchmark={"SCHD": 0.6, "BND": 0.4},
+        beta_target=0.85,
+        momentum_tilt_strength=0.25,
+        max_weight=0.08,
+        smartsafe_factor=0.7,
+    ),
+    # Growth / factor Waves
+    "Growth Wave": WaveConfig(
+        benchmark={"QQQ": 0.5, "SPY": 0.5},
+        beta_target=1.1,
+        momentum_tilt_strength=0.7,
+        max_weight=0.12,
+        smartsafe_factor=1.0,
+    ),
+    "Small Cap Growth Wave": WaveConfig(
+        # Stage 9 improvement: small caps vs realistic benchmark
+        benchmark={"IWM": 0.6, "QQQ": 0.2, "ARKK": 0.2},
+        beta_target=1.2,
+        momentum_tilt_strength=0.8,
+        max_weight=0.10,
+        smartsafe_factor=1.3,
+    ),
+    "Small to Mid Cap Growth Wave": WaveConfig(
+        benchmark={"IWM": 0.5, "QQQ": 0.3, "SPY": 0.2},
+        beta_target=1.15,
+        momentum_tilt_strength=0.7,
+        max_weight=0.10,
+        smartsafe_factor=1.1,
+    ),
+    # AI / Tech Waves
+    "AI Wave": WaveConfig(
+        # Google-style blend you liked
+        benchmark={"SMH": 0.4, "IGV": 0.3, "AIQ": 0.3},
+        beta_target=1.15,
+        momentum_tilt_strength=0.9,
+        max_weight=0.12,
+        smartsafe_factor=1.1,
+    ),
+    "Cloud & Software Wave": WaveConfig(
+        # Stage 9 improvement: SaaS-aligned benchmark
+        benchmark={"WCLD": 0.6, "QQQ": 0.4},
+        beta_target=1.1,
+        momentum_tilt_strength=0.8,
+        max_weight=0.12,
+        smartsafe_factor=1.0,
+    ),
+    "Quantum Computing Wave": WaveConfig(
+        # Stage 9 improvement: realistic, still demanding benchmark
+        benchmark={"QQQ": 0.4, "ARKK": 0.3, "SOXX": 0.3},
+        beta_target=1.25,
+        momentum_tilt_strength=0.9,
+        max_weight=0.10,
+        smartsafe_factor=1.4,
+    ),
+    "Future Power & Energy Wave": WaveConfig(
+        benchmark={"ICLN": 0.4, "XLE": 0.3, "QQQ": 0.3},
+        beta_target=1.1,
+        momentum_tilt_strength=0.8,
+        max_weight=0.12,
+        smartsafe_factor=1.1,
+    ),
+    "Clean Transit-Infrastructure Wave": WaveConfig(
+        benchmark={"SPY": 0.4, "QQQ": 0.4, "IWM": 0.2},
+        beta_target=1.05,
+        momentum_tilt_strength=0.7,
+        max_weight=0.12,
+        smartsafe_factor=1.0,
+    ),
+    # Crypto Waves
+    "Crypto Equity Wave (mid/large cap)": WaveConfig(
+        # WGMI/BLOK/BITQ composite
+        benchmark={"WGMI": 0.5, "BLOK": 0.3, "BITQ": 0.2},
+        beta_target=1.5,
+        momentum_tilt_strength=0.9,
+        max_weight=0.15,
+        smartsafe_factor=1.6,
+    ),
+    "Crypto Income Wave": WaveConfig(
+        benchmark={"BITO": 0.5, "BLOK": 0.3, "BITQ": 0.2},
+        beta_target=1.2,
+        momentum_tilt_strength=0.6,
+        max_weight=0.12,
+        smartsafe_factor=1.5,
+    ),
+    # SmartSafe / cash Wave
+    "SmartSafe Wave": WaveConfig(
+        benchmark={"BIL": 1.0},
+        beta_target=0.05,
+        momentum_tilt_strength=0.0,
+        max_weight=1.0,
+        smartsafe_factor=0.0,
+    ),
 }
 
 
-def _get_wave_config(wave_name: str) -> Dict[str, float]:
-    cfg = WAVE_CONFIG.get(wave_name, {})
-    style = cfg.get("style", "generic")
-    mboost = float(cfg.get("momentum_boost", 1.0))
-    defbias = float(cfg.get("defensive_bias", 0.0))
-    return {"style": style, "momentum_boost": mboost, "defensive_bias": defbias}
+def _heuristic_benchmark_for_wave(wave: str) -> Dict[str, float]:
+    """Fallback benchmark chooser if a Wave is not explicitly configured."""
+    name = wave.lower()
+    if "s&p" in name or "sp " in name:
+        return {"SPY": 1.0}
+    if "income" in name or "dividend" in name:
+        return {"SCHD": 0.6, "BND": 0.4}
+    if "small" in name:
+        return {"IWM": 0.7, "QQQ": 0.3}
+    if "crypto" in name:
+        return {"BITO": 0.6, "BLOK": 0.4}
+    if "ai" in name or "cloud" in name or "software" in name:
+        return {"QQQ": 0.7, "SMH": 0.3}
+    if "power" in name or "energy" in name:
+        return {"XLE": 0.6, "ICLN": 0.4}
+    if "quantum" in name:
+        return {"QQQ": 0.6, "SOXX": 0.4}
+    return {"SPY": 1.0}
 
 
-# ---------------------------------------------------------------------
-# SmartSafe 3.0 per-Wave parameters
-# ---------------------------------------------------------------------
-
-DEFAULT_SMARTSAFE3_PARAMS = {
-    "vix_panic": 35.0,
-    "vix_stress": 28.0,
-    "vix_caution": 22.0,
-    "maxdd_panic": -0.30,
-    "maxdd_stress": -0.20,
-    "maxdd_caution": -0.15,
-    "ret60_panic": -0.15,
-    "ret60_stress": -0.10,
-    "ret60_caution": 0.0,
-    "beta_panic": 0.15,
-    "beta_stress": 0.10,
-    "beta_caution": 0.05,
-    "alpha60_caution": 0.0,
-    "extra_panic": 0.30,
-    "extra_stress": 0.15,
-    "extra_caution": 0.05,
-}
-
-SMARTSAFE3_OVERRIDES: Dict[str, Dict[str, float]] = {
-    # AI / Cloud / Quantum: tolerate deeper DD before Panic.
-    "AI Wave": {
-        "maxdd_panic": -0.55,
-        "maxdd_stress": -0.40,
-        "maxdd_caution": -0.25,
-        "ret60_panic": -0.20,
-        "ret60_stress": -0.12,
-        "beta_panic": 0.20,
-        "beta_stress": 0.12,
-    },
-    "Cloud & Software Wave": {
-        "maxdd_panic": -0.50,
-        "maxdd_stress": -0.35,
-        "maxdd_caution": -0.22,
-        "ret60_panic": -0.18,
-        "ret60_stress": -0.10,
-        "beta_panic": 0.18,
-        "beta_stress": 0.10,
-    },
-    "Quantum Computing Wave": {
-        "maxdd_panic": -0.60,
-        "maxdd_stress": -0.40,
-        "maxdd_caution": -0.25,
-        "ret60_panic": -0.22,
-        "ret60_stress": -0.12,
-        "beta_panic": 0.20,
-        "beta_stress": 0.12,
-    },
-    # Crypto: more sensitive
-    "Crypto Income Wave": {
-        "vix_panic": 30.0,
-        "vix_stress": 25.0,
-        "vix_caution": 20.0,
-        "maxdd_panic": -0.25,
-        "maxdd_stress": -0.18,
-        "maxdd_caution": -0.12,
-        "extra_panic": 0.30,
-        "extra_stress": 0.20,
-        "extra_caution": 0.10,
-    },
-    "Crypto Equity Wave (mid/large cap)": {
-        "vix_panic": 30.0,
-        "vix_stress": 25.0,
-        "vix_caution": 20.0,
-        "maxdd_panic": -0.25,
-        "maxdd_stress": -0.18,
-        "maxdd_caution": -0.12,
-        "extra_panic": 0.30,
-        "extra_stress": 0.20,
-        "extra_caution": 0.10,
-    },
-    # S&P core: almost never panic.
-    "S&P 500 Wave": {
-        "vix_panic": 45.0,
-        "vix_stress": 35.0,
-        "vix_caution": 25.0,
-        "maxdd_panic": -0.80,
-        "maxdd_stress": -0.60,
-        "maxdd_caution": -0.45,
-        "extra_panic": 0.20,
-        "extra_stress": 0.10,
-        "extra_caution": 0.05,
-    },
-    "S&P Wave": {
-        "vix_panic": 45.0,
-        "vix_stress": 35.0,
-        "vix_caution": 25.0,
-        "maxdd_panic": -0.80,
-        "maxdd_stress": -0.60,
-        "maxdd_caution": -0.45,
-        "extra_panic": 0.20,
-        "extra_stress": 0.10,
-        "extra_caution": 0.05,
-    },
-    # Income: conservative
-    "Income Wave": {
-        "maxdd_panic": -0.35,
-        "maxdd_stress": -0.25,
-        "maxdd_caution": -0.18,
-        "ret60_panic": -0.10,
-        "ret60_stress": -0.06,
-        "extra_panic": 0.25,
-        "extra_stress": 0.15,
-        "extra_caution": 0.05,
-    },
-}
-
-
-def _get_smartsafe3_params(wave_name: str) -> Dict[str, float]:
-    params = DEFAULT_SMARTSAFE3_PARAMS.copy()
-    override = SMARTSAFE3_OVERRIDES.get(wave_name)
-    if override:
-        params.update(override)
-    return params
-
-
-# ---------------------------------------------------------------------
-# Utility functions
-# ---------------------------------------------------------------------
-
-def _normalize_headers(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
-
-
-def _standardize_column(df: pd.DataFrame, candidates: List[str], target: str) -> pd.DataFrame:
-    df = _normalize_headers(df)
-    norm_to_original = {str(col).strip().lower(): col for col in df.columns}
-    for cand in candidates:
-        key = str(cand).strip().lower()
-        if key in norm_to_original:
-            original = norm_to_original[key]
-            if original != target:
-                df = df.rename(columns={original: target})
-            break
-    return df
-
-
-def _load_universe() -> pd.DataFrame:
-    if not UNIVERSE_CSV.exists():
-        return pd.DataFrame(columns=["ticker"])
-    df = pd.read_csv(UNIVERSE_CSV)
-    df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
-    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-    return df
-
-
-def _load_wave_weights() -> pd.DataFrame:
-    if not WEIGHTS_CSV.exists():
-        raise FileNotFoundError(f"wave_weights.csv not found at {WEIGHTS_CSV}")
-
-    df = pd.read_csv(WEIGHTS_CSV)
-    df = _normalize_headers(df)
-
-    df = _standardize_column(df, ["Wave", "wave", "Portfolio", "portfolio", "Name"], "wave")
-    df = _standardize_column(df, ["Ticker", "ticker", "Symbol", "symbol"], "ticker")
-    df = _standardize_column(df, ["Weight", "weight", "Wgt", "wgt"], "weight")
-
-    required_cols = ["wave", "ticker", "weight"]
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
-        raise ValueError(
-            f"Missing required column(s) in wave_weights.csv: {missing}. "
-            f"Found columns: {list(df.columns)}"
-        )
-
-    df["wave"] = df["wave"].astype(str).str.strip()
-    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
-    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
-
-    grouped = df.groupby(["wave", "ticker"], as_index=False)["weight"].sum()
-    grouped["weight"] = grouped.groupby("wave")["weight"].transform(
-        lambda x: x / x.sum() if x.sum() != 0 else x
+def get_wave_config(wave: str) -> WaveConfig:
+    if wave in WAVE_CONFIGS:
+        return WAVE_CONFIGS[wave]
+    bench = _heuristic_benchmark_for_wave(wave)
+    return WaveConfig(
+        benchmark=bench,
+        beta_target=1.0,
+        momentum_tilt_strength=0.5,
+        max_weight=0.12,
+        smartsafe_factor=1.0,
     )
-    return grouped
 
 
-def get_available_waves() -> List[str]:
-    weights = _load_wave_weights()
-    if "wave" not in weights.columns:
-        raise ValueError(
-            f"'wave' column not found after normalization. Columns: {list(weights.columns)}"
-        )
-    return sorted(weights["wave"].unique().tolist())
+# ---------------------------------------------------------------------
+# Data loading helpers
+# ---------------------------------------------------------------------
 
 
-def _get_single_benchmark_ticker(wave_name: str) -> str:
-    if wave_name in BENCHMARK_MAP:
-        return BENCHMARK_MAP[wave_name]
+def _load_wave_weights(csv_path: str = "wave_weights.csv") -> pd.DataFrame:
+    """
+    Load wave_weights.csv and normalize column names.
 
-    name_lower = wave_name.lower()
-    if "crypto" in name_lower or "digital" in name_lower:
-        return "BITO"
-    if "ai" in name_lower or "tech" in name_lower or "cloud" in name_lower:
-        return "QQQ"
-    if "small" in name_lower:
-        return "IWM"
-    if "income" in name_lower:
-        return "SCHD"
-    if "smartsafe" in name_lower:
-        return "BIL"
-    if "s&p" in name_lower:
-        return "SPY"
-    return "SPY"
+    Handles:
+    • Hidden BOM characters (e.g. '﻿wave')
+    • Extra spaces
+    • Upper/lower case
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"wave_weights.csv not found at {csv_path}")
 
+    df = pd.read_csv(csv_path)
 
-def _get_benchmark_for_wave(wave_name: str) -> Tuple[str, Dict[str, float]]:
-    if wave_name in BLENDED_BENCHMARKS:
-        raw = BLENDED_BENCHMARKS[wave_name]
-        total = float(sum(raw.values()))
+    # Clean column names: strip BOM, whitespace, lowercase
+    clean_map = {}
+    for col in df.columns:
+        c = col.replace("\ufeff", "").strip().lower()
+        clean_map[col] = c
+    df = df.rename(columns=clean_map)
+
+    expected_cols = {"wave", "ticker", "weight"}
+    missing = expected_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"wave_weights.csv missing columns: {missing}")
+
+    # Clean up values
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
+    df["weight"] = df["weight"].astype(float)
+
+    # Normalize weights per wave
+    for wave, sub in df.groupby("wave"):
+        total = sub["weight"].sum()
         if total <= 0:
-            t = _get_single_benchmark_ticker(wave_name)
-            return t, {t: 1.0}
-        spec = {t: w / total for t, w in raw.items()}
-        parts = [f"{int(round(w * 100))}% {t}" for t, w in spec.items()]
-        label = " + ".join(parts)
-        return label, spec
-
-    t = _get_single_benchmark_ticker(wave_name)
-    return t, {t: 1.0}
-
-
-def _download_price_series(ticker: str, period: str = "10y") -> pd.Series:
-    try:
-        df = yf.download(
-            ticker,
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
-        if df.empty:
-            return pd.Series(dtype=float)
-        col = None
-        for candidate in ["Adj Close", "Close"]:
-            if candidate in df.columns:
-                col = candidate
-                break
-        if col is None:
-            return pd.Series(dtype=float)
-        s = df[col].copy()
-        s.name = ticker
-        return s
-    except Exception:
-        return pd.Series(dtype=float)
-
-
-def _get_fast_intraday_return(ticker: str) -> Tuple[float, float]:
-    try:
-        t = yf.Ticker(ticker)
-        info = t.fast_info
-        last_price = float(info.get("last_price", np.nan))
-        prev_close = float(info.get("previous_close", np.nan))
-        if np.isfinite(last_price) and np.isfinite(prev_close) and prev_close != 0:
-            ret = (last_price / prev_close) - 1.0
-        else:
-            ret = 0.0
-        return last_price, ret
-    except Exception:
-        return np.nan, 0.0
-
-
-# ---------------------------------------------------------------------
-# VIX & SmartSafe 2.0
-# ---------------------------------------------------------------------
-
-def _get_vix_level() -> Optional[float]:
-    try:
-        s = _download_price_series("^VIX", period="1y")
-        if s.empty:
-            return None
-        return float(s.dropna().iloc[-1])
-    except Exception:
-        return None
-
-
-def _compute_sweep_fraction_from_vix(vix_level: Optional[float]) -> float:
-    if vix_level is None:
-        return 0.0
-    if vix_level < 20:
-        return 0.0
-    for threshold, frac in VIX_LEVELS:
-        if vix_level >= threshold:
-            return frac
-    return 0.15
-
-
-def _compute_vol_by_ticker(tickers: List[str], period: str = "90d") -> pd.DataFrame:
-    records = []
-    for t in tickers:
-        s = _download_price_series(t, period=period)
-        if s.empty:
             continue
-        returns = s.pct_change().dropna()
-        if returns.empty:
-            continue
-        returns = returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
-        vol = float(returns.std())
-        records.append({"ticker": t, "vol": vol})
-    if not records:
-        return pd.DataFrame(columns=["ticker", "vol"])
-    return pd.DataFrame(records)
-
-
-def apply_smartsafe_sweep(
-    wave_name: str,
-    positions: pd.DataFrame,
-    vix_level: Optional[float],
-) -> pd.DataFrame:
-    if positions.empty:
-        return positions
-    if "smartsafe" in wave_name.lower():
-        return positions
-
-    sweep_fraction = _compute_sweep_fraction_from_vix(vix_level)
-    if sweep_fraction <= 0.0:
-        return positions
-
-    df = positions.copy()
-    total_weight = df["weight"].sum()
-    if total_weight <= 0:
-        return positions
-    df["weight"] = df["weight"] / total_weight
-
-    tickers = df["ticker"].unique().tolist()
-    vol_df = _compute_vol_by_ticker(tickers, period="90d")
-    if vol_df.empty:
-        df["weight"] = df["weight"] * (1.0 - sweep_fraction)
-        bil_last, bil_intraday = _get_fast_intraday_return("BIL")
-        bil_row = {
-            "ticker": "BIL",
-            "weight": sweep_fraction,
-            "last_price": bil_last,
-            "intraday_return": bil_intraday,
-        }
-        df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
-        return df
-
-    df = df.merge(vol_df, on="ticker", how="left")
-    df["vol"] = df["vol"].fillna(0.0)
-    df["is_bil"] = df["ticker"].str.upper().eq("BIL")
-    df = df.sort_values(["is_bil", "vol"], ascending=[True, False])
-
-    eq_mask = ~df["is_bil"]
-    eq_weight = float(df.loc[eq_mask, "weight"].sum())
-    if eq_weight <= 0:
-        return positions
-
-    target_sweep = sweep_fraction * eq_weight
-    remaining_sweep = target_sweep
-    bil_weight = 0.0
-
-    new_weights = []
-    for _, row in df.iterrows():
-        w = float(row["weight"])
-        if row["is_bil"]:
-            new_weights.append(w)
-            continue
-        if remaining_sweep <= 0.0:
-            new_weights.append(w)
-            continue
-        cut = min(w, remaining_sweep)
-        new_w = w - cut
-        bil_weight += cut
-        remaining_sweep -= cut
-        new_weights.append(new_w)
-
-    df["weight"] = new_weights
-    df = df.drop(columns=["vol", "is_bil"])
-
-    if bil_weight <= 0.0:
-        return positions
-
-    bil_last, bil_intraday = _get_fast_intraday_return("BIL")
-    bil_mask = df["ticker"].str.upper().eq("BIL")
-    if bil_mask.any():
-        df.loc[bil_mask, "last_price"] = bil_last
-        df.loc[bil_mask, "intraday_return"] = bil_intraday
-        df.loc[bil_mask, "weight"] += bil_weight
-    else:
-        bil_row = {
-            "ticker": "BIL",
-            "weight": bil_weight,
-            "last_price": bil_last,
-            "intraday_return": bil_intraday,
-        }
-        df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
-
-    total_weight = df["weight"].sum()
-    if total_weight > 0:
-        df["weight"] = df["weight"] / total_weight
+        df.loc[sub.index, "weight"] = sub["weight"] / total
 
     return df
 
 
-# ---------------------------------------------------------------------
-# SmartSafe 3.0 LIVE overlay (extra sweep = % of equity sleeve)
-# ---------------------------------------------------------------------
-
-def apply_smartsafe3_extra_sweep(
-    wave_name: str,
-    positions: pd.DataFrame,
-    extra_fraction: float,
-) -> pd.DataFrame:
-    """
-    SmartSafe 3.0 extra sweep (LIVE overlay):
-
-    - extra_fraction is 0.0–0.30, interpreted as a fraction of the
-      *remaining equity sleeve*, not the entire portfolio.
-    - Works on top of SmartSafe 2.0, but will never fully delete the
-      equity sleeve as long as some equity exists.
-    """
-    if positions.empty:
-        return positions
-    if extra_fraction <= 0.0:
-        return positions
-    if "smartsafe" in wave_name.lower():
-        return positions
-
-    df = positions.copy()
-    total_weight = df["weight"].sum()
-    if total_weight <= 0:
-        return positions
-    df["weight"] = df["weight"] / total_weight
-
-    df["is_bil"] = df["ticker"].str.upper().eq("BIL")
-    eq_mask = ~df["is_bil"]
-
-    eq_weight = float(df.loc[eq_mask, "weight"].sum())
-    if eq_weight <= 0:
-        df = df.drop(columns=["is_bil"])
-        return df
-
-    target_cut = extra_fraction * eq_weight
-    remaining = target_cut
-    bil_weight = 0.0
-
-    tickers = df["ticker"].unique().tolist()
-    vol_df = _compute_vol_by_ticker(tickers, period="90d")
-    if not vol_df.empty:
-        df = df.merge(vol_df, on="ticker", how="left")
-        df["vol"] = df["vol"].fillna(0.0)
-    else:
-        df["vol"] = 0.0
-
-    df = df.sort_values(["is_bil", "vol"], ascending=[True, False])
-
-    new_weights = []
-    for _, row in df.iterrows():
-        w = float(row["weight"])
-        if row["is_bil"]:
-            new_weights.append(w)
-            continue
-        if remaining <= 0.0:
-            new_weights.append(w)
-            continue
-        cut = min(w, remaining)
-        new_w = w - cut
-        bil_weight += cut
-        remaining -= cut
-        new_weights.append(new_w)
-
-    df["weight"] = new_weights
-    df = df.drop(columns=["vol", "is_bil"])
-
-    bil_last, bil_intraday = _get_fast_intraday_return("BIL")
-    bil_mask = df["ticker"].str.upper().eq("BIL")
-    if bil_mask.any():
-        df.loc[bil_mask, "last_price"] = bil_last
-        df.loc[bil_mask, "intraday_return"] = bil_intraday
-        df.loc[bil_mask, "weight"] += bil_weight
-    else:
-        bil_row = {
-            "ticker": "BIL",
-            "weight": bil_weight,
-            "last_price": bil_last,
-            "intraday_return": bil_intraday,
-        }
-        df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
-
-    total_weight = df["weight"].sum()
-    if total_weight > 0:
-        df["weight"] = df["weight"] / total_weight
-
-    return df
+def get_available_waves(csv_path: str = "wave_weights.csv") -> List[str]:
+    df = _load_wave_weights(csv_path)
+    waves = sorted(df["wave"].unique().tolist())
+    return waves
 
 
-# ---------------------------------------------------------------------
-# Momentum (Alpha Engine) with adaptive behavior
-# ---------------------------------------------------------------------
-
-def _window_total_return(r: pd.Series, days: Optional[int] = None) -> float:
-    if r.empty:
-        return 0.0
-    if days is not None:
-        r = r.tail(days)
-        if r.empty:
-            return 0.0
-    return float((1 + r).prod() - 1.0)
+# Cache for prices to keep things reasonably fast
+_PRICE_CACHE: Dict[Tuple[str, str], pd.DataFrame] = {}
 
 
-def _compute_momentum_scores(
+def _load_price_history(
     tickers: List[str],
-    period: str = "1y",
-    vix_level: Optional[float] = None,
-    wave_style: str = "generic",
+    period: str = "3y",
+    interval: str = "1d",
 ) -> pd.DataFrame:
-    vix = vix_level if vix_level is not None else 18.0
+    """
+    Load adjusted close prices for all tickers over the given period.
+    Returns a DataFrame with date index and ticker columns.
+    """
+    if _YF_ERROR is not None:
+        raise RuntimeError(f"yfinance is not available: {_YF_ERROR}")
 
-    if vix < 16:
-        w90, w30 = 0.7, 0.3
-    elif vix < 22:
-        w90, w30 = 0.6, 0.4
-    elif vix < 28:
-        w90, w30 = 0.5, 0.5
+    tickers = sorted(set(tickers))
+    key = (",".join(tickers), period)
+    if key in _PRICE_CACHE:
+        return _PRICE_CACHE[key]
+
+    data = yf.download(
+        tickers=tickers,
+        period=period,
+        interval=interval,
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+    )
+
+    if isinstance(data.columns, pd.MultiIndex):
+        close = {}
+        for t in tickers:
+            try:
+                close[t] = data[(t, "Close")]
+            except Exception:
+                continue
+        prices = pd.DataFrame(close)
     else:
-        w90, w30 = 0.4, 0.6
+        # Single ticker case
+        prices = pd.DataFrame({"Close": data["Close"]})
+        prices.columns = tickers
 
-    if wave_style in {"crypto", "smallcap"}:
-        w90, w30 = w90 * 0.85, w30 * 1.15
-    elif wave_style in {"income", "cash"}:
-        w90, w30 = w90 * 1.1, w30 * 0.9
+    prices = prices.dropna(how="all")
+    _PRICE_CACHE[key] = prices
+    return prices
 
-    total = w90 + w30
-    if total <= 0:
-        w90, w30 = 0.6, 0.4
-        total = 1.0
-    w90, w30 = w90 / total, w30 / total
 
-    records = []
+# ---------------------------------------------------------------------
+# Metric helpers
+# ---------------------------------------------------------------------
+
+
+def _series_return(s: pd.Series) -> float:
+    return float((1.0 + s).prod() - 1.0)
+
+
+def _max_drawdown(cum: pd.Series) -> float:
+    roll_max = cum.cummax()
+    dd = (cum / roll_max) - 1.0
+    return float(dd.min())
+
+
+def _beta_and_alpha(port: pd.Series, bench: pd.Series) -> Tuple[float, float]:
+    common = port.dropna().index.intersection(bench.dropna().index)
+    if len(common) < 10:
+        return 0.0, 0.0
+    rp = port.loc[common]
+    rb = bench.loc[common]
+    cov = np.cov(rp, rb)[0, 1]
+    var_b = np.var(rb)
+    if var_b <= 0:
+        return 0.0, 0.0
+    beta = cov / var_b
+    alpha_daily = (rp - beta * rb).mean()
+    alpha_annual = float(alpha_daily * 252.0)
+    return float(beta), alpha_annual
+
+
+def _info_ratio(port: pd.Series, bench: pd.Series) -> float:
+    common = port.dropna().index.intersection(bench.dropna().index)
+    if len(common) < 10:
+        return 0.0
+    diff = port.loc[common] - bench.loc[common]
+    mean_excess = diff.mean()
+    vol_excess = diff.std()
+    if vol_excess <= 0:
+        return 0.0
+    return float((mean_excess * 252.0) / (vol_excess * np.sqrt(252.0)))
+
+
+def _hit_rate(port: pd.Series, bench: pd.Series) -> float:
+    common = port.dropna().index.intersection(bench.dropna().index)
+    if len(common) < 10:
+        return 0.0
+    rp = port.loc[common]
+    rb = bench.loc[common]
+    hits = (rp > rb).sum()
+    return float(hits / len(common))
+
+
+# ---------------------------------------------------------------------
+# SmartSafe logic (2.0 + 3.0)
+# ---------------------------------------------------------------------
+
+
+def _load_vix(period: str = "3y") -> pd.Series:
+    vix_prices = _load_price_history(["^VIX"], period=period)
+    col = vix_prices.columns[0]
+    return vix_prices[col]
+
+
+def _smartsafe_regime(
+    vix_level: float,
+    wave_dd_60d: float,
+    bench_dd_60d: float,
+) -> str:
+    """
+    Determine SmartSafe 3.0 regime from VIX + drawdowns.
+    """
+    if np.isnan(vix_level):
+        vix_level = 18.0
+
+    extra_stress = 0.0
+    if wave_dd_60d < bench_dd_60d - 0.05:
+        extra_stress = 1.0
+
+    if vix_level < 18 and wave_dd_60d > -0.10:
+        return "Normal"
+    if (18 <= vix_level < 24) or (wave_dd_60d <= -0.10 - 0.05 * extra_stress):
+        return "Caution"
+    if (24 <= vix_level < 30) or (wave_dd_60d <= -0.20 - 0.05 * extra_stress):
+        return "Stress"
+    if vix_level >= 30 or wave_dd_60d <= -0.35:
+        return "Panic"
+    return "Normal"
+
+
+_SMARTSAFE_BASE_SWEEP = {
+    "Normal": 0.00,
+    "Caution": 0.10,
+    "Stress": 0.20,
+    "Panic": 0.40,
+}
+
+
+# ---------------------------------------------------------------------
+# Stage 9: core computation
+# ---------------------------------------------------------------------
+
+
+def _compute_wave_series(
+    wave: str,
+    mode: str,
+    weights_df: pd.DataFrame,
+) -> Dict[str, object]:
+    """
+    Build the Wave time series and metrics in Stage 9 style.
+    Returns dict with keys: benchmark, metrics, positions
+    """
+
+    cfg = get_wave_config(wave)
+
+    # Tickers & base weights
+    sub = weights_df[weights_df["wave"] == wave].copy()
+    if sub.empty:
+        raise ValueError(f"No positions for Wave '{wave}' in wave_weights.csv")
+
+    # Mode-aware beta target tweaks (simple)
+    mode_lower = (mode or "standard").lower()
+    beta_target = cfg.beta_target
+    if "amb" in mode_lower:
+        beta_target = cfg.beta_target * 0.85
+    elif "pl" in mode_lower:
+        beta_target = cfg.beta_target * 1.10
+
+    tickers = sub["ticker"].tolist()
+    base_weights = sub["weight"].values
+
+    # Benchmark ETFs
+    bench_map = cfg.benchmark or _heuristic_benchmark_for_wave(wave)
+    bench_tickers = list(bench_map.keys())
+
+    # Price history
+    all_tickers = sorted(set(tickers + bench_tickers + ["BIL"]))
+    prices = _load_price_history(all_tickers, period="3y")
+    returns = prices.pct_change().dropna(how="all")
+
+    # Align base_weights with available tickers
+    valid_mask = sub["ticker"].isin(prices.columns)
+    sub = sub[valid_mask]
+    sub = sub.copy()
+    sub["weight"] = sub["weight"] / sub["weight"].sum()
+    tickers = sub["ticker"].tolist()
+    base_weights = sub["weight"].values
+
+    # 6-month momentum for Stage 9 momentum tilts
+    lookback_mom = 126  # ~6 months
+    mom = {}
     for t in tickers:
-        s = _download_price_series(t, period=period)
-        if s.empty:
-            continue
-        r = s.pct_change().dropna()
-        if r.empty:
-            continue
-        r = r.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
-        mom_30 = _window_total_return(r, 30)
-        mom_90 = _window_total_return(r, 90)
-        mom_combo = w90 * mom_90 + w30 * mom_30
-        records.append(
+        s = prices[t].dropna()
+        if len(s) < lookback_mom + 5:
+            mom[t] = 0.0
+        else:
+            r = s.pct_change().dropna()
+            m = _series_return(r[-lookback_mom:])
+            mom[t] = m
+
+    if len(mom) == 0:
+        mom_scores = np.ones_like(base_weights)
+    else:
+        mom_series = pd.Series(mom)
+        if mom_series.std() > 0:
+            z = (mom_series - mom_series.mean()) / (mom_series.std() + 1e-9)
+        else:
+            z = mom_series * 0.0
+        z = z.clip(-2.0, 2.0) / 2.0  # [-1, +1]
+        mom_scores = z.reindex(tickers).fillna(0.0).values
+
+    tilt_strength = cfg.momentum_tilt_strength
+    adj_weights = base_weights * (1.0 + tilt_strength * mom_scores)
+    adj_weights = np.maximum(adj_weights, 0.0)
+    if adj_weights.sum() == 0:
+        adj_weights = base_weights
+    adj_weights = adj_weights / adj_weights.sum()
+
+    # Enforce max_weight cap
+    cap = cfg.max_weight
+    if cap is not None and cap > 0:
+        w = adj_weights.copy()
+        for _ in range(3):
+            over = w > cap
+            if not over.any():
+                break
+            excess = (w[over] - cap).sum()
+            w[over] = cap
+            under = ~over
+            if under.any():
+                w[under] += excess * (w[under] / w[under].sum())
+        adj_weights = w / w.sum()
+
+    # Build Wave daily return series
+    port_returns = pd.Series(0.0, index=returns.index)
+    for t, w in zip(tickers, adj_weights):
+        if t in returns.columns:
+            port_returns = port_returns.add(w * returns[t].fillna(0.0), fill_value=0.0)
+
+    # Benchmark series
+    bench_returns = pd.Series(0.0, index=returns.index)
+    for t, w in bench_map.items():
+        if t not in returns.columns:
+            extra = _load_price_history([t], period="3y").pct_change().dropna()
+            if t in extra.columns:
+                returns[t] = extra[t]
+        if t in returns.columns:
+            bench_returns = bench_returns.add(w * returns[t].fillna(0.0), fill_value=0.0)
+
+    # Clip to common period
+    common_idx = port_returns.dropna().index.intersection(bench_returns.dropna().index)
+    if len(common_idx) < 60:
+        common_idx = port_returns.dropna().index
+
+    port_returns = port_returns.loc[common_idx].fillna(0.0)
+    bench_returns = bench_returns.loc[common_idx].fillna(0.0)
+
+    # Cumulative for drawdowns / SI
+    port_cum = (1.0 + port_returns).cumprod()
+    bench_cum = (1.0 + bench_returns).cumprod()
+
+    # Window indices helpers
+    def last_n_days(n: int) -> pd.Index:
+        return common_idx[-n:] if len(common_idx) >= n else common_idx
+
+    idx_30 = last_n_days(30)
+    idx_60 = last_n_days(60)
+    idx_252 = last_n_days(252)  # ~1Y
+
+    # Returns and alpha
+    ret_30d = _series_return(port_returns.loc[idx_30])
+    bench_ret_30d = _series_return(bench_returns.loc[idx_30])
+    alpha_30d = ret_30d - bench_ret_30d
+
+    ret_60d = _series_return(port_returns.loc[idx_60])
+    bench_ret_60d = _series_return(bench_returns.loc[idx_60])
+    alpha_60d = ret_60d - bench_ret_60d
+
+    ret_1y = _series_return(port_returns.loc[idx_252])
+    bench_ret_1y = _series_return(bench_returns.loc[idx_252])
+    alpha_1y = ret_1y - bench_ret_1y
+
+    ret_si = _series_return(port_returns)
+    bench_ret_si = _series_return(bench_returns)
+    alpha_si = ret_si - bench_ret_si
+
+    # Vol, beta, IR, hit rate, max drawdown
+    vol_1y = float(port_returns.loc[idx_252].std() * np.sqrt(252.0))
+    beta_1y, alpha_annual_from_beta = _beta_and_alpha(
+        port_returns.loc[idx_252], bench_returns.loc[idx_252]
+    )
+    ir_1y = _info_ratio(port_returns.loc[idx_252], bench_returns.loc[idx_252])
+    hit_rate_1y = _hit_rate(port_returns.loc[idx_252], bench_returns.loc[idx_252])
+    maxdd = _max_drawdown(port_cum)
+
+    beta_drift = float(beta_1y - beta_target)
+
+    # SmartSafe state
+    vix_series = _load_vix(period="3y")
+    vix_series = vix_series.reindex(common_idx).fillna(method="ffill")
+    vix_level = float(vix_series.iloc[-1]) if len(vix_series) else 18.0
+
+    # 60D drawdowns for regime selection
+    port_cum_60 = port_cum.loc[idx_60]
+    bench_cum_60 = bench_cum.loc[idx_60]
+    dd_60 = _max_drawdown(port_cum_60)
+    bench_dd_60 = _max_drawdown(bench_cum_60)
+
+    regime = _smartsafe_regime(vix_level, dd_60, bench_dd_60)
+    base_sweep = _SMARTSAFE_BASE_SWEEP.get(regime, 0.0)
+    extra_sweep = base_sweep * cfg.smartsafe_factor
+
+    turnover_1d = 0.0
+    if regime in ("Stress", "Panic"):
+        execution_regime = "Defensive"
+    elif regime == "Caution":
+        execution_regime = "Balanced"
+    else:
+        execution_regime = "Offense"
+
+    intraday_return = 0.0  # placeholder
+
+    # Positions DataFrame (top 10)
+    latest_prices = prices.iloc[-1]
+    pos_rows = []
+    for t, w in zip(tickers, adj_weights):
+        last_px = float(latest_prices.get(t, np.nan))
+        pos_rows.append(
             {
                 "ticker": t,
-                "mom_30": mom_30,
-                "mom_90": mom_90,
-                "mom_combo": mom_combo,
+                "weight": float(w),
+                "last_price": last_px if np.isfinite(last_px) else np.nan,
             }
         )
-    if not records:
-        return pd.DataFrame(columns=["ticker", "mom_30", "mom_90", "mom_combo"])
-    return pd.DataFrame(records)
-
-
-# ---------------------------------------------------------------------
-# Engineered concentration helper
-# ---------------------------------------------------------------------
-
-def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
-    if df.empty or "weight" not in df.columns or "ticker" not in df.columns:
-        return df
-
-    mode = (mode or MODE_STANDARD).lower()
-    df = df.copy()
-
-    is_bil = df["ticker"].str.upper().eq("BIL")
-    eq_mask = ~is_bil
-
-    eq_weight_total = float(df.loc[eq_mask, "weight"].sum())
-    if eq_weight_total <= 0:
-        return df
-
-    w = df.loc[eq_mask, "weight"].values.astype(float)
-
-    if mode == MODE_STANDARD:
-        p = 1.15
-        cap = 0.18
-    elif mode == MODE_AMB:
-        p = 1.05
-        cap = 0.14
-    elif mode == MODE_PRIVATE_LOGIC:
-        p = 1.35
-        cap = 0.25
-    else:
-        p = 1.15
-        cap = 0.18
-
-    w_trans = np.power(w, p)
-    if w_trans.sum() > 0:
-        w_trans = w_trans / w_trans.sum() * eq_weight_total
-    else:
-        return df
-
-    w_clipped = np.minimum(w_trans, cap)
-    eq_new_total = float(w_clipped.sum())
-    excess = eq_weight_total - eq_new_total
-
-    df.loc[eq_mask, "weight"] = w_clipped
-
-    if excess > 0:
-        if is_bil.any():
-            df.loc[is_bil, "weight"] += excess
-        else:
-            bil_last, bil_intraday = _get_fast_intraday_return("BIL")
-            bil_row = {
-                "ticker": "BIL",
-                "weight": excess,
-                "last_price": bil_last,
-                "intraday_return": bil_intraday,
-            }
-            df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
-
-    total_weight = df["weight"].sum()
-    if total_weight > 0:
-        df["weight"] = df["weight"] / total_weight
-
-    return df
-
-
-# ---------------------------------------------------------------------
-# Mode adjustments (momentum + concentration)
-# ---------------------------------------------------------------------
-
-def _apply_mode_adjustments(
-    wave_name: str,
-    df: pd.DataFrame,
-    mode: str,
-    vix_level: Optional[float],
-) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    mode = (mode or MODE_STANDARD).lower()
-    df = df.copy()
-    cfg = _get_wave_config(wave_name)
-    wave_style = cfg["style"]
-    momentum_boost = cfg["momentum_boost"]
-    defensive_bias = cfg["defensive_bias"]
-
-    if not df["ticker"].str.upper().eq("BIL").any():
-        bil_last, bil_intraday = _get_fast_intraday_return("BIL")
-        bil_row = {
-            "ticker": "BIL",
-            "weight": 0.0,
-            "last_price": bil_last,
-            "intraday_return": bil_intraday,
-        }
-        df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
-
-    total_weight = df["weight"].sum()
-    if total_weight > 0:
-        df["weight"] = df["weight"] / total_weight
-
-    is_bil = df["ticker"].str.upper().eq("BIL")
-    eq_mask = ~is_bil
-
-    eq_df = df.loc[eq_mask].copy()
-    if not eq_df.empty:
-        mom_df = _compute_momentum_scores(
-            eq_df["ticker"].tolist(),
-            period="1y",
-            vix_level=vix_level,
-            wave_style=wave_style,
-        )
-    else:
-        mom_df = pd.DataFrame(columns=["ticker", "mom_30", "mom_90", "mom_combo"])
-
-    if not eq_df.empty and not mom_df.empty:
-        eq_df = eq_df.merge(mom_df, on="ticker", how="left")
-        eq_df["mom_combo"] = eq_df["mom_combo"].fillna(0.0)
-        intraday = eq_df["intraday_return"].fillna(0.0)
-
-        base_score = eq_df["mom_combo"] + 0.1 * intraday
-        mean = float(base_score.mean())
-        std = float(base_score.std())
-        if std > 0:
-            z = (base_score - mean) / std
-        else:
-            z = pd.Series(0.0, index=eq_df.index)
-
-        if mode == MODE_STANDARD:
-            k = 0.15
-            min_factor, max_factor = 0.7, 1.3
-        elif mode == MODE_AMB:
-            k = 0.10
-            min_factor, max_factor = 0.8, 1.2
-        elif mode == MODE_PRIVATE_LOGIC:
-            k = 0.60
-            min_factor, max_factor = 0.5, 1.8
-        else:
-            k = 0.15
-            min_factor, max_factor = 0.7, 1.3
-
-        k *= momentum_boost
-
-        tilt_factor = 1.0 + k * z
-        tilt_factor = tilt_factor.clip(lower=min_factor, upper=max_factor)
-
-        eq_df["weight"] = eq_df["weight"] * tilt_factor
-        eq_df["weight"] = eq_df["weight"].clip(lower=0.0)
-
-        eq_before = df.loc[eq_mask, "weight"].sum()
-        eq_after = eq_df["weight"].sum()
-        if eq_after > 0 and eq_before > 0:
-            eq_df["weight"] = eq_df["weight"] * (eq_before / eq_after)
-
-        df.loc[eq_mask, "weight"] = eq_df["weight"]
-
-    if mode == MODE_AMB:
-        base_cut = 0.15
-        base_cut += max(defensive_bias, 0.0) * 0.05
-        eq_weight = df.loc[eq_mask, "weight"].sum()
-        if eq_weight > 0:
-            cut_amount = eq_weight * base_cut
-            df.loc[eq_mask, "weight"] *= (1.0 - base_cut)
-            df.loc[is_bil, "weight"] += cut_amount
-
-    df = _apply_concentration(df, mode)
-
-    return df
-
-
-# ---------------------------------------------------------------------
-# Beta target helper
-# ---------------------------------------------------------------------
-
-def _get_beta_target(wave_name: str, mode: str) -> float:
-    mode = (mode or MODE_STANDARD).lower()
-    name_lower = wave_name.lower()
-    cfg = _get_wave_config(wave_name)
-    style = cfg["style"]
-
-    if "smartsafe" in name_lower or style == "cash":
-        return 0.05
-
-    base = 0.90
-    if "s&p" in name_lower or style == "core":
-        base = 1.00
-    elif "income" in name_lower or style == "income":
-        base = 0.80
-    elif style in {"crypto", "smallcap"}:
-        base = 1.10
-    elif style in {"ai", "future_power"}:
-        base = 1.00
-
-    if mode == MODE_AMB:
-        return max(0.50, base - 0.12)
-    if mode == MODE_PRIVATE_LOGIC:
-        return base + 0.15
-    return base
-
-
-# ---------------------------------------------------------------------
-# Performance & risk metrics (incl. beta)
-# ---------------------------------------------------------------------
-
-def _compute_composite_benchmark_returns(
-    benchmark_spec: Dict[str, float],
-    period: str = "10y",
-) -> pd.Series:
-    if not benchmark_spec:
-        return pd.Series(dtype=float)
-
-    price_frames = []
-    for t in benchmark_spec.keys():
-        s = _download_price_series(t, period=period)
-        if not s.empty:
-            price_frames.append(s)
-    if not price_frames:
-        return pd.Series(dtype=float)
-
-    prices_df = pd.concat(price_frames, axis=1).sort_index()
-    prices_df = prices_df.ffill().dropna(how="all")
-
-    weights = pd.Series(benchmark_spec)
-    weights = weights.reindex(prices_df.columns).fillna(0.0)
-    if weights.sum() != 0:
-        weights = weights / weights.sum()
-
-    bench_values = (prices_df * weights).sum(axis=1)
-    bench_returns = bench_values.pct_change().dropna()
-    bench_returns = bench_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
-    return bench_returns
-
-
-def _max_drawdown(values: pd.Series) -> float:
-    if values.empty:
-        return 0.0
-    values = values.dropna()
-    if values.empty:
-        return 0.0
-    running_max = values.cummax()
-    drawdowns = values / running_max - 1.0
-    return float(drawdowns.min())
-
-
-def _estimate_beta(port_returns: pd.Series, bench_returns: pd.Series) -> float:
-    if port_returns.empty or bench_returns.empty:
-        return 0.0
-
-    r_p, r_b = port_returns.align(bench_returns, join="inner")
-    if r_p.empty or r_b.empty:
-        return 0.0
-
-    r_p = r_p.tail(TRADING_DAYS_1Y)
-    r_b = r_b.tail(TRADING_DAYS_1Y)
-    if r_p.empty or r_b.empty:
-        return 0.0
-
-    var_b = float(r_b.var(ddof=1))
-    if var_b <= 0:
-        return 0.0
-    cov = float(np.cov(r_b, r_p)[0, 1])
-    return cov / var_b
-
-
-def _compute_portfolio_trailing_returns(
-    positions: pd.DataFrame,
-    benchmark_spec: Dict[str, float],
-    period: str = "10y",
-) -> Dict[str, float]:
-    base_result = {
-        "ret_30d": 0.0,
-        "ret_60d": 0.0,
-        "ret_1y": 0.0,
-        "ret_si": 0.0,
-        "alpha_30d": 0.0,
-        "alpha_60d": 0.0,
-        "alpha_1y": 0.0,
-        "alpha_si": 0.0,
-        "vol_1y": 0.0,
-        "maxdd": 0.0,
-        "ir_1y": 0.0,
-        "hit_rate_1y": 0.0,
-        "beta_1y": 0.0,
-    }
-
-    if positions.empty:
-        return base_result
-
-    tickers = positions["ticker"].unique().tolist()
-    weights = positions.set_index("ticker")["weight"]
-    weights = weights / weights.sum() if weights.sum() != 0 else weights
-
-    price_frames = []
-    for t in tickers:
-        s = _download_price_series(t, period=period)
-        if not s.empty:
-            price_frames.append(s)
-    if not price_frames:
-        return base_result
-
-    prices_df = pd.concat(price_frames, axis=1).sort_index()
-    prices_df = prices_df.ffill().dropna(how="all")
-
-    aligned_weights = weights.reindex(prices_df.columns).fillna(0.0)
-    if aligned_weights.sum() != 0:
-        aligned_weights = aligned_weights / aligned_weights.sum()
-
-    port_values = (prices_df * aligned_weights).sum(axis=1)
-    port_returns = port_values.pct_change().dropna()
-    port_returns = port_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
-
-    bench_returns = _compute_composite_benchmark_returns(benchmark_spec, period=period)
-    if bench_returns.empty:
-        bench_returns = pd.Series(0.0, index=port_returns.index)
-    else:
-        port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
-        port_values = port_values.loc[port_returns.index]
-
-    port_30 = _window_total_return(port_returns, 30)
-    port_60 = _window_total_return(port_returns, 60)
-    port_1y = _window_total_return(port_returns, TRADING_DAYS_1Y)
-    port_si = _window_total_return(port_returns, None)
-
-    bench_30 = _window_total_return(bench_returns, 30)
-    bench_60 = _window_total_return(bench_returns, 60)
-    bench_1y = _window_total_return(bench_returns, TRADING_DAYS_1Y)
-    bench_si = _window_total_return(bench_returns, None)
-
-    excess = port_returns - bench_returns
-    excess_1y = excess.tail(TRADING_DAYS_1Y)
-    port_1y_window = port_returns.tail(TRADING_DAYS_1Y)
-
-    if not port_1y_window.empty:
-        vol_1y = float(port_1y_window.std() * np.sqrt(252))
-    else:
-        vol_1y = 0.0
-
-    if not excess_1y.empty:
-        std_excess = float(excess_1y.std())
-        if std_excess > 0:
-            ir_1y = float(excess_1y.mean() / std_excess * np.sqrt(252))
-        else:
-            ir_1y = 0.0
-        hit_rate_1y = float((excess_1y > 0).mean())
-    else:
-        ir_1y = 0.0
-        hit_rate_1y = 0.0
-
-    maxdd = _max_drawdown(port_values)
-    beta_1y = _estimate_beta(port_returns, bench_returns)
-
-    return {
-        "ret_30d": port_30,
-        "ret_60d": port_60,
-        "ret_1y": port_1y,
-        "ret_si": port_si,
-        "alpha_30d": port_30 - bench_30,
-        "alpha_60d": port_60 - bench_60,
-        "alpha_1y": port_1y - bench_1y,
-        "alpha_si": port_si - bench_si,
+    positions_df = pd.DataFrame(pos_rows).sort_values("weight", ascending=False)
+
+    # Human-readable benchmark string
+    bench_str_parts = []
+    for t, w in bench_map.items():
+        bench_str_parts.append(f"{int(round(w * 100))}% {t}")
+    benchmark_str = " + ".join(bench_str_parts)
+
+    metrics = {
+        "mode": mode_lower,
+        "intraday_return": intraday_return,
+        "ret_30d": ret_30d,
+        "alpha_30d": alpha_30d,
+        "ret_60d": ret_60d,
+        "alpha_60d": alpha_60d,
+        "ret_1y": ret_1y,
+        "alpha_1y": alpha_1y,
+        "ret_si": ret_si,
+        "alpha_si": alpha_si,
         "vol_1y": vol_1y,
         "maxdd": maxdd,
         "ir_1y": ir_1y,
         "hit_rate_1y": hit_rate_1y,
         "beta_1y": beta_1y,
-    }
-
-
-def _log_positions(wave_name: str, positions: pd.DataFrame) -> None:
-    if positions.empty:
-        return
-    today_str = datetime.now().strftime("%Y%m%d")
-    file_path = POSITIONS_LOG_DIR / f"{wave_name.replace(' ', '_')}_positions_{today_str}.csv"
-    try:
-        positions.to_csv(file_path, index=False)
-    except Exception:
-        pass
-
-
-def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    row = {
-        "date": today_str,
-        "ret_30d": metrics.get("ret_30d", 0.0),
-        "ret_60d": metrics.get("ret_60d", 0.0),
-        "ret_1y": metrics.get("ret_1y", 0.0),
-        "ret_si": metrics.get("ret_si", 0.0),
-        "alpha_30d": metrics.get("alpha_30d", 0.0),
-        "alpha_60d": metrics.get("alpha_60d", 0.0),
-        "alpha_1y": metrics.get("alpha_1y", 0.0),
-        "alpha_si": metrics.get("alpha_si", 0.0),
-        "vol_1y": metrics.get("vol_1y", 0.0),
-        "maxdd": metrics.get("maxdd", 0.0),
-        "ir_1y": metrics.get("ir_1y", 0.0),
-        "hit_rate_1y": metrics.get("hit_rate_1y", 0.0),
-        "beta_1y": metrics.get("beta_1y", 0.0),
-        "turnover_1d": metrics.get("turnover_1d", 0.0),
-        "rebalance_flag": metrics.get("rebalance_flag", 0),
-    }
-    file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
-    try:
-        if file_path.exists():
-            existing = pd.read_csv(file_path)
-            existing = existing[existing["date"] != today_str]
-            existing = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
-            existing.to_csv(file_path, index=False)
-        else:
-            pd.DataFrame([row]).to_csv(file_path, index=False)
-    except Exception:
-        pass
-
-
-def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
-    file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
-    if not file_path.exists():
-        return None
-    try:
-        df = pd.read_csv(file_path)
-        if df.empty:
-            return None
-        last = df.sort_values("date").iloc[-1]
-        return {
-            "ret_30d": float(last.get("ret_30d", 0.0)),
-            "ret_60d": float(last.get("ret_60d", 0.0)),
-            "ret_1y": float(last.get("ret_1y", 0.0)),
-            "ret_si": float(last.get("ret_si", 0.0)),
-            "alpha_30d": float(last.get("alpha_30d", 0.0)),
-            "alpha_60d": float(last.get("alpha_60d", 0.0)),
-            "alpha_1y": float(last.get("alpha_1y", 0.0)),
-            "alpha_si": float(last.get("alpha_si", 0.0)),
-            "vol_1y": float(last.get("vol_1y", 0.0)),
-            "maxdd": float(last.get("maxdd", 0.0)),
-            "ir_1y": float(last.get("ir_1y", 0.0)),
-            "hit_rate_1y": float(last.get("hit_rate_1y", 0.0)),
-            "beta_1y": float(last.get("beta_1y", 0.0)),
-            "turnover_1d": float(last.get("turnover_1d", 0.0)) if "turnover_1d" in last else 0.0,
-            "rebalance_flag": int(last.get("rebalance_flag", 0)) if "rebalance_flag" in last else 0,
-        }
-    except Exception:
-        return None
-
-
-# ---------------------------------------------------------------------
-# SmartSafe 3.0 regime logic (uses per-Wave params)
-# ---------------------------------------------------------------------
-
-def _compute_smartsafe3_recommendation(
-    wave_name: str,
-    mode: str,
-    vix_level: Optional[float],
-    trailing: Dict[str, float],
-) -> Tuple[str, float]:
-    name_lower = wave_name.lower()
-    if "smartsafe" in name_lower:
-        return "Idle", 0.0
-
-    params = _get_smartsafe3_params(wave_name)
-
-    vix = vix_level if vix_level is not None else 0.0
-    ret_60d = trailing.get("ret_60d", 0.0)
-    alpha_60d = trailing.get("alpha_60d", 0.0)
-    maxdd = trailing.get("maxdd", 0.0)
-    beta_1y = trailing.get("beta_1y", 0.0)
-
-    beta_target = _get_beta_target(wave_name, mode)
-    beta_drift = beta_1y - beta_target
-
-    # Panic
-    if (
-        vix >= params["vix_panic"]
-        or (maxdd <= params["maxdd_panic"] and ret_60d <= params["ret60_panic"])
-        or (beta_drift > params["beta_panic"] and ret_60d <= params["ret60_stress"])
-    ):
-        return "Panic", params["extra_panic"]
-
-    # Stress
-    if (
-        vix >= params["vix_stress"]
-        or (maxdd <= params["maxdd_stress"] and ret_60d <= params["ret60_stress"])
-        or (beta_drift > params["beta_stress"] and ret_60d <= params["ret60_caution"])
-    ):
-        return "Stress", params["extra_stress"]
-
-    # Caution
-    if (
-        vix >= params["vix_caution"]
-        or (maxdd <= params["maxdd_caution"] and ret_60d < params["ret60_caution"])
-        or (beta_drift > params["beta_caution"] and alpha_60d < params["alpha60_caution"])
-    ):
-        return "Caution", params["extra_caution"]
-
-    return "Normal", 0.0
-
-
-# ---------------------------------------------------------------------
-# Turnover / execution telemetry
-# ---------------------------------------------------------------------
-
-def _compute_turnover_since_last_positions(
-    wave_name: str,
-    positions: pd.DataFrame,
-) -> Tuple[float, int, str]:
-    if positions.empty:
-        return 0.0, 0, "Calm"
-
-    pattern_prefix = f"{wave_name.replace(' ', '_')}_positions_"
-    candidates = sorted(POSITIONS_LOG_DIR.glob(pattern_prefix + "*.csv"))
-    if not candidates:
-        return 0.0, 0, "Calm"
-
-    today_str = datetime.now().strftime("%Y%m%d")
-    prev_files = [p for p in candidates if p.stem.split("_positions_")[-1] < today_str]
-    if not prev_files:
-        return 0.0, 0, "Calm"
-
-    last_file = prev_files[-1]
-    try:
-        prev_df = pd.read_csv(last_file)
-    except Exception:
-        return 0.0, 0, "Calm"
-
-    if "ticker" not in prev_df.columns or "weight" not in prev_df.columns:
-        return 0.0, 0, "Calm"
-
-    current = positions[["ticker", "weight"]].copy()
-    prev = prev_df[["ticker", "weight"]].copy()
-
-    current["ticker"] = current["ticker"].astype(str).str.upper().str.strip()
-    prev["ticker"] = prev["ticker"].astype(str).str.upper().str.strip()
-
-    merged = pd.merge(
-        current,
-        prev,
-        on="ticker",
-        how="outer",
-        suffixes=("_cur", "_prev"),
-    ).fillna(0.0)
-
-    w_cur = merged["weight_cur"].values
-    w_prev = merged["weight_prev"].values
-
-    turnover = float(0.5 * np.abs(w_cur - w_prev).sum())
-
-    rebalance_flag = 1 if turnover > 0.25 else 0
-
-    if turnover < 0.05:
-        regime = "Calm"
-    elif turnover < 0.15:
-        regime = "Normal"
-    elif turnover < 0.30:
-        regime = "Busy"
-    else:
-        regime = "Stressed"
-
-    return turnover, rebalance_flag, regime
-
-
-# ---------------------------------------------------------------------
-# Core Wave Snapshot
-# ---------------------------------------------------------------------
-
-def _build_wave_positions(
-    wave_name: str,
-    vix_level: Optional[float],
-    mode: str,
-) -> pd.DataFrame:
-    weights = _load_wave_weights()
-    wave_df = weights[weights["wave"] == wave_name].copy()
-    if wave_df.empty:
-        return pd.DataFrame(columns=["ticker", "weight", "last_price", "intraday_return"])
-
-    prices = []
-    intraday_returns = []
-    for _, row in wave_df.iterrows():
-        ticker = row["ticker"]
-        last_price, intraday_ret = _get_fast_intraday_return(ticker)
-        prices.append(last_price)
-        intraday_returns.append(intraday_ret)
-
-    wave_df["last_price"] = prices
-    wave_df["intraday_return"] = intraday_returns
-
-    wave_df = _apply_mode_adjustments(wave_name, wave_df, mode, vix_level)
-    wave_df = apply_smartsafe_sweep(wave_name, wave_df, vix_level)
-
-    return wave_df
-
-
-def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
-    mode = (mode or MODE_STANDARD).lower()
-    if mode not in {MODE_STANDARD, MODE_AMB, MODE_PRIVATE_LOGIC}:
-        mode = MODE_STANDARD
-
-    benchmark_label, benchmark_spec = _get_benchmark_for_wave(wave_name)
-
-    vix_level = _get_vix_level()
-    sweep_fraction = _compute_sweep_fraction_from_vix(vix_level)
-
-    positions_core = _build_wave_positions(wave_name, vix_level=vix_level, mode=mode)
-
-    trailing = _compute_portfolio_trailing_returns(
-        positions_core,
-        benchmark_spec=benchmark_spec,
-        period="10y",
-    )
-
-    if (
-        trailing["ret_30d"] == 0.0
-        and trailing["ret_60d"] == 0.0
-        and trailing["ret_1y"] == 0.0
-        and trailing["ret_si"] == 0.0
-        and trailing["alpha_30d"] == 0.0
-        and trailing["alpha_60d"] == 0.0
-        and trailing["alpha_1y"] == 0.0
-        and trailing["alpha_si"] == 0.0
-    ):
-        logged = _load_last_logged_metrics(wave_name)
-        if logged is not None:
-            trailing = logged
-
-    beta_1y = trailing.get("beta_1y", 0.0)
-    beta_target = _get_beta_target(wave_name, mode)
-    beta_drift = beta_1y - beta_target
-
-    ss3_state, ss3_extra = _compute_smartsafe3_recommendation(
-        wave_name=wave_name,
-        mode=mode,
-        vix_level=vix_level,
-        trailing=trailing,
-    )
-    positions_live = apply_smartsafe3_extra_sweep(
-        wave_name=wave_name,
-        positions=positions_core,
-        extra_fraction=ss3_extra,
-    )
-
-    if not positions_live.empty:
-        w = positions_live["weight"]
-        w = w / w.sum() if w.sum() != 0 else w
-        intraday_ret = float((positions_live["intraday_return"] * w).sum())
-    else:
-        intraday_ret = 0.0
-
-    turnover_1d, rebalance_flag, execution_regime = _compute_turnover_since_last_positions(
-        wave_name,
-        positions_live,
-    )
-
-    metrics = {
-        "intraday_return": intraday_ret,
-        "ret_30d": trailing["ret_30d"],
-        "ret_60d": trailing["ret_60d"],
-        "ret_1y": trailing["ret_1y"],
-        "ret_si": trailing["ret_si"],
-        "alpha_30d": trailing["alpha_30d"],
-        "alpha_60d": trailing["alpha_60d"],
-        "alpha_1y": trailing["alpha_1y"],
-        "alpha_si": trailing["alpha_si"],
-        "vol_1y": trailing["vol_1y"],
-        "maxdd": trailing["maxdd"],
-        "ir_1y": trailing["ir_1y"],
-        "hit_rate_1y": trailing["hit_rate_1y"],
-        "beta_1y": beta_1y,
         "beta_target": beta_target,
         "beta_drift": beta_drift,
         "vix_level": vix_level,
-        "smartsafe_sweep_fraction": sweep_fraction,
-        "smartsafe3_state": ss3_state,
-        "smartsafe3_extra_fraction": ss3_extra,
+        "smartsafe_sweep_fraction": base_sweep,
+        "smartsafe3_state": regime,
+        "smartsafe3_extra_fraction": extra_sweep,
         "turnover_1d": turnover_1d,
-        "rebalance_flag": rebalance_flag,
         "execution_regime": execution_regime,
-        "mode": mode,
     }
-
-    _log_positions(wave_name, positions_live)
-    _log_performance(wave_name, metrics)
 
     return {
-        "wave_name": wave_name,
-        "benchmark": benchmark_label,
-        "positions": positions_live,
+        "benchmark": benchmark_str,
         "metrics": metrics,
+        "positions": positions_df,
     }
+
+
+def get_wave_snapshot(wave: str, mode: str = "standard") -> Dict[str, object]:
+    """
+    Public API used by app.py.
+    Returns a dict with keys:
+        - benchmark: str
+        - metrics: dict
+        - positions: DataFrame
+    """
+    weights_df = _load_wave_weights("wave_weights.csv")
+    return _compute_wave_series(wave, mode, weights_df)
