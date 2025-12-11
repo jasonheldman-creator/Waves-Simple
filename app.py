@@ -67,6 +67,18 @@ def compute_vol_and_maxdd(nav_series: pd.Series, return_series: pd.Series):
     return vol, max_dd
 
 
+def benchmark_label(name: str) -> str:
+    """
+    Turn 'AI Benchmark' into 'AI Benchmark (50% QQQ + 50% IGV)' for display.
+    """
+    comp = get_benchmark_composition(name)
+    if not comp:
+        return name
+    parts = [f"{weight * 100:0.0f}% {ticker}" for ticker, weight in comp.items()]
+    mix_str = " + ".join(parts)
+    return f"{name} ({mix_str})"
+
+
 # ----------------------------------------------------
 # Sidebar controls
 # ----------------------------------------------------
@@ -80,7 +92,6 @@ mode = st.sidebar.radio(
     index=0,
 )
 
-# History window (controls lookback_days)
 history_choice = st.sidebar.selectbox(
     "History window",
     ["1Y", "3Y", "5Y"],
@@ -94,7 +105,7 @@ elif history_choice == "3Y":
 else:
     lookback_days = 365 * 5
 
-short_lookback_days = 30  # keep a 30D "tactical" window
+short_lookback_days = 30  # tactical window
 
 waves = get_all_waves()
 default_wave = "AI Wave" if "AI Wave" in waves else waves[0]
@@ -123,6 +134,9 @@ overview_df = get_portfolio_overview(
     short_lookback_days=short_lookback_days,
 ).copy()
 
+# Expand benchmark names to show ETF compositions
+overview_df["BenchmarkLabel"] = overview_df["Benchmark"].apply(benchmark_label)
+
 display_df = overview_df.copy()
 display_df["NAV (last)"] = display_df["NAV_last"].apply(fmt_nav)
 display_df["365D Return"] = display_df["Return_365D"].apply(fmt_pct)
@@ -133,14 +147,14 @@ display_df["30D Alpha vs Benchmark"] = display_df["Alpha_30D"].apply(fmt_pct)
 display_df = display_df[
     [
         "Wave",
-        "Benchmark",
+        "BenchmarkLabel",
         "NAV (last)",
         "365D Return",
         "30D Return",
         "365D Alpha vs Benchmark",
         "30D Alpha vs Benchmark",
     ]
-]
+].rename(columns={"BenchmarkLabel": "Benchmark (ETF mix)"})
 
 st.dataframe(
     display_df,
