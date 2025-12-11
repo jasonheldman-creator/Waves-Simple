@@ -1,25 +1,17 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-(Leaderboard + 1Y & Since Inception Metrics)
+Stage 1: Mode-aware (Standard / AMB / Private Logic)
 
-Key behaviors:
-- Auto-discovers Waves from wave_weights.csv via waves_engine.get_available_waves()
-- No SmartSafe 3.0 logic. Only SmartSafe 2.0 hooks via engine.
-- Tabs:
-    1) Overview (all Waves grid, sortable, color-coded, ranked, CSV export)
-    2) Wave Detail (single-Wave dashboard)
-
-Metrics:
-- Intraday Return
-- 30-Day Return & Alpha
-- 60-Day Return & Alpha
-- 1-Year Return & Alpha
-- Since-Inception Return & Alpha
-
-Per-Wave view:
-- Metrics (all windows)
-- Top 10 holdings with clickable Google Finance quote links
-- Raw positions
+Features:
+- Auto-discovers Waves from wave_weights.csv
+- Mode selector in sidebar:
+    * Standard
+    * Alpha-Minus-Beta
+    * Private Logic™
+- Overview leaderboard for the selected mode
+- Wave Detail pages for the selected mode
+- Shows Intraday, 30D, 60D, 1Y, and Since-Inception returns & alpha
+- Top 10 holdings with Google Finance links
 """
 
 from __future__ import annotations
@@ -28,7 +20,6 @@ import streamlit as st
 import pandas as pd
 
 import waves_engine as we
-
 
 # ---------------------------------------------------------------------
 # Streamlit config
@@ -40,6 +31,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Map UI labels to engine mode tokens
+MODE_LABEL_TO_TOKEN = {
+    "Standard": "standard",
+    "Alpha-Minus-Beta": "amb",
+    "Private Logic™": "pl",
+}
 
 # ---------------------------------------------------------------------
 # Cached helpers
@@ -47,38 +44,29 @@ st.set_page_config(
 
 @st.cache_data(show_spinner=False)
 def load_wave_list():
-    """Load all Waves once (names come from wave_weights.csv)."""
     try:
-        waves = we.get_available_waves()
-        return waves
+        return we.get_available_waves()
     except Exception as e:
         st.error(f"Error loading Waves from wave_weights.csv: {e}")
         return []
 
 
-def load_wave_snapshot(wave_name: str):
-    """
-    Wrapper around we.get_wave_snapshot.
-
-    Not cached so intraday data is always fresh when the page reloads.
-    """
-    return we.get_wave_snapshot(wave_name)
+def load_wave_snapshot(wave_name: str, mode_token: str):
+    return we.get_wave_snapshot(wave_name, mode=mode_token)
 
 
 @st.cache_data(show_spinner=True)
-def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
-    """
-    Build an overview DataFrame with metrics for all Waves.
-    """
+def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
     rows = []
     for w in waves:
         try:
-            snap = we.get_wave_snapshot(w)
+            snap = we.get_wave_snapshot(w, mode=mode_token)
             m = snap["metrics"]
             rows.append(
                 {
                     "Wave": w,
                     "Benchmark": snap["benchmark"],
+                    "Mode": mode_token,
                     "Intraday Return": m.get("intraday_return", 0.0),
                     "30D Return": m.get("ret_30d", 0.0),
                     "30D Alpha": m.get("alpha_30d", 0.0),
@@ -91,11 +79,11 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
                 }
             )
         except Exception:
-            # Non-fatal; still show row with zeros so the grid is complete
             rows.append(
                 {
                     "Wave": w,
                     "Benchmark": "",
+                    "Mode": mode_token,
                     "Intraday Return": 0.0,
                     "30D Return": 0.0,
                     "30D Alpha": 0.0,
@@ -113,6 +101,7 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
             columns=[
                 "Wave",
                 "Benchmark",
+                "Mode",
                 "Intraday Return",
                 "30D Return",
                 "30D Alpha",
@@ -125,8 +114,7 @@ def load_all_snapshots(waves: list[str]) -> pd.DataFrame:
             ]
         )
 
-    df = pd.DataFrame(rows)
-    return df
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------
@@ -141,7 +129,6 @@ def format_pct(x: float) -> str:
 
 
 def top_holdings_table(positions: pd.DataFrame, max_rows: int = 10) -> pd.DataFrame:
-    """Prepare Top 10 holdings table with Google Finance links."""
     if positions.empty:
         return pd.DataFrame()
 
@@ -167,44 +154,43 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Restored baseline — VIX-aware, SmartSafe 2.0 sweeps, blended benchmarks, multi-horizon alpha.
+            Mode-aware baseline — 12 Waves, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
         </p>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_sidebar(waves: list) -> str:
-    """
-    Sidebar:
-    - Wave selector (for detail tab)
-    - Mode selector (visual only)
-    """
+def render_sidebar(waves: list[str]) -> tuple[str, str]:
     st.sidebar.markdown("### Waves Intelligence™")
-    st.sidebar.write("Select a Wave to inspect in the **Wave Detail** tab:")
 
-    if not waves:
-        st.sidebar.error("No Waves found in wave_weights.csv.")
-        return ""
-
-    selected_wave = st.sidebar.selectbox("Wave", waves, index=0)
-    st.sidebar.markdown("---")
-    st.sidebar.caption("Modes shown are cosmetic only in this restored baseline.")
-    _ = st.sidebar.radio(
-        "Mode (visual only)",
+    mode_label = st.sidebar.radio(
+        "Mode",
         ["Standard", "Alpha-Minus-Beta", "Private Logic™"],
         index=0,
     )
+    mode_token = MODE_LABEL_TO_TOKEN[mode_label]
+
+    st.sidebar.caption("Mode selection applies to Overview and Wave Detail.")
+
+    if not waves:
+        st.sidebar.error("No Waves found in wave_weights.csv.")
+        return "", mode_token
+
     st.sidebar.markdown("---")
-    st.sidebar.caption("SmartSafe 2.0 sweep is wired but conservative and non-invasive.")
-    return selected_wave
+    st.sidebar.write("Select a Wave for the **Wave Detail** tab:")
+    selected_wave = st.sidebar.selectbox("Wave", waves, index=0)
+
+    st.sidebar.markdown("---")
+    st.sidebar.caption("SmartSafe 2.0 sweep is VIX-driven and conservative in this baseline.")
+
+    return selected_wave, mode_token
 
 
 def render_metrics(snapshot: dict):
     metrics = snapshot["metrics"]
     benchmark = snapshot["benchmark"]
 
-    # Row 1: Short-horizon
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Intraday Return", format_pct(metrics.get("intraday_return", 0.0)))
@@ -215,7 +201,6 @@ def render_metrics(snapshot: dict):
     with col4:
         st.metric("30-Day Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_30d", 0.0)))
 
-    # Row 2: 60D alpha + 1Y
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("60-Day Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_60d", 0.0)))
@@ -224,22 +209,31 @@ def render_metrics(snapshot: dict):
     with col7:
         st.metric("1-Year Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_1y", 0.0)))
     with col8:
-        st.empty()
+        st.metric("Since Inception Return", format_pct(metrics.get("ret_si", 0.0)))
 
-    # Row 3: Since inception
     col9, col10, col11, col12 = st.columns(4)
     with col9:
-        st.metric("Since Inception Return", format_pct(metrics.get("ret_si", 0.0)))
+        st.metric(
+            "Since Inception Alpha vs " + str(benchmark),
+            format_pct(metrics.get("alpha_si", 0.0)),
+        )
     with col10:
-        st.metric("Since Inception Alpha vs " + str(benchmark), format_pct(metrics.get("alpha_si", 0.0)))
-    with col11:
         vix_level = metrics.get("vix_level", None)
         if vix_level is not None:
             st.metric("VIX Level", f"{vix_level:,.2f}")
-    with col12:
+    with col11:
         sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
         if sweep_frac and sweep_frac > 0:
             st.metric("SmartSafe Sweep %", format_pct(sweep_frac))
+    with col12:
+        mode = metrics.get("mode", "")
+        if mode == "amb":
+            label = "Alpha-Minus-Beta"
+        elif mode == "pl":
+            label = "Private Logic™"
+        else:
+            label = "Standard"
+        st.metric("Mode", label)
 
 
 def render_top_holdings(snapshot: dict):
@@ -251,10 +245,7 @@ def render_top_holdings(snapshot: dict):
         st.info("No holdings data available for this Wave.")
         return
 
-    st.markdown(
-        "Click **Quote** to open the Google Finance page for each holding.",
-        unsafe_allow_html=True,
-    )
+    st.markdown("Click **Quote** to open the Google Finance page.", unsafe_allow_html=True)
 
     st.dataframe(
         holdings_df,
@@ -298,27 +289,24 @@ def render_positions_raw(snapshot: dict):
 # ---------------------------------------------------------------------
 
 def _color_metric(val: str) -> str:
-    """
-    Apply red/green coloring based on sign of the percent string, e.g. "1.23%".
-    """
     if not isinstance(val, str):
         return ""
     if val.startswith("-"):
-        return "color: #ff4d4f;"  # red-ish
+        return "color: #ff4d4f;"
     if val.endswith("%") and not val.startswith("0.00"):
-        return "color: #16c784;"  # green-ish
+        return "color: #16c784;"
     return ""
 
 
-def render_overview_tab(waves: list[str]):
+def render_overview_tab(waves: list[str], mode_token: str):
     st.subheader("Overview — All Waves")
 
     if not waves:
         st.info("No Waves available. Check wave_weights.csv.")
         return
 
-    with st.spinner("Calculating Wave metrics..."):
-        df = load_all_snapshots(waves)
+    with st.spinner(f"Calculating metrics for mode: {mode_token}"):
+        df = load_all_snapshots(waves, mode_token)
 
     if df.empty:
         st.info("No metrics available yet.")
@@ -326,13 +314,12 @@ def render_overview_tab(waves: list[str]):
 
     st.markdown(
         """
-        This grid shows Intraday, 30-Day, 60-Day, 1-Year, and Since-Inception
-        performance and alpha for each Wave. Rank is applied after sorting.
+        This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
+        performance and alpha for each Wave in the **selected mode**.
         """,
         unsafe_allow_html=True,
     )
 
-    # Sorting controls
     metric_options = [
         "Intraday Return",
         "30D Return",
@@ -344,26 +331,20 @@ def render_overview_tab(waves: list[str]):
         "SI Return",
         "SI Alpha",
     ]
-    col_sort, col_dir, col_spacer = st.columns([2, 1.5, 1])
+    col_sort, col_dir, _ = st.columns([2, 1.5, 1])
     with col_sort:
-        sort_col = st.selectbox("Sort by metric", metric_options, index=2)  # default: 30D Alpha
+        sort_col = st.selectbox("Sort by metric", metric_options, index=2)
     with col_dir:
         sort_dir = st.radio("Direction", ["High → Low", "Low → High"], index=0)
-    with col_spacer:
-        st.write("")
 
     ascending = sort_dir == "Low → High"
     df_sorted = df.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
-
-    # Add Rank column after sorting
     df_sorted.insert(0, "Rank", range(1, len(df_sorted) + 1))
 
-    # Create formatted copy for display
     df_display = df_sorted.copy()
     for col in metric_options:
         df_display[col] = df_display[col].apply(format_pct)
 
-    # Styler to color-code positives/negatives
     styler = df_display.style.applymap(
         _color_metric,
         subset=metric_options,
@@ -375,12 +356,11 @@ def render_overview_tab(waves: list[str]):
         hide_index=True,
     )
 
-    # CSV export (raw numeric values, including Rank and all metrics)
     csv_data = df_sorted.to_csv(index=False)
     st.download_button(
         label="Download Overview as CSV",
         data=csv_data,
-        file_name="waves_overview_leaderboard.csv",
+        file_name=f"waves_overview_{mode_token}.csv",
         mime="text/csv",
     )
 
@@ -402,13 +382,13 @@ def render_smartsafe_panel():
     )
 
 
-def render_wave_detail_tab(selected_wave: str):
+def render_wave_detail_tab(selected_wave: str, mode_token: str):
     if not selected_wave:
         st.info("Select a Wave in the sidebar to view details.")
         return
 
-    with st.spinner(f"Loading Wave: {selected_wave}"):
-        snapshot = load_wave_snapshot(selected_wave)
+    with st.spinner(f"Loading {selected_wave} in mode: {mode_token}"):
+        snapshot = load_wave_snapshot(selected_wave, mode_token)
 
     st.markdown(f"## {selected_wave}")
     st.caption(f"Benchmark: {snapshot['benchmark']}")
@@ -428,7 +408,7 @@ def render_wave_detail_tab(selected_wave: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — VIX-aware, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
+        WAVES Intelligence™ — Mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
         For internal / demo use only.
         </div>
         """,
@@ -444,15 +424,15 @@ def main():
     render_header()
 
     waves = load_wave_list()
-    selected_wave = render_sidebar(waves)
+    selected_wave, mode_token = render_sidebar(waves)
 
     tab_overview, tab_detail = st.tabs(["Overview", "Wave Detail"])
 
     with tab_overview:
-        render_overview_tab(waves)
+        render_overview_tab(waves, mode_token)
 
     with tab_detail:
-        render_wave_detail_tab(selected_wave)
+        render_wave_detail_tab(selected_wave, mode_token)
 
 
 if __name__ == "__main__":
