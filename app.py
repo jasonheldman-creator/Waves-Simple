@@ -1,6 +1,7 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 6: Mode-aware + Momentum + Engineered Concentration + SmartSafe 2.0 + SmartSafe 3.0 Telemetry
+Stage 7: Mode-aware + Momentum + Engineered Concentration
+         + SmartSafe 2.0 + SmartSafe 3.0 (LIVE overlay)
 
 Features:
 - Mode selector in sidebar (Standard / AMB / Private Logic™)
@@ -11,9 +12,9 @@ Features:
     * 1Y Hit Rate
     * Max Drawdown
     * 1Y Beta vs Benchmark, Beta Target, Beta Drift
-    * SmartSafe 3.0 regime + extra sweep recommendation (telemetry only)
+    * SmartSafe 2.0 sweep fraction (VIX ladder, live)
+    * SmartSafe 3.0 regime + extra sweep fraction (LIVE overlay)
 - Top 10 holdings with Google Finance links
-- SmartSafe 2.0 status (VIX + sweep%)
 """
 
 from __future__ import annotations
@@ -188,9 +189,9 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Stage 6 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
+            Stage 7 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
             blended benchmarks, multi-horizon alpha & beta discipline, and SmartSafe 3.0
-            <b>telemetry</b> (regime + extra sweep recommendations, no live 3.0 sweeps yet).
+            <strong>LIVE overlay</strong> on portfolio exposures.
         </p>
         """,
         unsafe_allow_html=True,
@@ -218,8 +219,7 @@ def render_sidebar(waves: list[str]) -> tuple[str, str]:
 
     st.sidebar.markdown("---")
     st.sidebar.caption(
-        "SmartSafe 2.0 sweeps are live. SmartSafe 3.0 is currently "
-        "telemetry-only (recommendations) in this build."
+        "SmartSafe 2.0 sweeps and SmartSafe 3.0 extra sweeps are both live in this build."
     )
 
     return selected_wave, mode_token
@@ -295,7 +295,7 @@ def render_top_holdings(snapshot: dict):
 
 
 def render_positions_raw(snapshot: dict):
-    st.subheader("Underlying Positions (Raw)")
+    st.subheader("Underlying Positions (Post SmartSafe 3.0 Overlay)")
     positions = snapshot["positions"]
     if positions.empty:
         st.info("No underlying positions available.")
@@ -356,8 +356,8 @@ def render_overview_tab(waves: list[str], mode_token: str):
         """
         This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
         performance and alpha for each Wave in the **selected mode**, plus
-        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, Beta telemetry, and
-        SmartSafe 3.0 regime + extra sweep recommendations (telemetry-only).
+        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, Beta discipline, and
+        SmartSafe 3.0 regime + extra sweep (LIVE overlay on top of 2.0).
         """,
         unsafe_allow_html=True,
     )
@@ -450,21 +450,21 @@ def render_smartsafe_panel(metrics: dict):
             st.metric("VIX Level", f"{vix_level:,.2f}")
     with col2:
         if sweep_frac and sweep_frac > 0:
-            st.metric("SmartSafe 2.0 Sweep to BIL (Live)", format_pct(sweep_frac))
+            st.metric("SmartSafe 2.0 Sweep to BIL (Base)", format_pct(sweep_frac))
         else:
-            st.metric("SmartSafe 2.0 Sweep to BIL (Live)", "0.00%")
+            st.metric("SmartSafe 2.0 Sweep to BIL (Base)", "0.00%")
 
     st.markdown("---")
 
     col3, col4 = st.columns(2)
     with col3:
-        st.metric("SmartSafe 3.0 Regime", ss3_state)
+        st.metric("SmartSafe 3.0 Regime (LIVE)", ss3_state)
     with col4:
-        st.metric("SmartSafe 3.0 Extra Sweep (Telemetry)", format_pct(ss3_extra))
+        st.metric("SmartSafe 3.0 Extra Sweep (LIVE)", format_pct(ss3_extra))
 
     st.caption(
-        "SmartSafe 3.0 is **telemetry-only** in this build — it shows what extra "
-        "sweep would be recommended on top of 2.0, but does not yet modify weights."
+        "SmartSafe 3.0 applies an additional volatility-based sweep into BIL on top of "
+        "SmartSafe 2.0, driven by VIX, 60D returns, max drawdown, and beta drift."
     )
 
 
@@ -494,9 +494,9 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Stage 6 adaptive momentum + engineered concentration +
-        beta telemetry, VIX-aware SmartSafe 2.0, and SmartSafe 3.0 telemetry. Blended
-        benchmarks, multi-horizon alpha & risk. For internal / demo use only.
+        WAVES Intelligence™ — Stage 7 adaptive momentum + engineered concentration +
+        beta discipline, VIX-aware SmartSafe 2.0, and SmartSafe 3.0 LIVE overlay.
+        Blended benchmarks, multi-horizon alpha & risk. For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
