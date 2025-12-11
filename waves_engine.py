@@ -1,6 +1,6 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 5: Adaptive Alpha Engine + Engineered Concentration + Beta Discipline Telemetry
+Stage 6: Adaptive Alpha Engine + Engineered Concentration + SmartSafe 2.0 + SmartSafe 3.0 Telemetry
 
 Includes:
 - Auto-discovered Waves from wave_weights.csv
@@ -9,7 +9,8 @@ Includes:
     * standard  -> mild momentum tilt + mild concentration, base beta target ~0.90
     * amb       -> very light momentum tilt + beta-leaning defensive + SmartSafe 2.0
     * pl        -> strong momentum tilt + stronger concentration, beta target slightly >1
-- VIX-based SmartSafe 2.0 sweep (no SmartSafe 3.0)
+- VIX-based SmartSafe 2.0 sweep (live)
+- SmartSafe 3.0 regime / extra sweep *recommendation only* (telemetry; does NOT change weights)
 - Performance & risk metrics:
     * Intraday return
     * 30D, 60D, 1Y, and Since-Inception returns
@@ -21,12 +22,13 @@ Includes:
     * 1Y beta vs benchmark
     * Beta target (per mode & Wave type)
     * Beta drift (actual - target)
-- Daily logging of positions & performance (including beta_1y)
+    * SmartSafe 3.0 regime + extra sweep fraction (telemetry only)
 
 Important:
 - No Waves are ever equal-weighted; we always respect wave_weights.csv
   and only normalize inside each Wave.
-- Beta discipline is *telemetry only* in this stage (no auto-scaling).
+- SmartSafe 3.0 in this stage is **observational only**; SmartSafe 2.0
+  remains the only sweep that actually modifies weights.
 """
 
 from __future__ import annotations
@@ -484,7 +486,7 @@ def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
     else:
         return df
 
-    # Clip to cap; excess flows into BIL as extra SmartSafe defense
+    # Clip to cap; excess flows into BIL
     w_clipped = np.minimum(w_trans, cap)
     eq_new_total = float(w_clipped.sum())
     excess = eq_weight_total - eq_new_total
@@ -492,7 +494,6 @@ def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
     df.loc[eq_mask, "weight"] = w_clipped
 
     if excess > 0:
-        # Add excess to BIL
         if is_bil.any():
             df.loc[is_bil, "weight"] += excess
         else:
@@ -505,7 +506,6 @@ def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
             }
             df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
 
-    # Final renormalization
     total_weight = df["weight"].sum()
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
@@ -651,7 +651,7 @@ def _get_beta_target(wave_name: str, mode: str) -> float:
     elif "income" in name_lower:
         base = 0.80
     elif "crypto" in name_lower:
-        base = 1.10  # crypto Waves tolerated hotter beta
+        base = 1.10
     elif "small cap" in name_lower:
         base = 1.05
 
@@ -720,7 +720,6 @@ def _estimate_beta(port_returns: pd.Series, bench_returns: pd.Series) -> float:
     if r_p.empty or r_b.empty:
         return 0.0
 
-    # 1Y window
     r_p = r_p.tail(TRADING_DAYS_1Y)
     r_b = r_b.tail(TRADING_DAYS_1Y)
     if r_p.empty or r_b.empty:
@@ -915,6 +914,63 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
 
 
 # ---------------------------------------------------------------------
+# SmartSafe 3.0 recommendation (telemetry only)
+# ---------------------------------------------------------------------
+
+def _compute_smartsafe3_recommendation(
+    wave_name: str,
+    mode: str,
+    vix_level: Optional[float],
+    trailing: Dict[str, float],
+) -> Tuple[str, float]:
+    """
+    Returns:
+        state: "Normal" | "Caution" | "Stress" | "Panic" | "Idle"
+        extra_fraction: extra sweep fraction *on top of* SmartSafe 2.0 (0.0–0.30)
+
+    This is telemetry-only in Stage 6; it does NOT modify weights.
+    """
+    name_lower = wave_name.lower()
+    if "smartsafe" in name_lower:
+        return "Idle", 0.0
+
+    vix = vix_level if vix_level is not None else 0.0
+    ret_60d = trailing.get("ret_60d", 0.0)
+    alpha_60d = trailing.get("alpha_60d", 0.0)
+    maxdd = trailing.get("maxdd", 0.0)  # negative values (e.g., -0.32)
+    beta_1y = trailing.get("beta_1y", 0.0)
+
+    beta_target = _get_beta_target(wave_name, mode)
+    beta_drift = beta_1y - beta_target
+
+    # PANIC
+    if (
+        vix >= 35.0
+        or (maxdd <= -0.30 and ret_60d <= -0.15)
+        or (beta_drift > 0.15 and ret_60d <= -0.10)
+    ):
+        return "Panic", 0.30
+
+    # STRESS
+    if (
+        vix >= 28.0
+        or (maxdd <= -0.20 and ret_60d <= -0.10)
+        or (beta_drift > 0.10 and ret_60d <= -0.05)
+    ):
+        return "Stress", 0.15
+
+    # CAUTION
+    if (
+        vix >= 22.0
+        or (maxdd <= -0.15 and ret_60d < 0.0)
+        or (beta_drift > 0.05 and alpha_60d < 0.0)
+    ):
+        return "Caution", 0.05
+
+    return "Normal", 0.0
+
+
+# ---------------------------------------------------------------------
 # Core Wave Snapshot
 # ---------------------------------------------------------------------
 
@@ -988,6 +1044,14 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
     beta_target = _get_beta_target(wave_name, mode)
     beta_drift = beta_1y - beta_target
 
+    # SmartSafe 3.0 telemetry (no weight changes in this stage)
+    ss3_state, ss3_extra = _compute_smartsafe3_recommendation(
+        wave_name=wave_name,
+        mode=mode,
+        vix_level=vix_level,
+        trailing=trailing,
+    )
+
     metrics = {
         "intraday_return": intraday_ret,
         "ret_30d": trailing["ret_30d"],
@@ -1007,6 +1071,8 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
         "beta_drift": beta_drift,
         "vix_level": vix_level,
         "smartsafe_sweep_fraction": sweep_fraction,
+        "smartsafe3_state": ss3_state,
+        "smartsafe3_extra_fraction": ss3_extra,
         "mode": mode,
     }
 
