@@ -1,17 +1,17 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 1: Mode-aware (Standard / AMB / Private Logic)
+Stage 2: Mode-aware + Alpha Quality & Risk Metrics
 
 Features:
-- Auto-discovers Waves from wave_weights.csv
-- Mode selector in sidebar:
-    * Standard
-    * Alpha-Minus-Beta
-    * Private Logic™
-- Overview leaderboard for the selected mode
-- Wave Detail pages for the selected mode
-- Shows Intraday, 30D, 60D, 1Y, and Since-Inception returns & alpha
+- Mode selector in sidebar (Standard / AMB / Private Logic™)
+- Overview leaderboard for selected mode
+- Wave Detail panel with:
+    * Intraday, 30D, 60D, 1Y, SI returns & alpha
+    * 1Y Info Ratio
+    * 1Y Hit Rate
+    * Max Drawdown
 - Top 10 holdings with Google Finance links
+- SmartSafe 2.0 status (VIX + sweep%)
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Map UI labels to engine mode tokens
 MODE_LABEL_TO_TOKEN = {
     "Standard": "standard",
     "Alpha-Minus-Beta": "amb",
@@ -76,6 +75,9 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "1Y Alpha": m.get("alpha_1y", 0.0),
                     "SI Return": m.get("ret_si", 0.0),
                     "SI Alpha": m.get("alpha_si", 0.0),
+                    "1Y IR": m.get("ir_1y", 0.0),
+                    "1Y Hit Rate": m.get("hit_rate_1y", 0.0),
+                    "Max Drawdown": m.get("maxdd", 0.0),
                 }
             )
         except Exception:
@@ -93,6 +95,9 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "1Y Alpha": 0.0,
                     "SI Return": 0.0,
                     "SI Alpha": 0.0,
+                    "1Y IR": 0.0,
+                    "1Y Hit Rate": 0.0,
+                    "Max Drawdown": 0.0,
                 }
             )
 
@@ -111,6 +116,9 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                 "1Y Alpha",
                 "SI Return",
                 "SI Alpha",
+                "1Y IR",
+                "1Y Hit Rate",
+                "Max Drawdown",
             ]
         )
 
@@ -124,6 +132,13 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
 def format_pct(x: float) -> str:
     try:
         return f"{x * 100:,.2f}%"
+    except Exception:
+        return "-"
+
+
+def format_ratio(x: float) -> str:
+    try:
+        return f"{x:,.2f}"
     except Exception:
         return "-"
 
@@ -154,7 +169,7 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Mode-aware baseline — 12 Waves, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
+            Mode-aware baseline — 12 Waves, SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk.
         </p>
         """,
         unsafe_allow_html=True,
@@ -170,8 +185,7 @@ def render_sidebar(waves: list[str]) -> tuple[str, str]:
         index=0,
     )
     mode_token = MODE_LABEL_TO_TOKEN[mode_label]
-
-    st.sidebar.caption("Mode selection applies to Overview and Wave Detail.")
+    st.sidebar.caption("Mode applies to Overview and Wave Detail.")
 
     if not waves:
         st.sidebar.error("No Waves found in wave_weights.csv.")
@@ -218,22 +232,11 @@ def render_metrics(snapshot: dict):
             format_pct(metrics.get("alpha_si", 0.0)),
         )
     with col10:
-        vix_level = metrics.get("vix_level", None)
-        if vix_level is not None:
-            st.metric("VIX Level", f"{vix_level:,.2f}")
+        st.metric("1-Year Info Ratio", format_ratio(metrics.get("ir_1y", 0.0)))
     with col11:
-        sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
-        if sweep_frac and sweep_frac > 0:
-            st.metric("SmartSafe Sweep %", format_pct(sweep_frac))
+        st.metric("1-Year Hit Rate", format_pct(metrics.get("hit_rate_1y", 0.0)))
     with col12:
-        mode = metrics.get("mode", "")
-        if mode == "amb":
-            label = "Alpha-Minus-Beta"
-        elif mode == "pl":
-            label = "Private Logic™"
-        else:
-            label = "Standard"
-        st.metric("Mode", label)
+        st.metric("Max Drawdown", format_pct(metrics.get("maxdd", 0.0)))
 
 
 def render_top_holdings(snapshot: dict):
@@ -315,7 +318,8 @@ def render_overview_tab(waves: list[str], mode_token: str):
     st.markdown(
         """
         This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
-        performance and alpha for each Wave in the **selected mode**.
+        performance and alpha for each Wave in the **selected mode**, plus
+        1Y Info Ratio, 1Y Hit Rate, and Max Drawdown.
         """,
         unsafe_allow_html=True,
     )
@@ -342,8 +346,28 @@ def render_overview_tab(waves: list[str], mode_token: str):
     df_sorted.insert(0, "Rank", range(1, len(df_sorted) + 1))
 
     df_display = df_sorted.copy()
-    for col in metric_options:
-        df_display[col] = df_display[col].apply(format_pct)
+
+    # Format percentage-type columns
+    pct_cols = [
+        "Intraday Return",
+        "30D Return",
+        "30D Alpha",
+        "60D Return",
+        "60D Alpha",
+        "1Y Return",
+        "1Y Alpha",
+        "SI Return",
+        "SI Alpha",
+        "1Y Hit Rate",
+        "Max Drawdown",
+    ]
+    for col in pct_cols:
+        if col in df_display.columns:
+            df_display[col] = df_display[col].apply(format_pct)
+
+    # Format ratio column(s)
+    if "1Y IR" in df_display.columns:
+        df_display["1Y IR"] = df_display["1Y IR"].apply(format_ratio)
 
     styler = df_display.style.applymap(
         _color_metric,
@@ -369,15 +393,24 @@ def render_overview_tab(waves: list[str], mode_token: str):
 # Wave Detail tab
 # ---------------------------------------------------------------------
 
-def render_smartsafe_panel():
+def render_smartsafe_panel(metrics: dict):
     st.subheader("SmartSafe 2.0 Status")
+
+    vix_level = metrics.get("vix_level", None)
+    sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
+
+    cols = st.columns(2)
+    with cols[0]:
+        if vix_level is not None:
+            st.metric("VIX Level", f"{vix_level:,.2f}")
+    with cols[1]:
+        if sweep_frac and sweep_frac > 0:
+            st.metric("Sweep Allocation to BIL", format_pct(sweep_frac))
+
     st.write(
         """
-        SmartSafe 2.0 sweep hooks are active but conservative and non-invasive
-        in this restored baseline.
-
-        - No SmartSafe 3.0 logic is running.
-        - Sweeps are driven by the VIX ladder and applied to highest-vol holdings first.
+        SmartSafe 2.0 sweeps are VIX-driven and applied to the highest-vol holdings first.
+        SmartSafe 3.0 is **not** running in this baseline.
         """
     )
 
@@ -400,7 +433,7 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     with col_left:
         render_top_holdings(snapshot)
     with col_right:
-        render_smartsafe_panel()
+        render_smartsafe_panel(snapshot["metrics"])
 
     st.markdown("---")
     render_positions_raw(snapshot)
@@ -408,8 +441,8 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks, multi-horizon alpha.
-        For internal / demo use only.
+        WAVES Intelligence™ — Mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks,
+        multi-horizon alpha & risk. For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
