@@ -1,38 +1,36 @@
 """
 waves_engine.py — WAVES Intelligence™ Vector Engine (Composite Benchmarks + Modes)
 
-Features
---------
-- Internal WAVE_WEIGHTS (no CSV dependency).
+Key points
+----------
+- Uses internal WAVE_WEIGHTS (no wave_weights.csv required).
 - Three risk modes:
     • Standard
-    • Alpha-Minus-Beta (de-risked via lower return scaling)
-    • Private Logic (enhanced via higher return scaling)
-- Optional Full_Wave_History.csv (Date/Wave/NAV), else live/simulated prices.
-- Robust price fetching with yfinance + simulator fallback.
+    • Alpha-Minus-Beta (de-risked)
+    • Private Logic (enhanced)
+- Waves use Full_Wave_History.csv when available:
+    • If columns: Date/Wave/NAV  -> use NAV directly.
+    • If columns: Date/Wave/MarketValue -> compute NAV per Wave from MarketValue.
+- Only if no Full_Wave_History is found do Waves fall back to ETF prices.
+- Benchmarks are composite ETF portfolios (1–3 ETFs). If price data
+  cannot be fetched, benchmarks fall back to a flat line (0% return).
 - Daily performance logging:
     • logs/performance/<Wave>_performance_daily.csv
-      with Date, Wave, Mode, NAV, Return, CumReturn.
-- Composite Benchmarks:
-    • Each Wave has its own custom benchmark portfolio of 1–3 ETFs.
-    • Alpha is computed vs these composite benchmarks.
 """
 
 import os
 import datetime as dt
 from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 
 try:
     import yfinance as yf
 except ImportError:
-    yf = None  # App will fall back to simulator.
-
+    yf = None  # If missing, price-based paths fall back to flat lines.
 
 # ============================================================
-# INTERNAL MASTER WEIGHTS (no CSV required)
+# INTERNAL MASTER WEIGHTS (per Wave)
 # ============================================================
 
 WAVE_WEIGHTS: Dict[str, Dict[str, float]] = {
@@ -140,7 +138,7 @@ BENCHMARK_WEIGHTS: Dict[str, Dict[str, float]] = {
         "IGV": 0.60,
         "VGT": 0.40,
     },
-    "Quantum Benchmark": { # Quantum Computing Wave benchmark
+    "Quantum Benchmark": {  # Quantum Computing Wave benchmark
         "QQQ": 0.70,
         "VGT": 0.30,
     },
@@ -162,27 +160,27 @@ BENCHMARK_WEIGHTS: Dict[str, Dict[str, float]] = {
     },
 
     # Size / Style
-    "Small Cap Benchmark": {   # Small Cap Growth Wave benchmark
+    "Small Cap Benchmark": {  # Small Cap Growth Wave benchmark
         "IWM": 0.70,
         "VTWO": 0.30,
     },
 
     # Income & Cash
-    "Income Benchmark": {      # Income Wave benchmark
+    "Income Benchmark": {     # Income Wave benchmark
         "SCHD": 0.50,
         "HDV": 0.50,
     },
-    "SmartSafe Benchmark": {   # SmartSafe Wave benchmark
+    "SmartSafe Benchmark": {  # SmartSafe Wave benchmark
         "BIL": 1.00,
     },
 
     # Broad Market
-    "S&P 500 Benchmark": {     # S&P 500 Wave benchmark
+    "S&P 500 Benchmark": {    # S&P 500 Wave benchmark
         "SPY": 1.00,
     },
 }
 
-# Map each Wave to its composite benchmark
+# Map each Wave to its benchmark name
 BENCHMARK_MAP: Dict[str, str] = {
     "AI Wave": "AI Benchmark",
     "Cloud & Software Wave": "Cloud Benchmark",
@@ -196,12 +194,12 @@ BENCHMARK_MAP: Dict[str, str] = {
     "S&P 500 Wave": "S&P 500 Benchmark",
 }
 
-FULL_HISTORY_FILE = "Full_Wave_History.csv"  # optional, Date/Wave/NAV
+FULL_HISTORY_FILE = "Full_Wave_History.csv"  # optional wave-level history
 
 DEFAULT_LOOKBACK_DAYS = 365
 SHORT_LOOKBACK_DAYS = 30
 
-# Mode behaviour: these scale daily returns (not NAV directly)
+# Risk mode behaviour: applied to DAILY returns
 MODE_MULTIPLIERS = {
     "Standard": 1.0,
     "Alpha-Minus-Beta": 0.80,   # ~20% de-risked vs Standard
@@ -312,41 +310,78 @@ def get_benchmark_positions(benchmark_name: str) -> pd.DataFrame:
 
 
 # ============================================================
-# Full_Wave_History (optional for Waves only)
+# Full_Wave_History (for WAVES ONLY)
 # ============================================================
 
 def _load_full_history() -> Optional[pd.DataFrame]:
     """
-    Load Full_Wave_History.csv if it exists AND has proper
-    Date/Wave/NAV columns. Otherwise returns None.
+    Load Full_Wave_History.csv and normalize it to columns:
+        date (datetime), Wave (str), NAV (float)
 
-    NOTE: This is used only for real Waves, not benchmarks.
+    Supported schemas:
+        1) Date / Wave / NAV
+        2) Date / Wave / MarketValue (plus optional Position/Weight/Ticker/etc.)
+
+    In schema (2), NAV is computed per Wave/date as:
+        NAV = MarketValue / MarketValue_at_first_date_for_that_wave
     """
     hist = _load_csv_safe(FULL_HISTORY_FILE)
     if hist is None:
         return None
 
+    # Normalize column names to lowercase
     lower_map = {c.lower(): c for c in hist.columns}
     date_col = lower_map.get("date")
     wave_col = lower_map.get("wave")
     nav_col = lower_map.get("nav")
+    mv_col = lower_map.get("marketvalue")
 
-    if not all([date_col, wave_col, nav_col]):
+    if not date_col or not wave_col:
         print(
-            "[waves_engine] Full_Wave_History.csv present but missing date/wave/nav; "
-            "ignoring and using price-based NAV instead."
+            "[waves_engine] Full_Wave_History.csv present but missing Date/Wave; "
+            "ignoring file."
         )
         return None
 
-    hist = hist.rename(columns={date_col: "date", wave_col: "Wave", nav_col: "NAV"})
-    hist["Wave"] = hist["Wave"].astype(str).str.strip()
-    hist["date"] = pd.to_datetime(hist["date"])
-    hist = hist.sort_values(["Wave", "date"])
-    return hist
+    hist = hist.rename(columns={date_col: "date", wave_col: "Wave"})
+
+    # Case 1: direct NAV column
+    if nav_col is not None:
+        hist = hist.rename(columns={nav_col: "NAV"})
+        hist["Wave"] = hist["Wave"].astype(str).str.strip()
+        hist["date"] = pd.to_datetime(hist["date"])
+        hist = hist.sort_values(["Wave", "date"])
+        return hist[["date", "Wave", "NAV"]]
+
+    # Case 2: MarketValue column — compute NAV per Wave
+    if mv_col is not None:
+        hist = hist.rename(columns={mv_col: "MarketValue"})
+        hist["Wave"] = hist["Wave"].astype(str).str.strip()
+        hist["date"] = pd.to_datetime(hist["date"])
+
+        grouped = (
+            hist.groupby(["Wave", "date"])["MarketValue"]
+            .sum()
+            .reset_index()
+            .sort_values(["Wave", "date"])
+        )
+
+        # NAV = MarketValue / first MarketValue for that Wave
+        grouped["NAV"] = grouped.groupby("Wave")["MarketValue"].transform(
+            lambda x: x / (x.iloc[0] if x.iloc[0] != 0 else 1.0)
+        )
+
+        return grouped[["date", "Wave", "NAV"]]
+
+    print(
+        "[waves_engine] Full_Wave_History.csv present but missing NAV/MarketValue; "
+        "ignoring file."
+    )
+    return None
 
 
 # ============================================================
-# Price / NAV from yfinance + simulator fallback
+# Price / NAV from ETFs (used when history file is missing)
 # ============================================================
 
 def _compute_nav_from_prices(price_df: pd.DataFrame, weights: pd.Series) -> pd.DataFrame:
@@ -361,55 +396,37 @@ def _compute_nav_from_prices(price_df: pd.DataFrame, weights: pd.Series) -> pd.D
     return pd.DataFrame({"NAV": nav, "Return": port_ret})
 
 
-def _simulate_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
+def _flat_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
     """
-    Synthetic price history for demo mode when all external price APIs fail.
-    Uses a geometric random walk with modest drift and volatility.
+    Fallback price history: flat prices (0% return). This is deliberately
+    conservative to avoid wild fake returns when real data isn't available.
     """
     end_date = dt.datetime.utcnow().date()
     start_date = end_date - dt.timedelta(days=lookback_days)
     dates = pd.date_range(start=start_date, end=end_date, freq="B")
 
+    tickers = sorted(set([t.strip().upper() for t in tickers if t.strip()]))
     if not tickers:
         return pd.DataFrame()
 
-    np.random.seed(42)  # deterministic demos
-    mu = 0.08 / 252.0
-    sigma = 0.18 / (252.0 ** 0.5)
-
-    prices = {}
-    for t in sorted(set([t.strip().upper() for t in tickers if t.strip()])):
-        start_price = 100 + (hash(t) % 200)
-        rets = np.random.normal(loc=mu, scale=sigma, size=len(dates))
-        prices[t] = start_price * np.cumprod(1.0 + rets)
-
-    df = pd.DataFrame(prices, index=dates)
-    return df
+    data = {t: [100.0] * len(dates) for t in tickers}
+    return pd.DataFrame(data, index=dates)
 
 
 def _fetch_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
     """
-    Fetch price history from yfinance; if that fails, fall back to simulator.
+    Fetch price history from yfinance; if that fails, use flat (0% return) paths.
     """
     tickers = sorted(set([t.strip().upper() for t in tickers if t.strip()]))
     if not tickers:
         return pd.DataFrame()
 
+    # 1) Try yfinance
     prices = pd.DataFrame()
 
-    # 1) yfinance batched
     if yf is not None:
         end_date = dt.datetime.utcnow().date()
         start_date = end_date - dt.timedelta(days=lookback_days + 5)
-
-        def from_multiindex(data: pd.DataFrame, tickers_list: List[str]) -> pd.DataFrame:
-            frames = []
-            for t in tickers_list:
-                if (t, "Adj Close") in data.columns:
-                    frames.append(data[(t, "Adj Close")].rename(t))
-            if not frames:
-                return pd.DataFrame()
-            return pd.concat(frames, axis=1)
 
         try:
             data = yf.download(
@@ -421,14 +438,20 @@ def _fetch_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame
                 group_by="ticker",
             )
             if isinstance(data.columns, pd.MultiIndex):
-                prices = from_multiindex(data, tickers)
+                frames = []
+                for t in tickers:
+                    if (t, "Adj Close") in data.columns:
+                        frames.append(data[(t, "Adj Close")].rename(t))
+                if frames:
+                    prices = pd.concat(frames, axis=1)
             else:
+                # Single ticker case
                 if "Adj Close" in data.columns:
                     prices = data[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
         except Exception as e:
             print(f"[waves_engine] Batched yfinance download failed: {e}")
 
-        # 2) per-ticker fallback
+        # Per-ticker fallback
         if prices.empty:
             frames = []
             for t in tickers:
@@ -447,10 +470,10 @@ def _fetch_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame
             if frames:
                 prices = pd.concat(frames, axis=1)
 
-    # 3) simulator fallback
+    # 2) If we still have nothing, use flat zero-return paths
     if prices.empty:
-        print("[waves_engine] No real price data; using simulated prices for demo mode.")
-        prices = _simulate_price_history(tickers, lookback_days)
+        print("[waves_engine] No real price data; using FLAT (0% return) prices.")
+        prices = _flat_price_history(tickers, lookback_days)
 
     prices.index = pd.to_datetime(prices.index)
     return prices
@@ -474,7 +497,6 @@ def _log_wave_nav_history(wave_name: str, mode: str, nav_df: pd.DataFrame) -> No
             return
 
         df = nav_df.copy()
-        # Reset index to Date column
         if df.index.name is None:
             df = df.reset_index().rename(columns={"index": "Date"})
         else:
@@ -528,8 +550,10 @@ def compute_history_nav(
         If True, treat `name` as a benchmark portfolio using BENCHMARK_WEIGHTS
         and do NOT log or use Full_Wave_History.csv.
     """
+    # ======================================================
+    # BENCHMARKS: composite ETF portfolios, no modes, no logs
+    # ======================================================
     if is_benchmark:
-        # Benchmarks: no mode scaling, no full history, no logs
         positions = get_benchmark_positions(name)
         tickers = positions["Ticker"].tolist()
         weights = positions.set_index("Ticker")["Weight"]
@@ -554,7 +578,9 @@ def compute_history_nav(
         nav_df["CumReturn"] = nav_df["NAV"] / nav_df["NAV"].iloc[0] - 1.0
         return nav_df
 
-    # Waves: apply modes, allow Full_Wave_History, and log
+    # ======================================================
+    # WAVES: prefer Full_Wave_History; otherwise ETF prices
+    # ======================================================
     mode = mode or "Standard"
     multiplier = MODE_MULTIPLIERS.get(mode, 1.0)
 
@@ -570,16 +596,16 @@ def compute_history_nav(
             if not hist_wave.empty:
                 hist_wave = hist_wave.set_index("date")
                 base_nav = hist_wave["NAV"] / float(hist_wave["NAV"].iloc[0])
-                ret = base_nav.pct_change().fillna(0.0) * multiplier
-                nav_scaled = (1.0 + ret).cumprod()
+                daily_ret = base_nav.pct_change().fillna(0.0) * multiplier
+                nav_scaled = (1.0 + daily_ret).cumprod()
                 cum_ret = nav_scaled / nav_scaled.iloc[0] - 1.0
                 nav_df = pd.DataFrame(
-                    {"NAV": nav_scaled, "Return": ret, "CumReturn": cum_ret}
+                    {"NAV": nav_scaled, "Return": daily_ret, "CumReturn": cum_ret}
                 )
                 _log_wave_nav_history(name, mode, nav_df)
                 return nav_df
 
-    # 2) Price-based NAV using internal weights (Waves)
+    # 2) Price-based NAV using internal weights (only if no history file)
     positions = get_wave_positions(name)
     tickers = positions["Ticker"].tolist()
     weights = positions.set_index("Ticker")["Weight"]
@@ -610,7 +636,7 @@ def compute_history_nav(
 
 
 # ============================================================
-# Summary / Overview + Alpha vs Composite Benchmark
+# Overview + Alpha vs Composite Benchmark
 # ============================================================
 
 def get_wave_summary_metrics(
@@ -654,7 +680,7 @@ def get_portfolio_overview(
 
     Columns:
         Wave
-        Benchmark
+        Benchmark      (name only, e.g. "AI Benchmark")
         NAV_last
         Return_365D
         Return_30D
