@@ -1,11 +1,31 @@
 # waves_engine.py — WAVES Intelligence™ Vector Engine
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
 #
-# NEW:
-#   • Crypto Multi-Cap Wave
-#   • Crypto Income Wave (crypto money market with APY overlay)
-#   • Infinity Wave (multi-asset global growth meta-wave)
-#   • Crypto-VIX proxy (BTC-vol-based) for crypto Waves
+# Mobile-friendly:
+#   • No terminal, no CLI, no CSV requirement for core behavior.
+#   • Internal Wave holdings + ETF / crypto candidate library.
+#
+# Strategy side:
+#   • Momentum tilts (60D)
+#   • Volatility targeting (20D realized vol)
+#   • Regime gating (SPY 60D trend)
+#   • VIX-based exposure scaling (or BTC-vol-based for crypto)
+#   • SmartSafe™ sweep based on VIX & regime
+#   • Mode-specific exposure caps (Standard, AMB, Private Logic)
+#   • Private Logic™ mean-reversion overlay
+#
+# Benchmark side:
+#   • Auto-constructed composite benchmarks based on Wave exposures.
+#   • Fallback static benchmark weights per Wave.
+#
+# Crypto side:
+#   • Multi-Cap Crypto Growth Wave
+#   • Crypto Stable Yield Wave  (low-vol, mostly stablecoins)
+#   • Crypto Income & Yield Wave (balanced)
+#   • Crypto High-Yield Income Wave (riskier, higher assumed yield)
+#   • Infinity Multi-Asset Growth Wave (cross-asset meta-wave)
+#   • Crypto-VIX proxy (BTC-vol-based) for Waves with "Crypto" in name
+#   • Wave-specific crypto yield overlays via APY
 #
 # Public API used by app.py:
 #   • USE_FULL_WAVE_HISTORY
@@ -86,11 +106,14 @@ PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized
 VIX_TICKER = "^VIX"
 BTC_TICKER = "BTC-USD"  # used for crypto-VIX proxy
 
-# Crypto income APY (approximate) for Crypto Income Wave
-CRYPTO_INCOME_APY = 0.06  # 6% annual yield assumption
-CRYPTO_INCOME_DAILY_YIELD = CRYPTO_INCOME_APY / TRADING_DAYS_PER_YEAR
+# Crypto yield overlays (APY assumptions per Wave)
+CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
+    "Crypto Stable Yield Wave": 0.04,         # ~4% stablecoin-style yield
+    "Crypto Income & Yield Wave": 0.08,       # ~8% blended yield
+    "Crypto High-Yield Income Wave": 0.12,    # ~12% high-yield (riskier)
+}
 
-# Waves that are considered "crypto waves" for crypto-VIX handling
+# Crypto waves are identified by name containing this keyword
 CRYPTO_WAVE_KEYWORD = "Crypto"
 
 
@@ -114,11 +137,12 @@ class ETFBenchmarkCandidate:
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings
+# Internal Wave holdings (renamed + new crypto Waves)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
-    "S&P 500 Wave": [
+    # Core US equity Waves
+    "US MegaCap Core Wave": [
         Holding("AAPL", 0.07, "Apple Inc."),
         Holding("MSFT", 0.07, "Microsoft Corp."),
         Holding("AMZN", 0.05, "Amazon.com Inc."),
@@ -130,7 +154,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("JPM", 0.03, "JPMorgan Chase & Co."),
         Holding("XOM", 0.03, "Exxon Mobil Corp."),
     ],
-    "AI Wave": [
+    "AI & Cloud MegaCap Wave": [
         Holding("NVDA", 0.12, "NVIDIA Corp."),
         Holding("MSFT", 0.10, "Microsoft Corp."),
         Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
@@ -142,7 +166,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("ORCL", 0.06, "Oracle Corp."),
         Holding("INTC", 0.06, "Intel Corp."),
     ],
-    "Quantum Computing Wave": [
+    "Next-Gen Compute & Semis Wave": [
         Holding("IBM", 0.10, "International Business Machines Corp."),
         Holding("MSFT", 0.08, "Microsoft Corp."),
         Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
@@ -154,7 +178,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("ADBE", 0.07, "Adobe Inc."),
         Holding("SNOW", 0.07, "Snowflake Inc."),
     ],
-    "Future Power & Energy Wave": [
+    "Future Energy & EV Wave": [
         Holding("XLE", 0.12, "Energy Select Sector SPDR"),
         Holding("ICLN", 0.10, "iShares Global Clean Energy"),
         Holding("ENPH", 0.08, "Enphase Energy Inc."),
@@ -166,7 +190,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("CVX", 0.10, "Chevron Corp."),
         Holding("PLUG", 0.07, "Plug Power Inc."),
     ],
-    "Clean Transit-Infrastructure Wave": [
+    "EV & Infrastructure Wave": [
         Holding("TSLA", 0.12, "Tesla Inc."),
         Holding("NIO", 0.08, "NIO Inc."),
         Holding("GM", 0.08, "General Motors"),
@@ -178,7 +202,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("XLI", 0.16, "Industrial Select Sector SPDR"),
         Holding("PAVE", 0.16, "Global X U.S. Infrastructure Development"),
     ],
-    "Small Cap Growth Wave": [
+    "US Small-Cap Disruptors Wave": [
         Holding("IWO", 0.30, "iShares Russell 2000 Growth ETF"),
         Holding("VBK", 0.30, "Vanguard Small-Cap Growth ETF"),
         Holding("ARKK", 0.10, "ARK Innovation ETF"),
@@ -186,14 +210,15 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("DDOG", 0.10, "Datadog Inc."),
         Holding("NET", 0.10, "Cloudflare Inc."),
     ],
-    "Small to Mid Cap Growth Wave": [
+    "US Mid/Small Growth & Semis Wave": [
         Holding("IWP", 0.30, "iShares Russell Mid-Cap Growth ETF"),
         Holding("MDY", 0.30, "SPDR S&P MidCap 400 ETF"),
         Holding("IWO", 0.20, "iShares Russell 2000 Growth ETF"),
         Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
     ],
-    # Growth crypto Wave
-    "Crypto Multi-Cap Wave": [
+
+    # Crypto Waves
+    "Multi-Cap Crypto Growth Wave": [
         Holding("BTC-USD", 0.25, "Bitcoin"),
         Holding("ETH-USD", 0.20, "Ethereum"),
         Holding("SOL-USD", 0.10, "Solana"),
@@ -207,23 +232,49 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("AAVE-USD", 0.03, "Aave"),
         Holding("UNI-USD", 0.02, "Uniswap"),
     ],
-    # Crypto income / money market Wave
-    "Crypto Income Wave": [
-        Holding("USDC-USD", 0.30, "USD Coin"),
-        Holding("USDT-USD", 0.25, "Tether"),
+
+    # Crypto money market / income ladder:
+    # 1) Low-vol stablecoin-oriented
+    "Crypto Stable Yield Wave": [
+        Holding("USDC-USD", 0.35, "USD Coin"),
+        Holding("USDT-USD", 0.30, "Tether"),
         Holding("DAI-USD", 0.20, "Dai"),
         Holding("USDP-USD", 0.10, "Pax Dollar"),
-        Holding("sDAI-USD", 0.05, "Savings Dai (proxy)"),
-        Holding("stETH-USD", 0.05, "Lido Staked Ether"),
-        Holding("AAVE-USD", 0.03, "Aave"),
-        Holding("MKR-USD", 0.02, "Maker"),
+        Holding("sDAI-USD", 0.03, "Savings Dai (proxy)"),
+        Holding("stETH-USD", 0.02, "Lido Staked Ether"),
     ],
-    "SmartSafe Money Market Wave": [
+    # 2) Balanced stable + yield + some blue-chip crypto risk
+    "Crypto Income & Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.20, "Tether"),
+        Holding("DAI-USD", 0.15, "Dai"),
+        Holding("USDP-USD", 0.05, "Pax Dollar"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.10, "Aave"),
+        Holding("MKR-USD", 0.05, "Maker"),
+        Holding("ETH-USD", 0.05, "Ethereum"),
+        Holding("BTC-USD", 0.05, "Bitcoin"),
+    ],
+    # 3) Higher-risk, higher-yield crypto income
+    "Crypto High-Yield Income Wave": [
+        Holding("stETH-USD", 0.15, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.15, "Aave"),
+        Holding("MKR-USD", 0.10, "Maker"),
+        Holding("UNI-USD", 0.10, "Uniswap"),
+        Holding("GRT-USD", 0.10, "The Graph"),
+        Holding("LINK-USD", 0.10, "Chainlink"),
+        Holding("ETH-USD", 0.15, "Ethereum"),
+        Holding("BTC-USD", 0.15, "Bitcoin"),
+    ],
+
+    # Cash / SmartSafe Wave
+    "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
     ],
+
     # Infinity meta-wave: diversified multi-asset growth
-    "Infinity Wave": [
+    "Infinity Multi-Asset Growth Wave": [
         Holding("SPY", 0.20, "SPDR S&P 500 ETF"),
         Holding("QQQ", 0.20, "Invesco QQQ Trust"),
         Holding("VGT", 0.10, "Vanguard Information Technology ETF"),
@@ -241,48 +292,61 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 # ------------------------------------------------------------
 
 BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
-    "S&P 500 Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
-    "AI Wave": [
+    "US MegaCap Core Wave": [
+        Holding("SPY", 1.0, "SPDR S&P 500 ETF"),
+    ],
+    "AI & Cloud MegaCap Wave": [
         Holding("QQQ", 0.60, "Invesco QQQ Trust"),
-        Holding("SMH", 0.40, "VanEck Semiconductor ETF"),
+        Holding("IGV", 0.40, "iShares Expanded Tech-Software"),
     ],
-    "Quantum Computing Wave": [
+    "Next-Gen Compute & Semis Wave": [
         Holding("QQQ", 0.50, "Invesco QQQ Trust"),
-        Holding("SMH", 0.25, "VanEck Semiconductor ETF"),
-        Holding("IBM", 0.25, "International Business Machines Corp."),
+        Holding("SMH", 0.50, "VanEck Semiconductor ETF"),
     ],
-    "Future Power & Energy Wave": [
+    "Future Energy & EV Wave": [
         Holding("XLE", 0.50, "Energy Select Sector SPDR"),
         Holding("ICLN", 0.50, "iShares Global Clean Energy"),
     ],
-    "Clean Transit-Infrastructure Wave": [
+    "EV & Infrastructure Wave": [
         Holding("PAVE", 0.60, "Global X U.S. Infrastructure Development"),
         Holding("XLI", 0.40, "Industrial Select Sector SPDR"),
     ],
-    "Small Cap Growth Wave": [
+    "US Small-Cap Disruptors Wave": [
         Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
         Holding("VBK", 0.50, "Vanguard Small-Cap Growth ETF"),
     ],
-    "Small to Mid Cap Growth Wave": [
+    "US Mid/Small Growth & Semis Wave": [
         Holding("IWP", 0.50, "iShares Russell Mid-Cap Growth ETF"),
         Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
     ],
-    "Crypto Multi-Cap Wave": [
+
+    "Multi-Cap Crypto Growth Wave": [
         Holding("BTC-USD", 0.50, "Bitcoin"),
         Holding("ETH-USD", 0.35, "Ethereum"),
         Holding("SOL-USD", 0.15, "Solana"),
     ],
-    "Crypto Income Wave": [
+    "Crypto Stable Yield Wave": [
         Holding("USDC-USD", 0.25, "USD Coin"),
         Holding("USDT-USD", 0.25, "Tether"),
         Holding("DAI-USD", 0.25, "Dai"),
         Holding("USDP-USD", 0.25, "Pax Dollar"),
     ],
-    "SmartSafe Money Market Wave": [
+    "Crypto Income & Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.25, "Tether"),
+        Holding("DAI-USD", 0.25, "Dai"),
+        Holding("USDP-USD", 0.25, "Pax Dollar"),
+    ],
+    "Crypto High-Yield Income Wave": [
+        Holding("BTC-USD", 0.40, "Bitcoin"),
+        Holding("ETH-USD", 0.40, "Ethereum"),
+        Holding("stETH-USD", 0.20, "Lido Staked Ether"),
+    ],
+    "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
     ],
-    "Infinity Wave": [
+    "Infinity Multi-Asset Growth Wave": [
         Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
         Holding("QQQ", 0.40, "Invesco QQQ Trust"),
         Holding("BTC-USD", 0.20, "Bitcoin"),
@@ -436,7 +500,7 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 
 def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
     if yf is None:
-        raise RuntimeError("yfinance is not available.")
+        raise RuntimeError("yfinance is not available in this environment.")
     lookback_days = days + 260
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
@@ -461,64 +525,6 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
     data = data.sort_index().ffill().bfill()
     return data
 
-
-def _regime_from_return(ret_60d: float) -> str:
-    if np.isnan(ret_60d):
-        return "neutral"
-    if ret_60d <= -0.12:
-        return "panic"
-    if ret_60d <= -0.04:
-        return "downtrend"
-    if ret_60d < 0.06:
-        return "neutral"
-    return "uptrend"
-
-
-def _vix_exposure_factor(vix_level: float, mode: str) -> float:
-    if np.isnan(vix_level) or vix_level <= 0:
-        return 1.0
-    if vix_level < 15:
-        base = 1.15
-    elif vix_level < 20:
-        base = 1.05
-    elif vix_level < 25:
-        base = 0.95
-    elif vix_level < 30:
-        base = 0.85
-    elif vix_level < 40:
-        base = 0.75
-    else:
-        base = 0.60
-    if mode == "Alpha-Minus-Beta":
-        base -= 0.05
-    elif mode == "Private Logic":
-        base += 0.05
-    return float(np.clip(base, 0.5, 1.3))
-
-
-def _vix_safe_fraction(vix_level: float, mode: str) -> float:
-    if np.isnan(vix_level) or vix_level <= 0:
-        return 0.0
-    if vix_level < 18:
-        base = 0.00
-    elif vix_level < 24:
-        base = 0.05
-    elif vix_level < 30:
-        base = 0.15
-    elif vix_level < 40:
-        base = 0.25
-    else:
-        base = 0.40
-    if mode == "Alpha-Minus-Beta":
-        base *= 1.5
-    elif mode == "Private Logic":
-        base *= 0.7
-    return float(np.clip(base, 0.0, 0.8))
-
-
-# ------------------------------------------------------------
-# Auto benchmark construction
-# ------------------------------------------------------------
 
 def _map_sector_name(raw_sector: str | None) -> str:
     if not raw_sector:
@@ -642,7 +648,7 @@ def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
     scores = []
     for etf in ETF_CANDIDATES:
         s = _score_etf_candidate(etf, sector_weights, cap_style)
-        if s > 0:
+        if s > 0.0:
             scores.append((etf, s))
     if not scores:
         return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
@@ -661,6 +667,60 @@ def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
     return holdings
 
 
+def _regime_from_return(ret_60d: float) -> str:
+    if np.isnan(ret_60d):
+        return "neutral"
+    if ret_60d <= -0.12:
+        return "panic"
+    if ret_60d <= -0.04:
+        return "downtrend"
+    if ret_60d < 0.06:
+        return "neutral"
+    return "uptrend"
+
+
+def _vix_exposure_factor(vix_level: float, mode: str) -> float:
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 1.0
+    if vix_level < 15:
+        base = 1.15
+    elif vix_level < 20:
+        base = 1.05
+    elif vix_level < 25:
+        base = 0.95
+    elif vix_level < 30:
+        base = 0.85
+    elif vix_level < 40:
+        base = 0.75
+    else:
+        base = 0.60
+    if mode == "Alpha-Minus-Beta":
+        base -= 0.05
+    elif mode == "Private Logic":
+        base += 0.05
+    return float(np.clip(base, 0.5, 1.3))
+
+
+def _vix_safe_fraction(vix_level: float, mode: str) -> float:
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 0.0
+    if vix_level < 18:
+        base = 0.00
+    elif vix_level < 24:
+        base = 0.05
+    elif vix_level < 30:
+        base = 0.15
+    elif vix_level < 40:
+        base = 0.25
+    else:
+        base = 0.40
+    if mode == "Alpha-Minus-Beta":
+        base *= 1.5
+    elif mode == "Private Logic":
+        base *= 0.7
+    return float(np.clip(base, 0.0, 0.8))
+
+
 # ------------------------------------------------------------
 # Core compute_history_nav
 # ------------------------------------------------------------
@@ -670,6 +730,12 @@ def compute_history_nav(
     mode: str = "Standard",
     days: int = 365,
 ) -> pd.DataFrame:
+    """
+    Compute Wave & Benchmark NAV + daily returns over a given window.
+
+    Returns DataFrame indexed by Date:
+        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
+    """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")
     if mode not in MODE_BASE_EXPOSURE:
@@ -722,7 +788,8 @@ def compute_history_nav(
     mom_60 = price_df / price_df.shift(60) - 1.0
 
     # VIX or crypto-VIX
-    if CRYPTO_WAVE_KEYWORD in wave_name and BTC_TICKER in price_df.columns:
+    wave_is_crypto = (CRYPTO_WAVE_KEYWORD in wave_name)
+    if wave_is_crypto and BTC_TICKER in price_df.columns:
         btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
         rolling_vol = btc_ret.rolling(30).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
         vix_level_series = rolling_vol.reindex(price_df.index).ffill().bfill()
@@ -747,6 +814,10 @@ def compute_history_nav(
 
     wave_ret_list: List[float] = []
     dates: List[pd.Timestamp] = []
+
+    # Precompute daily yield overlay if applicable
+    apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
+    daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
 
     for dt in ret_df.index:
         rets = ret_df.loc[dt]
@@ -784,6 +855,7 @@ def compute_history_nav(
             recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         else:
             recent_vol = PORTFOLIO_VOL_TARGET
+
         vol_adjust = 1.0
         if recent_vol > 0:
             vol_adjust = PORTFOLIO_VOL_TARGET / recent_vol
@@ -799,9 +871,9 @@ def compute_history_nav(
         base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
         total_ret = base_total_ret
 
-        # Crypto Income Wave: add assumed APY overlay
-        if wave_name == "Crypto Income Wave":
-            total_ret += CRYPTO_INCOME_DAILY_YIELD
+        # Crypto income Waves: add assumed APY overlay
+        if daily_yield != 0.0:
+            total_ret += daily_yield
 
         # Private Logic mean-reversion overlay
         if mode == "Private Logic" and len(wave_ret_list) >= 20:
