@@ -1,20 +1,29 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine (Dynamic Strategy + VIX + SmartSafe)
+# waves_engine.py — WAVES Intelligence™ Vector Engine
+# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
 #
 # Mobile-friendly:
 #   • No terminal, no CLI, no CSV requirement for core behavior.
-#   • Internal Wave & benchmark definitions.
+#   • Internal Wave holdings + ETF candidate library.
 #
-# Core behavior:
-#   • Builds synthetic NAV & daily returns for each Wave vs composite benchmark.
-#   • Wave returns use a dynamic multi-sleeve strategy:
-#       - Momentum tilts (60D)
-#       - Volatility targeting (20D realized vol)
-#       - Regime gating (SPY 60D trend)
-#       - VIX-based exposure scaling
-#       - VIX-based SmartSafe sweep
-#       - Mode-specific risk appetites (Standard, Alpha-Minus-Beta, Private Logic)
-#       - Private Logic™ mean-reversion overlay
-#   • Benchmarks stay passive composites (static weights).
+# Strategy side:
+#   • Momentum tilts (60D)
+#   • Volatility targeting (20D realized vol)
+#   • Regime gating (SPY 60D trend)
+#   • VIX-based exposure scaling
+#   • VIX-based SmartSafe sweep
+#   • Mode-specific exposure caps
+#   • Private Logic™ mean-reversion overlay
+#
+# Benchmark side (NEW):
+#   • For each Wave, construct a composite ETF benchmark:
+#       1) Look at top holdings (tickers + weights).
+#       2) Fetch sector + marketCap from yfinance.
+#       3) Build sector weights + cap-style classification.
+#       4) Compare profile to ETF candidates with sector_tags + cap_style.
+#       5) Pick top 2–4 ETFs by similarity score.
+#       6) Normalize scores to weights → composite benchmark.
+#   • Benchmarks are static per compute window (your choice #1).
+#   • Fallback: if auto construction fails, use static BENCHMARK_WEIGHTS_STATIC.
 #
 # Public API used by app.py:
 #   • USE_FULL_WAVE_HISTORY
@@ -28,7 +37,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List
+from functools import lru_cache
+from typing import Dict, List, Set
 
 import numpy as np
 import pandas as pd
@@ -42,7 +52,7 @@ except ImportError:  # pragma: no cover
 # Global config
 # ------------------------------------------------------------
 
-USE_FULL_WAVE_HISTORY: bool = False  # kept for compatibility (logs mode, if added later)
+USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -89,14 +99,11 @@ REGIME_GATING: Dict[str, Dict[str, float]] = {
     },
 }
 
-# Volatility targeting
 PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized
-
-# VIX ticker
 VIX_TICKER = "^VIX"
 
 # ------------------------------------------------------------
-# Wave & Benchmark definitions
+# Data structures
 # ------------------------------------------------------------
 
 @dataclass
@@ -106,7 +113,18 @@ class Holding:
     name: str | None = None
 
 
-# Internal Wave holdings (example config; extend as needed)
+@dataclass
+class ETFBenchmarkCandidate:
+    ticker: str
+    name: str
+    sector_tags: Set[str]
+    cap_style: str  # "Mega", "Large", "Mid", "Small", "Crypto", "Safe", "Broad"
+
+
+# ------------------------------------------------------------
+# Internal Wave holdings (can extend as needed)
+# ------------------------------------------------------------
+
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
     "S&P 500 Wave": [
         Holding("AAPL", 0.07, "Apple Inc."),
@@ -195,8 +213,11 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
     ],
 }
 
-# Composite ETF benchmarks (static)
-BENCHMARK_WEIGHTS: Dict[str, List[Holding]] = {
+# ------------------------------------------------------------
+# Static benchmarks (fallback if auto fails)
+# ------------------------------------------------------------
+
+BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
     "S&P 500 Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
     "AI Wave": [
         Holding("QQQ", 0.60, "Invesco QQQ Trust"),
@@ -233,6 +254,126 @@ BENCHMARK_WEIGHTS: Dict[str, List[Holding]] = {
     ],
 }
 
+# ------------------------------------------------------------
+# ETF benchmark candidate library
+# ------------------------------------------------------------
+
+ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
+    ETFBenchmarkCandidate(
+        ticker="SPY",
+        name="SPDR S&P 500 ETF",
+        sector_tags={"Broad", "Large", "Mega"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="QQQ",
+        name="Invesco QQQ Trust",
+        sector_tags={"Tech", "Growth", "Mega"},
+        cap_style="Mega",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="VGT",
+        name="Vanguard Information Technology ETF",
+        sector_tags={"Tech"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="XLK",
+        name="Technology Select Sector SPDR",
+        sector_tags={"Tech"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="SMH",
+        name="VanEck Semiconductor ETF",
+        sector_tags={"Tech", "Semis"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="SOXX",
+        name="iShares Semiconductor ETF",
+        sector_tags={"Tech", "Semis"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="IGV",
+        name="iShares Expanded Tech-Software Sector ETF",
+        sector_tags={"Tech", "Software"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="WCLD",
+        name="WisdomTree Cloud Computing Fund",
+        sector_tags={"Tech", "Software", "Cloud"},
+        cap_style="Mid",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="XLE",
+        name="Energy Select Sector SPDR Fund",
+        sector_tags={"Energy"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="ICLN",
+        name="iShares Global Clean Energy ETF",
+        sector_tags={"Energy", "Clean"},
+        cap_style="Mid",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="PAVE",
+        name="Global X U.S. Infrastructure Development ETF",
+        sector_tags={"Industrials", "Infrastructure"},
+        cap_style="Mid",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="XLI",
+        name="Industrial Select Sector SPDR Fund",
+        sector_tags={"Industrials"},
+        cap_style="Large",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="IWO",
+        name="iShares Russell 2000 Growth ETF",
+        sector_tags={"Small", "Growth"},
+        cap_style="Small",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="VBK",
+        name="Vanguard Small-Cap Growth ETF",
+        sector_tags={"Small", "Growth"},
+        cap_style="Small",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="IWP",
+        name="iShares Russell Mid-Cap Growth ETF",
+        sector_tags={"Mid", "Growth"},
+        cap_style="Mid",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="MDY",
+        name="SPDR S&P MidCap 400 ETF Trust",
+        sector_tags={"Mid"},
+        cap_style="Mid",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="BITO",
+        name="ProShares Bitcoin Strategy ETF",
+        sector_tags={"Crypto"},
+        cap_style="Crypto",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="BIL",
+        name="SPDR Bloomberg 1-3 Month T-Bill ETF",
+        sector_tags={"Safe"},
+        cap_style="Safe",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="SGOV",
+        name="iShares 0-3 Month Treasury Bond ETF",
+        sector_tags={"Safe"},
+        cap_style="Safe",
+    ),
+]
 
 # ------------------------------------------------------------
 # Public API
@@ -263,16 +404,13 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 
 
 def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
-    """
-    Download daily adjusted close prices for given tickers.
-    """
+    """Download daily adjusted close prices for given tickers."""
     if yf is None:
         raise RuntimeError(
             "yfinance is not available in this environment. "
             "Please ensure yfinance is installed."
         )
 
-    # Add generous buffer for rolling windows (momentum / vol)
     lookback_days = days + 260
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
@@ -287,7 +425,6 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
         group_by="column",
     )
 
-    # Handle multi-index columns from yfinance
     if isinstance(data.columns, pd.MultiIndex):
         if "Adj Close" in data.columns.get_level_values(0):
             data = data["Adj Close"]
@@ -319,14 +456,10 @@ def _regime_from_return(ret_60d: float) -> str:
 
 
 def _vix_exposure_factor(vix_level: float, mode: str) -> float:
-    """
-    Map VIX level to an exposure multiplier (before caps).
-    Higher VIX → lower exposure; lower VIX → allow modest expansion.
-    """
+    """Map VIX level to an exposure multiplier (before caps)."""
     if np.isnan(vix_level) or vix_level <= 0:
         return 1.0
 
-    # Baseline by band
     if vix_level < 15:
         base = 1.15
     elif vix_level < 20:
@@ -340,27 +473,19 @@ def _vix_exposure_factor(vix_level: float, mode: str) -> float:
     else:
         base = 0.60
 
-    # Mode tweaks
     if mode == "Alpha-Minus-Beta":
-        # More defensive
         base -= 0.05
     elif mode == "Private Logic":
-        # Slightly more tolerant of vol
         base += 0.05
 
-    # Soft clamp
     return float(np.clip(base, 0.5, 1.3))
 
 
 def _vix_safe_fraction(vix_level: float, mode: str) -> float:
-    """
-    Additional SmartSafe allocation driven by VIX level.
-    This is ADDED to regime gating (capped later).
-    """
+    """Additional SmartSafe allocation driven by VIX level."""
     if np.isnan(vix_level) or vix_level <= 0:
         return 0.0
 
-    # Base schedule by VIX level
     if vix_level < 18:
         base = 0.00
     elif vix_level < 24:
@@ -372,14 +497,202 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
     else:
         base = 0.40
 
-    # Mode-specific amplification
     if mode == "Alpha-Minus-Beta":
-        base *= 1.5  # more aggressive SmartSafe use
+        base *= 1.5
     elif mode == "Private Logic":
-        base *= 0.7  # trusts PL overlays more, less full sweep
+        base *= 0.7
 
     return float(np.clip(base, 0.0, 0.8))
 
+
+# ------------------------------------------------------------
+# Auto benchmark construction
+# ------------------------------------------------------------
+
+def _map_sector_name(raw_sector: str | None) -> str:
+    if not raw_sector:
+        return "Unknown"
+    s = raw_sector.lower()
+    if "information technology" in s or "technology" in s:
+        return "Tech"
+    if "semiconductor" in s:
+        return "Semis"
+    if "software" in s:
+        return "Software"
+    if "energy" in s:
+        return "Energy"
+    if "industrial" in s:
+        return "Industrials"
+    if "real estate" in s:
+        return "RealEstate"
+    if "financial" in s:
+        return "Financials"
+    if "health" in s:
+        return "HealthCare"
+    if "communication" in s:
+        return "Comm"
+    if "consumer" in s:
+        return "Consumer"
+    return "Other"
+
+
+def _cap_style_from_mcap(mcap: float | None) -> str:
+    if mcap is None or np.isnan(mcap) or mcap <= 0:
+        return "Unknown"
+    if mcap >= 2e11:
+        return "Mega"
+    if mcap >= 2e10:
+        return "Large"
+    if mcap >= 5e9:
+        return "Mid"
+    return "Small"
+
+
+@lru_cache(maxsize=256)
+def _get_ticker_meta(ticker: str) -> tuple[str, float]:
+    """
+    Return (sector_category, market_cap) for a ticker using yfinance.
+    Crypto and safe-asset tickers handled specially.
+    """
+    if ticker.endswith("-USD"):
+        return ("Crypto", np.nan)
+
+    if ticker in {"BIL", "SGOV", "SHV", "SHY"}:
+        return ("Safe", np.nan)
+
+    if yf is None:
+        return ("Unknown", np.nan)
+
+    try:
+        info = yf.Ticker(ticker).info
+    except Exception:
+        return ("Unknown", np.nan)
+
+    sector = info.get("sector")
+    mcap = info.get("marketCap")
+    return (_map_sector_name(sector), float(mcap) if mcap is not None else np.nan)
+
+
+def _derive_wave_exposure(wave_name: str) -> tuple[Dict[str, float], str]:
+    """
+    From Wave holdings, derive:
+        - sector_weights: dict[sector -> weight]
+        - cap_style: "Mega" / "Large" / "Mid" / "Small" / "Crypto" / "Unknown"
+    """
+    holdings = WAVE_WEIGHTS.get(wave_name, [])
+    if not holdings:
+        return {}, "Unknown"
+
+    weights = _normalize_weights(holdings)
+    sector_weights: Dict[str, float] = {}
+    cap_style_votes: Dict[str, float] = {}
+
+    for h in holdings:
+        if h.ticker not in weights.index:
+            continue
+        w = float(weights[h.ticker])
+        sector, mcap = _get_ticker_meta(h.ticker)
+        sector_weights[sector] = sector_weights.get(sector, 0.0) + w
+
+        if sector == "Crypto":
+            style = "Crypto"
+        elif sector == "Safe":
+            style = "Safe"
+        else:
+            style = _cap_style_from_mcap(mcap)
+        cap_style_votes[style] = cap_style_votes.get(style, 0.0) + w
+
+    total = sum(sector_weights.values())
+    if total > 0:
+        for k in list(sector_weights.keys()):
+            sector_weights[k] /= total
+
+    if cap_style_votes:
+        cap_style = max(cap_style_votes.items(), key=lambda kv: kv[1])[0]
+    else:
+        cap_style = "Unknown"
+
+    return sector_weights, cap_style
+
+
+def _score_etf_candidate(
+    etf: ETFBenchmarkCandidate,
+    sector_weights: Dict[str, float],
+    cap_style: str,
+) -> float:
+    """
+    Score ETF vs Wave exposure:
+        • Sector overlap: sum of Wave weights for sectors in etf.sector_tags.
+        • Style bonus: +0.10 if cap_style matches closely.
+    """
+    score = 0.0
+    for s, w in sector_weights.items():
+        if s in etf.sector_tags:
+            score += w
+        if s == "Tech" and "Tech" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Energy" and "Energy" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Industrials" and "Industrials" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Crypto" and "Crypto" in etf.sector_tags:
+            score += 0.5 * w
+        if s == "Safe" and "Safe" in etf.sector_tags:
+            score += 0.5 * w
+
+    if cap_style == etf.cap_style:
+        score += 0.10
+    elif cap_style in {"Mega", "Large"} and etf.cap_style in {"Mega", "Large"}:
+        score += 0.05
+    elif cap_style in {"Mid", "Small"} and etf.cap_style in {"Mid", "Small"}:
+        score += 0.05
+
+    return score
+
+
+@lru_cache(maxsize=64)
+def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
+    """
+    Construct auto benchmark for a Wave using ETF candidates.
+    Returns a list of Holding(ticker, weight, name).
+    Falls back to static BENCHMARK_WEIGHTS_STATIC if needed.
+    """
+    sector_weights, cap_style = _derive_wave_exposure(wave_name)
+
+    if not sector_weights:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    scores = []
+    for etf in ETF_CANDIDATES:
+        s = _score_etf_candidate(etf, sector_weights, cap_style)
+        scores.append((etf, s))
+
+    scores = [(e, s) for (e, s) in scores if s > 0.0]
+    if not scores:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top = scores[:4]
+
+    if len(top) == 1:
+        etf, _ = top[0]
+        return [Holding(etf.ticker, 1.0, etf.name)]
+
+    total_score = sum(s for _, s in top)
+    if total_score <= 0:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    holdings: List[Holding] = []
+    for etf, s in top:
+        w = float(s / total_score)
+        holdings.append(Holding(etf.ticker, w, etf.name))
+
+    return holdings
+
+
+# ------------------------------------------------------------
+# Core compute_history_nav (uses auto benchmarks, static per window)
+# ------------------------------------------------------------
 
 def compute_history_nav(
     wave_name: str,
@@ -392,15 +705,11 @@ def compute_history_nav(
     Returns DataFrame indexed by Date with columns:
         ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
 
-    Behavior:
-        • Benchmark: passive, static weights.
-        • Wave: dynamic strategy —
-            - Momentum tilts
-            - Volatility targeting
-            - Regime / SmartSafe gating
-            - VIX-based exposure scaling + SmartSafe sweep
-            - Mode-specific exposure and caps
-            - Private Logic mean-reversion overlay
+    Benchmark:
+        • Auto-constructed composite ETF mix from ETF_CANDIDATES
+          (based on current holdings).
+        • Fallback: static BENCHMARK_WEIGHTS_STATIC.
+        • Static for the window (your choice #1).
     """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")
@@ -408,7 +717,9 @@ def compute_history_nav(
         raise ValueError(f"Unknown mode: {mode}")
 
     wave_holdings = WAVE_WEIGHTS[wave_name]
-    bm_holdings = BENCHMARK_WEIGHTS.get(wave_name, [])
+    bm_holdings = get_auto_benchmark_holdings(wave_name)
+    if not bm_holdings:
+        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
     wave_weights = _normalize_weights(wave_holdings)
     bm_weights = _normalize_weights(bm_holdings)
@@ -416,7 +727,6 @@ def compute_history_nav(
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
 
-    # Always include SPY (regime index), VIX, and SGOV/BIL/SHY (SmartSafe proxies)
     base_index_ticker = "SPY"
     safe_candidates = ["SGOV", "BIL", "SHY"]
 
@@ -426,7 +736,6 @@ def compute_history_nav(
     all_tickers.update(safe_candidates)
 
     all_tickers = sorted(all_tickers)
-
     if not all_tickers:
         return pd.DataFrame(
             columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float
@@ -438,25 +747,19 @@ def compute_history_nav(
             columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float
         )
 
-    # Restrict to requested window (last N days) for outputs
     if len(price_df) > days:
         price_df = price_df.iloc[-days:]
 
-    # Daily returns
     ret_df = price_df.pct_change().fillna(0.0)
 
-    # Align weights to price columns (VIX will have weight zero)
     wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
     bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
 
-    # Benchmark: static, passive
     bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
 
-    # Regime signal: 60D return of base index (SPY or fallback)
     if base_index_ticker in price_df.columns:
         idx_price = price_df[base_index_ticker]
     else:
-        # Fallback: use first benchmark ticker, then first Wave ticker
         fallback_ticker = (
             tickers_bm[0]
             if tickers_bm
@@ -465,50 +768,40 @@ def compute_history_nav(
         idx_price = price_df[fallback_ticker]
 
     idx_ret_60d = idx_price / idx_price.shift(60) - 1.0
-
-    # Momentum signal: 60D return per asset
     mom_60 = price_df / price_df.shift(60) - 1.0
 
-    # VIX level series
     if VIX_TICKER in price_df.columns:
         vix_level_series = price_df[VIX_TICKER].copy()
     else:
-        # Neutral fallback ~20
         vix_level_series = pd.Series(20.0, index=price_df.index)
 
-    # Choose safe asset ticker
     safe_ticker = None
     for t in safe_candidates:
         if t in price_df.columns:
             safe_ticker = t
             break
     if safe_ticker is None:
-        # Fallback to SGOV-like behavior via base index (not ideal but safe)
         safe_ticker = base_index_ticker
 
     safe_ret_series = ret_df[safe_ticker]
 
-    # Dynamic Wave strategy
     mode_base_exposure = MODE_BASE_EXPOSURE[mode]
     exp_min, exp_max = MODE_EXPOSURE_CAPS[mode]
 
     wave_ret_list: List[float] = []
     dates: List[pd.Timestamp] = []
 
-    for i, dt in enumerate(ret_df.index):
+    for dt in ret_df.index:
         rets = ret_df.loc[dt]
 
-        # Regime now
         regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
         regime_exposure = REGIME_EXPOSURE[regime]
         regime_gate = REGIME_GATING[mode][regime]
 
-        # VIX level & its effects
         vix_level = float(vix_level_series.get(dt, np.nan))
         vix_exposure = _vix_exposure_factor(vix_level, mode)
         vix_gate = _vix_safe_fraction(vix_level, mode)
 
-        # Momentum tilt for this date
         mom_row = mom_60.loc[dt] if dt in mom_60.index else None
         if mom_row is not None:
             mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
@@ -518,7 +811,6 @@ def compute_history_nav(
         else:
             effective_weights = wave_weights_aligned.copy()
 
-        # Normalize risk weights (only among risk assets; safe asset handled separately)
         effective_weights = effective_weights.clip(lower=0.0)
         risk_weight_total = effective_weights.sum()
         if risk_weight_total > 0:
@@ -526,34 +818,29 @@ def compute_history_nav(
         else:
             risk_weights = wave_weights_aligned.copy()
 
-        # Base risk portfolio return (without SmartSafe / exposure scaling)
         portfolio_risk_ret = float((rets * risk_weights).sum())
         safe_ret = float(safe_ret_series.loc[dt])
 
-        # Rolling vol for volatility targeting
         if len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
             recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         else:
-            recent_vol = PORTFOLIO_VOL_TARGET  # neutral early-on
+            recent_vol = PORTFOLIO_VOL_TARGET
 
         vol_adjust = 1.0
         if recent_vol > 0:
             vol_adjust = PORTFOLIO_VOL_TARGET / recent_vol
             vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
 
-        # Combined exposure factor (before caps)
         raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
         exposure = float(np.clip(raw_exposure, exp_min, exp_max))
 
-        # SmartSafe fractions: regime + VIX, capped
         safe_fraction = regime_gate + vix_gate
         safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
         risk_fraction = 1.0 - safe_fraction
 
         base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
 
-        # Private Logic™ mean-reversion overlay:
         total_ret = base_total_ret
         if mode == "Private Logic" and len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
@@ -561,21 +848,16 @@ def compute_history_nav(
             if daily_vol > 0:
                 shock_threshold = 2.0 * daily_vol
                 if base_total_ret <= -shock_threshold:
-                    # Big selloff → lean in
                     total_ret = base_total_ret * 1.30
                 elif base_total_ret >= shock_threshold:
-                    # Big spike → dampen
                     total_ret = base_total_ret * 0.70
 
         wave_ret_list.append(total_ret)
         dates.append(dt)
 
     wave_ret_series = pd.Series(wave_ret_list, index=pd.Index(dates, name="Date"))
-
-    # Align benchmark series to same index
     bm_ret_series = bm_ret_series.reindex(wave_ret_series.index).fillna(0.0)
 
-    # Compute NAV (start at 1.0)
     wave_nav = (1.0 + wave_ret_series).cumprod()
     bm_nav = (1.0 + bm_ret_series).cumprod()
 
@@ -593,13 +875,14 @@ def compute_history_nav(
 
 def get_benchmark_mix_table() -> pd.DataFrame:
     """
-    Return ETF mix used for each Wave's benchmark:
+    Return ETF mix used for each Wave's auto benchmark:
         ['Wave', 'Ticker', 'Name', 'Weight']
+    Falls back to static benchmark table if auto construction fails.
     """
     rows = []
-    for wave, holdings in BENCHMARK_WEIGHTS.items():
-        if not holdings:
-            continue
+    for wave in get_all_waves():
+        auto_holdings = get_auto_benchmark_holdings(wave)
+        holdings = auto_holdings or BENCHMARK_WEIGHTS_STATIC.get(wave, [])
         weights = _normalize_weights(holdings)
         for h in holdings:
             if h.ticker not in weights.index:
