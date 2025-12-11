@@ -1,18 +1,20 @@
 """
-app.py — WAVES Intelligence™ Simple Console (Engine v2.8+ compatible)
+app.py — WAVES Intelligence™ Console (Stable v1.3)
 
-Uses the light-weight waves_engine.py:
+Front-end Streamlit app for the simple engine in waves_engine.py
 
-    get_available_waves()  -> list of Wave names
-    get_wave_snapshot(...) -> latest positions for a Wave
-    get_wave_history(...)  -> daily NAV & returns for a Wave
+• Overview tab       → Portfolio-level table across all Waves
+• Wave Detail tab    → Positions snapshot + performance chart
 
-This app avoids any old 'metrics' / 'get_wave_history_v2' references and
-only calls the functions that currently exist in waves_engine.py.
+Relies on the public API from waves_engine.py:
+
+    get_available_waves()
+    get_wave_snapshot(...)
+    get_wave_history(...)
+
 """
 
 import datetime as dt
-from typing import Dict, Any
 
 import pandas as pd
 import streamlit as st
@@ -23,146 +25,148 @@ from waves_engine import (
     get_wave_history,
 )
 
-# -------------------------------------------------------------------
-# Streamlit config
-# -------------------------------------------------------------------
 
+# ---------------------------------------------------------
+# Streamlit page config
+# ---------------------------------------------------------
 st.set_page_config(
     page_title="WAVES Intelligence™ Console",
     layout="wide",
 )
 
 
-# -------------------------------------------------------------------
-# Cached wrappers (so Streamlit doesn't hammer yfinance)
-# -------------------------------------------------------------------
-
+# ---------------------------------------------------------
+# Cached wrappers (so we don’t hammer yfinance)
+# ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def _cached_wave_list():
     return get_available_waves()
 
 
 @st.cache_data(show_spinner=False)
-def _cached_snapshot(wave: str, mode: str = "standard") -> Dict[str, Any]:
+def _cached_snapshot(wave: str, mode: str):
+    # mode currently ignored by engine but kept for API stability
     return get_wave_snapshot(wave_name=wave, mode=mode)
 
 
 @st.cache_data(show_spinner=False)
-def _cached_history(
-    wave: str,
-    mode: str = "standard",
-    lookback_days: int = 365,
-) -> pd.DataFrame:
-    return get_wave_history(
-        wave_name=wave,
-        mode=mode,
-        lookback_days=lookback_days,
-    )
+def _cached_history(wave: str, mode: str, lookback_days: int):
+    # mode currently ignored by engine but kept for API stability
+    return get_wave_history(wave_name=wave, mode=mode, lookback_days=lookback_days)
 
 
-# -------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------
-
-def _safe_history_row(wave: str) -> Dict[str, Any]:
-    """
-    Build a single summary row for the Overview table using history.
-    If anything fails, we just mark the row as N/A instead of crashing.
-    """
-    try:
-        hist = _cached_history(wave, "standard", 365)
-        if hist is None or hist.empty:
-            return {
-                "Wave": wave,
-                "NAV (last)": float("nan"),
-                "1Y Return %": float("nan"),
-                "1Y Alpha %": float("nan"),
-                "Status": "no history",
-            }
-
-        last = hist.iloc[-1]
-
-        nav = float(last.get("wave_nav", float("nan")))
-        cum_ret = float(last.get("cum_wave_return", float("nan")))
-        cum_alpha = float(last.get("cum_alpha", float("nan")))
-
-        return {
-            "Wave": wave,
-            "NAV (last)": nav,
-            "1Y Return %": cum_ret * 100.0 if pd.notna(cum_ret) else float("nan"),
-            "1Y Alpha %": cum_alpha * 100.0 if pd.notna(cum_alpha) else float("nan"),
-            "Status": "ok",
-        }
-    except Exception as e:
-        return {
-            "Wave": wave,
-            "NAV (last)": float("nan"),
-            "1Y Return %": float("nan"),
-            "1Y Alpha %": float("nan"),
-            "Status": f"error: {type(e).__name__}",
-        }
-
-
+# ---------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------
 def _format_pct(x):
-    if pd.isna(x):
+    try:
+        return f"{100.0 * float(x):.2f}%"
+    except Exception:
         return "—"
-    return f"{x:0.2f}%"
 
 
-# -------------------------------------------------------------------
-# Main UI
-# -------------------------------------------------------------------
+def _build_overview_table(waves, lookback_days: int = 365) -> pd.DataFrame:
+    rows = []
+    for w in waves:
+        try:
+            hist = _cached_history(wave=w, mode="standard", lookback_days=lookback_days)
+            if hist is None or hist.empty:
+                rows.append(
+                    {
+                        "Wave": w,
+                        "NAV (last)": "—",
+                        f"{lookback_days}D Return": "—",
+                        "Status": "no history",
+                    }
+                )
+                continue
 
+            hist = hist.sort_values("date")
+            last_nav = float(hist["wave_nav"].iloc[-1])
+            cum_return = float(hist["cum_wave_return"].iloc[-1])
+
+            rows.append(
+                {
+                    "Wave": w,
+                    "NAV (last)": f"{last_nav:.4f}",
+                    f"{lookback_days}D Return": _format_pct(cum_return),
+                    "Status": "ok",
+                }
+            )
+        except Exception as exc:  # keep UI alive if one Wave fails
+            rows.append(
+                {
+                    "Wave": w,
+                    "NAV (last)": "—",
+                    f"{lookback_days}D Return": "—",
+                    "Status": f"error: {exc.__class__.__name__}",
+                }
+            )
+
+    df = pd.DataFrame(rows)
+    df = df.sort_values("Wave")
+    return df
+
+
+# ---------------------------------------------------------
+# Title & tabs
+# ---------------------------------------------------------
 st.title("WAVES Intelligence™ Console")
 st.caption("Live engine: wave_weights.csv + yfinance-driven history")
 
-tabs = st.tabs(["📊 Overview", "📈 Wave Detail"])
+tab_overview, tab_detail = st.tabs(["📊 Overview", "📈 Wave Detail"])
 
-# -------------------------------------------------------------------
-# TAB 1 — Overview
-# -------------------------------------------------------------------
-with tabs[0]:
+
+# ---------------------------------------------------------
+# Overview Tab
+# ---------------------------------------------------------
+with tab_overview:
     st.subheader("Portfolio-Level Overview")
 
-    with st.spinner("Loading wave list…"):
-        waves = _cached_wave_list()
-
+    waves = _cached_wave_list()
     if not waves:
-        st.error("No Waves found. Check wave_weights.csv in the repo root.")
+        st.error("No Waves discovered in wave_weights.csv.")
     else:
-        with st.spinner("Building summary…"):
-            rows = [_safe_history_row(w) for w in waves]
-            df_overview = pd.DataFrame(rows)
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.markdown("**Lookback window**")
+            horizon_label = st.radio(
+                "",
+                options=["1 year (365 days)", "90 days", "30 days"],
+                index=0,
+            )
 
-        # Nice formatting
-        df_show = df_overview.copy()
-        df_show["1Y Return %"] = df_show["1Y Return %"].apply(_format_pct)
-        df_show["1Y Alpha %"] = df_show["1Y Alpha %"].apply(_format_pct)
-        df_show["NAV (last)"] = df_show["NAV (last)"].map(
-            lambda x: "—" if pd.isna(x) else f"{x:0.3f}"
-        )
+        if horizon_label.startswith("1 year"):
+            lookback = 365
+        elif horizon_label.startswith("90"):
+            lookback = 90
+        else:
+            lookback = 30
+
+        with st.spinner("Loading portfolio overview…"):
+            df_overview = _build_overview_table(waves, lookback_days=lookback)
 
         st.dataframe(
-            df_show.set_index("Wave"),
+            df_overview,
             use_container_width=True,
+            hide_index=True,
         )
 
         st.caption(
-            "NAV and returns are built from daily closes via yfinance. "
-            "Benchmarks are currently stubbed to 0; alpha = Wave return vs flat benchmark."
+            "NAV is normalized to 1.0 at the start of the lookback window. "
+            "Returns are cumulative over the selected window."
         )
 
-# -------------------------------------------------------------------
-# TAB 2 — Wave Detail
-# -------------------------------------------------------------------
-with tabs[1]:
+
+# ---------------------------------------------------------
+# Wave Detail Tab
+# ---------------------------------------------------------
+with tab_detail:
     st.subheader("Wave Detail")
 
-    with st.spinner("Loading wave list…"):
-        waves = _cached_wave_list()
-
+    waves = _cached_wave_list()
     if not waves:
-        st.error("No Waves found. Check wave_weights.csv in the repo root.")
+        st.error("No Waves discovered in wave_weights.csv.")
     else:
         col_left, col_right = st.columns([1, 1])
 
@@ -176,97 +180,74 @@ with tabs[1]:
                 index=0,
             )
 
-        # Lookback selection
-        lookback_label = st.radio(
-            "History window",
+        # History window selector
+        st.markdown("**History window**")
+        win_label = st.radio(
+            "",
             options=["30 days", "90 days", "365 days"],
             index=2,
             horizontal=True,
         )
-        lookback_map = {
-            "30 days": 30,
-            "90 days": 90,
-            "365 days": 365,
-        }
-        lookback_days = lookback_map[lookback_label]
+        if win_label.startswith("30"):
+            lookback_days = 30
+        elif win_label.startswith("90"):
+            lookback_days = 90
+        else:
+            lookback_days = 365
 
-        # Snapshot + positions
+        # --- Positions Snapshot ---
         st.markdown("### Positions Snapshot")
-
         try:
-            snap = _cached_snapshot(wave_name, mode)
-            positions = snap.get("positions", None)
+            snap = _cached_snapshot(wave=wave_name, mode=mode)
+            positions = snap.get("positions", pd.DataFrame())
+            as_of = snap.get("as_of", dt.date.today())
 
-            if positions is None or positions.empty:
-                st.warning("No positions found for this Wave.")
+            st.caption(f"As of: **{as_of}**  •  Mode: **{mode}**")
+            if isinstance(positions, pd.DataFrame) and not positions.empty:
+                st.dataframe(
+                    positions.reset_index(drop=True),
+                    use_container_width=True,
+                )
             else:
-                # Ensure we have nice columns
-                pos = positions.copy()
-                # Best-effort float formatting
-                for col in ["weight", "price", "dollar_weight"]:
-                    if col in pos.columns:
-                        pos[col] = pd.to_numeric(pos[col], errors="coerce")
+                st.info("No positions available for this Wave.")
+        except Exception as exc:
+            st.error(f"Error loading snapshot for '{wave_name}': {exc}")
 
-                st.dataframe(pos, use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Error loading snapshot for '{wave_name}': {e}")
-
-        # History + charts
+        # --- Performance History ---
         st.markdown("### Performance History")
-
         try:
-            hist = _cached_history(wave_name, mode, lookback_days)
+            hist = _cached_history(wave=wave_name, mode=mode, lookback_days=lookback_days)
 
             if hist is None or hist.empty:
-                st.warning("No history available for this Wave / window.")
+                st.info("No price history available for this Wave / horizon.")
             else:
+                # Make sure date is datetime & set as index for chart
                 hist = hist.copy()
-                # Make sure 'date' is datetime for charting
-                if "date" in hist.columns:
-                    hist["date"] = pd.to_datetime(hist["date"])
+                hist["date"] = pd.to_datetime(hist["date"])
+                hist = hist.sort_values("date").set_index("date")
 
-                # Key series
-                nav_col = "wave_nav" if "wave_nav" in hist.columns else None
-                alpha_col = "cum_alpha" if "cum_alpha" in hist.columns else None
+                # Simple NAV chart
+                st.line_chart(
+                    hist[["wave_nav"]],
+                    use_container_width=True,
+                )
 
-                if nav_col:
-                    st.line_chart(
-                        hist.set_index("date")[nav_col],
-                        height=300,
-                    )
-                    st.caption("NAV history")
+                # Quick metrics row
+                last_nav = float(hist["wave_nav"].iloc[-1])
+                cum_ret = float(hist["cum_wave_return"].iloc[-1])
 
-                if alpha_col:
-                    # Convert to percent for readability
-                    alpha_series = hist.set_index("date")[alpha_col] * 100.0
-                    st.line_chart(alpha_series, height=300)
-                    st.caption("Cumulative alpha (%) vs stub benchmark")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("NAV (last)", f"{last_nav:.4f}")
+                with col_b:
+                    st.metric(f"Cumulative return ({lookback_days}d)", _format_pct(cum_ret))
 
-                # Summary stats
-                last = hist.iloc[-1]
-                nav = float(last.get("wave_nav", float("nan")))
-                cum_ret = float(last.get("cum_wave_return", float("nan")))
-                cum_alpha = float(last.get("cum_alpha", float("nan")))
+                with st.expander("Show raw history data"):
+                    st.dataframe(hist.reset_index(), use_container_width=True)
 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric(
-                        "NAV (last)",
-                        "—" if pd.isna(nav) else f"{nav:0.3f}",
-                    )
-                with col2:
-                    st.metric(
-                        "Total Return",
-                        _format_pct(cum_ret * 100.0 if not pd.isna(cum_ret) else float("nan")),
-                    )
-                with col3:
-                    st.metric(
-                        "Total Alpha",
-                        _format_pct(
-                            cum_alpha * 100.0 if not pd.isna(cum_alpha) else float("nan")
-                        ),
-                    )
-
-        except Exception as e:
-            st.error(f"Error loading history for '{wave_name}': {e}")
+        except Exception as exc:
+            st.error(f"Error loading history for '{wave_name}': {exc}")
+            st.caption(
+                "If this persists for a specific Wave, check tickers and weights in "
+                "`wave_weights.csv` (especially for delisted symbols)."
+            )
