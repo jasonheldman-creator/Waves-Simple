@@ -1,5 +1,5 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector Engine (Internal Weights)
+waves_engine.py — WAVES Intelligence™ Vector Engine (Internal Weights + Fallback Simulator)
 
 Key features
 ------------
@@ -7,6 +7,7 @@ Key features
 - Discovers all Waves from that dictionary.
 - Optional Full_Wave_History.csv support (if a proper NAV file exists).
 - Otherwise builds NAV history from yfinance prices.
+- If ALL price APIs fail, falls back to an internal price simulator so the console stays live.
 - Robust to bad/missing tickers (skips them, renormalizes weights).
 - Exposes:
     • get_all_waves()
@@ -20,6 +21,7 @@ import datetime as dt
 from typing import Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 
 try:
     import yfinance as yf
@@ -150,7 +152,6 @@ MODE_MULTIPLIERS = {
 
 def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
     if not os.path.exists(path):
-        print(f"[waves_engine] CSV not found at {path}")
         return None
     try:
         return pd.read_csv(path)
@@ -232,7 +233,7 @@ def _load_full_history() -> Optional[pd.DataFrame]:
 
 
 # ============================================================
-# Prices / NAV from yfinance
+# Price / NAV from yfinance + simulator fallback
 # ============================================================
 
 def _compute_nav_from_prices(price_df: pd.DataFrame, weights: pd.Series) -> pd.DataFrame:
@@ -250,76 +251,105 @@ def _compute_nav_from_prices(price_df: pd.DataFrame, weights: pd.Series) -> pd.D
     return pd.DataFrame({"NAV": nav, "Return": port_ret})
 
 
-def _fetch_price_history(tickers: List[str], lookback_days: int) -> Optional[pd.DataFrame]:
+def _simulate_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
     """
-    Fetch price history from yfinance, robust to bad tickers.
+    Generate a synthetic but realistic price history for demo mode
+    when all external price APIs fail.
 
-    - Tries batched download first.
-    - Keeps only columns that return data.
-    - If batch fails, falls back to per-ticker downloads.
+    - Uses a simple geometric random walk.
+    - Same dates for all tickers.
     """
-    if yf is None:
-        print("[waves_engine] yfinance not available; cannot fetch history.")
-        return None
-
     end_date = dt.datetime.utcnow().date()
-    start_date = end_date - dt.timedelta(days=lookback_days + 5)
+    start_date = end_date - dt.timedelta(days=lookback_days)
+    dates = pd.date_range(start=start_date, end=end_date, freq="B")  # business days
 
-    tickers = sorted(set([t.strip().upper() for t in tickers if t.strip()]))
     if not tickers:
-        return None
+        return pd.DataFrame()
 
-    def from_multiindex(data: pd.DataFrame, tickers_list: List[str]) -> pd.DataFrame:
-        frames = []
-        for t in tickers_list:
-            if (t, "Adj Close") in data.columns:
-                frames.append(data[(t, "Adj Close")].rename(t))
-        if not frames:
-            return pd.DataFrame()
-        return pd.concat(frames, axis=1)
+    np.random.seed(42)  # deterministic for repeatable demos
+
+    mu = 0.08 / 252.0     # ~8% annual drift
+    sigma = 0.18 / (252.0 ** 0.5)  # ~18% annual vol
+
+    prices = {}
+    for t in sorted(set([t.strip().upper() for t in tickers if t.strip()])):
+        # start around 100–300 for visual variety
+        start_price = 100 + (hash(t) % 200)
+        returns = np.random.normal(loc=mu, scale=sigma, size=len(dates))
+        prices_t = start_price * np.cumprod(1.0 + returns)
+        prices[t] = prices_t
+
+    df = pd.DataFrame(prices, index=dates)
+    return df
+
+
+def _fetch_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
+    """
+    Fetch price history from yfinance; if that fails completely,
+    fall back to an internal simulator so the console remains live.
+    """
+    # Clean ticker list
+    tickers = sorted(set([t.strip().upper() for t in tickers if t.strip()]))
+
+    if not tickers:
+        return pd.DataFrame()
 
     prices = pd.DataFrame()
 
-    # 1) Try batched download
-    try:
-        data = yf.download(
-            tickers=tickers,
-            start=start_date,
-            end=end_date + dt.timedelta(days=1),
-            progress=False,
-            auto_adjust=True,
-            group_by="ticker",
-        )
-        if isinstance(data.columns, pd.MultiIndex):
-            prices = from_multiindex(data, tickers)
-        else:
-            if "Adj Close" in data.columns:
-                prices = data[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
-    except Exception as e:
-        print(f"[waves_engine] Batched yfinance download failed: {e}")
+    # ----- 1) Try yfinance (if available) -----
+    if yf is not None:
+        end_date = dt.datetime.utcnow().date()
+        start_date = end_date - dt.timedelta(days=lookback_days + 5)
 
-    # 2) If empty, try per-ticker
-    if prices.empty:
-        frames = []
-        for t in tickers:
-            try:
-                d = yf.download(
-                    tickers=t,
-                    start=start_date,
-                    end=end_date + dt.timedelta(days=1),
-                    progress=False,
-                    auto_adjust=True,
-                )
-                if not d.empty and "Adj Close" in d.columns:
-                    frames.append(d["Adj Close"].rename(t))
-            except Exception as e:
-                print(f"[waves_engine] Ticker {t} failed: {e}")
-        if frames:
-            prices = pd.concat(frames, axis=1)
+        def from_multiindex(data: pd.DataFrame, tickers_list: List[str]) -> pd.DataFrame:
+            frames = []
+            for t in tickers_list:
+                if (t, "Adj Close") in data.columns:
+                    frames.append(data[(t, "Adj Close")].rename(t))
+            if not frames:
+                return pd.DataFrame()
+            return pd.concat(frames, axis=1)
 
+        try:
+            data = yf.download(
+                tickers=tickers,
+                start=start_date,
+                end=end_date + dt.timedelta(days=1),
+                progress=False,
+                auto_adjust=True,
+                group_by="ticker",
+            )
+            if isinstance(data.columns, pd.MultiIndex):
+                prices = from_multiindex(data, tickers)
+            else:
+                if "Adj Close" in data.columns:
+                    prices = data[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
+        except Exception as e:
+            print(f"[waves_engine] Batched yfinance download failed: {e}")
+
+        # If empty, try per-ticker
+        if prices.empty:
+            frames = []
+            for t in tickers:
+                try:
+                    d = yf.download(
+                        tickers=t,
+                        start=start_date,
+                        end=end_date + dt.timedelta(days=1),
+                        progress=False,
+                        auto_adjust=True,
+                    )
+                    if not d.empty and "Adj Close" in d.columns:
+                        frames.append(d["Adj Close"].rename(t))
+                except Exception as e:
+                    print(f"[waves_engine] Ticker {t} failed: {e}")
+            if frames:
+                prices = pd.concat(frames, axis=1)
+
+    # ----- 2) If still empty, use simulator -----
     if prices.empty:
-        print(f"[waves_engine] No price data for tickers: {tickers}")
-        return None
+        print("[waves_engine] No real price data available; using simulated prices for demo mode.")
+        prices = _simulate_price_history(tickers, lookback_days)
 
     prices.index = pd.to_datetime(prices.index)
     return prices
@@ -340,6 +370,7 @@ def compute_history_nav(
     Priority:
       1) Use Full_Wave_History.csv if present & valid for this Wave.
       2) Otherwise, build from yfinance prices & internal weights.
+      3) If all APIs fail, use simulated prices (demo mode).
     """
     mode = mode or "Standard"
     multiplier = MODE_MULTIPLIERS.get(mode, 1.0)
@@ -364,28 +395,29 @@ def compute_history_nav(
                     {"NAV": nav_scaled, "Return": ret, "CumReturn": cum_ret}
                 )
 
-    # 2) yfinance-based NAV using internal weights
+    # 2) yfinance + fallback simulator using internal weights
     positions = get_wave_positions(wave_name)
     tickers = positions["Ticker"].tolist()
     weights = positions.set_index("Ticker")["Weight"]
 
     price_df = _fetch_price_history(tickers, lookback_days)
     if price_df is None or price_df.empty:
+        # In theory this shouldn't happen, since simulator always returns data.
         raise RuntimeError(
-            f"Unable to compute NAV history for '{wave_name}': no price data available."
+            f"Unable to compute NAV history for '{wave_name}': no price data (even after simulation)."
         )
 
     # Only keep tickers that actually returned data
     valid_cols = [c for c in price_df.columns if c in weights.index]
-    price_df = price_df[valid_cols]
-    weights = weights.loc[valid_cols]
-
-    # Re-normalize weights on valid subset
-    if weights.sum() == 0:
-        raise RuntimeError(
-            f"Unable to compute NAV history for '{wave_name}': all weights dropped after filtering."
-        )
-    weights = weights / weights.sum()
+    if not valid_cols:
+        # No overlap between simulated/fetched prices and weights; fallback to all columns equally
+        price_df = price_df.copy()
+        valid_cols = list(price_df.columns)
+        weights = pd.Series([1.0 / len(valid_cols)] * len(valid_cols), index=valid_cols)
+    else:
+        price_df = price_df[valid_cols]
+        weights = weights.loc[valid_cols]
+        weights = weights / weights.sum()
 
     nav_df = _compute_nav_from_prices(price_df, weights)
     nav_df["Return"] = nav_df["Return"] * multiplier
