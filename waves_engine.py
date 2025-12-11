@@ -1,32 +1,18 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector Engine (Restored w/ compute_history_nav)
+waves_engine.py — WAVES Intelligence™ Vector Engine (Internal Weights)
 
-Core responsibilities
----------------------
-- Load universe & wave weights from CSVs.
-- Discover all Waves automatically.
-- Build per-Wave NAV history over a lookback window.
-- Prefer Full_Wave_History.csv for historical NAV if available.
-- Fallback to yfinance-based price history when necessary.
-- Expose compute_history_nav() for Streamlit app.
-- Provide portfolio-level overview stats (NAV, 365D return, 30D return).
-- Provide positions/top holdings for each Wave.
-
-Assumptions about CSVs
-----------------------
-- wave_weights.csv:
-    columns at minimum (any capitalization):
-        wave / Wave
-        ticker / Ticker
-        weight / Weight
-
-- Full_Wave_History.csv (optional but preferred for high accuracy):
-    columns at minimum (any capitalization):
-        date / Date
-        wave / Wave
-        nav  / NAV
-
-All file paths are relative to the project root by default.
+Key features
+------------
+- Uses an internal WAVE_WEIGHTS dictionary (no wave_weights.csv needed).
+- Discovers all Waves from that dictionary.
+- Optional Full_Wave_History.csv support (if a proper NAV file exists).
+- Otherwise builds NAV history from yfinance prices.
+- Robust to bad/missing tickers (skips them, renormalizes weights).
+- Exposes:
+    • get_all_waves()
+    • get_wave_positions(wave_name)
+    • compute_history_nav(wave_name, lookback_days, mode)
+    • get_portfolio_overview(mode, ...)
 """
 
 import os
@@ -38,35 +24,131 @@ import pandas as pd
 try:
     import yfinance as yf
 except ImportError:
-    yf = None  # The app will show a warning if fallback is needed.
+    yf = None  # App will show a warning if fallback is needed.
 
 
-# -----------------------------#
-# Configuration / Paths
-# -----------------------------#
+# ============================================================
+# INTERNAL MASTER WEIGHTS (no CSV required)
+# ============================================================
 
-# We use root-level CSVs, because that is how your repo is structured.
-WAVE_WEIGHTS_FILE = "wave_weights.csv"
+WAVE_WEIGHTS: Dict[str, Dict[str, float]] = {
+    "AI Wave": {
+        "NVDA": 0.15,
+        "MSFT": 0.10,
+        "GOOGL": 0.10,
+        "AMD": 0.10,
+        "PLTR": 0.10,
+        "META": 0.10,
+        "CRWD": 0.10,
+        "SNOW": 0.10,
+        "TSLA": 0.05,
+        "AVGO": 0.10,
+    },
+
+    "Cloud & Software Wave": {
+        "MSFT": 0.20,
+        "CRM": 0.10,
+        "ADBE": 0.10,
+        "NOW": 0.10,
+        "GOOGL": 0.10,
+        "AMZN": 0.20,
+        "PANW": 0.10,
+        "DDOG": 0.10,
+    },
+
+    "Crypto Income Wave": {
+        "COIN": 0.33,
+        "MSTR": 0.33,
+        "RIOT": 0.34,
+    },
+
+    "Future Power & Energy Wave": {
+        "NEE": 0.10,
+        "DUK": 0.10,
+        "ENPH": 0.10,
+        "PSX": 0.10,
+        "SLB": 0.10,
+        "CVX": 0.10,
+        "HAL": 0.10,
+        "LIN": 0.10,
+        "MPC": 0.10,
+        "XOM": 0.10,
+    },
+
+    "Small Cap Growth Wave": {
+        "PLTR": 0.10,
+        "ROKU": 0.10,
+        "UPST": 0.10,
+        "DOCN": 0.10,
+        "FSLY": 0.10,
+        "AI": 0.10,
+        "SMCI": 0.10,
+        "TTD": 0.10,
+        "AFRM": 0.10,
+        "PATH": 0.10,
+    },
+
+    "Quantum Computing Wave": {
+        "IBM": 0.25,
+        "IONQ": 0.25,
+        "NVDA": 0.25,
+        "AMD": 0.25,
+    },
+
+    "Clean Transit-Infrastructure Wave": {
+        "TSLA": 0.25,
+        "NIO": 0.15,
+        "BLNK": 0.15,
+        "CHPT": 0.15,
+        "RIVN": 0.15,
+        "F": 0.15,
+    },
+
+    "S&P 500 Wave": {
+        "AAPL": 0.06,
+        "MSFT": 0.06,
+        "AMZN": 0.06,
+        "NVDA": 0.06,
+        "GOOGL": 0.06,
+        "META": 0.06,
+        "TSLA": 0.06,
+        "BRK.B": 0.06,
+        "LLY": 0.06,
+        "JPM": 0.06,
+    },
+
+    "Income Wave": {
+        "HDV": 0.20,
+        "SCHD": 0.20,
+        "JEPI": 0.20,
+        "JEPQ": 0.20,
+        "PFF": 0.20,
+    },
+
+    "SmartSafe Wave": {
+        "BIL": 0.50,
+        "SHV": 0.50,
+    },
+}
+
+# Optional historical NAV file (must be Date/Wave/NAV if used)
 FULL_HISTORY_FILE = "Full_Wave_History.csv"
 
-# Default lookbacks
 DEFAULT_LOOKBACK_DAYS = 365
 SHORT_LOOKBACK_DAYS = 30
 
-# Simple mode multipliers (can be tuned later)
 MODE_MULTIPLIERS = {
     "Standard": 1.0,
-    "Alpha-Minus-Beta": 0.8,   # Slightly lower volatility
-    "Private Logic": 1.15,     # Slightly higher risk/return
+    "Alpha-Minus-Beta": 0.8,
+    "Private Logic": 1.15,
 }
 
 
-# -----------------------------#
-# Utility helpers
-# -----------------------------#
+# ============================================================
+# Helpers
+# ============================================================
 
 def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
-    """Load a CSV if it exists; otherwise return None."""
     if not os.path.exists(path):
         print(f"[waves_engine] CSV not found at {path}")
         return None
@@ -77,101 +159,70 @@ def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
         return None
 
 
-# -----------------------------#
-# Core data loading
-# -----------------------------#
-
-def load_wave_weights() -> pd.DataFrame:
-    """
-    Load wave_weights.csv and normalize weights per Wave.
-
-    Accepts case-insensitive headers and normalizes to:
-        Wave, Ticker, Weight
-
-    Returns
-    -------
-    DataFrame with columns:
-        Wave, Ticker, Weight (normalized so sum per Wave = 1.0)
-    """
-    df = _load_csv_safe(WAVE_WEIGHTS_FILE)
-    if df is None:
-        raise FileNotFoundError(f"wave_weights.csv not found at {WAVE_WEIGHTS_FILE}")
-
-    # Map lower-case header names to canonical names.
-    lower_map = {c.lower(): c for c in df.columns}
-    needed = ["wave", "ticker", "weight"]
-    missing = [col for col in needed if col not in lower_map]
-    if missing:
-        raise ValueError(
-            f"wave_weights.csv missing required columns (case-insensitive): {missing}. "
-            f"Found columns: {list(df.columns)}"
-        )
-
-    # Rename in-place to canonical names
-    rename_dict = {
-        lower_map["wave"]: "Wave",
-        lower_map["ticker"]: "Ticker",
-        lower_map["weight"]: "Weight",
-    }
-    df = df.rename(columns=rename_dict)
-
-    df = df[["Wave", "Ticker", "Weight"]].copy()
-
-    # Clean whitespace
-    df["Wave"] = df["Wave"].astype(str).str.strip()
-    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
-
-    # Normalize weights per Wave
-    df["Weight"] = df["Weight"].astype(float)
-    weight_sums = df.groupby("Wave")["Weight"].transform("sum")
-    df["Weight"] = df["Weight"] / weight_sums
-
-    return df
-
+# ============================================================
+# Wave discovery / positions
+# ============================================================
 
 def get_all_waves() -> List[str]:
-    """Return sorted list of all Waves."""
-    df = load_wave_weights()
-    waves = sorted(df["Wave"].unique().tolist())
-    return waves
+    """Return sorted list of all Waves defined in WAVE_WEIGHTS."""
+    return sorted(list(WAVE_WEIGHTS.keys()))
 
 
 def get_wave_positions(wave_name: str) -> pd.DataFrame:
     """
-    Return positions (weights) for a specific Wave.
-
-    Columns: Wave, Ticker, Weight
+    Return positions for a specific Wave as a DataFrame with
+    columns: Wave, Ticker, Weight.
     """
-    df = load_wave_weights()
-    mask = df["Wave"].str.lower() == wave_name.lower()
-    wave_df = df.loc[mask].copy()
-    if wave_df.empty:
-        raise ValueError(f"No positions found for Wave '{wave_name}'")
-    return wave_df[["Wave", "Ticker", "Weight"]]
+    if wave_name not in WAVE_WEIGHTS:
+        raise ValueError(f"Wave '{wave_name}' not found in internal weights.")
+
+    tickers = []
+    weights = []
+    for t, w in WAVE_WEIGHTS[wave_name].items():
+        tickers.append(t.strip().upper())
+        weights.append(float(w))
+
+    df = pd.DataFrame(
+        {
+            "Wave": wave_name,
+            "Ticker": tickers,
+            "Weight": weights,
+        }
+    )
+
+    # Normalize in case the weights don't sum exactly to 1.0
+    total = df["Weight"].sum()
+    if total > 0:
+        df["Weight"] = df["Weight"] / total
+
+    return df
 
 
-# -----------------------------#
-# NAV / Performance logic
-# -----------------------------#
+# ============================================================
+# Full_Wave_History (optional)
+# ============================================================
 
 def _load_full_history() -> Optional[pd.DataFrame]:
-    """Load Full_Wave_History.csv if it exists."""
+    """
+    Load Full_Wave_History.csv if it exists AND has proper
+    Date/Wave/NAV columns. Otherwise returns None.
+    """
     hist = _load_csv_safe(FULL_HISTORY_FILE)
     if hist is None:
         return None
 
-    # Normalize column names (case-insensitive)
     lower_map = {c.lower(): c for c in hist.columns}
     date_col = lower_map.get("date")
     wave_col = lower_map.get("wave")
     nav_col = lower_map.get("nav")
 
     if not all([date_col, wave_col, nav_col]):
-        raise ValueError(
-            "Full_Wave_History.csv must have 'date', 'Wave', 'NAV' columns "
-            "(case-insensitive). Found columns: "
-            f"{list(hist.columns)}"
+        # Not a valid NAV history file; ignore completely.
+        print(
+            "[waves_engine] Full_Wave_History.csv present but missing date/wave/nav; "
+            "ignoring and using yfinance instead."
         )
+        return None
 
     hist = hist.rename(columns={date_col: "date", wave_col: "Wave", nav_col: "NAV"})
     hist["Wave"] = hist["Wave"].astype(str).str.strip()
@@ -180,52 +231,56 @@ def _load_full_history() -> Optional[pd.DataFrame]:
     return hist
 
 
+# ============================================================
+# Prices / NAV from yfinance
+# ============================================================
+
 def _compute_nav_from_prices(price_df: pd.DataFrame, weights: pd.Series) -> pd.DataFrame:
     """
-    Compute NAV series from price history and weights.
-
-    Parameters
-    ----------
-    price_df : DataFrame
-        Columns: tickers, index = date (DatetimeIndex)
-    weights : Series
-        index: tickers, values: normalized weights (sum to 1)
-
-    Returns
-    -------
-    DataFrame
-        index: date
-        columns: ['NAV', 'Return']
+    Compute NAV and daily returns given price_df (date x tickers)
+    and weights (tickers index).
     """
-    price_df = price_df.copy()
-    price_df = price_df[weights.index]  # align
-    price_df = price_df.sort_index()
+    price_df = price_df.copy().sort_index()
+    price_df = price_df[weights.index]  # align tickers
 
-    # Daily returns
     returns = price_df.pct_change().fillna(0.0)
-
-    # Portfolio return as weighted sum
     port_ret = (returns * weights).sum(axis=1)
 
-    # NAV as cumulative product, normalized to 1.0 at start
     nav = (1.0 + port_ret).cumprod()
-    result = pd.DataFrame({"NAV": nav, "Return": port_ret})
-    return result
+    return pd.DataFrame({"NAV": nav, "Return": port_ret})
 
 
 def _fetch_price_history(tickers: List[str], lookback_days: int) -> Optional[pd.DataFrame]:
     """
-    Fetch adjusted close price history from yfinance.
+    Fetch price history from yfinance, robust to bad tickers.
 
-    Returns DataFrame with index=date, columns=tickers.
+    - Tries batched download first.
+    - Keeps only columns that return data.
+    - If batch fails, falls back to per-ticker downloads.
     """
     if yf is None:
         print("[waves_engine] yfinance not available; cannot fetch history.")
         return None
 
     end_date = dt.datetime.utcnow().date()
-    start_date = end_date - dt.timedelta(days=lookback_days + 5)  # small buffer
+    start_date = end_date - dt.timedelta(days=lookback_days + 5)
 
+    tickers = sorted(set([t.strip().upper() for t in tickers if t.strip()]))
+    if not tickers:
+        return None
+
+    def from_multiindex(data: pd.DataFrame, tickers_list: List[str]) -> pd.DataFrame:
+        frames = []
+        for t in tickers_list:
+            if (t, "Adj Close") in data.columns:
+                frames.append(data[(t, "Adj Close")].rename(t))
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, axis=1)
+
+    prices = pd.DataFrame()
+
+    # 1) Try batched download
     try:
         data = yf.download(
             tickers=tickers,
@@ -235,30 +290,44 @@ def _fetch_price_history(tickers: List[str], lookback_days: int) -> Optional[pd.
             auto_adjust=True,
             group_by="ticker",
         )
-        # yfinance can return different shapes depending on tickers count.
         if isinstance(data.columns, pd.MultiIndex):
-            # Pull 'Adj Close' from multiindex
-            frames = []
-            for ticker in tickers:
-                if (ticker, "Adj Close") in data.columns:
-                    series = data[(ticker, "Adj Close")].rename(ticker)
-                    frames.append(series)
-            if not frames:
-                return None
-            prices = pd.concat(frames, axis=1)
+            prices = from_multiindex(data, tickers)
         else:
-            # Single ticker case
             if "Adj Close" in data.columns:
                 prices = data[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
-            else:
-                return None
-
-        prices.index = pd.to_datetime(prices.index)
-        return prices
     except Exception as e:
-        print(f"[waves_engine] Error fetching yfinance data: {e}")
+        print(f"[waves_engine] Batched yfinance download failed: {e}")
+
+    # 2) If empty, try per-ticker
+    if prices.empty:
+        frames = []
+        for t in tickers:
+            try:
+                d = yf.download(
+                    tickers=t,
+                    start=start_date,
+                    end=end_date + dt.timedelta(days=1),
+                    progress=False,
+                    auto_adjust=True,
+                )
+                if not d.empty and "Adj Close" in d.columns:
+                    frames.append(d["Adj Close"].rename(t))
+            except Exception as e:
+                print(f"[waves_engine] Ticker {t} failed: {e}")
+        if frames:
+            prices = pd.concat(frames, axis=1)
+
+    if prices.empty:
+        print(f"[waves_engine] No price data for tickers: {tickers}")
         return None
 
+    prices.index = pd.to_datetime(prices.index)
+    return prices
+
+
+# ============================================================
+# Core: compute_history_nav
+# ============================================================
 
 def compute_history_nav(
     wave_name: str,
@@ -269,68 +338,65 @@ def compute_history_nav(
     Compute NAV history for a Wave over the given lookback window.
 
     Priority:
-        1) Use Full_Wave_History.csv if it contains this Wave;
-        2) Otherwise compute from yfinance prices and weights.
-
-    Mode-specific logic:
-        - Applies a simple multiplicative scaling to daily returns based on MODE_MULTIPLIERS.
-
-    Returns
-    -------
-    DataFrame with columns:
-        NAV         : normalized NAV series
-        Return      : daily returns
-        CumReturn   : cumulative return over window (at each point)
-    Index
-        DatetimeIndex (date)
+      1) Use Full_Wave_History.csv if present & valid for this Wave.
+      2) Otherwise, build from yfinance prices & internal weights.
     """
     mode = mode or "Standard"
     multiplier = MODE_MULTIPLIERS.get(mode, 1.0)
 
-    # 1) Try Full_Wave_History.csv
+    # 1) Full_Wave_History, if usable
     full_hist = _load_full_history()
     if full_hist is not None:
         mask_wave = full_hist["Wave"].str.lower() == wave_name.lower()
         hist_wave = full_hist.loc[mask_wave].copy()
         if not hist_wave.empty:
-            # Filter by lookback window
             cutoff = dt.datetime.utcnow().date() - dt.timedelta(days=lookback_days)
             hist_wave = hist_wave[hist_wave["date"] >= pd.to_datetime(cutoff)]
             hist_wave = hist_wave.sort_values("date")
             if not hist_wave.empty:
                 hist_wave = hist_wave.set_index("date")
-                # Normalize NAV to 1.0 at start of this window
                 first_nav = hist_wave["NAV"].iloc[0]
                 nav = hist_wave["NAV"] / float(first_nav)
-                # Daily returns from NAV
                 ret = nav.pct_change().fillna(0.0) * multiplier
                 nav_scaled = (1.0 + ret).cumprod()
                 cum_ret = nav_scaled / nav_scaled.iloc[0] - 1.0
-                result = pd.DataFrame(
-                    {
-                        "NAV": nav_scaled,
-                        "Return": ret,
-                        "CumReturn": cum_ret,
-                    }
+                return pd.DataFrame(
+                    {"NAV": nav_scaled, "Return": ret, "CumReturn": cum_ret}
                 )
-                return result
 
-    # 2) Fallback to yfinance-based computation
+    # 2) yfinance-based NAV using internal weights
     positions = get_wave_positions(wave_name)
     tickers = positions["Ticker"].tolist()
     weights = positions.set_index("Ticker")["Weight"]
 
     price_df = _fetch_price_history(tickers, lookback_days)
     if price_df is None or price_df.empty:
-        raise RuntimeError(f"Unable to compute NAV history for '{wave_name}': no price data available.")
+        raise RuntimeError(
+            f"Unable to compute NAV history for '{wave_name}': no price data available."
+        )
+
+    # Only keep tickers that actually returned data
+    valid_cols = [c for c in price_df.columns if c in weights.index]
+    price_df = price_df[valid_cols]
+    weights = weights.loc[valid_cols]
+
+    # Re-normalize weights on valid subset
+    if weights.sum() == 0:
+        raise RuntimeError(
+            f"Unable to compute NAV history for '{wave_name}': all weights dropped after filtering."
+        )
+    weights = weights / weights.sum()
 
     nav_df = _compute_nav_from_prices(price_df, weights)
-    # Apply mode multiplier to returns
     nav_df["Return"] = nav_df["Return"] * multiplier
     nav_df["NAV"] = (1.0 + nav_df["Return"]).cumprod()
     nav_df["CumReturn"] = nav_df["NAV"] / nav_df["NAV"].iloc[0] - 1.0
     return nav_df
 
+
+# ============================================================
+# Summary / Overview
+# ============================================================
 
 def get_wave_summary_metrics(
     wave_name: str,
@@ -339,23 +405,17 @@ def get_wave_summary_metrics(
     short_lookback_days: int = SHORT_LOOKBACK_DAYS,
 ) -> Dict[str, float]:
     """
-    Compute summary metrics (last NAV, 365D return, 30D return).
-
-    Returns
-    -------
-    dict with keys:
-        nav_last
-        ret_long
-        ret_short
+    Compute last NAV, 365D return, and 30D return for a Wave.
     """
     hist_long = compute_history_nav(wave_name, long_lookback_days, mode)
     nav_last = float(hist_long["NAV"].iloc[-1])
     ret_long = float(hist_long["CumReturn"].iloc[-1])
 
-    # Short window metrics
     if len(hist_long) > short_lookback_days:
         short_slice = hist_long.iloc[-short_lookback_days:]
-        ret_short = float(short_slice["NAV"].iloc[-1] / short_slice["NAV"].iloc[0] - 1.0)
+        ret_short = float(
+            short_slice["NAV"].iloc[-1] / short_slice["NAV"].iloc[0] - 1.0
+        )
     else:
         ret_short = float(ret_long)
 
@@ -372,13 +432,7 @@ def get_portfolio_overview(
     short_lookback_days: int = SHORT_LOOKBACK_DAYS,
 ) -> pd.DataFrame:
     """
-    Build a portfolio-level overview for all Waves.
-
-    Columns:
-        Wave
-        NAV_last
-        Return_365D
-        Return_30D
+    Build a portfolio-level overview table for all Waves.
     """
     waves = get_all_waves()
     rows = []
@@ -409,6 +463,5 @@ def get_portfolio_overview(
                 }
             )
 
-    df = pd.DataFrame(rows)
-    df = df.sort_values("Wave").reset_index(drop=True)
+    df = pd.DataFrame(rows).sort_values("Wave").reset_index(drop=True)
     return df
