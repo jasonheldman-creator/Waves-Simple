@@ -15,16 +15,16 @@ Core responsibilities
 Assumptions about CSVs
 ----------------------
 - wave_weights.csv:
-    columns at minimum:
-        Wave        : str (Wave name)
-        Ticker      : str (ticker symbol)
-        Weight      : float (target weight, any scale; will be normalized per-Wave)
+    columns at minimum (any capitalization):
+        wave / Wave
+        ticker / Ticker
+        weight / Weight
 
 - Full_Wave_History.csv (optional but preferred for high accuracy):
-    columns at minimum:
-        date        : str or datetime (YYYY-MM-DD)
-        Wave        : str (Wave name, matching wave_weights.csv)
-        NAV         : float  (NAV level; arbitrary starting point)
+    columns at minimum (any capitalization):
+        date / Date
+        wave / Wave
+        nav  / NAV
 
 All file paths are relative to the project root by default.
 """
@@ -45,7 +45,7 @@ except ImportError:
 # Configuration / Paths
 # -----------------------------#
 
-# NOTE: We use root-level CSVs, because that is how your repo is structured.
+# We use root-level CSVs, because that is how your repo is structured.
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
 FULL_HISTORY_FILE = "Full_Wave_History.csv"
 
@@ -64,20 +64,6 @@ MODE_MULTIPLIERS = {
 # -----------------------------#
 # Utility helpers
 # -----------------------------#
-
-def _ensure_date_index(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
-    """Ensure df has a proper datetime index based on date_col."""
-    if date_col in df.columns:
-        df = df.copy()
-        df[date_col] = pd.to_datetime(df[date_col])
-        df = df.sort_values(date_col)
-        df = df.set_index(date_col)
-    elif isinstance(df.index, pd.DatetimeIndex):
-        pass
-    else:
-        raise ValueError("DataFrame must have a 'date' column or DatetimeIndex.")
-    return df
-
 
 def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
     """Load a CSV if it exists; otherwise return None."""
@@ -99,6 +85,9 @@ def load_wave_weights() -> pd.DataFrame:
     """
     Load wave_weights.csv and normalize weights per Wave.
 
+    Accepts case-insensitive headers and normalizes to:
+        Wave, Ticker, Weight
+
     Returns
     -------
     DataFrame with columns:
@@ -108,12 +97,26 @@ def load_wave_weights() -> pd.DataFrame:
     if df is None:
         raise FileNotFoundError(f"wave_weights.csv not found at {WAVE_WEIGHTS_FILE}")
 
-    required_cols = {"Wave", "Ticker", "Weight"}
-    missing = required_cols - set(df.columns)
+    # Map lower-case header names to canonical names.
+    lower_map = {c.lower(): c for c in df.columns}
+    needed = ["wave", "ticker", "weight"]
+    missing = [col for col in needed if col not in lower_map]
     if missing:
-        raise ValueError(f"wave_weights.csv missing required columns: {missing}")
+        raise ValueError(
+            f"wave_weights.csv missing required columns (case-insensitive): {missing}. "
+            f"Found columns: {list(df.columns)}"
+        )
 
-    df = df.copy()
+    # Rename in-place to canonical names
+    rename_dict = {
+        lower_map["wave"]: "Wave",
+        lower_map["ticker"]: "Ticker",
+        lower_map["weight"]: "Weight",
+    }
+    df = df.rename(columns=rename_dict)
+
+    df = df[["Wave", "Ticker", "Weight"]].copy()
+
     # Clean whitespace
     df["Wave"] = df["Wave"].astype(str).str.strip()
     df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
@@ -157,15 +160,18 @@ def _load_full_history() -> Optional[pd.DataFrame]:
     if hist is None:
         return None
 
-    # Normalize column names
-    cols_lower = {c.lower(): c for c in hist.columns}
-    # Expect at least "date", "wave", "nav"
-    date_col = cols_lower.get("date")
-    wave_col = cols_lower.get("wave")
-    nav_col = cols_lower.get("nav")
+    # Normalize column names (case-insensitive)
+    lower_map = {c.lower(): c for c in hist.columns}
+    date_col = lower_map.get("date")
+    wave_col = lower_map.get("wave")
+    nav_col = lower_map.get("nav")
 
     if not all([date_col, wave_col, nav_col]):
-        raise ValueError("Full_Wave_History.csv must have 'date', 'Wave', 'NAV' columns (case insensitive).")
+        raise ValueError(
+            "Full_Wave_History.csv must have 'date', 'Wave', 'NAV' columns "
+            "(case-insensitive). Found columns: "
+            f"{list(hist.columns)}"
+        )
 
     hist = hist.rename(columns={date_col: "date", wave_col: "Wave", nav_col: "NAV"})
     hist["Wave"] = hist["Wave"].astype(str).str.strip()
