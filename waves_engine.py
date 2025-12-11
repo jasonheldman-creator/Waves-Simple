@@ -1,5 +1,5 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector Engine (Stage 2)
+waves_engine.py — WAVES Intelligence™ Vector Engine (Stage 4)
 
 Features
 --------
@@ -9,16 +9,13 @@ Features
     • Alpha-Minus-Beta (de-risked via lower return scaling)
     • Private Logic (enhanced via higher return scaling)
 - Optional Full_Wave_History.csv (Date/Wave/NAV), else live/simulated prices.
-- Robust price fetching:
-    • yfinance primary
-    • Internal simulator fallback if all price APIs fail (demo-safe).
-- Alpha vs S&P 500 Wave:
-    • get_portfolio_overview() returns Return_365D, Return_30D,
-      Alpha_365D, Alpha_30D for each Wave.
-- NEW (Stage 2):
-    • Every compute_history_nav() call writes/updates a daily
-      performance log in logs/performance/<Wave>_performance_daily.csv
+- Robust price fetching with yfinance + simulator fallback.
+- Daily performance logging:
+    • logs/performance/<Wave>_performance_daily.csv
       with Date, Wave, Mode, NAV, Return, CumReturn.
+- Per-Wave Benchmarks (NEW, Stage 4):
+    • BENCHMARK_MAP selects a benchmark Wave per Wave.
+    • All alpha metrics are now vs each Wave’s own benchmark.
 """
 
 import os
@@ -140,7 +137,31 @@ MODE_MULTIPLIERS = {
     "Alpha-Minus-Beta": 0.80,   # ~20% de-risked vs Standard
     "Private Logic": 1.15,      # modestly enhanced
 }
+
 # ============================================================
+# Per-Wave Benchmark Map (can be refined later)
+# ============================================================
+
+BENCHMARK_MAP: Dict[str, str] = {
+    # Core equity Waves benchmarked to S&P 500 Wave (can change to sector/QQQ later)
+    "AI Wave": "S&P 500 Wave",
+    "Cloud & Software Wave": "S&P 500 Wave",
+    "Crypto Income Wave": "S&P 500 Wave",
+    "Future Power & Energy Wave": "S&P 500 Wave",
+    "Small Cap Growth Wave": "S&P 500 Wave",
+    "Quantum Computing Wave": "S&P 500 Wave",
+    "Clean Transit-Infrastructure Wave": "S&P 500 Wave",
+    "Income Wave": "S&P 500 Wave",
+    # Self-benchmark for S&P itself and SmartSafe
+    "S&P 500 Wave": "S&P 500 Wave",
+    "SmartSafe Wave": "SmartSafe Wave",
+}
+
+
+def get_benchmark_wave_for(wave_name: str) -> str:
+    """Return the benchmark Wave name for a given Wave."""
+    return BENCHMARK_MAP.get(wave_name, "S&P 500 Wave")
+    # ============================================================
 # Helpers
 # ============================================================
 
@@ -375,7 +396,6 @@ def _log_wave_nav_history(wave_name: str, mode: str, nav_df: pd.DataFrame) -> No
 
         if os.path.exists(path):
             old = pd.read_csv(path)
-            # Normalize types
             old["Date"] = pd.to_datetime(old["Date"]).dt.date
             combined = pd.concat([old, df], ignore_index=True)
             combined = combined.drop_duplicates(subset=["Date", "Mode"])
@@ -444,7 +464,6 @@ def compute_history_nav(
 
     valid_cols = [c for c in price_df.columns if c in weights.index]
     if not valid_cols:
-        # fallback: equal-weight all price columns
         price_df = price_df.copy()
         valid_cols = list(price_df.columns)
         weights = pd.Series([1.0 / len(valid_cols)] * len(valid_cols), index=valid_cols)
@@ -461,7 +480,7 @@ def compute_history_nav(
     _log_wave_nav_history(wave_name, mode, nav_df)
     return nav_df
     # ============================================================
-# Summary / Overview + Alpha vs S&P 500
+# Summary / Overview + Alpha vs Benchmark
 # ============================================================
 
 def get_wave_summary_metrics(
@@ -499,10 +518,11 @@ def get_portfolio_overview(
 ) -> pd.DataFrame:
     """
     Build a portfolio-level overview table for all Waves, including
-    alpha vs S&P 500 Wave (using Standard mode for the benchmark).
+    alpha vs each Wave's benchmark (from BENCHMARK_MAP).
 
     Columns:
         Wave
+        Benchmark
         NAV_last
         Return_365D
         Return_30D
@@ -510,21 +530,25 @@ def get_portfolio_overview(
         Alpha_30D
     """
     waves = get_all_waves()
-    benchmark_name = "S&P 500 Wave"
 
-    # Benchmark NAV (Standard mode)
-    bench_hist = None
-    try:
-        bench_hist = compute_history_nav(
-            benchmark_name, long_lookback_days, mode="Standard"
-        )
-    except Exception as e:
-        print(f"[waves_engine] Failed to compute benchmark NAV: {e}")
-        bench_hist = None
+    # Precompute benchmark histories (Standard mode for benchmarks)
+    benchmark_waves = {get_benchmark_wave_for(w) for w in waves}
+    benchmark_histories: Dict[str, Optional[pd.DataFrame]] = {}
+    for bench_name in benchmark_waves:
+        try:
+            benchmark_histories[bench_name] = compute_history_nav(
+                bench_name, long_lookback_days, mode="Standard"
+            )
+        except Exception as e:
+            print(f"[waves_engine] Failed to compute benchmark NAV for '{bench_name}': {e}")
+            benchmark_histories[bench_name] = None
 
     rows = []
 
     for w in waves:
+        bench_name = get_benchmark_wave_for(w)
+        bench_hist = benchmark_histories.get(bench_name)
+
         try:
             hist_long = compute_history_nav(w, long_lookback_days, mode)
             nav_last = float(hist_long["NAV"].iloc[-1])
@@ -541,8 +565,7 @@ def get_portfolio_overview(
             alpha_long = float("nan")
             alpha_short = float("nan")
 
-            if bench_hist is not None and w != benchmark_name:
-                # Align NAV series on overlapping dates
+            if bench_hist is not None:
                 combo = pd.concat(
                     [
                         hist_long[["NAV"]].rename(columns={"NAV": "NAV_wave"}),
@@ -556,12 +579,10 @@ def get_portfolio_overview(
                     nav_w = combo["NAV_wave"]
                     nav_b = combo["NAV_bench"]
 
-                    # full-window alpha
                     wave_ret = nav_w.iloc[-1] / nav_w.iloc[0] - 1.0
                     bench_ret = nav_b.iloc[-1] / nav_b.iloc[0] - 1.0
                     alpha_long = float(wave_ret - bench_ret)
 
-                    # short-window alpha
                     if len(combo) > short_lookback_days:
                         slice_j = combo.iloc[-short_lookback_days:]
                     else:
@@ -573,13 +594,10 @@ def get_portfolio_overview(
                     bench_ret_s = nav_b_s.iloc[-1] / nav_b_s.iloc[0] - 1.0
                     alpha_short = float(wave_ret_s - bench_ret_s)
 
-            if w == benchmark_name:
-                alpha_long = 0.0
-                alpha_short = 0.0
-
             rows.append(
                 {
                     "Wave": w,
+                    "Benchmark": bench_name,
                     "NAV_last": nav_last,
                     "Return_365D": ret_long,
                     "Return_30D": ret_short,
@@ -593,6 +611,7 @@ def get_portfolio_overview(
             rows.append(
                 {
                     "Wave": w,
+                    "Benchmark": bench_name,
                     "NAV_last": float("nan"),
                     "Return_365D": float("nan"),
                     "Return_30D": float("nan"),
