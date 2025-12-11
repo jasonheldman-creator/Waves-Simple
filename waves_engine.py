@@ -20,12 +20,18 @@
 #
 # Crypto side:
 #   • Multi-Cap Crypto Growth Wave
-#   • Crypto Stable Yield Wave  (low-vol, mostly stablecoins)
-#   • Crypto Income & Yield Wave (balanced)
-#   • Crypto High-Yield Income Wave (riskier, higher assumed yield)
-#   • Infinity Multi-Asset Growth Wave (cross-asset meta-wave)
+#   • Crypto Stable Yield Wave  (4% APY)
+#   • Crypto Income & Yield Wave (8% APY)
+#   • Crypto High-Yield Income Wave (12% APY)
 #   • Crypto-VIX proxy (BTC-vol-based) for Waves with "Crypto" in name
-#   • Wave-specific crypto yield overlays via APY
+#
+# SmartSafe side:
+#   • SmartSafe Treasury Cash Wave (T-bills)
+#   • SmartSafe Tax-Free Money Market Wave (short-term munis)
+#   • Crypto Stable Yield Wave as crypto SmartSafe
+#
+# Metals side:
+#   • Gold Wave (GLD + IAU) with full dynamic logic
 #
 # Public API used by app.py:
 #   • USE_FULL_WAVE_HISTORY
@@ -133,11 +139,11 @@ class ETFBenchmarkCandidate:
     ticker: str
     name: str
     sector_tags: Set[str]
-    cap_style: str  # "Mega", "Large", "Mid", "Small", "Crypto", "Safe", "Broad"
+    cap_style: str  # "Mega", "Large", "Mid", "Small", "Crypto", "Safe", "Broad", "Gold"
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings (renamed + new crypto Waves)
+# Internal Wave holdings (renamed + crypto + SmartSafe + Gold)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
@@ -234,7 +240,6 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
     ],
 
     # Crypto money market / income ladder:
-    # 1) Low-vol stablecoin-oriented
     "Crypto Stable Yield Wave": [
         Holding("USDC-USD", 0.35, "USD Coin"),
         Holding("USDT-USD", 0.30, "Tether"),
@@ -243,7 +248,6 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("sDAI-USD", 0.03, "Savings Dai (proxy)"),
         Holding("stETH-USD", 0.02, "Lido Staked Ether"),
     ],
-    # 2) Balanced stable + yield + some blue-chip crypto risk
     "Crypto Income & Yield Wave": [
         Holding("USDC-USD", 0.25, "USD Coin"),
         Holding("USDT-USD", 0.20, "Tether"),
@@ -255,7 +259,6 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("ETH-USD", 0.05, "Ethereum"),
         Holding("BTC-USD", 0.05, "Bitcoin"),
     ],
-    # 3) Higher-risk, higher-yield crypto income
     "Crypto High-Yield Income Wave": [
         Holding("stETH-USD", 0.15, "Lido Staked Ether"),
         Holding("AAVE-USD", 0.15, "Aave"),
@@ -267,10 +270,21 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("BTC-USD", 0.15, "Bitcoin"),
     ],
 
-    # Cash / SmartSafe Wave
+    # SmartSafe Waves
     "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
+    ],
+    "SmartSafe Tax-Free Money Market Wave": [
+        Holding("SUB", 0.40, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.40, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.20, "iShares National Muni Bond ETF"),
+    ],
+
+    # Gold Wave
+    "Gold Wave": [
+        Holding("GLD", 0.70, "SPDR Gold Shares"),
+        Holding("IAU", 0.30, "iShares Gold Trust"),
     ],
 
     # Infinity meta-wave: diversified multi-asset growth
@@ -342,10 +356,21 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("ETH-USD", 0.40, "Ethereum"),
         Holding("stETH-USD", 0.20, "Lido Staked Ether"),
     ],
+
     "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
     ],
+    "SmartSafe Tax-Free Money Market Wave": [
+        Holding("SUB", 0.50, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.50, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+    ],
+
+    "Gold Wave": [
+        Holding("GLD", 0.50, "SPDR Gold Shares"),
+        Holding("IAU", 0.50, "iShares Gold Trust"),
+    ],
+
     "Infinity Multi-Asset Growth Wave": [
         Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
         Holding("QQQ", 0.40, "Invesco QQQ Trust"),
@@ -472,6 +497,36 @@ ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
         sector_tags={"Safe"},
         cap_style="Safe",
     ),
+    ETFBenchmarkCandidate(
+        ticker="SUB",
+        name="iShares Short-Term National Muni Bond ETF",
+        sector_tags={"Safe"},
+        cap_style="Safe",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="SHM",
+        name="SPDR Nuveen Short-Term Municipal Bond ETF",
+        sector_tags={"Safe"},
+        cap_style="Safe",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="MUB",
+        name="iShares National Muni Bond ETF",
+        sector_tags={"Safe"},
+        cap_style="Safe",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="GLD",
+        name="SPDR Gold Shares",
+        sector_tags={"Gold", "Safe"},
+        cap_style="Gold",
+    ),
+    ETFBenchmarkCandidate(
+        ticker="IAU",
+        name="iShares Gold Trust",
+        sector_tags={"Gold", "Safe"},
+        cap_style="Gold",
+    ),
 ]
 
 # ------------------------------------------------------------
@@ -571,8 +626,10 @@ def _get_ticker_meta(ticker: str) -> tuple[str, float]:
         if ticker in {"USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD", "sDAI-USD"}:
             return ("Safe", np.nan)
         return ("Crypto", np.nan)
-    if ticker in {"BIL", "SGOV", "SHV", "SHY"}:
+    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB"}:
         return ("Safe", np.nan)
+    if ticker in {"GLD", "IAU"}:
+        return ("Gold", np.nan)
     if yf is None:
         return ("Unknown", np.nan)
     try:
@@ -597,10 +654,8 @@ def _derive_wave_exposure(wave_name: str) -> tuple[Dict[str, float], str]:
         w = float(weights[h.ticker])
         sector, mcap = _get_ticker_meta(h.ticker)
         sector_weights[sector] = sector_weights.get(sector, 0.0) + w
-        if sector == "Crypto":
-            style = "Crypto"
-        elif sector == "Safe":
-            style = "Safe"
+        if sector in {"Crypto", "Safe", "Gold"}:
+            style = sector  # treat as their own style buckets
         else:
             style = _cap_style_from_mcap(mcap)
         cap_votes[style] = cap_votes.get(style, 0.0) + w
@@ -630,6 +685,8 @@ def _score_etf_candidate(
         if s == "Crypto" and "Crypto" in etf.sector_tags:
             score += 0.5 * w
         if s == "Safe" and "Safe" in etf.sector_tags:
+            score += 0.5 * w
+        if s == "Gold" and "Gold" in etf.sector_tags:
             score += 0.5 * w
     if cap_style == etf.cap_style:
         score += 0.10
@@ -753,7 +810,8 @@ def compute_history_nav(
     tickers_bm = list(bm_weights.index)
 
     base_index_ticker = "SPY"
-    safe_candidates = ["SGOV", "BIL", "SHY", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB",
+                       "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
