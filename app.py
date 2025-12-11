@@ -1,6 +1,6 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 5: Mode-aware + Momentum + Engineered Concentration + Beta Telemetry
+Stage 6: Mode-aware + Momentum + Engineered Concentration + SmartSafe 2.0 + SmartSafe 3.0 Telemetry
 
 Features:
 - Mode selector in sidebar (Standard / AMB / Private Logic™)
@@ -11,6 +11,7 @@ Features:
     * 1Y Hit Rate
     * Max Drawdown
     * 1Y Beta vs Benchmark, Beta Target, Beta Drift
+    * SmartSafe 3.0 regime + extra sweep recommendation (telemetry only)
 - Top 10 holdings with Google Finance links
 - SmartSafe 2.0 status (VIX + sweep%)
 """
@@ -65,6 +66,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
             beta_1y = m.get("beta_1y", 0.0)
             beta_target = m.get("beta_target", 0.0)
             beta_drift = beta_1y - beta_target
+            ss3_state = m.get("smartsafe3_state", "")
+            ss3_extra = m.get("smartsafe3_extra_fraction", 0.0)
             rows.append(
                 {
                     "Wave": w,
@@ -84,6 +87,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "Max Drawdown": m.get("maxdd", 0.0),
                     "Beta 1Y": beta_1y,
                     "Beta Drift": beta_drift,
+                    "SS3 State": ss3_state,
+                    "SS3 Extra Sweep": ss3_extra,
                 }
             )
         except Exception:
@@ -106,6 +111,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                     "Max Drawdown": 0.0,
                     "Beta 1Y": 0.0,
                     "Beta Drift": 0.0,
+                    "SS3 State": "",
+                    "SS3 Extra Sweep": 0.0,
                 }
             )
 
@@ -129,6 +136,8 @@ def load_all_snapshots(waves: list[str], mode_token: str) -> pd.DataFrame:
                 "Max Drawdown",
                 "Beta 1Y",
                 "Beta Drift",
+                "SS3 State",
+                "SS3 Extra Sweep",
             ]
         )
 
@@ -179,8 +188,9 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Stage 5 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
-            blended benchmarks, multi-horizon alpha & beta discipline telemetry.
+            Stage 6 — Mode-aware, momentum-aware, engineered concentration, SmartSafe 2.0,
+            blended benchmarks, multi-horizon alpha & beta discipline, and SmartSafe 3.0
+            <b>telemetry</b> (regime + extra sweep recommendations, no live 3.0 sweeps yet).
         </p>
         """,
         unsafe_allow_html=True,
@@ -207,7 +217,10 @@ def render_sidebar(waves: list[str]) -> tuple[str, str]:
     selected_wave = st.sidebar.selectbox("Wave", waves, index=0)
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("SmartSafe 2.0 sweep is VIX-driven and conservative in this baseline.")
+    st.sidebar.caption(
+        "SmartSafe 2.0 sweeps are live. SmartSafe 3.0 is currently "
+        "telemetry-only (recommendations) in this build."
+    )
 
     return selected_wave, mode_token
 
@@ -343,7 +356,8 @@ def render_overview_tab(waves: list[str], mode_token: str):
         """
         This grid shows Intraday, 30D, 60D, 1Y, and Since-Inception
         performance and alpha for each Wave in the **selected mode**, plus
-        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, and Beta telemetry.
+        1Y Info Ratio, 1Y Hit Rate, Max Drawdown, Beta telemetry, and
+        SmartSafe 3.0 regime + extra sweep recommendations (telemetry-only).
         """,
         unsafe_allow_html=True,
     )
@@ -384,6 +398,7 @@ def render_overview_tab(waves: list[str], mode_token: str):
         "SI Alpha",
         "1Y Hit Rate",
         "Max Drawdown",
+        "SS3 Extra Sweep",
     ]
     for col in pct_cols:
         if col in df_display.columns:
@@ -422,24 +437,34 @@ def render_overview_tab(waves: list[str], mode_token: str):
 # ---------------------------------------------------------------------
 
 def render_smartsafe_panel(metrics: dict):
-    st.subheader("SmartSafe 2.0 Status")
+    st.subheader("SmartSafe Status")
 
     vix_level = metrics.get("vix_level", None)
     sweep_frac = metrics.get("smartsafe_sweep_fraction", 0.0)
+    ss3_state = metrics.get("smartsafe3_state", "Normal")
+    ss3_extra = metrics.get("smartsafe3_extra_fraction", 0.0)
 
-    cols = st.columns(2)
-    with cols[0]:
+    col1, col2 = st.columns(2)
+    with col1:
         if vix_level is not None:
             st.metric("VIX Level", f"{vix_level:,.2f}")
-    with cols[1]:
+    with col2:
         if sweep_frac and sweep_frac > 0:
-            st.metric("Sweep Allocation to BIL", format_pct(sweep_frac))
+            st.metric("SmartSafe 2.0 Sweep to BIL (Live)", format_pct(sweep_frac))
+        else:
+            st.metric("SmartSafe 2.0 Sweep to BIL (Live)", "0.00%")
 
-    st.write(
-        """
-        SmartSafe 2.0 sweeps are VIX-driven and applied to the highest-vol holdings first.
-        SmartSafe 3.0 is **not** running in this baseline.
-        """
+    st.markdown("---")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        st.metric("SmartSafe 3.0 Regime", ss3_state)
+    with col4:
+        st.metric("SmartSafe 3.0 Extra Sweep (Telemetry)", format_pct(ss3_extra))
+
+    st.caption(
+        "SmartSafe 3.0 is **telemetry-only** in this build — it shows what extra "
+        "sweep would be recommended on top of 2.0, but does not yet modify weights."
     )
 
 
@@ -469,9 +494,9 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Stage 5 adaptive momentum + engineered concentration +
-        beta telemetry, mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks,
-        multi-horizon alpha & risk. For internal / demo use only.
+        WAVES Intelligence™ — Stage 6 adaptive momentum + engineered concentration +
+        beta telemetry, VIX-aware SmartSafe 2.0, and SmartSafe 3.0 telemetry. Blended
+        benchmarks, multi-horizon alpha & risk. For internal / demo use only.
         </div>
         """,
         unsafe_allow_html=True,
