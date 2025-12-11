@@ -1,32 +1,34 @@
 """
-waves_engine.py — WAVES Intelligence™ Engine v2 (Option B)
+waves_engine.py — WAVES Intelligence™ Hybrid Engine (History + Live)
 
 Purpose
 -------
-Light-weight but more realistic engine for the Streamlit "waves-simple" console.
+Hybrid engine for the WAVES console:
 
-• Reads wave_weights.csv (columns: wave,ticker,weight)
-• Normalizes weights per Wave
-• Fetches prices via yfinance
-• Builds daily NAV history per Wave + benchmark
-• Computes cumulative returns and alpha
+• Reads wave_weights.csv  (columns: wave,ticker,weight)
+• Optionally reads Full_Wave_History.csv for precomputed histories
+• Falls back to live yfinance prices when history CSV is missing or incomplete
 • Provides:
 
     get_available_waves()  -> list of Wave names
-    get_wave_snapshot(...) -> current positions & prices
-    get_wave_history(...)  -> daily NAV / returns / alpha
+    get_wave_snapshot(...) -> current positions snapshot (with prices)
+    get_wave_history(...)  -> daily NAV / returns / benchmark / alpha
+    compute_risk_stats(...) -> summary risk/return stats for a Wave
 
 Notes
 -----
-• Modes are implemented as simple exposure multipliers:
-      standard          -> 1.00x
-      alpha_minus_beta  -> 0.80x (de-risked)
-      private_logic     -> 1.20x (risk-on)
-• History is daily close-to-close, auto-adjusted prices.
-• Benchmarks are mapped per Wave name; default is SPY.
+• History CSV is OPTIONAL. If it's not present or doesn't contain a given
+  Wave, the engine will compute history on the fly using yfinance.
+• This file is designed to be robust and forgiving:
+    - handles missing tickers
+    - handles history gaps
+    - does not crash the app on a single Wave's failure
 """
 
+from __future__ import annotations
+
 import os
+import math
 import datetime as dt
 from typing import List, Dict, Any, Optional
 
@@ -34,9 +36,9 @@ import numpy as np
 import pandas as pd
 
 try:
-    import yfinance as yf
+    import yfinance as yf  # type: ignore
 except Exception:  # pragma: no cover
-    yf = None  # Streamlit will show a nicer error via RuntimeError
+    yf = None  # Streamlit will show a clear error if this is None
 
 
 # ---------------------------------------------------------------------------
@@ -44,42 +46,23 @@ except Exception:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 WAVE_WEIGHTS_CSV = "wave_weights.csv"
-
-# Optional: if in the future we pre-compute long histories into a CSV,
-# we can wire it up here. For now the engine always builds from prices.
-FULL_WAVE_HISTORY_CSV = "Full_Wave_History.csv"
+FULL_HISTORY_CSV = "Full_Wave_History.csv"  # optional hybrid history file
 
 _wave_weights_cache: Optional[pd.DataFrame] = None
+_full_history_cache: Optional[pd.DataFrame] = None
 
-
-# ---------------------------------------------------------------------------
-# Engine configuration
-# ---------------------------------------------------------------------------
-
-MODE_SETTINGS: Dict[str, Dict[str, float]] = {
-    "standard": {
-        "exposure": 1.00,
-    },
-    "alpha_minus_beta": {
-        "exposure": 0.80,  # dial down beta
-    },
-    "private_logic": {
-        "exposure": 1.20,  # slightly levered flavour
-    },
-}
-
-# Very simple benchmark mapping. If nothing matches, we fall back to SPY.
-WAVE_BENCHMARKS: Dict[str, str] = {
-    "s&p 500 wave": "SPY",
+# Simple benchmark mapping by Wave name (case-insensitive keys)
+BENCHMARK_BY_WAVE: Dict[str, str] = {
     "ai wave": "QQQ",
     "cloud & software wave": "QQQ",
     "crypto income wave": "BTC-USD",
     "future power & energy wave": "XLE",
     "clean transit-infrastructure wave": "IYT",
-    "small cap growth wave": "IWM",
-    "growth wave": "SPYG",
+    "growth wave": "QQQ",
     "income wave": "AGG",
     "quantum computing wave": "QQQ",
+    "small cap growth wave": "IWM",
+    "s&p 500 wave": "SPY",
     "smartsafe wave": "BIL",
 }
 
@@ -95,10 +78,10 @@ def _load_wave_weights(csv_path: str = WAVE_WEIGHTS_CSV) -> pd.DataFrame:
     Expected columns (case-insensitive):
         wave, ticker, weight
 
-    Returns DataFrame with:
+    Returns a DataFrame with:
         wave   (str)
         ticker (str, uppercased)
-        weight (float, normalized to sum to 1 within each Wave)
+        weight (float), normalized to sum to 1.0 within each Wave
     """
     global _wave_weights_cache
 
@@ -107,17 +90,16 @@ def _load_wave_weights(csv_path: str = WAVE_WEIGHTS_CSV) -> pd.DataFrame:
 
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
-            f"{csv_path} not found in repo root. "
-            f"Make sure you committed the latest wave_weights.csv."
+            f"{csv_path} not found in repo root.\n"
+            f"Make sure wave_weights.csv is committed."
         )
 
     df = pd.read_csv(csv_path)
 
     # Standardize column names
     df.columns = [c.strip().lower() for c in df.columns]
-
-    expected = {"wave", "ticker", "weight"}
-    missing = expected - set(df.columns)
+    expected_cols = {"wave", "ticker", "weight"}
+    missing = expected_cols - set(df.columns)
     if missing:
         raise ValueError(f"wave_weights.csv missing columns: {missing}")
 
@@ -127,16 +109,16 @@ def _load_wave_weights(csv_path: str = WAVE_WEIGHTS_CSV) -> pd.DataFrame:
 
     df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
     if df["weight"].isna().any():
-        bad = df[df["weight"].isna()]
+        bad_rows = df[df["weight"].isna()]
         raise ValueError(
-            "wave_weights.csv has non-numeric weights. "
-            f"Offending rows:\n{bad}"
+            "wave_weights.csv has non-numeric weights.\n"
+            f"Offending rows:\n{bad_rows}"
         )
 
-    # Remove non-positive weights
+    # Drop non-positive
     df = df[df["weight"] > 0].copy()
     if df.empty:
-        raise ValueError("wave_weights.csv has no positive weights")
+        raise ValueError("wave_weights.csv is empty after filtering weights > 0.")
 
     # Normalize to 1.0 within each Wave
     grouped = df.groupby("wave")["weight"].transform("sum")
@@ -151,126 +133,143 @@ def _load_wave_weights(csv_path: str = WAVE_WEIGHTS_CSV) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def get_available_waves() -> List[str]:
-    """Return a sorted list of Wave names discovered in wave_weights.csv."""
+    """
+    Return a sorted list of Wave names discovered in wave_weights.csv.
+    """
     df = _load_wave_weights()
     waves = sorted(df["wave"].unique().tolist())
     return waves
 
 
 # ---------------------------------------------------------------------------
-# Helpers: benchmarks, prices, exposure
+# Helpers: history CSV loading and filtering
 # ---------------------------------------------------------------------------
 
-def _get_benchmark_for_wave(wave_name: str) -> str:
-    """Return benchmark ticker for a Wave (rough mapping, fallback to SPY)."""
-    key = wave_name.lower()
-    for name_substring, ticker in WAVE_BENCHMARKS.items():
-        if name_substring in key:
-            return ticker
-    return "SPY"
-
-
-def _get_mode_exposure(mode: str) -> float:
-    """Return exposure multiplier for a mode."""
-    mode = (mode or "standard").lower()
-    if mode in MODE_SETTINGS:
-        return MODE_SETTINGS[mode]["exposure"]
-    return MODE_SETTINGS["standard"]["exposure"]
-
-
-def _normalize_price_panel(data: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
+def _load_full_history(csv_path: str = FULL_HISTORY_CSV) -> pd.DataFrame:
     """
-    Normalize yfinance download output into a [date x ticker] Close-price DataFrame.
+    Load the optional Full_Wave_History.csv file.
 
-    Handles:
-        • Single ticker with 'Close' column
-        • Multi-ticker with group_by='ticker' MultiIndex style
+    Expected columns (case-insensitive):
+        date, wave, wave_nav, wave_return, cum_wave_return,
+        bench_nav, bench_return, cum_bench_return,
+        daily_alpha, cum_alpha
+
+    Extra columns are allowed; we just ignore them.
     """
-    if not isinstance(data, pd.DataFrame) or data.empty:
+    global _full_history_cache
+
+    if _full_history_cache is not None:
+        return _full_history_cache.copy()
+
+    if not os.path.exists(csv_path):
+        # No hybrid file yet — that's OK
+        _full_history_cache = pd.DataFrame()
+        return _full_history_cache.copy()
+
+    df = pd.read_csv(csv_path)
+
+    # Normalize column names
+    df.columns = [c.strip().lower() for c in df.columns]
+
+    if "date" not in df.columns or "wave" not in df.columns:
+        raise ValueError(
+            f"{csv_path} must contain at least 'date' and 'wave' columns."
+        )
+
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["wave"] = df["wave"].astype(str).str.strip()
+
+    _full_history_cache = df.copy()
+    return df.copy()
+
+
+def _get_history_from_csv(wave_name: str, lookback_days: int) -> pd.DataFrame:
+    """
+    Attempt to get history for a Wave from the Full_Wave_History.csv file.
+
+    Returns an empty DataFrame if no data is available.
+    """
+    df = _load_full_history()
+    if df.empty:
         return pd.DataFrame()
 
-    # Case 1: single ticker, columns include 'Close'
-    if "Close" in data.columns:
-        # data["Close"] is a Series; to_frame gives us [date x 1] DataFrame.
-        t = tickers[0] if tickers else "TICKER"
-        px = data["Close"].to_frame(name=t)
-    else:
-        # Case 2: group_by='ticker' style: data[ticker]["Close"]
-        close_map: Dict[str, pd.Series] = {}
-        for t in tickers:
-            try:
-                series = data[t]["Close"].dropna()
-                close_map[t] = series
-            except Exception:
-                # If we can't get data for a ticker, keep empty series
-                close_map[t] = pd.Series(dtype=float)
-        px = pd.DataFrame(close_map)
+    df_wave = df[df["wave"].str.lower() == wave_name.lower()].copy()
+    if df_wave.empty:
+        return pd.DataFrame()
 
-    # Clean index
-    px = px.sort_index()
-    px = px.loc[~px.index.duplicated(keep="last")]
-    return px
+    cutoff = dt.date.today() - dt.timedelta(days=int(lookback_days))
+    df_wave = df_wave[df_wave["date"] >= cutoff].copy()
+    df_wave = df_wave.sort_values("date")
+
+    return df_wave
+
+
+# ---------------------------------------------------------------------------
+# Helpers: yfinance price download
+# ---------------------------------------------------------------------------
+
+def _ensure_yfinance_available() -> None:
+    if yf is None:
+        raise RuntimeError(
+            "yfinance is not available. Add it to requirements.txt or your environment."
+        )
 
 
 def _fetch_latest_prices(tickers: List[str]) -> Dict[str, float]:
     """
-    Get latest close price for each ticker.
+    Get latest close price for each ticker using yfinance.
 
-    Returns {ticker: price}. Missing quotes become np.nan but never crash.
+    Uses one download per ticker for robustness.
+    Returns:
+        {ticker: price} (NaN if quote is missing).
     """
-    if yf is None:
-        raise RuntimeError("yfinance is not available in this environment")
+    _ensure_yfinance_available()
 
+    prices: Dict[str, float] = {}
     if not tickers:
-        return {}
+        return prices
 
-    data = yf.download(
-        tickers=tickers,
-        period="5d",
-        interval="1d",
-        auto_adjust=True,
-        group_by="ticker",
-        progress=False,
-    )
+    end = dt.date.today()
+    start = end - dt.timedelta(days=7)
 
-    px = _normalize_price_panel(data, tickers)
-    latest_prices: Dict[str, float] = {}
-
-    if px.empty:
-        # No data at all; return NaNs
-        for t in tickers:
-            latest_prices[t] = np.nan
-        return latest_prices
-
-    last_row = px.dropna(how="all").iloc[-1]
     for t in tickers:
-        price = float(last_row.get(t, np.nan))
-        latest_prices[t] = price
+        try:
+            data = yf.download(
+                t,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                progress=False,
+            )
+            if isinstance(data, pd.DataFrame) and not data.empty and "Close" in data.columns:
+                s = data["Close"].dropna()
+                if not s.empty:
+                    prices[t] = float(s.iloc[-1])
+                    continue
+            prices[t] = np.nan
+        except Exception:
+            prices[t] = np.nan
 
-    return latest_prices
+    return prices
 
 
 def _build_history_from_prices(
     wave_name: str,
-    mode: str = "standard",
     lookback_days: int = 365,
 ) -> pd.DataFrame:
     """
-    Build daily NAV history for a Wave from yfinance prices.
+    Build daily NAV + simple benchmark from yfinance.
 
-    • Constant portfolio weights, as-of today.
+    • Constant portfolio weights across the window
     • NAV starts at 1.0
-    • Returns:
+    • Returns a DataFrame with columns:
+
         date
-        wave_nav, wave_return
-        bench_nav, bench_return
-        cum_wave_return, cum_bench_return
+        wave_nav, wave_return, cum_wave_return
+        bench_nav, bench_return, cum_bench_return
         daily_alpha, cum_alpha
     """
-    if yf is None:
-        raise RuntimeError("yfinance is not available in this environment")
-
-    exposure = _get_mode_exposure(mode)
+    _ensure_yfinance_available()
 
     df_w = _load_wave_weights()
     sub = df_w[df_w["wave"] == wave_name].copy()
@@ -282,78 +281,105 @@ def _build_history_from_prices(
     end = dt.date.today()
     start = end - dt.timedelta(days=int(lookback_days))
 
-    # ------------------ Wave prices ------------------
-    data = yf.download(
-        tickers=tickers,
-        start=start.isoformat(),
-        end=end.isoformat(),
-        auto_adjust=True,
-        progress=False,
-        group_by="ticker",
-    )
+    # --- Portfolio prices (download each ticker separately) ---
+    price_series_list: list[pd.Series] = []
 
-    px = _normalize_price_panel(data, tickers)
+    for t in tickers:
+        try:
+            data = yf.download(
+                t,
+                start=start,
+                end=end,
+                auto_adjust=True,
+                progress=False,
+            )
+            if not isinstance(data, pd.DataFrame) or data.empty:
+                continue
+            if "Close" not in data.columns:
+                continue
+            s = data["Close"].dropna()
+            if s.empty:
+                continue
+            s = s.rename(t)
+            price_series_list.append(s)
+        except Exception:
+            continue
+
+    if not price_series_list:
+        raise RuntimeError(
+            f"Could not build price history from yfinance for Wave '{wave_name}'."
+        )
+
+    px = pd.concat(price_series_list, axis=1).sort_index()
+    px = px.dropna(how="all")
     if px.empty:
-        raise ValueError(f"No price history returned for tickers: {tickers}")
+        raise RuntimeError(f"Empty price matrix after cleaning for Wave '{wave_name}'.")
 
-    # Align weights to columns
+    # Align weights with downloaded tickers
     weights = sub.set_index("ticker")["weight"]
-    weights = weights.reindex(px.columns).fillna(0.0).values.reshape(1, -1)
+    common = sorted(set(px.columns) & set(weights.index))
+    if not common:
+        raise RuntimeError(
+            f"No overlap between tickers in prices vs weights for Wave '{wave_name}'."
+        )
 
-    # Compute daily returns & NAV
+    px = px[common]
+    w_vec = weights.loc[common].values.reshape(1, -1)
+
+    # Daily returns and NAV
+    px = px.astype(float)
     ret = px.pct_change().fillna(0.0)
-    port_ret = (ret * weights).sum(axis=1)
-
-    # Mode exposure adjustment
-    port_ret = port_ret * exposure
-
-    wave_nav = (1.0 + port_ret).cumprod()
+    port_ret = (ret.values * w_vec).sum(axis=1)
+    nav = (1.0 + port_ret).cumprod()
 
     hist = pd.DataFrame(
         {
             "date": px.index.date,
-            "wave_nav": wave_nav.values,
-            "wave_return": port_ret.values,
+            "wave_nav": nav,
+            "wave_return": port_ret,
         }
     )
+    hist["cum_wave_return"] = hist["wave_nav"] / hist["wave_nav"].iloc[0] - 1.0
 
-    # ------------------ Benchmark series ------------------
-    bench_ticker = _get_benchmark_for_wave(wave_name)
+    # --- Benchmark series ---
+    bench_ticker = BENCHMARK_BY_WAVE.get(wave_name.lower(), "SPY")
     try:
-        bench_data = yf.download(
-            tickers=bench_ticker,
-            start=start.isoformat(),
-            end=end.isoformat(),
+        bdata = yf.download(
+            bench_ticker,
+            start=start,
+            end=end,
             auto_adjust=True,
             progress=False,
         )
-        if "Close" in bench_data.columns:
-            bench_px = bench_data["Close"].dropna()
+        if isinstance(bdata, pd.DataFrame) and not bdata.empty:
+            if "Close" in bdata.columns:
+                bs = bdata["Close"].dropna()
+            else:
+                bs = pd.Series(dtype=float)
         else:
-            # group_by='ticker' format
-            bench_px = bench_data[bench_ticker]["Close"].dropna()
+            bs = pd.Series(dtype=float)
     except Exception:
-        bench_px = pd.Series(dtype=float)
+        bs = pd.Series(dtype=float)
 
-    if bench_px.empty:
-        # Fallback: flat benchmark (0% return)
+    if bs.empty:
+        # Flat benchmark (0 return)
         hist["bench_nav"] = 1.0
         hist["bench_return"] = 0.0
+        hist["cum_bench_return"] = 0.0
     else:
-        # Align with hist dates
-        bench_px = bench_px.sort_index()
-        bench_px = bench_px.loc[~bench_px.index.duplicated(keep="last")]
-        bench_px = bench_px.reindex(px.index).ffill()
+        bs = bs.sort_index()
+        # Align with portfolio dates
+        bs = bs.reindex(px.index).ffill()
+        b_ret = bs.pct_change().fillna(0.0)
+        b_nav = (1.0 + b_ret).cumprod()
 
-        bench_ret = bench_px.pct_change().fillna(0.0)
-        bench_nav = (1.0 + bench_ret).cumprod()
+        hist["bench_nav"] = b_nav.values
+        hist["bench_return"] = b_ret.values
+        hist["cum_bench_return"] = (
+            hist["bench_nav"] / hist["bench_nav"].iloc[0] - 1.0
+        )
 
-        hist["bench_nav"] = bench_nav.values
-        hist["bench_return"] = bench_ret.values
-
-    # ------------------ Cumulative returns & alpha ------------------
-    hist["cum_wave_return"] = (1.0 + hist["wave_return"]).cumprod() - 1.0
-    hist["cum_bench_return"] = (1.0 + hist["bench_return"]).cumprod() - 1.0
+    # Alpha
     hist["daily_alpha"] = hist["wave_return"] - hist["bench_return"]
     hist["cum_alpha"] = hist["cum_wave_return"] - hist["cum_bench_return"]
 
@@ -361,7 +387,7 @@ def _build_history_from_prices(
 
 
 # ---------------------------------------------------------------------------
-# Public API: Snapshots & History
+# Public API: snapshot & history
 # ---------------------------------------------------------------------------
 
 def get_wave_snapshot(
@@ -373,16 +399,16 @@ def get_wave_snapshot(
     """
     Return a simple snapshot dict for a Wave:
 
-        {
-          "wave": wave_name,
-          "mode": mode,
-          "as_of": <date>,
-          "positions": DataFrame[
-              ticker, weight, eff_weight, price, dollar_weight
-          ],
-        }
+    {
+        "wave": "<Wave Name>",
+        "mode": "<mode>",
+        "as_of": <date>,
+        "positions": DataFrame[
+            ticker, weight, price, dollar_weight
+        ]
+    }
 
-    'mode' and **kwargs are accepted for compatibility with older UI.
+    * 'mode' and **kwargs are accepted but not used in this version.
     """
     df_w = _load_wave_weights()
     sub = df_w[df_w["wave"] == wave_name].copy()
@@ -392,23 +418,16 @@ def get_wave_snapshot(
     tickers = sub["ticker"].unique().tolist()
     prices = _fetch_latest_prices(tickers)
 
-    exposure = _get_mode_exposure(mode)
     sub["price"] = sub["ticker"].map(prices)
-    sub["eff_weight"] = sub["weight"] * exposure
-
-    # Arbitrary $100 base just for "dollar_weight" display
-    base_notional = 100.0
-    sub["dollar_weight"] = sub["eff_weight"] * base_notional
+    sub["dollar_weight"] = sub["weight"]  # simple placeholder
 
     as_of = as_of or dt.date.today()
-
-    positions = sub[["ticker", "weight", "eff_weight", "price", "dollar_weight"]]
 
     return {
         "wave": wave_name,
         "mode": mode,
         "as_of": as_of,
-        "positions": positions,
+        "positions": sub[["ticker", "weight", "price", "dollar_weight"]],
     }
 
 
@@ -419,15 +438,92 @@ def get_wave_history(
     **kwargs: Any,
 ) -> pd.DataFrame:
     """
-    Primary daily history function (v2).
+    Hybrid history lookup:
 
-    Right now this:
-        • builds daily NAV history from prices via yfinance
-        • implements modes as exposure multipliers
-        • computes benchmark NAV + alpha
+    1) Try to load from Full_Wave_History.csv (if present).
+    2) If not available or empty, compute from yfinance prices.
+
+    Mode is currently ignored, but accepted for future compatibility.
     """
-    return _build_history_from_prices(
-        wave_name=wave_name,
-        mode=mode,
-        lookback_days=lookback_days,
-    )
+    # First try history CSV
+    hist = _get_history_from_csv(wave_name, lookback_days)
+    if not hist.empty:
+        # Ensure required columns exist
+        needed = [
+            "date",
+            "wave_nav",
+            "wave_return",
+            "cum_wave_return",
+            "bench_nav",
+            "bench_return",
+            "cum_bench_return",
+            "daily_alpha",
+            "cum_alpha",
+        ]
+        for col in needed:
+            if col not in hist.columns:
+                # If missing any, fall back to live builder
+                return _build_history_from_prices(wave_name, lookback_days)
+        return hist
+
+    # No CSV-based history → build from prices
+    return _build_history_from_prices(wave_name, lookback_days)
+
+
+# ---------------------------------------------------------------------------
+# Risk/stats helper
+# ---------------------------------------------------------------------------
+
+def compute_risk_stats(hist: pd.DataFrame) -> Dict[str, float]:
+    """
+    Given a history DataFrame from get_wave_history, compute:
+
+        total_return   (cum_wave_return last)
+        bench_return   (cum_bench_return last)
+        alpha_total    (cum_alpha last)
+        ann_vol        (annualized volatility, 252d)
+        sharpe         (simple Sharpe vs benchmark, rf≈0)
+        max_drawdown   (max peak-to-trough drawdown)
+    """
+    if hist is None or hist.empty:
+        return {
+            "total_return": float("nan"),
+            "bench_return": float("nan"),
+            "alpha_total": float("nan"),
+            "ann_vol": float("nan"),
+            "sharpe": float("nan"),
+            "max_drawdown": float("nan"),
+        }
+
+    wave_ret = pd.Series(hist["wave_return"].values)
+    bench_ret = pd.Series(hist["bench_return"].values)
+
+    total_return = float(hist["cum_wave_return"].iloc[-1])
+    bench_return = float(hist["cum_bench_return"].iloc[-1])
+    alpha_total = float(hist["cum_alpha"].iloc[-1])
+
+    # Volatility & Sharpe
+    if wave_ret.std(ddof=1) > 0:
+        ann_vol = float(wave_ret.std(ddof=1) * math.sqrt(252))
+        excess = wave_ret - bench_ret
+        sharpe = float(
+            excess.mean() / wave_ret.std(ddof=1) * math.sqrt(252)
+        )
+    else:
+        ann_vol = float("nan")
+        sharpe = float("nan")
+
+    # Max drawdown
+    nav = pd.Series(hist["wave_nav"].values)
+    rolling_max = nav.cummax()
+    drawdowns = nav / rolling_max - 1.0
+    max_dd = float(drawdowns.min())
+
+    return {
+        "total_return": total_return,
+        "bench_return": bench_return,
+        "alpha_total": alpha_total,
+        "ann_vol": ann_vol,
+        "sharpe": sharpe,
+        "max_drawdown": max_dd,
+    }
