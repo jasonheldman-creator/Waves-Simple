@@ -1,16 +1,16 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 4: Adaptive Alpha Engine + Engineered Concentration
+Stage 5: Adaptive Alpha Engine + Engineered Concentration + Beta Discipline Telemetry
 
 Includes:
 - Auto-discovered Waves from wave_weights.csv
-- Custom blended benchmarks
+- Custom blended benchmarks (multi-ETF where specified)
 - 3 modes:
-    * standard  -> base Wave weights + mild momentum tilt + mild concentration
-    * amb       -> very light momentum tilt + 15% equity sleeve into BIL + very light concentration
-    * pl        -> strong momentum tilt + strong concentration (alpha-seeking)
+    * standard  -> mild momentum tilt + mild concentration, base beta target ~0.90
+    * amb       -> very light momentum tilt + beta-leaning defensive + SmartSafe 2.0
+    * pl        -> strong momentum tilt + stronger concentration, beta target slightly >1
 - VIX-based SmartSafe 2.0 sweep (no SmartSafe 3.0)
-- Performance metrics:
+- Performance & risk metrics:
     * Intraday return
     * 30D, 60D, 1Y, and Since-Inception returns
     * 30D, 60D, 1Y, and Since-Inception alpha
@@ -18,11 +18,15 @@ Includes:
     * Max drawdown (since inception)
     * 1Y information ratio (daily excess Sharpe-style)
     * 1Y hit rate (pct of days with positive excess return)
-- Daily logging of positions & performance
+    * 1Y beta vs benchmark
+    * Beta target (per mode & Wave type)
+    * Beta drift (actual - target)
+- Daily logging of positions & performance (including beta_1y)
 
 Important:
 - No Waves are ever equal-weighted; we always respect wave_weights.csv
   and only normalize inside each Wave.
+- Beta discipline is *telemetry only* in this stage (no auto-scaling).
 """
 
 from __future__ import annotations
@@ -86,7 +90,7 @@ BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
     "Small Cap Growth Wave": {"ARKK": 0.40, "IPAY": 0.30, "XLY": 0.30},
 }
 
-# VIX ladder (Option B)
+# VIX ladder (SmartSafe 2.0)
 VIX_LEVELS = [
     (40.0, 0.80),
     (30.0, 0.50),
@@ -616,7 +620,50 @@ def _apply_mode_adjustments(
 
 
 # ---------------------------------------------------------------------
-# Performance & risk metrics
+# Beta target helper (Stage 5 telemetry)
+# ---------------------------------------------------------------------
+
+def _get_beta_target(wave_name: str, mode: str) -> float:
+    """
+    Mode- and Wave-type-specific beta targets.
+
+    Defaults:
+        Standard: 0.90
+        AMB:      0.78
+        PL:       1.05
+
+    Special cases:
+        SmartSafe: ~0.05
+        Income / defensive Waves: slightly lower base
+        S&P Wave: ~1.00 in Standard
+    """
+    mode = (mode or MODE_STANDARD).lower()
+    name_lower = wave_name.lower()
+
+    # SmartSafe is basically cash
+    if "smartsafe" in name_lower:
+        return 0.05
+
+    base = 0.90
+
+    if "s&p" in name_lower:
+        base = 1.00
+    elif "income" in name_lower:
+        base = 0.80
+    elif "crypto" in name_lower:
+        base = 1.10  # crypto Waves tolerated hotter beta
+    elif "small cap" in name_lower:
+        base = 1.05
+
+    if mode == MODE_AMB:
+        return max(0.50, base - 0.12)
+    if mode == MODE_PRIVATE_LOGIC:
+        return base + 0.15
+    return base
+
+
+# ---------------------------------------------------------------------
+# Performance & risk metrics (incl. beta)
 # ---------------------------------------------------------------------
 
 def _compute_composite_benchmark_returns(
@@ -662,6 +709,30 @@ def _max_drawdown(values: pd.Series) -> float:
     return float(drawdowns.min())
 
 
+def _estimate_beta(port_returns: pd.Series, bench_returns: pd.Series) -> float:
+    """
+    Estimate 1Y beta using daily returns (covariance/variance).
+    """
+    if port_returns.empty or bench_returns.empty:
+        return 0.0
+
+    r_p, r_b = port_returns.align(bench_returns, join="inner")
+    if r_p.empty or r_b.empty:
+        return 0.0
+
+    # 1Y window
+    r_p = r_p.tail(TRADING_DAYS_1Y)
+    r_b = r_b.tail(TRADING_DAYS_1Y)
+    if r_p.empty or r_b.empty:
+        return 0.0
+
+    var_b = float(r_b.var(ddof=1))
+    if var_b <= 0:
+        return 0.0
+    cov = float(np.cov(r_b, r_p)[0, 1])
+    return cov / var_b
+
+
 def _compute_portfolio_trailing_returns(
     positions: pd.DataFrame,
     benchmark_spec: Dict[str, float],
@@ -671,7 +742,8 @@ def _compute_portfolio_trailing_returns(
     Returns:
         ret_30d, ret_60d, ret_1y, ret_si,
         alpha_30d, alpha_60d, alpha_1y, alpha_si,
-        vol_1y, maxdd, ir_1y, hit_rate_1y
+        vol_1y, maxdd, ir_1y, hit_rate_1y,
+        beta_1y
     """
     base_result = {
         "ret_30d": 0.0,
@@ -686,6 +758,7 @@ def _compute_portfolio_trailing_returns(
         "maxdd": 0.0,
         "ir_1y": 0.0,
         "hit_rate_1y": 0.0,
+        "beta_1y": 0.0,
     }
 
     if positions.empty:
@@ -752,6 +825,7 @@ def _compute_portfolio_trailing_returns(
         hit_rate_1y = 0.0
 
     maxdd = _max_drawdown(port_values)
+    beta_1y = _estimate_beta(port_returns, bench_returns)
 
     return {
         "ret_30d": port_30,
@@ -766,6 +840,7 @@ def _compute_portfolio_trailing_returns(
         "maxdd": maxdd,
         "ir_1y": ir_1y,
         "hit_rate_1y": hit_rate_1y,
+        "beta_1y": beta_1y,
     }
 
 
@@ -796,6 +871,7 @@ def _log_performance(wave_name: str, metrics: Dict[str, float]) -> None:
         "maxdd": metrics.get("maxdd", 0.0),
         "ir_1y": metrics.get("ir_1y", 0.0),
         "hit_rate_1y": metrics.get("hit_rate_1y", 0.0),
+        "beta_1y": metrics.get("beta_1y", 0.0),
     }
     file_path = PERF_LOG_DIR / f"{wave_name.replace(' ', '_')}_performance_daily.csv"
     try:
@@ -832,6 +908,7 @@ def _load_last_logged_metrics(wave_name: str) -> Optional[Dict[str, float]]:
             "maxdd": float(last.get("maxdd", 0.0)),
             "ir_1y": float(last.get("ir_1y", 0.0)),
             "hit_rate_1y": float(last.get("hit_rate_1y", 0.0)),
+            "beta_1y": float(last.get("beta_1y", 0.0)),
         }
     except Exception:
         return None
@@ -907,6 +984,10 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
         if logged is not None:
             trailing = logged
 
+    beta_1y = trailing.get("beta_1y", 0.0)
+    beta_target = _get_beta_target(wave_name, mode)
+    beta_drift = beta_1y - beta_target
+
     metrics = {
         "intraday_return": intraday_ret,
         "ret_30d": trailing["ret_30d"],
@@ -921,6 +1002,9 @@ def get_wave_snapshot(wave_name: str, mode: str = MODE_STANDARD) -> Dict:
         "maxdd": trailing["maxdd"],
         "ir_1y": trailing["ir_1y"],
         "hit_rate_1y": trailing["hit_rate_1y"],
+        "beta_1y": beta_1y,
+        "beta_target": beta_target,
+        "beta_drift": beta_drift,
         "vix_level": vix_level,
         "smartsafe_sweep_fraction": sweep_fraction,
         "mode": mode,
