@@ -1,14 +1,14 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-Stage 3: Adaptive Alpha Engine (Multi-Horizon Momentum) + Mode Scaling
+Stage 4: Adaptive Alpha Engine + Engineered Concentration
 
 Includes:
 - Auto-discovered Waves from wave_weights.csv
 - Custom blended benchmarks
 - 3 modes:
-    * standard  -> base Wave weights + mild momentum tilt
-    * amb       -> base + very light momentum tilt + 15% equity sleeve into BIL
-    * pl        -> stronger momentum tilt (alpha-seeking) with no extra BIL cut
+    * standard  -> base Wave weights + mild momentum tilt + mild concentration
+    * amb       -> very light momentum tilt + 15% equity sleeve into BIL + very light concentration
+    * pl        -> strong momentum tilt + strong concentration (alpha-seeking)
 - VIX-based SmartSafe 2.0 sweep (no SmartSafe 3.0)
 - Performance metrics:
     * Intraday return
@@ -72,7 +72,7 @@ BENCHMARK_MAP: Dict[str, str] = {
     "SmartSafe Money Market Wave": "BIL",
 }
 
-# Custom blended benchmark specs
+# Custom blended benchmark specs (locked)
 BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
     "AI Wave": {"SMH": 0.50, "AIQ": 0.50},
     "Clean Transit-Infrastructure Wave": {"SPY": 0.40, "QQQ": 0.40, "IWM": 0.20},
@@ -418,7 +418,6 @@ def _compute_momentum_scores(tickers: List[str], period: str = "1y") -> pd.DataF
         r = r.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
         mom_30 = _window_total_return(r, 30)
         mom_90 = _window_total_return(r, 90)
-        # Combined momentum: more weight on 90D, some on 30D
         mom_combo = 0.6 * mom_90 + 0.4 * mom_30
         records.append(
             {
@@ -434,7 +433,84 @@ def _compute_momentum_scores(tickers: List[str], period: str = "1y") -> pd.DataF
 
 
 # ---------------------------------------------------------------------
-# Mode adjustments (now momentum-aware)
+# Engineered concentration helper (Stage 4)
+# ---------------------------------------------------------------------
+
+def _apply_concentration(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """
+    Engineered concentration:
+    - Works on the equity sleeve only (non-BIL).
+    - Raises weights to a power (p > 1) to concentrate capital into
+      already-important names.
+    - Caps single-name weights by mode; any excess flows to BIL.
+    """
+    if df.empty or "weight" not in df.columns or "ticker" not in df.columns:
+        return df
+
+    mode = (mode or MODE_STANDARD).lower()
+    df = df.copy()
+
+    is_bil = df["ticker"].str.upper().eq("BIL")
+    eq_mask = ~is_bil
+
+    eq_weight_total = float(df.loc[eq_mask, "weight"].sum())
+    if eq_weight_total <= 0:
+        return df
+
+    w = df.loc[eq_mask, "weight"].values.astype(float)
+
+    # Mode-specific concentration strength & cap
+    if mode == MODE_STANDARD:
+        p = 1.15
+        cap = 0.18  # 18% per name
+    elif mode == MODE_AMB:
+        p = 1.05
+        cap = 0.14  # more diversified
+    elif mode == MODE_PRIVATE_LOGIC:
+        p = 1.35
+        cap = 0.25  # allow more concentration
+    else:
+        p = 1.15
+        cap = 0.18
+
+    # Power transform (convex)
+    w_trans = np.power(w, p)
+    if w_trans.sum() > 0:
+        w_trans = w_trans / w_trans.sum() * eq_weight_total
+    else:
+        return df
+
+    # Clip to cap; excess flows into BIL as extra SmartSafe defense
+    w_clipped = np.minimum(w_trans, cap)
+    eq_new_total = float(w_clipped.sum())
+    excess = eq_weight_total - eq_new_total
+
+    df.loc[eq_mask, "weight"] = w_clipped
+
+    if excess > 0:
+        # Add excess to BIL
+        if is_bil.any():
+            df.loc[is_bil, "weight"] += excess
+        else:
+            bil_last, bil_intraday = _get_fast_intraday_return("BIL")
+            bil_row = {
+                "ticker": "BIL",
+                "weight": excess,
+                "last_price": bil_last,
+                "intraday_return": bil_intraday,
+            }
+            df = pd.concat([df, pd.DataFrame([bil_row])], ignore_index=True)
+
+    # Final renormalization
+    total_weight = df["weight"].sum()
+    if total_weight > 0:
+        df["weight"] = df["weight"] / total_weight
+
+    return df
+
+
+# ---------------------------------------------------------------------
+# Mode adjustments (momentum + concentration)
 # ---------------------------------------------------------------------
 
 def _apply_mode_adjustments(
@@ -445,9 +521,12 @@ def _apply_mode_adjustments(
     """
     Apply per-mode portfolio adjustments BEFORE SmartSafe 2.0.
 
-    - standard: normalize, mild positive tilt to higher-momentum names
-    - amb: same mild tilt + 15% of equity sleeve moved to BIL (lower beta)
-    - pl: stronger tilt to higher-momentum names (alpha-seeking), no extra BIL cut
+    Pipeline:
+    1) Ensure BIL row exists.
+    2) Normalize starting weights.
+    3) Compute momentum scores (30D+90D) and apply mode-specific momentum tilt.
+    4) If AMB mode: move 15% of equity sleeve to BIL.
+    5) Apply engineered concentration (Stage 4) on equity sleeve.
     """
     if df.empty:
         return df
@@ -455,7 +534,7 @@ def _apply_mode_adjustments(
     mode = (mode or MODE_STANDARD).lower()
     df = df.copy()
 
-    # Ensure we have a BIL row so AMB / SmartSafe logic always has a cash sleeve
+    # Ensure BIL exists
     if not df["ticker"].str.upper().eq("BIL").any():
         bil_last, bil_intraday = _get_fast_intraday_return("BIL")
         bil_row = {
@@ -471,7 +550,6 @@ def _apply_mode_adjustments(
     if total_weight > 0:
         df["weight"] = df["weight"] / total_weight
 
-    # Equity vs BIL mask
     is_bil = df["ticker"].str.upper().eq("BIL")
     eq_mask = ~is_bil
 
@@ -484,16 +562,10 @@ def _apply_mode_adjustments(
 
     if not eq_df.empty and not mom_df.empty:
         eq_df = eq_df.merge(mom_df, on="ticker", how="left")
-        # Fallback if any missing momentum
         eq_df["mom_combo"] = eq_df["mom_combo"].fillna(0.0)
-
-        # Intraday snap as a light tie-breaker
         intraday = eq_df["intraday_return"].fillna(0.0)
 
-        # Base combined score (momentum + small intraday spice)
         base_score = eq_df["mom_combo"] + 0.1 * intraday
-
-        # Standardize scores to z-scores
         mean = float(base_score.mean())
         std = float(base_score.std())
         if std > 0:
@@ -501,12 +573,12 @@ def _apply_mode_adjustments(
         else:
             z = pd.Series(0.0, index=eq_df.index)
 
-        # Mode-specific tilt strengths
+        # Mode-specific momentum strength
         if mode == MODE_STANDARD:
             k = 0.15   # mild tilt
             min_factor, max_factor = 0.7, 1.3
         elif mode == MODE_AMB:
-            k = 0.10   # very light tilt (since this mode already cuts beta via BIL)
+            k = 0.10   # very light tilt
             min_factor, max_factor = 0.8, 1.2
         elif mode == MODE_PRIVATE_LOGIC:
             k = 0.60   # strong tilt
@@ -521,7 +593,6 @@ def _apply_mode_adjustments(
         eq_df["weight"] = eq_df["weight"] * tilt_factor
         eq_df["weight"] = eq_df["weight"].clip(lower=0.0)
 
-        # Re-normalize equity sleeve back to original equity weight
         eq_before = df.loc[eq_mask, "weight"].sum()
         eq_after = eq_df["weight"].sum()
         if eq_after > 0 and eq_before > 0:
@@ -529,7 +600,7 @@ def _apply_mode_adjustments(
 
         df.loc[eq_mask, "weight"] = eq_df["weight"]
 
-    # AMB mode: move ~15% of equity sleeve to BIL after momentum tilt
+    # AMB mode beta cut: move 15% of equity sleeve to BIL after momentum
     if mode == MODE_AMB:
         base_cut = 0.15
         eq_weight = df.loc[eq_mask, "weight"].sum()
@@ -538,10 +609,8 @@ def _apply_mode_adjustments(
             df.loc[eq_mask, "weight"] *= (1.0 - base_cut)
             df.loc[is_bil, "weight"] += cut_amount
 
-    # Final normalization
-    total_weight = df["weight"].sum()
-    if total_weight > 0:
-        df["weight"] = df["weight"] / total_weight
+    # Stage 4: engineered concentration on equity sleeve (convex weights)
+    df = _apply_concentration(df, mode)
 
     return df
 
