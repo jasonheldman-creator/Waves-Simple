@@ -1,5 +1,5 @@
 """
-waves_engine.py — WAVES Intelligence™ Vector Engine (Stage 1)
+waves_engine.py — WAVES Intelligence™ Vector Engine (Stage 2)
 
 Features
 --------
@@ -14,7 +14,11 @@ Features
     • Internal simulator fallback if all price APIs fail (demo-safe).
 - Alpha vs S&P 500 Wave:
     • get_portfolio_overview() returns Return_365D, Return_30D,
-      Alpha_365D, Alpha_30D for each Wave (alpha vs S&P 500 Wave).
+      Alpha_365D, Alpha_30D for each Wave.
+- NEW (Stage 2):
+    • Every compute_history_nav() call writes/updates a daily
+      performance log in logs/performance/<Wave>_performance_daily.csv
+      with Date, Wave, Mode, NAV, Return, CumReturn.
 """
 
 import os
@@ -150,6 +154,14 @@ def _load_csv_safe(path: str) -> Optional[pd.DataFrame]:
         return None
 
 
+def _ensure_log_dirs():
+    """Create logs/performance directory if it doesn't exist."""
+    try:
+        os.makedirs(os.path.join("logs", "performance"), exist_ok=True)
+    except Exception as e:
+        print(f"[waves_engine] Warning: could not create log directories: {e}")
+
+
 # ============================================================
 # Wave discovery / positions
 # ============================================================
@@ -218,7 +230,9 @@ def _load_full_history() -> Optional[pd.DataFrame]:
     hist["date"] = pd.to_datetime(hist["date"])
     hist = hist.sort_values(["Wave", "date"])
     return hist
-    # ============================================================
+
+
+# ============================================================
 # Price / NAV from yfinance + simulator fallback
 # ============================================================
 
@@ -327,10 +341,56 @@ def _fetch_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame
 
     prices.index = pd.to_datetime(prices.index)
     return prices
+    # ============================================================
+# Performance logging
+# ============================================================
+
+def _log_wave_nav_history(wave_name: str, mode: str, nav_df: pd.DataFrame) -> None:
+    """
+    Append/update daily NAV history for a Wave+Mode into
+    logs/performance/<Wave>_performance_daily.csv.
+
+    Columns written:
+        Date, Wave, Mode, NAV, Return, CumReturn
+    """
+    try:
+        _ensure_log_dirs()
+        if nav_df is None or nav_df.empty:
+            return
+
+        df = nav_df.copy()
+        # Reset index to Date column
+        if df.index.name is None:
+            df = df.reset_index().rename(columns={"index": "Date"})
+        else:
+            df = df.reset_index().rename(columns={df.index.name or "index": "Date"})
+
+        df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        df["Wave"] = wave_name
+        df["Mode"] = mode
+
+        path = os.path.join(
+            "logs", "performance", f"{wave_name.replace(' ', '_')}_performance_daily.csv"
+        )
+
+        if os.path.exists(path):
+            old = pd.read_csv(path)
+            # Normalize types
+            old["Date"] = pd.to_datetime(old["Date"]).dt.date
+            combined = pd.concat([old, df], ignore_index=True)
+            combined = combined.drop_duplicates(subset=["Date", "Mode"])
+            combined = combined.sort_values("Date")
+        else:
+            combined = df
+
+        combined.to_csv(path, index=False)
+
+    except Exception as e:
+        print(f"[waves_engine] Warning: failed to log performance for {wave_name}: {e}")
 
 
 # ============================================================
-# Core: compute_history_nav (with modes)
+# Core: compute_history_nav (with modes + logging)
 # ============================================================
 
 def compute_history_nav(
@@ -345,6 +405,7 @@ def compute_history_nav(
       1) Use Full_Wave_History.csv if present & valid for this Wave.
       2) Otherwise, build from price history & internal weights.
     Modes scale daily returns before re-building NAV.
+    Always logs the resulting NAV/Return/CumReturn to logs/performance.
     """
     mode = mode or "Standard"
     multiplier = MODE_MULTIPLIERS.get(mode, 1.0)
@@ -364,9 +425,11 @@ def compute_history_nav(
                 ret = base_nav.pct_change().fillna(0.0) * multiplier
                 nav_scaled = (1.0 + ret).cumprod()
                 cum_ret = nav_scaled / nav_scaled.iloc[0] - 1.0
-                return pd.DataFrame(
+                nav_df = pd.DataFrame(
                     {"NAV": nav_scaled, "Return": ret, "CumReturn": cum_ret}
                 )
+                _log_wave_nav_history(wave_name, mode, nav_df)
+                return nav_df
 
     # 2) Price-based NAV using internal weights
     positions = get_wave_positions(wave_name)
@@ -394,6 +457,8 @@ def compute_history_nav(
     nav_df["Return"] = nav_df["Return"] * multiplier
     nav_df["NAV"] = (1.0 + nav_df["Return"]).cumprod()
     nav_df["CumReturn"] = nav_df["NAV"] / nav_df["NAV"].iloc[0] - 1.0
+
+    _log_wave_nav_history(wave_name, mode, nav_df)
     return nav_df
     # ============================================================
 # Summary / Overview + Alpha vs S&P 500
