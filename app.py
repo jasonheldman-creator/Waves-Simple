@@ -326,3 +326,4 @@ with tab_detail:
         st.dataframe(holdings_display, use_container_width=True, hide_index=True)
     else:
         st.info("No holdings available for this Wave snapshot.")
+        
