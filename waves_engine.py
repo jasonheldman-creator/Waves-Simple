@@ -1,10 +1,12 @@
 """
 waves_engine.py — WAVES Intelligence™ Engine
-(VIX Ladder + SmartSafe 2.0 Weighted Sweep Enabled)
+(VIX Ladder + SmartSafe 2.0 + Blended Benchmarks)
 
 This version:
 - Auto-discovers Waves from wave_weights.csv
-- Implements a real VIX-based risk ladder (no SmartSafe 3.0 anywhere)
+- Uses your custom blended benchmarks (multi-ETF) for specific Waves
+- Uses single-ETF benchmarks for all other Waves
+- Implements a VIX-based risk ladder (no SmartSafe 3.0 anywhere)
 - Implements SmartSafe 2.0 *weighted sweep*:
     * When VIX is high, trims highest-volatility holdings first
     * Frees up X% of portfolio and reallocates to BIL (SmartSafe proxy)
@@ -15,13 +17,17 @@ This version:
 Assumptions:
 - wave_weights.csv: columns for Wave, Ticker, Weight (any reasonable capitalization/spaces)
 - list.csv: optional universe with a Ticker column
+
+IMPORTANT:
+- No Waves are equal-weighted in this engine. We always use weights from wave_weights.csv,
+  normalized within each Wave, not equal splits.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -43,24 +49,83 @@ PERF_LOG_DIR = LOGS_DIR / "performance"
 for d in [LOGS_DIR, POSITIONS_LOG_DIR, PERF_LOG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-# Benchmarks per Wave (fallback to SPY if not found)
+# ---------------------------------------------------------------------
+# Benchmarks
+# ---------------------------------------------------------------------
+
+# 1) Default single-ETF benchmarks (used when no custom blend is defined)
 BENCHMARK_MAP: Dict[str, str] = {
     "S&P 500 Wave": "SPY",
     "S&P Wave": "SPY",
-    "AI Wave": "QQQ",
+    "AI Wave": "QQQ",  # overridden by blended spec below
     "AI & Innovation Wave": "QQQ",
-    "Quantum Computing Wave": "QQQ",
-    "Future Power & Energy Wave": "XLE",
-    "Clean Transit-Infrastructure Wave": "IYT",
-    "Crypto Income Wave": "BITO",
+    "Quantum Computing Wave": "QQQ",  # overridden by blended spec below
+    "Future Power & Energy Wave": "XLE",  # overridden by blended spec below
+    "Clean Transit-Infrastructure Wave": "IYT",  # overridden by blended spec below
+    "Crypto Income Wave": "BITO",  # may be overridden (Crypto equity) below
     "Income Wave": "SCHD",
-    "Small Cap Growth Wave": "IWM",
+    "Small Cap Growth Wave": "IWM",  # overridden by blended spec below
     "Small to Mid Cap Growth Wave": "VO",
-    "Cloud & Software Wave": "IGV",
+    "Cloud & Software Wave": "IGV",  # overridden by blended spec below
     "SmartSafe Money Market Wave": "BIL",
 }
 
-# VIX ladder (Option B — second option)
+# 2) Custom blended benchmark specs (your research)
+# NOTE: Raw weights are normalized automatically so they don't have to sum to 1 exactly.
+# Keys must match the exact Wave names as they appear in wave_weights.csv.
+
+BLENDED_BENCHMARKS: Dict[str, Dict[str, float]] = {
+    # AI wave: 50/50 SMH and AIQ
+    "AI Wave": {
+        "SMH": 0.50,
+        "AIQ": 0.50,
+    },
+    # Clean transit: SPY 40%, QQQ 40%, IWM 20%
+    "Clean Transit-Infrastructure Wave": {
+        "SPY": 0.40,
+        "QQQ": 0.40,
+        "IWM": 0.20,
+    },
+    # Cloud & Software: 50% QQQ, 40% WCLD, 30% HACK  (will be normalized)
+    "Cloud & Software Wave": {
+        "QQQ": 0.50,
+        "WCLD": 0.40,
+        "HACK": 0.30,
+    },
+    # Crypto equity: BUG 50%, WCLD 50%
+    # Assuming this maps to Crypto Income Wave
+    "Crypto Income Wave": {
+        "BUG": 0.50,
+        "WCLD": 0.50,
+    },
+    # Future power & energy: 40% QQQ, 30% BUG, 30% WCLD
+    "Future Power & Energy Wave": {
+        "QQQ": 0.40,
+        "BUG": 0.30,
+        "WCLD": 0.30,
+    },
+    # Growth: 40% QQQ, 30% BUG, 30% WCLD
+    # Assuming Wave name is "Growth Wave"
+    "Growth Wave": {
+        "QQQ": 0.40,
+        "BUG": 0.30,
+        "WCLD": 0.30,
+    },
+    # Quantum computing: QQQ 50%, SOXX 25%, ARKK 25%
+    "Quantum Computing Wave": {
+        "QQQ": 0.50,
+        "SOXX": 0.25,
+        "ARKK": 0.25,
+    },
+    # Small cap growth: ARKK 40%, IPAY 30%, XLY 30%
+    "Small Cap Growth Wave": {
+        "ARKK": 0.40,
+        "IPAY": 0.30,
+        "XLY": 0.30,
+    },
+}
+
+# VIX ladder (Option B)
 # VIX <20  -> 0% shift
 # 20–25    -> 15%
 # 25–30    -> 30%
@@ -145,6 +210,7 @@ def _load_wave_weights() -> pd.DataFrame:
     df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
     df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
 
+    # Aggregate duplicates PER WAVE, then normalize inside each wave
     grouped = df.groupby(["wave", "ticker"], as_index=False)["weight"].sum()
     grouped["weight"] = grouped.groupby("wave")["weight"].transform(
         lambda x: x / x.sum() if x.sum() != 0 else x
@@ -163,8 +229,8 @@ def get_available_waves() -> List[str]:
     return waves
 
 
-def _get_benchmark_for_wave(wave_name: str) -> str:
-    """Map a wave to its benchmark ticker. Fallback to SPY."""
+def _get_single_benchmark_ticker(wave_name: str) -> str:
+    """Fallback: single-ETF benchmark ticker for a wave."""
     if wave_name in BENCHMARK_MAP:
         return BENCHMARK_MAP[wave_name]
 
@@ -182,6 +248,31 @@ def _get_benchmark_for_wave(wave_name: str) -> str:
     if "s&p" in name_lower:
         return "SPY"
     return "SPY"
+
+
+def _get_benchmark_for_wave(
+    wave_name: str,
+) -> Tuple[str, Dict[str, float]]:
+    """
+    Return:
+        display_label: str  (e.g., "50% SMH + 50% AIQ" or "QQQ")
+        spec: dict[ticker -> weight] with weights normalized to sum 1
+    """
+    if wave_name in BLENDED_BENCHMARKS:
+        raw = BLENDED_BENCHMARKS[wave_name]
+        total = float(sum(raw.values()))
+        if total <= 0:
+            # fall back to single ticker
+            t = _get_single_benchmark_ticker(wave_name)
+            return t, {t: 1.0}
+        spec = {t: w / total for t, w in raw.items()}
+        parts = [f"{int(round(w * 100))}% {t}" for t, w in spec.items()]
+        label = " + ".join(parts)
+        return label, spec
+
+    # Not in blended set -> use single ETF
+    t = _get_single_benchmark_ticker(wave_name)
+    return t, {t: 1.0}
 
 
 def _download_price_series(ticker: str, period: str = "365d") -> pd.Series:
@@ -275,7 +366,7 @@ def _compute_sweep_fraction_from_vix(vix_level: Optional[float]) -> float:
         if vix_level >= threshold:
             return frac
 
-    # If between 20 and lowest threshold (20), we already handled <20; so:
+    # Between 20 and lowest threshold in VIX_LEVELS:
     return 0.15
 
 
@@ -332,7 +423,7 @@ def apply_smartsafe_sweep(
 
     df = positions.copy()
 
-    # Normalize weights (just to be safe)
+    # Normalize weights (never equal-weight; we respect wave_weights.csv ratios)
     total_weight = df["weight"].sum()
     if total_weight <= 0:
         return positions
@@ -342,11 +433,10 @@ def apply_smartsafe_sweep(
     tickers = df["ticker"].unique().tolist()
     vol_df = _compute_vol_by_ticker(tickers, period="90d")
 
-    # If we can't compute vol, fall back to proportional sweep
+    # If we can't compute vol, fall back to simple proportional sweep
     if vol_df.empty:
         trim_amount = sweep_fraction
         df["weight"] = df["weight"] * (1.0 - sweep_fraction)
-        # Add BIL with swept weight
         bil_last, bil_intraday = _get_fast_intraday_return("BIL")
         bil_row = {
             "ticker": "BIL",
@@ -383,7 +473,7 @@ def apply_smartsafe_sweep(
 
     df["weight"] = new_weights
 
-    # Drop vol column; it's just internal
+    # Drop vol column; internal only
     df = df.drop(columns=["vol"])
 
     # If we didn't actually sweep anything, return original
@@ -413,14 +503,50 @@ def apply_smartsafe_sweep(
 # ---------------------------------------------------------------------
 
 
+def _compute_composite_benchmark_returns(
+    benchmark_spec: Dict[str, float],
+    period: str = "180d",
+) -> pd.Series:
+    """
+    Build a composite benchmark return series from a dict[ticker -> weight].
+    Weights are assumed to sum to 1 (normalized earlier).
+    """
+    if not benchmark_spec:
+        return pd.Series(dtype=float)
+
+    price_frames = []
+    for t in benchmark_spec.keys():
+        s = _download_price_series(t, period=period)
+        if not s.empty:
+            price_frames.append(s)
+
+    if not price_frames:
+        return pd.Series(dtype=float)
+
+    prices_df = pd.concat(price_frames, axis=1).sort_index()
+    prices_df = prices_df.ffill().dropna(how="all")
+
+    # Align weights to columns
+    weights = pd.Series(benchmark_spec)
+    weights = weights.reindex(prices_df.columns).fillna(0.0)
+    if weights.sum() != 0:
+        weights = weights / weights.sum()
+
+    bench_values = (prices_df * weights).sum(axis=1)
+    bench_returns = bench_values.pct_change().dropna()
+    bench_returns = bench_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
+    return bench_returns
+
+
 def _compute_portfolio_trailing_returns(
     positions: pd.DataFrame,
-    benchmark_ticker: str,
+    benchmark_spec: Dict[str, float],
     period: str = "180d",
 ) -> Dict[str, float]:
     """
-    Compute 30d and 60d total returns and alpha vs benchmark.
+    Compute 30d and 60d total returns and alpha vs benchmark composite.
 
+    benchmark_spec: dict[ticker -> weight]
     Returns keys:
         ret_30d, ret_60d, alpha_30d, alpha_60d
     """
@@ -436,7 +562,7 @@ def _compute_portfolio_trailing_returns(
     weights = positions.set_index("ticker")["weight"]
     weights = weights / weights.sum() if weights.sum() != 0 else weights
 
-    # Download history for each ticker
+    # Download history for each portfolio ticker
     price_frames = []
     for t in tickers:
         s = _download_price_series(t, period=period)
@@ -462,18 +588,13 @@ def _compute_portfolio_trailing_returns(
     # Portfolio daily values and returns
     port_values = (prices_df * aligned_weights).sum(axis=1)
     port_returns = port_values.pct_change().dropna()
-
-    # Clip extreme daily moves (guardrail)
     port_returns = port_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
 
-    # Benchmark
-    bench_series = _download_price_series(benchmark_ticker, period=period)
-    if bench_series.empty:
+    # Composite benchmark returns
+    bench_returns = _compute_composite_benchmark_returns(benchmark_spec, period=period)
+    if bench_returns.empty:
         bench_returns = pd.Series(0.0, index=port_returns.index)
     else:
-        bench_series = bench_series.reindex(port_returns.index).ffill()
-        bench_returns = bench_series.pct_change().dropna()
-        bench_returns = bench_returns.clip(lower=-DAILY_RETURN_CLIP, upper=DAILY_RETURN_CLIP)
         port_returns, bench_returns = port_returns.align(bench_returns, join="inner")
 
     def _window_total_return(r: pd.Series, days: int) -> float:
@@ -583,7 +704,7 @@ def _build_wave_positions(wave_name: str, vix_level: Optional[float]) -> pd.Data
     wave_df["last_price"] = prices
     wave_df["intraday_return"] = intraday_returns
 
-    # Apply SmartSafe 2.0 weighted sweep (Option 2) based on VIX
+    # Apply SmartSafe 2.0 weighted sweep based on VIX
     wave_df = apply_smartsafe_sweep(wave_name, wave_df, vix_level)
 
     return wave_df
@@ -596,7 +717,7 @@ def get_wave_snapshot(wave_name: str) -> Dict:
     Returns:
         {
             "wave_name": str,
-            "benchmark": str,
+            "benchmark": str (display label, may be a blend like "50% SMH + 50% AIQ"),
             "positions": DataFrame,
             "metrics": {
                 "intraday_return": float,
@@ -609,7 +730,7 @@ def get_wave_snapshot(wave_name: str) -> Dict:
             }
         }
     """
-    benchmark = _get_benchmark_for_wave(wave_name)
+    benchmark_label, benchmark_spec = _get_benchmark_for_wave(wave_name)
 
     # Get VIX level once per snapshot
     vix_level = _get_vix_level()
@@ -627,7 +748,7 @@ def get_wave_snapshot(wave_name: str) -> Dict:
 
     trailing = _compute_portfolio_trailing_returns(
         positions,
-        benchmark_ticker=benchmark,
+        benchmark_spec=benchmark_spec,
         period="180d",
     )
 
@@ -658,7 +779,7 @@ def get_wave_snapshot(wave_name: str) -> Dict:
 
     return {
         "wave_name": wave_name,
-        "benchmark": benchmark,
+        "benchmark": benchmark_label,
         "positions": positions,
         "metrics": metrics,
     }
