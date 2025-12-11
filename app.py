@@ -1,6 +1,6 @@
 """
 app.py — WAVES Intelligence™ Institutional Console
-Stage 2: Mode-aware + Alpha Quality & Risk Metrics
+Stage 3: Mode-aware + Alpha Quality & Risk Metrics (adaptive momentum engine)
 
 Features:
 - Mode selector in sidebar (Standard / AMB / Private Logic™)
@@ -169,7 +169,7 @@ def render_header():
         """
         <h1 style="margin-bottom:0;">WAVES Intelligence™ Institutional Console</h1>
         <p style="margin-top:0.25rem; font-size:0.9rem; opacity:0.7;">
-            Mode-aware baseline — 12 Waves, SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk.
+            Stage 3 — Mode-aware, momentum-aware, SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk.
         </p>
         """,
         unsafe_allow_html=True,
@@ -441,8 +441,9 @@ def render_wave_detail_tab(selected_wave: str, mode_token: str):
     st.markdown(
         """
         <div style="font-size:0.75rem; opacity:0.6; margin-top:1rem;">
-        WAVES Intelligence™ — Mode-aware, VIX-aware, SmartSafe 2.0, blended benchmarks,
-        multi-horizon alpha & risk. For internal / demo use only.
+        WAVES Intelligence™ — Stage 3 adaptive momentum engine, mode-aware, VIX-aware,
+        SmartSafe 2.0, blended benchmarks, multi-horizon alpha & risk. For internal /
+        demo use only.
         </div>
         """,
         unsafe_allow_html=True,
