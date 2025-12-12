@@ -1,13 +1,18 @@
-# app.py — WAVES Intelligence™ Institutional Console (Auto-Discover Waves)
-# Restores: full console, all waves matrix (returns + alpha), per-wave pages,
-# top-10 holdings with Google quote links, and auto-includes any "sandbox" wave
-# as long as it exists in wave_weights.csv and/or logs/.
+# app.py — WAVES Intelligence™ Institutional Console (Full Console Restore Shell)
+# - Auto-discovers ALL waves from wave_weights.csv and logs/
+# - Overview matrix: Intraday / 30D / 60D / 1Y returns + alpha
+# - Wave detail: metrics + Top-10 holdings with Google links
+# - WaveScore Leaderboard (reads logs/wavescore/*.csv if present; otherwise placeholder)
+# - Correlation matrix (computed from per-wave daily returns logs)
+# - Multi-Wave Portfolio Constructor (blends waves + shows blended return/alpha)
+#
+# NOTE: This is designed to "snap back" to a full console experience
+# without requiring you to have the exact prior app.py. If you DO have
+# a prior commit (Fallback 1), restoring that is still fastest.
 
 import os
 import glob
 import math
-import json
-import time
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,26 +22,28 @@ import pandas as pd
 import streamlit as st
 
 APP_TITLE = "WAVES Intelligence™ — Institutional Console"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Expected folders (engine writes here)
-LOGS_POS_DIR = os.path.join(BASE_DIR, "logs", "positions")
-LOGS_PERF_DIR = os.path.join(BASE_DIR, "logs", "performance")
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
+LOGS_POS_DIR = os.path.join(LOGS_DIR, "positions")
+LOGS_PERF_DIR = os.path.join(LOGS_DIR, "performance")
+LOGS_WAVESCORE_DIR = os.path.join(LOGS_DIR, "wavescore")
+LOGS_SANDBOX_DIR = os.path.join(LOGS_DIR, "sandbox")
 
-# Inputs (engine uses these)
 WAVE_WEIGHTS_PATH = os.path.join(BASE_DIR, "wave_weights.csv")
 UNIVERSE_LIST_PATH = os.path.join(BASE_DIR, "list.csv")
 
-# Optional: if you maintain a sandbox-only results file, it will be picked up if present
-SANDBOX_OVERRIDE_PATH = os.path.join(BASE_DIR, "logs", "sandbox", "sandbox_summary.csv")
+SANDBOX_OVERRIDE_PATH = os.path.join(LOGS_SANDBOX_DIR, "sandbox_summary.csv")  # optional
 
-# ---------------------------
-# Helpers
-# ---------------------------
-
-def _safe_float(x):
+# -----------------------------
+# Utility
+# -----------------------------
+def _safe_float(x) -> Optional[float]:
     try:
-        if x is None or (isinstance(x, float) and math.isnan(x)):
+        if x is None:
+            return None
+        if isinstance(x, float) and math.isnan(x):
             return None
         return float(x)
     except Exception:
@@ -50,22 +57,10 @@ def _pct(x: Optional[float], digits: int = 2) -> str:
 def _ts_now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def google_quote_link(ticker: str) -> str:
-    q = urllib.parse.quote(ticker.strip().upper())
-    return f"https://www.google.com/finance/quote/{q}:NASDAQ"
-
-def google_quote_link_fallback(ticker: str) -> str:
-    # If exchange is unknown, Google still resolves many tickers via search
-    q = urllib.parse.quote(ticker.strip().upper())
-    return f"https://www.google.com/search?q=Google+Finance+{q}"
-
 def normalize_wave_name(name: str) -> str:
     if not isinstance(name, str):
         return str(name)
-    n = name.strip()
-    # Light normalization only (keeps your branding)
-    n = n.replace("WAVE", "Wave").replace("wave", "Wave")
-    n = " ".join(n.split())
+    n = " ".join(name.strip().split())
     return n
 
 def find_latest_file(pattern: str) -> Optional[str]:
@@ -80,25 +75,35 @@ def load_csv_if_exists(path: str) -> Optional[pd.DataFrame]:
             return None
     return None
 
+def google_quote_link(ticker: str) -> str:
+    q = urllib.parse.quote(ticker.strip().upper())
+    # Exchange-agnostic fallback: search Google Finance
+    return f"https://www.google.com/search?q=Google+Finance+{q}"
+
+def _pick_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    cols = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in cols:
+            return cols[cand.lower()]
+    return None
+
+# -----------------------------
+# Wave discovery
+# -----------------------------
 def list_waves_from_weights() -> List[str]:
     df = load_csv_if_exists(WAVE_WEIGHTS_PATH)
     if df is None or df.empty:
         return []
-    # Try common column names
     for col in ["Wave", "wave", "WAVE", "portfolio", "Portfolio", "name", "Name"]:
         if col in df.columns:
-            waves = sorted({normalize_wave_name(x) for x in df[col].dropna().astype(str).tolist()})
-            return waves
-    # If not found, try first column
-    waves = sorted({normalize_wave_name(x) for x in df.iloc[:, 0].dropna().astype(str).tolist()})
-    return waves
+            return sorted({normalize_wave_name(x) for x in df[col].dropna().astype(str).tolist()})
+    return sorted({normalize_wave_name(x) for x in df.iloc[:, 0].dropna().astype(str).tolist()})
 
 def list_waves_from_logs() -> List[str]:
     waves = set()
     if os.path.isdir(LOGS_POS_DIR):
         for p in glob.glob(os.path.join(LOGS_POS_DIR, "*_positions_*.csv")):
             base = os.path.basename(p)
-            # "<Wave>_positions_YYYYMMDD.csv"
             wave = base.split("_positions_")[0]
             if wave:
                 waves.add(normalize_wave_name(wave))
@@ -108,19 +113,24 @@ def list_waves_from_logs() -> List[str]:
             wave = base.split("_performance_")[0]
             if wave:
                 waves.add(normalize_wave_name(wave))
+        for p in glob.glob(os.path.join(LOGS_PERF_DIR, "*_performance_daily.csv")):
+            base = os.path.basename(p)
+            wave = base.split("_performance_daily.csv")[0]
+            if wave:
+                waves.add(normalize_wave_name(wave))
     return sorted(waves)
 
 def discover_all_waves() -> List[str]:
-    waves = set(list_waves_from_weights()) | set(list_waves_from_logs())
-    return sorted(waves)
+    return sorted(set(list_waves_from_weights()) | set(list_waves_from_logs()))
 
+# -----------------------------
+# Load logs
+# -----------------------------
 def load_latest_positions(wave: str) -> Optional[pd.DataFrame]:
-    # support wave names with spaces in filesystem: engine typically writes exact wave string;
-    # we try both raw and sanitized patterns.
     patterns = [
         os.path.join(LOGS_POS_DIR, f"{wave}_positions_*.csv"),
-        os.path.join(LOGS_POS_DIR, f"{wave.replace(' ', '')}_positions_*.csv"),
         os.path.join(LOGS_POS_DIR, f"{wave.replace(' ', '_')}_positions_*.csv"),
+        os.path.join(LOGS_POS_DIR, f"{wave.replace(' ', '')}_positions_*.csv"),
     ]
     for pat in patterns:
         latest = find_latest_file(pat)
@@ -133,10 +143,10 @@ def load_latest_positions(wave: str) -> Optional[pd.DataFrame]:
 
 def load_latest_performance(wave: str) -> Optional[pd.DataFrame]:
     patterns = [
-        os.path.join(LOGS_PERF_DIR, f"{wave}_performance_*.csv"),
-        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '')}_performance_*.csv"),
-        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '_')}_performance_*.csv"),
         os.path.join(LOGS_PERF_DIR, f"{wave}_performance_daily.csv"),
+        os.path.join(LOGS_PERF_DIR, f"{wave}_performance_*.csv"),
+        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '_')}_performance_*.csv"),
+        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '')}_performance_*.csv"),
     ]
     for pat in patterns:
         latest = find_latest_file(pat)
@@ -147,18 +157,14 @@ def load_latest_performance(wave: str) -> Optional[pd.DataFrame]:
                 return None
     return None
 
-def _pick_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
-    cols = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower() in cols:
-            return cols[cand.lower()]
-    return None
-
+# -----------------------------
+# Snapshot model
+# -----------------------------
 @dataclass
 class WaveSnapshot:
     wave: str
-    tag: str  # LIVE/SANDBOX/HYBRID
-    updated: str
+    tag: str = "HYBRID"
+    updated: str = "—"
     intraday_return: Optional[float] = None
     intraday_alpha: Optional[float] = None
     r30: Optional[float] = None
@@ -169,121 +175,99 @@ class WaveSnapshot:
     a1y: Optional[float] = None
 
 def build_snapshot_from_perf(wave: str, perf: Optional[pd.DataFrame]) -> WaveSnapshot:
-    snap = WaveSnapshot(wave=wave, tag="HYBRID", updated="—")
-
+    s = WaveSnapshot(wave=wave)
     if perf is None or perf.empty:
-        return snap
+        return s
 
-    # Updated timestamp (best-effort)
     dt_col = _pick_col(perf, ["timestamp", "datetime", "date", "asof", "time"])
     if dt_col:
         try:
-            snap.updated = str(perf[dt_col].iloc[-1])
+            s.updated = str(perf[dt_col].iloc[-1])
         except Exception:
-            snap.updated = "—"
+            s.updated = "latest row"
     else:
-        snap.updated = "latest row"
+        s.updated = "latest row"
 
-    # Tag
     tag_col = _pick_col(perf, ["regime", "data_regime", "tag", "mode_tag", "live_sandbox"])
     if tag_col:
         t = str(perf[tag_col].iloc[-1]).upper()
         if "LIVE" in t:
-            snap.tag = "LIVE"
+            s.tag = "LIVE"
         elif "SANDBOX" in t or "BACKTEST" in t:
-            snap.tag = "SANDBOX"
+            s.tag = "SANDBOX"
         else:
-            snap.tag = "HYBRID"
+            s.tag = "HYBRID"
 
     row = perf.iloc[-1]
 
-    # Flexible column names for returns/alphas
-    snap.intraday_return = _safe_float(row.get(_pick_col(perf, ["intraday_return", "return_intraday", "day_return", "return_1d", "ret_1d"]) or "", None))
-    snap.intraday_alpha  = _safe_float(row.get(_pick_col(perf, ["intraday_alpha", "alpha_intraday", "alpha_1d", "alpha_day", "alpha_capture_1d"]) or "", None))
+    def get_last(colnames):
+        c = _pick_col(perf, colnames)
+        return _safe_float(row.get(c)) if c else None
 
-    snap.r30 = _safe_float(row.get(_pick_col(perf, ["return_30d", "ret_30d", "r30", "return30"]) or "", None))
-    snap.a30 = _safe_float(row.get(_pick_col(perf, ["alpha_30d", "a30", "alpha30", "alpha_capture_30d"]) or "", None))
+    s.intraday_return = get_last(["intraday_return", "return_1d", "ret_1d", "day_return"])
+    s.intraday_alpha  = get_last(["intraday_alpha", "alpha_1d", "alpha_capture_1d", "alpha_day"])
 
-    snap.r60 = _safe_float(row.get(_pick_col(perf, ["return_60d", "ret_60d", "r60", "return60"]) or "", None))
-    snap.a60 = _safe_float(row.get(_pick_col(perf, ["alpha_60d", "a60", "alpha60", "alpha_capture_60d"]) or "", None))
+    s.r30 = get_last(["return_30d", "ret_30d", "r30", "return30"])
+    s.a30 = get_last(["alpha_30d", "a30", "alpha_capture_30d", "alpha30"])
 
-    snap.r1y = _safe_float(row.get(_pick_col(perf, ["return_1y", "return_1yr", "ret_1y", "ret_1yr", "return_252d"]) or "", None))
-    snap.a1y = _safe_float(row.get(_pick_col(perf, ["alpha_1y", "alpha_1yr", "a1y", "alpha_capture_1y", "alpha_capture_252d"]) or "", None))
+    s.r60 = get_last(["return_60d", "ret_60d", "r60", "return60"])
+    s.a60 = get_last(["alpha_60d", "a60", "alpha_capture_60d", "alpha60"])
 
-    return snap
+    s.r1y = get_last(["return_1y", "return_1yr", "ret_1y", "ret_1yr", "return_252d"])
+    s.a1y = get_last(["alpha_1y", "alpha_1yr", "a1y", "alpha_capture_1y", "alpha_capture_252d"])
 
-def apply_sandbox_override(snapshots: Dict[str, WaveSnapshot]) -> Dict[str, WaveSnapshot]:
-    # If you have a sandbox summary file, we merge it by wave name.
+    return s
+
+def apply_sandbox_override(snaps: Dict[str, WaveSnapshot]) -> Dict[str, WaveSnapshot]:
     if not os.path.exists(SANDBOX_OVERRIDE_PATH):
-        return snapshots
-
+        return snaps
     try:
         sdf = pd.read_csv(SANDBOX_OVERRIDE_PATH)
     except Exception:
-        return snapshots
+        return snaps
 
-    # Must have a wave column
     wave_col = None
     for c in ["Wave", "wave", "name", "Name", "portfolio", "Portfolio"]:
         if c in sdf.columns:
             wave_col = c
             break
-    if wave_col is None:
-        return snapshots
+    if not wave_col:
+        return snaps
 
     for _, r in sdf.iterrows():
         w = normalize_wave_name(str(r[wave_col]))
-        if w not in snapshots:
-            snapshots[w] = WaveSnapshot(wave=w, tag="SANDBOX", updated="sandbox override")
+        if w not in snaps:
+            snaps[w] = WaveSnapshot(wave=w)
+        s = snaps[w]
+        s.tag = "SANDBOX"
+        s.updated = "sandbox override"
 
-        snap = snapshots[w]
-        snap.tag = "SANDBOX"
-        snap.updated = "sandbox override"
-
-        # best-effort merges
-        for k, cand in [
-            ("intraday_return", ["intraday_return", "return_1d", "ret_1d"]),
-            ("intraday_alpha",  ["intraday_alpha", "alpha_1d", "alpha_capture_1d"]),
-            ("r30", ["return_30d", "ret_30d"]),
-            ("a30", ["alpha_30d", "alpha_capture_30d"]),
-            ("r60", ["return_60d", "ret_60d"]),
-            ("a60", ["alpha_60d", "alpha_capture_60d"]),
-            ("r1y", ["return_1y", "ret_1y", "return_1yr"]),
-            ("a1y", ["alpha_1y", "alpha_capture_1y", "alpha_1yr"]),
-        ]:
-            val = None
-            for c in cand:
+        def set_if_present(attr, cols):
+            for c in cols:
                 if c in sdf.columns:
-                    val = _safe_float(r.get(c))
-                    break
-            if val is not None:
-                setattr(snap, k, val)
+                    v = _safe_float(r.get(c))
+                    if v is not None:
+                        setattr(s, attr, v)
+                    return
 
-    return snapshots
+        set_if_present("intraday_return", ["intraday_return", "return_1d", "ret_1d"])
+        set_if_present("intraday_alpha",  ["intraday_alpha", "alpha_1d", "alpha_capture_1d"])
+        set_if_present("r30", ["return_30d", "ret_30d"])
+        set_if_present("a30", ["alpha_30d", "alpha_capture_30d"])
+        set_if_present("r60", ["return_60d", "ret_60d"])
+        set_if_present("a60", ["alpha_60d", "alpha_capture_60d"])
+        set_if_present("r1y", ["return_1y", "ret_1y", "return_1yr"])
+        set_if_present("a1y", ["alpha_1y", "alpha_capture_1y", "alpha_1yr"])
+
+    return snaps
 
 def top10_from_positions(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["Ticker", "Weight", "Value", "Link"])
-    # Guess columns
-    tcol = None
-    for c in ["ticker", "Ticker", "symbol", "Symbol"]:
-        if c in df.columns:
-            tcol = c
-            break
-    if tcol is None:
-        tcol = df.columns[0]
 
-    wcol = None
-    for c in ["weight", "Weight", "w", "alloc", "allocation"]:
-        if c in df.columns:
-            wcol = c
-            break
-
-    vcol = None
-    for c in ["value", "Value", "market_value", "MarketValue", "dollar_value", "Dollars"]:
-        if c in df.columns:
-            vcol = c
-            break
+    tcol = _pick_col(df, ["ticker", "symbol"]) or df.columns[0]
+    wcol = _pick_col(df, ["weight", "alloc", "allocation"])
+    vcol = _pick_col(df, ["value", "market_value", "dollar_value"])
 
     out = df.copy()
     out[tcol] = out[tcol].astype(str).str.upper().str.strip()
@@ -296,157 +280,258 @@ def top10_from_positions(df: pd.DataFrame) -> pd.DataFrame:
         out = out.sort_values(vcol, ascending=False)
 
     out = out.head(10).copy()
-    out["Link"] = out[tcol].apply(lambda x: google_quote_link_fallback(x))
+    out["Link"] = out[tcol].apply(google_quote_link)
 
-    # Standardize columns
-    out_df = pd.DataFrame({
+    return pd.DataFrame({
         "Ticker": out[tcol].values,
         "Weight": out[wcol].values if wcol else [None]*len(out),
         "Value": out[vcol].values if vcol else [None]*len(out),
         "Link": out["Link"].values
     })
-    return out_df
 
-# ---------------------------
+# -----------------------------
+# Correlation matrix (from daily returns)
+# -----------------------------
+def load_daily_return_series(wave: str) -> Optional[pd.Series]:
+    perf = load_latest_performance(wave)
+    if perf is None or perf.empty:
+        return None
+    date_col = _pick_col(perf, ["date", "datetime", "timestamp", "asof"])
+    ret_col  = _pick_col(perf, ["daily_return", "return", "ret", "return_1d", "ret_1d"])
+    if not ret_col:
+        return None
+
+    df = perf.copy()
+    if date_col:
+        try:
+            df[date_col] = pd.to_datetime(df[date_col])
+        except Exception:
+            pass
+
+    s = pd.to_numeric(df[ret_col], errors="coerce")
+    if date_col and pd.api.types.is_datetime64_any_dtype(df[date_col]):
+        s.index = df[date_col]
+    s = s.dropna()
+    if s.empty:
+        return None
+    return s
+
+def compute_corr_matrix(waves: List[str]) -> pd.DataFrame:
+    series = {}
+    for w in waves:
+        s = load_daily_return_series(w)
+        if s is not None and len(s) >= 10:
+            series[w] = s
+    if len(series) < 2:
+        return pd.DataFrame()
+    df = pd.DataFrame(series).dropna(how="any")
+    if df.shape[0] < 10:
+        return pd.DataFrame()
+    return df.corr()
+
+# -----------------------------
+# WaveScore (optional)
+# -----------------------------
+def load_latest_wavescore_table() -> Optional[pd.DataFrame]:
+    if not os.path.isdir(LOGS_WAVESCORE_DIR):
+        return None
+    latest = find_latest_file(os.path.join(LOGS_WAVESCORE_DIR, "*.csv"))
+    if not latest:
+        return None
+    try:
+        df = pd.read_csv(latest)
+        return df
+    except Exception:
+        return None
+
+# -----------------------------
+# Multi-Wave constructor (blend)
+# -----------------------------
+def blend_portfolio(snaps: Dict[str, WaveSnapshot], weights: Dict[str, float]) -> Dict[str, Optional[float]]:
+    # Normalize
+    total = sum(max(0.0, float(v)) for v in weights.values())
+    if total <= 0:
+        return {"intraday_return": None, "intraday_alpha": None, "r30": None, "a30": None, "r60": None, "a60": None, "r1y": None, "a1y": None}
+    wnorm = {k: max(0.0, float(v))/total for k, v in weights.items()}
+
+    def wavg(attr):
+        vals = []
+        for w, ww in wnorm.items():
+            s = snaps.get(w)
+            if not s:
+                continue
+            x = getattr(s, attr, None)
+            if x is None:
+                continue
+            vals.append(ww * x)
+        return sum(vals) if vals else None
+
+    return {
+        "intraday_return": wavg("intraday_return"),
+        "intraday_alpha":  wavg("intraday_alpha"),
+        "r30": wavg("r30"),
+        "a30": wavg("a30"),
+        "r60": wavg("r60"),
+        "a60": wavg("a60"),
+        "r1y": wavg("r1y"),
+        "a1y": wavg("a1y"),
+    }
+
+# -----------------------------
 # UI
-# ---------------------------
-
+# -----------------------------
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 
 with st.sidebar:
-    st.header("Controls")
-    st.caption(f"Last loaded: {_ts_now()}")
-    show_1y = st.toggle("Show 1-Year", value=True)
-    show_60 = st.toggle("Show 60-Day", value=True)
-    show_30 = st.toggle("Show 30-Day", value=True)
-    show_intraday = st.toggle("Show Intraday", value=True)
-
-    st.divider()
-    st.subheader("Data status")
+    st.caption(f"Loaded: {_ts_now()}")
     st.write("Weights:", "✅" if os.path.exists(WAVE_WEIGHTS_PATH) else "❌", "wave_weights.csv")
     st.write("Universe:", "✅" if os.path.exists(UNIVERSE_LIST_PATH) else "❌", "list.csv")
-    st.write("Logs/positions:", "✅" if os.path.isdir(LOGS_POS_DIR) else "❌", LOGS_POS_DIR)
-    st.write("Logs/performance:", "✅" if os.path.isdir(LOGS_PERF_DIR) else "❌", LOGS_PERF_DIR)
-
-st.divider()
+    st.write("Positions:", "✅" if os.path.isdir(LOGS_POS_DIR) else "❌", "logs/positions")
+    st.write("Performance:", "✅" if os.path.isdir(LOGS_PERF_DIR) else "❌", "logs/performance")
 
 waves = discover_all_waves()
 if not waves:
-    st.error(
-        "No Waves found yet.\n\n"
-        "Fix: make sure wave_weights.csv exists and/or your engine has written logs to logs/positions and logs/performance."
-    )
+    st.error("No Waves found. Make sure wave_weights.csv exists and/or logs/ have been generated by the engine.")
     st.stop()
 
-# Build snapshots
-snapshots: Dict[str, WaveSnapshot] = {}
+# snapshots
+snaps: Dict[str, WaveSnapshot] = {}
 for w in waves:
-    perf = load_latest_performance(w)
-    snapshots[w] = build_snapshot_from_perf(w, perf)
+    snaps[w] = build_snapshot_from_perf(w, load_latest_performance(w))
+snaps = apply_sandbox_override(snaps)
 
-snapshots = apply_sandbox_override(snapshots)
+tabs = st.tabs([
+    "Overview",
+    "Wave Detail",
+    "WaveScore Leaderboard",
+    "Correlation Matrix",
+    "Multi-Wave Constructor",
+    "Diagnostics",
+])
 
-# Build table
-rows = []
-for w in waves:
-    s = snapshots[w]
-    row = {
-        "Wave": s.wave,
-        "Tag": s.tag,
-        "Updated": s.updated,
-    }
-    if show_intraday:
-        row["Intraday Return"] = s.intraday_return
-        row["Intraday Alpha"] = s.intraday_alpha
-    if show_30:
-        row["30D Return"] = s.r30
-        row["30D Alpha"] = s.a30
-    if show_60:
-        row["60D Return"] = s.r60
-        row["60D Alpha"] = s.a60
-    if show_1y:
-        row["1Y Return"] = s.r1y
-        row["1Y Alpha"] = s.a1y
-    rows.append(row)
+# -------- Overview
+with tabs[0]:
+    st.subheader("All Waves — Returns & Alpha Capture")
 
-df = pd.DataFrame(rows)
+    rows = []
+    for w in waves:
+        s = snaps[w]
+        rows.append({
+            "Wave": s.wave,
+            "Tag": s.tag,
+            "Updated": s.updated,
+            "Intraday Return": s.intraday_return,
+            "Intraday Alpha": s.intraday_alpha,
+            "30D Return": s.r30,
+            "30D Alpha": s.a30,
+            "60D Return": s.r60,
+            "60D Alpha": s.a60,
+            "1Y Return": s.r1y,
+            "1Y Alpha": s.a1y,
+        })
+    df = pd.DataFrame(rows)
 
-# Pretty format (keep numeric for sorting; show formatted view separately)
-sort_col = None
-if show_30 and "30D Alpha" in df.columns:
-    sort_col = "30D Alpha"
-elif show_intraday and "Intraday Alpha" in df.columns:
-    sort_col = "Intraday Alpha"
-elif show_1y and "1Y Alpha" in df.columns:
-    sort_col = "1Y Alpha"
+    # sort by 30D alpha if present
+    if "30D Alpha" in df.columns:
+        df = df.sort_values("30D Alpha", ascending=False, na_position="last")
 
-if sort_col:
-    df = df.sort_values(sort_col, ascending=False, na_position="last")
+    view = df.copy()
+    for c in view.columns:
+        if "Return" in c or "Alpha" in c:
+            view[c] = view[c].apply(lambda x: _pct(_safe_float(x)))
+    st.dataframe(view, use_container_width=True, hide_index=True)
 
-st.subheader("All Waves — Returns & Alpha Capture")
-st.caption("Auto-discovered from wave_weights.csv and/or logs. Add a new Wave to wave_weights.csv and it will appear here automatically.")
+# -------- Wave Detail
+with tabs[1]:
+    st.subheader("Wave Detail")
+    w = st.selectbox("Select a Wave", waves, index=0)
+    s = snaps[w]
 
-# Display formatted
-display_df = df.copy()
-for c in display_df.columns:
-    if "Return" in c or "Alpha" in c:
-        display_df[c] = display_df[c].apply(lambda x: _pct(_safe_float(x)))
+    c1, c2, c3 = st.columns([1.1, 1.1, 1.8])
+    with c1:
+        st.markdown(f"**Wave:** {s.wave}")
+        st.markdown(f"**Tag:** {s.tag}")
+        st.markdown(f"**Updated:** {s.updated}")
 
-st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-st.divider()
-st.subheader("Wave Detail")
-
-# Choose wave
-selected_wave = st.selectbox("Select a Wave", waves, index=0)
-
-colA, colB, colC = st.columns([1.2, 1.2, 1.6])
-s = snapshots[selected_wave]
-
-with colA:
-    st.markdown(f"**Wave:** {s.wave}")
-    st.markdown(f"**Tag:** {s.tag}")
-    st.markdown(f"**Updated:** {s.updated}")
-
-with colB:
-    if show_intraday:
+    with c2:
         st.metric("Intraday Return", _pct(s.intraday_return), delta=_pct(s.intraday_alpha))
-        st.caption("Delta shown = Intraday Alpha (best-effort)")
-    if show_30:
         st.metric("30D Return", _pct(s.r30), delta=_pct(s.a30))
-    if show_60:
         st.metric("60D Return", _pct(s.r60), delta=_pct(s.a60))
-    if show_1y:
         st.metric("1Y Return", _pct(s.r1y), delta=_pct(s.a1y))
+        st.caption("Deltas show Alpha (best-effort from logs).")
 
-with colC:
-    st.markdown("**Top 10 Holdings (latest positions log)**")
-    pos = load_latest_positions(selected_wave)
-    if pos is None or pos.empty:
-        st.info("No positions file found yet for this Wave. Run the engine to generate logs/positions.")
+    with c3:
+        st.markdown("**Top 10 Holdings (latest positions log)**")
+        pos = load_latest_positions(w)
+        if pos is None or pos.empty:
+            st.info("No positions file found yet for this Wave. Run engine to generate logs/positions.")
+        else:
+            top10 = top10_from_positions(pos)
+            # render ticker as link
+            top10_render = top10.copy()
+            top10_render["Ticker"] = top10_render.apply(lambda r: f"[{r['Ticker']}]({r['Link']})", axis=1)
+            if "Weight" in top10_render.columns:
+                top10_render["Weight"] = top10_render["Weight"].apply(lambda x: _pct(_safe_float(x)) if _safe_float(x) is not None else "—")
+            if "Value" in top10_render.columns:
+                top10_render["Value"] = top10_render["Value"].apply(lambda x: f"${_safe_float(x):,.0f}" if _safe_float(x) is not None else "—")
+            top10_render = top10_render.drop(columns=["Link"])
+            st.markdown(top10_render.to_markdown(index=False), unsafe_allow_html=True)
+
+# -------- WaveScore
+with tabs[2]:
+    st.subheader("WAVESCORE™ Leaderboard")
+    wdf = load_latest_wavescore_table()
+    if wdf is None or wdf.empty:
+        st.info("No WaveScore table found yet at logs/wavescore/*.csv. If your engine writes it, it will show here automatically.")
+        st.caption("Expected columns (flexible): Wave, WaveScore, Grade, ReturnQuality, RiskControl, Consistency, Resilience, Efficiency, Governance")
     else:
-        top10 = top10_from_positions(pos)
-        # render links as markdown
-        link_col = []
-        for _, r in top10.iterrows():
-            t = str(r["Ticker"])
-            link = str(r["Link"])
-            link_col.append(f"[{t}]({link})")
-        top10_view = top10.copy()
-        top10_view["Ticker"] = link_col
-        # format weights/value
-        if "Weight" in top10_view.columns:
-            top10_view["Weight"] = top10_view["Weight"].apply(lambda x: _pct(_safe_float(x)) if x is not None else "—")
-        if "Value" in top10_view.columns:
-            top10_view["Value"] = top10_view["Value"].apply(lambda x: f"${_safe_float(x):,.0f}" if _safe_float(x) is not None else "—")
-        top10_view = top10_view.drop(columns=["Link"])
-        st.markdown(top10_view.to_markdown(index=False), unsafe_allow_html=True)
+        # Try to sort by wavescore
+        score_col = _pick_col(wdf, ["wavescore", "WaveScore", "score", "Score"])
+        if score_col:
+            wdf = wdf.sort_values(score_col, ascending=False)
+        st.dataframe(wdf, use_container_width=True, hide_index=True)
 
-st.divider()
-with st.expander("Diagnostics (click to open)"):
-    st.write("Discovered Waves:", waves)
-    st.write("Performance files present:", len(glob.glob(os.path.join(LOGS_PERF_DIR, "*"))))
-    st.write("Positions files present:", len(glob.glob(os.path.join(LOGS_POS_DIR, "*"))))
-    if os.path.exists(SANDBOX_OVERRIDE_PATH):
-        st.write("Sandbox override:", SANDBOX_OVERRIDE_PATH)
+# -------- Correlation
+with tabs[3]:
+    st.subheader("Correlation Matrix (Daily Returns)")
+    corr = compute_corr_matrix(waves)
+    if corr.empty:
+        st.info("Not enough overlapping daily return history in logs/performance to compute correlation yet.")
+        st.caption("This tab populates once multiple waves have daily return series logs with overlapping dates.")
+    else:
+        st.dataframe(corr.round(3), use_container_width=True)
+
+# -------- Constructor
+with tabs[4]:
+    st.subheader("Multi-Wave Portfolio Constructor")
+    st.caption("Select Waves and assign weights to see a blended (weighted) return + alpha snapshot.")
+
+    selected = st.multiselect("Choose Waves", waves, default=waves[:3])
+    if not selected:
+        st.warning("Select at least one Wave.")
+    else:
+        weights = {}
+        for w in selected:
+            weights[w] = st.number_input(f"Weight for {w}", min_value=0.0, max_value=100.0, value=1.0, step=0.5)
+
+        blended = blend_portfolio(snaps, weights)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Intraday Return", _pct(blended["intraday_return"]), delta=_pct(blended["intraday_alpha"]))
+        with c2:
+            st.metric("30D Return", _pct(blended["r30"]), delta=_pct(blended["a30"]))
+        with c3:
+            st.metric("60D Return", _pct(blended["r60"]), delta=_pct(blended["a60"]))
+        with c4:
+            st.metric("1Y Return", _pct(blended["r1y"]), delta=_pct(blended["a1y"]))
+        st.caption("Deltas show blended alpha (best-effort).")
+
+# -------- Diagnostics
+with tabs[5]:
+    st.subheader("Diagnostics")
+    st.write("Discovered waves:", waves)
+    st.write("Performance files:", len(glob.glob(os.path.join(LOGS_PERF_DIR, '*'))))
+    st.write("Positions files:", len(glob.glob(os.path.join(LOGS_POS_DIR, '*'))))
+    st.write("Sandbox override present:", "✅" if os.path.exists(SANDBOX_OVERRIDE_PATH) else "❌", SANDBOX_OVERRIDE_PATH)
+    st.write("WaveScore dir present:", "✅" if os.path.isdir(LOGS_WAVESCORE_DIR) else "❌", LOGS_WAVESCORE_DIR)
