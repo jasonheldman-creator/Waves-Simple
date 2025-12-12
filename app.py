@@ -1,4 +1,4 @@
-# app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
+# app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition + Yield & Portfolios)
 # Mini-Bloomberg dashboard for WAVES Intelligence™
 #
 # Tabs:
@@ -6,6 +6,7 @@
 #   • Market Intel: global market overview, events, and Wave reactions
 #   • Factor Decomposition: factor betas + correlation matrix
 #   • Vector OS Insight Layer: AI-style narrative on Waves using live metrics
+#   • Yield & Portfolios: SmartSafe yield curve / ladders, live allocation engine, multi-Wave portfolio constructor
 #
 # Console features:
 #   • Market Regime Monitor: SPY vs VIX
@@ -30,6 +31,11 @@
 # Vector OS Insight Layer:
 #   • Uses WaveScore proto, alpha, vol, drawdown to generate narrative
 #   • Simple “ask Vector” prompt box (rules-based – no external API calls)
+#
+# Yield & Portfolios:
+#   • SmartSafe™ Yield Curve & Laddered Income (Treasury, Muni, Crypto income stack, Gold)
+#   • Live Allocation Engine (Wave roles, risk buckets, allocation mix)
+#   • Multi-Wave Portfolio Constructor (advisor-ready)
 
 from __future__ import annotations
 
@@ -111,7 +117,7 @@ def fetch_spy_vix(days: int = 365) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def fetch_market_assets(days: int = 365) -> pd.DataFrame:
     """
-    Fetch multi-asset history for the Market Intel & Factor dashboards.
+    Fetch multi-asset history for the Market Intel & Factor/Yield dashboards.
     Assets: SPY, QQQ, IWM, TLT, GLD, BTC-USD, ^VIX, ^TNX
     Returns cleaned price DataFrame.
     """
@@ -139,6 +145,9 @@ def fetch_market_assets(days: int = 365) -> pd.DataFrame:
             data = data["Close"]
         else:
             data = data[data.columns.levels[0][0]]
+
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.droplevel(0, axis=1)
 
     if isinstance(data.columns, pd.MultiIndex):
         data = data.droplevel(0, axis=1)
@@ -336,6 +345,8 @@ def compute_wavescore_for_all_waves(
                     "Resilience": float("nan"),
                     "Efficiency": float("nan"),
                     "Transparency": 10.0,
+                    "IR_365D": float("nan"),
+                    "Alpha_365D": float("nan"),
                 }
             )
             continue
@@ -359,10 +370,10 @@ def compute_wavescore_for_all_waves(
         mdd_wave = max_drawdown(nav_wave)
         mdd_bm = max_drawdown(nav_bm)
 
-        # Hit-rate: proxy for monthly consistency
+        # Hit-rate: proxy for consistency
         hit_rate = float((wave_ret >= bm_ret).mean()) if len(wave_ret) > 0 else float("nan")
 
-        # Recovery fraction: 0 => still at bottom, 1 => fully off the lows
+        # Recovery fraction
         if len(nav_wave) > 1:
             trough = nav_wave.min()
             peak = nav_wave.max()
@@ -377,57 +388,47 @@ def compute_wavescore_for_all_waves(
 
         vol_ratio = vol_wave / vol_bm if (vol_bm and not math.isnan(vol_bm)) else float("nan")
 
-        # --- Sub-scores (bounded) ---
-
-        # 1) Return Quality (0–25): 15 pts from IR, 10 pts from 365D alpha
+        # 1) Return Quality (0–25): 15 IR + 10 alpha
         if math.isnan(ir):
             rq_ir = 0.0
         else:
-            # IR <= 0 → 0, IR >= 1.5 → full 15
             rq_ir = float(np.clip(ir, 0.0, 1.5) / 1.5 * 15.0)
 
         if math.isnan(alpha_365):
             rq_alpha = 0.0
         else:
-            # Alpha: -5% → 0, +10% → full 10
             rq_alpha = float(np.clip((alpha_365 + 0.05) / 0.15, 0.0, 1.0) * 10.0)
 
-        return_quality = rq_ir + rq_alpha
-        return_quality = float(np.clip(return_quality, 0.0, 25.0))
+        return_quality = float(np.clip(rq_ir + rq_alpha, 0.0, 25.0))
 
-        # 2) Risk Control (0–25): use volatility vs benchmark as proxy
+        # 2) Risk Control (0–25)
         if math.isnan(vol_ratio):
             risk_control = 0.0
         else:
-            # Ideal vol_ratio in [0.8, 1.0]. Penalize high overshoot.
-            penalty = max(0.0, abs(vol_ratio - 0.9) - 0.1)  # tolerance band
-            # penalty 0 → 25, penalty >= 0.6 → 0
+            penalty = max(0.0, abs(vol_ratio - 0.9) - 0.1)
             risk_control = float(np.clip(1.0 - penalty / 0.6, 0.0, 1.0) * 25.0)
 
-        # 3) Consistency (0–15): hit-rate on daily alpha
+        # 3) Consistency (0–15)
         if math.isnan(hit_rate):
             consistency = 0.0
         else:
             consistency = float(np.clip(hit_rate, 0.0, 1.0) * 15.0)
 
-        # 4) Resilience (0–10): how far off the lows we are + relative maxDD
+        # 4) Resilience (0–10)
         if math.isnan(recovery_frac) or math.isnan(mdd_wave) or math.isnan(mdd_bm):
             resilience = 0.0
         else:
-            # part from recovery, part from shallower drawdown vs benchmark
             rec_part = np.clip(recovery_frac, 0.0, 1.0) * 6.0
-            dd_edge = (mdd_bm - mdd_wave)  # less negative than benchmark is good
+            dd_edge = (mdd_bm - mdd_wave)
             dd_part = float(np.clip((dd_edge + 0.10) / 0.20, 0.0, 1.0) * 4.0)
             resilience = float(np.clip(rec_part + dd_part, 0.0, 10.0))
 
-        # 5) Efficiency (0–15): lower tracking error is better
+        # 5) Efficiency (0–15)
         if math.isnan(te):
             efficiency = 0.0
         else:
-            # TE <= 5% → 15, TE >= 25% → 0
             efficiency = float(np.clip((0.25 - te) / 0.20, 0.0, 1.0) * 15.0)
 
-        # 6) Transparency & Governance (0–10): console-level implementation → constant high score
         transparency = 10.0
 
         total = return_quality + risk_control + consistency + resilience + efficiency + transparency
@@ -472,6 +473,45 @@ def compute_wavescore_for_all_waves(
 
 
 # ------------------------------------------------------------
+# Classification helpers for roles / risk buckets
+# ------------------------------------------------------------
+
+def classify_wave_role(wave_name: str) -> str:
+    """Heuristic role classification based on wave name."""
+    n = wave_name.lower()
+    if any(k in n for k in ["treasury", "ladder", "income", "bond"]):
+        if "muni" in n or "municipal" in n:
+            return "Tax-Free Muni Ladder"
+        if "crypto" in n:
+            return "Crypto Income"
+        return "Treasury / Bond Ladder"
+    if any(k in n for k in ["muni", "municipal"]):
+        return "Tax-Free Muni Ladder"
+    if any(k in n for k in ["smart", "safe", "cash", "money market"]):
+        return "SmartSafe Money Market"
+    if any(k in n for k in ["crypto", "bitcoin", "btc"]):
+        return "Crypto Growth"
+    if "gold" in n:
+        return "Gold / Real Asset"
+    if any(k in n for k in ["ai", "cloud", "software", "quantum"]):
+        return "Growth / Innovation"
+    if any(k in n for k in ["dividend", "value", "income equity"]):
+        return "Equity Income"
+    return "Core / Multi-Asset"
+
+
+def classify_risk_bucket(vol_wave: float) -> str:
+    """Bucket vol into Low / Moderate / High based on realized annualized vol."""
+    if math.isnan(vol_wave):
+        return "Unknown"
+    if vol_wave < 0.12:
+        return "Low"
+    if vol_wave < 0.22:
+        return "Moderate"
+    return "High"
+
+
+# ------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------
 
@@ -500,15 +540,15 @@ with st.sidebar:
 # ------------------------------------------------------------
 
 st.title("WAVES Intelligence™ Institutional Console")
-st.caption("Live Alpha Capture • SmartSafe™ • Multi-Asset • Crypto • Gold • Income Ladders")
+st.caption("Live Alpha Capture • SmartSafe™ Yield Stack • Multi-Asset • Crypto • Gold • Ladders")
 
-tab_console, tab_market, tab_factors, tab_vector = st.tabs(
-    ["Console", "Market Intel", "Factor Decomposition", "Vector OS Insight Layer"]
+tab_console, tab_market, tab_factors, tab_vector, tab_yield = st.tabs(
+    ["Console", "Market Intel", "Factor Decomposition", "Vector OS Insight Layer", "Yield & Portfolios"]
 )
 
 
 # ============================================================
-# TAB 1: Console (existing dashboard + WaveScore leaderboard)
+# TAB 1: Console (main dashboard + WaveScore leaderboard)
 # ============================================================
 
 with tab_console:
@@ -1484,9 +1524,8 @@ with tab_vector:
         "WaveScore proto, alpha, volatility, drawdowns, and consistency."
     )
 
-    # Compute WaveScore + metrics
-    ws_df = compute_wavescore_for_all_waves(all_waves, mode=mode, days=365)
-    ws_row = ws_df[ws_df["Wave"] == selected_wave]
+    ws_df_vec = compute_wavescore_for_all_waves(all_waves, mode=mode, days=365)
+    ws_row = ws_df_vec[ws_df_vec["Wave"] == selected_wave]
     hist = compute_wave_history(selected_wave, mode=mode, days=365)
 
     if ws_row.empty or hist.empty or len(hist) < 2:
@@ -1507,13 +1546,7 @@ with tab_vector:
         mdd_wave = max_drawdown(nav_wave)
         mdd_bm = max_drawdown(nav_bm)
 
-        # Basic characterizations
-        risk_bucket = "Moderate"
-        if not math.isnan(vol_wave):
-            if vol_wave < 0.12:
-                risk_bucket = "Low"
-            elif vol_wave > 0.25:
-                risk_bucket = "High"
+        risk_bucket = classify_risk_bucket(vol_wave)
 
         alpha_bucket = "Neutral vs benchmark"
         if not math.isnan(alpha_365):
@@ -1553,22 +1586,20 @@ with tab_vector:
         if dd_edge is not None:
             if dd_edge > 0.02:
                 st.write(
-                    "- **Drawdown behavior**: The Wave drew down **less** than its benchmark "
-                    "(shallower max drawdown), indicating effective downside control, "
-                    "likely helped by VIX scaling and SmartSafe sweeps."
+                    "- **Drawdown behavior**: The Wave drew down **less** than its benchmark, "
+                    "which is exactly what SmartSafe + VIX scaling are supposed to do."
                 )
             elif dd_edge < -0.02:
                 st.write(
                     "- **Drawdown behavior**: The Wave experienced **deeper** drawdowns than its benchmark. "
-                    "This is the price of higher risk or more aggressive alpha targeting in this sleeve."
+                    "That’s the trade-off for a more aggressive alpha profile in this sleeve."
                 )
             else:
                 st.write(
                     "- **Drawdown behavior**: Max drawdown is roughly in line with the benchmark, "
-                    "suggesting a balanced risk posture."
+                    "consistent with a balanced risk posture."
                 )
 
-        # WaveScore component commentary
         st.markdown("#### WaveScore Components (Console Proto)")
         st.write(
             f"- **Return Quality**: {row['Return Quality']:.1f}/25 — driven by information ratio "
@@ -1594,7 +1625,6 @@ with tab_vector:
 
         narrative_lines = []
 
-        # Alpha stance
         if alpha_365 > 0.08:
             narrative_lines.append(
                 "This Wave is running in **high-conviction alpha mode**, clearly beating its composite "
@@ -1606,23 +1636,22 @@ with tab_vector:
             )
         elif alpha_365 < -0.03:
             narrative_lines.append(
-                "This Wave has **struggled vs its benchmark** over the past 12 months, which may indicate "
-                "either a tough regime for its style or an opportunity to refine parameters."
+                "This Wave has **struggled vs its benchmark** over the past 12 months — either a hard "
+                "regime for its style or an opportunity to refine parameters."
             )
         else:
             narrative_lines.append(
                 "This Wave is tracking **close to its benchmark**, behaving more like a smart ETF replica "
-                "than a high-octane satellite sleeve."
+                "than a high-octane satellite."
             )
 
-        # Risk stance
         if not math.isnan(vol_wave) and not math.isnan(vol_bm):
             vol_ratio = vol_wave / vol_bm if vol_bm > 0 else float("nan")
             if not math.isnan(vol_ratio):
                 if vol_ratio > 1.25:
                     narrative_lines.append(
                         "Risk-wise, it’s running **hotter than benchmark**, leaning into volatility "
-                        "to chase more upside — appropriate for aggressive sleeves or Private Logic."
+                        "to chase more upside — appropriate for aggressive or Private Logic sleeves."
                     )
                 elif vol_ratio < 0.80:
                     narrative_lines.append(
@@ -1635,7 +1664,6 @@ with tab_vector:
                         "with targeted tilts rather than extreme bets."
                     )
 
-        # WaveScore angle
         if row["WaveScore"] >= 90:
             narrative_lines.append(
                 "From a WaveScore perspective, this sits in **A+ territory** — institution-ready in terms "
@@ -1644,20 +1672,19 @@ with tab_vector:
         elif row["WaveScore"] >= 80:
             narrative_lines.append(
                 "WaveScore puts this in the **A band**, already looking like an attractive institutional "
-                "sleeve even before full production WaveScore and deeper history are layered in."
+                "sleeve even before full production WaveScore is wired in."
             )
         elif row["WaveScore"] >= 70:
             narrative_lines.append(
                 "WaveScore in the **B range** suggests a strong core, with room to optimize one or two "
-                "dimensions (consistency, resilience, or efficiency) to elevate it into flagship status."
+                "dimensions (consistency, resilience, efficiency) to elevate it into flagship status."
             )
         else:
             narrative_lines.append(
-                "A lower WaveScore here flags the Wave as a **work-in-progress**, best positioned right now "
-                "as a satellite or R&D sleeve rather than a primary institutional core."
+                "A lower WaveScore here flags the Wave as a **work-in-progress**, best positioned as a "
+                "satellite or R&D sleeve right now."
             )
 
-        # Optional: lightly acknowledge the question without trying to parse it
         if question.strip():
             narrative_lines.append(
                 f"(Vector registered your prompt: _“{question.strip()}”_. "
@@ -1672,3 +1699,357 @@ with tab_vector:
             "no external API calls. For full free-form AI chat, you still use ChatGPT directly, "
             "but this panel gives live, metrics-grounded commentary."
         )
+
+
+# ============================================================
+# TAB 5: Yield & Portfolios — ladders, live allocation, builder
+# ============================================================
+
+with tab_yield:
+    st.subheader("SmartSafe™ Yield Curve & Laddered Income Stack")
+
+    # Use 10Y yield as anchor for the curve
+    market_df_y = fetch_market_assets(days=nav_days)
+    if market_df_y.empty or "^TNX" not in market_df_y.columns:
+        base_yield = 0.04  # 4% fallback
+    else:
+        y_last = float(market_df_y["^TNX"].iloc[-1])
+        # ^TNX is typically quoted as yield * 100 (e.g., 4.00 for 4%)
+        base_yield = y_last / 100.0 if not math.isnan(y_last) else 0.04
+
+    # Treasury ladder (rough approximation)
+    treas_rows = [
+        {"Bucket": "0–1Y (Bills)", "Approx Yield": base_yield * 0.9},
+        {"Bucket": "1–3Y", "Approx Yield": base_yield * 1.0},
+        {"Bucket": "3–7Y", "Approx Yield": base_yield * 1.05},
+        {"Bucket": "7–10Y", "Approx Yield": base_yield * 1.10},
+        {"Bucket": "10Y+ (Long)", "Approx Yield": base_yield * 1.15},
+    ]
+    treas_df = pd.DataFrame(treas_rows)
+
+    # Muni ladder (tax-free, lower nominal)
+    muni_rows = [
+        {"Bucket": "0–5Y Tax-Free", "Approx Yield": base_yield * 0.65},
+        {"Bucket": "5–10Y Tax-Free", "Approx Yield": base_yield * 0.75},
+        {"Bucket": "10Y+ Tax-Free", "Approx Yield": base_yield * 0.85},
+    ]
+    muni_df = pd.DataFrame(muni_rows)
+
+    col_y1, col_y2 = st.columns(2)
+
+    with col_y1:
+        st.markdown("**Vector Treasury Income Ladder Wave**")
+        fmt_t = treas_df.copy()
+        fmt_t["Approx Yield"] = fmt_t["Approx Yield"].apply(
+            lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+        )
+        st.dataframe(fmt_t.set_index("Bucket"), use_container_width=True)
+        st.caption(
+            "Treasury ladder anchors the traditional SmartSafe side — short to long duration rungs, "
+            "with room for VIX-aware duration tilts."
+        )
+
+    with col_y2:
+        st.markdown("**Vector Tax-Free Muni Ladder Wave**")
+        fmt_m = muni_df.copy()
+        fmt_m["Approx Yield"] = fmt_m["Approx Yield"].apply(
+            lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+        )
+        st.dataframe(fmt_m.set_index("Bucket"), use_container_width=True)
+        st.caption(
+            "Muni ladder approximates tax-free SmartSafe — used for HNW taxable accounts needing "
+            "state and federal tax advantages."
+        )
+
+    st.markdown("#### SmartSafe Yield Stack — Trad + Crypto + Gold")
+
+    smartsafe_rows = [
+        {"Sleeve": "SmartSafe Money Market", "Target Yield": 0.03, "Type": "Cash / T-Bill Proxy"},
+        {"Sleeve": "Treasury Ladder Wave", "Target Yield": base_yield, "Type": "UST Ladder"},
+        {"Sleeve": "Tax-Free Muni Ladder Wave", "Target Yield": base_yield * 0.75, "Type": "Tax-Free Bonds"},
+        {"Sleeve": "Crypto Stable Yield Wave", "Target Yield": 0.04, "Type": "Crypto Stablecoin Yield"},
+        {"Sleeve": "Crypto Income Wave", "Target Yield": 0.08, "Type": "Balanced Crypto Income"},
+        {"Sleeve": "Crypto High Income Wave", "Target Yield": 0.12, "Type": "Aggressive Crypto Income"},
+        {"Sleeve": "Gold Wave", "Target Yield": 0.00, "Type": "Real Asset / Inflation Hedge"},
+    ]
+    stack_df = pd.DataFrame(smartsafe_rows)
+    fmt_stack = stack_df.copy()
+    fmt_stack["Target Yield"] = fmt_stack["Target Yield"].apply(
+        lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+    )
+    st.dataframe(fmt_stack.set_index("Sleeve"), use_container_width=True)
+    st.caption(
+        "This table reflects the **SmartSafe Yield Curve** across traditional fixed income, "
+        "tax-free muni, crypto income ladders, and gold. In production, each sleeve maps to a "
+        "specific Wave with live tokenizable wrappers."
+    )
+
+    st.markdown("---")
+
+    # ------------------ Live Allocation Engine ------------------
+    st.subheader("Live Allocation Engine — Roles & Risk Buckets")
+
+    # Reuse WaveScore + risk stats for a live allocation snapshot
+    alloc_rows = []
+    ws_alloc_df = compute_wavescore_for_all_waves(all_waves, mode=mode, days=365)
+
+    for wave in all_waves:
+        hist = compute_wave_history(wave, mode=mode, days=365)
+        if hist.empty or len(hist) < 2:
+            alloc_rows.append(
+                {
+                    "Wave": wave,
+                    "Role": classify_wave_role(wave),
+                    "Risk Bucket": "Unknown",
+                    "WaveScore": float("nan"),
+                    "365D Alpha": float("nan"),
+                    "Vol (365D)": float("nan"),
+                }
+            )
+            continue
+
+        wave_ret = hist["wave_ret"]
+        nav_wave = hist["wave_nav"]
+        nav_bm = hist["bm_nav"]
+
+        vol = annualized_vol(wave_ret)
+        risk_bucket = classify_risk_bucket(vol)
+
+        ret_365_wave = compute_return_from_nav(nav_wave, window=len(nav_wave))
+        ret_365_bm = compute_return_from_nav(nav_bm, window=len(nav_bm))
+        alpha_365 = ret_365_wave - ret_365_bm
+
+        ws_row = ws_alloc_df[ws_alloc_df["Wave"] == wave]
+        ws_val = float(ws_row["WaveScore"].iloc[0]) if not ws_row.empty else float("nan")
+
+        alloc_rows.append(
+            {
+                "Wave": wave,
+                "Role": classify_wave_role(wave),
+                "Risk Bucket": risk_bucket,
+                "WaveScore": ws_val,
+                "365D Alpha": alpha_365,
+                "Vol (365D)": vol,
+            }
+        )
+
+    if alloc_rows:
+        alloc_df = pd.DataFrame(alloc_rows)
+        fmt_alloc = alloc_df.copy()
+        fmt_alloc["WaveScore"] = fmt_alloc["WaveScore"].apply(
+            lambda x: f"{x:0.1f}" if pd.notna(x) else "—"
+        )
+        fmt_alloc["365D Alpha"] = fmt_alloc["365D Alpha"].apply(
+            lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+        )
+        fmt_alloc["Vol (365D)"] = fmt_alloc["Vol (365D)"].apply(
+            lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+        )
+
+        st.markdown("**Per-Wave Role / Risk Snapshot (Equal-Notional View)**")
+        st.dataframe(
+            fmt_alloc.set_index("Wave"),
+            use_container_width=True,
+        )
+
+        # Aggregate allocation mix by Role and Risk Bucket
+        mix_role = alloc_df.groupby("Role")["Wave"].count().rename("Count").reset_index()
+        mix_total = mix_role["Count"].sum()
+        mix_role["Share"] = mix_role["Count"] / mix_total if mix_total > 0 else 0.0
+
+        st.markdown("**Allocation Mix by Role (Wave Slots)**")
+        fmt_role = mix_role.copy()
+        fmt_role["Share"] = fmt_role["Share"].apply(
+            lambda x: f"{x*100:0.1f}%" if pd.notna(x) else "—"
+        )
+        st.dataframe(fmt_role.set_index("Role"), use_container_width=True)
+
+        mix_risk = alloc_df.groupby("Risk Bucket")["Wave"].count().rename("Count").reset_index()
+        mix_risk_total = mix_risk["Count"].sum()
+        mix_risk["Share"] = mix_risk["Count"] / mix_risk_total if mix_risk_total > 0 else 0.0
+
+        st.markdown("**Allocation Mix by Risk Bucket (Wave Slots)**")
+        fmt_riskmix = mix_risk.copy()
+        fmt_riskmix["Share"] = fmt_riskmix["Share"].apply(
+            lambda x: f"{x*100:0.1f}%" if pd.notna(x) else "—"
+        )
+        st.dataframe(fmt_riskmix.set_index("Risk Bucket"), use_container_width=True)
+
+        st.caption(
+            "This is a **live allocation engine** at the Wave level: it classifies each Wave into a role "
+            "and risk bucket based on realized volatility and WaveScore, then shows how the overall "
+            "lineup is distributed across core, growth, yield, SmartSafe, crypto, and gold sleeves."
+        )
+    else:
+        st.info("No allocation data available yet.")
+
+    st.markdown("---")
+
+    # ------------------ Multi-Wave Portfolio Constructor ------------------
+    st.subheader("Multi-Wave Portfolio Constructor (Advisor Mode)")
+
+    st.caption(
+        "Build a model portfolio from Waves, then see combined return, alpha, risk, and a portfolio WaveScore."
+    )
+
+    default_selection = all_waves[:4] if len(all_waves) >= 4 else all_waves
+    sel_waves = st.multiselect(
+        "Select Waves for the portfolio",
+        all_waves,
+        default=default_selection,
+    )
+
+    if not sel_waves:
+        st.info("Select at least one Wave to build a portfolio.")
+    else:
+        st.markdown("**Set Weights (will be normalized to 100%)**")
+
+        weight_inputs = {}
+        for w in sel_waves:
+            weight_inputs[w] = st.number_input(
+                f"Weight for {w} (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(100.0 / len(sel_waves)),
+                step=5.0,
+            )
+
+        w_vec = np.array(list(weight_inputs.values()), dtype=float)
+        if np.all(np.isnan(w_vec)) or np.all(w_vec == 0):
+            weights = np.ones_like(w_vec) / len(w_vec)
+        else:
+            w_vec = np.nan_to_num(w_vec, nan=0.0)
+            total_w = w_vec.sum()
+            if total_w <= 0:
+                weights = np.ones_like(w_vec) / len(w_vec)
+            else:
+                weights = w_vec / total_w
+
+        weight_series = pd.Series(weights, index=sel_waves)
+
+        # Build combined return series from wave_ret and bm_ret
+        hist_dict_wave = {}
+        hist_dict_bm = {}
+
+        for w in sel_waves:
+            hist = compute_wave_history(w, mode=mode, days=365)
+            if hist.empty or "wave_ret" not in hist.columns or "bm_ret" not in hist.columns:
+                continue
+            hist_dict_wave[w] = hist["wave_ret"]
+            hist_dict_bm[w] = hist["bm_ret"]
+
+        if not hist_dict_wave or not hist_dict_bm:
+            st.info("Not enough overlapping history across selected Waves to build a portfolio.")
+        else:
+            # Align on intersection of dates
+            wave_ret_df = pd.DataFrame(hist_dict_wave).dropna()
+            bm_ret_df = pd.DataFrame(hist_dict_bm).dropna()
+            common_idx = wave_ret_df.index.intersection(bm_ret_df.index)
+            wave_ret_df = wave_ret_df.loc[common_idx]
+            bm_ret_df = bm_ret_df.loc[common_idx]
+
+            # Filter to selected waves that actually have data
+            present_waves = [w for w in sel_waves if w in wave_ret_df.columns]
+            if len(present_waves) < 1 or len(wave_ret_df) < 20:
+                st.info("Not enough joint history across the selected Waves yet for a robust portfolio view.")
+            else:
+                w_norm = weight_series[present_waves].values
+                w_norm = w_norm / w_norm.sum()
+
+                port_ret = (wave_ret_df[present_waves] * w_norm).sum(axis=1)
+                bm_port_ret = (bm_ret_df[present_waves] * w_norm).sum(axis=1)
+
+                port_nav = (1 + port_ret).cumprod()
+                bm_nav = (1 + bm_port_ret).cumprod()
+
+                # Portfolio stats
+                ret_365_port = compute_return_from_nav(port_nav, window=len(port_nav))
+                ret_365_bm_port = compute_return_from_nav(bm_nav, window=len(bm_nav))
+                alpha_365_port = ret_365_port - ret_365_bm_port
+
+                vol_port = annualized_vol(port_ret)
+                vol_bm_port = annualized_vol(bm_port_ret)
+                mdd_port = max_drawdown(port_nav)
+                mdd_bm_port = max_drawdown(bm_nav)
+                te_port = tracking_error(port_ret, bm_port_ret)
+                ir_port = information_ratio(port_nav, bm_nav, te_port)
+
+                # Portfolio WaveScore = weight-averaged WaveScore across components
+                ws_for_builder = compute_wavescore_for_all_waves(all_waves, mode=mode, days=365)
+                ws_comp = ws_for_builder[ws_for_builder["Wave"].isin(present_waves)]
+                if not ws_comp.empty:
+                    ws_scores = ws_comp.set_index("Wave")["WaveScore"]
+                    ws_port = float(np.nansum(ws_scores[present_waves].values * w_norm))
+                else:
+                    ws_port = float("nan")
+
+                st.markdown("### Portfolio Summary (Equal Date-Range, Mode = {})".format(mode))
+
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    st.metric(
+                        "365D Portfolio Return",
+                        f"{ret_365_port*100:0.2f}%" if not math.isnan(ret_365_port) else "—",
+                    )
+                    st.metric(
+                        "365D Alpha vs Blended Benchmark",
+                        f"{alpha_365_port*100:0.2f}%" if not math.isnan(alpha_365_port) else "—",
+                    )
+                with col_p2:
+                    st.metric(
+                        "Volatility (365D)",
+                        f"{vol_port*100:0.2f}%" if not math.isnan(vol_port) else "—",
+                    )
+                    st.metric(
+                        "Max Drawdown (Portfolio)",
+                        f"{mdd_port*100:0.2f}%" if not math.isnan(mdd_port) else "—",
+                    )
+                with col_p3:
+                    st.metric(
+                        "Information Ratio (365D)",
+                        f"{ir_port:0.2f}" if not math.isnan(ir_port) else "—",
+                    )
+                    st.metric(
+                        "Portfolio WaveScore (proto)",
+                        f"{ws_port:0.1f}" if not math.isnan(ws_port) else "—",
+                    )
+
+                st.markdown("#### Portfolio NAV vs Blended Benchmark")
+
+                fig_port = go.Figure()
+                fig_port.add_trace(
+                    go.Scatter(
+                        x=port_nav.index,
+                        y=port_nav,
+                        name="Portfolio NAV",
+                        mode="lines",
+                    )
+                )
+                fig_port.add_trace(
+                    go.Scatter(
+                        x=bm_nav.index,
+                        y=bm_nav,
+                        name="Blended Benchmark NAV",
+                        mode="lines",
+                    )
+                )
+                fig_port.update_layout(
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    xaxis_title="Date",
+                    yaxis_title="NAV (Indexed from 1)",
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1,
+                    ),
+                    height=420,
+                )
+                st.plotly_chart(fig_port, use_container_width=True)
+
+                st.caption(
+                    "Weights are applied over the common date window across selected Waves. "
+                    "Benchmark is the same weight mix applied to each Wave’s composite benchmark. "
+                    "This is your **Multi-Wave model portfolio constructor** for advisors and institutions."
+                )
