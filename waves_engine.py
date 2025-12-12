@@ -23,7 +23,8 @@
 #   • Crypto Stable Yield Wave  (4% APY)
 #   • Crypto Income & Yield Wave (8% APY)
 #   • Crypto High-Yield Income Wave (12% APY)
-#   • Crypto-VIX proxy (BTC-vol-based) for Waves with "Crypto" in name
+#   • Bitcoin Wave (pure BTC with crypto-VIX & SmartSafe)
+#   • Crypto-VIX proxy (BTC-vol-based) for crypto / Bitcoin Waves
 #
 # SmartSafe side:
 #   • SmartSafe Treasury Cash Wave (T-bills)
@@ -60,7 +61,7 @@ except ImportError:  # pragma: no cover
 # Global config
 # ------------------------------------------------------------
 
-USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag
+USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag; kept for compatibility
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -119,7 +120,7 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
     "Crypto High-Yield Income Wave": 0.12,    # ~12% high-yield (riskier)
 }
 
-# Crypto waves are identified by name containing this keyword
+# Crypto waves are identified by name containing this keyword (plus Bitcoin special-case)
 CRYPTO_WAVE_KEYWORD = "Crypto"
 
 
@@ -143,7 +144,7 @@ class ETFBenchmarkCandidate:
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings (renamed + crypto + SmartSafe + Gold)
+# Internal Wave holdings (equity, crypto, SmartSafe, Gold, Bitcoin, Infinity)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
@@ -223,7 +224,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
     ],
 
-    # Crypto Waves
+    # Crypto growth Wave
     "Multi-Cap Crypto Growth Wave": [
         Holding("BTC-USD", 0.25, "Bitcoin"),
         Holding("ETH-USD", 0.20, "Ethereum"),
@@ -237,6 +238,11 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("GRT-USD", 0.03, "The Graph"),
         Holding("AAVE-USD", 0.03, "Aave"),
         Holding("UNI-USD", 0.02, "Uniswap"),
+    ],
+
+    # Bitcoin Wave — pure BTC but with the full WAVES engine
+    "Bitcoin Wave": [
+        Holding("BTC-USD", 1.00, "Bitcoin"),
     ],
 
     # Crypto money market / income ladder:
@@ -302,7 +308,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 }
 
 # ------------------------------------------------------------
-# Static benchmarks (fallback if auto fails)
+# Static benchmarks (fallback / overrides)
 # ------------------------------------------------------------
 
 BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
@@ -338,6 +344,9 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("BTC-USD", 0.50, "Bitcoin"),
         Holding("ETH-USD", 0.35, "Ethereum"),
         Holding("SOL-USD", 0.15, "Solana"),
+    ],
+    "Bitcoin Wave": [
+        Holding("BTC-USD", 1.00, "Bitcoin"),
     ],
     "Crypto Stable Yield Wave": [
         Holding("USDC-USD", 0.25, "USD Coin"),
@@ -699,6 +708,14 @@ def _score_etf_candidate(
 
 @lru_cache(maxsize=64)
 def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
+    """
+    Construct an auto benchmark from ETF_CANDIDATES based on sector / cap,
+    except where we explicitly override (e.g., Bitcoin Wave).
+    """
+    # Explicit override: Bitcoin Wave should benchmark to spot BTC
+    if wave_name == "Bitcoin Wave":
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
     sector_weights, cap_style = _derive_wave_exposure(wave_name)
     if not sector_weights:
         return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
@@ -810,8 +827,10 @@ def compute_history_nav(
     tickers_bm = list(bm_weights.index)
 
     base_index_ticker = "SPY"
-    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB",
-                       "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+    safe_candidates = [
+        "SGOV", "BIL", "SHY", "SUB", "SHM", "MUB",
+        "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD",
+    ]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
@@ -845,8 +864,11 @@ def compute_history_nav(
     idx_ret_60d = idx_price / idx_price.shift(60) - 1.0
     mom_60 = price_df / price_df.shift(60) - 1.0
 
-    # VIX or crypto-VIX
-    wave_is_crypto = (CRYPTO_WAVE_KEYWORD in wave_name)
+    # VIX or crypto-VIX (BTC vol) for crypto/Bitcoin Waves
+    wave_is_crypto = (
+        (CRYPTO_WAVE_KEYWORD in wave_name)
+        or ("Bitcoin" in wave_name)
+    )
     if wave_is_crypto and BTC_TICKER in price_df.columns:
         btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
         rolling_vol = btc_ret.rolling(30).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
@@ -929,7 +951,7 @@ def compute_history_nav(
         base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
         total_ret = base_total_ret
 
-        # Crypto income Waves: add assumed APY overlay
+        # Crypto income Waves: add assumed APY overlay (Bitcoin Wave does NOT get this)
         if daily_yield != 0.0:
             total_ret += daily_yield
 
