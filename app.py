@@ -4,6 +4,7 @@
 # Tabs:
 #   • Console: full WAVES dashboard
 #   • Market Intel: global market overview, events, and Wave reactions
+#   • Factor Decomposition: factor betas for each Wave vs key risk premia
 #
 # Console features:
 #   • Market Regime Monitor: SPY vs VIX on one chart
@@ -24,6 +25,12 @@
 #       – Selected large-cap earnings (via yfinance)
 #       – Editable “Key Macro Themes” table (Fed / CPI / etc.)
 #   • WAVES Reaction Snapshot (30D return/alpha + classification + narrative)
+#
+# Factor Decomposition features:
+#   • Uses daily Wave returns from compute_history_nav(...)
+#   • Regresses vs daily returns of SPY, QQQ, IWM, TLT, GLD, BTC-USD
+#   • Outputs factor betas for each Wave
+#   • Bar chart of factor loadings for selected Wave
 
 from __future__ import annotations
 
@@ -89,6 +96,10 @@ def fetch_spy_vix(days: int = 365) -> pd.DataFrame:
         else:
             data = data[data.columns.levels[0][0]]
 
+    if isinstance(data.columns, pd.MultiIndex):
+        # just in case; flatten
+        data = data.droplevel(0, axis=1)
+
     if isinstance(data, pd.Series):
         data = data.to_frame()
 
@@ -102,7 +113,7 @@ def fetch_spy_vix(days: int = 365) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def fetch_market_assets(days: int = 365) -> pd.DataFrame:
     """
-    Fetch multi-asset history for the Market Intel dashboard.
+    Fetch multi-asset history for the Market Intel & Factor dashboards.
     Assets: SPY, QQQ, IWM, TLT, GLD, BTC-USD, ^VIX, ^TNX
     Returns cleaned price DataFrame.
     """
@@ -130,6 +141,9 @@ def fetch_market_assets(days: int = 365) -> pd.DataFrame:
             data = data["Close"]
         else:
             data = data[data.columns.levels[0][0]]
+
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.droplevel(0, axis=1)
 
     if isinstance(data, pd.Series):
         data = data.to_frame()
@@ -247,6 +261,36 @@ def simple_ret(series: pd.Series, window: int) -> float:
     return float(sub.iloc[-1] / sub.iloc[0] - 1.0)
 
 
+def regress_factors(
+    wave_ret: pd.Series,
+    factor_ret: pd.DataFrame,
+) -> dict:
+    """
+    Simple OLS: wave_ret ~ factors.
+    Returns dict of {factor_name: beta}.
+    """
+    df = pd.concat(
+        [wave_ret.rename("wave"), factor_ret],
+        axis=1,
+    ).dropna()
+    if df.shape[0] < 60 or df.shape[1] < 2:
+        return {col: float("nan") for col in factor_ret.columns}
+
+    y = df["wave"].values
+    X = df[factor_ret.columns].values
+    # add intercept
+    X_design = np.concatenate([np.ones((X.shape[0], 1)), X], axis=1)
+
+    try:
+        beta, *_ = np.linalg.lstsq(X_design, y, rcond=None)
+    except Exception:
+        return {col: float("nan") for col in factor_ret.columns}
+
+    # beta[0] is intercept; ignore
+    betas = beta[1:]
+    return {col: float(b) for col, b in zip(factor_ret.columns, betas)}
+
+
 # ------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------
@@ -278,7 +322,7 @@ with st.sidebar:
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption("Live Alpha Capture • SmartSafe™ • Multi-Asset • Crypto • Gold")
 
-tab_console, tab_market = st.tabs(["Console", "Market Intel"])
+tab_console, tab_market, tab_factors = st.tabs(["Console", "Market Intel", "Factor Decomposition"])
 
 
 # ============================================================
@@ -949,7 +993,7 @@ with tab_market:
         macro_df = pd.DataFrame(macro_rows)
         st.dataframe(macro_df, use_container_width=True)
         st.caption(
-            "Macro themes describe how the engine *tends* to react; you can easily edit this table in the code "
+            "Macro themes describe how the engine *tends* to react; you can edit this table in code "
             "to reflect current dates or firm-specific views."
         )
 
@@ -1015,7 +1059,6 @@ with tab_market:
             use_container_width=True,
         )
 
-        # Brief aggregate summary (numeric)
         valid = reaction_df.dropna(subset=["30D Alpha"])
         if not valid.empty:
             avg_alpha = float(valid["30D Alpha"].mean())
@@ -1041,3 +1084,127 @@ with tab_market:
             st.info("Not enough data yet to summarize Wave reactions.")
     else:
         st.info("No Wave reaction data available.")
+
+
+# ============================================================
+# TAB 3: Factor Decomposition — institutional analytics
+# ============================================================
+
+with tab_factors:
+    st.subheader("Factor Decomposition (Institution-Level Analytics)")
+
+    st.caption(
+        "Wave daily returns are regressed on key risk premia: SPY, QQQ, IWM, TLT, GLD, BTC-USD. "
+        "Betas approximate sensitivity to market, growth/tech, small caps, rates, gold, and crypto."
+    )
+
+    # Use same market data as Market Intel
+    factor_days = min(nav_days, 365)  # keep it around ~1Y
+    factor_prices = fetch_market_assets(days=factor_days)
+
+    needed = ["SPY", "QQQ", "IWM", "TLT", "GLD", "BTC-USD"]
+    missing = [t for t in needed if t not in factor_prices.columns]
+
+    if factor_prices.empty or missing:
+        st.warning(
+            "Unable to load all factor price series. "
+            f"Missing: {', '.join(missing)}" if missing else ""
+        )
+    else:
+        factor_returns = factor_prices[needed].pct_change().dropna()
+        factor_returns = factor_returns.rename(
+            columns={
+                "SPY": "MKT_SPY",
+                "QQQ": "GROWTH_QQQ",
+                "IWM": "SIZE_IWM",
+                "TLT": "RATES_TLT",
+                "GLD": "GOLD_GLD",
+                "BTC-USD": "CRYPTO_BTC",
+            }
+        )
+
+        rows = []
+        for wave in all_waves:
+            hist = compute_wave_history(wave, mode=mode, days=factor_days)
+            if hist.empty or "wave_ret" not in hist.columns:
+                rows.append(
+                    {
+                        "Wave": wave,
+                        "β_SPY": np.nan,
+                        "β_QQQ": np.nan,
+                        "β_IWM": np.nan,
+                        "β_TLT": np.nan,
+                        "β_GLD": np.nan,
+                        "β_BTC": np.nan,
+                    }
+                )
+                continue
+
+            wret = hist["wave_ret"]
+            betas = regress_factors(
+                wave_ret=wret,
+                factor_ret=factor_returns,
+            )
+
+            rows.append(
+                {
+                    "Wave": wave,
+                    "β_SPY": betas.get("MKT_SPY", np.nan),
+                    "β_QQQ": betas.get("GROWTH_QQQ", np.nan),
+                    "β_IWM": betas.get("SIZE_IWM", np.nan),
+                    "β_TLT": betas.get("RATES_TLT", np.nan),
+                    "β_GLD": betas.get("GOLD_GLD", np.nan),
+                    "β_BTC": betas.get("CRYPTO_BTC", np.nan),
+                }
+            )
+
+        if rows:
+            beta_df = pd.DataFrame(rows)
+            st.markdown("### Factor Betas — All Waves")
+
+            fmt_beta = beta_df.copy()
+            for col in ["β_SPY", "β_QQQ", "β_IWM", "β_TLT", "β_GLD", "β_BTC"]:
+                fmt_beta[col] = fmt_beta[col].apply(
+                    lambda x: f"{x:0.2f}" if pd.notna(x) else "—"
+                )
+
+            st.dataframe(
+                fmt_beta.set_index("Wave"),
+                use_container_width=True,
+            )
+
+            st.markdown("### Factor Profile — Selected Wave")
+
+            sel_row = beta_df[beta_df["Wave"] == selected_wave]
+            if sel_row.empty:
+                st.info("No factor data for the selected Wave.")
+            else:
+                r = sel_row.iloc[0]
+                factors = ["β_SPY", "β_QQQ", "β_IWM", "β_TLT", "β_GLD", "β_BTC"]
+                values = [float(r[c]) if pd.notna(r[c]) else 0.0 for c in factors]
+
+                fig_beta = go.Figure(
+                    data=[
+                        go.Bar(
+                            x=["SPY", "QQQ", "IWM", "TLT", "GLD", "BTC"],
+                            y=values,
+                        )
+                    ]
+                )
+                fig_beta.update_layout(
+                    title=f"Factor Betas for {selected_wave} (Mode: {mode}, ~{factor_days}D)",
+                    xaxis_title="Factor",
+                    yaxis_title="Beta",
+                    height=400,
+                    margin=dict(l=40, r=40, t=40, b=40),
+                )
+
+                st.plotly_chart(fig_beta, use_container_width=True)
+
+                st.caption(
+                    "Interpretation example: β_SPY ≈ 1.1 implies slightly higher equity beta than SPY; "
+                    "β_BTC > 0 suggests positive crypto sensitivity; β_TLT < 0 implies the Wave tends to "
+                    "struggle when long-duration Treasuries rally (rates falling)."
+                )
+        else:
+            st.info("No factor data available yet.")
