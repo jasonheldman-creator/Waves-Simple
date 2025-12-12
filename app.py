@@ -1,11 +1,11 @@
-# app.py — WAVES Intelligence™ Console (RESTORE + NO-DATA FIX)
-# Shows file counts on Overview + adds "Run Engine Now" + prints engine output.
-# Goal: eliminate "restored but no data" by ensuring logs are generated and readable.
+# app.py — WAVES Intelligence™ Console (AUTO-RUN + NO-DATA GUARDRAILS)
+# - Auto-runs engine on login (once per session) if logs missing or stale
+# - Detects placeholder tickers (REPLACE_) and stops (prevents blank dashboards)
+# - Shows perf/pos file counts + latest log times
 
-import os, sys, glob, math, subprocess, urllib.parse
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Dict, List, Optional
+import os, sys, glob, time, subprocess
+from datetime import datetime, timezone
+from typing import Optional, Dict, List
 
 import pandas as pd
 import streamlit as st
@@ -19,153 +19,35 @@ LOGS_PERF_DIR = os.path.join(LOGS_DIR, "performance")
 
 WAVE_WEIGHTS_PATH = os.path.join(BASE_DIR, "wave_weights.csv")
 
-def _ts_now(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# How “fresh” perf logs must be (seconds). If older, we auto-run engine.
+PERF_STALE_SECONDS = 15 * 60  # 15 minutes
 
-def _safe_float(x) -> Optional[float]:
-    try:
-        if x is None: return None
-        if isinstance(x, float) and math.isnan(x): return None
-        if isinstance(x, str):
-            s = x.strip()
-            if s in ["—", "-", ""]: return None
-            if s.endswith("%"):
-                return float(s.replace("%","").strip())/100.0
-        return float(x)
-    except Exception:
-        return None
-
-def _pct(x: Optional[float], digits: int = 2) -> str:
-    return "—" if x is None else f"{x*100:.{digits}f}%"
-
-def normalize_wave_name(name: str) -> str:
-    return " ".join(str(name).strip().split())
-
-def _pick_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
-    cols = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower() in cols:
-            return cols[cand.lower()]
-    return None
+def ts_now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 def ensure_dirs():
     os.makedirs(LOGS_POS_DIR, exist_ok=True)
     os.makedirs(LOGS_PERF_DIR, exist_ok=True)
 
-def list_waves_from_weights() -> List[str]:
-    if not os.path.exists(WAVE_WEIGHTS_PATH):
-        return []
+def list_files(pattern: str) -> List[str]:
+    return sorted(glob.glob(pattern))
+
+def latest_mtime(files: List[str]) -> Optional[float]:
+    if not files:
+        return None
     try:
-        df = pd.read_csv(WAVE_WEIGHTS_PATH)
-    except Exception:
-        return []
-    if df.empty:
-        return []
-    for col in ["Wave", "wave", "WAVE", "portfolio", "Portfolio", "name", "Name"]:
-        if col in df.columns:
-            return sorted({normalize_wave_name(x) for x in df[col].dropna().astype(str).tolist()})
-    return sorted({normalize_wave_name(x) for x in df.iloc[:,0].dropna().astype(str).tolist()})
-
-def list_waves_from_logs() -> List[str]:
-    waves = set()
-    for p in glob.glob(os.path.join(LOGS_PERF_DIR, "*")):
-        b = os.path.basename(p)
-        if "_performance_" in b:
-            waves.add(normalize_wave_name(b.split("_performance_")[0]))
-        if b.endswith("_performance_daily.csv"):
-            waves.add(normalize_wave_name(b.replace("_performance_daily.csv","")))
-    for p in glob.glob(os.path.join(LOGS_POS_DIR, "*_positions_*.csv")):
-        b = os.path.basename(p)
-        waves.add(normalize_wave_name(b.split("_positions_")[0]))
-    return sorted(waves)
-
-def discover_all_waves() -> List[str]:
-    return sorted(set(list_waves_from_weights()) | set(list_waves_from_logs()))
-
-def find_latest_file(pattern: str) -> Optional[str]:
-    files = sorted(glob.glob(pattern))
-    return files[-1] if files else None
-
-def load_latest_performance_file(wave: str) -> Optional[str]:
-    patterns = [
-        os.path.join(LOGS_PERF_DIR, f"{wave}_performance_daily.csv"),
-        os.path.join(LOGS_PERF_DIR, f"{wave}_performance_*.csv"),
-        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ','_')}_performance_*.csv"),
-        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ','')}_performance_*.csv"),
-    ]
-    for pat in patterns:
-        f = find_latest_file(pat)
-        if f and os.path.exists(f):
-            return f
-    return None
-
-def load_latest_performance(wave: str) -> Optional[pd.DataFrame]:
-    f = load_latest_performance_file(wave)
-    if not f: return None
-    try:
-        return pd.read_csv(f)
+        return max(os.path.getmtime(f) for f in files)
     except Exception:
         return None
 
-@dataclass
-class WaveSnapshot:
-    wave: str
-    updated: str = "—"
-    source: str = "—"
-    intraday_return: Optional[float] = None
-    intraday_alpha: Optional[float] = None
-    r30: Optional[float] = None
-    a30: Optional[float] = None
-    r60: Optional[float] = None
-    a60: Optional[float] = None
-    r1y: Optional[float] = None
-    a1y: Optional[float] = None
-
-def build_snapshot(wave: str) -> WaveSnapshot:
-    s = WaveSnapshot(wave=wave)
-    f = load_latest_performance_file(wave)
-    if not f:
-        return s
-    s.source = os.path.relpath(f, BASE_DIR)
-    df = load_latest_performance(wave)
-    if df is None or df.empty:
-        return s
-
-    dt_col = _pick_col(df, ["timestamp","datetime","date","asof","time"])
-    if dt_col:
-        try: s.updated = str(df[dt_col].iloc[-1])
-        except Exception: s.updated = "latest row"
-    else:
-        s.updated = "latest row"
-
-    row = df.iloc[-1]
-
-    def get(cols):
-        c = _pick_col(df, cols)
-        return _safe_float(row.get(c)) if c else None
-
-    s.intraday_return = get(["intraday_return","return_1d","ret_1d","daily_return","return"])
-    s.intraday_alpha  = get(["intraday_alpha","alpha_1d","alpha_capture_1d","alpha","alpha_capture"])
-
-    s.r30 = get(["return_30d","ret_30d","r30","rolling_30d_return"])
-    s.a30 = get(["alpha_30d","alpha_capture_30d","a30","rolling_30d_alpha"])
-
-    s.r60 = get(["return_60d","ret_60d","r60","rolling_60d_return"])
-    s.a60 = get(["alpha_60d","alpha_capture_60d","a60","rolling_60d_alpha"])
-
-    s.r1y = get(["return_1y","return_1yr","ret_1y","return_252d"])
-    s.a1y = get(["alpha_1y","alpha_1yr","alpha_capture_1y","alpha_capture_252d"])
-
-    return s
-
-def run_engine() -> Dict[str, str]:
+def run_engine_subprocess() -> Dict[str, str]:
     """
-    Runs waves_engine on Streamlit Cloud.
-    - First tries: python waves_engine.py
-    - Prints stdout/stderr so we can see missing keys / import errors.
+    Runs waves_engine.py in Streamlit Cloud.
+    Returns {status, stdout, stderr}
     """
     engine_path = os.path.join(BASE_DIR, "waves_engine.py")
     if not os.path.exists(engine_path):
-        return {"status":"no_engine_file", "stdout":"", "stderr":"waves_engine.py not found in repo root."}
+        return {"status": "no_engine_file", "stdout": "", "stderr": "waves_engine.py not found in repo root."}
 
     try:
         p = subprocess.run(
@@ -173,113 +55,212 @@ def run_engine() -> Dict[str, str]:
             cwd=BASE_DIR,
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=240,
         )
         return {
             "status": f"rc={p.returncode}",
-            "stdout": (p.stdout or "")[-8000:],
-            "stderr": (p.stderr or "")[-8000:],
+            "stdout": (p.stdout or "")[-12000:],
+            "stderr": (p.stderr or "")[-12000:],
         }
     except Exception as e:
-        return {"status":"subprocess_error", "stdout":"", "stderr":repr(e)}
+        return {"status": "subprocess_error", "stdout": "", "stderr": repr(e)}
+
+def detect_placeholder_tickers() -> Optional[str]:
+    """
+    If wave_weights.csv contains REPLACE_ tickers, we stop and instruct to restore real tickers.
+    """
+    if not os.path.exists(WAVE_WEIGHTS_PATH):
+        return "wave_weights.csv is missing."
+
+    try:
+        df = pd.read_csv(WAVE_WEIGHTS_PATH)
+    except Exception:
+        return "wave_weights.csv exists but could not be read."
+
+    # Try to find the ticker column
+    ticker_col = None
+    for c in ["Ticker", "ticker", "Symbol", "symbol"]:
+        if c in df.columns:
+            ticker_col = c
+            break
+    if ticker_col is None:
+        return "wave_weights.csv does not have a Ticker/Symbol column."
+
+    tickers = df[ticker_col].astype(str).str.upper().str.strip()
+    if tickers.str.contains("REPLACE_").any():
+        return (
+            "Your wave_weights.csv contains placeholder tickers like REPLACE_01. "
+            "That guarantees blank returns/alpha because prices cannot be fetched.\n\n"
+            "Fix: restore your real wave_weights.csv (from GitHub History or your saved phone copy), "
+            "then run again."
+        )
+    return None
+
+def pick_col(df: pd.DataFrame, cands: List[str]) -> Optional[str]:
+    m = {c.lower(): c for c in df.columns}
+    for cand in cands:
+        if cand.lower() in m:
+            return m[cand.lower()]
+    return None
+
+def discover_waves_from_weights() -> List[str]:
+    if not os.path.exists(WAVE_WEIGHTS_PATH):
+        return []
+    try:
+        df = pd.read_csv(WAVE_WEIGHTS_PATH)
+    except Exception:
+        return []
+    wave_col = pick_col(df, ["Wave", "Portfolio", "Name"])
+    if not wave_col:
+        # assume first column
+        wave_col = df.columns[0]
+    return sorted(set(df[wave_col].dropna().astype(str).str.strip().tolist()))
+
+def load_latest_perf_row_for_wave(wave: str) -> Optional[dict]:
+    # Look for <Wave>_performance_daily.csv (and variations)
+    patterns = [
+        os.path.join(LOGS_PERF_DIR, f"{wave}_performance_daily.csv"),
+        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '_')}_performance_daily.csv"),
+        os.path.join(LOGS_PERF_DIR, f"{wave.replace(' ', '')}_performance_daily.csv"),
+    ]
+    f = None
+    for p in patterns:
+        if os.path.exists(p):
+            f = p
+            break
+    if not f:
+        return None
+
+    try:
+        df = pd.read_csv(f)
+    except Exception:
+        return None
+    if df.empty:
+        return None
+    row = df.iloc[-1].to_dict()
+    return row
+
+def as_pct(x) -> str:
+    try:
+        if x is None:
+            return "—"
+        # pandas may pass nan
+        if isinstance(x, float) and pd.isna(x):
+            return "—"
+        return f"{float(x)*100:.2f}%"
+    except Exception:
+        return "—"
+
 
 # ---------------- UI ----------------
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 ensure_dirs()
 
-perf_files = sorted(glob.glob(os.path.join(LOGS_PERF_DIR, "*.csv")))
-pos_files  = sorted(glob.glob(os.path.join(LOGS_POS_DIR, "*.csv")))
+# Guardrail: placeholder tickers
+placeholder_msg = detect_placeholder_tickers()
+if placeholder_msg:
+    st.error(placeholder_msg)
+    st.info(
+        "Quick restore on iPhone:\n"
+        "GitHub → wave_weights.csv → History → open last good version → Copy raw → paste into current → Commit."
+    )
+    st.stop()
+
+# File counts
+perf_files = list_files(os.path.join(LOGS_PERF_DIR, "*.csv"))
+pos_files  = list_files(os.path.join(LOGS_POS_DIR, "*.csv"))
+
+perf_mtime = latest_mtime(perf_files)
+now = time.time()
+perf_is_stale = (perf_mtime is None) or ((now - perf_mtime) > PERF_STALE_SECONDS)
 
 with st.sidebar:
     st.header("Controls")
-    st.caption(f"Loaded: {_ts_now()}")
+    st.caption(f"Loaded: {ts_now()}")
     st.write("Perf files:", len(perf_files))
     st.write("Pos files:", len(pos_files))
     st.write("wave_weights.csv:", "✅" if os.path.exists(WAVE_WEIGHTS_PATH) else "❌")
 
-    if st.button("▶️ Run Engine Now (generate logs)"):
+    if st.button("▶️ Run Engine Now"):
         with st.spinner("Running waves_engine.py…"):
-            res = run_engine()
+            res = run_engine_subprocess()
         st.success(f"Engine finished ({res['status']}).")
-        if res["stdout"]:
+        if res.get("stdout"):
             st.subheader("STDOUT")
             st.code(res["stdout"])
-        if res["stderr"]:
+        if res.get("stderr"):
             st.subheader("STDERR")
             st.code(res["stderr"])
         st.rerun()
 
-tabs = st.tabs(["Overview", "Diagnostics"])
+# AUTO-RUN ENGINE ON LOGIN (once per session)
+if "autorun_done" not in st.session_state:
+    st.session_state.autorun_done = False
 
-waves = discover_all_waves()
+if (not st.session_state.autorun_done) and perf_is_stale:
+    st.session_state.autorun_done = True
+    st.warning("Auto-running engine on login (logs missing or stale)…")
+    with st.spinner("Running waves_engine.py…"):
+        res = run_engine_subprocess()
+    # Show any error immediately
+    if res.get("stderr"):
+        st.error("Engine reported an error. Open the sidebar to view STDERR.")
+        st.code(res["stderr"])
+    st.rerun()
 
-with tabs[0]:
-    st.subheader("All Waves — Returns & Alpha Capture")
+# Refresh counts after possible autorun
+perf_files = list_files(os.path.join(LOGS_PERF_DIR, "*.csv"))
+pos_files  = list_files(os.path.join(LOGS_POS_DIR, "*.csv"))
 
-    st.caption(f"Perf files found: {len(perf_files)} | Pos files found: {len(pos_files)}")
+st.caption(f"Perf files found: {len(perf_files)} | Pos files found: {len(pos_files)}")
 
-    if len(perf_files) == 0:
-        st.error(
-            "No performance logs found in logs/performance.\n\n"
-            "Tap ▶️ Run Engine Now in the sidebar.\n"
-            "If it errors, open Diagnostics to see the error/output."
-        )
+waves = discover_waves_from_weights()
+if not waves:
+    st.error("No waves discovered from wave_weights.csv.")
+    st.stop()
 
-    if not waves:
-        st.warning("No waves discovered yet. Make sure wave_weights.csv exists OR logs have been generated by the engine.")
-        st.stop()
+# Build Overview table (one row per wave, latest perf row)
+rows = []
+for w in waves:
+    r = load_latest_perf_row_for_wave(w) or {}
+    rows.append({
+        "Wave": w,
+        "Updated": r.get("timestamp", "—"),
+        "Intraday Return": r.get("intraday_return", None),
+        "Intraday Alpha":  r.get("intraday_alpha", None),
+        "30D Return":      r.get("return_30d", None),
+        "30D Alpha":       r.get("alpha_30d", None),
+        "60D Return":      r.get("return_60d", None),
+        "60D Alpha":       r.get("alpha_60d", None),
+        "1Y Return":       r.get("return_1y", None),
+        "1Y Alpha":        r.get("alpha_1y", None),
+    })
 
-    snaps: Dict[str, WaveSnapshot] = {w: build_snapshot(w) for w in waves}
+df = pd.DataFrame(rows)
 
-    rows = []
-    for w in waves:
-        s = snaps[w]
-        rows.append({
-            "Wave": s.wave,
-            "Updated": s.updated,
-            "Intraday Return": s.intraday_return,
-            "Intraday Alpha": s.intraday_alpha,
-            "30D Return": s.r30,
-            "30D Alpha": s.a30,
-            "60D Return": s.r60,
-            "60D Alpha": s.a60,
-            "1Y Return": s.r1y,
-            "1Y Alpha": s.a1y,
-        })
+# Format %
+view = df.copy()
+for c in view.columns:
+    if "Return" in c or "Alpha" in c:
+        view[c] = view[c].apply(as_pct)
 
-    df = pd.DataFrame(rows)
-    if "30D Alpha" in df.columns:
-        df = df.sort_values("30D Alpha", ascending=False, na_position="last")
+st.dataframe(view, use_container_width=True, hide_index=True)
 
-    view = df.copy()
-    for c in view.columns:
-        if "Return" in c or "Alpha" in c:
-            view[c] = view[c].apply(lambda x: _pct(_safe_float(x)))
-    st.dataframe(view, use_container_width=True, hide_index=True)
+# If everything is still blank, tell exactly why
+all_blank = True
+for _, r in df.iterrows():
+    vals = [r.get("Intraday Return"), r.get("30D Return"), r.get("60D Return"), r.get("1Y Return")]
+    if any((v is not None) and (not (isinstance(v, float) and pd.isna(v))) for v in vals):
+        all_blank = False
+        break
 
-with tabs[1]:
-    st.subheader("Diagnostics")
-
-    st.write("Repo root:", BASE_DIR)
-    st.write("logs/performance:", LOGS_PERF_DIR)
-    st.write("logs/positions:", LOGS_POS_DIR)
-
-    st.markdown("### Latest perf files (up to 15)")
-    if perf_files:
-        for p in perf_files[-15:]:
-            st.code(os.path.relpath(p, BASE_DIR))
-    else:
-        st.info("None found.")
-
-    st.markdown("### Inspect a perf file (shows columns + last rows)")
-    if waves:
-        pick = st.selectbox("Pick wave", waves, index=0)
-        f = load_latest_performance_file(pick)
-        if not f:
-            st.warning("No perf file for this wave.")
-        else:
-            st.code(os.path.relpath(f, BASE_DIR))
-            pdf = pd.read_csv(f)
-            st.write("Columns:", list(pdf.columns))
-            st.dataframe(pdf.tail(15), use_container_width=True)
+if all_blank:
+    st.warning(
+        "Performance files exist, but the return/alpha fields are blank.\n\n"
+        "Most common causes:\n"
+        "1) wave_weights.csv has invalid tickers (or you replaced it accidentally)\n"
+        "2) benchmarks/tickers have no price history available via yfinance\n\n"
+        "Fix: restore your real tickers in wave_weights.csv, then reload. "
+        "The app auto-runs the engine on login now."
+    )
