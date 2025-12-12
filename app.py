@@ -4,7 +4,8 @@
 # Tabs:
 #   • Console: full WAVES dashboard
 #   • Market Intel: global market overview, events, and Wave reactions
-#   • Factor Decomposition: factor betas for each Wave vs key risk premia
+#   • Factor Decomposition: factor betas + correlation matrix
+#   • Vector OS Insights: AI-style narrative / chat layer
 #
 # Console features:
 #   • Market Regime Monitor: SPY vs VIX on one chart
@@ -12,6 +13,7 @@
 #   • Multi-Window Alpha Capture (1D, 30D, 60D, 365D)
 #   • Benchmark ETF Mix table
 #   • Risk & WaveScore Ingredients (All Waves)
+#   • WaveScore Leaderboard (Preview)
 #   • Wave Detail view:
 #       – NAV chart (Wave vs benchmark)
 #       – Performance vs benchmark (30D / 365D)
@@ -21,16 +23,19 @@
 # Market Intel features:
 #   • Global Market Dashboard (SPY, QQQ, IWM, TLT, GLD, BTC, VIX, 10Y)
 #   • Market Regime Monitor (SPY vs VIX) + regime label
-#   • Macro & Events panel:
-#       – Selected large-cap earnings (via yfinance)
-#       – Editable “Key Macro Themes” table (Fed / CPI / etc.)
-#   • WAVES Reaction Snapshot (30D return/alpha + classification + narrative)
+#   • Macro & Events panel (earnings + themes)
+#   • WAVES Reaction Snapshot (30D return/alpha + narrative)
 #
 # Factor Decomposition features:
 #   • Uses daily Wave returns from compute_history_nav(...)
 #   • Regresses vs daily returns of SPY, QQQ, IWM, TLT, GLD, BTC-USD
 #   • Outputs factor betas for each Wave
 #   • Bar chart of factor loadings for selected Wave
+#   • Wave Correlation Matrix (Wave daily returns, heatmap + table)
+#
+# Vector OS Insights:
+#   • Wave-level, horizon-specific narrative using all computed stats
+#   • “Question for Vector” text box for flavor (local, rule-based)
 
 from __future__ import annotations
 
@@ -97,7 +102,6 @@ def fetch_spy_vix(days: int = 365) -> pd.DataFrame:
             data = data[data.columns.levels[0][0]]
 
     if isinstance(data.columns, pd.MultiIndex):
-        # just in case; flatten
         data = data.droplevel(0, axis=1)
 
     if isinstance(data, pd.Series):
@@ -291,6 +295,72 @@ def regress_factors(
     return {col: float(b) for col, b in zip(factor_ret.columns, betas)}
 
 
+def compute_wave_score(
+    alpha_365: float,
+    vol_wave: float,
+    vol_bm: float,
+    mdd_wave: float,
+    mdd_bm: float,
+    ir: float,
+) -> dict:
+    """
+    Lightweight, engine-based WaveScore preview (0–100).
+    This is a *preview* approximation of the full WAVESCORE™ spec.
+    """
+    # Return Quality (0–100): based on 365D alpha
+    #  - 0% alpha ~ 50
+    #  - +10% alpha ~ 70
+    #  - +20% alpha ~ 90–100
+    #  - -10% alpha ~ 30
+    if math.isnan(alpha_365):
+        rq = 50.0
+    else:
+        rq = 50.0 + (alpha_365 * 100.0 * 2.0)  # 2 pts per 1% alpha
+        rq = float(np.clip(rq, 0.0, 100.0))
+
+    # Risk Control: favor lower vol and shallower drawdowns vs benchmark
+    if math.isnan(vol_wave) or math.isnan(vol_bm) or vol_bm <= 0:
+        rc_vol_score = 50.0
+    else:
+        vol_ratio = vol_wave / vol_bm
+        # vol_ratio = 1 → 50, 0.8 → ~60, 1.2 → ~40
+        rc_vol_score = 50.0 + (1.0 - vol_ratio) * 25.0
+        rc_vol_score = float(np.clip(rc_vol_score, 20.0, 80.0))
+
+    if math.isnan(mdd_wave) or math.isnan(mdd_bm):
+        rc_dd_score = 50.0
+    else:
+        # drawdown values are negative; closer to 0 is better
+        gap = abs(mdd_bm) - abs(mdd_wave)
+        # if Wave drawdown is 5 pts shallower → +10; 5 pts deeper → -10
+        rc_dd_score = 50.0 + gap * 200.0
+        rc_dd_score = float(np.clip(rc_dd_score, 20.0, 80.0))
+
+    rc = 0.6 * rc_vol_score + 0.4 * rc_dd_score
+
+    # Alpha Efficiency: based on IR
+    #  - IR = 0 → 50
+    #  - IR = 1 → ~70
+    #  - IR = 2 → ~85
+    #  - IR <= -0.5 → ~35
+    if math.isnan(ir):
+        ae = 50.0
+    else:
+        ae = 50.0 + ir * 15.0
+        ae = float(np.clip(ae, 20.0, 95.0))
+
+    # Combine into 0–100
+    score = 0.4 * rq + 0.3 * rc + 0.3 * ae
+    score = float(np.clip(score, 0.0, 100.0))
+
+    return {
+        "WaveScore": score,
+        "ReturnQuality": rq,
+        "RiskControl": rc,
+        "AlphaEfficiency": ae,
+    }
+
+
 # ------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------
@@ -322,11 +392,13 @@ with st.sidebar:
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption("Live Alpha Capture • SmartSafe™ • Multi-Asset • Crypto • Gold")
 
-tab_console, tab_market, tab_factors = st.tabs(["Console", "Market Intel", "Factor Decomposition"])
+tab_console, tab_market, tab_factors, tab_vector = st.tabs(
+    ["Console", "Market Intel", "Factor Decomposition", "Vector OS Insights"]
+)
 
 
 # ============================================================
-# TAB 1: Console (existing dashboard)
+# TAB 1: Console (main dashboard)
 # ============================================================
 
 with tab_console:
@@ -574,8 +646,9 @@ with tab_console:
             }
         )
 
-    if risk_rows:
-        risk_df = pd.DataFrame(risk_rows)
+    risk_df = pd.DataFrame(risk_rows) if risk_rows else pd.DataFrame()
+
+    if not risk_df.empty:
         fmt_risk = risk_df.copy()
 
         vol_cols = ["Wave Vol (365D)", "Benchmark Vol (365D)", "Tracking Error"]
@@ -599,6 +672,77 @@ with tab_console:
         )
     else:
         st.info("No risk analytics available yet.")
+
+    # 4b) WaveScore Leaderboard (Preview)
+    st.markdown("#### WaveScore Leaderboard (Preview)")
+
+    ws_rows = []
+    for wave in all_waves:
+        hist_365 = compute_wave_history(wave, mode=mode, days=365)
+        if hist_365.empty or len(hist_365) < 2:
+            ws_rows.append(
+                {
+                    "Wave": wave,
+                    "WaveScore": np.nan,
+                    "ReturnQuality": np.nan,
+                    "RiskControl": np.nan,
+                    "AlphaEfficiency": np.nan,
+                    "365D Alpha": np.nan,
+                }
+            )
+            continue
+
+        nav_wave = hist_365["wave_nav"]
+        nav_bm = hist_365["bm_nav"]
+        wave_ret = hist_365["wave_ret"]
+        bm_ret = hist_365["bm_ret"]
+
+        alpha_365 = compute_return_from_nav(nav_wave, window=len(nav_wave)) - compute_return_from_nav(
+            nav_bm, window=len(nav_bm)
+        )
+        vol_wave = annualized_vol(wave_ret)
+        vol_bm = annualized_vol(bm_ret)
+        mdd_wave = max_drawdown(nav_wave)
+        mdd_bm = max_drawdown(nav_bm)
+        te = tracking_error(wave_ret, bm_ret)
+        ir = information_ratio(nav_wave, nav_bm, te)
+
+        scores = compute_wave_score(alpha_365, vol_wave, vol_bm, mdd_wave, mdd_bm, ir)
+
+        ws_rows.append(
+            {
+                "Wave": wave,
+                "WaveScore": scores["WaveScore"],
+                "ReturnQuality": scores["ReturnQuality"],
+                "RiskControl": scores["RiskControl"],
+                "AlphaEfficiency": scores["AlphaEfficiency"],
+                "365D Alpha": alpha_365,
+            }
+        )
+
+    if ws_rows:
+        ws_df = pd.DataFrame(ws_rows)
+        ws_df = ws_df.sort_values("WaveScore", ascending=False)
+
+        fmt_ws = ws_df.copy()
+        fmt_ws["WaveScore"] = fmt_ws["WaveScore"].apply(lambda x: f"{x:0.1f}" if pd.notna(x) else "—")
+        fmt_ws["ReturnQuality"] = fmt_ws["ReturnQuality"].apply(lambda x: f"{x:0.1f}" if pd.notna(x) else "—")
+        fmt_ws["RiskControl"] = fmt_ws["RiskControl"].apply(lambda x: f"{x:0.1f}" if pd.notna(x) else "—")
+        fmt_ws["AlphaEfficiency"] = fmt_ws["AlphaEfficiency"].apply(lambda x: f"{x:0.1f}" if pd.notna(x) else "—")
+        fmt_ws["365D Alpha"] = fmt_ws["365D Alpha"].apply(
+            lambda x: f"{x*100:0.2f}%" if pd.notna(x) else "—"
+        )
+
+        st.dataframe(
+            fmt_ws.set_index("Wave"),
+            use_container_width=True,
+        )
+        st.caption(
+            "WaveScore here is a *preview approximation* built from 365D alpha, risk profile, and Information Ratio, "
+            "mapped into a 0–100 scale consistent with the WAVESCORE™ v1.0 philosophy."
+        )
+    else:
+        st.info("No WaveScore data available yet.")
 
     st.markdown("---")
 
@@ -1208,3 +1352,235 @@ with tab_factors:
                 )
         else:
             st.info("No factor data available yet.")
+
+    # Correlation Matrix (Wave daily returns)
+    st.markdown("---")
+    st.subheader("Wave Correlation Matrix (Wave Daily Returns · Mode = {})".format(mode))
+
+    cor_days = min(nav_days, 365)
+    ret_mat = pd.DataFrame()
+
+    for wave in all_waves:
+        hist = compute_wave_history(wave, mode=mode, days=cor_days)
+        if hist.empty or "wave_ret" not in hist.columns:
+            continue
+        s = hist["wave_ret"].rename(wave)
+        ret_mat = pd.concat([ret_mat, s], axis=1)
+
+    if ret_mat.empty or ret_mat.shape[1] < 2:
+        st.info("Not enough overlapping data to compute a correlation matrix.")
+    else:
+        corr = ret_mat.corr()
+
+        st.dataframe(
+            corr.round(2),
+            use_container_width=True,
+        )
+
+        fig_corr = go.Figure(
+            data=go.Heatmap(
+                z=corr.values,
+                x=corr.columns,
+                y=corr.index,
+                zmin=-1,
+                zmax=1,
+                colorbar=dict(title="Corr"),
+            )
+        )
+        fig_corr.update_layout(
+            title=f"Correlation Heatmap (Mode: {mode}, ~{cor_days}D)",
+            xaxis_title="Wave",
+            yaxis_title="Wave",
+            height=500,
+            margin=dict(l=60, r=60, t=60, b=60),
+        )
+
+        st.plotly_chart(fig_corr, use_container_width=True)
+        st.caption(
+            "High positive correlations suggest overlapping risk factors; lower correlations identify "
+            "diversifying Waves inside the overall stack."
+        )
+
+
+# ============================================================
+# TAB 4: Vector OS Insights — AI-style narrative layer
+# ============================================================
+
+with tab_vector:
+    st.subheader("Vector OS™ Insight Layer (Local AI Chat Preview)")
+
+    st.caption(
+        "This layer turns the raw engine stats into narrative. It uses local logic only "
+        "(no external APIs), but behaves like an AI assistant sitting on top of the WAVES engine."
+    )
+
+    col_sel, col_chat = st.columns([1.2, 1.8])
+
+    with col_sel:
+        wave_for_insight = st.selectbox(
+            "Wave for Insights",
+            all_waves,
+            index=all_waves.index(selected_wave) if selected_wave in all_waves else 0,
+        )
+        horizon_label = st.selectbox(
+            "Horizon",
+            ["30D", "60D", "365D"],
+            index=0,
+        )
+        st.markdown("**Mode in focus:** {}".format(mode))
+
+    with col_chat:
+        user_prompt = st.text_input(
+            "Question for Vector (optional, cosmetic)",
+            value="How is this Wave really behaving under the hood?",
+        )
+
+    # Compute stats for the chosen Wave + horizon
+    horizon_days = {"30D": 30, "60D": 60, "365D": 365}[horizon_label]
+    hist_insight = compute_wave_history(wave_for_insight, mode=mode, days=365)
+
+    if hist_insight.empty or len(hist_insight) < 2:
+        st.info("Not enough history yet for Vector to generate insights on this Wave.")
+    else:
+        nav_wave = hist_insight["wave_nav"]
+        nav_bm = hist_insight["bm_nav"]
+        wave_ret = hist_insight["wave_ret"]
+        bm_ret = hist_insight["bm_ret"]
+
+        window = min(horizon_days, len(nav_wave))
+
+        ret_wave_h = compute_return_from_nav(nav_wave, window=window)
+        ret_bm_h = compute_return_from_nav(nav_bm, window=window)
+        alpha_h = ret_wave_h - ret_bm_h
+
+        vol_wave_365 = annualized_vol(wave_ret)
+        vol_bm_365 = annualized_vol(bm_ret)
+        mdd_wave_365 = max_drawdown(nav_wave)
+        mdd_bm_365 = max_drawdown(nav_bm)
+        te = tracking_error(wave_ret, bm_ret)
+        ir = information_ratio(nav_wave, nav_bm, te)
+
+        scores = compute_wave_score(
+            alpha_365=compute_return_from_nav(nav_wave, window=len(nav_wave))
+            - compute_return_from_nav(nav_bm, window=len(nav_bm)),
+            vol_wave=vol_wave_365,
+            vol_bm=vol_bm_365,
+            mdd_wave=mdd_wave_365,
+            mdd_bm=mdd_bm_365,
+            ir=ir,
+        )
+
+        st.markdown("### Vector’s Take")
+
+        # Headline
+        alpha_str = f"{alpha_h*100:0.2f}%" if not math.isnan(alpha_h) else "—"
+        ret_str = f"{ret_wave_h*100:0.2f}%" if not math.isnan(ret_wave_h) else "—"
+        bm_str = f"{ret_bm_h*100:0.2f}%" if not math.isnan(ret_bm_h) else "—"
+
+        if not math.isnan(alpha_h):
+            if alpha_h > 0.05:
+                headline = f"{wave_for_insight} is **crushing** its benchmark over the last {horizon_label}."
+            elif alpha_h > 0.02:
+                headline = f"{wave_for_insight} is **comfortably ahead** of its benchmark over the last {horizon_label}."
+            elif alpha_h > -0.02:
+                headline = f"{wave_for_insight} is running **close to benchmark** over the last {horizon_label}."
+            else:
+                headline = f"{wave_for_insight} has been **lagging** its benchmark over the last {horizon_label}."
+        else:
+            headline = f"{wave_for_insight} doesn’t have enough data yet for a strong view."
+
+        st.markdown(f"**{headline}**")
+
+        # Core bullet points
+        st.markdown("#### Performance Snapshot")
+        st.write(
+            f"- **{horizon_label} return:** {ret_str} vs benchmark {bm_str} "
+            f"→ **alpha: {alpha_str}**"
+        )
+        st.write(
+            f"- **365D annualized vol:** "
+            f"{vol_wave_365*100:0.2f}% (Wave) vs {vol_bm_365*100:0.2f}% (Benchmark)"
+            if not (math.isnan(vol_wave_365) or math.isnan(vol_bm_365))
+            else "- Volatility: not enough data yet."
+        )
+        st.write(
+            f"- **Max drawdown (365D):** "
+            f"{mdd_wave_365*100:0.2f}% (Wave) vs {mdd_bm_365*100:0.2f}% (Benchmark)"
+            if not (math.isnan(mdd_wave_365) or math.isnan(mdd_bm_365))
+            else "- Max drawdown: not enough data yet."
+        )
+        st.write(
+            f"- **Information Ratio (365D):** {ir:0.2f}"
+            if not math.isnan(ir)
+            else "- Information Ratio: not enough data yet."
+        )
+        st.write(
+            f"- **WaveScore (Preview):** {scores['WaveScore']:0.1f} / 100 "
+            f"(ReturnQuality {scores['ReturnQuality']:0.1f}, "
+            f"RiskControl {scores['RiskControl']:0.1f}, "
+            f"AlphaEfficiency {scores['AlphaEfficiency']:0.1f})"
+        )
+
+        # Style / behavior narrative
+        behaviour_lines = []
+
+        # Vol vs benchmark
+        if not (math.isnan(vol_wave_365) or math.isnan(vol_bm_365)):
+            vol_ratio = vol_wave_365 / vol_bm_365 if vol_bm_365 > 0 else np.nan
+            if not math.isnan(vol_ratio):
+                if vol_ratio < 0.9:
+                    behaviour_lines.append(
+                        "Volatility is **lower than benchmark**, which is exactly what we want "
+                        "when we’re trying to weaponize volatility without scaring the client."
+                    )
+                elif vol_ratio < 1.1:
+                    behaviour_lines.append(
+                        "Volatility is **in line with benchmark**, so most of the story here is pure alpha, "
+                        "not just taking more risk."
+                    )
+                else:
+                    behaviour_lines.append(
+                        "Volatility is **above benchmark**, so some of the performance is coming from taking "
+                        "a more aggressive stance. That’s fine as long as the payoff per unit of risk (IR) stays strong."
+                    )
+
+        # IR
+        if not math.isnan(ir):
+            if ir > 1.0:
+                behaviour_lines.append(
+                    "The Information Ratio is **strong**, which says the engine is extracting alpha efficiently "
+                    "rather than just gambling on a few big moves."
+                )
+            elif ir > 0.3:
+                behaviour_lines.append(
+                    "The Information Ratio is **positive**, suggesting steady value-add, but there’s still room "
+                    "to tighten risk and improve the payoff per unit of risk."
+                )
+            elif ir < 0:
+                behaviour_lines.append(
+                    "The Information Ratio is **negative**, which is a red flag for this window. "
+                    "It means the benchmark is doing a better job per unit of risk taken."
+                )
+
+        # Drawdown vs benchmark
+        if not (math.isnan(mdd_wave_365) or math.isnan(mdd_bm_365)):
+            if abs(mdd_wave_365) < abs(mdd_bm_365):
+                behaviour_lines.append(
+                    "Drawdowns have been **shallower than the benchmark**, which is exactly the SmartSafe + VIX-scaling story."
+                )
+            elif abs(mdd_wave_365) > abs(mdd_bm_365) + 0.05:
+                behaviour_lines.append(
+                    "Drawdowns have been **deeper than the benchmark**, which we should watch, especially in risk-off regimes."
+                )
+
+        st.markdown("#### Style & Risk Narrative")
+        if behaviour_lines:
+            for line in behaviour_lines:
+                st.write(f"- {line}")
+        else:
+            st.write("- Not enough stable data yet to characterize style and risk with confidence.")
+
+        st.caption(
+            "This insight layer is fully rule-based and computed locally using the engine’s numbers. "
+            "In production, this can be upgraded to a live Vector OS™ LLM agent wired into WAVES Intelligence™."
+        )
