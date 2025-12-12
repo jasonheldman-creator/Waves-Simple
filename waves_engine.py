@@ -31,11 +31,11 @@
 #   • SmartSafe Tax-Free Money Market Wave (short-term munis)
 #   • Crypto Stable Yield Wave as crypto SmartSafe
 #
-# Metals & Macro:
+# Metals & Income:
 #   • Gold Wave (GLD + IAU)
 #   • Infinity Multi-Asset Growth Wave
-#   • Vector Adaptive Global Macro Wave (multi-asset global macro)
-#   • Vector Treasury Ladder Wave (laddered fixed-income income Wave)
+#   • Vector Treasury Ladder Wave (Treasury income ladder)
+#   • Vector Muni Ladder Wave (Muni income ladder, tax-aware profile)
 #
 # Public API used by app.py:
 #   • USE_FULL_WAVE_HISTORY
@@ -147,7 +147,7 @@ class ETFBenchmarkCandidate:
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings (equity, crypto, SmartSafe, Gold, Bitcoin, Infinity, Macro, Ladder)
+# Internal Wave holdings (equity, crypto, SmartSafe, Gold, Infinity, Ladders)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
@@ -309,28 +309,22 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("ETH-USD", 0.05, "Ethereum"),
     ],
 
-    # NEW: Vector Adaptive Global Macro Wave
-    # Multi-asset global macro with equity, rates, gold, commodities, dollar, and a BTC sleeve
-    "Vector Adaptive Global Macro Wave": [
-        Holding("SPY", 0.20, "SPDR S&P 500 ETF"),
-        Holding("QQQ", 0.10, "Invesco QQQ Trust"),
-        Holding("IWM", 0.10, "iShares Russell 2000 ETF"),
-        Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
-        Holding("IEF", 0.10, "iShares 7-10 Year Treasury Bond ETF"),
-        Holding("GLD", 0.10, "SPDR Gold Shares"),
-        Holding("DBC", 0.10, "Invesco DB Commodity Index Tracking Fund"),
-        Holding("UUP", 0.05, "Invesco DB US Dollar Index Bullish Fund"),
-        Holding("BTC-USD", 0.05, "Bitcoin"),
-    ],
-
-    # NEW: Vector Treasury Ladder Wave (laddered income with all bells & whistles)
-    # Short bills through long bonds plus a touch of IG credit.
+    # Vector Treasury Ladder Wave (existing)
     "Vector Treasury Ladder Wave": [
         Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
         Holding("IEF", 0.20, "iShares 7-10 Year Treasury Bond ETF"),
         Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
         Holding("LQD", 0.15, "iShares iBoxx $ Investment Grade Corporate Bond ETF"),
+    ],
+
+    # NEW: Vector Muni Ladder Wave (muni income ladder, tax-aware)
+    "Vector Muni Ladder Wave": [
+        Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),         # ultra/short-term munis
+        Holding("SHM", 0.20, "SPDR Nuveen Short-Term Municipal Bond ETF"),         # short-term
+        Holding("MUB", 0.25, "iShares National Muni Bond ETF"),                    # intermediate muni blend
+        Holding("TFI", 0.15, "SPDR Nuveen Bloomberg Municipal Bond ETF"),          # longer muni exposure
+        Holding("HYD", 0.15, "VanEck High-Yield Muni ETF"),                        # HY muni sleeve for extra income
     ],
 }
 
@@ -413,20 +407,19 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("BTC-USD", 0.20, "Bitcoin"),
     ],
 
-    # Static benchmark for Vector Adaptive Global Macro Wave
-    "Vector Adaptive Global Macro Wave": [
-        Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
-        Holding("TLT", 0.30, "iShares 20+ Year Treasury Bond ETF"),
-        Holding("GLD", 0.20, "SPDR Gold Shares"),
-        Holding("BTC-USD", 0.10, "Bitcoin"),
-    ],
-
     # Static benchmark for Vector Treasury Ladder Wave
     "Vector Treasury Ladder Wave": [
         Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SHY", 0.25, "iShares 1-3 Year Treasury Bond ETF"),
         Holding("IEF", 0.25, "iShares 7-10 Year Treasury Bond ETF"),
         Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
+    ],
+
+    # Static benchmark for Vector Muni Ladder Wave
+    "Vector Muni Ladder Wave": [
+        Holding("SUB", 0.30, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.30, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.40, "iShares National Muni Bond ETF"),
     ],
 }
 
