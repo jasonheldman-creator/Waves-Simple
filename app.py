@@ -1584,3 +1584,4 @@ with tab_vector:
             "This insight layer is fully rule-based and computed locally using the engine’s numbers. "
             "In production, this can be upgraded to a live Vector OS™ LLM agent wired into WAVES Intelligence™."
         )
+        
