@@ -1,198 +1,400 @@
-# waves_engine.py — WAVES Engine (Benchmark-LOCKED, Stable Alpha)
-import os, math, time
-from datetime import datetime
-from typing import Dict, List, Optional
+# waves_engine.py — WAVES Intelligence™ Engine
+# Purpose:
+# - Read wave_weights.csv
+# - Normalize wave names into a stable slug for filenames
+# - Fetch prices via yfinance
+# - Compute basic returns & alpha vs benchmark
+# - Write logs/performance/<slug>_performance_daily.csv
+# - Write logs/positions/<slug>_positions_YYYYMMDD.csv
+# - Write logs/performance/_wave_manifest.csv (display name <-> slug mapping)
+
+import os
+import re
+import sys
+import time
+from datetime import datetime, date
+from typing import Dict, List, Tuple, Optional
+
 import pandas as pd
 
-import yfinance as yf
+try:
+    import yfinance as yf
+except Exception as e:
+    raise RuntimeError("yfinance is required. Check requirements.txt") from e
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
-LOGS_POS_DIR = os.path.join(LOGS_DIR, "positions")
 LOGS_PERF_DIR = os.path.join(LOGS_DIR, "performance")
+LOGS_POS_DIR = os.path.join(LOGS_DIR, "positions")
+
 WAVE_WEIGHTS_PATH = os.path.join(BASE_DIR, "wave_weights.csv")
-DEFAULT_NOTIONAL = 100000.0
 
-def ts_now(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-def ensure_dirs():
-    os.makedirs(LOGS_POS_DIR, exist_ok=True)
+# ---- Benchmark mapping (safe defaults; adjust anytime) ----
+BENCHMARK_MAP = {
+    "S&P 500 Wave": "SPY",
+    "Growth Wave": "QQQ",
+    "AI Wave": "QQQ",
+    "Cloud & Software Wave": "QQQ",
+    "Quantum Computing Wave": "QQQ",
+    "Small Cap Growth Wave": "IWM",
+    "Future Power & Energy Wave": "XLE",
+    "Clean Transit-Infrastructure Wave": "IDRV",  # alt: CARZ
+    "SmartSafe Wave": "BIL",
+    "Income Wave": "SCHD",
+    "Crypto Income Wave": "BTC-USD",
+}
+
+DEFAULT_BENCHMARK = "SPY"
+
+
+# -------------------------
+# Canonical normalization
+# -------------------------
+def normalize_wave_name(name: str) -> str:
+    """
+    Canonical slug used EVERYWHERE for filenames.
+    Rules:
+      - lowercase
+      - & -> and
+      - replace non-alphanumeric with underscores
+      - collapse underscores
+      - strip underscores
+    """
+    s = (name or "").strip().lower()
+    s = s.replace("&", "and")
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
+
+
+def ensure_dirs() -> None:
     os.makedirs(LOGS_PERF_DIR, exist_ok=True)
+    os.makedirs(LOGS_POS_DIR, exist_ok=True)
 
-def pick_col(df, cands):
-    m = {c.lower(): c for c in df.columns}
-    for cand in cands:
-        if cand.lower() in m: return m[cand.lower()]
-    return None
 
-def norm_wave(x): return " ".join(str(x).strip().split())
-def norm_tkr(x):  return str(x).strip().upper()
+def now_ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def fetch_prices(tickers: List[str], period="5y") -> pd.DataFrame:
-    tickers = [t for t in tickers if t]
-    if not tickers: return pd.DataFrame()
-    df = yf.download(
-        tickers=tickers, period=period, interval="1d",
-        auto_adjust=True, progress=False, group_by="column", threads=True
-    )
-    if df is None or df.empty: return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        close = df["Close"] if "Close" in df.columns.get_level_values(0) else df.xs(df.columns.levels[0][0], axis=1, level=0)
-        return close.dropna(how="all")
-    else:
-        col = "Close" if "Close" in df.columns else df.columns[0]
-        out = df[[col]].copy()
-        out.columns = [tickers[0]]
-        return out.dropna(how="all")
 
-def roll_total_return(daily_ret: pd.Series, n: int) -> Optional[float]:
-    if daily_ret is None or daily_ret.empty: return None
-    tail = daily_ret.dropna().iloc[-n:]
-    # require decent sample
-    if len(tail) < max(10, int(n * 0.7)): return None
-    return float((1.0 + tail).prod() - 1.0)
+def load_wave_weights(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Missing weights file: {path}")
 
-def intraday_return(tickers: List[str], weights: Dict[str,float]) -> Optional[float]:
-    vals = []
-    for t in tickers:
-        w = weights.get(t, 0.0)
-        if w <= 0: continue
-        try:
-            tk = yf.Ticker(t)
-            fi = getattr(tk, "fast_info", {}) or {}
-            price = fi.get("last_price", None)
-            prev  = fi.get("previous_close", None)
-            if price is None or prev is None:
-                info = tk.info or {}
-                price = price if price is not None else info.get("regularMarketPrice", None)
-                prev  = prev  if prev  is not None else info.get("regularMarketPreviousClose", None)
-            if price is None or prev is None or prev == 0: 
-                continue
-            r = (float(price)/float(prev)) - 1.0
-            vals.append(w * r)
-        except Exception:
+    df = pd.read_csv(path)
+
+    # Normalize headers
+    cols = {c.lower().strip(): c for c in df.columns}
+    if "wave" not in cols or "ticker" not in cols or "weight" not in cols:
+        raise ValueError("wave_weights.csv must have columns: wave,ticker,weight")
+
+    df = df.rename(columns={cols["wave"]: "wave", cols["ticker"]: "ticker", cols["weight"]: "weight"})
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.strip()
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+
+    df = df.dropna(subset=["wave", "ticker", "weight"])
+    df = df[df["weight"] > 0]
+
+    # Quick placeholder safety
+    if df["ticker"].str.upper().str.contains("REPLACE_").any():
+        bad = df[df["ticker"].str.upper().str.contains("REPLACE_")]["ticker"].unique().tolist()
+        raise ValueError(f"Placeholder tickers found (must replace with real tickers): {bad[:10]}")
+
+    return df
+
+
+def group_waves(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    waves = {}
+    for wave_name, g in df.groupby("wave"):
+        g2 = g.copy()
+
+        # Deduplicate tickers within wave by summing weights
+        g2["ticker"] = g2["ticker"].astype(str).str.strip()
+        g2 = g2.groupby(["wave", "ticker"], as_index=False)["weight"].sum()
+
+        # Normalize weights to sum to 1.0
+        total = g2["weight"].sum()
+        if total <= 0:
             continue
-    return float(sum(vals)) if vals else None
+        g2["weight"] = g2["weight"] / total
 
-def write_positions(wave: str, dfw: pd.DataFrame):
-    today = datetime.now().strftime("%Y%m%d")
-    path = os.path.join(LOGS_POS_DIR, f"{wave}_positions_{today}.csv")
+        waves[wave_name] = g2.sort_values("weight", ascending=False).reset_index(drop=True)
+
+    return waves
+
+
+def safe_yf_download(tickers: List[str], period: str, interval: str) -> pd.DataFrame:
+    """
+    Wrapper that tolerates yfinance quirks. Returns dataframe with columns by ticker.
+    """
+    if not tickers:
+        return pd.DataFrame()
+
+    # yfinance prefers space-separated string or list
+    try:
+        data = yf.download(
+            tickers=tickers,
+            period=period,
+            interval=interval,
+            group_by="ticker",
+            auto_adjust=False,
+            threads=True,
+            progress=False,
+        )
+        return data
+    except Exception:
+        # Last-resort: try one-by-one
+        frames = []
+        for t in tickers:
+            try:
+                d = yf.download(tickers=t, period=period, interval=interval, progress=False)
+                d["__ticker__"] = t
+                frames.append(d)
+            except Exception:
+                pass
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, axis=0)
+
+
+def get_last_close_and_prev_close(ticker: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Returns (last_price, prev_close) using daily history.
+    """
+    try:
+        h = yf.Ticker(ticker).history(period="6d", interval="1d", auto_adjust=False)
+        if h is None or h.empty:
+            return None, None
+        closes = h["Close"].dropna()
+        if len(closes) < 2:
+            return float(closes.iloc[-1]), None
+        return float(closes.iloc[-1]), float(closes.iloc[-2])
+    except Exception:
+        return None, None
+
+
+def get_close_n_days_ago(ticker: str, n: int) -> Optional[float]:
+    """
+    Get close price about n trading days ago using daily history.
+    """
+    try:
+        h = yf.Ticker(ticker).history(period=f"{max(n+10, 40)}d", interval="1d", auto_adjust=False)
+        if h is None or h.empty:
+            return None
+        closes = h["Close"].dropna()
+        if len(closes) <= n:
+            # not enough history
+            return None
+        return float(closes.iloc[-(n+1)])
+    except Exception:
+        return None
+
+
+def pct_change(new: Optional[float], old: Optional[float]) -> Optional[float]:
+    if new is None or old is None:
+        return None
+    try:
+        if old == 0:
+            return None
+        return (float(new) / float(old)) - 1.0
+    except Exception:
+        return None
+
+
+def portfolio_return(weights: pd.DataFrame, price_now: Dict[str, float], price_then: Dict[str, float]) -> Optional[float]:
+    """
+    Weighted return: sum(w * (now/then - 1)).
+    Requires price_then for each ticker; missing tickers are skipped but renormalized.
+    """
     rows = []
-    for _, r in dfw.iterrows():
-        rows.append({
-            "Wave": wave,
-            "Ticker": r["Ticker"],
-            "Weight": float(r["Weight"]),
-            "NotionalUSD": DEFAULT_NOTIONAL * float(r["Weight"]),
-            "timestamp": ts_now(),
-        })
-    pd.DataFrame(rows).to_csv(path, index=False)
+    for _, r in weights.iterrows():
+        t = r["ticker"]
+        w = float(r["weight"])
+        pn = price_now.get(t)
+        pt = price_then.get(t)
+        if pn is None or pt is None or pt == 0:
+            continue
+        rows.append((w, (pn / pt) - 1.0))
 
-def append_perf(wave: str, row: Dict):
-    path = os.path.join(LOGS_PERF_DIR, f"{wave}_performance_daily.csv")
-    df_new = pd.DataFrame([row])
+    if not rows:
+        return None
+
+    wsum = sum(w for w, _ in rows)
+    if wsum <= 0:
+        return None
+
+    return sum((w / wsum) * ret for w, ret in rows)
+
+
+def write_manifest(waves: Dict[str, pd.DataFrame]) -> None:
+    rows = []
+    for wave_name in sorted(waves.keys()):
+        rows.append({"wave": wave_name, "slug": normalize_wave_name(wave_name)})
+    out = pd.DataFrame(rows)
+    out_path = os.path.join(LOGS_PERF_DIR, "_wave_manifest.csv")
+    out.to_csv(out_path, index=False)
+
+
+def write_positions_log(wave_name: str, weights: pd.DataFrame, prices: Dict[str, float]) -> None:
+    slug = normalize_wave_name(wave_name)
+    fname = f"{slug}_positions_{date.today().strftime('%Y%m%d')}.csv"
+    path = os.path.join(LOGS_POS_DIR, fname)
+
+    out = weights.copy()
+    out["price"] = out["ticker"].map(prices)
+    out["value_weighted"] = out["weight"] * out["price"]
+    out.to_csv(path, index=False)
+
+
+def append_perf_row(wave_name: str, row: Dict[str, object]) -> None:
+    slug = normalize_wave_name(wave_name)
+    path = os.path.join(LOGS_PERF_DIR, f"{slug}_performance_daily.csv")
+
+    df_row = pd.DataFrame([row])
+
     if os.path.exists(path):
         try:
             df_old = pd.read_csv(path)
-            df = pd.concat([df_old, df_new], ignore_index=True)
+            df_new = pd.concat([df_old, df_row], ignore_index=True)
+            df_new.to_csv(path, index=False)
+            return
         except Exception:
-            df = df_new
-    else:
-        df = df_new
-    if len(df) > 2000:
-        df = df.iloc[-2000:].copy()
-    df.to_csv(path, index=False)
+            # If old file corrupt, overwrite safely
+            pass
 
-def run_engine():
+    df_row.to_csv(path, index=False)
+
+
+def compute_wave_metrics(wave_name: str, weights: pd.DataFrame) -> Dict[str, object]:
+    # Resolve benchmark
+    bench = BENCHMARK_MAP.get(wave_name, DEFAULT_BENCHMARK)
+
+    tickers = weights["ticker"].tolist()
+    all_needed = sorted(set(tickers + [bench]))
+
+    # Prices now + prev close for intraday
+    price_now = {}
+    prev_close = {}
+
+    for t in all_needed:
+        last_p, prev_p = get_last_close_and_prev_close(t)
+        if last_p is not None:
+            price_now[t] = last_p
+        if prev_p is not None:
+            prev_close[t] = prev_p
+
+    # Intraday return uses (last vs prev close) as proxy
+    wave_intraday = portfolio_return(
+        weights,
+        price_now={t: price_now.get(t) for t in tickers},
+        price_then={t: prev_close.get(t) for t in tickers},
+    )
+    bench_intraday = pct_change(price_now.get(bench), prev_close.get(bench))
+    intraday_alpha = None
+    if wave_intraday is not None and bench_intraday is not None:
+        intraday_alpha = wave_intraday - bench_intraday
+
+    # 30d/60d/1y closes
+    # Use ~trading days: 30d≈21, 60d≈42, 1y≈252
+    horizons = {"30d": 21, "60d": 42, "1y": 252}
+
+    price_then = {k: {} for k in horizons.keys()}
+    bench_then = {}
+
+    for label, n in horizons.items():
+        # holdings
+        for t in tickers:
+            p = get_close_n_days_ago(t, n)
+            if p is not None:
+                price_then[label][t] = p
+        # benchmark
+        bp = get_close_n_days_ago(bench, n)
+        if bp is not None:
+            bench_then[label] = bp
+
+    ret_30 = portfolio_return(weights, {t: price_now.get(t) for t in tickers}, price_then["30d"])
+    ret_60 = portfolio_return(weights, {t: price_now.get(t) for t in tickers}, price_then["60d"])
+    ret_1y = portfolio_return(weights, {t: price_now.get(t) for t in tickers}, price_then["1y"])
+
+    bench_30 = pct_change(price_now.get(bench), bench_then.get("30d"))
+    bench_60 = pct_change(price_now.get(bench), bench_then.get("60d"))
+    bench_1y = pct_change(price_now.get(bench), bench_then.get("1y"))
+
+    alpha_30 = None if ret_30 is None or bench_30 is None else (ret_30 - bench_30)
+    alpha_60 = None if ret_60 is None or bench_60 is None else (ret_60 - bench_60)
+    alpha_1y = None if ret_1y is None or bench_1y is None else (ret_1y - bench_1y)
+
+    return {
+        "timestamp": now_ts(),
+        "wave": wave_name,
+        "wave_slug": normalize_wave_name(wave_name),
+        "benchmark": bench,
+
+        "intraday_return": wave_intraday,
+        "intraday_alpha": intraday_alpha,
+
+        "return_30d": ret_30,
+        "alpha_30d": alpha_30,
+
+        "return_60d": ret_60,
+        "alpha_60d": alpha_60,
+
+        "return_1y": ret_1y,
+        "alpha_1y": alpha_1y,
+
+        "notes": "",
+    }
+
+
+def main() -> int:
     ensure_dirs()
-    if not os.path.exists(WAVE_WEIGHTS_PATH):
-        raise FileNotFoundError("wave_weights.csv not found")
 
-    raw = pd.read_csv(WAVE_WEIGHTS_PATH)
+    print("\n=== WAVES Intelligence™ Engine ===")
+    print("Time:", now_ts())
+    print("Weights:", WAVE_WEIGHTS_PATH)
 
-    wave_col = pick_col(raw, ["Wave","Portfolio","Name"])
-    tick_col = pick_col(raw, ["Ticker","Symbol"])
-    wt_col   = pick_col(raw, ["Weight","Alloc","Allocation"])
-    bm_col   = pick_col(raw, ["Benchmark"])
+    df = load_wave_weights(WAVE_WEIGHTS_PATH)
+    waves = group_waves(df)
 
-    if wave_col is None or tick_col is None or wt_col is None:
-        raise ValueError("wave_weights.csv must contain Wave/Ticker/Weight columns.")
-    if bm_col is None:
-        raise ValueError("Add a 'Benchmark' column to wave_weights.csv (required).")
+    if not waves:
+        print("No waves found in wave_weights.csv")
+        return 1
 
-    df = pd.DataFrame({
-        "Wave": raw[wave_col].astype(str).map(norm_wave),
-        "Ticker": raw[tick_col].astype(str).map(norm_tkr),
-        "Weight": pd.to_numeric(raw[wt_col], errors="coerce"),
-        "Benchmark": raw[bm_col].astype(str).map(norm_tkr),
-    }).dropna(subset=["Wave","Ticker","Weight","Benchmark"])
+    # Write manifest every run
+    write_manifest(waves)
 
-    waves = sorted(df["Wave"].unique().tolist())
-    print(f"[{ts_now()}] Running engine for {len(waves)} waves")
+    print(f"Discovered waves: {len(waves)}")
+    for w in sorted(waves.keys()):
+        print(" -", w, "->", normalize_wave_name(w))
 
-    # pull all tickers + benchmarks
-    all_tickers = sorted(set(df["Ticker"].tolist()) | set(df["Benchmark"].tolist()))
-    prices = fetch_prices(all_tickers, period="5y")
+    # Compute each wave and write logs
+    ok = 0
+    for wave_name, weights in waves.items():
+        try:
+            metrics = compute_wave_metrics(wave_name, weights)
 
-    for w in waves:
-        sub = df[df["Wave"] == w].copy()
-        # normalize weights + combine dups
-        sub["Weight"] = sub["Weight"].clip(lower=0.0)
-        sub = sub.groupby(["Wave","Ticker","Benchmark"], as_index=False)["Weight"].sum()
-        total = sub["Weight"].sum()
-        sub["Weight"] = sub["Weight"] / total if total > 0 else 0.0
+            # Prices for positions log (latest)
+            tickers = weights["ticker"].tolist()
+            prices = {}
+            for t in tickers:
+                lp, _ = get_last_close_and_prev_close(t)
+                if lp is not None:
+                    prices[t] = lp
 
-        bm = sub["Benchmark"].iloc[0]
-        tickers = sub["Ticker"].tolist()
-        weights = {r["Ticker"]: float(r["Weight"]) for _, r in sub.iterrows()}
+            write_positions_log(wave_name, weights, prices)
+            append_perf_row(wave_name, metrics)
 
-        write_positions(w, sub[["Wave","Ticker","Weight"]])
+            ok += 1
+            print(f"[OK] {wave_name} | intraday={metrics.get('intraday_return')} 30d={metrics.get('return_30d')} 60d={metrics.get('return_60d')} 1y={metrics.get('return_1y')}")
+        except Exception as e:
+            print(f"[ERR] {wave_name}: {repr(e)}")
 
-        # daily return series
-        port_cols = [t for t in tickers if t in prices.columns]
-        if port_cols:
-            rets = prices[port_cols].pct_change().dropna(how="all")
-            # weighted sum
-            port = None
-            for t in port_cols:
-                series = rets[t].dropna()
-                if series.empty: 
-                    continue
-                port = series * weights.get(t, 0.0) if port is None else port.add(series * weights.get(t, 0.0), fill_value=0.0)
-            port = port.dropna() if port is not None else pd.Series(dtype=float)
-        else:
-            port = pd.Series(dtype=float)
+    print(f"Completed: {ok}/{len(waves)} waves")
+    print("Perf logs:", LOGS_PERF_DIR)
+    print("Pos logs :", LOGS_POS_DIR)
+    return 0 if ok > 0 else 2
 
-        bm_ret = prices[bm].pct_change().dropna() if bm in prices.columns else pd.Series(dtype=float)
-
-        r30 = roll_total_return(port, 30);  b30 = roll_total_return(bm_ret, 30)
-        r60 = roll_total_return(port, 60);  b60 = roll_total_return(bm_ret, 60)
-        r1y = roll_total_return(port, 252); b1y = roll_total_return(bm_ret, 252)
-
-        ir  = intraday_return(tickers, weights)
-        # benchmark intraday (simple)
-        bm_ir = intraday_return([bm], {bm: 1.0})
-
-        row = {
-            "timestamp": ts_now(),
-            "Wave": w,
-            "benchmark": bm,
-            "intraday_return": ir,
-            "intraday_alpha": (ir - bm_ir) if (ir is not None and bm_ir is not None) else None,
-            "return_30d": r30,
-            "alpha_30d": (r30 - b30) if (r30 is not None and b30 is not None) else None,
-            "return_60d": r60,
-            "alpha_60d": (r60 - b60) if (r60 is not None and b60 is not None) else None,
-            "return_1y": r1y,
-            "alpha_1y": (r1y - b1y) if (r1y is not None and b1y is not None) else None,
-        }
-
-        append_perf(w, row)
-        print(f"[{ts_now()}] wrote {w} perf (bm={bm})")
-
-    print(f"[{ts_now()}] done. perf logs: {LOGS_PERF_DIR}")
-
-def main():
-    run_engine()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
