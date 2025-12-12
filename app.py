@@ -1,10 +1,11 @@
 # app.py — WAVES Intelligence™ Institutional Console
 # Mini-Bloomberg style dashboard for WAVES Intelligence™
 #
-# Features:
-#   • Tabs:
-#       – Console: full WAVES dashboard
-#       – Market: current market conditions, SPY/VIX, selected earnings, and Wave reactions
+# Tabs:
+#   • Console: full WAVES dashboard
+#   • Market Intel: global market overview, events, and Wave reactions
+#
+# Console features:
 #   • Market Regime Monitor: SPY vs VIX on one chart
 #   • Portfolio-Level Overview (All Waves)
 #   • Multi-Window Alpha Capture (1D, 30D, 60D, 365D)
@@ -13,10 +14,16 @@
 #   • Wave Detail view:
 #       – NAV chart (Wave vs benchmark)
 #       – Performance vs benchmark (30D / 365D)
-#       – Mode comparison (Standard, Alpha-Minus-Beta, Private Logic)
+#       – Mode comparison (Standard, AMB, PL)
 #       – Top-10 holdings with Google Finance links
 #
-# Assumes waves_engine.py is in the same repo and matches the current spec.
+# Market Intel features:
+#   • Global Market Dashboard (SPY, QQQ, IWM, TLT, GLD, BTC, VIX, 10Y)
+#   • Market Regime Monitor (SPY vs VIX) + regime label
+#   • Macro & Events panel:
+#       – Selected large-cap earnings (via yfinance)
+#       – Editable “Key Macro Themes” table (Fed / CPI / etc.)
+#   • WAVES Reaction Snapshot (30D return/alpha + classification + narrative)
 
 from __future__ import annotations
 
@@ -25,8 +32,8 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.graph_objects as go
+import streamlit as st
 
 import waves_engine as we  # your engine module
 
@@ -63,6 +70,48 @@ def fetch_spy_vix(days: int = 365) -> pd.DataFrame:
     end = datetime.utcnow().date()
     start = end - timedelta(days=days + 10)
     tickers = ["SPY", "^VIX"]
+
+    data = yf.download(
+        tickers=tickers,
+        start=start.isoformat(),
+        end=end.isoformat(),
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+        group_by="column",
+    )
+
+    if isinstance(data.columns, pd.MultiIndex):
+        if "Adj Close" in data.columns.get_level_values(0):
+            data = data["Adj Close"]
+        elif "Close" in data.columns.get_level_values(0):
+            data = data["Close"]
+        else:
+            data = data[data.columns.levels[0][0]]
+
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+
+    data = data.sort_index().ffill().bfill()
+    if len(data) > days:
+        data = data.iloc[-days:]
+
+    return data
+
+
+@st.cache_data(show_spinner=False)
+def fetch_market_assets(days: int = 365) -> pd.DataFrame:
+    """
+    Fetch multi-asset history for the Market Intel dashboard.
+    Assets: SPY, QQQ, IWM, TLT, GLD, BTC-USD, ^VIX, ^TNX
+    Returns cleaned price DataFrame.
+    """
+    if yf is None:
+        return pd.DataFrame()
+
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=days + 10)
+    tickers = ["SPY", "QQQ", "IWM", "TLT", "GLD", "BTC-USD", "^VIX", "^TNX"]
 
     data = yf.download(
         tickers=tickers,
@@ -187,6 +236,17 @@ def information_ratio(
     return float(excess / te)
 
 
+def simple_ret(series: pd.Series, window: int) -> float:
+    if series is None or len(series) < 2:
+        return float("nan")
+    if len(series) < window:
+        window = len(series)
+    if window < 2:
+        return float("nan")
+    sub = series.iloc[-window:]
+    return float(sub.iloc[-1] / sub.iloc[0] - 1.0)
+
+
 # ------------------------------------------------------------
 # Sidebar
 # ------------------------------------------------------------
@@ -218,12 +278,12 @@ with st.sidebar:
 st.title("WAVES Intelligence™ Institutional Console")
 st.caption("Live Alpha Capture • SmartSafe™ • Multi-Asset • Crypto • Gold")
 
-tab_console, tab_market = st.tabs(["Console", "Market"])
+tab_console, tab_market = st.tabs(["Console", "Market Intel"])
 
 
-# ------------------------------------------------------------
+# ============================================================
 # TAB 1: Console (existing dashboard)
-# ------------------------------------------------------------
+# ============================================================
 
 with tab_console:
     # 1) Market Regime Monitor — SPY vs VIX
@@ -638,12 +698,72 @@ with tab_console:
         )
 
 
-# ------------------------------------------------------------
-# TAB 2: Market — narrative market view
-# ------------------------------------------------------------
+# ============================================================
+# TAB 2: Market Intel — global markets & events
+# ============================================================
 
 with tab_market:
-    st.subheader("Market Overview & Conditions")
+    st.subheader("Global Market Dashboard")
+
+    market_df = fetch_market_assets(days=nav_days)
+
+    if market_df.empty:
+        st.warning("Unable to load multi-asset market data right now.")
+    else:
+        assets = {
+            "SPY": "S&P 500",
+            "QQQ": "NASDAQ-100",
+            "IWM": "US Small Caps",
+            "TLT": "US 20+Y Treasuries",
+            "GLD": "Gold",
+            "BTC-USD": "Bitcoin (USD)",
+            "^VIX": "VIX (Implied Vol)",
+            "^TNX": "US 10Y Yield",
+        }
+
+        rows = []
+        for tkr, label in assets.items():
+            if tkr not in market_df.columns:
+                continue
+            series = market_df[tkr]
+            last = float(series.iloc[-1]) if len(series) else float("nan")
+            r1d = simple_ret(series, 2)
+            r30 = simple_ret(series, 30)
+            rows.append(
+                {
+                    "Ticker": tkr,
+                    "Asset": label,
+                    "Last": last,
+                    "1D Return": r1d,
+                    "30D Return": r30,
+                }
+            )
+
+        snap_df = pd.DataFrame(rows)
+        fmt_snap = snap_df.copy()
+
+        def fmt_ret(x: float) -> str:
+            return f"{x*100:0.2f}%" if pd.notna(x) else "—"
+
+        fmt_snap["Last"] = fmt_snap["Last"].apply(
+            lambda x: f"{x:0.2f}" if pd.notna(x) else "—"
+        )
+        fmt_snap["1D Return"] = fmt_snap["1D Return"].apply(fmt_ret)
+        fmt_snap["30D Return"] = fmt_snap["30D Return"].apply(fmt_ret)
+
+        st.dataframe(
+            fmt_snap.set_index("Ticker"),
+            use_container_width=True,
+        )
+
+        st.caption(
+            "Snapshot of key risk assets and hedges — equities, Treasuries, gold, Bitcoin, VIX, and the 10Y yield."
+        )
+
+    st.markdown("---")
+
+    # Market Regime Monitor inside Market Intel tab
+    st.subheader("Market Regime Monitor — SPY vs VIX")
 
     spy_vix_m = fetch_spy_vix(days=nav_days)
 
@@ -704,39 +824,26 @@ with tab_market:
             st.plotly_chart(fig_m, use_container_width=True)
 
     with col_right:
-        if spy_vix_m.empty or "SPY" not in spy_vix_m.columns or "^VIX" not in spy_vix_m.columns:
+        if spy_vix_m.empty or "SPY" not in spy_vix_m.columns:
             st.info("No market summary available.")
         else:
             spy = spy_vix_m["SPY"].copy()
-            vix = spy_vix_m["^VIX"].copy()
+            vix = spy_vix_m.get("^VIX", pd.Series(index=spy.index, data=np.nan))
 
             current_spy = float(spy.iloc[-1]) if len(spy) else float("nan")
             current_vix = float(vix.iloc[-1]) if len(vix) else float("nan")
 
-            # 30D & 60D SPY returns
-            def ret_window(series: pd.Series, window: int) -> float:
-                if len(series) < 2:
-                    return float("nan")
-                if len(series) < window:
-                    window = len(series)
-                if window < 2:
-                    return float("nan")
-                sub = series.iloc[-window:]
-                return float(sub.iloc[-1] / sub.iloc[0] - 1.0)
+            r30 = simple_ret(spy, 30)
+            r60 = simple_ret(spy, 60)
 
-            r30 = ret_window(spy, 30)
-            r60 = ret_window(spy, 60)
-
-            # simple realized vol (30D)
             if len(spy) > 30:
                 daily_ret_spy = spy.pct_change().dropna()
                 vol30 = float(daily_ret_spy.iloc[-30:].std() * np.sqrt(252))
             else:
                 vol30 = float("nan")
 
-            # Regime using engine helper (if available)
             try:
-                regime = we._regime_from_return(r60)
+                regime = we._regime_from_return(r60)  # type: ignore[attr-defined]
             except Exception:
                 regime = "neutral"
 
@@ -750,76 +857,106 @@ with tab_market:
 
             st.caption(
                 "Regime is computed from SPY 60D trend via WAVES engine. "
-                "VIX & realized vol indicate how aggressively or defensively SmartSafe & VIX scaling are behaving."
+                "VIX & realized vol indicate how aggressively or defensively SmartSafe and VIX scaling behave."
             )
 
     st.markdown("---")
 
-    # Upcoming events: simple earnings for a few large caps (proxy)
-    st.subheader("Upcoming Earnings (Selected Large Caps)")
+    # Macro & Events Panel
+    st.subheader("Macro & Events — Earnings & Key Themes")
 
-    if yf is None:
-        st.info("Earnings calendar requires yfinance and internet connectivity.")
-    else:
-        selected_names = [
-            ("AAPL", "Apple"),
-            ("MSFT", "Microsoft"),
-            ("AMZN", "Amazon"),
-            ("GOOGL", "Alphabet"),
-            ("META", "Meta Platforms"),
-            ("NVDA", "NVIDIA"),
-            ("JPM", "JPMorgan"),
-        ]
-        events = []
-        today = datetime.utcnow().date()
-        for ticker, name in selected_names:
-            try:
-                t_obj = yf.Ticker(ticker)
-                cal = getattr(t_obj, "calendar", None)
-                next_earn = None
-                if isinstance(cal, pd.DataFrame) and not cal.empty:
-                    # Try common index labels
-                    if "Earnings Date" in cal.index:
-                        val = cal.loc["Earnings Date"].iloc[0]
-                        if hasattr(val, "date"):
-                            next_earn = val.date()
-                        else:
-                            # fallback if it's a Timestamp/np.datetime64
+    col_ev_left, col_ev_right = st.columns([1.3, 1.0])
+
+    with col_ev_left:
+        st.markdown("**Selected Large-Cap Earnings (via yfinance)**")
+        if yf is None:
+            st.info("Earnings calendar requires yfinance and internet connectivity.")
+        else:
+            selected_names = [
+                ("AAPL", "Apple"),
+                ("MSFT", "Microsoft"),
+                ("AMZN", "Amazon"),
+                ("GOOGL", "Alphabet"),
+                ("META", "Meta Platforms"),
+                ("NVDA", "NVIDIA"),
+                ("JPM", "JPMorgan"),
+            ]
+            events = []
+            today = datetime.utcnow().date()
+            for ticker, name in selected_names:
+                try:
+                    t_obj = yf.Ticker(ticker)
+                    cal = getattr(t_obj, "calendar", None)
+                    next_earn = None
+                    if isinstance(cal, pd.DataFrame) and not cal.empty:
+                        if "Earnings Date" in cal.index:
+                            val = cal.loc["Earnings Date"].iloc[0]
                             try:
                                 next_earn = pd.to_datetime(val).date()
                             except Exception:
                                 next_earn = None
-                    else:
-                        # Fallback: take first cell
-                        val = cal.iloc[0, 0]
-                        try:
-                            next_earn = pd.to_datetime(val).date()
-                        except Exception:
-                            next_earn = None
-                if next_earn and next_earn >= today:
-                    events.append(
-                        {
-                            "Ticker": ticker,
-                            "Name": name,
-                            "Next Earnings Date": next_earn.isoformat(),
-                        }
-                    )
-            except Exception:
-                continue
+                        else:
+                            val = cal.iloc[0, 0]
+                            try:
+                                next_earn = pd.to_datetime(val).date()
+                            except Exception:
+                                next_earn = None
+                    if next_earn and next_earn >= today:
+                        events.append(
+                            {
+                                "Ticker": ticker,
+                                "Name": name,
+                                "Next Earnings Date": next_earn.isoformat(),
+                            }
+                        )
+                except Exception:
+                    continue
 
-        if events:
-            events_df = pd.DataFrame(events).sort_values("Next Earnings Date")
-            st.dataframe(events_df.set_index("Ticker"), use_container_width=True)
-        else:
-            st.info(
-                "No upcoming earnings could be retrieved right now for the selected names. "
-                "This panel is a lightweight earnings proxy, not a full economic calendar."
-            )
+            if events:
+                events_df = pd.DataFrame(events).sort_values("Next Earnings Date")
+                st.dataframe(events_df.set_index("Ticker"), use_container_width=True)
+            else:
+                st.info(
+                    "No upcoming earnings could be retrieved right now for the selected names. "
+                    "This panel is a lightweight earnings proxy, not a full economic calendar."
+                )
+
+    with col_ev_right:
+        st.markdown("**Key Macro Themes (Editable in Code)**")
+
+        macro_rows = [
+            {
+                "Event / Theme": "FOMC rate decisions",
+                "Focus": "Policy rates, liquidity, risk appetite",
+                "Impact Bias": "Higher vol → larger SmartSafe allocation",
+            },
+            {
+                "Event / Theme": "CPI / inflation releases",
+                "Focus": "Real yields, growth vs value, long-duration assets",
+                "Impact Bias": "High inflation → pressure on high-duration Waves",
+            },
+            {
+                "Event / Theme": "Tech mega-cap earnings season",
+                "Focus": "AI & Cloud, Next-Gen Compute, Small-Cap Disruptors",
+                "Impact Bias": "Upside surprises → higher beta & tech Waves outperform",
+            },
+            {
+                "Event / Theme": "Crypto market stress/liquidity events",
+                "Focus": "Bitcoin Wave, Multi-Cap Crypto Growth, Crypto Income ladder",
+                "Impact Bias": "Elevated crypto-vol → more in Crypto Stable Yield & SmartSafe",
+            },
+        ]
+        macro_df = pd.DataFrame(macro_rows)
+        st.dataframe(macro_df, use_container_width=True)
+        st.caption(
+            "Macro themes describe how the engine *tends* to react; you can easily edit this table in the code "
+            "to reflect current dates or firm-specific views."
+        )
 
     st.markdown("---")
 
-    # How WAVES are reacting and why — 30D view
-    st.subheader("WAVES Reaction Snapshot (30D · Mode = {} )".format(mode))
+    # WAVES Reaction Snapshot (30D)
+    st.subheader("WAVES Reaction Snapshot (30D · Mode = {})".format(mode))
 
     reaction_rows = []
     for wave in all_waves:
@@ -897,8 +1034,8 @@ with tab_market:
                 f"- **Most challenged Wave (30D alpha)**: {worst_row['Wave']} at {worst_row['30D Alpha']*100:0.2f}%."
             )
             st.caption(
-                "High positive alpha suggests momentum tilts, VIX scaling, SmartSafe sweeps, "
-                "and mode exposure are adding value vs. static ETF mixes."
+                "High positive alpha suggests momentum tilts, VIX/vol scaling, SmartSafe sweeps, "
+                "and mode exposure are adding value vs static ETF mixes."
             )
         else:
             st.info("Not enough data yet to summarize Wave reactions.")
