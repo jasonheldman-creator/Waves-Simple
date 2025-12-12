@@ -11,7 +11,7 @@
 #   • Regime gating (SPY 60D trend)
 #   • VIX-based exposure scaling (or BTC-vol-based for crypto)
 #   • SmartSafe™ sweep based on VIX & regime
-#   • Mode-specific exposure caps (Standard, AMB, Private Logic)
+#   • Mode-specific exposure caps (Standard, Alpha-Minus-Beta, Private Logic)
 #   • Private Logic™ mean-reversion overlay
 #
 # Benchmark side:
@@ -31,8 +31,11 @@
 #   • SmartSafe Tax-Free Money Market Wave (short-term munis)
 #   • Crypto Stable Yield Wave as crypto SmartSafe
 #
-# Metals side:
-#   • Gold Wave (GLD + IAU) with full dynamic logic
+# Metals & Macro:
+#   • Gold Wave (GLD + IAU)
+#   • Infinity Multi-Asset Growth Wave
+#   • Vector Adaptive Global Macro Wave (multi-asset global macro)
+#   • Vector Treasury Ladder Wave (laddered fixed-income income Wave)
 #
 # Public API used by app.py:
 #   • USE_FULL_WAVE_HISTORY
@@ -144,7 +147,7 @@ class ETFBenchmarkCandidate:
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings (equity, crypto, SmartSafe, Gold, Bitcoin, Infinity)
+# Internal Wave holdings (equity, crypto, SmartSafe, Gold, Bitcoin, Infinity, Macro, Ladder)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
@@ -305,6 +308,30 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("BTC-USD", 0.05, "Bitcoin"),
         Holding("ETH-USD", 0.05, "Ethereum"),
     ],
+
+    # NEW: Vector Adaptive Global Macro Wave
+    # Multi-asset global macro with equity, rates, gold, commodities, dollar, and a BTC sleeve
+    "Vector Adaptive Global Macro Wave": [
+        Holding("SPY", 0.20, "SPDR S&P 500 ETF"),
+        Holding("QQQ", 0.10, "Invesco QQQ Trust"),
+        Holding("IWM", 0.10, "iShares Russell 2000 ETF"),
+        Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
+        Holding("IEF", 0.10, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("GLD", 0.10, "SPDR Gold Shares"),
+        Holding("DBC", 0.10, "Invesco DB Commodity Index Tracking Fund"),
+        Holding("UUP", 0.05, "Invesco DB US Dollar Index Bullish Fund"),
+        Holding("BTC-USD", 0.05, "Bitcoin"),
+    ],
+
+    # NEW: Vector Treasury Ladder Wave (laddered income with all bells & whistles)
+    # Short bills through long bonds plus a touch of IG credit.
+    "Vector Treasury Ladder Wave": [
+        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.20, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
+        Holding("LQD", 0.15, "iShares iBoxx $ Investment Grade Corporate Bond ETF"),
+    ],
 }
 
 # ------------------------------------------------------------
@@ -384,6 +411,22 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
         Holding("QQQ", 0.40, "Invesco QQQ Trust"),
         Holding("BTC-USD", 0.20, "Bitcoin"),
+    ],
+
+    # Static benchmark for Vector Adaptive Global Macro Wave
+    "Vector Adaptive Global Macro Wave": [
+        Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
+        Holding("TLT", 0.30, "iShares 20+ Year Treasury Bond ETF"),
+        Holding("GLD", 0.20, "SPDR Gold Shares"),
+        Holding("BTC-USD", 0.10, "Bitcoin"),
+    ],
+
+    # Static benchmark for Vector Treasury Ladder Wave
+    "Vector Treasury Ladder Wave": [
+        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SHY", 0.25, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.25, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
     ],
 }
 
@@ -584,6 +627,8 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
             data = data["Close"]
         else:
             data = data[data.columns.levels[0][0]]
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.droplevel(0, axis=1)
     if isinstance(data, pd.Series):
         data = data.to_frame()
     data = data.sort_index().ffill().bfill()
@@ -635,7 +680,7 @@ def _get_ticker_meta(ticker: str) -> tuple[str, float]:
         if ticker in {"USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD", "sDAI-USD"}:
             return ("Safe", np.nan)
         return ("Crypto", np.nan)
-    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB"}:
+    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB", "IEF", "TLT", "LQD"}:
         return ("Safe", np.nan)
     if ticker in {"GLD", "IAU"}:
         return ("Gold", np.nan)
