@@ -1,7 +1,6 @@
 # app.py
 # WAVES Intelligence™ — Institutional Console
-# Full upgrade (SAFE): ALL waves visible + wave-count guardrail + Conditional Attribution Grid
-# + persistent logging + safe recommendations w/ session + persistent apply controls
+# HARD RULE: portfolio overview ALWAYS shows ALL waves from wave_weights.csv
 
 from __future__ import annotations
 
@@ -13,9 +12,6 @@ import streamlit as st
 import waves_engine as we
 
 
-# -----------------------------
-# UI helpers
-# -----------------------------
 def fmt_pct(x):
     if x is None:
         return "—"
@@ -33,72 +29,32 @@ def df_to_download(df: pd.DataFrame) -> bytes:
 
 
 def status_for_summary(summary: dict) -> str:
-    if summary.get("365D_return") is None:
-        return "NO HISTORY / INSUFFICIENT DATA"
-    return "OK"
+    # If 365D missing, still show the wave (never hide)
+    return "OK" if summary.get("365D_return") is not None else "NO HISTORY / INSUFFICIENT DATA"
 
 
-# -----------------------------
-# Page config
-# -----------------------------
 st.set_page_config(page_title="WAVES Intelligence™ Console", layout="wide")
 st.title("WAVES Intelligence™ Institutional Console")
 
-
-# -----------------------------
-# Sidebar controls
-# -----------------------------
-modes = we.get_modes()  # engine source of truth
-mode = st.sidebar.selectbox("Mode", modes, index=0)
+# Sidebar
+all_modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+mode = st.sidebar.selectbox("Mode", all_modes, index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Wave discovery is sourced from your WEIGHTS file (auto-discovered) + optional orphan logs.")
-
-min_expected = st.sidebar.number_input(
-    "Wave Count Guardrail (min allowed)",
-    min_value=1,
-    max_value=100,
-    value=15,
-    step=1,
-    help="If the app discovers fewer waves than this, it will STOP and warn you (prevents regressions).",
-)
-
+st.sidebar.caption("Wave discovery is ONLY from wave_weights.csv.")
 if st.sidebar.button("Refresh Wave List / Weights"):
     we.refresh_weights()
-    st.sidebar.success("Refreshed weights + wave list. Scroll to confirm count updated.")
+    st.sidebar.success("Refreshed weights cache.")
 
-
-# -----------------------------
-# Ensure ALL waves show up (with guardrail)
-# -----------------------------
 all_waves = we.get_all_waves()
-
-st.sidebar.markdown(f"**Waves discovered:** `{len(all_waves)}`")
-weights_path = we.get_weights_path()
-if weights_path:
-    st.sidebar.caption(f"Weights file: `{weights_path}`")
-else:
-    st.sidebar.caption("Weights file: (not found yet)")
-
 if not all_waves:
-    st.error("No Waves found. The engine could not read your weights file. Check file name/location and columns.")
-    st.stop()
-
-# Guardrail: stop if wave list regresses (prevents accidental deploy)
-if len(all_waves) < int(min_expected):
-    st.error(
-        f"🚨 WAVE DISCOVERY REGRESSION BLOCKER 🚨\n\n"
-        f"Discovered only **{len(all_waves)}** waves, but guardrail minimum is **{min_expected}**.\n\n"
-        f"Do NOT deploy this build. Fix weights path/format first.\n"
-        f"(Your business-safe stopgap to prevent the 10-wave collapse.)"
-    )
+    st.error("No Waves found. Confirm wave_weights.csv exists in repo root and has wave,ticker,weight columns.")
     st.stop()
 
 wave_selected = st.sidebar.selectbox("Select Wave", all_waves, index=0)
 
-
 # -----------------------------
-# Overview: Multi-window Alpha Capture (ALL WAVES, NEVER HIDE)
+# Overview (ALL WAVES)
 # -----------------------------
 st.header(f"Portfolio-Level Overview (All Waves) — Mode = {mode}")
 
@@ -129,7 +85,7 @@ for w in all_waves:
         })
 
 overview = pd.DataFrame(rows)
-st.dataframe(overview, use_container_width=True, height=460)
+st.dataframe(overview, use_container_width=True, height=520)
 
 st.download_button(
     "Download overview CSV",
@@ -140,55 +96,50 @@ st.download_button(
 
 st.markdown("---")
 
-
 # -----------------------------
-# Wave detail
+# Wave Detail
 # -----------------------------
 st.header(f"Wave Detail — {wave_selected} (Mode: {mode})")
 
-# Session-only overrides (safe preview applies)
+# Session overrides (preview-first)
 if "session_overrides" not in st.session_state:
-    st.session_state["session_overrides"] = {}  # key -> {exposure, smartsafe}
+    st.session_state["session_overrides"] = {}
 if "last_apply" not in st.session_state:
     st.session_state["last_apply"] = None
 
 key = (wave_selected, mode)
-override = st.session_state["session_overrides"].get(key, {})
 
-# Base defaults
 base_exposure = we.MODE_BASE_EXPOSURE.get(mode, 1.0)
 base_smartsafe = we.MODE_SMARTSAFE_BASE.get(mode, 0.0)
 
-# Persistent defaults (engine supports this)
 povr = we.get_persistent_override(wave_selected, mode)
 p_expo = float(povr.get("exposure", base_exposure)) if povr else base_exposure
 p_ss = float(povr.get("smartsafe", base_smartsafe)) if povr else base_smartsafe
 
+override = st.session_state["session_overrides"].get(key, {})
 cur_exposure = float(override.get("exposure", p_expo))
 cur_smartsafe = float(override.get("smartsafe", p_ss))
 
 with st.expander("Controls (Preview-first)", expanded=False):
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         cur_exposure = st.slider("Exposure (session override)", 0.0, 1.25, float(cur_exposure), 0.01)
-    with col2:
+    with c2:
         cur_smartsafe = st.slider("SmartSafe (session override)", 0.0, 0.90, float(cur_smartsafe), 0.01)
 
-    colA, colB = st.columns(2)
-    with colA:
+    cA, cB = st.columns(2)
+    with cA:
         if st.button("Revert session override"):
             st.session_state["session_overrides"].pop(key, None)
             st.session_state["last_apply"] = None
             st.success("Session override reverted.")
             st.rerun()
-
-    with colB:
+    with cB:
         if st.button("Clear persistent override (if any)"):
             we.persist_clear(wave_selected, mode)
             st.success("Persistent override cleared.")
             st.rerun()
 
-# Save override state
 st.session_state["session_overrides"][key] = {"exposure": cur_exposure, "smartsafe": cur_smartsafe}
 
 bundle = we.wave_detail_bundle(
@@ -201,7 +152,6 @@ bundle = we.wave_detail_bundle(
 
 df365 = bundle.get("df365")
 
-# NAV chart + headline stats
 if df365 is None or df365.empty:
     st.warning("Not enough market history to compute 365D NAV for this Wave yet.")
 else:
@@ -215,45 +165,35 @@ else:
     bm_365 = (nav["bm_nav"].iloc[-1] / nav["bm_nav"].iloc[0] - 1.0)
     alpha_365 = (1.0 + nav["alpha"]).prod() - 1.0
 
-    colA, colB, colC = st.columns(3)
-    colA.metric("365D Return", f"{ret_365*100:.2f}%")
-    colB.metric("365D Alpha", f"{alpha_365*100:.2f}%")
-    colC.metric("Benchmark Return", f"{bm_365*100:.2f}%")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("365D Return", f"{ret_365*100:.2f}%")
+    m2.metric("365D Alpha", f"{alpha_365*100:.2f}%")
+    m3.metric("Benchmark Return", f"{bm_365*100:.2f}%")
 
 st.markdown("---")
 
-
-# -----------------------------
-# Volatility Regime Attribution
-# -----------------------------
 st.subheader("Volatility Regime Attribution (365D)")
 vol_attr = bundle.get("vol_attr")
 if vol_attr is None or (isinstance(vol_attr, pd.DataFrame) and vol_attr.empty):
     st.info("Not enough data for regime attribution yet.")
 else:
     show = vol_attr.copy()
-    show["wave_ret"] = show["wave_ret"].map(lambda x: f"{x*100:.2f}%")
-    show["bm_ret"] = show["bm_ret"].map(lambda x: f"{x*100:.2f}%")
-    show["alpha"] = show["alpha"].map(lambda x: f"{x*100:.2f}%")
-    st.dataframe(show, use_container_width=True, height=220)
+    for c in ["wave_ret", "bm_ret", "alpha"]:
+        show[c] = show[c].map(lambda x: f"{float(x)*100:.2f}%")
+    st.dataframe(show, use_container_width=True, height=240)
 
 st.markdown("---")
 
-
-# -----------------------------
-# Conditional Attribution Grid + persistent logging
-# -----------------------------
 st.subheader("Conditional Attribution Grid (Regime × Trend) — 365D")
 cond_grid = bundle.get("cond_grid")
 log_path = bundle.get("cond_log_path", "")
-
 if cond_grid is None or (isinstance(cond_grid, pd.DataFrame) and cond_grid.empty):
     st.info("Not enough data for conditional attribution grid yet.")
 else:
     grid_show = cond_grid.copy()
     grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha"] * 10000.0
-    grid_show["cum_alpha"] = grid_show["cum_alpha"].map(lambda x: f"{x*100:.2f}%")
-    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha_bp"].map(lambda x: f"{x:.2f}")
+    grid_show["cum_alpha"] = grid_show["cum_alpha"].map(lambda x: f"{float(x)*100:.2f}%")
+    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha_bp"].map(lambda x: f"{float(x):.2f}")
     grid_show = grid_show[["regime", "trend", "days", "mean_daily_alpha_bp", "cum_alpha"]]
     st.dataframe(grid_show, use_container_width=True, height=260)
     if log_path:
@@ -268,10 +208,6 @@ else:
 
 st.markdown("---")
 
-
-# -----------------------------
-# Diagnostics
-# -----------------------------
 st.subheader("Diagnostics")
 diags = bundle.get("diagnostics") or []
 levels = [d.get("level", "INFO") for d in diags]
@@ -285,21 +221,14 @@ else:
 
 st.markdown("---")
 
-
-# -----------------------------
-# Auto Recommendations (Preview-first + safe apply)
-# -----------------------------
 st.subheader("Auto Recommendations (Preview-first)")
-
 recos = bundle.get("recommendations") or []
 if not recos:
     st.info("No high-confidence recommendations detected (or not enough history).")
 else:
-    st.caption("Default apply is session-only. You can optionally enable persistent apply with hard confirmation.")
-    enable_persist = st.checkbox("Enable persistent apply (writes persistent_overrides.json)", value=False)
-    confirm_text = ""
-    if enable_persist:
-        confirm_text = st.text_input("Type APPLY to enable persistent writes", value="")
+    st.caption("Default apply is session-only. Optional persistent apply requires hard confirmation.")
+    enable_persist = st.checkbox("Enable persistent apply (writes logs/overrides/persistent_overrides.json)", value=False)
+    confirm_text = st.text_input("Type APPLY to unlock persistent writes", value="") if enable_persist else ""
 
     for i, r in enumerate(recos):
         title = r.get("title", "Recommendation")
@@ -313,7 +242,7 @@ else:
             st.code(str(deltas))
 
             if we.CONF_RANK.get(conf, 0) < we.CONF_RANK.get(we.SAFE_APPLY_LIMITS["min_confidence_to_apply"], 2):
-                st.warning("Blocked by guardrails: confidence below minimum for apply.")
+                st.warning("Blocked by guardrails: confidence below minimum to apply.")
                 continue
 
             if not deltas or ("exposure_delta" not in deltas and "smartsafe_delta" not in deltas):
@@ -379,7 +308,7 @@ else:
 
             with c3:
                 persist_ok = enable_persist and (confirm_text.strip().upper() == "APPLY")
-                if st.button("Persist apply (writes persistent_overrides.json)", key=f"persist_{i}", disabled=(not persist_ok)):
+                if st.button("Persist apply (writes overrides)", key=f"persist_{i}", disabled=(not persist_ok)):
                     we.persist_apply(
                         wave_selected,
                         mode,
@@ -394,18 +323,14 @@ else:
 
 st.markdown("---")
 
-
-# -----------------------------
-# Top-10 holdings
-# -----------------------------
 st.subheader("Top-10 Holdings")
 holds = bundle.get("holdings")
 if holds is None or holds.empty:
-    st.info("No holdings found for this Wave (check weights file).")
+    st.info("No holdings found for this Wave (check wave_weights.csv).")
 else:
     show = holds.copy().head(10)
     show["weight"] = show["weight"].map(lambda x: f"{float(x):.2f}%")
     show = show.rename(columns={"ticker": "Ticker", "weight": "Weight"})
     st.dataframe(show, use_container_width=True, height=260)
 
-st.caption("Logs: logs/recommendations/reco_events.csv • Persistent overrides: logs/overrides/persistent_overrides.json")
+st.caption("Logs: logs/recommendations/reco_events.csv • Overrides: logs/overrides/persistent_overrides.json • Conditional: logs/conditional/")
