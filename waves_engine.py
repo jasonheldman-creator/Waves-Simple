@@ -1,599 +1,913 @@
-# waves_engine.py
-# WAVES Intelligence™ — Vector Engine (Internal 20 Waves + Old Console API Compatible)
+# waves_engine.py — WAVES Intelligence™ Vector Engine
+# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
 #
-# This engine is designed to support BOTH:
-#   (A) The richer “old console” app.py backup API signatures
-#   (B) A mode-separated, overlay-driven Vector Engine behavior
+# Mobile-friendly:
+#   • No terminal, no CLI, no CSV requirement for core behavior.
+#   • Internal Wave holdings + ETF / crypto candidate library.
 #
-# Public API (as expected by your backup console):
-#   - get_all_waves() -> list[str]
-#   - get_modes() -> list[str]
-#   - compute_history_nav(wave_name: str, mode: str, days: int = 365) -> pd.DataFrame
-#         returns df indexed by date with columns:
-#           ["wave_nav","bm_nav","wave_ret","bm_ret"]
-#   - get_benchmark_mix_table() -> pd.DataFrame
-#         returns columns:
-#           ["Wave","Ticker","Name","Weight","Type"]
-#   - get_wave_holdings(wave_name: str) -> pd.DataFrame
-#         returns columns:
-#           ["Ticker","Name","Weight"]
+# Strategy side:
+#   • Momentum tilts (60D)
+#   • Volatility targeting (20D realized vol)
+#   • Regime gating (SPY 60D trend)
+#   • VIX-based exposure scaling (or BTC-vol-based for crypto)
+#   • SmartSafe™ sweep based on VIX & regime
+#   • Mode-specific exposure caps (Standard, Alpha-Minus-Beta, Private Logic)
+#   • Private Logic™ mean-reversion overlay
 #
-# Optional internal helpers are present to support overlays:
-#   - SmartSafe sweeps (regime + VIX)
-#   - Momentum tilt (60D)
-#   - Vol targeting (20D realized)
-#   - VIX exposure scaling
-#   - Mode caps: Standard / Alpha-Minus-Beta / Private Logic
+# Benchmark side:
+#   • Auto-constructed composite benchmarks based on Wave exposures.
+#   • Fallback static benchmark weights per Wave.
 #
-# Notes:
-# - Uses yfinance for daily adjusted closes.
-# - If yfinance is missing, functions return empty frames (console will display warnings).
+# Public API used by app.py:
+#   • USE_FULL_WAVE_HISTORY
+#   • get_all_waves()
+#   • get_modes()
+#   • compute_history_nav(wave_name, mode, days)
+#   • get_benchmark_mix_table()
+#   • get_wave_holdings(wave_name)
 
 from __future__ import annotations
 
-import math
-import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from functools import lru_cache
+from typing import Dict, List, Set
 
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore", category=FutureWarning)
-
 try:
     import yfinance as yf
-except Exception:
+except ImportError:  # pragma: no cover
     yf = None
 
+# ------------------------------------------------------------
+# Global config
+# ------------------------------------------------------------
 
-# -----------------------------
-# Modes / Config
-# -----------------------------
+USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag; kept for compatibility
 
-MODES = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+TRADING_DAYS_PER_YEAR = 252
 
-REGIME_TICKER = "SPY"
+# Mode risk appetites & exposure caps
+MODE_BASE_EXPOSURE: Dict[str, float] = {
+    "Standard": 1.00,
+    "Alpha-Minus-Beta": 0.85,
+    "Private Logic": 1.10,
+}
+
+MODE_EXPOSURE_CAPS: Dict[str, tuple[float, float]] = {
+    "Standard": (0.70, 1.30),
+    "Alpha-Minus-Beta": (0.50, 1.00),
+    "Private Logic": (0.80, 1.50),
+}
+
+# Regime → additional exposure tilt (from SPY 60D trend)
+REGIME_EXPOSURE: Dict[str, float] = {
+    "panic": 0.80,
+    "downtrend": 0.90,
+    "neutral": 1.00,
+    "uptrend": 1.10,
+}
+
+# Regime & mode → baseline SmartSafe gating fraction (portion in safe asset)
+REGIME_GATING: Dict[str, Dict[str, float]] = {
+    "Standard": {
+        "panic": 0.50,
+        "downtrend": 0.30,
+        "neutral": 0.10,
+        "uptrend": 0.00,
+    },
+    "Alpha-Minus-Beta": {
+        "panic": 0.75,
+        "downtrend": 0.50,
+        "neutral": 0.25,
+        "uptrend": 0.05,
+    },
+    "Private Logic": {
+        "panic": 0.40,
+        "downtrend": 0.25,
+        "neutral": 0.05,
+        "uptrend": 0.00,
+    },
+}
+
+PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized (default)
+
 VIX_TICKER = "^VIX"
+BTC_TICKER = "BTC-USD"  # used for crypto-VIX proxy
 
-SMARTSAFE_TICKER = "BIL"  # cash-like proxy
-SMARTSAFE_ALT = "SHY"     # short-term treasury proxy
-
-# History + overlays
-DEFAULT_BACKFILL_DAYS = 730  # we’ll fetch extra so 200D MA + 365D stats are stable
-MA_REGIME_DAYS = 200
-
-MOM_LOOKBACK_DAYS = 60
-MOM_TILT_MAX = 0.12  # per-asset tilt before renormalizing
-
-VOL_LOOKBACK_DAYS = 20
-VOL_TARGET = {"Standard": 0.14, "Alpha-Minus-Beta": 0.10, "Private Logic": 0.18}
-
-# VIX gating thresholds
-VIX_LOW = 16.0
-VIX_HIGH = 24.0
-VIX_EXTREME = 32.0
-
-# Mode caps (gross exposure multiplier)
-MODE_GROSS_CAP = {"Standard": 1.00, "Alpha-Minus-Beta": 0.88, "Private Logic": 1.20}
-
-# SmartSafe intensity by mode (base)
-MODE_SWEEP_INTENSITY = {"Standard": 0.55, "Alpha-Minus-Beta": 0.70, "Private Logic": 0.35}
-
-# VIX exposure scaling by mode (reduces exposure when volatility rises)
-def _vix_exposure_scale(vix_last: float, mode: str) -> float:
-    if vix_last <= VIX_LOW:
-        return 1.00
-    if vix_last >= VIX_EXTREME:
-        return {"Standard": 0.72, "Alpha-Minus-Beta": 0.65, "Private Logic": 0.85}.get(mode, 0.75)
-    if vix_last >= VIX_HIGH:
-        return {"Standard": 0.82, "Alpha-Minus-Beta": 0.75, "Private Logic": 0.92}.get(mode, 0.85)
-    return {"Standard": 0.92, "Alpha-Minus-Beta": 0.88, "Private Logic": 0.98}.get(mode, 0.92)
-
-
-def _clip(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
-
-
-def _safe_ticker(t: str) -> str:
-    return t.replace(".", "-").strip().upper()
-
-
-def _dedupe_and_normalize(weights: Dict[str, float]) -> Dict[str, float]:
-    agg: Dict[str, float] = {}
-    for k, v in weights.items():
-        k2 = _safe_ticker(k)
-        if k2 in ("CASH", ""):
-            continue
-        agg[k2] = agg.get(k2, 0.0) + float(v)
-
-    s = sum(max(0.0, x) for x in agg.values())
-    if s <= 0:
-        return {}
-    return {k: max(0.0, v) / s for k, v in agg.items()}
-
-
-# -----------------------------
-# INTERNAL 20-WAVE HOLDINGS
-# -----------------------------
-# You can refine these later; the engine will always auto-discover all waves from this dict.
-
-WAVE_WEIGHTS: Dict[str, Dict[str, float]] = {
-    # 1
-    "S&P 500 Wave": {
-        "AAPL": 0.06, "MSFT": 0.06, "NVDA": 0.05, "AMZN": 0.04, "META": 0.03,
-        "GOOGL": 0.03, "BRK-B": 0.03, "LLY": 0.02, "AVGO": 0.02, "JPM": 0.02,
-        "XOM": 0.02, "UNH": 0.02, "COST": 0.02, "V": 0.02, "HD": 0.02,
-        "MA": 0.02, "PG": 0.02, "KO": 0.01, "PEP": 0.01, "ADBE": 0.01,
-    },
-
-    # 2
-    "AI Wave": {
-        "NVDA": 0.10, "MSFT": 0.08, "GOOGL": 0.06, "META": 0.06, "AMZN": 0.06,
-        "AMD": 0.05, "AVGO": 0.05, "ASML": 0.05, "TSM": 0.05, "SMCI": 0.04,
-        "ORCL": 0.04, "ADBE": 0.04, "CRM": 0.04, "SNOW": 0.03, "NOW": 0.03,
-        "PLTR": 0.03, "DDOG": 0.02, "ANET": 0.02, "INTC": 0.02, "QCOM": 0.02
-    },
-
-    # 3
-    "Quantum Computing Wave": {
-        "IONQ": 0.08, "RGTI": 0.06, "QBTS": 0.06, "IBM": 0.07, "GOOGL": 0.07,
-        "MSFT": 0.07, "NVDA": 0.06, "AMZN": 0.05, "INTC": 0.05, "QCOM": 0.05,
-        "HON": 0.04, "LMT": 0.04, "BA": 0.03, "AVGO": 0.06, "ASML": 0.06,
-        "TSM": 0.05, "META": 0.05, "ORCL": 0.03, "PLTR": 0.03, "CSCO": 0.04,
-    },
-
-    # 4
-    "Crypto Wave": {
-        "IBIT": 0.35, "ETHA": 0.20, "COIN": 0.08, "MSTR": 0.08, "HOOD": 0.05,
-        "SQ": 0.05, "PYPL": 0.04, "RIOT": 0.04, "MARA": 0.04, "HUT": 0.03,
-        "BITF": 0.02, "CLSK": 0.03, "TSLA": 0.02, "NVDA": 0.03, "BLK": 0.02
-    },
-
-    # 5
-    "Crypto Income Wave": {
-        "IBIT": 0.20, "ETHA": 0.12, "COIN": 0.06, "MSTR": 0.06,
-        "JPM": 0.08, "BAC": 0.06, "GS": 0.06, "MS": 0.06,
-        "BX": 0.06, "KKR": 0.05, "BLK": 0.05,
-        "LQD": 0.06, "AGG": 0.06, "SHY": 0.04, "BIL": 0.04
-    },
-
-    # 6
-    "Future Power & Energy Wave": {
-        "XOM": 0.06, "CVX": 0.05, "SLB": 0.05, "COP": 0.04, "EOG": 0.04,
-        "NEE": 0.06, "ENPH": 0.04, "FSLR": 0.05, "TSLA": 0.05, "CHPT": 0.02,
-        "LNG": 0.04, "OXY": 0.04, "VLO": 0.03, "ET": 0.03, "KMI": 0.03,
-        "CAT": 0.04, "DE": 0.04, "ICLN": 0.03, "PLUG": 0.02, "GE": 0.04,
-    },
-
-    # 7
-    "Clean Transit-Infrastructure Wave": {
-        "CAT": 0.06, "DE": 0.05, "UNP": 0.05, "CSX": 0.04, "NSC": 0.04,
-        "WM": 0.04, "VMC": 0.04, "MLM": 0.04, "URI": 0.04, "PWR": 0.05,
-        "NUE": 0.04, "STLD": 0.04, "TSLA": 0.05, "ALB": 0.04, "CHPT": 0.02,
-        "HON": 0.04, "EMR": 0.04, "ETN": 0.05, "JCI": 0.03, "GE": 0.04
-    },
-
-    # 8
-    "Cloud/Software Wave": {
-        "MSFT": 0.09, "AMZN": 0.07, "GOOGL": 0.06, "ORCL": 0.06, "CRM": 0.06,
-        "NOW": 0.06, "SNOW": 0.05, "DDOG": 0.05, "NET": 0.04, "PANW": 0.04,
-        "CRWD": 0.04, "ZS": 0.03, "MDB": 0.03, "TEAM": 0.03, "ADBE": 0.05,
-        "INTU": 0.04, "SHOP": 0.04, "PLTR": 0.03, "UBER": 0.03, "TWLO": 0.02
-    },
-
-    # 9
-    "Cybersecurity Wave": {
-        "CRWD": 0.09, "PANW": 0.08, "ZS": 0.07, "FTNT": 0.07, "OKTA": 0.05,
-        "NET": 0.05, "DDOG": 0.05, "CSCO": 0.06, "MSFT": 0.08, "GOOGL": 0.05,
-        "AMZN": 0.05, "CHKP": 0.05, "CYBR": 0.06, "AKAM": 0.05, "S": 0.04
-    },
-
-    # 10
-    "Fintech Wave": {
-        "SQ": 0.08, "PYPL": 0.07, "HOOD": 0.05, "SOFI": 0.05, "COIN": 0.06,
-        "V": 0.08, "MA": 0.08, "AXP": 0.06, "JPM": 0.07, "BAC": 0.06,
-        "GS": 0.05, "MS": 0.05, "NU": 0.05, "MELI": 0.05, "INTU": 0.04
-    },
-
-    # 11
-    "Small Cap Growth Wave": {
-        "IWM": 0.25, "IWO": 0.20, "SOUN": 0.05, "RKLB": 0.05, "SOFI": 0.05,
-        "CELH": 0.05, "PLTR": 0.05, "RIVN": 0.05, "UPST": 0.05, "AFRM": 0.05,
-        "DUOL": 0.05, "CRSP": 0.05, "ASTS": 0.05, "OKLO": 0.05
-    },
-
-    # 12
-    "Small to Mid Cap Growth Wave": {
-        "MDY": 0.22, "IWF": 0.15, "VUG": 0.15, "SHOP": 0.05, "SNOW": 0.05,
-        "NOW": 0.05, "DDOG": 0.05, "NET": 0.04, "CRWD": 0.04, "UBER": 0.04,
-        "PLTR": 0.04, "CELH": 0.04, "DUOL": 0.04, "ARM": 0.04, "AMD": 0.05
-    },
-
-    # 13
-    "Global Macro Wave": {
-        "SPY": 0.22, "TLT": 0.16, "IEF": 0.10, "GLD": 0.12, "DBC": 0.08,
-        "UUP": 0.06, "FXE": 0.04, "EWJ": 0.06, "EEM": 0.06, "VNQ": 0.05,
-        "XLE": 0.05
-    },
-
-    # 14
-    "Income Wave": {
-        "AGG": 0.28, "LQD": 0.20, "HYG": 0.10, "TIP": 0.10, "IEF": 0.10,
-        "SHY": 0.08, "BIL": 0.06, "VNQ": 0.08
-    },
-
-    # 15
-    "Muni Ladder Wave": {
-        "MUB": 0.45, "VTEB": 0.35, "SUB": 0.08, "SHY": 0.06, "BIL": 0.06
-    },
-
-    # 16
-    "Infinity Wave™": {
-        "SPY": 0.18, "QQQ": 0.16, "VUG": 0.10, "VTV": 0.08, "IWM": 0.07,
-        "GLD": 0.07, "TLT": 0.08, "IEF": 0.05, "VNQ": 0.05, "DBC": 0.05,
-        "IBIT": 0.07, "ETHA": 0.04
-    },
-
-    # 17
-    "SmartSafe™ Money Market Wave": {
-        "BIL": 0.70, "SHY": 0.20, "IEF": 0.10
-    },
-
-    # 18 (added)
-    "Healthcare Innovation Wave": {
-        "LLY": 0.08, "UNH": 0.06, "JNJ": 0.06, "ABBV": 0.06, "MRK": 0.06,
-        "TMO": 0.06, "DHR": 0.06, "ISRG": 0.05, "VRTX": 0.05, "REGN": 0.05,
-        "PFE": 0.04, "BMY": 0.04, "GILD": 0.04, "AMGN": 0.05, "SYK": 0.04,
-        "MDT": 0.04, "HCA": 0.04, "CI": 0.04, "IQV": 0.04, "BSX": 0.04
-    },
-
-    # 19 (added)
-    "Defense & Aerospace Wave": {
-        "LMT": 0.10, "NOC": 0.08, "RTX": 0.08, "GD": 0.06, "BA": 0.06,
-        "LHX": 0.06, "HII": 0.04, "HEI": 0.04, "TDG": 0.06, "TXT": 0.03,
-        "HON": 0.05, "GE": 0.06, "ETN": 0.05, "RRX": 0.03, "BWXT": 0.04,
-        "KTOS": 0.03, "AVAV": 0.03, "PLTR": 0.06, "MSFT": 0.03, "CSCO": 0.02
-    },
-
-    # 20 (added)
-    "Space Economy Wave": {
-        "RKLB": 0.08, "LUNR": 0.04, "ASTS": 0.06, "PLTR": 0.06, "NVDA": 0.06,
-        "BA": 0.05, "LMT": 0.05, "NOC": 0.04, "RTX": 0.04, "IRDM": 0.05,
-        "TSLA": 0.05, "GOOGL": 0.05, "AMZN": 0.05, "MSFT": 0.05, "AVGO": 0.04,
-        "CSCO": 0.04, "HON": 0.04, "QCOM": 0.04, "INTC": 0.03, "SPCE": 0.02
-    },
+# Crypto yield overlays (APY assumptions per Wave)
+CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
+    "Crypto Stable Yield Wave": 0.04,
+    "Crypto Income & Yield Wave": 0.08,
+    "Crypto High-Yield Income Wave": 0.12,
 }
 
-# Benchmark “themes” (fallbacks) used if composite tickers are missing
-BENCHMARK_FALLBACKS: Dict[str, Dict[str, float]] = {
-    "US_Large": {"SPY": 1.0},
-    "US_Tech": {"QQQ": 1.0},
-    "US_Small": {"IWM": 1.0},
-    "US_Mid": {"MDY": 1.0},
-    "Growth": {"VUG": 1.0},
-    "Value": {"VTV": 1.0},
-    "Global": {"VT": 1.0},
-    "Income": {"AGG": 0.6, "LQD": 0.4},
-    "Crypto": {"IBIT": 0.6, "ETHA": 0.4},
-    "Healthcare": {"XLV": 1.0},
-    "Defense": {"ITA": 1.0},
-    "Space": {"ARKX": 1.0},
-    "Energy": {"XLE": 1.0},
+CRYPTO_WAVE_KEYWORD = "Crypto"
+
+# ------------------------------------------------------------
+# Data structures
+# ------------------------------------------------------------
+
+@dataclass
+class Holding:
+    ticker: str
+    weight: float
+    name: str | None = None
+
+
+@dataclass
+class ETFBenchmarkCandidate:
+    ticker: str
+    name: str
+    sector_tags: Set[str]
+    cap_style: str  # "Mega", "Large", "Mid", "Small", "Crypto", "Safe", "Broad", "Gold"
+
+
+# ------------------------------------------------------------
+# Internal Wave holdings
+# ------------------------------------------------------------
+
+WAVE_WEIGHTS: Dict[str, List[Holding]] = {
+    # Core US equity Waves
+    "US MegaCap Core Wave": [
+        Holding("AAPL", 0.07, "Apple Inc."),
+        Holding("MSFT", 0.07, "Microsoft Corp."),
+        Holding("AMZN", 0.05, "Amazon.com Inc."),
+        Holding("GOOGL", 0.04, "Alphabet Inc. (Class A)"),
+        Holding("META", 0.03, "Meta Platforms Inc."),
+        Holding("NVDA", 0.06, "NVIDIA Corp."),
+        Holding("BRK-B", 0.04, "Berkshire Hathaway Inc. (B)"),
+        Holding("UNH", 0.03, "UnitedHealth Group Inc."),
+        Holding("JPM", 0.03, "JPMorgan Chase & Co."),
+        Holding("XOM", 0.03, "Exxon Mobil Corp."),
+    ],
+    "AI & Cloud MegaCap Wave": [
+        Holding("NVDA", 0.12, "NVIDIA Corp."),
+        Holding("MSFT", 0.10, "Microsoft Corp."),
+        Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
+        Holding("META", 0.07, "Meta Platforms Inc."),
+        Holding("AVGO", 0.08, "Broadcom Inc."),
+        Holding("ADBE", 0.07, "Adobe Inc."),
+        Holding("AMD", 0.08, "Advanced Micro Devices Inc."),
+        Holding("CRM", 0.06, "Salesforce Inc."),
+        Holding("ORCL", 0.06, "Oracle Corp."),
+        Holding("INTC", 0.06, "Intel Corp."),
+    ],
+    "Next-Gen Compute & Semis Wave": [
+        Holding("IBM", 0.10, "International Business Machines Corp."),
+        Holding("MSFT", 0.08, "Microsoft Corp."),
+        Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
+        Holding("NVDA", 0.10, "NVIDIA Corp."),
+        Holding("AMZN", 0.08, "Amazon.com Inc."),
+        Holding("QCOM", 0.08, "Qualcomm Inc."),
+        Holding("INTC", 0.08, "Intel Corp."),
+        Holding("TSM", 0.10, "Taiwan Semiconductor Manufacturing"),
+        Holding("ADBE", 0.07, "Adobe Inc."),
+        Holding("SNOW", 0.07, "Snowflake Inc."),
+    ],
+    "Future Energy & EV Wave": [
+        Holding("XLE", 0.12, "Energy Select Sector SPDR"),
+        Holding("ICLN", 0.10, "iShares Global Clean Energy"),
+        Holding("ENPH", 0.08, "Enphase Energy Inc."),
+        Holding("NEE", 0.10, "NextEra Energy Inc."),
+        Holding("FSLR", 0.08, "First Solar Inc."),
+        Holding("TSLA", 0.10, "Tesla Inc."),
+        Holding("RUN", 0.07, "Sunrun Inc."),
+        Holding("BP", 0.08, "BP plc"),
+        Holding("CVX", 0.10, "Chevron Corp."),
+        Holding("PLUG", 0.07, "Plug Power Inc."),
+    ],
+    "EV & Infrastructure Wave": [
+        Holding("TSLA", 0.12, "Tesla Inc."),
+        Holding("NIO", 0.08, "NIO Inc."),
+        Holding("GM", 0.08, "General Motors"),
+        Holding("F", 0.08, "Ford Motor Co."),
+        Holding("CAT", 0.08, "Caterpillar Inc."),
+        Holding("UNP", 0.08, "Union Pacific Corp."),
+        Holding("VMC", 0.08, "Vulcan Materials"),
+        Holding("MLM", 0.08, "Martin Marietta Materials"),
+        Holding("XLI", 0.16, "Industrial Select Sector SPDR"),
+        Holding("PAVE", 0.16, "Global X U.S. Infrastructure Development"),
+    ],
+    "US Small-Cap Disruptors Wave": [
+        Holding("IWO", 0.30, "iShares Russell 2000 Growth ETF"),
+        Holding("VBK", 0.30, "Vanguard Small-Cap Growth ETF"),
+        Holding("ARKK", 0.10, "ARK Innovation ETF"),
+        Holding("ZS", 0.10, "Zscaler Inc."),
+        Holding("DDOG", 0.10, "Datadog Inc."),
+        Holding("NET", 0.10, "Cloudflare Inc."),
+    ],
+    "US Mid/Small Growth & Semis Wave": [
+        Holding("IWP", 0.30, "iShares Russell Mid-Cap Growth ETF"),
+        Holding("MDY", 0.30, "SPDR S&P MidCap 400 ETF"),
+        Holding("IWO", 0.20, "iShares Russell 2000 Growth ETF"),
+        Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
+    ],
+
+    # ✅ Demas Fund Wave (simple, value/quality + defensive tilt)
+    "Demas Fund Wave": [
+        Holding("BRK-B", 0.12, "Berkshire Hathaway (B)"),
+        Holding("JPM", 0.10, "JPMorgan Chase & Co."),
+        Holding("XOM", 0.10, "Exxon Mobil Corp."),
+        Holding("CVX", 0.08, "Chevron Corp."),
+        Holding("PG", 0.10, "Procter & Gamble"),
+        Holding("KO", 0.08, "Coca-Cola"),
+        Holding("JNJ", 0.10, "Johnson & Johnson"),
+        Holding("UNH", 0.10, "UnitedHealth Group"),
+        Holding("WMT", 0.10, "Walmart"),
+        Holding("VTV", 0.12, "Vanguard Value ETF"),
+    ],
+
+    # Crypto growth Wave
+    "Multi-Cap Crypto Growth Wave": [
+        Holding("BTC-USD", 0.25, "Bitcoin"),
+        Holding("ETH-USD", 0.20, "Ethereum"),
+        Holding("SOL-USD", 0.10, "Solana"),
+        Holding("AVAX-USD", 0.07, "Avalanche"),
+        Holding("ADA-USD", 0.07, "Cardano"),
+        Holding("MATIC-USD", 0.06, "Polygon"),
+        Holding("LINK-USD", 0.06, "Chainlink"),
+        Holding("DOT-USD", 0.06, "Polkadot"),
+        Holding("ATOM-USD", 0.05, "Cosmos"),
+        Holding("GRT-USD", 0.03, "The Graph"),
+        Holding("AAVE-USD", 0.03, "Aave"),
+        Holding("UNI-USD", 0.02, "Uniswap"),
+    ],
+    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
+
+    "Crypto Stable Yield Wave": [
+        Holding("USDC-USD", 0.35, "USD Coin"),
+        Holding("USDT-USD", 0.30, "Tether"),
+        Holding("DAI-USD", 0.20, "Dai"),
+        Holding("USDP-USD", 0.10, "Pax Dollar"),
+        Holding("sDAI-USD", 0.03, "Savings Dai (proxy)"),
+        Holding("stETH-USD", 0.02, "Lido Staked Ether"),
+    ],
+    "Crypto Income & Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.20, "Tether"),
+        Holding("DAI-USD", 0.15, "Dai"),
+        Holding("USDP-USD", 0.05, "Pax Dollar"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.10, "Aave"),
+        Holding("MKR-USD", 0.05, "Maker"),
+        Holding("ETH-USD", 0.05, "Ethereum"),
+        Holding("BTC-USD", 0.05, "Bitcoin"),
+    ],
+    "Crypto High-Yield Income Wave": [
+        Holding("stETH-USD", 0.15, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.15, "Aave"),
+        Holding("MKR-USD", 0.10, "Maker"),
+        Holding("UNI-USD", 0.10, "Uniswap"),
+        Holding("GRT-USD", 0.10, "The Graph"),
+        Holding("LINK-USD", 0.10, "Chainlink"),
+        Holding("ETH-USD", 0.15, "Ethereum"),
+        Holding("BTC-USD", 0.15, "Bitcoin"),
+    ],
+
+    # SmartSafe Waves
+    "SmartSafe Treasury Cash Wave": [
+        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
+    ],
+    "SmartSafe Tax-Free Money Market Wave": [
+        Holding("SUB", 0.40, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.40, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.20, "iShares National Muni Bond ETF"),
+    ],
+
+    "Gold Wave": [
+        Holding("GLD", 0.70, "SPDR Gold Shares"),
+        Holding("IAU", 0.30, "iShares Gold Trust"),
+    ],
+
+    "Infinity Multi-Asset Growth Wave": [
+        Holding("SPY", 0.20, "SPDR S&P 500 ETF"),
+        Holding("QQQ", 0.20, "Invesco QQQ Trust"),
+        Holding("VGT", 0.10, "Vanguard Information Technology ETF"),
+        Holding("SMH", 0.10, "VanEck Semiconductor ETF"),
+        Holding("ICLN", 0.10, "iShares Global Clean Energy ETF"),
+        Holding("PAVE", 0.10, "Global X U.S. Infrastructure Development"),
+        Holding("IWO", 0.10, "iShares Russell 2000 Growth ETF"),
+        Holding("BTC-USD", 0.05, "Bitcoin"),
+        Holding("ETH-USD", 0.05, "Ethereum"),
+    ],
+
+    "Vector Treasury Ladder Wave": [
+        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.20, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
+        Holding("LQD", 0.15, "iShares iBoxx $ Investment Grade Corporate Bond ETF"),
+    ],
+    "Vector Muni Ladder Wave": [
+        Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.20, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.25, "iShares National Muni Bond ETF"),
+        Holding("TFI", 0.15, "SPDR Nuveen Bloomberg Municipal Bond ETF"),
+        Holding("HYD", 0.15, "VanEck High-Yield Muni ETF"),
+    ],
 }
 
-WAVE_BENCH_THEME: Dict[str, str] = {
-    "S&P 500 Wave": "US_Large",
-    "AI Wave": "US_Tech",
-    "Quantum Computing Wave": "US_Tech",
-    "Crypto Wave": "Crypto",
-    "Crypto Income Wave": "Crypto",
-    "Future Power & Energy Wave": "Energy",
-    "Clean Transit-Infrastructure Wave": "US_Large",
-    "Cloud/Software Wave": "US_Tech",
-    "Cybersecurity Wave": "US_Tech",
-    "Fintech Wave": "US_Tech",
-    "Small Cap Growth Wave": "US_Small",
-    "Small to Mid Cap Growth Wave": "US_Mid",
-    "Global Macro Wave": "Global",
-    "Income Wave": "Income",
-    "Muni Ladder Wave": "Income",
-    "Infinity Wave™": "Global",
-    "SmartSafe™ Money Market Wave": "Income",
-    "Healthcare Innovation Wave": "Healthcare",
-    "Defense & Aerospace Wave": "Defense",
-    "Space Economy Wave": "Space",
+# ------------------------------------------------------------
+# Static benchmarks (fallback / overrides)
+# ------------------------------------------------------------
+
+BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
+    "US MegaCap Core Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
+    "AI & Cloud MegaCap Wave": [
+        Holding("QQQ", 0.60, "Invesco QQQ Trust"),
+        Holding("IGV", 0.40, "iShares Expanded Tech-Software"),
+    ],
+    "Next-Gen Compute & Semis Wave": [
+        Holding("QQQ", 0.50, "Invesco QQQ Trust"),
+        Holding("SMH", 0.50, "VanEck Semiconductor ETF"),
+    ],
+    "Future Energy & EV Wave": [
+        Holding("XLE", 0.50, "Energy Select Sector SPDR"),
+        Holding("ICLN", 0.50, "iShares Global Clean Energy"),
+    ],
+    "EV & Infrastructure Wave": [
+        Holding("PAVE", 0.60, "Global X U.S. Infrastructure Development"),
+        Holding("XLI", 0.40, "Industrial Select Sector SPDR"),
+    ],
+    "US Small-Cap Disruptors Wave": [
+        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
+        Holding("VBK", 0.50, "Vanguard Small-Cap Growth ETF"),
+    ],
+    "US Mid/Small Growth & Semis Wave": [
+        Holding("IWP", 0.50, "iShares Russell Mid-Cap Growth ETF"),
+        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
+    ],
+
+    # ✅ Demas Fund Wave benchmark: broad market + value sleeve (simple + fair)
+    "Demas Fund Wave": [
+        Holding("SPY", 0.60, "SPDR S&P 500 ETF"),
+        Holding("VTV", 0.40, "Vanguard Value ETF"),
+    ],
+
+    "Multi-Cap Crypto Growth Wave": [
+        Holding("BTC-USD", 0.50, "Bitcoin"),
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("SOL-USD", 0.15, "Solana"),
+    ],
+    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
+    "Crypto Stable Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.25, "Tether"),
+        Holding("DAI-USD", 0.25, "Dai"),
+        Holding("USDP-USD", 0.25, "Pax Dollar"),
+    ],
+    "Crypto Income & Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.25, "Tether"),
+        Holding("DAI-USD", 0.25, "Dai"),
+        Holding("USDP-USD", 0.25, "Pax Dollar"),
+    ],
+    "Crypto High-Yield Income Wave": [
+        Holding("BTC-USD", 0.40, "Bitcoin"),
+        Holding("ETH-USD", 0.40, "Ethereum"),
+        Holding("stETH-USD", 0.20, "Lido Staked Ether"),
+    ],
+    "SmartSafe Treasury Cash Wave": [
+        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
+        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
+    ],
+    "SmartSafe Tax-Free Money Market Wave": [
+        Holding("SUB", 0.50, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.50, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+    ],
+    "Gold Wave": [
+        Holding("GLD", 0.50, "SPDR Gold Shares"),
+        Holding("IAU", 0.50, "iShares Gold Trust"),
+    ],
+    "Infinity Multi-Asset Growth Wave": [
+        Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
+        Holding("QQQ", 0.40, "Invesco QQQ Trust"),
+        Holding("BTC-USD", 0.20, "Bitcoin"),
+    ],
+    "Vector Treasury Ladder Wave": [
+        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SHY", 0.25, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.25, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
+    ],
+    "Vector Muni Ladder Wave": [
+        Holding("SUB", 0.30, "iShares Short-Term National Muni Bond ETF"),
+        Holding("SHM", 0.30, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.40, "iShares National Muni Bond ETF"),
+    ],
 }
 
+# ------------------------------------------------------------
+# ETF / Crypto benchmark candidate library
+# ------------------------------------------------------------
 
-# -----------------------------
-# Core fetch
-# -----------------------------
+ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
+    ETFBenchmarkCandidate("SPY", "SPDR S&P 500 ETF", {"Broad", "Large", "Mega"}, "Large"),
+    ETFBenchmarkCandidate("QQQ", "Invesco QQQ Trust", {"Tech", "Growth", "Mega"}, "Mega"),
+    ETFBenchmarkCandidate("VGT", "Vanguard Information Technology ETF", {"Tech"}, "Large"),
+    ETFBenchmarkCandidate("XLK", "Technology Select Sector SPDR", {"Tech"}, "Large"),
+    ETFBenchmarkCandidate("SMH", "VanEck Semiconductor ETF", {"Tech", "Semis"}, "Large"),
+    ETFBenchmarkCandidate("SOXX", "iShares Semiconductor ETF", {"Tech", "Semis"}, "Large"),
+    ETFBenchmarkCandidate("IGV", "iShares Expanded Tech-Software Sector ETF", {"Tech", "Software"}, "Large"),
+    ETFBenchmarkCandidate("WCLD", "WisdomTree Cloud Computing Fund", {"Tech", "Software", "Cloud"}, "Mid"),
+    ETFBenchmarkCandidate("XLE", "Energy Select Sector SPDR Fund", {"Energy"}, "Large"),
+    ETFBenchmarkCandidate("ICLN", "iShares Global Clean Energy ETF", {"Energy", "Clean"}, "Mid"),
+    ETFBenchmarkCandidate("PAVE", "Global X U.S. Infrastructure Development ETF", {"Industrials", "Infrastructure"}, "Mid"),
+    ETFBenchmarkCandidate("XLI", "Industrial Select Sector SPDR Fund", {"Industrials"}, "Large"),
+    ETFBenchmarkCandidate("IWO", "iShares Russell 2000 Growth ETF", {"Small", "Growth"}, "Small"),
+    ETFBenchmarkCandidate("VBK", "Vanguard Small-Cap Growth ETF", {"Small", "Growth"}, "Small"),
+    ETFBenchmarkCandidate("IWP", "iShares Russell Mid-Cap Growth ETF", {"Mid", "Growth"}, "Mid"),
+    ETFBenchmarkCandidate("MDY", "SPDR S&P MidCap 400 ETF Trust", {"Mid"}, "Mid"),
+    ETFBenchmarkCandidate("BITO", "ProShares Bitcoin Strategy ETF", {"Crypto"}, "Crypto"),
+    ETFBenchmarkCandidate("BIL", "SPDR Bloomberg 1-3 Month T-Bill ETF", {"Safe"}, "Safe"),
+    ETFBenchmarkCandidate("SGOV", "iShares 0-3 Month Treasury Bond ETF", {"Safe"}, "Safe"),
+    ETFBenchmarkCandidate("SUB", "iShares Short-Term National Muni Bond ETF", {"Safe"}, "Safe"),
+    ETFBenchmarkCandidate("SHM", "SPDR Nuveen Short-Term Municipal Bond ETF", {"Safe"}, "Safe"),
+    ETFBenchmarkCandidate("MUB", "iShares National Muni Bond ETF", {"Safe"}, "Safe"),
+    ETFBenchmarkCandidate("GLD", "SPDR Gold Shares", {"Gold", "Safe"}, "Gold"),
+    ETFBenchmarkCandidate("IAU", "iShares Gold Trust", {"Gold", "Safe"}, "Gold"),
+    # value ETF candidate (helps Demas auto-benchmark if ever used)
+    ETFBenchmarkCandidate("VTV", "Vanguard Value ETF", {"Broad", "Large"}, "Large"),
+]
 
-def _download_adj_close(tickers: List[str], start: datetime, end: datetime) -> pd.DataFrame:
+# ------------------------------------------------------------
+# Public API
+# ------------------------------------------------------------
+
+def get_all_waves() -> list[str]:
+    return sorted(WAVE_WEIGHTS.keys())
+
+
+def get_modes() -> list[str]:
+    return list(MODE_BASE_EXPOSURE.keys())
+
+
+def _normalize_weights(holdings: List[Holding]) -> pd.Series:
+    if not holdings:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame([{"ticker": h.ticker, "weight": h.weight} for h in holdings])
+    df = df.groupby("ticker", as_index=False)["weight"].sum()
+    total = df["weight"].sum()
+    if total <= 0:
+        return pd.Series(dtype=float)
+    df["weight"] = df["weight"] / total
+    return df.set_index("ticker")["weight"]
+
+
+def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
     if yf is None:
-        return pd.DataFrame()
-
-    tickers = [_safe_ticker(t) for t in tickers if t]
-    tickers = sorted(list(set(tickers)))
-    if not tickers:
-        return pd.DataFrame()
-
+        raise RuntimeError("yfinance is not available in this environment.")
+    lookback_days = days + 260
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=lookback_days)
     data = yf.download(
         tickers=tickers,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
+        start=start.isoformat(),
+        end=end.isoformat(),
         interval="1d",
         auto_adjust=True,
         progress=False,
         group_by="column",
-        threads=True,
     )
-
-    # MultiIndex handling
     if isinstance(data.columns, pd.MultiIndex):
         if "Adj Close" in data.columns.get_level_values(0):
-            px = data["Adj Close"].copy()
+            data = data["Adj Close"]
         elif "Close" in data.columns.get_level_values(0):
-            px = data["Close"].copy()
+            data = data["Close"]
         else:
-            # fallback first top-level
-            px = data[data.columns.levels[0][0]].copy()
+            data = data[data.columns.levels[0][0]]
+    if isinstance(data.columns, pd.MultiIndex):
+        data = data.droplevel(0, axis=1)
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+    data = data.sort_index().ffill().bfill()
+    return data
+
+
+def _map_sector_name(raw_sector: str | None) -> str:
+    if not raw_sector:
+        return "Unknown"
+    s = raw_sector.lower()
+    if "information technology" in s or "technology" in s:
+        return "Tech"
+    if "semiconductor" in s:
+        return "Semis"
+    if "software" in s:
+        return "Software"
+    if "energy" in s:
+        return "Energy"
+    if "industrial" in s:
+        return "Industrials"
+    if "real estate" in s:
+        return "RealEstate"
+    if "financial" in s:
+        return "Financials"
+    if "health" in s:
+        return "HealthCare"
+    if "communication" in s:
+        return "Comm"
+    if "consumer" in s:
+        return "Consumer"
+    return "Other"
+
+
+def _cap_style_from_mcap(mcap: float | None) -> str:
+    if mcap is None or np.isnan(mcap) or mcap <= 0:
+        return "Unknown"
+    if mcap >= 2e11:
+        return "Mega"
+    if mcap >= 2e10:
+        return "Large"
+    if mcap >= 5e9:
+        return "Mid"
+    return "Small"
+
+
+@lru_cache(maxsize=256)
+def _get_ticker_meta(ticker: str) -> tuple[str, float]:
+    if ticker.endswith("-USD"):
+        if ticker in {"USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD", "sDAI-USD"}:
+            return ("Safe", np.nan)
+        return ("Crypto", np.nan)
+    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB", "IEF", "TLT", "LQD"}:
+        return ("Safe", np.nan)
+    if ticker in {"GLD", "IAU"}:
+        return ("Gold", np.nan)
+    if yf is None:
+        return ("Unknown", np.nan)
+    try:
+        info = yf.Ticker(ticker).info
+    except Exception:
+        return ("Unknown", np.nan)
+    sector = info.get("sector")
+    mcap = info.get("marketCap")
+    return (_map_sector_name(sector), float(mcap) if mcap is not None else np.nan)
+
+
+def _derive_wave_exposure(wave_name: str) -> tuple[Dict[str, float], str]:
+    holdings = WAVE_WEIGHTS.get(wave_name, [])
+    if not holdings:
+        return {}, "Unknown"
+    weights = _normalize_weights(holdings)
+    sector_weights: Dict[str, float] = {}
+    cap_votes: Dict[str, float] = {}
+    for h in holdings:
+        if h.ticker not in weights.index:
+            continue
+        w = float(weights[h.ticker])
+        sector, mcap = _get_ticker_meta(h.ticker)
+        sector_weights[sector] = sector_weights.get(sector, 0.0) + w
+        if sector in {"Crypto", "Safe", "Gold"}:
+            style = sector
+        else:
+            style = _cap_style_from_mcap(mcap)
+        cap_votes[style] = cap_votes.get(style, 0.0) + w
+    total = sum(sector_weights.values())
+    if total > 0:
+        for k in list(sector_weights.keys()):
+            sector_weights[k] /= total
+    cap_style = max(cap_votes.items(), key=lambda kv: kv[1])[0] if cap_votes else "Unknown"
+    return sector_weights, cap_style
+
+
+def _score_etf_candidate(etf: ETFBenchmarkCandidate, sector_weights: Dict[str, float], cap_style: str) -> float:
+    score = 0.0
+    for s, w in sector_weights.items():
+        if s in etf.sector_tags:
+            score += w
+        if s == "Tech" and "Tech" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Energy" and "Energy" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Industrials" and "Industrials" in etf.sector_tags:
+            score += 0.3 * w
+        if s == "Crypto" and "Crypto" in etf.sector_tags:
+            score += 0.5 * w
+        if s == "Safe" and "Safe" in etf.sector_tags:
+            score += 0.5 * w
+        if s == "Gold" and "Gold" in etf.sector_tags:
+            score += 0.5 * w
+    if cap_style == etf.cap_style:
+        score += 0.10
+    elif cap_style in {"Mega", "Large"} and etf.cap_style in {"Mega", "Large"}:
+        score += 0.05
+    elif cap_style in {"Mid", "Small"} and etf.cap_style in {"Mid", "Small"}:
+        score += 0.05
+    return score
+
+
+@lru_cache(maxsize=64)
+def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
+    # Explicit override: Bitcoin benchmarks to spot BTC
+    if wave_name == "Bitcoin Wave":
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    sector_weights, cap_style = _derive_wave_exposure(wave_name)
+    if not sector_weights:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    scores = []
+    for etf in ETF_CANDIDATES:
+        s = _score_etf_candidate(etf, sector_weights, cap_style)
+        if s > 0.0:
+            scores.append((etf, s))
+    if not scores:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top = scores[:4]
+    if len(top) == 1:
+        etf, _ = top[0]
+        return [Holding(etf.ticker, 1.0, etf.name)]
+    total_score = sum(s for _, s in top)
+    if total_score <= 0:
+        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    holdings: List[Holding] = []
+    for etf, s in top:
+        w = float(s / total_score)
+        holdings.append(Holding(etf.ticker, w, etf.name))
+    return holdings
+
+
+def _regime_from_return(ret_60d: float) -> str:
+    if np.isnan(ret_60d):
+        return "neutral"
+    if ret_60d <= -0.12:
+        return "panic"
+    if ret_60d <= -0.04:
+        return "downtrend"
+    if ret_60d < 0.06:
+        return "neutral"
+    return "uptrend"
+
+
+def _vix_exposure_factor(vix_level: float, mode: str) -> float:
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 1.0
+    if vix_level < 15:
+        base = 1.15
+    elif vix_level < 20:
+        base = 1.05
+    elif vix_level < 25:
+        base = 0.95
+    elif vix_level < 30:
+        base = 0.85
+    elif vix_level < 40:
+        base = 0.75
     else:
-        px = data.copy()
-        if isinstance(px, pd.Series):
-            px = px.to_frame(name=tickers[0])
-        if "Close" in px.columns:
-            px = px[["Close"]]
-            px.columns = [tickers[0]]
-
-    if isinstance(px.columns, pd.MultiIndex):
-        px = px.droplevel(0, axis=1)
-
-    px = px.sort_index().dropna(how="all").ffill().bfill()
-    return px
+        base = 0.60
+    if mode == "Alpha-Minus-Beta":
+        base -= 0.05
+    elif mode == "Private Logic":
+        base += 0.05
+    return float(np.clip(base, 0.5, 1.3))
 
 
-def _returns(px: pd.DataFrame) -> pd.DataFrame:
-    if px is None or px.empty:
-        return pd.DataFrame()
-    r = px.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    return r
+def _vix_safe_fraction(vix_level: float, mode: str) -> float:
+    if np.isnan(vix_level) or vix_level <= 0:
+        return 0.0
+    if vix_level < 18:
+        base = 0.00
+    elif vix_level < 24:
+        base = 0.05
+    elif vix_level < 30:
+        base = 0.15
+    elif vix_level < 40:
+        base = 0.25
+    else:
+        base = 0.40
+    if mode == "Alpha-Minus-Beta":
+        base *= 1.5
+    elif mode == "Private Logic":
+        base *= 0.7
+    return float(np.clip(base, 0.0, 0.8))
 
 
-# -----------------------------
-# Regime / overlays
-# -----------------------------
+# ------------------------------------------------------------
+# Core compute_history_nav
+# ------------------------------------------------------------
 
-def _risk_off(spy_px: pd.Series) -> bool:
-    if spy_px is None or spy_px.empty or len(spy_px) < (MA_REGIME_DAYS + 10):
-        return False
-    ma = spy_px.rolling(MA_REGIME_DAYS).mean()
-    if pd.isna(ma.iloc[-1]):
-        return False
-    return bool(spy_px.iloc[-1] < ma.iloc[-1])
-
-
-def _vix_sweep_fraction(vix_last: float, mode: str) -> float:
-    base = MODE_SWEEP_INTENSITY.get(mode, 0.55)
-    if vix_last >= VIX_EXTREME:
-        return _clip(base + 0.25, 0.0, 0.95)
-    if vix_last >= VIX_HIGH:
-        return _clip(base + 0.15, 0.0, 0.90)
-    if vix_last <= VIX_LOW:
-        return _clip(base - 0.25, 0.0, 0.75)
-    return _clip(base, 0.0, 0.85)
-
-
-def _apply_momentum_tilt(weights: Dict[str, float], rets: pd.DataFrame) -> Dict[str, float]:
-    if rets is None or rets.empty:
-        return weights
-    cols = [c for c in rets.columns if c in weights]
-    if len(cols) < 3:
-        return weights
-
-    window = min(MOM_LOOKBACK_DAYS, len(rets))
-    cum = (1.0 + rets[cols].iloc[-window:]).prod() - 1.0
-    if cum.isna().all():
-        return weights
-
-    ranks = cum.rank(pct=True)
-    score = (ranks - 0.5) * 2.0  # [-1, 1]
-
-    tilted = dict(weights)
-    for t in cols:
-        adj = float(score[t]) * MOM_TILT_MAX
-        tilted[t] = max(0.0, tilted[t] * (1.0 + adj))
-
-    return _dedupe_and_normalize(tilted)
-
-
-def _apply_vol_target_scale(port_rets: pd.Series, mode: str) -> float:
-    if port_rets is None or port_rets.empty:
-        return 1.0
-    look = min(VOL_LOOKBACK_DAYS, len(port_rets))
-    realized = float(port_rets.iloc[-look:].std(ddof=0) * math.sqrt(252.0))
-    target = VOL_TARGET.get(mode, 0.14)
-    if realized <= 1e-9:
-        return 1.0
-    scale = target / realized
-    # constrain
-    return float(_clip(scale, 0.55, 1.35 if mode == "Private Logic" else 1.10))
-
-
-def _auto_composite_benchmark_from_holdings(base_weights: Dict[str, float]) -> Dict[str, float]:
-    keys = list(base_weights.keys())
-
-    has_crypto = any(t in keys for t in ["IBIT", "ETHA", "GBTC", "FBTC", "BITO", "ETHE"])
-    bond_share = sum(base_weights.get(t, 0.0) for t in ["AGG", "LQD", "IEF", "TLT", "SHY", "BIL", "TIP", "MUB", "VTEB"])  # rough
-
-    if bond_share > 0.35:
-        return {"AGG": 0.55, "LQD": 0.25, "IEF": 0.10, "TLT": 0.10}
-
-    if has_crypto:
-        return {"QQQ": 0.45, "IBIT": 0.35, "ETHA": 0.20}
-
-    # default equity composite
-    return {"SPY": 0.65, "QQQ": 0.35}
-
-
-def _fallback_benchmark_for_wave(wave: str) -> Dict[str, float]:
-    theme = WAVE_BENCH_THEME.get(wave, "US_Large")
-    return BENCHMARK_FALLBACKS.get(theme, {"SPY": 1.0})
-
-
-# -----------------------------
-# Public API
-# -----------------------------
-
-def get_all_waves() -> List[str]:
-    return sorted(list(WAVE_WEIGHTS.keys()))
-
-
-def get_modes() -> List[str]:
-    return list(MODES)
-
-
-def get_wave_holdings(wave_name: str) -> pd.DataFrame:
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
     """
-    Static holdings table (NO overlays). Used for attribution in the old console.
-    Columns: Ticker, Name, Weight
+    Compute Wave & Benchmark NAV + daily returns over a given window.
+
+    Returns DataFrame indexed by Date:
+        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
     """
     if wave_name not in WAVE_WEIGHTS:
-        return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
+        raise ValueError(f"Unknown Wave: {wave_name}")
+    if mode not in MODE_BASE_EXPOSURE:
+        raise ValueError(f"Unknown mode: {mode}")
 
-    base = _dedupe_and_normalize(WAVE_WEIGHTS[wave_name])
-    rows = []
-    for t, w in sorted(base.items(), key=lambda x: -x[1]):
-        rows.append({"Ticker": t, "Name": t, "Weight": float(w)})
+    wave_holdings = WAVE_WEIGHTS[wave_name]
 
-    return pd.DataFrame(rows)
+    # Use static benchmark if provided, else auto-benchmark
+    bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+    if not bm_holdings:
+        bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    wave_weights = _normalize_weights(wave_holdings)
+    bm_weights = _normalize_weights(bm_holdings)
+
+    tickers_wave = list(wave_weights.index)
+    tickers_bm = list(bm_weights.index)
+
+    base_index_ticker = "SPY"
+    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+
+    all_tickers = set(tickers_wave + tickers_bm)
+    all_tickers.add(base_index_ticker)
+    all_tickers.add(VIX_TICKER)
+    all_tickers.add(BTC_TICKER)
+    all_tickers.update(safe_candidates)
+
+    all_tickers = sorted(all_tickers)
+    if not all_tickers:
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+
+    price_df = _download_history(all_tickers, days=days)
+    if price_df.empty:
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+    if len(price_df) > days:
+        price_df = price_df.iloc[-days:]
+
+    ret_df = price_df.pct_change().fillna(0.0)
+
+    wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
+    bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
+
+    bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+
+    # Base index for regime detection
+    if base_index_ticker in price_df.columns:
+        idx_price = price_df[base_index_ticker]
+    else:
+        fallback_ticker = tickers_bm[0] if tickers_bm else (tickers_wave[0] if tickers_wave else price_df.columns[0])
+        idx_price = price_df[fallback_ticker]
+    idx_ret_60d = idx_price / idx_price.shift(60) - 1.0
+    mom_60 = price_df / price_df.shift(60) - 1.0
+
+    # VIX or crypto-VIX proxy (BTC vol) for crypto/Bitcoin Waves
+    wave_is_crypto = ((CRYPTO_WAVE_KEYWORD in wave_name) or ("Bitcoin" in wave_name))
+    if wave_is_crypto and BTC_TICKER in price_df.columns:
+        btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
+        rolling_vol = btc_ret.rolling(30).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
+        vix_level_series = rolling_vol.reindex(price_df.index).ffill().bfill()
+    else:
+        if VIX_TICKER in price_df.columns:
+            vix_level_series = price_df[VIX_TICKER].copy()
+        else:
+            vix_level_series = pd.Series(20.0, index=price_df.index)
+
+    # Safe asset
+    safe_ticker = None
+    for t in safe_candidates:
+        if t in price_df.columns:
+            safe_ticker = t
+            break
+    if safe_ticker is None:
+        safe_ticker = base_index_ticker
+    safe_ret_series = ret_df[safe_ticker]
+
+    # -------------------------
+    # ✅ Simple per-wave tuning
+    # -------------------------
+    tilt_strength = 0.80
+    vol_target = PORTFOLIO_VOL_TARGET
+    extra_safe_boost = 0.00  # additive safe fraction
+
+    if wave_name == "Demas Fund Wave":
+        # Make Demas behave more like a disciplined value fund:
+        # - less whipsaw from momentum tilts
+        # - slightly lower vol target
+        # - slightly more SmartSafe in stress
+        tilt_strength = 0.45
+        vol_target = 0.15
+        extra_safe_boost = 0.03
+
+    mode_base_exposure = MODE_BASE_EXPOSURE[mode]
+    exp_min, exp_max = MODE_EXPOSURE_CAPS[mode]
+
+    wave_ret_list: List[float] = []
+    dates: List[pd.Timestamp] = []
+
+    # Yield overlay
+    apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
+    daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
+
+    for dt in ret_df.index:
+        rets = ret_df.loc[dt]
+
+        regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
+        regime_exposure = REGIME_EXPOSURE[regime]
+        regime_gate = REGIME_GATING[mode][regime]
+
+        vix_level = float(vix_level_series.get(dt, np.nan))
+        vix_exposure = _vix_exposure_factor(vix_level, mode)
+        vix_gate = _vix_safe_fraction(vix_level, mode)
+
+        # Momentum tilt
+        mom_row = mom_60.loc[dt] if dt in mom_60.index else None
+        if mom_row is not None:
+            mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
+            mom_clipped = mom_series.clip(lower=-0.30, upper=0.30)
+            tilt_factor = 1.0 + tilt_strength * mom_clipped
+            effective_weights = wave_weights_aligned * tilt_factor
+        else:
+            effective_weights = wave_weights_aligned.copy()
+
+        effective_weights = effective_weights.clip(lower=0.0)
+
+        risk_weight_total = effective_weights.sum()
+        if risk_weight_total > 0:
+            risk_weights = effective_weights / risk_weight_total
+        else:
+            risk_weights = wave_weights_aligned.copy()
+
+        portfolio_risk_ret = float((rets * risk_weights).sum())
+        safe_ret = float(safe_ret_series.loc[dt])
+
+        # 20D realized vol for vol-targeting
+        if len(wave_ret_list) >= 20:
+            recent = np.array(wave_ret_list[-20:])
+            recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+        else:
+            recent_vol = vol_target
+
+        vol_adjust = 1.0
+        if recent_vol > 0:
+            vol_adjust = vol_target / recent_vol
+            vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
+
+        raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
+        exposure = float(np.clip(raw_exposure, exp_min, exp_max))
+
+        safe_fraction = regime_gate + vix_gate + extra_safe_boost
+        safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
+        risk_fraction = 1.0 - safe_fraction
+
+        base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
+        total_ret = base_total_ret
+
+        # Crypto income Waves: add assumed APY overlay (Bitcoin does NOT get this)
+        if daily_yield != 0.0:
+            total_ret += daily_yield
+
+        # Private Logic mean-reversion overlay
+        if mode == "Private Logic" and len(wave_ret_list) >= 20:
+            recent = np.array(wave_ret_list[-20:])
+            daily_vol = recent.std()
+            if daily_vol > 0:
+                shock_threshold = 2.0 * daily_vol
+                if base_total_ret <= -shock_threshold:
+                    total_ret = base_total_ret * 1.30
+                elif base_total_ret >= shock_threshold:
+                    total_ret = base_total_ret * 0.70
+
+        wave_ret_list.append(total_ret)
+        dates.append(dt)
+
+    wave_ret_series = pd.Series(wave_ret_list, index=pd.Index(dates, name="Date"))
+    bm_ret_series = bm_ret_series.reindex(wave_ret_series.index).fillna(0.0)
+
+    wave_nav = (1.0 + wave_ret_series).cumprod()
+    bm_nav = (1.0 + bm_ret_series).cumprod()
+
+    out = pd.DataFrame(
+        {"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series}
+    )
+    out.index.name = "Date"
+    return out
 
 
 def get_benchmark_mix_table() -> pd.DataFrame:
-    """
-    Returns composite benchmark components per wave (plus fallback static).
-    Columns: Wave, Ticker, Name, Weight, Type
-    """
     rows = []
     for wave in get_all_waves():
-        base = _dedupe_and_normalize(WAVE_WEIGHTS[wave])
-        comp = _auto_composite_benchmark_from_holdings(base)
-        comp = _dedupe_and_normalize(comp)
-        fb = _dedupe_and_normalize(_fallback_benchmark_for_wave(wave))
+        holdings = BENCHMARK_WEIGHTS_STATIC.get(wave)
+        if not holdings:
+            holdings = get_auto_benchmark_holdings(wave) or BENCHMARK_WEIGHTS_STATIC.get(wave, [])
+        weights = _normalize_weights(holdings)
+        for h in holdings:
+            if h.ticker not in weights.index:
+                continue
+            rows.append({"Wave": wave, "Ticker": h.ticker, "Name": h.name or "", "Weight": float(weights[h.ticker])})
+    if not rows:
+        return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
+    df = pd.DataFrame(rows).sort_values(["Wave", "Weight"], ascending=[True, False])
+    return df
 
-        for t, w in sorted(comp.items(), key=lambda x: -x[1]):
-            rows.append({"Wave": wave, "Ticker": _safe_ticker(t), "Name": _safe_ticker(t), "Weight": float(w), "Type": "auto_composite"})
-        for t, w in sorted(fb.items(), key=lambda x: -x[1]):
-            rows.append({"Wave": wave, "Ticker": _safe_ticker(t), "Name": _safe_ticker(t), "Weight": float(w), "Type": "fallback_static"})
 
-    return pd.DataFrame(rows)
-
-
-def compute_history_nav(wave_name: str, mode: str, days: int = 365) -> pd.DataFrame:
-    """
-    Old console compatible:
-      returns df indexed by date with columns:
-        wave_nav, bm_nav, wave_ret, bm_ret
-    """
-    if yf is None:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    if wave_name not in WAVE_WEIGHTS:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    if mode not in MODES:
-        mode = "Standard"
-
-    # fetch window: backfill for MA + stable signals
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=days + DEFAULT_BACKFILL_DAYS)
-
-    base = _dedupe_and_normalize(WAVE_WEIGHTS[wave_name])
-    if not base:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    # composite benchmark
-    bm_w = _dedupe_and_normalize(_auto_composite_benchmark_from_holdings(base))
-    fb_w = _dedupe_and_normalize(_fallback_benchmark_for_wave(wave_name))
-
-    # tickers to fetch
-    tickers = set(base.keys()) | set(bm_w.keys()) | {REGIME_TICKER, VIX_TICKER, SMARTSAFE_TICKER, SMARTSAFE_ALT}
-    px = _download_adj_close(list(tickers), start=datetime.combine(start, datetime.min.time()), end=datetime.combine(end + timedelta(days=1), datetime.min.time()))
-    if px.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    rets = _returns(px)
-
-    # determine risk regime
-    spy_series = px[REGIME_TICKER] if REGIME_TICKER in px.columns else None
-    vix_last = float(px[VIX_TICKER].iloc[-1]) if VIX_TICKER in px.columns and len(px[VIX_TICKER]) else 20.0
-    is_risk_off = _risk_off(spy_series)
-
-    # --- build dynamic weights (mode-separated overlays) ---
-    w_dyn = dict(base)
-
-    # momentum tilt (60D)
-    w_dyn = _apply_momentum_tilt(w_dyn, rets)
-
-    # SmartSafe sweep if risk-off OR VIX high
-    sweep = 0.0
-    if is_risk_off or vix_last >= VIX_HIGH:
-        sweep = _vix_sweep_fraction(vix_last, mode)
-        # reduce risk basket
-        for t in list(w_dyn.keys()):
-            w_dyn[t] = w_dyn[t] * (1.0 - sweep)
-        # allocate swept weight into safe assets
-        w_dyn[SMARTSAFE_TICKER] = w_dyn.get(SMARTSAFE_TICKER, 0.0) + sweep * 0.70
-        w_dyn[SMARTSAFE_ALT] = w_dyn.get(SMARTSAFE_ALT, 0.0) + sweep * 0.30
-        w_dyn = _dedupe_and_normalize(w_dyn)
-
-    # portfolio returns using normalized weights
-    port_cols = [c for c in rets.columns if c in w_dyn]
-    if not port_cols:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    w_vec = pd.Series({c: w_dyn[c] for c in port_cols})
-    w_vec = w_vec / float(w_vec.sum()) if float(w_vec.sum()) > 0 else w_vec
-
-    wave_ret = (rets[port_cols] * w_vec).sum(axis=1)
-
-    # vol targeting scale (gross multiplier)
-    vol_scale = _apply_vol_target_scale(wave_ret, mode)
-    # vix exposure scale + mode cap
-    vix_scale = _vix_exposure_scale(vix_last, mode)
-    gross_cap = MODE_GROSS_CAP.get(mode, 1.0)
-    gross = min(vol_scale * vix_scale, gross_cap)
-
-    # Apply gross scaling to returns as a simple exposure model
-    wave_ret = wave_ret * gross
-
-    # benchmark returns (try composite; if missing data, fallback)
-    bm_cols = [c for c in rets.columns if c in bm_w]
-    if len(bm_cols) >= 1:
-        bm_vec = pd.Series({c: bm_w[c] for c in bm_cols})
-        bm_vec = bm_vec / float(bm_vec.sum()) if float(bm_vec.sum()) > 0 else bm_vec
-        bm_ret = (rets[bm_cols] * bm_vec).sum(axis=1)
-    else:
-        fb_cols = [c for c in rets.columns if c in fb_w]
-        if not fb_cols:
-            bm_ret = pd.Series(0.0, index=rets.index)
-        else:
-            fb_vec = pd.Series({c: fb_w[c] for c in fb_cols})
-            fb_vec = fb_vec / float(fb_vec.sum()) if float(fb_vec.sum()) > 0 else fb_vec
-            bm_ret = (rets[fb_cols] * fb_vec).sum(axis=1)
-
-    # Trim to requested window
-    # Keep last `days` rows (trading days ~, but the console uses "days" as row count window)
-    df = pd.DataFrame({"wave_ret": wave_ret, "bm_ret": bm_ret}).dropna(how="all").copy()
-    if len(df) > days:
-        df = df.iloc[-days:].copy()
-
-    # NAV (normalized)
-    df["wave_nav"] = (1.0 + df["wave_ret"].fillna(0.0)).cumprod()
-    df["bm_nav"] = (1.0 + df["bm_ret"].fillna(0.0)).cumprod()
-
-    # reorder columns
-    df = df[["wave_nav", "bm_nav", "wave_ret", "bm_ret"]]
+def get_wave_holdings(wave_name: str) -> pd.DataFrame:
+    holdings = WAVE_WEIGHTS.get(wave_name, [])
+    if not holdings:
+        return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
+    weights = _normalize_weights(holdings)
+    rows = []
+    for h in holdings:
+        if h.ticker not in weights.index:
+            continue
+        rows.append({"Ticker": h.ticker, "Name": h.name or "", "Weight": float(weights[h.ticker])})
+    df = pd.DataFrame(rows).drop_duplicates(subset=["Ticker"]).sort_values("Weight", ascending=False)
     return df
