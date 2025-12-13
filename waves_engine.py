@@ -92,7 +92,7 @@ REGIME_GATING: Dict[str, Dict[str, float]] = {
     },
 }
 
-PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized
+PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized (default)
 
 VIX_TICKER = "^VIX"
 BTC_TICKER = "BTC-USD"  # used for crypto-VIX proxy
@@ -206,13 +206,18 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
     ],
 
-    # ✅ DEMAS FUND (simple add — edit later anytime)
+    # ✅ Demas Fund Wave (simple, value/quality + defensive tilt)
     "Demas Fund Wave": [
-        Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
-        Holding("QQQ", 0.30, "Invesco QQQ Trust"),
-        Holding("TLT", 0.15, "iShares 20+ Year Treasury Bond ETF"),
-        Holding("GLD", 0.10, "SPDR Gold Shares"),
-        Holding("BIL", 0.05, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("BRK-B", 0.12, "Berkshire Hathaway (B)"),
+        Holding("JPM", 0.10, "JPMorgan Chase & Co."),
+        Holding("XOM", 0.10, "Exxon Mobil Corp."),
+        Holding("CVX", 0.08, "Chevron Corp."),
+        Holding("PG", 0.10, "Procter & Gamble"),
+        Holding("KO", 0.08, "Coca-Cola"),
+        Holding("JNJ", 0.10, "Johnson & Johnson"),
+        Holding("UNH", 0.10, "UnitedHealth Group"),
+        Holding("WMT", 0.10, "Walmart"),
+        Holding("VTV", 0.12, "Vanguard Value ETF"),
     ],
 
     # Crypto growth Wave
@@ -262,6 +267,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("BTC-USD", 0.15, "Bitcoin"),
     ],
 
+    # SmartSafe Waves
     "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
@@ -296,7 +302,6 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
         Holding("LQD", 0.15, "iShares iBoxx $ Investment Grade Corporate Bond ETF"),
     ],
-
     "Vector Muni Ladder Wave": [
         Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),
         Holding("SHM", 0.20, "SPDR Nuveen Short-Term Municipal Bond ETF"),
@@ -337,11 +342,10 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
     ],
 
-    # ✅ DEMAS benchmark (simple, clean)
+    # ✅ Demas Fund Wave benchmark: broad market + value sleeve (simple + fair)
     "Demas Fund Wave": [
         Holding("SPY", 0.60, "SPDR S&P 500 ETF"),
-        Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
-        Holding("GLD", 0.15, "SPDR Gold Shares"),
+        Holding("VTV", 0.40, "Vanguard Value ETF"),
     ],
 
     "Multi-Cap Crypto Growth Wave": [
@@ -350,7 +354,6 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("SOL-USD", 0.15, "Solana"),
     ],
     "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
-
     "Crypto Stable Yield Wave": [
         Holding("USDC-USD", 0.25, "USD Coin"),
         Holding("USDT-USD", 0.25, "Tether"),
@@ -368,7 +371,6 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("ETH-USD", 0.40, "Ethereum"),
         Holding("stETH-USD", 0.20, "Lido Staked Ether"),
     ],
-
     "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
@@ -377,25 +379,21 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("SUB", 0.50, "iShares Short-Term National Muni Bond ETF"),
         Holding("SHM", 0.50, "SPDR Nuveen Short-Term Municipal Bond ETF"),
     ],
-
     "Gold Wave": [
         Holding("GLD", 0.50, "SPDR Gold Shares"),
         Holding("IAU", 0.50, "iShares Gold Trust"),
     ],
-
     "Infinity Multi-Asset Growth Wave": [
         Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
         Holding("QQQ", 0.40, "Invesco QQQ Trust"),
         Holding("BTC-USD", 0.20, "Bitcoin"),
     ],
-
     "Vector Treasury Ladder Wave": [
         Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SHY", 0.25, "iShares 1-3 Year Treasury Bond ETF"),
         Holding("IEF", 0.25, "iShares 7-10 Year Treasury Bond ETF"),
         Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
     ],
-
     "Vector Muni Ladder Wave": [
         Holding("SUB", 0.30, "iShares Short-Term National Muni Bond ETF"),
         Holding("SHM", 0.30, "SPDR Nuveen Short-Term Municipal Bond ETF"),
@@ -432,6 +430,8 @@ ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
     ETFBenchmarkCandidate("MUB", "iShares National Muni Bond ETF", {"Safe"}, "Safe"),
     ETFBenchmarkCandidate("GLD", "SPDR Gold Shares", {"Gold", "Safe"}, "Gold"),
     ETFBenchmarkCandidate("IAU", "iShares Gold Trust", {"Gold", "Safe"}, "Gold"),
+    # value ETF candidate (helps Demas auto-benchmark if ever used)
+    ETFBenchmarkCandidate("VTV", "Vanguard Value ETF", {"Broad", "Large"}, "Large"),
 ]
 
 # ------------------------------------------------------------
@@ -602,8 +602,10 @@ def _score_etf_candidate(etf: ETFBenchmarkCandidate, sector_weights: Dict[str, f
 
 @lru_cache(maxsize=64)
 def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
+    # Explicit override: Bitcoin benchmarks to spot BTC
     if wave_name == "Bitcoin Wave":
         return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
     sector_weights, cap_style = _derive_wave_exposure(wave_name)
     if not sector_weights:
         return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
@@ -683,14 +685,28 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
     return float(np.clip(base, 0.0, 0.8))
 
 
+# ------------------------------------------------------------
+# Core compute_history_nav
+# ------------------------------------------------------------
+
 def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+    """
+    Compute Wave & Benchmark NAV + daily returns over a given window.
+
+    Returns DataFrame indexed by Date:
+        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
+    """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")
     if mode not in MODE_BASE_EXPOSURE:
         raise ValueError(f"Unknown mode: {mode}")
 
     wave_holdings = WAVE_WEIGHTS[wave_name]
-    bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+
+    # Use static benchmark if provided, else auto-benchmark
+    bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+    if not bm_holdings:
+        bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
     wave_weights = _normalize_weights(wave_holdings)
     bm_weights = _normalize_weights(bm_holdings)
@@ -699,8 +715,7 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
     tickers_bm = list(bm_weights.index)
 
     base_index_ticker = "SPY"
-    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB",
-                       "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
@@ -725,26 +740,52 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
 
     bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
 
+    # Base index for regime detection
     if base_index_ticker in price_df.columns:
         idx_price = price_df[base_index_ticker]
     else:
         fallback_ticker = tickers_bm[0] if tickers_bm else (tickers_wave[0] if tickers_wave else price_df.columns[0])
         idx_price = price_df[fallback_ticker]
-
     idx_ret_60d = idx_price / idx_price.shift(60) - 1.0
     mom_60 = price_df / price_df.shift(60) - 1.0
 
-    wave_is_crypto = (CRYPTO_WAVE_KEYWORD in wave_name) or ("Bitcoin" in wave_name)
-
+    # VIX or crypto-VIX proxy (BTC vol) for crypto/Bitcoin Waves
+    wave_is_crypto = ((CRYPTO_WAVE_KEYWORD in wave_name) or ("Bitcoin" in wave_name))
     if wave_is_crypto and BTC_TICKER in price_df.columns:
         btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
         rolling_vol = btc_ret.rolling(30).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
         vix_level_series = rolling_vol.reindex(price_df.index).ffill().bfill()
     else:
-        vix_level_series = price_df[VIX_TICKER].copy() if VIX_TICKER in price_df.columns else pd.Series(20.0, index=price_df.index)
+        if VIX_TICKER in price_df.columns:
+            vix_level_series = price_df[VIX_TICKER].copy()
+        else:
+            vix_level_series = pd.Series(20.0, index=price_df.index)
 
-    safe_ticker = next((t for t in safe_candidates if t in price_df.columns), None) or base_index_ticker
+    # Safe asset
+    safe_ticker = None
+    for t in safe_candidates:
+        if t in price_df.columns:
+            safe_ticker = t
+            break
+    if safe_ticker is None:
+        safe_ticker = base_index_ticker
     safe_ret_series = ret_df[safe_ticker]
+
+    # -------------------------
+    # ✅ Simple per-wave tuning
+    # -------------------------
+    tilt_strength = 0.80
+    vol_target = PORTFOLIO_VOL_TARGET
+    extra_safe_boost = 0.00  # additive safe fraction
+
+    if wave_name == "Demas Fund Wave":
+        # Make Demas behave more like a disciplined value fund:
+        # - less whipsaw from momentum tilts
+        # - slightly lower vol target
+        # - slightly more SmartSafe in stress
+        tilt_strength = 0.45
+        vol_target = 0.15
+        extra_safe_boost = 0.03
 
     mode_base_exposure = MODE_BASE_EXPOSURE[mode]
     exp_min, exp_max = MODE_EXPOSURE_CAPS[mode]
@@ -752,6 +793,7 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
     wave_ret_list: List[float] = []
     dates: List[pd.Timestamp] = []
 
+    # Yield overlay
     apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
     daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
 
@@ -766,45 +808,54 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
         vix_exposure = _vix_exposure_factor(vix_level, mode)
         vix_gate = _vix_safe_fraction(vix_level, mode)
 
+        # Momentum tilt
         mom_row = mom_60.loc[dt] if dt in mom_60.index else None
         if mom_row is not None:
             mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
             mom_clipped = mom_series.clip(lower=-0.30, upper=0.30)
-            tilt_factor = 1.0 + 0.8 * mom_clipped
+            tilt_factor = 1.0 + tilt_strength * mom_clipped
             effective_weights = wave_weights_aligned * tilt_factor
         else:
             effective_weights = wave_weights_aligned.copy()
 
         effective_weights = effective_weights.clip(lower=0.0)
+
         risk_weight_total = effective_weights.sum()
-        risk_weights = (effective_weights / risk_weight_total) if risk_weight_total > 0 else wave_weights_aligned.copy()
+        if risk_weight_total > 0:
+            risk_weights = effective_weights / risk_weight_total
+        else:
+            risk_weights = wave_weights_aligned.copy()
 
         portfolio_risk_ret = float((rets * risk_weights).sum())
         safe_ret = float(safe_ret_series.loc[dt])
 
+        # 20D realized vol for vol-targeting
         if len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
             recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         else:
-            recent_vol = PORTFOLIO_VOL_TARGET
+            recent_vol = vol_target
 
         vol_adjust = 1.0
         if recent_vol > 0:
-            vol_adjust = PORTFOLIO_VOL_TARGET / recent_vol
+            vol_adjust = vol_target / recent_vol
             vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
 
         raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
         exposure = float(np.clip(raw_exposure, exp_min, exp_max))
 
-        safe_fraction = float(np.clip(regime_gate + vix_gate, 0.0, 0.95))
+        safe_fraction = regime_gate + vix_gate + extra_safe_boost
+        safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
         risk_fraction = 1.0 - safe_fraction
 
         base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
         total_ret = base_total_ret
 
+        # Crypto income Waves: add assumed APY overlay (Bitcoin does NOT get this)
         if daily_yield != 0.0:
             total_ret += daily_yield
 
+        # Private Logic mean-reversion overlay
         if mode == "Private Logic" and len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
             daily_vol = recent.std()
@@ -824,7 +875,9 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
     wave_nav = (1.0 + wave_ret_series).cumprod()
     bm_nav = (1.0 + bm_ret_series).cumprod()
 
-    out = pd.DataFrame({"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series})
+    out = pd.DataFrame(
+        {"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series}
+    )
     out.index.name = "Date"
     return out
 
@@ -832,8 +885,9 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
 def get_benchmark_mix_table() -> pd.DataFrame:
     rows = []
     for wave in get_all_waves():
-        auto_holdings = get_auto_benchmark_holdings(wave)
-        holdings = auto_holdings or BENCHMARK_WEIGHTS_STATIC.get(wave, [])
+        holdings = BENCHMARK_WEIGHTS_STATIC.get(wave)
+        if not holdings:
+            holdings = get_auto_benchmark_holdings(wave) or BENCHMARK_WEIGHTS_STATIC.get(wave, [])
         weights = _normalize_weights(holdings)
         for h in holdings:
             if h.ticker not in weights.index:
