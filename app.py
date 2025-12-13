@@ -1,6 +1,7 @@
 # app.py
 # WAVES Intelligence™ — Institutional Console
-# Full upgrade: ALL waves visible + Conditional Attribution Grid + persistent logging + safe recommendations w/ apply controls
+# Full upgrade (SAFE): ALL waves visible + wave-count guardrail + Conditional Attribution Grid
+# + persistent logging + safe recommendations w/ session + persistent apply controls
 
 from __future__ import annotations
 
@@ -26,8 +27,10 @@ def fmt_pct(x):
     except Exception:
         return "—"
 
+
 def df_to_download(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
+
 
 def status_for_summary(summary: dict) -> str:
     if summary.get("365D_return") is None:
@@ -45,22 +48,50 @@ st.title("WAVES Intelligence™ Institutional Console")
 # -----------------------------
 # Sidebar controls
 # -----------------------------
-all_modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
-mode = st.sidebar.selectbox("Mode", all_modes, index=0)
+modes = we.get_modes()  # engine source of truth
+mode = st.sidebar.selectbox("Mode", modes, index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Wave discovery is sourced from wave_weights.csv (plus any orphan logs).")
+st.sidebar.caption("Wave discovery is sourced from your WEIGHTS file (auto-discovered) + optional orphan logs.")
+
+min_expected = st.sidebar.number_input(
+    "Wave Count Guardrail (min allowed)",
+    min_value=1,
+    max_value=100,
+    value=15,
+    step=1,
+    help="If the app discovers fewer waves than this, it will STOP and warn you (prevents regressions).",
+)
+
 if st.sidebar.button("Refresh Wave List / Weights"):
     we.refresh_weights()
-    st.sidebar.success("Refreshed weights.")
+    st.sidebar.success("Refreshed weights + wave list. Scroll to confirm count updated.")
 
 
 # -----------------------------
-# Ensure ALL waves show up
+# Ensure ALL waves show up (with guardrail)
 # -----------------------------
 all_waves = we.get_all_waves()
+
+st.sidebar.markdown(f"**Waves discovered:** `{len(all_waves)}`")
+weights_path = we.get_weights_path()
+if weights_path:
+    st.sidebar.caption(f"Weights file: `{weights_path}`")
+else:
+    st.sidebar.caption("Weights file: (not found yet)")
+
 if not all_waves:
-    st.error("No Waves found. Make sure wave_weights.csv exists and has Wave/Ticker/Weight columns.")
+    st.error("No Waves found. The engine could not read your weights file. Check file name/location and columns.")
+    st.stop()
+
+# Guardrail: stop if wave list regresses (prevents accidental deploy)
+if len(all_waves) < int(min_expected):
+    st.error(
+        f"🚨 WAVE DISCOVERY REGRESSION BLOCKER 🚨\n\n"
+        f"Discovered only **{len(all_waves)}** waves, but guardrail minimum is **{min_expected}**.\n\n"
+        f"Do NOT deploy this build. Fix weights path/format first.\n"
+        f"(Your business-safe stopgap to prevent the 10-wave collapse.)"
+    )
     st.stop()
 
 wave_selected = st.sidebar.selectbox("Select Wave", all_waves, index=0)
@@ -170,7 +201,6 @@ bundle = we.wave_detail_bundle(
 
 df365 = bundle.get("df365")
 
-
 # NAV chart + headline stats
 if df365 is None or df365.empty:
     st.warning("Not enough market history to compute 365D NAV for this Wave yet.")
@@ -265,9 +295,8 @@ recos = bundle.get("recommendations") or []
 if not recos:
     st.info("No high-confidence recommendations detected (or not enough history).")
 else:
-    # Persistent apply safety gate
-    st.caption("Default apply is session-only. You can optionally enable persistent apply with a hard confirmation.")
-    enable_persist = st.checkbox("Enable persistent apply (writes overrides.json)", value=False)
+    st.caption("Default apply is session-only. You can optionally enable persistent apply with hard confirmation.")
+    enable_persist = st.checkbox("Enable persistent apply (writes persistent_overrides.json)", value=False)
     confirm_text = ""
     if enable_persist:
         confirm_text = st.text_input("Type APPLY to enable persistent writes", value="")
@@ -283,12 +312,10 @@ else:
             st.write(why)
             st.code(str(deltas))
 
-            # guardrail: require minimum confidence for apply
             if we.CONF_RANK.get(conf, 0) < we.CONF_RANK.get(we.SAFE_APPLY_LIMITS["min_confidence_to_apply"], 2):
                 st.warning("Blocked by guardrails: confidence below minimum for apply.")
                 continue
 
-            # informational-only recos (no deltas)
             if not deltas or ("exposure_delta" not in deltas and "smartsafe_delta" not in deltas):
                 st.info("Informational recommendation (no auto-apply parameters).")
                 continue
@@ -352,7 +379,7 @@ else:
 
             with c3:
                 persist_ok = enable_persist and (confirm_text.strip().upper() == "APPLY")
-                if st.button("Persist apply (writes overrides.json)", key=f"persist_{i}", disabled=(not persist_ok)):
+                if st.button("Persist apply (writes persistent_overrides.json)", key=f"persist_{i}", disabled=(not persist_ok)):
                     we.persist_apply(
                         wave_selected,
                         mode,
@@ -374,11 +401,11 @@ st.markdown("---")
 st.subheader("Top-10 Holdings")
 holds = bundle.get("holdings")
 if holds is None or holds.empty:
-    st.info("No holdings found for this Wave (check wave_weights.csv).")
+    st.info("No holdings found for this Wave (check weights file).")
 else:
     show = holds.copy().head(10)
     show["weight"] = show["weight"].map(lambda x: f"{float(x):.2f}%")
     show = show.rename(columns={"ticker": "Ticker", "weight": "Weight"})
     st.dataframe(show, use_container_width=True, height=260)
 
-st.caption("Recommendation logs: logs/recommendations/reco_events.csv • Persistent overrides: logs/overrides/persistent_overrides.json")
+st.caption("Logs: logs/recommendations/reco_events.csv • Persistent overrides: logs/overrides/persistent_overrides.json")
