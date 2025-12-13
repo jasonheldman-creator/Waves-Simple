@@ -1,37 +1,23 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine
+# waves_engine.py — WAVES Intelligence™ Vector Engine (v17.1)
 # Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
 #
-# Mobile-friendly:
-#   • No terminal, no CLI, no CSV requirement for core behavior.
-#   • Internal Wave holdings + ETF / crypto candidate library.
+# NEW in v17.1:
+#   • Adds a "shadow" simulator: simulate_history_nav(... overrides ...)
+#     - Does NOT alter baseline compute_history_nav
+#   • Adds diagnostics helpers:
+#     - get_latest_diagnostics(...)
+#     - get_parameter_defaults(...)
 #
-# Strategy side:
-#   • Momentum tilts (60D)
-#   • Volatility targeting (20D realized vol)
-#   • Regime gating (SPY 60D trend)
-#   • VIX-based exposure scaling (or BTC-vol-based for crypto)
-#   • SmartSafe™ sweep based on VIX & regime
-#   • Mode-specific exposure caps (Standard, Alpha-Minus-Beta, Private Logic)
-#   • Private Logic™ mean-reversion overlay
-#
-# Benchmark side:
-#   • Auto-constructed composite benchmarks based on Wave exposures.
-#   • Fallback static benchmark weights per Wave.
-#
-# Public API used by app.py:
-#   • USE_FULL_WAVE_HISTORY
-#   • get_all_waves()
-#   • get_modes()
-#   • compute_history_nav(wave_name, mode, days)
-#   • get_benchmark_mix_table()
-#   • get_wave_holdings(wave_name)
+# NOTE:
+#   This engine is "mobile-friendly" and does not require CSVs.
+#   It uses internal holdings and an auto-constructed composite benchmark system.
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional, Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -45,7 +31,7 @@ except ImportError:  # pragma: no cover
 # Global config
 # ------------------------------------------------------------
 
-USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag; kept for compatibility
+USE_FULL_WAVE_HISTORY: bool = False  # compatibility flag
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -92,10 +78,10 @@ REGIME_GATING: Dict[str, Dict[str, float]] = {
     },
 }
 
-PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized (default)
+PORTFOLIO_VOL_TARGET = 0.20  # 20% annualized default
 
 VIX_TICKER = "^VIX"
-BTC_TICKER = "BTC-USD"  # used for crypto-VIX proxy
+BTC_TICKER = "BTC-USD"  # used for crypto "VIX proxy"
 
 # Crypto yield overlays (APY assumptions per Wave)
 CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
@@ -105,6 +91,10 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
 }
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
+
+# Default per-wave tuning (can be overridden in shadow simulation)
+DEFAULT_TILT_STRENGTH = 0.80
+DEFAULT_EXTRA_SAFE_BOOST = 0.00
 
 # ------------------------------------------------------------
 # Data structures
@@ -126,10 +116,15 @@ class ETFBenchmarkCandidate:
 
 
 # ------------------------------------------------------------
-# Internal Wave holdings
+# Internal Wave holdings (20 Waves)
 # ------------------------------------------------------------
 
 WAVE_WEIGHTS: Dict[str, List[Holding]] = {
+    # 1) Added to reach 20 waves
+    "S&P 500 Wave": [
+        Holding("SPY", 1.00, "SPDR S&P 500 ETF"),
+    ],
+
     # Core US equity Waves
     "US MegaCap Core Wave": [
         Holding("AAPL", 0.07, "Apple Inc."),
@@ -206,7 +201,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
     ],
 
-    # ✅ Demas Fund Wave (simple, value/quality + defensive tilt)
+    # Demas Fund Wave (value/quality + defensive tilt)
     "Demas Fund Wave": [
         Holding("BRK-B", 0.12, "Berkshire Hathaway (B)"),
         Holding("JPM", 0.10, "JPMorgan Chase & Co."),
@@ -316,6 +311,8 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 # ------------------------------------------------------------
 
 BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
+    "S&P 500 Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
+
     "US MegaCap Core Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
     "AI & Cloud MegaCap Wave": [
         Holding("QQQ", 0.60, "Invesco QQQ Trust"),
@@ -342,7 +339,6 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
     ],
 
-    # ✅ Demas Fund Wave benchmark: broad market + value sleeve (simple + fair)
     "Demas Fund Wave": [
         Holding("SPY", 0.60, "SPDR S&P 500 ETF"),
         Holding("VTV", 0.40, "Vanguard Value ETF"),
@@ -354,6 +350,7 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("SOL-USD", 0.15, "Solana"),
     ],
     "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
+
     "Crypto Stable Yield Wave": [
         Holding("USDC-USD", 0.25, "USD Coin"),
         Holding("USDT-USD", 0.25, "Tether"),
@@ -371,6 +368,7 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("ETH-USD", 0.40, "Ethereum"),
         Holding("stETH-USD", 0.20, "Lido Staked Ether"),
     ],
+
     "SmartSafe Treasury Cash Wave": [
         Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
         Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
@@ -430,7 +428,6 @@ ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
     ETFBenchmarkCandidate("MUB", "iShares National Muni Bond ETF", {"Safe"}, "Safe"),
     ETFBenchmarkCandidate("GLD", "SPDR Gold Shares", {"Gold", "Safe"}, "Gold"),
     ETFBenchmarkCandidate("IAU", "iShares Gold Trust", {"Gold", "Safe"}, "Gold"),
-    # value ETF candidate (helps Demas auto-benchmark if ever used)
     ETFBenchmarkCandidate("VTV", "Vanguard Value ETF", {"Broad", "Large"}, "Large"),
 ]
 
@@ -444,6 +441,30 @@ def get_all_waves() -> list[str]:
 
 def get_modes() -> list[str]:
     return list(MODE_BASE_EXPOSURE.keys())
+
+
+def get_parameter_defaults(wave_name: str, mode: str) -> Dict[str, float]:
+    # Simple defaults + a per-wave tweak example (Demas)
+    tilt_strength = DEFAULT_TILT_STRENGTH
+    vol_target = PORTFOLIO_VOL_TARGET
+    extra_safe_boost = DEFAULT_EXTRA_SAFE_BOOST
+
+    if wave_name == "Demas Fund Wave":
+        tilt_strength = 0.45
+        vol_target = 0.15
+        extra_safe_boost = 0.03
+
+    exp_min, exp_max = MODE_EXPOSURE_CAPS.get(mode, (0.70, 1.30))
+    base_exposure = MODE_BASE_EXPOSURE.get(mode, 1.0)
+
+    return {
+        "tilt_strength": float(tilt_strength),
+        "vol_target": float(vol_target),
+        "extra_safe_boost": float(extra_safe_boost),
+        "exp_min": float(exp_min),
+        "exp_max": float(exp_max),
+        "base_exposure": float(base_exposure),
+    }
 
 
 def _normalize_weights(holdings: List[Holding]) -> pd.Series:
@@ -533,7 +554,7 @@ def _get_ticker_meta(ticker: str) -> tuple[str, float]:
         if ticker in {"USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD", "sDAI-USD"}:
             return ("Safe", np.nan)
         return ("Crypto", np.nan)
-    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB", "IEF", "TLT", "LQD"}:
+    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB", "IEF", "TLT", "LQD", "TFI", "HYD"}:
         return ("Safe", np.nan)
     if ticker in {"GLD", "IAU"}:
         return ("Gold", np.nan)
@@ -685,28 +706,45 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
     return float(np.clip(base, 0.0, 0.8))
 
 
-# ------------------------------------------------------------
-# Core compute_history_nav
-# ------------------------------------------------------------
-
-def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+def _compute_core(
+    wave_name: str,
+    mode: str = "Standard",
+    days: int = 365,
+    overrides: Optional[Dict[str, Any]] = None,
+    shadow: bool = False,
+) -> pd.DataFrame:
     """
-    Compute Wave & Benchmark NAV + daily returns over a given window.
+    Core engine calculator used by:
+      - compute_history_nav()  [baseline]
+      - simulate_history_nav() [shadow overrides]
 
-    Returns DataFrame indexed by Date:
-        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
+    overrides keys (optional):
+      - tilt_strength: float
+      - vol_target: float
+      - extra_safe_boost: float
+      - base_exposure_mult: float
+      - exp_min: float
+      - exp_max: float
+      - freeze_benchmark: bool   (use static benchmark only)
     """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")
     if mode not in MODE_BASE_EXPOSURE:
         raise ValueError(f"Unknown mode: {mode}")
 
+    ov = overrides or {}
+
+    # Holdings
     wave_holdings = WAVE_WEIGHTS[wave_name]
 
-    # Use static benchmark if provided, else auto-benchmark
-    bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-    if not bm_holdings:
-        bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    # Benchmark selection
+    freeze_benchmark = bool(ov.get("freeze_benchmark", False))
+    if freeze_benchmark:
+        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    else:
+        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+        if not bm_holdings:
+            bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
     wave_weights = _normalize_weights(wave_holdings)
     bm_weights = _normalize_weights(bm_holdings)
@@ -771,24 +809,17 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
         safe_ticker = base_index_ticker
     safe_ret_series = ret_df[safe_ticker]
 
-    # -------------------------
-    # ✅ Simple per-wave tuning
-    # -------------------------
-    tilt_strength = 0.80
-    vol_target = PORTFOLIO_VOL_TARGET
-    extra_safe_boost = 0.00  # additive safe fraction
+    # Defaults (plus Demas tweak)
+    defaults = get_parameter_defaults(wave_name, mode)
+    tilt_strength = float(ov.get("tilt_strength", defaults["tilt_strength"]))
+    vol_target = float(ov.get("vol_target", defaults["vol_target"]))
+    extra_safe_boost = float(ov.get("extra_safe_boost", defaults["extra_safe_boost"]))
 
-    if wave_name == "Demas Fund Wave":
-        # Make Demas behave more like a disciplined value fund:
-        # - less whipsaw from momentum tilts
-        # - slightly lower vol target
-        # - slightly more SmartSafe in stress
-        tilt_strength = 0.45
-        vol_target = 0.15
-        extra_safe_boost = 0.03
+    base_exposure_mult = float(ov.get("base_exposure_mult", 1.0))
+    mode_base_exposure = float(MODE_BASE_EXPOSURE[mode]) * base_exposure_mult
 
-    mode_base_exposure = MODE_BASE_EXPOSURE[mode]
-    exp_min, exp_max = MODE_EXPOSURE_CAPS[mode]
+    exp_min = float(ov.get("exp_min", defaults["exp_min"]))
+    exp_max = float(ov.get("exp_max", defaults["exp_max"]))
 
     wave_ret_list: List[float] = []
     dates: List[pd.Timestamp] = []
@@ -796,6 +827,9 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
     # Yield overlay
     apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
     daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
+
+    # Diagnostics series (optional)
+    diag_rows = []
 
     for dt in ret_df.index:
         rets = ret_df.loc[dt]
@@ -836,10 +870,11 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
         else:
             recent_vol = vol_target
 
-        vol_adjust = 1.0
         if recent_vol > 0:
             vol_adjust = vol_target / recent_vol
             vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
+        else:
+            vol_adjust = 1.0
 
         raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
         exposure = float(np.clip(raw_exposure, exp_min, exp_max))
@@ -869,6 +904,21 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
         wave_ret_list.append(total_ret)
         dates.append(dt)
 
+        if shadow:
+            diag_rows.append(
+                {
+                    "Date": dt,
+                    "regime": regime,
+                    "vix": vix_level,
+                    "safe_fraction": safe_fraction,
+                    "exposure": exposure,
+                    "vol_adjust": vol_adjust,
+                    "vix_exposure": vix_exposure,
+                    "vix_gate": vix_gate,
+                    "regime_gate": regime_gate,
+                }
+            )
+
     wave_ret_series = pd.Series(wave_ret_list, index=pd.Index(dates, name="Date"))
     bm_ret_series = bm_ret_series.reindex(wave_ret_series.index).fillna(0.0)
 
@@ -879,7 +929,31 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365)
         {"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series}
     )
     out.index.name = "Date"
+
+    if shadow and diag_rows:
+        diag_df = pd.DataFrame(diag_rows).set_index("Date")
+        out.attrs["diagnostics"] = diag_df
+
     return out
+
+
+# ------------------------------------------------------------
+# Baseline API (unchanged behavior)
+# ------------------------------------------------------------
+
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+    """
+    Baseline (official) engine output.
+    """
+    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=False)
+
+
+def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    """
+    Shadow "What-If" simulation. Never overwrites baseline.
+    Returns the same columns, plus diagnostics in out.attrs["diagnostics"] if available.
+    """
+    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=overrides or {}, shadow=True)
 
 
 def get_benchmark_mix_table() -> pd.DataFrame:
@@ -911,3 +985,116 @@ def get_wave_holdings(wave_name: str) -> pd.DataFrame:
         rows.append({"Ticker": h.ticker, "Name": h.name or "", "Weight": float(weights[h.ticker])})
     df = pd.DataFrame(rows).drop_duplicates(subset=["Ticker"]).sort_values("Weight", ascending=False)
     return df
+
+
+# ------------------------------------------------------------
+# Diagnostics helpers
+# ------------------------------------------------------------
+
+def _annualized_vol(daily_ret: pd.Series) -> float:
+    if daily_ret is None or len(daily_ret) < 2:
+        return float("nan")
+    return float(daily_ret.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+
+
+def _max_drawdown(nav: pd.Series) -> float:
+    if nav is None or len(nav) < 2:
+        return float("nan")
+    running_max = nav.cummax()
+    dd = (nav / running_max) - 1.0
+    return float(dd.min())
+
+
+def _tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
+    if daily_wave is None or daily_bm is None:
+        return float("nan")
+    if len(daily_wave) != len(daily_bm) or len(daily_wave) < 2:
+        return float("nan")
+    diff = (daily_wave - daily_bm).dropna()
+    if len(diff) < 2:
+        return float("nan")
+    return float(diff.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+
+
+def _compute_total_return(nav: pd.Series) -> float:
+    if nav is None or len(nav) < 2:
+        return float("nan")
+    start = float(nav.iloc[0])
+    end = float(nav.iloc[-1])
+    if start <= 0:
+        return float("nan")
+    return float(end / start - 1.0)
+
+
+def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 365) -> Dict[str, Any]:
+    """
+    Runs baseline compute_history_nav and produces a structured snapshot + suggestions.
+    """
+    out: Dict[str, Any] = {"wave": wave_name, "mode": mode, "days": days}
+
+    hist = compute_history_nav(wave_name, mode=mode, days=days)
+    if hist is None or hist.empty or len(hist) < 50:
+        out["ok"] = False
+        out["message"] = "Not enough data to compute diagnostics."
+        return out
+
+    nav_w = hist["wave_nav"]
+    nav_b = hist["bm_nav"]
+    ret_w = hist["wave_ret"]
+    ret_b = hist["bm_ret"]
+
+    total_w = _compute_total_return(nav_w)
+    total_b = _compute_total_return(nav_b)
+    alpha = total_w - total_b
+
+    vol_w = _annualized_vol(ret_w)
+    vol_b = _annualized_vol(ret_b)
+    te = _tracking_error(ret_w, ret_b)
+
+    mdd_w = _max_drawdown(nav_w)
+    mdd_b = _max_drawdown(nav_b)
+
+    # IR proxy (excess / TE)
+    ir = float("nan")
+    if te and not np.isnan(te) and te > 0:
+        ir = float((alpha) / te)
+
+    # Heuristic “what might be going on”
+    suggestions: List[str] = []
+    flags: List[str] = []
+
+    if not np.isnan(alpha) and alpha < 0:
+        flags.append("Alpha is negative vs benchmark over the window.")
+        suggestions.append("Check benchmark mix (Benchmark Mix table) — if the auto benchmark shifted, alpha can swing even if raw return looks good.")
+        suggestions.append("Use What-If: toggle 'Freeze benchmark' to compare dynamic benchmark vs static baseline for stability.")
+
+    if not np.isnan(te) and te > 0.25:
+        flags.append("Tracking error is high (active intensity).")
+        suggestions.append("Consider tightening exposure cap max (What-If slider) or lowering tilt strength slightly to reduce whipsaw.")
+
+    if not np.isnan(mdd_w) and mdd_w < -0.25:
+        flags.append("Max drawdown is deep.")
+        suggestions.append("Consider increasing extra safe boost slightly or lowering vol target (What-If).")
+
+    if not np.isnan(vol_w) and not np.isnan(vol_b) and vol_w > vol_b * 1.25:
+        flags.append("Wave vol is much higher than benchmark vol.")
+        suggestions.append("Consider lowering vol target and/or lowering base exposure multiplier in this mode.")
+
+    # Add context baseline numbers
+    out.update(
+        {
+            "ok": True,
+            "return_wave": float(total_w),
+            "return_benchmark": float(total_b),
+            "alpha": float(alpha),
+            "vol_wave": float(vol_w),
+            "vol_benchmark": float(vol_b),
+            "tracking_error": float(te),
+            "information_ratio": float(ir),
+            "maxdd_wave": float(mdd_w),
+            "maxdd_benchmark": float(mdd_b),
+            "flags": flags,
+            "suggestions": suggestions,
+        }
+    )
+    return out
