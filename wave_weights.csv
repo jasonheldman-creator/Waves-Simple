@@ -1,183 +1,132 @@
-wave,ticker,weight
-AI & Cloud MegaCap Wave,NVDA,0.10
-AI & Cloud MegaCap Wave,MSFT,0.10
-AI & Cloud MegaCap Wave,GOOGL,0.10
-AI & Cloud MegaCap Wave,META,0.10
-AI & Cloud MegaCap Wave,AVGO,0.10
-AI & Cloud MegaCap Wave,ADBE,0.10
-AI & Cloud MegaCap Wave,AMD,0.10
-AI & Cloud MegaCap Wave,CRM,0.10
-AI & Cloud MegaCap Wave,ORCL,0.10
-AI & Cloud MegaCap Wave,INTC,0.10
+Wave,Ticker,Weight,Benchmark
+AI Wave,REPLACE_01,0.10,QQQ
+AI Wave,REPLACE_02,0.10,QQQ
+AI Wave,REPLACE_03,0.10,QQQ
+AI Wave,REPLACE_04,0.10,QQQ
+AI Wave,REPLACE_05,0.10,QQQ
+AI Wave,REPLACE_06,0.10,QQQ
+AI Wave,REPLACE_07,0.10,QQQ
+AI Wave,REPLACE_08,0.10,QQQ
+AI Wave,REPLACE_09,0.10,QQQ
+AI Wave,REPLACE_10,0.10,QQQ
 
-AI Wave,NVDA,0.15
-AI Wave,MSFT,0.10
-AI Wave,GOOGL,0.10
-AI Wave,META,0.10
-AI Wave,TSLA,0.10
-AI Wave,AMD,0.10
-AI Wave,MU,0.10
-AI Wave,SMCI,0.10
-AI Wave,CRWD,0.05
-AI Wave,AVGO,0.10
+Cloud & Software Wave,REPLACE_01,0.10,QQQ
+Cloud & Software Wave,REPLACE_02,0.10,QQQ
+Cloud & Software Wave,REPLACE_03,0.10,QQQ
+Cloud & Software Wave,REPLACE_04,0.10,QQQ
+Cloud & Software Wave,REPLACE_05,0.10,QQQ
+Cloud & Software Wave,REPLACE_06,0.10,QQQ
+Cloud & Software Wave,REPLACE_07,0.10,QQQ
+Cloud & Software Wave,REPLACE_08,0.10,QQQ
+Cloud & Software Wave,REPLACE_09,0.10,QQQ
+Cloud & Software Wave,REPLACE_10,0.10,QQQ
 
-Bitcoin Wave,BTC-USD,1.00
+Quantum Computing Wave,REPLACE_01,0.10,QQQ
+Quantum Computing Wave,REPLACE_02,0.10,QQQ
+Quantum Computing Wave,REPLACE_03,0.10,QQQ
+Quantum Computing Wave,REPLACE_04,0.10,QQQ
+Quantum Computing Wave,REPLACE_05,0.10,QQQ
+Quantum Computing Wave,REPLACE_06,0.10,QQQ
+Quantum Computing Wave,REPLACE_07,0.10,QQQ
+Quantum Computing Wave,REPLACE_08,0.10,QQQ
+Quantum Computing Wave,REPLACE_09,0.10,QQQ
+Quantum Computing Wave,REPLACE_10,0.10,QQQ
 
-Clean Transit-Infrastructure Wave,TSLA,0.10
-Clean Transit-Infrastructure Wave,NIO,0.10
-Clean Transit-Infrastructure Wave,LI,0.10
-Clean Transit-Infrastructure Wave,GM,0.10
-Clean Transit-Infrastructure Wave,F,0.10
-Clean Transit-Infrastructure Wave,PLUG,0.10
-Clean Transit-Infrastructure Wave,CHPT,0.10
-Clean Transit-Infrastructure Wave,BLNK,0.10
-Clean Transit-Infrastructure Wave,RIVN,0.10
-Clean Transit-Infrastructure Wave,WKHS,0.10
+Growth Wave,REPLACE_01,0.10,SPY
+Growth Wave,REPLACE_02,0.10,SPY
+Growth Wave,REPLACE_03,0.10,SPY
+Growth Wave,REPLACE_04,0.10,SPY
+Growth Wave,REPLACE_05,0.10,SPY
+Growth Wave,REPLACE_06,0.10,SPY
+Growth Wave,REPLACE_07,0.10,SPY
+Growth Wave,REPLACE_08,0.10,SPY
+Growth Wave,REPLACE_09,0.10,SPY
+Growth Wave,REPLACE_10,0.10,SPY
 
-Cloud & Software Wave,CRM,0.10
-Cloud & Software Wave,ADBE,0.10
-Cloud & Software Wave,ORCL,0.10
-Cloud & Software Wave,SNOW,0.10
-Cloud & Software Wave,AMD,0.10
-Cloud & Software Wave,MSFT,0.10
-Cloud & Software Wave,PANW,0.10
-Cloud & Software Wave,ZS,0.10
-Cloud & Software Wave,DDOG,0.10
-Cloud & Software Wave,CRWD,0.10
+Small Cap Growth Wave,REPLACE_01,0.10,IWM
+Small Cap Growth Wave,REPLACE_02,0.10,IWM
+Small Cap Growth Wave,REPLACE_03,0.10,IWM
+Small Cap Growth Wave,REPLACE_04,0.10,IWM
+Small Cap Growth Wave,REPLACE_05,0.10,IWM
+Small Cap Growth Wave,REPLACE_06,0.10,IWM
+Small Cap Growth Wave,REPLACE_07,0.10,IWM
+Small Cap Growth Wave,REPLACE_08,0.10,IWM
+Small Cap Growth Wave,REPLACE_09,0.10,IWM
+Small Cap Growth Wave,REPLACE_10,0.10,IWM
 
-Crypto High-Yield Income Wave,stETH-USD,0.15
-Crypto High-Yield Income Wave,AAVE-USD,0.15
-Crypto High-Yield Income Wave,MKR-USD,0.10
-Crypto High-Yield Income Wave,UNI-USD,0.10
-Crypto High-Yield Income Wave,GRT-USD,0.10
-Crypto High-Yield Income Wave,LINK-USD,0.10
-Crypto High-Yield Income Wave,ETH-USD,0.15
-Crypto High-Yield Income Wave,BTC-USD,0.15
+Small to Mid Cap Growth Wave,REPLACE_01,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_02,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_03,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_04,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_05,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_06,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_07,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_08,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_09,0.10,IJH
+Small to Mid Cap Growth Wave,REPLACE_10,0.10,IJH
 
-Crypto Income & Yield Wave,USDC-USD,0.25
-Crypto Income & Yield Wave,USDT-USD,0.20
-Crypto Income & Yield Wave,DAI-USD,0.15
-Crypto Income & Yield Wave,USDP-USD,0.05
-Crypto Income & Yield Wave,stETH-USD,0.10
-Crypto Income & Yield Wave,AAVE-USD,0.10
-Crypto Income & Yield Wave,MKR-USD,0.05
-Crypto Income & Yield Wave,ETH-USD,0.05
-Crypto Income & Yield Wave,BTC-USD,0.05
+Future Power & Energy Wave,REPLACE_01,0.10,XLE
+Future Power & Energy Wave,REPLACE_02,0.10,XLE
+Future Power & Energy Wave,REPLACE_03,0.10,XLE
+Future Power & Energy Wave,REPLACE_04,0.10,XLE
+Future Power & Energy Wave,REPLACE_05,0.10,XLE
+Future Power & Energy Wave,REPLACE_06,0.10,XLE
+Future Power & Energy Wave,REPLACE_07,0.10,XLE
+Future Power & Energy Wave,REPLACE_08,0.10,XLE
+Future Power & Energy Wave,REPLACE_09,0.10,XLE
+Future Power & Energy Wave,REPLACE_10,0.10,XLE
 
-Crypto Income Wave,BTC-USD,0.20
-Crypto Income Wave,ETH-USD,0.20
-Crypto Income Wave,SOL-USD,0.10
-Crypto Income Wave,AVAX-USD,0.10
-Crypto Income Wave,LINK-USD,0.10
-Crypto Income Wave,ATOM-USD,0.10
-Crypto Income Wave,XRP-USD,0.10
-Crypto Income Wave,ADA-USD,0.10
+Clean Transit-Infrastructure Wave,REPLACE_01,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_02,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_03,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_04,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_05,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_06,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_07,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_08,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_09,0.10,PAVE
+Clean Transit-Infrastructure Wave,REPLACE_10,0.10,PAVE
 
-Crypto Stable Yield Wave,USDC-USD,0.35
-Crypto Stable Yield Wave,USDT-USD,0.30
-Crypto Stable Yield Wave,DAI-USD,0.20
-Crypto Stable Yield Wave,USDP-USD,0.10
-Crypto Stable Yield Wave,sDAI-USD,0.03
-Crypto Stable Yield Wave,stETH-USD,0.02
+Income Wave,REPLACE_01,0.10,AGG
+Income Wave,REPLACE_02,0.10,AGG
+Income Wave,REPLACE_03,0.10,AGG
+Income Wave,REPLACE_04,0.10,AGG
+Income Wave,REPLACE_05,0.10,AGG
+Income Wave,REPLACE_06,0.10,AGG
+Income Wave,REPLACE_07,0.10,AGG
+Income Wave,REPLACE_08,0.10,AGG
+Income Wave,REPLACE_09,0.10,AGG
+Income Wave,REPLACE_10,0.10,AGG
 
-Demas Fund Wave,BRK.B,0.12
-Demas Fund Wave,JPM,0.10
-Demas Fund Wave,XOM,0.10
-Demas Fund Wave,CVX,0.08
-Demas Fund Wave,PG,0.10
-Demas Fund Wave,KO,0.08
-Demas Fund Wave,JNJ,0.10
-Demas Fund Wave,UNH,0.10
-Demas Fund Wave,WMT,0.10
-Demas Fund Wave,VTV,0.12
+Muni Ladder Wave,REPLACE_01,0.10,MUB
+Muni Ladder Wave,REPLACE_02,0.10,MUB
+Muni Ladder Wave,REPLACE_03,0.10,MUB
+Muni Ladder Wave,REPLACE_04,0.10,MUB
+Muni Ladder Wave,REPLACE_05,0.10,MUB
+Muni Ladder Wave,REPLACE_06,0.10,MUB
+Muni Ladder Wave,REPLACE_07,0.10,MUB
+Muni Ladder Wave,REPLACE_08,0.10,MUB
+Muni Ladder Wave,REPLACE_09,0.10,MUB
+Muni Ladder Wave,REPLACE_10,0.10,MUB
 
-EV & Infrastructure Wave,TSLA,0.12
-EV & Infrastructure Wave,NIO,0.08
-EV & Infrastructure Wave,GM,0.08
-EV & Infrastructure Wave,F,0.08
-EV & Infrastructure Wave,CAT,0.08
-EV & Infrastructure Wave,UNP,0.08
-EV & Infrastructure Wave,VMC,0.08
-EV & Infrastructure Wave,MLM,0.08
-EV & Infrastructure Wave,XLI,0.16
-EV & Infrastructure Wave,PAVE,0.16
+Crypto Income Wave,REPLACE_01,0.10,BTC-USD
+Crypto Income Wave,REPLACE_02,0.10,BTC-USD
+Crypto Income Wave,REPLACE_03,0.10,BTC-USD
+Crypto Income Wave,REPLACE_04,0.10,BTC-USD
+Crypto Income Wave,REPLACE_05,0.10,BTC-USD
+Crypto Income Wave,REPLACE_06,0.10,BTC-USD
+Crypto Income Wave,REPLACE_07,0.10,BTC-USD
+Crypto Income Wave,REPLACE_08,0.10,BTC-USD
+Crypto Income Wave,REPLACE_09,0.10,BTC-USD
+Crypto Income Wave,REPLACE_10,0.10,BTC-USD
 
-Future Energy & EV Wave,XLE,0.10
-Future Energy & EV Wave,ICLN,0.10
-Future Energy & EV Wave,ENPH,0.10
-Future Energy & EV Wave,NEE,0.10
-Future Energy & EV Wave,FSLR,0.10
-Future Energy & EV Wave,TSLA,0.10
-Future Energy & EV Wave,RUN,0.10
-Future Energy & EV Wave,BP,0.10
-Future Energy & EV Wave,CVX,0.10
-Future Energy & EV Wave,PLUG,0.10
-
-Future Power & Energy Wave,XOM,0.10
-Future Power & Energy Wave,CVX,0.10
-Future Power & Energy Wave,NEE,0.10
-Future Power & Energy Wave,DUK,0.10
-Future Power & Energy Wave,ENPH,0.10
-Future Power & Energy Wave,PSX,0.10
-Future Power & Energy Wave,SLB,0.10
-Future Power & Energy Wave,MPC,0.10
-Future Power & Energy Wave,HAL,0.10
-Future Power & Energy Wave,LIN,0.10
-
-Gold Wave,GLD,0.70
-Gold Wave,IAU,0.30
-
-Growth Wave,NVDA,0.10
-Growth Wave,MSFT,0.10
-Growth Wave,META,0.10
-Growth Wave,AMZN,0.10
-Growth Wave,GOOGL,0.10
-Growth Wave,TSLA,0.10
-Growth Wave,NFLX,0.10
-Growth Wave,AVGO,0.10
-Growth Wave,ADBE,0.10
-Growth Wave,CRM,0.10
-
-Income Wave,HDV,0.20
-Income Wave,VYM,0.20
-Income Wave,JNJ,0.20
-Income Wave,PG,0.20
-Income Wave,T,0.20
-
-Quantum Computing Wave,IBM,0.15
-Quantum Computing Wave,QUBT,0.10
-Quantum Computing Wave,IONQ,0.10
-Quantum Computing Wave,RIGL,0.10
-Quantum Computing Wave,ACLS,0.10
-Quantum Computing Wave,AMAT,0.10
-Quantum Computing Wave,TSM,0.10
-Quantum Computing Wave,ASML,0.10
-Quantum Computing Wave,MU,0.10
-Quantum Computing Wave,INTC,0.05
-
-S&P 500 Wave,NVDA,0.04
-S&P 500 Wave,AAPL,0.04
-S&P 500 Wave,MSFT,0.04
-S&P 500 Wave,AMZN,0.04
-S&P 500 Wave,META,0.04
-S&P 500 Wave,GOOGL,0.04
-S&P 500 Wave,TSLA,0.04
-S&P 500 Wave,BRK.B,0.04
-S&P 500 Wave,JPM,0.04
-S&P 500 Wave,LLY,0.04
-
-Small Cap Growth Wave,PLTR,0.10
-Small Cap Growth Wave,ROKU,0.10
-Small Cap Growth Wave,APP,0.10
-Small Cap Growth Wave,TTD,0.10
-Small Cap Growth Wave,PAYC,0.10
-Small Cap Growth Wave,ZS,0.10
-Small Cap Growth Wave,OKTA,0.10
-Small Cap Growth Wave,SQ,0.10
-Small Cap Growth Wave,COIN,0.10
-Small Cap Growth Wave,HOOD,0.10
-
-SmartSafe Wave,BIL,0.25
-SmartSafe Wave,SHV,0.25
-SmartSafe Wave,SGOV,0.25
-SmartSafe Wave,ICSH,0.25
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_01,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_02,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_03,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_04,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_05,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_06,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_07,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_08,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_09,0.10,IJH
+Demas Small–Mid Cap Value Acceleration Wave,REPLACE_10,0.10,IJH
