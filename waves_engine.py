@@ -1,913 +1,802 @@
-# waves_engine.py — WAVES Intelligence™ Vector Engine
-# Dynamic Strategy + VIX + SmartSafe + Auto-Custom Benchmarks
-#
-# Mobile-friendly:
-#   • No terminal, no CLI, no CSV requirement for core behavior.
-#   • Internal Wave holdings + ETF / crypto candidate library.
-#
-# Strategy side:
-#   • Momentum tilts (60D)
-#   • Volatility targeting (20D realized vol)
-#   • Regime gating (SPY 60D trend)
-#   • VIX-based exposure scaling (or BTC-vol-based for crypto)
-#   • SmartSafe™ sweep based on VIX & regime
-#   • Mode-specific exposure caps (Standard, Alpha-Minus-Beta, Private Logic)
-#   • Private Logic™ mean-reversion overlay
-#
-# Benchmark side:
-#   • Auto-constructed composite benchmarks based on Wave exposures.
-#   • Fallback static benchmark weights per Wave.
-#
-# Public API used by app.py:
-#   • USE_FULL_WAVE_HISTORY
-#   • get_all_waves()
-#   • get_modes()
-#   • compute_history_nav(wave_name, mode, days)
-#   • get_benchmark_mix_table()
-#   • get_wave_holdings(wave_name)
+# waves_engine.py
+# WAVES Intelligence™ — Engine
+# Adds: Conditional Attribution Grid + persistent logging + safe recommendation preview/apply
+# Keeps: Wave discovery via wave_weights.csv (so ALL waves appear)
 
 from __future__ import annotations
 
+import os
+import json
+import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from functools import lru_cache
-from typing import Dict, List, Set
+from datetime import datetime, timezone
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
 
 try:
     import yfinance as yf
-except ImportError:  # pragma: no cover
+except Exception:
     yf = None
 
-# ------------------------------------------------------------
-# Global config
-# ------------------------------------------------------------
 
-USE_FULL_WAVE_HISTORY: bool = False  # placeholder flag; kept for compatibility
+# -----------------------------
+# CONFIG
+# -----------------------------
+WEIGHTS_FILE = "wave_weights.csv"   # must exist in repo root (or adjust path)
+LOG_DIR = "logs"
 
-TRADING_DAYS_PER_YEAR = 252
+COND_DIR = os.path.join(LOG_DIR, "conditional")
+RECO_DIR = os.path.join(LOG_DIR, "recommendations")
+OVR_DIR = os.path.join(LOG_DIR, "overrides")
 
-# Mode risk appetites & exposure caps
-MODE_BASE_EXPOSURE: Dict[str, float] = {
-    "Standard": 1.00,
-    "Alpha-Minus-Beta": 0.85,
-    "Private Logic": 1.10,
-}
-
-MODE_EXPOSURE_CAPS: Dict[str, tuple[float, float]] = {
-    "Standard": (0.70, 1.30),
-    "Alpha-Minus-Beta": (0.50, 1.00),
-    "Private Logic": (0.80, 1.50),
-}
-
-# Regime → additional exposure tilt (from SPY 60D trend)
-REGIME_EXPOSURE: Dict[str, float] = {
-    "panic": 0.80,
-    "downtrend": 0.90,
-    "neutral": 1.00,
-    "uptrend": 1.10,
-}
-
-# Regime & mode → baseline SmartSafe gating fraction (portion in safe asset)
-REGIME_GATING: Dict[str, Dict[str, float]] = {
-    "Standard": {
-        "panic": 0.50,
-        "downtrend": 0.30,
-        "neutral": 0.10,
-        "uptrend": 0.00,
-    },
-    "Alpha-Minus-Beta": {
-        "panic": 0.75,
-        "downtrend": 0.50,
-        "neutral": 0.25,
-        "uptrend": 0.05,
-    },
-    "Private Logic": {
-        "panic": 0.40,
-        "downtrend": 0.25,
-        "neutral": 0.05,
-        "uptrend": 0.00,
-    },
-}
-
-PORTFOLIO_VOL_TARGET = 0.20  # ~20% annualized (default)
+RECO_EVENTS_CSV = os.path.join(RECO_DIR, "reco_events.csv")
+PERSIST_OVERRIDES_JSON = os.path.join(OVR_DIR, "persistent_overrides.json")
 
 VIX_TICKER = "^VIX"
-BTC_TICKER = "BTC-USD"  # used for crypto-VIX proxy
+BTC_TICKER = "BTC-USD"
 
-# Crypto yield overlays (APY assumptions per Wave)
-CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
-    "Crypto Stable Yield Wave": 0.04,
-    "Crypto Income & Yield Wave": 0.08,
-    "Crypto High-Yield Income Wave": 0.12,
+# Mode defaults (safe, simple)
+MODE_BASE_EXPOSURE = {
+    "Standard": 1.00,
+    "Alpha-Minus-Beta": 0.85,
+    "Private Logic": 1.00,
+}
+MODE_SMARTSAFE_BASE = {
+    "Standard": 0.00,
+    "Alpha-Minus-Beta": 0.05,
+    "Private Logic": 0.00,
 }
 
-CRYPTO_WAVE_KEYWORD = "Crypto"
-
-# ------------------------------------------------------------
-# Data structures
-# ------------------------------------------------------------
-
-@dataclass
-class Holding:
-    ticker: str
-    weight: float
-    name: str | None = None
-
-
-@dataclass
-class ETFBenchmarkCandidate:
-    ticker: str
-    name: str
-    sector_tags: Set[str]
-    cap_style: str  # "Mega", "Large", "Mid", "Small", "Crypto", "Safe", "Broad", "Gold"
-
-
-# ------------------------------------------------------------
-# Internal Wave holdings
-# ------------------------------------------------------------
-
-WAVE_WEIGHTS: Dict[str, List[Holding]] = {
-    # Core US equity Waves
-    "US MegaCap Core Wave": [
-        Holding("AAPL", 0.07, "Apple Inc."),
-        Holding("MSFT", 0.07, "Microsoft Corp."),
-        Holding("AMZN", 0.05, "Amazon.com Inc."),
-        Holding("GOOGL", 0.04, "Alphabet Inc. (Class A)"),
-        Holding("META", 0.03, "Meta Platforms Inc."),
-        Holding("NVDA", 0.06, "NVIDIA Corp."),
-        Holding("BRK-B", 0.04, "Berkshire Hathaway Inc. (B)"),
-        Holding("UNH", 0.03, "UnitedHealth Group Inc."),
-        Holding("JPM", 0.03, "JPMorgan Chase & Co."),
-        Holding("XOM", 0.03, "Exxon Mobil Corp."),
-    ],
-    "AI & Cloud MegaCap Wave": [
-        Holding("NVDA", 0.12, "NVIDIA Corp."),
-        Holding("MSFT", 0.10, "Microsoft Corp."),
-        Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
-        Holding("META", 0.07, "Meta Platforms Inc."),
-        Holding("AVGO", 0.08, "Broadcom Inc."),
-        Holding("ADBE", 0.07, "Adobe Inc."),
-        Holding("AMD", 0.08, "Advanced Micro Devices Inc."),
-        Holding("CRM", 0.06, "Salesforce Inc."),
-        Holding("ORCL", 0.06, "Oracle Corp."),
-        Holding("INTC", 0.06, "Intel Corp."),
-    ],
-    "Next-Gen Compute & Semis Wave": [
-        Holding("IBM", 0.10, "International Business Machines Corp."),
-        Holding("MSFT", 0.08, "Microsoft Corp."),
-        Holding("GOOGL", 0.08, "Alphabet Inc. (Class A)"),
-        Holding("NVDA", 0.10, "NVIDIA Corp."),
-        Holding("AMZN", 0.08, "Amazon.com Inc."),
-        Holding("QCOM", 0.08, "Qualcomm Inc."),
-        Holding("INTC", 0.08, "Intel Corp."),
-        Holding("TSM", 0.10, "Taiwan Semiconductor Manufacturing"),
-        Holding("ADBE", 0.07, "Adobe Inc."),
-        Holding("SNOW", 0.07, "Snowflake Inc."),
-    ],
-    "Future Energy & EV Wave": [
-        Holding("XLE", 0.12, "Energy Select Sector SPDR"),
-        Holding("ICLN", 0.10, "iShares Global Clean Energy"),
-        Holding("ENPH", 0.08, "Enphase Energy Inc."),
-        Holding("NEE", 0.10, "NextEra Energy Inc."),
-        Holding("FSLR", 0.08, "First Solar Inc."),
-        Holding("TSLA", 0.10, "Tesla Inc."),
-        Holding("RUN", 0.07, "Sunrun Inc."),
-        Holding("BP", 0.08, "BP plc"),
-        Holding("CVX", 0.10, "Chevron Corp."),
-        Holding("PLUG", 0.07, "Plug Power Inc."),
-    ],
-    "EV & Infrastructure Wave": [
-        Holding("TSLA", 0.12, "Tesla Inc."),
-        Holding("NIO", 0.08, "NIO Inc."),
-        Holding("GM", 0.08, "General Motors"),
-        Holding("F", 0.08, "Ford Motor Co."),
-        Holding("CAT", 0.08, "Caterpillar Inc."),
-        Holding("UNP", 0.08, "Union Pacific Corp."),
-        Holding("VMC", 0.08, "Vulcan Materials"),
-        Holding("MLM", 0.08, "Martin Marietta Materials"),
-        Holding("XLI", 0.16, "Industrial Select Sector SPDR"),
-        Holding("PAVE", 0.16, "Global X U.S. Infrastructure Development"),
-    ],
-    "US Small-Cap Disruptors Wave": [
-        Holding("IWO", 0.30, "iShares Russell 2000 Growth ETF"),
-        Holding("VBK", 0.30, "Vanguard Small-Cap Growth ETF"),
-        Holding("ARKK", 0.10, "ARK Innovation ETF"),
-        Holding("ZS", 0.10, "Zscaler Inc."),
-        Holding("DDOG", 0.10, "Datadog Inc."),
-        Holding("NET", 0.10, "Cloudflare Inc."),
-    ],
-    "US Mid/Small Growth & Semis Wave": [
-        Holding("IWP", 0.30, "iShares Russell Mid-Cap Growth ETF"),
-        Holding("MDY", 0.30, "SPDR S&P MidCap 400 ETF"),
-        Holding("IWO", 0.20, "iShares Russell 2000 Growth ETF"),
-        Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
-    ],
-
-    # ✅ Demas Fund Wave (simple, value/quality + defensive tilt)
-    "Demas Fund Wave": [
-        Holding("BRK-B", 0.12, "Berkshire Hathaway (B)"),
-        Holding("JPM", 0.10, "JPMorgan Chase & Co."),
-        Holding("XOM", 0.10, "Exxon Mobil Corp."),
-        Holding("CVX", 0.08, "Chevron Corp."),
-        Holding("PG", 0.10, "Procter & Gamble"),
-        Holding("KO", 0.08, "Coca-Cola"),
-        Holding("JNJ", 0.10, "Johnson & Johnson"),
-        Holding("UNH", 0.10, "UnitedHealth Group"),
-        Holding("WMT", 0.10, "Walmart"),
-        Holding("VTV", 0.12, "Vanguard Value ETF"),
-    ],
-
-    # Crypto growth Wave
-    "Multi-Cap Crypto Growth Wave": [
-        Holding("BTC-USD", 0.25, "Bitcoin"),
-        Holding("ETH-USD", 0.20, "Ethereum"),
-        Holding("SOL-USD", 0.10, "Solana"),
-        Holding("AVAX-USD", 0.07, "Avalanche"),
-        Holding("ADA-USD", 0.07, "Cardano"),
-        Holding("MATIC-USD", 0.06, "Polygon"),
-        Holding("LINK-USD", 0.06, "Chainlink"),
-        Holding("DOT-USD", 0.06, "Polkadot"),
-        Holding("ATOM-USD", 0.05, "Cosmos"),
-        Holding("GRT-USD", 0.03, "The Graph"),
-        Holding("AAVE-USD", 0.03, "Aave"),
-        Holding("UNI-USD", 0.02, "Uniswap"),
-    ],
-    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
-
-    "Crypto Stable Yield Wave": [
-        Holding("USDC-USD", 0.35, "USD Coin"),
-        Holding("USDT-USD", 0.30, "Tether"),
-        Holding("DAI-USD", 0.20, "Dai"),
-        Holding("USDP-USD", 0.10, "Pax Dollar"),
-        Holding("sDAI-USD", 0.03, "Savings Dai (proxy)"),
-        Holding("stETH-USD", 0.02, "Lido Staked Ether"),
-    ],
-    "Crypto Income & Yield Wave": [
-        Holding("USDC-USD", 0.25, "USD Coin"),
-        Holding("USDT-USD", 0.20, "Tether"),
-        Holding("DAI-USD", 0.15, "Dai"),
-        Holding("USDP-USD", 0.05, "Pax Dollar"),
-        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
-        Holding("AAVE-USD", 0.10, "Aave"),
-        Holding("MKR-USD", 0.05, "Maker"),
-        Holding("ETH-USD", 0.05, "Ethereum"),
-        Holding("BTC-USD", 0.05, "Bitcoin"),
-    ],
-    "Crypto High-Yield Income Wave": [
-        Holding("stETH-USD", 0.15, "Lido Staked Ether"),
-        Holding("AAVE-USD", 0.15, "Aave"),
-        Holding("MKR-USD", 0.10, "Maker"),
-        Holding("UNI-USD", 0.10, "Uniswap"),
-        Holding("GRT-USD", 0.10, "The Graph"),
-        Holding("LINK-USD", 0.10, "Chainlink"),
-        Holding("ETH-USD", 0.15, "Ethereum"),
-        Holding("BTC-USD", 0.15, "Bitcoin"),
-    ],
-
-    # SmartSafe Waves
-    "SmartSafe Treasury Cash Wave": [
-        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
-        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
-    ],
-    "SmartSafe Tax-Free Money Market Wave": [
-        Holding("SUB", 0.40, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.40, "SPDR Nuveen Short-Term Municipal Bond ETF"),
-        Holding("MUB", 0.20, "iShares National Muni Bond ETF"),
-    ],
-
-    "Gold Wave": [
-        Holding("GLD", 0.70, "SPDR Gold Shares"),
-        Holding("IAU", 0.30, "iShares Gold Trust"),
-    ],
-
-    "Infinity Multi-Asset Growth Wave": [
-        Holding("SPY", 0.20, "SPDR S&P 500 ETF"),
-        Holding("QQQ", 0.20, "Invesco QQQ Trust"),
-        Holding("VGT", 0.10, "Vanguard Information Technology ETF"),
-        Holding("SMH", 0.10, "VanEck Semiconductor ETF"),
-        Holding("ICLN", 0.10, "iShares Global Clean Energy ETF"),
-        Holding("PAVE", 0.10, "Global X U.S. Infrastructure Development"),
-        Holding("IWO", 0.10, "iShares Russell 2000 Growth ETF"),
-        Holding("BTC-USD", 0.05, "Bitcoin"),
-        Holding("ETH-USD", 0.05, "Ethereum"),
-    ],
-
-    "Vector Treasury Ladder Wave": [
-        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
-        Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
-        Holding("IEF", 0.20, "iShares 7-10 Year Treasury Bond ETF"),
-        Holding("TLT", 0.20, "iShares 20+ Year Treasury Bond ETF"),
-        Holding("LQD", 0.15, "iShares iBoxx $ Investment Grade Corporate Bond ETF"),
-    ],
-    "Vector Muni Ladder Wave": [
-        Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.20, "SPDR Nuveen Short-Term Municipal Bond ETF"),
-        Holding("MUB", 0.25, "iShares National Muni Bond ETF"),
-        Holding("TFI", 0.15, "SPDR Nuveen Bloomberg Municipal Bond ETF"),
-        Holding("HYD", 0.15, "VanEck High-Yield Muni ETF"),
-    ],
+# Recommendation safety limits
+SAFE_APPLY_LIMITS = {
+    "min_confidence_to_apply": "Medium",
+    "max_abs_exposure_step": 0.10,      # per apply
+    "max_abs_smartsafe_step": 0.10,     # per apply
+    "exposure_bounds": (0.0, 1.25),
+    "smartsafe_bounds": (0.0, 0.90),
 }
 
-# ------------------------------------------------------------
-# Static benchmarks (fallback / overrides)
-# ------------------------------------------------------------
+CONF_RANK = {"Low": 1, "Medium": 2, "High": 3}
 
-BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
-    "US MegaCap Core Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
-    "AI & Cloud MegaCap Wave": [
-        Holding("QQQ", 0.60, "Invesco QQQ Trust"),
-        Holding("IGV", 0.40, "iShares Expanded Tech-Software"),
-    ],
-    "Next-Gen Compute & Semis Wave": [
-        Holding("QQQ", 0.50, "Invesco QQQ Trust"),
-        Holding("SMH", 0.50, "VanEck Semiconductor ETF"),
-    ],
-    "Future Energy & EV Wave": [
-        Holding("XLE", 0.50, "Energy Select Sector SPDR"),
-        Holding("ICLN", 0.50, "iShares Global Clean Energy"),
-    ],
-    "EV & Infrastructure Wave": [
-        Holding("PAVE", 0.60, "Global X U.S. Infrastructure Development"),
-        Holding("XLI", 0.40, "Industrial Select Sector SPDR"),
-    ],
-    "US Small-Cap Disruptors Wave": [
-        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
-        Holding("VBK", 0.50, "Vanguard Small-Cap Growth ETF"),
-    ],
-    "US Mid/Small Growth & Semis Wave": [
-        Holding("IWP", 0.50, "iShares Russell Mid-Cap Growth ETF"),
-        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
-    ],
-
-    # ✅ Demas Fund Wave benchmark: broad market + value sleeve (simple + fair)
-    "Demas Fund Wave": [
-        Holding("SPY", 0.60, "SPDR S&P 500 ETF"),
-        Holding("VTV", 0.40, "Vanguard Value ETF"),
-    ],
-
-    "Multi-Cap Crypto Growth Wave": [
-        Holding("BTC-USD", 0.50, "Bitcoin"),
-        Holding("ETH-USD", 0.35, "Ethereum"),
-        Holding("SOL-USD", 0.15, "Solana"),
-    ],
-    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
-    "Crypto Stable Yield Wave": [
-        Holding("USDC-USD", 0.25, "USD Coin"),
-        Holding("USDT-USD", 0.25, "Tether"),
-        Holding("DAI-USD", 0.25, "Dai"),
-        Holding("USDP-USD", 0.25, "Pax Dollar"),
-    ],
-    "Crypto Income & Yield Wave": [
-        Holding("USDC-USD", 0.25, "USD Coin"),
-        Holding("USDT-USD", 0.25, "Tether"),
-        Holding("DAI-USD", 0.25, "Dai"),
-        Holding("USDP-USD", 0.25, "Pax Dollar"),
-    ],
-    "Crypto High-Yield Income Wave": [
-        Holding("BTC-USD", 0.40, "Bitcoin"),
-        Holding("ETH-USD", 0.40, "Ethereum"),
-        Holding("stETH-USD", 0.20, "Lido Staked Ether"),
-    ],
-    "SmartSafe Treasury Cash Wave": [
-        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
-        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
-    ],
-    "SmartSafe Tax-Free Money Market Wave": [
-        Holding("SUB", 0.50, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.50, "SPDR Nuveen Short-Term Municipal Bond ETF"),
-    ],
-    "Gold Wave": [
-        Holding("GLD", 0.50, "SPDR Gold Shares"),
-        Holding("IAU", 0.50, "iShares Gold Trust"),
-    ],
-    "Infinity Multi-Asset Growth Wave": [
-        Holding("SPY", 0.40, "SPDR S&P 500 ETF"),
-        Holding("QQQ", 0.40, "Invesco QQQ Trust"),
-        Holding("BTC-USD", 0.20, "Bitcoin"),
-    ],
-    "Vector Treasury Ladder Wave": [
-        Holding("BIL", 0.25, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
-        Holding("SHY", 0.25, "iShares 1-3 Year Treasury Bond ETF"),
-        Holding("IEF", 0.25, "iShares 7-10 Year Treasury Bond ETF"),
-        Holding("TLT", 0.25, "iShares 20+ Year Treasury Bond ETF"),
-    ],
-    "Vector Muni Ladder Wave": [
-        Holding("SUB", 0.30, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.30, "SPDR Nuveen Short-Term Municipal Bond ETF"),
-        Holding("MUB", 0.40, "iShares National Muni Bond ETF"),
-    ],
+# For history windows
+WINDOWS = {
+    "1D": 1,
+    "30D": 30,
+    "60D": 60,
+    "365D": 365,
 }
 
-# ------------------------------------------------------------
-# ETF / Crypto benchmark candidate library
-# ------------------------------------------------------------
-
-ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
-    ETFBenchmarkCandidate("SPY", "SPDR S&P 500 ETF", {"Broad", "Large", "Mega"}, "Large"),
-    ETFBenchmarkCandidate("QQQ", "Invesco QQQ Trust", {"Tech", "Growth", "Mega"}, "Mega"),
-    ETFBenchmarkCandidate("VGT", "Vanguard Information Technology ETF", {"Tech"}, "Large"),
-    ETFBenchmarkCandidate("XLK", "Technology Select Sector SPDR", {"Tech"}, "Large"),
-    ETFBenchmarkCandidate("SMH", "VanEck Semiconductor ETF", {"Tech", "Semis"}, "Large"),
-    ETFBenchmarkCandidate("SOXX", "iShares Semiconductor ETF", {"Tech", "Semis"}, "Large"),
-    ETFBenchmarkCandidate("IGV", "iShares Expanded Tech-Software Sector ETF", {"Tech", "Software"}, "Large"),
-    ETFBenchmarkCandidate("WCLD", "WisdomTree Cloud Computing Fund", {"Tech", "Software", "Cloud"}, "Mid"),
-    ETFBenchmarkCandidate("XLE", "Energy Select Sector SPDR Fund", {"Energy"}, "Large"),
-    ETFBenchmarkCandidate("ICLN", "iShares Global Clean Energy ETF", {"Energy", "Clean"}, "Mid"),
-    ETFBenchmarkCandidate("PAVE", "Global X U.S. Infrastructure Development ETF", {"Industrials", "Infrastructure"}, "Mid"),
-    ETFBenchmarkCandidate("XLI", "Industrial Select Sector SPDR Fund", {"Industrials"}, "Large"),
-    ETFBenchmarkCandidate("IWO", "iShares Russell 2000 Growth ETF", {"Small", "Growth"}, "Small"),
-    ETFBenchmarkCandidate("VBK", "Vanguard Small-Cap Growth ETF", {"Small", "Growth"}, "Small"),
-    ETFBenchmarkCandidate("IWP", "iShares Russell Mid-Cap Growth ETF", {"Mid", "Growth"}, "Mid"),
-    ETFBenchmarkCandidate("MDY", "SPDR S&P MidCap 400 ETF Trust", {"Mid"}, "Mid"),
-    ETFBenchmarkCandidate("BITO", "ProShares Bitcoin Strategy ETF", {"Crypto"}, "Crypto"),
-    ETFBenchmarkCandidate("BIL", "SPDR Bloomberg 1-3 Month T-Bill ETF", {"Safe"}, "Safe"),
-    ETFBenchmarkCandidate("SGOV", "iShares 0-3 Month Treasury Bond ETF", {"Safe"}, "Safe"),
-    ETFBenchmarkCandidate("SUB", "iShares Short-Term National Muni Bond ETF", {"Safe"}, "Safe"),
-    ETFBenchmarkCandidate("SHM", "SPDR Nuveen Short-Term Municipal Bond ETF", {"Safe"}, "Safe"),
-    ETFBenchmarkCandidate("MUB", "iShares National Muni Bond ETF", {"Safe"}, "Safe"),
-    ETFBenchmarkCandidate("GLD", "SPDR Gold Shares", {"Gold", "Safe"}, "Gold"),
-    ETFBenchmarkCandidate("IAU", "iShares Gold Trust", {"Gold", "Safe"}, "Gold"),
-    # value ETF candidate (helps Demas auto-benchmark if ever used)
-    ETFBenchmarkCandidate("VTV", "Vanguard Value ETF", {"Broad", "Large"}, "Large"),
-]
-
-# ------------------------------------------------------------
-# Public API
-# ------------------------------------------------------------
-
-def get_all_waves() -> list[str]:
-    return sorted(WAVE_WEIGHTS.keys())
+# Download window (days). We fetch a bit more than 365 to compute regimes/trend cleanly.
+HISTORY_LOOKBACK_DAYS = 450
 
 
-def get_modes() -> list[str]:
-    return list(MODE_BASE_EXPOSURE.keys())
+# -----------------------------
+# UTIL
+# -----------------------------
+def _ensure_dirs() -> None:
+    for p in [LOG_DIR, COND_DIR, RECO_DIR, OVR_DIR]:
+        os.makedirs(p, exist_ok=True)
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
-def _normalize_weights(holdings: List[Holding]) -> pd.Series:
-    if not holdings:
-        return pd.Series(dtype=float)
-    df = pd.DataFrame([{"ticker": h.ticker, "weight": h.weight} for h in holdings])
-    df = df.groupby("ticker", as_index=False)["weight"].sum()
-    total = df["weight"].sum()
-    if total <= 0:
-        return pd.Series(dtype=float)
-    df["weight"] = df["weight"] / total
-    return df.set_index("ticker")["weight"]
-
-
-def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
-    if yf is None:
-        raise RuntimeError("yfinance is not available in this environment.")
-    lookback_days = days + 260
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=lookback_days)
-    data = yf.download(
-        tickers=tickers,
-        start=start.isoformat(),
-        end=end.isoformat(),
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
-    if isinstance(data.columns, pd.MultiIndex):
-        if "Adj Close" in data.columns.get_level_values(0):
-            data = data["Adj Close"]
-        elif "Close" in data.columns.get_level_values(0):
-            data = data["Close"]
-        else:
-            data = data[data.columns.levels[0][0]]
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.droplevel(0, axis=1)
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-    data = data.sort_index().ffill().bfill()
-    return data
-
-
-def _map_sector_name(raw_sector: str | None) -> str:
-    if not raw_sector:
-        return "Unknown"
-    s = raw_sector.lower()
-    if "information technology" in s or "technology" in s:
-        return "Tech"
-    if "semiconductor" in s:
-        return "Semis"
-    if "software" in s:
-        return "Software"
-    if "energy" in s:
-        return "Energy"
-    if "industrial" in s:
-        return "Industrials"
-    if "real estate" in s:
-        return "RealEstate"
-    if "financial" in s:
-        return "Financials"
-    if "health" in s:
-        return "HealthCare"
-    if "communication" in s:
-        return "Comm"
-    if "consumer" in s:
-        return "Consumer"
-    return "Other"
-
-
-def _cap_style_from_mcap(mcap: float | None) -> str:
-    if mcap is None or np.isnan(mcap) or mcap <= 0:
-        return "Unknown"
-    if mcap >= 2e11:
-        return "Mega"
-    if mcap >= 2e10:
-        return "Large"
-    if mcap >= 5e9:
-        return "Mid"
-    return "Small"
-
-
-@lru_cache(maxsize=256)
-def _get_ticker_meta(ticker: str) -> tuple[str, float]:
-    if ticker.endswith("-USD"):
-        if ticker in {"USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD", "sDAI-USD"}:
-            return ("Safe", np.nan)
-        return ("Crypto", np.nan)
-    if ticker in {"BIL", "SGOV", "SHV", "SHY", "SUB", "SHM", "MUB", "IEF", "TLT", "LQD"}:
-        return ("Safe", np.nan)
-    if ticker in {"GLD", "IAU"}:
-        return ("Gold", np.nan)
-    if yf is None:
-        return ("Unknown", np.nan)
+def _safe_float(x) -> Optional[float]:
     try:
-        info = yf.Ticker(ticker).info
+        if x is None:
+            return None
+        x = float(x)
+        if math.isnan(x) or math.isinf(x):
+            return None
+        return x
     except Exception:
-        return ("Unknown", np.nan)
-    sector = info.get("sector")
-    mcap = info.get("marketCap")
-    return (_map_sector_name(sector), float(mcap) if mcap is not None else np.nan)
+        return None
+
+def _pct_change(series: pd.Series) -> pd.Series:
+    return series.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return float(max(lo, min(hi, x)))
+
+def _key_wave_mode(wave: str, mode: str) -> str:
+    return f"{wave}__{mode}"
+
+def _read_csv_if_exists(path: str) -> pd.DataFrame:
+    if os.path.exists(path):
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 
-def _derive_wave_exposure(wave_name: str) -> tuple[Dict[str, float], str]:
-    holdings = WAVE_WEIGHTS.get(wave_name, [])
-    if not holdings:
-        return {}, "Unknown"
-    weights = _normalize_weights(holdings)
-    sector_weights: Dict[str, float] = {}
-    cap_votes: Dict[str, float] = {}
-    for h in holdings:
-        if h.ticker not in weights.index:
-            continue
-        w = float(weights[h.ticker])
-        sector, mcap = _get_ticker_meta(h.ticker)
-        sector_weights[sector] = sector_weights.get(sector, 0.0) + w
-        if sector in {"Crypto", "Safe", "Gold"}:
-            style = sector
-        else:
-            style = _cap_style_from_mcap(mcap)
-        cap_votes[style] = cap_votes.get(style, 0.0) + w
-    total = sum(sector_weights.values())
+# -----------------------------
+# WEIGHTS LOADER
+# -----------------------------
+_WEIGHTS_CACHE: Optional[pd.DataFrame] = None
+
+def refresh_weights() -> None:
+    global _WEIGHTS_CACHE
+    _WEIGHTS_CACHE = None
+
+def _load_weights() -> pd.DataFrame:
+    global _WEIGHTS_CACHE
+    if _WEIGHTS_CACHE is not None:
+        return _WEIGHTS_CACHE.copy()
+
+    if not os.path.exists(WEIGHTS_FILE):
+        _WEIGHTS_CACHE = pd.DataFrame()
+        return _WEIGHTS_CACHE.copy()
+
+    df = pd.read_csv(WEIGHTS_FILE)
+
+    # Normalize columns
+    cols = {c.lower().strip(): c for c in df.columns}
+    wave_col = cols.get("wave") or cols.get("wavename") or cols.get("wave_name")
+    tick_col = cols.get("ticker") or cols.get("symbol")
+    wgt_col = cols.get("weight") or cols.get("wgt") or cols.get("pct")
+
+    if not wave_col or not tick_col or not wgt_col:
+        _WEIGHTS_CACHE = pd.DataFrame()
+        return _WEIGHTS_CACHE.copy()
+
+    df = df[[wave_col, tick_col, wgt_col]].rename(columns={
+        wave_col: "Wave",
+        tick_col: "Ticker",
+        wgt_col: "Weight",
+    })
+
+    df["Wave"] = df["Wave"].astype(str).str.strip()
+    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
+
+    # If weights in 0-100 range, keep as-is (we normalize later). If in 0-1, also ok.
+    df = df[df["Wave"] != ""]
+    df = df[df["Ticker"] != ""]
+    _WEIGHTS_CACHE = df.copy()
+    return _WEIGHTS_CACHE.copy()
+
+def get_all_waves() -> List[str]:
+    """
+    Source of truth = wave_weights.csv.
+    Also adds any orphan wave logs if present (optional).
+    """
+    df = _load_weights()
+    waves = sorted(df["Wave"].dropna().unique().tolist()) if not df.empty else []
+
+    # Optional: include orphan waves from conditional logs
+    if os.path.exists(COND_DIR):
+        try:
+            for fn in os.listdir(COND_DIR):
+                if fn.endswith(".csv") and "__" in fn:
+                    w = fn.split("__")[0]
+                    if w and w not in waves:
+                        waves.append(w)
+        except Exception:
+            pass
+
+    return sorted(list(dict.fromkeys(waves)))
+
+def get_wave_holdings(wave: str) -> pd.DataFrame:
+    df = _load_weights()
+    if df.empty:
+        return pd.DataFrame(columns=["ticker", "weight"])
+
+    sub = df[df["Wave"] == wave].copy()
+    if sub.empty:
+        return pd.DataFrame(columns=["ticker", "weight"])
+
+    # Aggregate duplicates
+    sub["Weight"] = pd.to_numeric(sub["Weight"], errors="coerce").fillna(0.0)
+    agg = sub.groupby("Ticker", as_index=False)["Weight"].sum()
+    agg = agg.rename(columns={"Ticker": "ticker", "Weight": "weight"})
+
+    # Normalize to 100% (weight displayed as %)
+    total = float(agg["weight"].sum()) if not agg.empty else 0.0
     if total > 0:
-        for k in list(sector_weights.keys()):
-            sector_weights[k] /= total
-    cap_style = max(cap_votes.items(), key=lambda kv: kv[1])[0] if cap_votes else "Unknown"
-    return sector_weights, cap_style
+        agg["weight"] = agg["weight"] / total * 100.0
+
+    agg = agg.sort_values("weight", ascending=False).reset_index(drop=True)
+    return agg
 
 
-def _score_etf_candidate(etf: ETFBenchmarkCandidate, sector_weights: Dict[str, float], cap_style: str) -> float:
-    score = 0.0
-    for s, w in sector_weights.items():
-        if s in etf.sector_tags:
-            score += w
-        if s == "Tech" and "Tech" in etf.sector_tags:
-            score += 0.3 * w
-        if s == "Energy" and "Energy" in etf.sector_tags:
-            score += 0.3 * w
-        if s == "Industrials" and "Industrials" in etf.sector_tags:
-            score += 0.3 * w
-        if s == "Crypto" and "Crypto" in etf.sector_tags:
-            score += 0.5 * w
-        if s == "Safe" and "Safe" in etf.sector_tags:
-            score += 0.5 * w
-        if s == "Gold" and "Gold" in etf.sector_tags:
-            score += 0.5 * w
-    if cap_style == etf.cap_style:
-        score += 0.10
-    elif cap_style in {"Mega", "Large"} and etf.cap_style in {"Mega", "Large"}:
-        score += 0.05
-    elif cap_style in {"Mid", "Small"} and etf.cap_style in {"Mid", "Small"}:
-        score += 0.05
-    return score
-
-
-@lru_cache(maxsize=64)
-def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
-    # Explicit override: Bitcoin benchmarks to spot BTC
-    if wave_name == "Bitcoin Wave":
-        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-
-    sector_weights, cap_style = _derive_wave_exposure(wave_name)
-    if not sector_weights:
-        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-    scores = []
-    for etf in ETF_CANDIDATES:
-        s = _score_etf_candidate(etf, sector_weights, cap_style)
-        if s > 0.0:
-            scores.append((etf, s))
-    if not scores:
-        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-    scores.sort(key=lambda x: x[1], reverse=True)
-    top = scores[:4]
-    if len(top) == 1:
-        etf, _ = top[0]
-        return [Holding(etf.ticker, 1.0, etf.name)]
-    total_score = sum(s for _, s in top)
-    if total_score <= 0:
-        return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-    holdings: List[Holding] = []
-    for etf, s in top:
-        w = float(s / total_score)
-        holdings.append(Holding(etf.ticker, w, etf.name))
-    return holdings
-
-
-def _regime_from_return(ret_60d: float) -> str:
-    if np.isnan(ret_60d):
-        return "neutral"
-    if ret_60d <= -0.12:
-        return "panic"
-    if ret_60d <= -0.04:
-        return "downtrend"
-    if ret_60d < 0.06:
-        return "neutral"
-    return "uptrend"
-
-
-def _vix_exposure_factor(vix_level: float, mode: str) -> float:
-    if np.isnan(vix_level) or vix_level <= 0:
-        return 1.0
-    if vix_level < 15:
-        base = 1.15
-    elif vix_level < 20:
-        base = 1.05
-    elif vix_level < 25:
-        base = 0.95
-    elif vix_level < 30:
-        base = 0.85
-    elif vix_level < 40:
-        base = 0.75
-    else:
-        base = 0.60
-    if mode == "Alpha-Minus-Beta":
-        base -= 0.05
-    elif mode == "Private Logic":
-        base += 0.05
-    return float(np.clip(base, 0.5, 1.3))
-
-
-def _vix_safe_fraction(vix_level: float, mode: str) -> float:
-    if np.isnan(vix_level) or vix_level <= 0:
-        return 0.0
-    if vix_level < 18:
-        base = 0.00
-    elif vix_level < 24:
-        base = 0.05
-    elif vix_level < 30:
-        base = 0.15
-    elif vix_level < 40:
-        base = 0.25
-    else:
-        base = 0.40
-    if mode == "Alpha-Minus-Beta":
-        base *= 1.5
-    elif mode == "Private Logic":
-        base *= 0.7
-    return float(np.clip(base, 0.0, 0.8))
-
-
-# ------------------------------------------------------------
-# Core compute_history_nav
-# ------------------------------------------------------------
-
-def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+# -----------------------------
+# BENCHMARK (simple, transparent)
+# -----------------------------
+def get_auto_benchmark_holdings(wave: str) -> pd.DataFrame:
     """
-    Compute Wave & Benchmark NAV + daily returns over a given window.
-
-    Returns DataFrame indexed by Date:
-        ['wave_nav', 'bm_nav', 'wave_ret', 'bm_ret']
+    Simple, transparent baseline:
+    - If wave contains 'Crypto' -> benchmark = BTC-USD
+    - If wave contains 'Muni'/'Treasury'/'SmartSafe' -> benchmark = SGOV (or SHY if missing)
+    - Else benchmark = SPY
     """
-    if wave_name not in WAVE_WEIGHTS:
-        raise ValueError(f"Unknown Wave: {wave_name}")
-    if mode not in MODE_BASE_EXPOSURE:
-        raise ValueError(f"Unknown mode: {mode}")
+    nm = wave.lower()
+    if "crypto" in nm or "bitcoin" in nm:
+        return pd.DataFrame([{"ticker": BTC_TICKER, "weight": 100.0}])
 
-    wave_holdings = WAVE_WEIGHTS[wave_name]
+    if "muni" in nm or "treasury" in nm or "smartsafe" in nm or "cash" in nm or "ladder" in nm:
+        # Use SGOV as cash proxy (works better than VIX logic)
+        return pd.DataFrame([{"ticker": "SGOV", "weight": 100.0}])
 
-    # Use static benchmark if provided, else auto-benchmark
-    bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-    if not bm_holdings:
-        bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    return pd.DataFrame([{"ticker": "SPY", "weight": 100.0}])
 
-    wave_weights = _normalize_weights(wave_holdings)
-    bm_weights = _normalize_weights(bm_holdings)
 
-    tickers_wave = list(wave_weights.index)
-    tickers_bm = list(bm_weights.index)
+# -----------------------------
+# MARKET DATA
+# -----------------------------
+def _download_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+    if yf is None:
+        return pd.DataFrame()
 
-    base_index_ticker = "SPY"
-    safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+    tickers = [t for t in tickers if isinstance(t, str) and t.strip() != ""]
+    tickers = sorted(list(dict.fromkeys(tickers)))
 
-    all_tickers = set(tickers_wave + tickers_bm)
-    all_tickers.add(base_index_ticker)
-    all_tickers.add(VIX_TICKER)
-    all_tickers.add(BTC_TICKER)
-    all_tickers.update(safe_candidates)
+    if not tickers:
+        return pd.DataFrame()
 
-    all_tickers = sorted(all_tickers)
-    if not all_tickers:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+    # Use 2y to be safe; then clip to requested range
+    try:
+        df = yf.download(
+            tickers=tickers,
+            period="2y",
+            interval="1d",
+            auto_adjust=True,
+            group_by="ticker",
+            progress=False,
+            threads=True,
+        )
+    except Exception:
+        return pd.DataFrame()
 
-    price_df = _download_history(all_tickers, days=days)
-    if price_df.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
-    if len(price_df) > days:
-        price_df = price_df.iloc[-days:]
+    # yfinance returns different shapes for single vs multi ticker
+    if df is None or len(df) == 0:
+        return pd.DataFrame()
 
-    ret_df = price_df.pct_change().fillna(0.0)
-
-    wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
-    bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
-
-    bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
-
-    # Base index for regime detection
-    if base_index_ticker in price_df.columns:
-        idx_price = price_df[base_index_ticker]
+    if isinstance(df.columns, pd.MultiIndex):
+        # We want Adj Close-like (auto_adjust True => Close is adjusted)
+        close = pd.DataFrame({t: df[(t, "Close")] for t in tickers if (t, "Close") in df.columns})
     else:
-        fallback_ticker = tickers_bm[0] if tickers_bm else (tickers_wave[0] if tickers_wave else price_df.columns[0])
-        idx_price = price_df[fallback_ticker]
-    idx_ret_60d = idx_price / idx_price.shift(60) - 1.0
-    mom_60 = price_df / price_df.shift(60) - 1.0
+        # single ticker
+        close = pd.DataFrame({tickers[0]: df["Close"]})
 
-    # VIX or crypto-VIX proxy (BTC vol) for crypto/Bitcoin Waves
-    wave_is_crypto = ((CRYPTO_WAVE_KEYWORD in wave_name) or ("Bitcoin" in wave_name))
-    if wave_is_crypto and BTC_TICKER in price_df.columns:
-        btc_ret = price_df[BTC_TICKER].pct_change().fillna(0.0)
-        rolling_vol = btc_ret.rolling(30).std() * np.sqrt(TRADING_DAYS_PER_YEAR) * 100.0
-        vix_level_series = rolling_vol.reindex(price_df.index).ffill().bfill()
-    else:
-        if VIX_TICKER in price_df.columns:
-            vix_level_series = price_df[VIX_TICKER].copy()
-        else:
-            vix_level_series = pd.Series(20.0, index=price_df.index)
+    close = close.dropna(how="all")
+    close.index = pd.to_datetime(close.index)
+    close = close.sort_index()
 
-    # Safe asset
-    safe_ticker = None
-    for t in safe_candidates:
-        if t in price_df.columns:
-            safe_ticker = t
-            break
-    if safe_ticker is None:
-        safe_ticker = base_index_ticker
-    safe_ret_series = ret_df[safe_ticker]
+    if len(close) > days:
+        close = close.iloc[-days:]
 
-    # -------------------------
-    # ✅ Simple per-wave tuning
-    # -------------------------
-    tilt_strength = 0.80
-    vol_target = PORTFOLIO_VOL_TARGET
-    extra_safe_boost = 0.00  # additive safe fraction
+    return close
 
-    if wave_name == "Demas Fund Wave":
-        # Make Demas behave more like a disciplined value fund:
-        # - less whipsaw from momentum tilts
-        # - slightly lower vol target
-        # - slightly more SmartSafe in stress
-        tilt_strength = 0.45
-        vol_target = 0.15
-        extra_safe_boost = 0.03
 
-    mode_base_exposure = MODE_BASE_EXPOSURE[mode]
-    exp_min, exp_max = MODE_EXPOSURE_CAPS[mode]
+# -----------------------------
+# NAV + ALPHA CORE
+# -----------------------------
+def _portfolio_nav(price_df: pd.DataFrame, holdings: pd.DataFrame) -> pd.Series:
+    """
+    holdings: columns ticker, weight (in %)
+    """
+    if price_df.empty or holdings.empty:
+        return pd.Series(dtype=float)
 
-    wave_ret_list: List[float] = []
-    dates: List[pd.Timestamp] = []
+    h = holdings.copy()
+    h["ticker"] = h["ticker"].astype(str).str.upper()
+    h = h[h["ticker"].isin(price_df.columns)]
+    if h.empty:
+        return pd.Series(dtype=float)
 
-    # Yield overlay
-    apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
-    daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
+    w = (h.set_index("ticker")["weight"] / 100.0).astype(float)
+    # normalize in case benchmark uses 100 and wave uses <100 etc
+    s = float(w.sum())
+    if s <= 0:
+        return pd.Series(dtype=float)
+    w = w / s
 
-    for dt in ret_df.index:
-        rets = ret_df.loc[dt]
+    # daily returns and weighted sum
+    rets = price_df[w.index].pct_change().fillna(0.0)
+    port_ret = (rets * w.values).sum(axis=1)
 
-        regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
-        regime_exposure = REGIME_EXPOSURE[regime]
-        regime_gate = REGIME_GATING[mode][regime]
+    nav = (1.0 + port_ret).cumprod()
+    return nav
 
-        vix_level = float(vix_level_series.get(dt, np.nan))
-        vix_exposure = _vix_exposure_factor(vix_level, mode)
-        vix_gate = _vix_safe_fraction(vix_level, mode)
+def compute_history_nav(
+    wave: str,
+    mode: str,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
+) -> pd.DataFrame:
+    """
+    Returns df with columns: date, wave_nav, bm_nav, alpha (daily), vix
+    """
+    _ensure_dirs()
 
-        # Momentum tilt
-        mom_row = mom_60.loc[dt] if dt in mom_60.index else None
-        if mom_row is not None:
-            mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
-            mom_clipped = mom_series.clip(lower=-0.30, upper=0.30)
-            tilt_factor = 1.0 + tilt_strength * mom_clipped
-            effective_weights = wave_weights_aligned * tilt_factor
-        else:
-            effective_weights = wave_weights_aligned.copy()
+    base_expo = MODE_BASE_EXPOSURE.get(mode, 1.0)
+    base_ss = MODE_SMARTSAFE_BASE.get(mode, 0.0)
 
-        effective_weights = effective_weights.clip(lower=0.0)
+    expo = base_expo if exposure_override is None else float(exposure_override)
+    ss = base_ss if smartsafe_override is None else float(smartsafe_override)
 
-        risk_weight_total = effective_weights.sum()
-        if risk_weight_total > 0:
-            risk_weights = effective_weights / risk_weight_total
-        else:
-            risk_weights = wave_weights_aligned.copy()
+    expo = _clamp(expo, *SAFE_APPLY_LIMITS["exposure_bounds"])
+    ss = _clamp(ss, *SAFE_APPLY_LIMITS["smartsafe_bounds"])
 
-        portfolio_risk_ret = float((rets * risk_weights).sum())
-        safe_ret = float(safe_ret_series.loc[dt])
+    wave_h = get_wave_holdings(wave)
+    bm_h = get_auto_benchmark_holdings(wave)
 
-        # 20D realized vol for vol-targeting
-        if len(wave_ret_list) >= 20:
-            recent = np.array(wave_ret_list[-20:])
-            recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
-        else:
-            recent_vol = vol_target
+    # SmartSafe implemented as cash-like SGOV blend (simple & stable)
+    # If ss>0, we blend wave holdings with SGOV.
+    if ss > 0:
+        cash = pd.DataFrame([{"ticker": "SGOV", "weight": 100.0}])
+        # Reduce wave weights by (1-ss), allocate ss to cash
+        if not wave_h.empty:
+            wave_h = wave_h.copy()
+            wave_h["weight"] = wave_h["weight"] * (1.0 - ss)
+            cash["weight"] = cash["weight"] * ss
+            wave_h = pd.concat([wave_h, cash], ignore_index=True)
+            # renormalize to 100
+            total = float(wave_h["weight"].sum())
+            if total > 0:
+                wave_h["weight"] = wave_h["weight"] / total * 100.0
 
-        vol_adjust = 1.0
-        if recent_vol > 0:
-            vol_adjust = vol_target / recent_vol
-            vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
+    tickers = sorted(list(dict.fromkeys(
+        wave_h["ticker"].tolist() + bm_h["ticker"].tolist() + [VIX_TICKER]
+    )))
 
-        raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
-        exposure = float(np.clip(raw_exposure, exp_min, exp_max))
+    px = _download_history(tickers, days=HISTORY_LOOKBACK_DAYS)
+    if px.empty:
+        return pd.DataFrame(columns=["date", "wave_nav", "bm_nav", "alpha", "vix"])
 
-        safe_fraction = regime_gate + vix_gate + extra_safe_boost
-        safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
-        risk_fraction = 1.0 - safe_fraction
+    # Separate VIX
+    vix = px[VIX_TICKER].copy() if VIX_TICKER in px.columns else pd.Series(index=px.index, data=np.nan)
+    px2 = px.drop(columns=[VIX_TICKER], errors="ignore")
 
-        base_total_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
-        total_ret = base_total_ret
+    wave_nav_raw = _portfolio_nav(px2, wave_h)
+    bm_nav = _portfolio_nav(px2, bm_h)
 
-        # Crypto income Waves: add assumed APY overlay (Bitcoin does NOT get this)
-        if daily_yield != 0.0:
-            total_ret += daily_yield
+    if wave_nav_raw.empty or bm_nav.empty:
+        return pd.DataFrame(columns=["date", "wave_nav", "bm_nav", "alpha", "vix"])
 
-        # Private Logic mean-reversion overlay
-        if mode == "Private Logic" and len(wave_ret_list) >= 20:
-            recent = np.array(wave_ret_list[-20:])
-            daily_vol = recent.std()
-            if daily_vol > 0:
-                shock_threshold = 2.0 * daily_vol
-                if base_total_ret <= -shock_threshold:
-                    total_ret = base_total_ret * 1.30
-                elif base_total_ret >= shock_threshold:
-                    total_ret = base_total_ret * 0.70
+    # Apply exposure as a leverage scalar on daily returns (simple)
+    wave_ret = _pct_change(wave_nav_raw)
+    wave_ret = wave_ret * expo
+    wave_nav = (1.0 + wave_ret).cumprod()
 
-        wave_ret_list.append(total_ret)
-        dates.append(dt)
+    bm_ret = _pct_change(bm_nav)
+    alpha_daily = (wave_ret - bm_ret).fillna(0.0)
 
-    wave_ret_series = pd.Series(wave_ret_list, index=pd.Index(dates, name="Date"))
-    bm_ret_series = bm_ret_series.reindex(wave_ret_series.index).fillna(0.0)
+    out = pd.DataFrame({
+        "date": wave_nav.index,
+        "wave_nav": wave_nav.values,
+        "bm_nav": bm_nav.values,
+        "alpha": alpha_daily.values,
+        "vix": vix.reindex(wave_nav.index).fillna(method="ffill").fillna(np.nan).values,
+    })
 
-    wave_nav = (1.0 + wave_ret_series).cumprod()
-    bm_nav = (1.0 + bm_ret_series).cumprod()
+    out["date"] = pd.to_datetime(out["date"])
+    out = out.sort_values("date").reset_index(drop=True)
 
-    out = pd.DataFrame(
-        {"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series}
-    )
-    out.index.name = "Date"
+    # clip last 365 for the UI bundle computations
+    if len(out) > 365:
+        out = out.iloc[-365:].reset_index(drop=True)
+
     return out
 
 
-def get_benchmark_mix_table() -> pd.DataFrame:
-    rows = []
-    for wave in get_all_waves():
-        holdings = BENCHMARK_WEIGHTS_STATIC.get(wave)
-        if not holdings:
-            holdings = get_auto_benchmark_holdings(wave) or BENCHMARK_WEIGHTS_STATIC.get(wave, [])
-        weights = _normalize_weights(holdings)
-        for h in holdings:
-            if h.ticker not in weights.index:
-                continue
-            rows.append({"Wave": wave, "Ticker": h.ticker, "Name": h.name or "", "Weight": float(weights[h.ticker])})
-    if not rows:
-        return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
-    df = pd.DataFrame(rows).sort_values(["Wave", "Weight"], ascending=[True, False])
-    return df
+# -----------------------------
+# MULTI-WINDOW SUMMARY
+# -----------------------------
+def compute_multi_window_summary(wave: str, mode: str) -> dict:
+    """
+    Returns dict with keys: 1D_return, 1D_alpha, 30D_return, ... 365D_alpha
+    Graceful if insufficient history.
+    """
+    df = compute_history_nav(wave, mode)
+    if df.empty or len(df) < 2:
+        return {
+            "wave": wave, "mode": mode,
+            "1D_return": None, "1D_alpha": None,
+            "30D_return": None, "30D_alpha": None,
+            "60D_return": None, "60D_alpha": None,
+            "365D_return": None, "365D_alpha": None,
+        }
+
+    nav = df.copy()
+    nav["date"] = pd.to_datetime(nav["date"])
+    nav = nav.set_index("date")
+
+    wave_nav = nav["wave_nav"]
+    bm_nav = nav["bm_nav"]
+    alpha = nav["alpha"]
+
+    def window_return(s: pd.Series, d: int) -> Optional[float]:
+        if len(s) < d + 1:
+            return None
+        a = s.iloc[-(d+1)]
+        b = s.iloc[-1]
+        if a == 0:
+            return None
+        return float(b / a - 1.0)
+
+    def window_alpha(alpha_daily: pd.Series, d: int) -> Optional[float]:
+        if len(alpha_daily) < d:
+            return None
+        # compound alpha daily
+        sub = alpha_daily.iloc[-d:]
+        return float((1.0 + sub).prod() - 1.0)
+
+    out = {"wave": wave, "mode": mode}
+    for k, d in WINDOWS.items():
+        out[f"{k}_return"] = window_return(wave_nav, d)
+        out[f"{k}_alpha"] = window_alpha(alpha, d)
+
+    return out
 
 
-def get_wave_holdings(wave_name: str) -> pd.DataFrame:
-    holdings = WAVE_WEIGHTS.get(wave_name, [])
-    if not holdings:
-        return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
-    weights = _normalize_weights(holdings)
-    rows = []
-    for h in holdings:
-        if h.ticker not in weights.index:
-            continue
-        rows.append({"Ticker": h.ticker, "Name": h.name or "", "Weight": float(weights[h.ticker])})
-    df = pd.DataFrame(rows).drop_duplicates(subset=["Ticker"]).sort_values("Weight", ascending=False)
-    return df
+# -----------------------------
+# REGIMES + TREND + CONDITIONAL GRID
+# -----------------------------
+def _vix_regime(vix: pd.Series) -> pd.Series:
+    """
+    Simple regime buckets:
+    Low: < 16
+    Medium: 16-22
+    High: 22-30
+    Stress: >= 30
+    """
+    v = vix.copy().astype(float)
+    r = pd.Series(index=v.index, dtype=object)
+    r[v < 16] = "Low"
+    r[(v >= 16) & (v < 22)] = "Medium"
+    r[(v >= 22) & (v < 30)] = "High"
+    r[v >= 30] = "Stress"
+    r = r.fillna(method="ffill").fillna("Medium")
+    return r
+
+def _trend_bucket(bm_nav: pd.Series) -> pd.Series:
+    """
+    Trend based on benchmark momentum:
+    Uptrend if 20d MA slope positive and bm above 50d MA.
+    Downtrend if bm below 50d MA and slope negative.
+    Else Sideways.
+    """
+    s = bm_nav.copy().astype(float)
+    ma20 = s.rolling(20).mean()
+    ma50 = s.rolling(50).mean()
+    slope = ma20.diff(5)
+
+    trend = pd.Series(index=s.index, dtype=object)
+    trend[(s > ma50) & (slope > 0)] = "Uptrend"
+    trend[(s < ma50) & (slope < 0)] = "Downtrend"
+    trend = trend.fillna("Sideways")
+    return trend
+
+def compute_conditional_grid(df365: pd.DataFrame) -> pd.DataFrame:
+    if df365 is None or df365.empty or len(df365) < 80:
+        return pd.DataFrame()
+
+    nav = df365.copy()
+    nav["date"] = pd.to_datetime(nav["date"])
+    nav = nav.set_index("date")
+
+    regime = _vix_regime(nav["vix"])
+    trend = _trend_bucket(nav["bm_nav"])
+
+    alpha = nav["alpha"].copy().astype(float)
+
+    tmp = pd.DataFrame({
+        "regime": regime.values,
+        "trend": trend.values,
+        "alpha": alpha.values,
+    }, index=nav.index)
+
+    g = tmp.groupby(["regime", "trend"], as_index=False).agg(
+        days=("alpha", "count"),
+        mean_daily_alpha=("alpha", "mean"),
+        cum_alpha=("alpha", lambda x: float((1.0 + x).prod() - 1.0)),
+    )
+
+    # stable ordering
+    regime_order = ["Low", "Medium", "High", "Stress"]
+    trend_order = ["Uptrend", "Sideways", "Downtrend"]
+    g["regime"] = pd.Categorical(g["regime"], categories=regime_order, ordered=True)
+    g["trend"] = pd.Categorical(g["trend"], categories=trend_order, ordered=True)
+    g = g.sort_values(["regime", "trend"]).reset_index(drop=True)
+
+    return g
+
+
+# -----------------------------
+# PRACTICAL ATTRIBUTION (ENGINE vs STATIC)
+# -----------------------------
+def compute_static_basket_return(wave: str) -> Optional[float]:
+    """
+    Static basket = wave holdings, no SmartSafe, no exposure scaling (expo=1.0).
+    """
+    df = compute_history_nav(wave, "Standard", exposure_override=1.0, smartsafe_override=0.0)
+    if df.empty or len(df) < 2:
+        return None
+    a = float(df["wave_nav"].iloc[0])
+    b = float(df["wave_nav"].iloc[-1])
+    if a == 0:
+        return None
+    return b / a - 1.0
+
+
+# -----------------------------
+# DIAGNOSTICS
+# -----------------------------
+def compute_diagnostics(holdings: pd.DataFrame) -> List[dict]:
+    diags = []
+    if holdings is None or holdings.empty:
+        return [{"level": "WARN", "msg": "No holdings found for this Wave."}]
+
+    w = holdings.copy()
+    if "weight" in w.columns:
+        top1 = float(w["weight"].iloc[0])
+        top3 = float(w["weight"].iloc[:3].sum()) if len(w) >= 3 else float(w["weight"].sum())
+        if top1 >= 60:
+            diags.append({"level": "WARN", "msg": f"High single-name concentration (top holding = {top1:.1f}%)."})
+        if top3 >= 85:
+            diags.append({"level": "WARN", "msg": f"High top-3 concentration (top-3 = {top3:.1f}%)."})
+
+    if not diags:
+        diags.append({"level": "PASS", "msg": "No issues detected."})
+    return diags
+
+
+# -----------------------------
+# RECOMMENDATION ENGINE (simple, robust, safe)
+# -----------------------------
+def _recommend_from_conditional(cond: pd.DataFrame) -> List[dict]:
+    """
+    Generates a small set of conservative recommendations from conditional grid.
+    """
+    recos: List[dict] = []
+    if cond is None or cond.empty:
+        return recos
+
+    # helper to find row
+    def get(reg, tr):
+        sub = cond[(cond["regime"] == reg) & (cond["trend"] == tr)]
+        if sub.empty:
+            return None
+        return sub.iloc[0].to_dict()
+
+    benign = get("Low", "Uptrend") or get("Medium", "Uptrend")
+    stress = get("Stress", "Downtrend") or get("High", "Downtrend")
+
+    # If benign regimes have strong positive mean alpha -> suggest slightly higher exposure
+    if benign and benign.get("days", 0) >= 25:
+        m = float(benign.get("mean_daily_alpha", 0.0))
+        # 8bp/day ~ strong
+        if m >= 0.0008:
+            recos.append({
+                "id": "benign_exposure_up",
+                "title": "Slightly increase exposure in benign regimes",
+                "confidence": "Medium" if m < 0.0012 else "High",
+                "why": f"{benign['regime']}+{benign['trend']} mean daily alpha is {m*10000:.1f} bp/day over {int(benign['days'])} days.",
+                "deltas": {"exposure_delta": +0.05, "smartsafe_delta": 0.00},
+            })
+
+    # If stress regimes are meaningfully negative -> suggest more SmartSafe in panic
+    if stress and stress.get("days", 0) >= 15:
+        m = float(stress.get("mean_daily_alpha", 0.0))
+        if m <= -0.0008:
+            recos.append({
+                "id": "stress_smartsafe_up",
+                "title": "Increase SmartSafe in panic / stress",
+                "confidence": "Medium" if m > -0.0015 else "High",
+                "why": f"{stress['regime']}+{stress['trend']} mean daily alpha is {m*10000:.1f} bp/day over {int(stress['days'])} days.",
+                "deltas": {"exposure_delta": 0.00, "smartsafe_delta": +0.05},
+            })
+
+    return recos
+
+def compute_recommendations(df365: pd.DataFrame, holdings: pd.DataFrame) -> List[dict]:
+    """
+    Recommendations based on conditional attribution + basic diagnostics.
+    """
+    recos: List[dict] = []
+    cond = compute_conditional_grid(df365)
+    recos.extend(_recommend_from_conditional(cond))
+
+    # Concentration safety reco (only if extreme)
+    if holdings is not None and not holdings.empty:
+        top1 = float(holdings["weight"].iloc[0])
+        if top1 >= 35:
+            recos.append({
+                "id": "reduce_concentration",
+                "title": "Reduce single-name concentration (holding design)",
+                "confidence": "Medium",
+                "why": f"Top holding weight is {top1:.1f}%. Consider widening holdings or capping single-name weights.",
+                "deltas": {},  # informational (no auto-apply)
+            })
+
+    return recos
+
+
+# -----------------------------
+# APPLY / PREVIEW (safe caps)
+# -----------------------------
+def apply_recommendation_preview(
+    wave: str,
+    mode: str,
+    current_exposure: float,
+    current_smartsafe: float,
+    deltas: dict,
+) -> Tuple[float, float, dict]:
+    """
+    Returns (new_exposure, new_smartsafe, applied_deltas_after_caps)
+    """
+    exp_delta = float(deltas.get("exposure_delta", 0.0) or 0.0)
+    ss_delta = float(deltas.get("smartsafe_delta", 0.0) or 0.0)
+
+    # cap the step sizes
+    exp_delta_c = _clamp(exp_delta, -SAFE_APPLY_LIMITS["max_abs_exposure_step"], SAFE_APPLY_LIMITS["max_abs_exposure_step"])
+    ss_delta_c = _clamp(ss_delta, -SAFE_APPLY_LIMITS["max_abs_smartsafe_step"], SAFE_APPLY_LIMITS["max_abs_smartsafe_step"])
+
+    new_exp = _clamp(current_exposure + exp_delta_c, *SAFE_APPLY_LIMITS["exposure_bounds"])
+    new_ss = _clamp(current_smartsafe + ss_delta_c, *SAFE_APPLY_LIMITS["smartsafe_bounds"])
+
+    applied = {"exposure_delta": exp_delta_c, "smartsafe_delta": ss_delta_c}
+    return new_exp, new_ss, applied
+
+
+# -----------------------------
+# PERSISTENT OVERRIDES + EVENT LOGGING
+# -----------------------------
+def load_persistent_overrides() -> Dict[str, dict]:
+    _ensure_dirs()
+    if not os.path.exists(PERSIST_OVERRIDES_JSON):
+        return {}
+    try:
+        with open(PERSIST_OVERRIDES_JSON, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def save_persistent_overrides(state: Dict[str, dict]) -> None:
+    _ensure_dirs()
+    try:
+        with open(PERSIST_OVERRIDES_JSON, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, sort_keys=True)
+    except Exception:
+        pass
+
+def get_persistent_override(wave: str, mode: str) -> dict:
+    state = load_persistent_overrides()
+    return state.get(_key_wave_mode(wave, mode), {})
+
+def persist_apply(wave: str, mode: str, new_exposure: float, new_smartsafe: float, reason: str, reco_id: str = "", confidence: str = "") -> None:
+    state = load_persistent_overrides()
+    k = _key_wave_mode(wave, mode)
+    state[k] = {
+        "exposure": float(new_exposure),
+        "smartsafe": float(new_smartsafe),
+        "meta": {"ts": _now_iso(), "reason": reason, "reco_id": reco_id, "confidence": confidence},
+    }
+    save_persistent_overrides(state)
+
+    log_event({
+        "ts": _now_iso(),
+        "type": "persist_apply",
+        "wave": wave,
+        "mode": mode,
+        "reco_id": reco_id,
+        "confidence": confidence,
+        "reason": reason,
+        "new_exposure": float(new_exposure),
+        "new_smartsafe": float(new_smartsafe),
+    })
+
+def persist_clear(wave: str, mode: str) -> None:
+    state = load_persistent_overrides()
+    k = _key_wave_mode(wave, mode)
+    if k in state:
+        del state[k]
+        save_persistent_overrides(state)
+        log_event({
+            "ts": _now_iso(),
+            "type": "persist_clear",
+            "wave": wave,
+            "mode": mode,
+        })
+
+def log_event(row: dict) -> None:
+    _ensure_dirs()
+    # append to CSV
+    df = pd.DataFrame([row])
+    if os.path.exists(RECO_EVENTS_CSV):
+        try:
+            df.to_csv(RECO_EVENTS_CSV, mode="a", header=False, index=False)
+            return
+        except Exception:
+            pass
+    try:
+        df.to_csv(RECO_EVENTS_CSV, index=False)
+    except Exception:
+        pass
+
+
+# -----------------------------
+# MAIN BUNDLE for UI
+# -----------------------------
+def wave_detail_bundle(
+    wave: str,
+    mode: str,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
+    include_persistent_defaults: bool = True,
+) -> dict:
+    """
+    One-stop shop for app.py.
+    - Applies persistent overrides by default (unless overridden)
+    - Computes df365, holdings, conditional grid, diagnostics, recommendations
+    - Writes conditional grid log
+    """
+    _ensure_dirs()
+
+    # persistent override acts as baseline unless explicit overrides passed
+    if include_persistent_defaults:
+        povr = get_persistent_override(wave, mode)
+        if exposure_override is None and "exposure" in povr:
+            exposure_override = float(povr["exposure"])
+        if smartsafe_override is None and "smartsafe" in povr:
+            smartsafe_override = float(povr["smartsafe"])
+
+    holdings = get_wave_holdings(wave)
+    df365 = compute_history_nav(wave, mode, exposure_override=exposure_override, smartsafe_override=smartsafe_override)
+
+    vol_attr = None
+    cond_grid = None
+    cond_log_path = ""
+
+    if df365 is not None and not df365.empty and len(df365) >= 80:
+        # Volatility regime attribution (simple)
+        nav = df365.copy()
+        nav["date"] = pd.to_datetime(nav["date"])
+        nav = nav.set_index("date")
+
+        regime = _vix_regime(nav["vix"])
+        wave_ret = _pct_change(nav["wave_nav"])
+        bm_ret = _pct_change(nav["bm_nav"])
+        alpha = nav["alpha"]
+
+        tmp = pd.DataFrame({
+            "regime": regime.values,
+            "wave_ret": wave_ret.values,
+            "bm_ret": bm_ret.values,
+            "alpha": alpha.values,
+        }, index=nav.index)
+
+        vol_attr = tmp.groupby("regime", as_index=False).agg(
+            days=("alpha", "count"),
+            wave_ret=("wave_ret", lambda x: float((1.0 + x).prod() - 1.0)),
+            bm_ret=("bm_ret", lambda x: float((1.0 + x).prod() - 1.0)),
+            alpha=("alpha", lambda x: float((1.0 + x).prod() - 1.0)),
+        )
+
+        cond_grid = compute_conditional_grid(df365)
+
+        # Persistent conditional log
+        cond_log_path = os.path.join(COND_DIR, f"{wave}__{mode.replace(' ', '_')}__conditional.csv")
+        try:
+            if cond_grid is not None and not cond_grid.empty:
+                cond_grid.to_csv(cond_log_path, index=False)
+        except Exception:
+            pass
+
+    diagnostics = compute_diagnostics(holdings)
+    recommendations = compute_recommendations(df365, holdings)
+
+    return {
+        "wave": wave,
+        "mode": mode,
+        "holdings": holdings,
+        "df365": df365,
+        "vol_attr": vol_attr,
+        "cond_grid": cond_grid,
+        "cond_log_path": cond_log_path,
+        "diagnostics": diagnostics,
+        "recommendations": recommendations,
+    }
