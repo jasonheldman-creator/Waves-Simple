@@ -1,3 +1,5 @@
+
+
 # app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
 # (same features; NEW: sidebar data-status panel)
 
@@ -374,3 +376,108 @@ tab_console, tab_market, tab_factors, tab_vector = st.tabs(
 # ------------------------------------------------------------
 
 st.info("Paste the remainder of your existing app.py below this line unchanged.")
+# ============================================================
+# WAVES Intelligence™ — Public Engine API
+# REQUIRED for app.py compatibility
+# ============================================================
+
+def get_all_waves():
+    """
+    Canonical list of all Waves available to the console.
+    This function is REQUIRED by app.py at import time.
+
+    Returns:
+        List[str]: Sorted Wave names
+    """
+    # Primary source: wave weight definitions
+    if "WAVE_WEIGHTS" in globals() and isinstance(WAVE_WEIGHTS, dict):
+        return sorted(WAVE_WEIGHTS.keys())
+
+    # Fallback: try any known registry-style objects
+    for name in ["WAVES", "WAVE_DEFS", "WAVE_REGISTRY"]:
+        obj = globals().get(name)
+        if isinstance(obj, dict):
+            return sorted(obj.keys())
+
+    # Absolute fallback (prevents hard crash)
+    return []
+
+
+def get_modes():
+    """
+    Returns all supported portfolio modes.
+    Kept explicit to avoid accidental behavior drift.
+    """
+    return [
+        "Standard",
+        "Alpha-Minus-Beta",
+        "Private Logic",
+    ]
+
+
+def get_benchmark_mix_table():
+    """
+    Returns the composite benchmark ETF mix for all Waves.
+    Required for:
+      • Benchmark ETF Mix table
+      • Alpha calculations
+      • WaveScore benchmarking
+    """
+    rows = []
+
+    if "BENCHMARK_MIX" not in globals():
+        return []
+
+    for wave, components in BENCHMARK_MIX.items():
+        for item in components:
+            rows.append(
+                {
+                    "Wave": wave,
+                    "Ticker": item.get("ticker"),
+                    "Name": item.get("name"),
+                    "Weight": item.get("weight"),
+                }
+            )
+
+    return rows
+
+
+def get_wave_holdings(wave_name: str):
+    """
+    Returns Top-10 holdings for a Wave.
+    Used by:
+      • Wave Detail panel
+      • Google Finance links
+    """
+    if "WAVE_WEIGHTS" not in globals():
+        return []
+
+    weights = WAVE_WEIGHTS.get(wave_name)
+    if not isinstance(weights, dict):
+        return []
+
+    rows = []
+    for ticker, w in sorted(weights.items(), key=lambda x: -x[1])[:10]:
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Name": ticker,  # Name lookup optional
+                "Weight": w,
+            }
+        )
+
+    return rows
+
+
+def _regime_from_return(r: float) -> str:
+    """
+    Internal helper used by app.py for regime labeling.
+    """
+    try:
+        if r >= 0.05:
+            return "bull"
+        if r <= -0.05:
+            return "bear"
+        return "neutral"
+    except Exception:
+        return "neutral"
