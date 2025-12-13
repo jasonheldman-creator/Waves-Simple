@@ -1,336 +1,464 @@
 # app.py
-# WAVES Intelligence™ — Institutional Console
-# HARD RULE: portfolio overview ALWAYS shows ALL waves from wave_weights.csv
+# WAVES Intelligence™ — Institutional Console (Full Feature)
+#
+# Requirements:
+# - Streamlit
+# - pandas, numpy
+# - yfinance
+# - matplotlib
+#
+# Deploy:
+# - Place app.py and waves_engine.py in repo root.
+# - Streamlit Cloud: set main file to app.py
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple
+
 import numpy as np
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
 import waves_engine as we
 
 
-def fmt_pct(x):
-    if x is None:
-        return "—"
-    try:
-        x = float(x)
-        if np.isnan(x) or np.isinf(x):
-            return "—"
-        return f"{x*100:.2f}%"
-    except Exception:
-        return "—"
-
-
-def df_to_download(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8")
-
-
-def status_for_summary(summary: dict) -> str:
-    # If 365D missing, still show the wave (never hide)
-    return "OK" if summary.get("365D_return") is not None else "NO HISTORY / INSUFFICIENT DATA"
-
-
-st.set_page_config(page_title="WAVES Intelligence™ Console", layout="wide")
-st.title("WAVES Intelligence™ Institutional Console")
-
-# Sidebar
-all_modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
-mode = st.sidebar.selectbox("Mode", all_modes, index=0)
-
-st.sidebar.markdown("---")
-st.sidebar.caption("Wave discovery is ONLY from wave_weights.csv.")
-if st.sidebar.button("Refresh Wave List / Weights"):
-    we.refresh_weights()
-    st.sidebar.success("Refreshed weights cache.")
-
-all_waves = we.get_all_waves()
-if not all_waves:
-    st.error("No Waves found. Confirm wave_weights.csv exists in repo root and has wave,ticker,weight columns.")
-    st.stop()
-
-wave_selected = st.sidebar.selectbox("Select Wave", all_waves, index=0)
-
 # -----------------------------
-# Overview (ALL WAVES)
+# Streamlit setup
 # -----------------------------
-st.header(f"Portfolio-Level Overview (All Waves) — Mode = {mode}")
 
-rows = []
-for w in all_waves:
-    try:
-        s = we.compute_multi_window_summary(w, mode)
-        rows.append({
-            "Wave": w,
-            "Status": status_for_summary(s),
-            "1D Return": fmt_pct(s.get("1D_return")),
-            "1D Alpha": fmt_pct(s.get("1D_alpha")),
-            "30D Return": fmt_pct(s.get("30D_return")),
-            "30D Alpha": fmt_pct(s.get("30D_alpha")),
-            "60D Return": fmt_pct(s.get("60D_return")),
-            "60D Alpha": fmt_pct(s.get("60D_alpha")),
-            "365D Return": fmt_pct(s.get("365D_return")),
-            "365D Alpha": fmt_pct(s.get("365D_alpha")),
-        })
-    except Exception as e:
-        rows.append({
-            "Wave": w,
-            "Status": f"ERROR: {type(e).__name__}",
-            "1D Return": "—", "1D Alpha": "—",
-            "30D Return": "—", "30D Alpha": "—",
-            "60D Return": "—", "60D Alpha": "—",
-            "365D Return": "—", "365D Alpha": "—",
-        })
-
-overview = pd.DataFrame(rows)
-st.dataframe(overview, use_container_width=True, height=520)
-
-st.download_button(
-    "Download overview CSV",
-    data=df_to_download(overview),
-    file_name=f"waves_overview_{mode.replace(' ','_')}_{datetime.utcnow().strftime('%Y%m%d')}.csv",
-    mime="text/csv",
+st.set_page_config(
+    page_title="WAVES Intelligence™ Institutional Console",
+    layout="wide",
+    initial_sidebar_state="collapsed",  # mobile friendly
 )
 
-st.markdown("---")
-
-# -----------------------------
-# Wave Detail
-# -----------------------------
-st.header(f"Wave Detail — {wave_selected} (Mode: {mode})")
-
-# Session overrides (preview-first)
-if "session_overrides" not in st.session_state:
-    st.session_state["session_overrides"] = {}
-if "last_apply" not in st.session_state:
-    st.session_state["last_apply"] = None
-
-key = (wave_selected, mode)
-
-base_exposure = we.MODE_BASE_EXPOSURE.get(mode, 1.0)
-base_smartsafe = we.MODE_SMARTSAFE_BASE.get(mode, 0.0)
-
-povr = we.get_persistent_override(wave_selected, mode)
-p_expo = float(povr.get("exposure", base_exposure)) if povr else base_exposure
-p_ss = float(povr.get("smartsafe", base_smartsafe)) if povr else base_smartsafe
-
-override = st.session_state["session_overrides"].get(key, {})
-cur_exposure = float(override.get("exposure", p_expo))
-cur_smartsafe = float(override.get("smartsafe", p_ss))
-
-with st.expander("Controls (Preview-first)", expanded=False):
-    c1, c2 = st.columns(2)
-    with c1:
-        cur_exposure = st.slider("Exposure (session override)", 0.0, 1.25, float(cur_exposure), 0.01)
-    with c2:
-        cur_smartsafe = st.slider("SmartSafe (session override)", 0.0, 0.90, float(cur_smartsafe), 0.01)
-
-    cA, cB = st.columns(2)
-    with cA:
-        if st.button("Revert session override"):
-            st.session_state["session_overrides"].pop(key, None)
-            st.session_state["last_apply"] = None
-            st.success("Session override reverted.")
-            st.rerun()
-    with cB:
-        if st.button("Clear persistent override (if any)"):
-            we.persist_clear(wave_selected, mode)
-            st.success("Persistent override cleared.")
-            st.rerun()
-
-st.session_state["session_overrides"][key] = {"exposure": cur_exposure, "smartsafe": cur_smartsafe}
-
-bundle = we.wave_detail_bundle(
-    wave_selected,
-    mode,
-    exposure_override=cur_exposure,
-    smartsafe_override=cur_smartsafe,
-    include_persistent_defaults=True,
+# Lightweight mobile styling
+st.markdown(
+    """
+    <style>
+      .block-container { padding-top: 0.8rem; padding-bottom: 1.2rem; }
+      [data-testid="stMetricValue"] { font-size: 1.25rem; }
+      [data-testid="stMetricLabel"] { font-size: 0.85rem; }
+      .small-note { font-size: 0.85rem; opacity: 0.85; }
+      .tight hr { margin: 0.6rem 0; }
+      .stDataFrame { border-radius: 10px; }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
-df365 = bundle.get("df365")
+st.title("WAVES Intelligence™ — Institutional Console")
+st.caption("Vector Engine • SmartSafe™ • Mode-separated outcomes • Full transparency")
 
-if df365 is None or df365.empty:
-    st.warning("Not enough market history to compute 365D NAV for this Wave yet.")
-else:
-    nav = df365.copy()
-    nav["date"] = pd.to_datetime(nav["date"])
-    nav = nav.set_index("date")
 
-    st.line_chart(nav[["wave_nav", "bm_nav"]], height=320)
+# -----------------------------
+# Utility
+# -----------------------------
 
-    ret_365 = (nav["wave_nav"].iloc[-1] / nav["wave_nav"].iloc[0] - 1.0)
-    bm_365 = (nav["bm_nav"].iloc[-1] / nav["bm_nav"].iloc[0] - 1.0)
-    alpha_365 = (1.0 + nav["alpha"]).prod() - 1.0
+def fmt_pct(x: float) -> str:
+    if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))):
+        return "—"
+    return f"{x*100:.2f}%"
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("365D Return", f"{ret_365*100:.2f}%")
-    m2.metric("365D Alpha", f"{alpha_365*100:.2f}%")
-    m3.metric("Benchmark Return", f"{bm_365*100:.2f}%")
+def fmt_num(x: float) -> str:
+    if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))):
+        return "—"
+    return f"{x:.2f}"
 
-st.markdown("---")
+def google_finance_link(ticker: str) -> str:
+    t = ticker.replace("-", ".")
+    url = f"https://www.google.com/finance/quote/{t}:NASDAQ"
+    # Many tickers are NYSE; Google still resolves often. Keep it simple + universal:
+    url2 = f"https://www.google.com/finance/quote/{t}"
+    return url2
 
-st.subheader("Volatility Regime Attribution (365D)")
-vol_attr = bundle.get("vol_attr")
-if vol_attr is None or (isinstance(vol_attr, pd.DataFrame) and vol_attr.empty):
-    st.info("Not enough data for regime attribution yet.")
-else:
-    show = vol_attr.copy()
-    for c in ["wave_ret", "bm_ret", "alpha"]:
-        show[c] = show[c].map(lambda x: f"{float(x)*100:.2f}%")
-    st.dataframe(show, use_container_width=True, height=240)
+def letter_grade(score: float) -> str:
+    if score >= 90: return "A+"
+    if score >= 80: return "A"
+    if score >= 70: return "B"
+    if score >= 60: return "C"
+    return "D"
 
-st.markdown("---")
 
-st.subheader("Conditional Attribution Grid (Regime × Trend) — 365D")
-cond_grid = bundle.get("cond_grid")
-log_path = bundle.get("cond_log_path", "")
-if cond_grid is None or (isinstance(cond_grid, pd.DataFrame) and cond_grid.empty):
-    st.info("Not enough data for conditional attribution grid yet.")
-else:
-    grid_show = cond_grid.copy()
-    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha"] * 10000.0
-    grid_show["cum_alpha"] = grid_show["cum_alpha"].map(lambda x: f"{float(x)*100:.2f}%")
-    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha_bp"].map(lambda x: f"{float(x):.2f}")
-    grid_show = grid_show[["regime", "trend", "days", "mean_daily_alpha_bp", "cum_alpha"]]
-    st.dataframe(grid_show, use_container_width=True, height=260)
-    if log_path:
-        st.caption(f"Logged to: {log_path}")
+@st.cache_data(ttl=180, show_spinner=False)
+def cached_nav(wave: str, mode: str, days: int = 420):
+    end = datetime.utcnow() + timedelta(days=1)
+    start = datetime.utcnow() - timedelta(days=days)
+    navres = we.compute_history_nav(wave, mode, start=start, end=end)
+    ws = we.compute_wavescore(wave, mode, navres)
+    return navres, ws
 
-    st.download_button(
-        "Download conditional grid CSV",
-        data=df_to_download(cond_grid),
-        file_name=f"{wave_selected}_conditional_{mode.replace(' ','_')}_{datetime.utcnow().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
+@st.cache_data(ttl=180, show_spinner=False)
+def cached_overview(mode: str):
+    waves = we.get_all_waves()
+    rows = []
+
+    for w in waves:
+        navres, ws = cached_nav(w, mode, days=420)
+
+        nav = navres.nav
+        bnav = navres.bench_nav
+
+        def period_return(series: pd.Series, d: int) -> float:
+            if series is None or series.empty:
+                return 0.0
+            if len(series) < 3:
+                return 0.0
+            idx = max(0, len(series) - d - 1)
+            base = series.iloc[idx]
+            last = series.iloc[-1]
+            if base == 0:
+                return 0.0
+            return float(last / base - 1.0)
+
+        r1 = period_return(nav, 1)
+        r30 = period_return(nav, 30)
+        r60 = period_return(nav, 60)
+        r365 = period_return(nav, 252)  # trading days approx
+
+        br1 = period_return(bnav, 1)
+        br30 = period_return(bnav, 30)
+        br60 = period_return(bnav, 60)
+        br365 = period_return(bnav, 252)
+
+        rows.append({
+            "Wave": w,
+            "Mode": mode,
+            "1D Return": r1,
+            "30D Return": r30,
+            "60D Return": r60,
+            "365D Return": r365,
+            "1D Alpha": r1 - br1,
+            "30D Alpha": r30 - br30,
+            "60D Alpha": r60 - br60,
+            "365D Alpha": r365 - br365,
+            "Vol (Ann)": navres.meta.get("ann_vol", 0.0),
+            "MaxDD": navres.meta.get("max_drawdown", 0.0),
+            "TE": navres.meta.get("tracking_error", 0.0),
+            "IR": navres.meta.get("information_ratio", 0.0),
+            "Beta": navres.meta.get("beta", 1.0),
+            "WaveScore": ws.get("WaveScore", 0.0),
+            "Grade": letter_grade(ws.get("WaveScore", 0.0)),
+        })
+
+    df = pd.DataFrame(rows)
+    # Sort: best WaveScore first
+    df = df.sort_values(["WaveScore", "365D Alpha", "30D Alpha"], ascending=False).reset_index(drop=True)
+    return df
+
+
+def plot_nav(nav: pd.Series, bnav: pd.Series, title: str):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    if nav is not None and not nav.empty:
+        ax.plot(nav.index, nav.values, label="Wave NAV")
+    if bnav is not None and not bnav.empty:
+        ax.plot(bnav.index, bnav.values, label="Benchmark NAV")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="best")
+    st.pyplot(fig, clear_figure=True)
+
+
+def correlation_heatmap(df_rets: pd.DataFrame, title: str):
+    corr = df_rets.corr()
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    im = ax.imshow(corr.values, interpolation="nearest")
+    ax.set_title(title)
+    ax.set_xticks(range(len(corr.columns)))
+    ax.set_yticks(range(len(corr.columns)))
+    ax.set_xticklabels(corr.columns, rotation=90, fontsize=8)
+    ax.set_yticklabels(corr.columns, fontsize=8)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    st.pyplot(fig, clear_figure=True)
+
+
+def rules_narrative(mode: str, overview_row: pd.Series) -> str:
+    # Rules-based narrative panel (Vector OS Insight Layer)
+    w = overview_row["Wave"]
+    score = overview_row["WaveScore"]
+    alpha30 = overview_row["30D Alpha"]
+    alpha365 = overview_row["365D Alpha"]
+    vol = overview_row["Vol (Ann)"]
+    mdd = overview_row["MaxDD"]
+    beta = overview_row["Beta"]
+
+    risk_phrase = "contained" if vol < 0.18 and abs(mdd) < 0.18 else "elevated"
+    alpha_phrase = "strong" if alpha30 > 0.01 else ("weak" if alpha30 < -0.01 else "flat")
+    trend_phrase = "compounding" if alpha365 > 0.03 else ("lagging" if alpha365 < -0.03 else "neutral")
+
+    return (
+        f"**Vector OS Insight — {w} ({mode})**\n\n"
+        f"- WaveScore: **{score:.1f} ({letter_grade(score)})**\n"
+        f"- 30D alpha is **{alpha_phrase}** ({alpha30*100:.2f}%), with risk conditions **{risk_phrase}**.\n"
+        f"- 365D alpha trend is **{trend_phrase}** ({alpha365*100:.2f}%).\n"
+        f"- Vol: {vol*100:.1f}%, MaxDD: {mdd*100:.1f}%, Beta: {beta:.2f}\n\n"
+        f"**Rule read:** If WaveScore stays above 80 and 30D alpha remains positive, maintain allocation. "
+        f"If 30D alpha turns negative while drawdown widens, SmartSafe™ rules will increasingly sweep to cash proxies."
     )
 
-st.markdown("---")
 
-st.subheader("Diagnostics")
-diags = bundle.get("diagnostics") or []
-levels = [d.get("level", "INFO") for d in diags]
-if any(l == "WARN" for l in levels):
-    for d in diags:
-        if d.get("level") == "WARN":
-            st.warning(f"WARN — {d.get('msg','')}")
-else:
-    d0 = diags[0] if diags else {"level": "PASS", "msg": "No issues detected."}
-    st.success(f"{d0.get('level','PASS')} — {d0.get('msg','No issues detected.')}")
+# -----------------------------
+# Controls (top)
+# -----------------------------
 
-st.markdown("---")
+c1, c2, c3 = st.columns([1.2, 1.2, 2.0])
+with c1:
+    mode = st.selectbox("Mode", we.get_modes(), index=0)
+with c2:
+    wave = st.selectbox("Wave", we.get_all_waves(), index=0)
+with c3:
+    st.markdown(
+        "<div class='small-note'>Tip: On iPhone, keep sidebar collapsed. Use the tabs below to navigate the full console.</div>",
+        unsafe_allow_html=True
+    )
 
-st.subheader("Auto Recommendations (Preview-first)")
-recos = bundle.get("recommendations") or []
-if not recos:
-    st.info("No high-confidence recommendations detected (or not enough history).")
-else:
-    st.caption("Default apply is session-only. Optional persistent apply requires hard confirmation.")
-    enable_persist = st.checkbox("Enable persistent apply (writes logs/overrides/persistent_overrides.json)", value=False)
-    confirm_text = st.text_input("Type APPLY to unlock persistent writes", value="") if enable_persist else ""
+tabs = st.tabs([
+    "Overview",
+    "Wave Detail",
+    "Risk & WaveScore",
+    "Benchmark Transparency",
+    "Market Intel",
+    "Factor Decomposition",
+    "Vector OS Insight",
+])
 
-    for i, r in enumerate(recos):
-        title = r.get("title", "Recommendation")
-        conf = r.get("confidence", "Low")
-        why = r.get("why", "")
-        deltas = r.get("deltas", {}) or {}
-        reco_id = r.get("id", f"reco_{i}")
 
-        with st.expander(f"{title} • Confidence: {conf}", expanded=False):
-            st.write(why)
-            st.code(str(deltas))
+# -----------------------------
+# OVERVIEW TAB
+# -----------------------------
+with tabs[0]:
+    st.subheader("All Waves — Returns + Alpha Capture (Mode-separated)")
+    with st.spinner("Computing overview (cached)…"):
+        ov = cached_overview(mode)
 
-            if we.CONF_RANK.get(conf, 0) < we.CONF_RANK.get(we.SAFE_APPLY_LIMITS["min_confidence_to_apply"], 2):
-                st.warning("Blocked by guardrails: confidence below minimum to apply.")
-                continue
+    # show compact metrics row
+    top = ov.iloc[0]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Top WaveScore", f"{top['WaveScore']:.1f}", top["Wave"])
+    m2.metric("Top 30D Alpha", fmt_pct(float(ov["30D Alpha"].max())), "best wave")
+    m3.metric("Top 365D Alpha", fmt_pct(float(ov["365D Alpha"].max())), "best wave")
+    m4.metric("Median Vol", fmt_pct(float(ov["Vol (Ann)"].median())), "annualized")
 
-            if not deltas or ("exposure_delta" not in deltas and "smartsafe_delta" not in deltas):
-                st.info("Informational recommendation (no auto-apply parameters).")
-                continue
+    show_cols = [
+        "Wave",
+        "1D Return", "1D Alpha",
+        "30D Return", "30D Alpha",
+        "60D Return", "60D Alpha",
+        "365D Return", "365D Alpha",
+        "Vol (Ann)", "MaxDD", "TE", "IR", "Beta",
+        "WaveScore", "Grade",
+    ]
+    ov_show = ov[show_cols].copy()
 
-            new_exp, new_ss, applied = we.apply_recommendation_preview(
-                wave_selected,
-                mode,
-                current_exposure=float(cur_exposure),
-                current_smartsafe=float(cur_smartsafe),
-                deltas=deltas,
-            )
+    # format
+    for c in ["1D Return","30D Return","60D Return","365D Return","1D Alpha","30D Alpha","60D Alpha","365D Alpha","Vol (Ann)","MaxDD","TE"]:
+        ov_show[c] = ov_show[c].astype(float)
+    for c in ["IR","Beta","WaveScore"]:
+        ov_show[c] = ov_show[c].astype(float)
 
-            st.markdown("**Preview result if applied:**")
-            st.write(f"• SmartSafe Δ: {applied['smartsafe_delta']:+.2f} → {new_ss:.2f}")
-            st.write(f"• Exposure Δ: {applied['exposure_delta']:+.2f} → {new_exp:.2f}")
+    st.dataframe(
+        ov_show.style.format({
+            "1D Return": "{:.2%}", "30D Return": "{:.2%}", "60D Return": "{:.2%}", "365D Return": "{:.2%}",
+            "1D Alpha": "{:.2%}", "30D Alpha": "{:.2%}", "60D Alpha": "{:.2%}", "365D Alpha": "{:.2%}",
+            "Vol (Ann)": "{:.2%}", "MaxDD": "{:.2%}", "TE": "{:.2%}",
+            "IR": "{:.2f}", "Beta": "{:.2f}", "WaveScore": "{:.1f}",
+        }),
+        use_container_width=True,
+        height=520
+    )
 
-            c1, c2, c3 = st.columns(3)
 
-            with c1:
-                if st.button(f"Apply (session-only) — {title}", key=f"apply_session_{i}"):
-                    st.session_state["last_apply"] = {
-                        "key": key,
-                        "prev": {"exposure": float(cur_exposure), "smartsafe": float(cur_smartsafe)},
-                        "new": {"exposure": float(new_exp), "smartsafe": float(new_ss)},
-                        "title": title,
-                        "ts": we._now_iso(),
-                        "kind": "session",
-                    }
-                    st.session_state["session_overrides"][key] = {"exposure": float(new_exp), "smartsafe": float(new_ss)}
+# -----------------------------
+# WAVE DETAIL TAB
+# -----------------------------
+with tabs[1]:
+    st.subheader("Wave Detail — NAV vs Benchmark + Key Stats")
+    with st.spinner("Computing NAV…"):
+        navres, ws = cached_nav(wave, mode, days=420)
 
-                    we.log_event({
-                        "ts": we._now_iso(),
-                        "type": "session_apply",
-                        "wave": wave_selected,
-                        "mode": mode,
-                        "reco_id": reco_id,
-                        "confidence": conf,
-                        "reason": why,
-                        "new_exposure": float(new_exp),
-                        "new_smartsafe": float(new_ss),
-                    })
-                    st.success("Applied (session-only).")
-                    st.rerun()
+    cA, cB, cC, cD = st.columns(4)
+    cA.metric("WaveScore", f"{ws.get('WaveScore',0.0):.1f}", letter_grade(ws.get("WaveScore",0.0)))
+    cB.metric("Ann Vol", fmt_pct(navres.meta.get("ann_vol", 0.0)))
+    cC.metric("Max Drawdown", fmt_pct(navres.meta.get("max_drawdown", 0.0)))
+    cD.metric("Information Ratio", fmt_num(navres.meta.get("information_ratio", 0.0)))
 
-            with c2:
-                if st.button("Undo last apply", key=f"undo_{i}"):
-                    last = st.session_state.get("last_apply")
-                    if last and last.get("key") == key:
-                        st.session_state["session_overrides"][key] = last["prev"]
-                        we.log_event({
-                            "ts": we._now_iso(),
-                            "type": "session_undo",
-                            "wave": wave_selected,
-                            "mode": mode,
-                            "reverted_to": last["prev"],
-                        })
-                        st.success("Reverted session apply.")
-                        st.rerun()
-                    else:
-                        st.info("No apply to undo for this Wave/Mode.")
+    plot_nav(navres.nav, navres.bench_nav, f"{wave} ({mode}) — NAV vs Benchmark")
 
-            with c3:
-                persist_ok = enable_persist and (confirm_text.strip().upper() == "APPLY")
-                if st.button("Persist apply (writes overrides)", key=f"persist_{i}", disabled=(not persist_ok)):
-                    we.persist_apply(
-                        wave_selected,
-                        mode,
-                        new_exposure=float(new_exp),
-                        new_smartsafe=float(new_ss),
-                        reason=why,
-                        reco_id=reco_id,
-                        confidence=conf,
-                    )
-                    st.success("Persisted. This will apply on future runs.")
-                    st.rerun()
+    st.markdown("---")
 
-st.markdown("---")
+    st.subheader("Top Holdings (Top-10) — with Google Finance links")
+    h = we.get_wave_holdings(wave, mode).copy()
+    if h.empty:
+        st.info("No holdings returned.")
+    else:
+        h["Google"] = h["ticker"].apply(lambda t: google_finance_link(t))
+        top10 = h.head(10)[["ticker", "weight", "weight_effective", "Google"]].copy()
+        st.dataframe(
+            top10.style.format({"weight": "{:.2%}", "weight_effective": "{:.2%}"}),
+            use_container_width=True,
+            height=380
+        )
+        st.caption("Tip: Tap-and-hold the Google link to open in a new tab on iPhone.")
 
-st.subheader("Top-10 Holdings")
-holds = bundle.get("holdings")
-if holds is None or holds.empty:
-    st.info("No holdings found for this Wave (check wave_weights.csv).")
-else:
-    show = holds.copy().head(10)
-    show["weight"] = show["weight"].map(lambda x: f"{float(x):.2f}%")
-    show = show.rename(columns={"ticker": "Ticker", "weight": "Weight"})
-    st.dataframe(show, use_container_width=True, height=260)
 
-st.caption("Logs: logs/recommendations/reco_events.csv • Overrides: logs/overrides/persistent_overrides.json • Conditional: logs/conditional/")
+# -----------------------------
+# RISK & WAVESCORE TAB
+# -----------------------------
+with tabs[2]:
+    st.subheader("Risk Analytics + WaveScore™ Leaderboard")
+    with st.spinner("Building leaderboard…"):
+        ov = cached_overview(mode)
+
+    st.markdown("### WaveScore™ Leaderboard")
+    board = ov[["Wave", "WaveScore", "Grade", "IR", "Vol (Ann)", "MaxDD", "TE", "Beta", "30D Alpha", "365D Alpha"]].copy()
+    st.dataframe(
+        board.style.format({
+            "WaveScore": "{:.1f}", "IR": "{:.2f}", "Vol (Ann)": "{:.2%}", "MaxDD": "{:.2%}", "TE": "{:.2%}",
+            "Beta": "{:.2f}", "30D Alpha": "{:.2%}", "365D Alpha": "{:.2%}",
+        }),
+        use_container_width=True,
+        height=520
+    )
+
+    st.markdown("---")
+    st.markdown("### Selected Wave — Risk Ingredients")
+    navres, ws = cached_nav(wave, mode, days=420)
+
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Tracking Error", fmt_pct(navres.meta.get("tracking_error", 0.0)))
+    r2.metric("Beta", fmt_num(navres.meta.get("beta", 1.0)), f"target {ws.get('BetaTarget', 1.0):.2f}")
+    r3.metric("Gross Exposure", fmt_num(navres.meta.get("gross_exposure", 1.0)))
+    r4.metric("WaveScore Grade", letter_grade(ws.get("WaveScore", 0.0)))
+
+    subs = {
+        "ReturnQuality": ws.get("ReturnQuality", 0.0),
+        "RiskControl": ws.get("RiskControl", 0.0),
+        "Consistency": ws.get("Consistency", 0.0),
+        "Resilience": ws.get("Resilience", 0.0),
+        "Efficiency": ws.get("Efficiency", 0.0),
+        "TransparencyGov": ws.get("TransparencyGov", 0.0),
+    }
+    subs_df = pd.DataFrame([{"SubScore": k, "Score": float(v)} for k, v in subs.items()]).sort_values("Score", ascending=False)
+    st.dataframe(subs_df.style.format({"Score": "{:.1f}"}), use_container_width=True, height=260)
+
+
+# -----------------------------
+# BENCHMARK TRANSPARENCY TAB
+# -----------------------------
+with tabs[3]:
+    st.subheader("Benchmark Transparency — Composite + Static Fallbacks")
+    bmix = we.get_benchmark_mix_table(wave).copy()
+    st.dataframe(
+        bmix.style.format({"weight": "{:.2%}"}),
+        use_container_width=True,
+        height=460
+    )
+    st.caption("Auto composite is the primary benchmark used for alpha unless its data is unavailable, in which case fallback_static is used.")
+
+
+# -----------------------------
+# MARKET INTEL TAB
+# -----------------------------
+with tabs[4]:
+    st.subheader("Market Intel — Multi-Asset Dashboard + WAVES Reaction Snapshot")
+
+    st.markdown("### Multi-Asset Proxies (simple read)")
+    proxies = ["SPY", "QQQ", "IWM", "TLT", "IEF", "GLD", "DBC", "^VIX"]
+    try:
+        import yfinance as yf
+        end = datetime.utcnow() + timedelta(days=1)
+        start = datetime.utcnow() - timedelta(days=180)
+        px = yf.download(proxies, start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), auto_adjust=True, progress=False)["Close"]
+        px = px.dropna(how="all").ffill()
+        rets = px.pct_change().fillna(0.0)
+
+        last = px.iloc[-1]
+        r5 = (px.iloc[-1] / px.iloc[-6] - 1.0) if len(px) > 6 else pd.Series({c: 0.0 for c in px.columns})
+        r30 = (px.iloc[-1] / px.iloc[-31] - 1.0) if len(px) > 31 else pd.Series({c: 0.0 for c in px.columns})
+
+        out = pd.DataFrame({
+            "Last": last,
+            "5D": r5,
+            "30D": r30,
+            "Vol(60D ann)": rets.rolling(60).std(ddof=0).iloc[-1] * np.sqrt(252.0) if len(rets) > 60 else 0.0
+        })
+        st.dataframe(out.style.format({"Last": "{:.2f}", "5D": "{:.2%}", "30D": "{:.2%}", "Vol(60D ann)": "{:.2%}"}), use_container_width=True, height=340)
+    except Exception as e:
+        st.warning(f"Market intel data not available right now: {e}")
+
+    st.markdown("---")
+    st.markdown("### WAVES Reaction Snapshot (how Waves behaved vs benchmark)")
+    with st.spinner("Computing reaction snapshot…"):
+        ov = cached_overview(mode)
+    snap = ov[["Wave", "1D Alpha", "30D Alpha", "60D Alpha", "IR", "Vol (Ann)", "MaxDD", "WaveScore"]].copy()
+    st.dataframe(
+        snap.style.format({"1D Alpha": "{:.2%}", "30D Alpha": "{:.2%}", "60D Alpha": "{:.2%}", "IR": "{:.2f}", "Vol (Ann)": "{:.2%}", "MaxDD": "{:.2%}", "WaveScore": "{:.1f}"}),
+        use_container_width=True,
+        height=480
+    )
+
+
+# -----------------------------
+# FACTOR DECOMPOSITION TAB
+# -----------------------------
+with tabs[5]:
+    st.subheader("Factor Decomposition — Betas + Correlation Matrix (heatmap)")
+
+    st.markdown("### Selected Wave — Simple Factor Betas (proxy)")
+    # Proxy factors: SPY (market), QQQ (growth/tech), IWM (size), TLT (rates), GLD (gold/defensive), DBC (commodities)
+    factors = ["SPY", "QQQ", "IWM", "TLT", "GLD", "DBC"]
+    try:
+        import yfinance as yf
+        navres, ws = cached_nav(wave, mode, days=420)
+
+        end = datetime.utcnow() + timedelta(days=1)
+        start = datetime.utcnow() - timedelta(days=420)
+        px = yf.download(factors, start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"), auto_adjust=True, progress=False)["Close"]
+        px = px.dropna(how="all").ffill()
+        frets = px.pct_change().fillna(0.0)
+
+        # align with portfolio returns
+        pr = navres.port_rets.copy()
+        idx = pr.index.intersection(frets.index)
+        pr = pr.loc[idx]
+        X = frets.loc[idx, factors].values
+        y = pr.values
+
+        # OLS with intercept
+        X2 = np.column_stack([np.ones(len(X)), X])
+        beta_hat, *_ = np.linalg.lstsq(X2, y, rcond=None)
+        # beta_hat[0] intercept, rest factors
+        betas = beta_hat[1:]
+        bdf = pd.DataFrame({"Factor": factors, "Beta": betas}).sort_values("Beta", ascending=False).reset_index(drop=True)
+        st.dataframe(bdf.style.format({"Beta": "{:.3f}"}), use_container_width=True, height=280)
+
+        st.markdown("### Correlation Matrix (factors)")
+        correlation_heatmap(frets[factors].tail(120), "Factor Correlations (last ~120 trading days)")
+    except Exception as e:
+        st.warning(f"Factor decomposition unavailable right now: {e}")
+
+
+# -----------------------------
+# VECTOR OS INSIGHT TAB
+# -----------------------------
+with tabs[6]:
+    st.subheader("Vector OS Insight Layer — Rules-based Narrative Panel")
+    with st.spinner("Generating narrative…"):
+        ov = cached_overview(mode)
+    row = ov[ov["Wave"] == wave].iloc[0]
+    st.markdown(rules_narrative(mode, row))
+
+    st.markdown("---")
+    st.markdown("### Current Holdings Overlay Notes")
+    h = we.get_wave_holdings(wave, mode)
+    if h.empty:
+        st.info("No holdings returned.")
+    else:
+        # notes are repeated per row; show once
+        note = h["notes"].iloc[0] if "notes" in h.columns and len(h) > 0 else ""
+        st.write(note if note else "No overlay notes.")
