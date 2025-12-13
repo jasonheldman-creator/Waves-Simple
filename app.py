@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
 import numpy as np
@@ -28,7 +27,6 @@ def df_to_download(df: pd.DataFrame) -> bytes:
 
 
 def status_for_summary(summary: dict) -> str:
-    # if 365D is missing, show "NO HISTORY"
     if summary.get("365D_return") is None:
         return "NO HISTORY / INSUFFICIENT DATA"
     return "OK"
@@ -37,11 +35,7 @@ def status_for_summary(summary: dict) -> str:
 # -----------------------------
 # Page config
 # -----------------------------
-st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
-    layout="wide",
-)
-
+st.set_page_config(page_title="WAVES Intelligence™ Console", layout="wide")
 st.title("WAVES Intelligence™ Institutional Console")
 
 
@@ -52,21 +46,20 @@ all_modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
 mode = st.sidebar.selectbox("Mode", all_modes, index=0)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Wave discovery is sourced from wave_weights.csv (plus any orphan log waves).")
+st.sidebar.caption("Wave discovery merges wave_weights.csv + any orphan log waves.")
 if st.sidebar.button("Refresh Wave List / Weights"):
     we.refresh_weights()
     st.sidebar.success("Refreshed weights.")
 
 
 # -----------------------------
-# Ensure ALL waves show up (source of truth = weights)
+# Ensure ALL waves show up (weights + orphans)
 # -----------------------------
-all_waves = we.get_all_waves()
+all_waves = we.get_all_waves(include_orphans=True)
 if not all_waves:
     st.error("No Waves found. Make sure wave_weights.csv exists and has Wave/Ticker/Weight columns.")
     st.stop()
 
-wave_default = all_waves[0]
 wave_selected = st.sidebar.selectbox("Select Wave", all_waves, index=0)
 
 
@@ -171,7 +164,7 @@ else:
 
     ret_365 = (nav["wave_nav"].iloc[-1] / nav["wave_nav"].iloc[0] - 1.0)
     bm_365 = (nav["bm_nav"].iloc[-1] / nav["bm_nav"].iloc[0] - 1.0)
-    alpha_365 = (1.0 + nav["alpha"]).prod() - 1.0
+    alpha_365 = (1.0 + df365["alpha"]).prod() - 1.0
 
     colA, colB, colC = st.columns(3)
     colA.metric("365D Return", f"{ret_365*100:.2f}%")
@@ -214,7 +207,6 @@ else:
     grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha_bp"].map(lambda x: f"{x:.2f}")
     grid_show = grid_show[["regime", "trend", "days", "mean_daily_alpha_bp", "cum_alpha"]]
     st.dataframe(grid_show, use_container_width=True, height=260)
-
     st.caption(f"Logged to: {log_path}")
 
     st.download_button(
@@ -238,7 +230,6 @@ if any(l == "WARN" for l in levels):
         if d["level"] == "WARN":
             st.warning(f"WARN — {d['msg']}")
 else:
-    # show first PASS/INFO
     d0 = diags[0] if diags else {"level": "PASS", "msg": "No issues detected."}
     st.success(f"{d0['level']} — {d0['msg']}")
 
@@ -264,12 +255,10 @@ else:
             st.write(why)
             st.code(str(deltas))
 
-            # Guardrail: require at least Medium if configured
             if we.CONF_RANK.get(conf, 0) < we.CONF_RANK.get(we.SAFE_APPLY_LIMITS["min_confidence_to_apply"], 1):
                 st.warning("Blocked by guardrails: confidence below minimum for apply.")
                 continue
 
-            # Preview apply with caps
             new_exp, new_ss, applied = we.apply_recommendation_preview(
                 wave_selected,
                 mode,
@@ -285,7 +274,6 @@ else:
             colX, colY = st.columns(2)
             with colX:
                 if st.button(f"Apply (session-only) — {title}", key=f"apply_{i}"):
-                    # store previous for undo
                     st.session_state["last_apply"] = {
                         "key": key,
                         "prev": {"exposure": cur_exposure, "smartsafe": cur_smartsafe},
@@ -295,7 +283,6 @@ else:
                     }
                     st.session_state["session_overrides"][key] = {"exposure": new_exp, "smartsafe": new_ss}
 
-                    # persistent log event
                     we._log_recommendation_event({
                         "ts": we._now_iso(),
                         "wave": wave_selected,
@@ -341,6 +328,7 @@ if holds is None or holds.empty:
     st.info("No holdings found for this Wave (check wave_weights.csv).")
 else:
     show = holds.copy()
-    show["weight"] = show["weight"].map(lambda x: f"{x:.2f}%")
-    show.columns = ["Ticker", "Weight (%)"]
-    st.dataframe(show, use_container_width=True, height=260)
+    # holds is ticker + weight in percent already
+    show = show.rename(columns={"ticker": "Ticker", "weight": "Weight (%)"})
+    show["Weight (%)"] = show["Weight (%)"].map(lambda x: f"{float(x):.2f}%")
+    st.dataframe(show.head(10), use_container_width=True, height=260)
