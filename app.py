@@ -1,336 +1,650 @@
-# app.py
-# WAVES Intelligence™ — Institutional Console
-# HARD RULE: portfolio overview ALWAYS shows ALL waves from wave_weights.csv
+# waves_engine.py
+# WAVES Intelligence™ — Engine
+# HARD RULE: Wave discovery is ONLY from wave_weights.csv (no hardcoded list).
+# Includes: Conditional Attribution Grid + Vol Regime Attribution + Recommendations + Safe Apply + Persistent logs
 
 from __future__ import annotations
 
-from datetime import datetime
+import os
+import json
+import math
+from datetime import datetime, timezone
+from typing import Dict, List, Tuple, Optional
+
 import numpy as np
 import pandas as pd
-import streamlit as st
 
-import waves_engine as we
+try:
+    import yfinance as yf
+except Exception:
+    yf = None
 
 
-def fmt_pct(x):
-    if x is None:
-        return "—"
+# -----------------------------
+# FILES / DIRS
+# -----------------------------
+WEIGHTS_FILE = "wave_weights.csv"
+
+LOG_DIR = "logs"
+COND_DIR = os.path.join(LOG_DIR, "conditional")
+RECO_DIR = os.path.join(LOG_DIR, "recommendations")
+OVR_DIR = os.path.join(LOG_DIR, "overrides")
+
+RECO_EVENTS_CSV = os.path.join(RECO_DIR, "reco_events.csv")
+PERSIST_OVERRIDES_JSON = os.path.join(OVR_DIR, "persistent_overrides.json")
+
+VIX_TICKER = "^VIX"
+
+
+# -----------------------------
+# MODES
+# -----------------------------
+MODE_BASE_EXPOSURE = {
+    "Standard": 1.00,
+    "Alpha-Minus-Beta": 0.85,
+    "Private Logic": 1.00,
+}
+MODE_SMARTSAFE_BASE = {
+    "Standard": 0.00,
+    "Alpha-Minus-Beta": 0.05,
+    "Private Logic": 0.00,
+}
+
+SAFE_APPLY_LIMITS = {
+    "min_confidence_to_apply": "Medium",
+    "max_abs_exposure_step": 0.10,
+    "max_abs_smartsafe_step": 0.10,
+    "exposure_bounds": (0.0, 1.25),
+    "smartsafe_bounds": (0.0, 0.90),
+}
+CONF_RANK = {"Low": 1, "Medium": 2, "High": 3}
+
+WINDOWS = {"1D": 1, "30D": 30, "60D": 60, "365D": 365}
+HISTORY_LOOKBACK_DAYS = 450
+
+
+# -----------------------------
+# UTIL
+# -----------------------------
+def _ensure_dirs() -> None:
+    for p in [LOG_DIR, COND_DIR, RECO_DIR, OVR_DIR]:
+        os.makedirs(p, exist_ok=True)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return float(max(lo, min(hi, x)))
+
+
+def _pct_change(series: pd.Series) -> pd.Series:
+    return series.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+def _key_wave_mode(wave: str, mode: str) -> str:
+    return f"{wave}__{mode}"
+
+
+# -----------------------------
+# WEIGHTS LOADER (ONLY SOURCE OF WAVES)
+# -----------------------------
+_WEIGHTS_CACHE: Optional[pd.DataFrame] = None
+
+
+def refresh_weights() -> None:
+    global _WEIGHTS_CACHE
+    _WEIGHTS_CACHE = None
+
+
+def _load_weights() -> pd.DataFrame:
+    global _WEIGHTS_CACHE
+    if _WEIGHTS_CACHE is not None:
+        return _WEIGHTS_CACHE.copy()
+
+    if not os.path.exists(WEIGHTS_FILE):
+        _WEIGHTS_CACHE = pd.DataFrame()
+        return _WEIGHTS_CACHE.copy()
+
+    df = pd.read_csv(WEIGHTS_FILE)
+
+    # normalize col names
+    cols = {c.lower().strip(): c for c in df.columns}
+    wave_col = cols.get("wave") or cols.get("wavename") or cols.get("wave_name")
+    tick_col = cols.get("ticker") or cols.get("symbol")
+    wgt_col = cols.get("weight") or cols.get("wgt") or cols.get("pct")
+
+    if not wave_col or not tick_col or not wgt_col:
+        _WEIGHTS_CACHE = pd.DataFrame()
+        return _WEIGHTS_CACHE.copy()
+
+    df = df[[wave_col, tick_col, wgt_col]].rename(columns={
+        wave_col: "Wave",
+        tick_col: "Ticker",
+        wgt_col: "Weight",
+    })
+
+    df["Wave"] = df["Wave"].astype(str).str.strip()
+    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
+    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
+
+    df = df[(df["Wave"] != "") & (df["Ticker"] != "")]
+    _WEIGHTS_CACHE = df.copy()
+    return _WEIGHTS_CACHE.copy()
+
+
+def get_all_waves() -> List[str]:
+    df = _load_weights()
+    if df.empty:
+        return []
+    # exact unique set from weights file
+    waves = sorted(df["Wave"].dropna().unique().tolist())
+    return waves
+
+
+def get_wave_holdings(wave: str) -> pd.DataFrame:
+    df = _load_weights()
+    if df.empty:
+        return pd.DataFrame(columns=["ticker", "weight"])
+
+    sub = df[df["Wave"] == wave].copy()
+    if sub.empty:
+        return pd.DataFrame(columns=["ticker", "weight"])
+
+    sub["Weight"] = pd.to_numeric(sub["Weight"], errors="coerce").fillna(0.0)
+    agg = sub.groupby("Ticker", as_index=False)["Weight"].sum()
+    agg = agg.rename(columns={"Ticker": "ticker", "Weight": "weight"})
+
+    total = float(agg["weight"].sum()) if not agg.empty else 0.0
+    if total > 0:
+        agg["weight"] = agg["weight"] / total * 100.0
+
+    agg = agg.sort_values("weight", ascending=False).reset_index(drop=True)
+    return agg
+
+
+# -----------------------------
+# BENCHMARK (simple default)
+# -----------------------------
+def get_auto_benchmark_holdings(wave: str) -> pd.DataFrame:
+    nm = wave.lower()
+
+    # crypto waves -> BTC proxy
+    if "crypto" in nm or "bitcoin" in nm:
+        return pd.DataFrame([{"ticker": "BTC-USD", "weight": 100.0}])
+
+    # cash-ish waves -> SGOV
+    if "smartsafe" in nm or "treasury" in nm or "muni" in nm or "cash" in nm or "ladder" in nm:
+        return pd.DataFrame([{"ticker": "SGOV", "weight": 100.0}])
+
+    # default equity -> SPY
+    return pd.DataFrame([{"ticker": "SPY", "weight": 100.0}])
+
+
+# -----------------------------
+# MARKET DATA
+# -----------------------------
+def _download_history(tickers: List[str], days: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
+    if yf is None:
+        return pd.DataFrame()
+
+    tickers = [t for t in tickers if isinstance(t, str) and t.strip() != ""]
+    tickers = sorted(list(dict.fromkeys(tickers)))
+    if not tickers:
+        return pd.DataFrame()
+
     try:
-        x = float(x)
-        if np.isnan(x) or np.isinf(x):
-            return "—"
-        return f"{x*100:.2f}%"
+        df = yf.download(
+            tickers=tickers,
+            period="2y",
+            interval="1d",
+            auto_adjust=True,
+            group_by="ticker",
+            progress=False,
+            threads=True,
+        )
     except Exception:
-        return "—"
+        return pd.DataFrame()
+
+    if df is None or len(df) == 0:
+        return pd.DataFrame()
+
+    if isinstance(df.columns, pd.MultiIndex):
+        close = pd.DataFrame({t: df[(t, "Close")] for t in tickers if (t, "Close") in df.columns})
+    else:
+        close = pd.DataFrame({tickers[0]: df["Close"]})
+
+    close = close.dropna(how="all")
+    close.index = pd.to_datetime(close.index)
+    close = close.sort_index()
+
+    if len(close) > days:
+        close = close.iloc[-days:]
+
+    return close
 
 
-def df_to_download(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8")
+def _portfolio_nav(price_df: pd.DataFrame, holdings: pd.DataFrame) -> pd.Series:
+    if price_df.empty or holdings.empty:
+        return pd.Series(dtype=float)
 
+    h = holdings.copy()
+    h["ticker"] = h["ticker"].astype(str).str.upper()
+    h = h[h["ticker"].isin(price_df.columns)]
+    if h.empty:
+        return pd.Series(dtype=float)
 
-def status_for_summary(summary: dict) -> str:
-    # If 365D missing, still show the wave (never hide)
-    return "OK" if summary.get("365D_return") is not None else "NO HISTORY / INSUFFICIENT DATA"
+    w = (h.set_index("ticker")["weight"] / 100.0).astype(float)
+    s = float(w.sum())
+    if s <= 0:
+        return pd.Series(dtype=float)
+    w = w / s
 
+    rets = price_df[w.index].pct_change().fillna(0.0)
+    port_ret = (rets * w.values).sum(axis=1)
+    nav = (1.0 + port_ret).cumprod()
+    return nav
 
-st.set_page_config(page_title="WAVES Intelligence™ Console", layout="wide")
-st.title("WAVES Intelligence™ Institutional Console")
-
-# Sidebar
-all_modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
-mode = st.sidebar.selectbox("Mode", all_modes, index=0)
-
-st.sidebar.markdown("---")
-st.sidebar.caption("Wave discovery is ONLY from wave_weights.csv.")
-if st.sidebar.button("Refresh Wave List / Weights"):
-    we.refresh_weights()
-    st.sidebar.success("Refreshed weights cache.")
-
-all_waves = we.get_all_waves()
-if not all_waves:
-    st.error("No Waves found. Confirm wave_weights.csv exists in repo root and has wave,ticker,weight columns.")
-    st.stop()
-
-wave_selected = st.sidebar.selectbox("Select Wave", all_waves, index=0)
 
 # -----------------------------
-# Overview (ALL WAVES)
+# PERSISTENT OVERRIDES
 # -----------------------------
-st.header(f"Portfolio-Level Overview (All Waves) — Mode = {mode}")
-
-rows = []
-for w in all_waves:
+def load_persistent_overrides() -> Dict[str, dict]:
+    _ensure_dirs()
+    if not os.path.exists(PERSIST_OVERRIDES_JSON):
+        return {}
     try:
-        s = we.compute_multi_window_summary(w, mode)
-        rows.append({
-            "Wave": w,
-            "Status": status_for_summary(s),
-            "1D Return": fmt_pct(s.get("1D_return")),
-            "1D Alpha": fmt_pct(s.get("1D_alpha")),
-            "30D Return": fmt_pct(s.get("30D_return")),
-            "30D Alpha": fmt_pct(s.get("30D_alpha")),
-            "60D Return": fmt_pct(s.get("60D_return")),
-            "60D Alpha": fmt_pct(s.get("60D_alpha")),
-            "365D Return": fmt_pct(s.get("365D_return")),
-            "365D Alpha": fmt_pct(s.get("365D_alpha")),
-        })
-    except Exception as e:
-        rows.append({
-            "Wave": w,
-            "Status": f"ERROR: {type(e).__name__}",
-            "1D Return": "—", "1D Alpha": "—",
-            "30D Return": "—", "30D Alpha": "—",
-            "60D Return": "—", "60D Alpha": "—",
-            "365D Return": "—", "365D Alpha": "—",
-        })
+        with open(PERSIST_OVERRIDES_JSON, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
 
-overview = pd.DataFrame(rows)
-st.dataframe(overview, use_container_width=True, height=520)
 
-st.download_button(
-    "Download overview CSV",
-    data=df_to_download(overview),
-    file_name=f"waves_overview_{mode.replace(' ','_')}_{datetime.utcnow().strftime('%Y%m%d')}.csv",
-    mime="text/csv",
-)
+def save_persistent_overrides(state: Dict[str, dict]) -> None:
+    _ensure_dirs()
+    try:
+        with open(PERSIST_OVERRIDES_JSON, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, sort_keys=True)
+    except Exception:
+        pass
 
-st.markdown("---")
+
+def get_persistent_override(wave: str, mode: str) -> dict:
+    state = load_persistent_overrides()
+    return state.get(_key_wave_mode(wave, mode), {})
+
+
+def persist_apply(
+    wave: str,
+    mode: str,
+    new_exposure: float,
+    new_smartsafe: float,
+    reason: str,
+    reco_id: str = "",
+    confidence: str = ""
+) -> None:
+    state = load_persistent_overrides()
+    k = _key_wave_mode(wave, mode)
+    state[k] = {
+        "exposure": float(new_exposure),
+        "smartsafe": float(new_smartsafe),
+        "meta": {"ts": _now_iso(), "reason": reason, "reco_id": reco_id, "confidence": confidence},
+    }
+    save_persistent_overrides(state)
+
+    log_event({
+        "ts": _now_iso(),
+        "type": "persist_apply",
+        "wave": wave,
+        "mode": mode,
+        "reco_id": reco_id,
+        "confidence": confidence,
+        "reason": reason,
+        "new_exposure": float(new_exposure),
+        "new_smartsafe": float(new_smartsafe),
+    })
+
+
+def persist_clear(wave: str, mode: str) -> None:
+    state = load_persistent_overrides()
+    k = _key_wave_mode(wave, mode)
+    if k in state:
+        del state[k]
+        save_persistent_overrides(state)
+        log_event({"ts": _now_iso(), "type": "persist_clear", "wave": wave, "mode": mode})
+
+
+def log_event(row: dict) -> None:
+    _ensure_dirs()
+    df = pd.DataFrame([row])
+    if os.path.exists(RECO_EVENTS_CSV):
+        try:
+            df.to_csv(RECO_EVENTS_CSV, mode="a", header=False, index=False)
+            return
+        except Exception:
+            pass
+    try:
+        df.to_csv(RECO_EVENTS_CSV, index=False)
+    except Exception:
+        pass
+
 
 # -----------------------------
-# Wave Detail
+# CORE: NAV / ALPHA
 # -----------------------------
-st.header(f"Wave Detail — {wave_selected} (Mode: {mode})")
+def compute_history_nav(
+    wave: str,
+    mode: str,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
+) -> pd.DataFrame:
+    _ensure_dirs()
 
-# Session overrides (preview-first)
-if "session_overrides" not in st.session_state:
-    st.session_state["session_overrides"] = {}
-if "last_apply" not in st.session_state:
-    st.session_state["last_apply"] = None
+    base_expo = MODE_BASE_EXPOSURE.get(mode, 1.0)
+    base_ss = MODE_SMARTSAFE_BASE.get(mode, 0.0)
 
-key = (wave_selected, mode)
+    expo = base_expo if exposure_override is None else float(exposure_override)
+    ss = base_ss if smartsafe_override is None else float(smartsafe_override)
 
-base_exposure = we.MODE_BASE_EXPOSURE.get(mode, 1.0)
-base_smartsafe = we.MODE_SMARTSAFE_BASE.get(mode, 0.0)
+    expo = _clamp(expo, *SAFE_APPLY_LIMITS["exposure_bounds"])
+    ss = _clamp(ss, *SAFE_APPLY_LIMITS["smartsafe_bounds"])
 
-povr = we.get_persistent_override(wave_selected, mode)
-p_expo = float(povr.get("exposure", base_exposure)) if povr else base_exposure
-p_ss = float(povr.get("smartsafe", base_smartsafe)) if povr else base_smartsafe
+    wave_h = get_wave_holdings(wave)
+    bm_h = get_auto_benchmark_holdings(wave)
 
-override = st.session_state["session_overrides"].get(key, {})
-cur_exposure = float(override.get("exposure", p_expo))
-cur_smartsafe = float(override.get("smartsafe", p_ss))
+    # SmartSafe blend: allocate ss to SGOV, remainder to wave holdings
+    if ss > 0:
+        cash = pd.DataFrame([{"ticker": "SGOV", "weight": 100.0}])
+        if not wave_h.empty:
+            wave_h = wave_h.copy()
+            wave_h["weight"] = wave_h["weight"] * (1.0 - ss)
+            cash["weight"] = cash["weight"] * ss
+            wave_h = pd.concat([wave_h, cash], ignore_index=True)
+            total = float(wave_h["weight"].sum())
+            if total > 0:
+                wave_h["weight"] = wave_h["weight"] / total * 100.0
 
-with st.expander("Controls (Preview-first)", expanded=False):
-    c1, c2 = st.columns(2)
-    with c1:
-        cur_exposure = st.slider("Exposure (session override)", 0.0, 1.25, float(cur_exposure), 0.01)
-    with c2:
-        cur_smartsafe = st.slider("SmartSafe (session override)", 0.0, 0.90, float(cur_smartsafe), 0.01)
+    tickers = sorted(list(dict.fromkeys(
+        wave_h["ticker"].tolist() + bm_h["ticker"].tolist() + [VIX_TICKER]
+    )))
 
-    cA, cB = st.columns(2)
-    with cA:
-        if st.button("Revert session override"):
-            st.session_state["session_overrides"].pop(key, None)
-            st.session_state["last_apply"] = None
-            st.success("Session override reverted.")
-            st.rerun()
-    with cB:
-        if st.button("Clear persistent override (if any)"):
-            we.persist_clear(wave_selected, mode)
-            st.success("Persistent override cleared.")
-            st.rerun()
+    px = _download_history(tickers, days=HISTORY_LOOKBACK_DAYS)
+    if px.empty:
+        return pd.DataFrame(columns=["date", "wave_nav", "bm_nav", "alpha", "vix"])
 
-st.session_state["session_overrides"][key] = {"exposure": cur_exposure, "smartsafe": cur_smartsafe}
+    vix = px[VIX_TICKER].copy() if VIX_TICKER in px.columns else pd.Series(index=px.index, data=np.nan)
+    px2 = px.drop(columns=[VIX_TICKER], errors="ignore")
 
-bundle = we.wave_detail_bundle(
-    wave_selected,
-    mode,
-    exposure_override=cur_exposure,
-    smartsafe_override=cur_smartsafe,
-    include_persistent_defaults=True,
-)
+    wave_nav_raw = _portfolio_nav(px2, wave_h)
+    bm_nav = _portfolio_nav(px2, bm_h)
 
-df365 = bundle.get("df365")
+    if wave_nav_raw.empty or bm_nav.empty:
+        return pd.DataFrame(columns=["date", "wave_nav", "bm_nav", "alpha", "vix"])
 
-if df365 is None or df365.empty:
-    st.warning("Not enough market history to compute 365D NAV for this Wave yet.")
-else:
+    wave_ret = _pct_change(wave_nav_raw) * expo
+    wave_nav = (1.0 + wave_ret).cumprod()
+
+    bm_ret = _pct_change(bm_nav)
+    alpha_daily = (wave_ret - bm_ret).fillna(0.0)
+
+    out = pd.DataFrame({
+        "date": wave_nav.index,
+        "wave_nav": wave_nav.values,
+        "bm_nav": bm_nav.reindex(wave_nav.index).values,
+        "alpha": alpha_daily.values,
+        "vix": vix.reindex(wave_nav.index).ffill().values,
+    })
+
+    out["date"] = pd.to_datetime(out["date"])
+    out = out.sort_values("date").reset_index(drop=True)
+
+    if len(out) > 365:
+        out = out.iloc[-365:].reset_index(drop=True)
+
+    return out
+
+
+def compute_multi_window_summary(wave: str, mode: str) -> dict:
+    df = compute_history_nav(wave, mode)
+    if df.empty or len(df) < 2:
+        return {f"{k}_return": None for k in WINDOWS} | {f"{k}_alpha": None for k in WINDOWS}
+
+    nav = df.copy()
+    nav["date"] = pd.to_datetime(nav["date"])
+    nav = nav.set_index("date")
+
+    wave_nav = nav["wave_nav"]
+    alpha = nav["alpha"]
+
+    def window_return(s: pd.Series, d: int) -> Optional[float]:
+        if len(s) < d + 1:
+            return None
+        a = float(s.iloc[-(d + 1)])
+        b = float(s.iloc[-1])
+        return None if a == 0 else (b / a - 1.0)
+
+    def window_alpha(a: pd.Series, d: int) -> Optional[float]:
+        if len(a) < d:
+            return None
+        sub = a.iloc[-d:]
+        return float((1.0 + sub).prod() - 1.0)
+
+    out = {}
+    for k, d in WINDOWS.items():
+        out[f"{k}_return"] = window_return(wave_nav, d)
+        out[f"{k}_alpha"] = window_alpha(alpha, d)
+    return out
+
+
+# -----------------------------
+# REGIMES + CONDITIONAL GRID
+# -----------------------------
+def _vix_regime(vix: pd.Series) -> pd.Series:
+    v = vix.copy().astype(float)
+    r = pd.Series(index=v.index, dtype=object)
+    r[v < 16] = "Low"
+    r[(v >= 16) & (v < 22)] = "Medium"
+    r[(v >= 22) & (v < 30)] = "High"
+    r[v >= 30] = "Stress"
+    return r.ffill().fillna("Medium")
+
+
+def _trend_bucket(bm_nav: pd.Series) -> pd.Series:
+    s = bm_nav.copy().astype(float)
+    ma20 = s.rolling(20).mean()
+    ma50 = s.rolling(50).mean()
+    slope = ma20.diff(5)
+
+    trend = pd.Series(index=s.index, dtype=object)
+    trend[(s > ma50) & (slope > 0)] = "Uptrend"
+    trend[(s < ma50) & (slope < 0)] = "Downtrend"
+    return trend.fillna("Sideways")
+
+
+def compute_conditional_grid(df365: pd.DataFrame) -> pd.DataFrame:
+    if df365 is None or df365.empty or len(df365) < 80:
+        return pd.DataFrame()
+
     nav = df365.copy()
     nav["date"] = pd.to_datetime(nav["date"])
     nav = nav.set_index("date")
 
-    st.line_chart(nav[["wave_nav", "bm_nav"]], height=320)
+    regime = _vix_regime(nav["vix"])
+    trend = _trend_bucket(nav["bm_nav"])
+    alpha = nav["alpha"].astype(float)
 
-    ret_365 = (nav["wave_nav"].iloc[-1] / nav["wave_nav"].iloc[0] - 1.0)
-    bm_365 = (nav["bm_nav"].iloc[-1] / nav["bm_nav"].iloc[0] - 1.0)
-    alpha_365 = (1.0 + nav["alpha"]).prod() - 1.0
+    tmp = pd.DataFrame({"regime": regime.values, "trend": trend.values, "alpha": alpha.values}, index=nav.index)
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("365D Return", f"{ret_365*100:.2f}%")
-    m2.metric("365D Alpha", f"{alpha_365*100:.2f}%")
-    m3.metric("Benchmark Return", f"{bm_365*100:.2f}%")
-
-st.markdown("---")
-
-st.subheader("Volatility Regime Attribution (365D)")
-vol_attr = bundle.get("vol_attr")
-if vol_attr is None or (isinstance(vol_attr, pd.DataFrame) and vol_attr.empty):
-    st.info("Not enough data for regime attribution yet.")
-else:
-    show = vol_attr.copy()
-    for c in ["wave_ret", "bm_ret", "alpha"]:
-        show[c] = show[c].map(lambda x: f"{float(x)*100:.2f}%")
-    st.dataframe(show, use_container_width=True, height=240)
-
-st.markdown("---")
-
-st.subheader("Conditional Attribution Grid (Regime × Trend) — 365D")
-cond_grid = bundle.get("cond_grid")
-log_path = bundle.get("cond_log_path", "")
-if cond_grid is None or (isinstance(cond_grid, pd.DataFrame) and cond_grid.empty):
-    st.info("Not enough data for conditional attribution grid yet.")
-else:
-    grid_show = cond_grid.copy()
-    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha"] * 10000.0
-    grid_show["cum_alpha"] = grid_show["cum_alpha"].map(lambda x: f"{float(x)*100:.2f}%")
-    grid_show["mean_daily_alpha_bp"] = grid_show["mean_daily_alpha_bp"].map(lambda x: f"{float(x):.2f}")
-    grid_show = grid_show[["regime", "trend", "days", "mean_daily_alpha_bp", "cum_alpha"]]
-    st.dataframe(grid_show, use_container_width=True, height=260)
-    if log_path:
-        st.caption(f"Logged to: {log_path}")
-
-    st.download_button(
-        "Download conditional grid CSV",
-        data=df_to_download(cond_grid),
-        file_name=f"{wave_selected}_conditional_{mode.replace(' ','_')}_{datetime.utcnow().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
+    g = tmp.groupby(["regime", "trend"], as_index=False).agg(
+        days=("alpha", "count"),
+        mean_daily_alpha=("alpha", "mean"),
+        cum_alpha=("alpha", lambda x: float((1.0 + x).prod() - 1.0)),
     )
 
-st.markdown("---")
+    regime_order = ["Low", "Medium", "High", "Stress"]
+    trend_order = ["Uptrend", "Sideways", "Downtrend"]
+    g["regime"] = pd.Categorical(g["regime"], categories=regime_order, ordered=True)
+    g["trend"] = pd.Categorical(g["trend"], categories=trend_order, ordered=True)
+    return g.sort_values(["regime", "trend"]).reset_index(drop=True)
 
-st.subheader("Diagnostics")
-diags = bundle.get("diagnostics") or []
-levels = [d.get("level", "INFO") for d in diags]
-if any(l == "WARN" for l in levels):
-    for d in diags:
-        if d.get("level") == "WARN":
-            st.warning(f"WARN — {d.get('msg','')}")
-else:
-    d0 = diags[0] if diags else {"level": "PASS", "msg": "No issues detected."}
-    st.success(f"{d0.get('level','PASS')} — {d0.get('msg','No issues detected.')}")
 
-st.markdown("---")
+# -----------------------------
+# DIAGNOSTICS + RECOMMENDATIONS
+# -----------------------------
+def compute_diagnostics(holdings: pd.DataFrame) -> List[dict]:
+    if holdings is None or holdings.empty:
+        return [{"level": "WARN", "msg": "No holdings found for this Wave."}]
 
-st.subheader("Auto Recommendations (Preview-first)")
-recos = bundle.get("recommendations") or []
-if not recos:
-    st.info("No high-confidence recommendations detected (or not enough history).")
-else:
-    st.caption("Default apply is session-only. Optional persistent apply requires hard confirmation.")
-    enable_persist = st.checkbox("Enable persistent apply (writes logs/overrides/persistent_overrides.json)", value=False)
-    confirm_text = st.text_input("Type APPLY to unlock persistent writes", value="") if enable_persist else ""
+    diags = []
+    top1 = float(holdings["weight"].iloc[0])
+    top3 = float(holdings["weight"].iloc[:3].sum()) if len(holdings) >= 3 else float(holdings["weight"].sum())
+    if top1 >= 60:
+        diags.append({"level": "WARN", "msg": f"High single-name concentration (top holding = {top1:.1f}%)."})
+    if top3 >= 85:
+        diags.append({"level": "WARN", "msg": f"High top-3 concentration (top-3 = {top3:.1f}%)."})
+    if not diags:
+        diags.append({"level": "PASS", "msg": "No issues detected."})
+    return diags
 
-    for i, r in enumerate(recos):
-        title = r.get("title", "Recommendation")
-        conf = r.get("confidence", "Low")
-        why = r.get("why", "")
-        deltas = r.get("deltas", {}) or {}
-        reco_id = r.get("id", f"reco_{i}")
 
-        with st.expander(f"{title} • Confidence: {conf}", expanded=False):
-            st.write(why)
-            st.code(str(deltas))
+def _recommend_from_conditional(cond: pd.DataFrame) -> List[dict]:
+    recos: List[dict] = []
+    if cond is None or cond.empty:
+        return recos
 
-            if we.CONF_RANK.get(conf, 0) < we.CONF_RANK.get(we.SAFE_APPLY_LIMITS["min_confidence_to_apply"], 2):
-                st.warning("Blocked by guardrails: confidence below minimum to apply.")
-                continue
+    def pick(reg: str, tr: str):
+        sub = cond[(cond["regime"] == reg) & (cond["trend"] == tr)]
+        return None if sub.empty else sub.iloc[0].to_dict()
 
-            if not deltas or ("exposure_delta" not in deltas and "smartsafe_delta" not in deltas):
-                st.info("Informational recommendation (no auto-apply parameters).")
-                continue
+    benign = pick("Low", "Uptrend") or pick("Medium", "Uptrend")
+    stress = pick("Stress", "Downtrend") or pick("High", "Downtrend")
 
-            new_exp, new_ss, applied = we.apply_recommendation_preview(
-                wave_selected,
-                mode,
-                current_exposure=float(cur_exposure),
-                current_smartsafe=float(cur_smartsafe),
-                deltas=deltas,
-            )
+    if benign and benign.get("days", 0) >= 25:
+        m = float(benign.get("mean_daily_alpha", 0.0))
+        if m >= 0.0008:
+            recos.append({
+                "id": "benign_exposure_up",
+                "title": "Slightly increase exposure in benign regimes",
+                "confidence": "Medium" if m < 0.0012 else "High",
+                "why": f"{benign['regime']}+{benign['trend']} mean daily alpha is {m*10000:.1f} bp/day over {int(benign['days'])} days.",
+                "deltas": {"exposure_delta": +0.05, "smartsafe_delta": 0.00},
+            })
 
-            st.markdown("**Preview result if applied:**")
-            st.write(f"• SmartSafe Δ: {applied['smartsafe_delta']:+.2f} → {new_ss:.2f}")
-            st.write(f"• Exposure Δ: {applied['exposure_delta']:+.2f} → {new_exp:.2f}")
+    if stress and stress.get("days", 0) >= 15:
+        m = float(stress.get("mean_daily_alpha", 0.0))
+        if m <= -0.0008:
+            recos.append({
+                "id": "stress_smartsafe_up",
+                "title": "Increase SmartSafe in panic / stress",
+                "confidence": "Medium" if m > -0.0015 else "High",
+                "why": f"{stress['regime']}+{stress['trend']} mean daily alpha is {m*10000:.1f} bp/day over {int(stress['days'])} days.",
+                "deltas": {"exposure_delta": 0.00, "smartsafe_delta": +0.05},
+            })
 
-            c1, c2, c3 = st.columns(3)
+    return recos
 
-            with c1:
-                if st.button(f"Apply (session-only) — {title}", key=f"apply_session_{i}"):
-                    st.session_state["last_apply"] = {
-                        "key": key,
-                        "prev": {"exposure": float(cur_exposure), "smartsafe": float(cur_smartsafe)},
-                        "new": {"exposure": float(new_exp), "smartsafe": float(new_ss)},
-                        "title": title,
-                        "ts": we._now_iso(),
-                        "kind": "session",
-                    }
-                    st.session_state["session_overrides"][key] = {"exposure": float(new_exp), "smartsafe": float(new_ss)}
 
-                    we.log_event({
-                        "ts": we._now_iso(),
-                        "type": "session_apply",
-                        "wave": wave_selected,
-                        "mode": mode,
-                        "reco_id": reco_id,
-                        "confidence": conf,
-                        "reason": why,
-                        "new_exposure": float(new_exp),
-                        "new_smartsafe": float(new_ss),
-                    })
-                    st.success("Applied (session-only).")
-                    st.rerun()
+def compute_recommendations(df365: pd.DataFrame, holdings: pd.DataFrame) -> List[dict]:
+    recos: List[dict] = []
+    cond = compute_conditional_grid(df365)
+    recos.extend(_recommend_from_conditional(cond))
 
-            with c2:
-                if st.button("Undo last apply", key=f"undo_{i}"):
-                    last = st.session_state.get("last_apply")
-                    if last and last.get("key") == key:
-                        st.session_state["session_overrides"][key] = last["prev"]
-                        we.log_event({
-                            "ts": we._now_iso(),
-                            "type": "session_undo",
-                            "wave": wave_selected,
-                            "mode": mode,
-                            "reverted_to": last["prev"],
-                        })
-                        st.success("Reverted session apply.")
-                        st.rerun()
-                    else:
-                        st.info("No apply to undo for this Wave/Mode.")
+    if holdings is not None and not holdings.empty:
+        top1 = float(holdings["weight"].iloc[0])
+        if top1 >= 35:
+            recos.append({
+                "id": "reduce_concentration",
+                "title": "Reduce single-name concentration (holding design)",
+                "confidence": "Medium",
+                "why": f"Top holding weight is {top1:.1f}%. Consider widening holdings or capping single-name weights.",
+                "deltas": {},
+            })
+    return recos
 
-            with c3:
-                persist_ok = enable_persist and (confirm_text.strip().upper() == "APPLY")
-                if st.button("Persist apply (writes overrides)", key=f"persist_{i}", disabled=(not persist_ok)):
-                    we.persist_apply(
-                        wave_selected,
-                        mode,
-                        new_exposure=float(new_exp),
-                        new_smartsafe=float(new_ss),
-                        reason=why,
-                        reco_id=reco_id,
-                        confidence=conf,
-                    )
-                    st.success("Persisted. This will apply on future runs.")
-                    st.rerun()
 
-st.markdown("---")
+def apply_recommendation_preview(
+    wave: str,
+    mode: str,
+    current_exposure: float,
+    current_smartsafe: float,
+    deltas: dict,
+) -> Tuple[float, float, dict]:
+    exp_delta = float(deltas.get("exposure_delta", 0.0) or 0.0)
+    ss_delta = float(deltas.get("smartsafe_delta", 0.0) or 0.0)
 
-st.subheader("Top-10 Holdings")
-holds = bundle.get("holdings")
-if holds is None or holds.empty:
-    st.info("No holdings found for this Wave (check wave_weights.csv).")
-else:
-    show = holds.copy().head(10)
-    show["weight"] = show["weight"].map(lambda x: f"{float(x):.2f}%")
-    show = show.rename(columns={"ticker": "Ticker", "weight": "Weight"})
-    st.dataframe(show, use_container_width=True, height=260)
+    exp_delta_c = _clamp(exp_delta, -SAFE_APPLY_LIMITS["max_abs_exposure_step"], SAFE_APPLY_LIMITS["max_abs_exposure_step"])
+    ss_delta_c = _clamp(ss_delta, -SAFE_APPLY_LIMITS["max_abs_smartsafe_step"], SAFE_APPLY_LIMITS["max_abs_smartsafe_step"])
 
-st.caption("Logs: logs/recommendations/reco_events.csv • Overrides: logs/overrides/persistent_overrides.json • Conditional: logs/conditional/")
+    new_exp = _clamp(current_exposure + exp_delta_c, *SAFE_APPLY_LIMITS["exposure_bounds"])
+    new_ss = _clamp(current_smartsafe + ss_delta_c, *SAFE_APPLY_LIMITS["smartsafe_bounds"])
+
+    return new_exp, new_ss, {"exposure_delta": exp_delta_c, "smartsafe_delta": ss_delta_c}
+
+
+# -----------------------------
+# BUNDLE FOR UI
+# -----------------------------
+def wave_detail_bundle(
+    wave: str,
+    mode: str,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
+    include_persistent_defaults: bool = True,
+) -> dict:
+    _ensure_dirs()
+
+    if include_persistent_defaults:
+        povr = get_persistent_override(wave, mode)
+        if exposure_override is None and "exposure" in povr:
+            exposure_override = float(povr["exposure"])
+        if smartsafe_override is None and "smartsafe" in povr:
+            smartsafe_override = float(povr["smartsafe"])
+
+    holdings = get_wave_holdings(wave)
+    df365 = compute_history_nav(wave, mode, exposure_override=exposure_override, smartsafe_override=smartsafe_override)
+
+    vol_attr = pd.DataFrame()
+    cond_grid = pd.DataFrame()
+    cond_log_path = ""
+
+    if df365 is not None and not df365.empty and len(df365) >= 80:
+        nav = df365.copy()
+        nav["date"] = pd.to_datetime(nav["date"])
+        nav = nav.set_index("date")
+
+        regime = _vix_regime(nav["vix"])
+        wave_ret = _pct_change(nav["wave_nav"])
+        bm_ret = _pct_change(nav["bm_nav"])
+        alpha = nav["alpha"]
+
+        tmp = pd.DataFrame({"regime": regime.values, "wave_ret": wave_ret.values, "bm_ret": bm_ret.values, "alpha": alpha.values}, index=nav.index)
+        vol_attr = tmp.groupby("regime", as_index=False).agg(
+            days=("alpha", "count"),
+            wave_ret=("wave_ret", lambda x: float((1.0 + x).prod() - 1.0)),
+            bm_ret=("bm_ret", lambda x: float((1.0 + x).prod() - 1.0)),
+            alpha=("alpha", lambda x: float((1.0 + x).prod() - 1.0)),
+        )
+
+        cond_grid = compute_conditional_grid(df365)
+        cond_log_path = os.path.join(COND_DIR, f"{wave}__{mode.replace(' ', '_')}__conditional.csv")
+        try:
+            if cond_grid is not None and not cond_grid.empty:
+                cond_grid.to_csv(cond_log_path, index=False)
+        except Exception:
+            pass
+
+    diagnostics = compute_diagnostics(holdings)
+    recommendations = compute_recommendations(df365, holdings)
+
+    return {
+        "wave": wave,
+        "mode": mode,
+        "holdings": holdings,
+        "df365": df365,
+        "vol_attr": vol_attr,
+        "cond_grid": cond_grid,
+        "cond_log_path": cond_log_path,
+        "diagnostics": diagnostics,
+        "recommendations": recommendations,
+    }
