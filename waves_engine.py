@@ -1,380 +1,677 @@
-# waves_engine.py — WAVES Intelligence™ Engine (Console-Compatible)
-# Safe-by-default engine with:
-# - get_all_waves(), get_modes()
-# - compute_history_nav(wave, mode, days, overrides=None)
-# - get_wave_holdings(wave, overrides=None)  (returns current target holdings)
-# - get_benchmark_mix_table(wave=None)       (simple, transparent)
-#
-# NOTE:
-# This file is designed to “just work” with the app.py I’m providing.
-# It loads wave_weights.csv if present. If you have your own richer engine,
-# you can merge only the new hooks (overrides + logging) later.
+# waves_engine.py
+# WAVES Intelligence™ — Engine (All-waves discovery + Conditional Attribution logging + safe auto-apply)
+# Designed to be resilient: NEVER hide waves; show placeholders when data is insufficient.
 
 from __future__ import annotations
 
 import os
+import json
 import math
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
 
 try:
     import yfinance as yf
-except ImportError:
+except Exception:  # pragma: no cover
     yf = None
 
 
 # -----------------------------
-# Config
+# Paths / Config
 # -----------------------------
+ROOT = os.path.dirname(os.path.abspath(__file__))
+WAVE_WEIGHTS_CSV = os.path.join(ROOT, "wave_weights.csv")
+LIST_CSV = os.path.join(ROOT, "list.csv")
 
-WEIGHTS_FILE = "wave_weights.csv"
-UNIVERSE_FILE = "list.csv"
+LOG_DIR = os.path.join(ROOT, "logs")
+LOG_PERF_DIR = os.path.join(LOG_DIR, "performance")
+LOG_POS_DIR = os.path.join(LOG_DIR, "positions")
+LOG_DIAG_DIR = os.path.join(LOG_DIR, "diagnostics")
+LOG_ATTR_DIR = os.path.join(LOG_DIR, "attribution")
+LOG_RECO_DIR = os.path.join(LOG_DIR, "recommendations")
 
-MODES = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+for _d in [LOG_DIR, LOG_PERF_DIR, LOG_POS_DIR, LOG_DIAG_DIR, LOG_ATTR_DIR, LOG_RECO_DIR]:
+    os.makedirs(_d, exist_ok=True)
 
-# Base exposure multipliers by mode (safe defaults)
+
+# -----------------------------
+# Regime configuration (VIX-based)
+# -----------------------------
+VIX_TICKER = "^VIX"
+BTC_TICKER = "BTC-USD"
+
+REGIMES = [
+    ("Low", 0.0, 15.0),
+    ("Medium", 15.0, 25.0),
+    ("High", 25.0, 35.0),
+    ("Stress", 35.0, float("inf")),
+]
+
+
 MODE_BASE_EXPOSURE = {
     "Standard": 1.00,
     "Alpha-Minus-Beta": 0.85,
-    "Private Logic": 1.15,
+    "Private Logic": 0.70,
 }
 
-# Safe assets used for SmartSafe-style risk-off sleeves
-SAFE_CANDIDATES = ["SGOV", "BIL", "SHY"]  # pick first available
-VIX_TICKER = "^VIX"
-SPY_TICKER = "SPY"
-
-# VIX regime thresholds (simple + readable)
-VIX_REGIMES = [
-    ("Low", 0, 16),
-    ("Medium", 16, 22),
-    ("High", 22, 30),
-    ("Stress", 30, 10_000),
-]
-
-# Default SmartSafe risk-off fractions by VIX regime
-# (fraction of portfolio diverted to SAFE asset sleeve)
-SMARTSAFE_BY_VIX = {
-    "Low": 0.00,
-    "Medium": 0.10,
-    "High": 0.25,
-    "Stress": 0.40,
+MODE_SMARTSAFE_BASE = {
+    "Standard": 0.00,
+    "Alpha-Minus-Beta": 0.10,
+    "Private Logic": 0.20,
 }
 
-# Maximum per-session override changes (safety rails)
-MAX_SMARTSAFE_DELTA = 0.25   # max +/- 25% absolute change from baseline
-MAX_EXPOSURE_DELTA = 0.25    # max +/- 0.25 exposure multiplier from base
+SAFE_APPLY_LIMITS = {
+    "max_exposure_delta": 0.10,      # cap per apply
+    "max_smartsafe_delta": 0.15,     # cap per apply
+    "min_confidence_to_apply": "Medium",  # Low/Medium/High
+}
+
+CONF_RANK = {"Low": 0, "Medium": 1, "High": 2}
 
 
 # -----------------------------
-# Utilities
+# Utility
 # -----------------------------
+def _today_yyyymmdd() -> str:
+    return datetime.utcnow().strftime("%Y%m%d")
 
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
 
-def _today_utc() -> datetime:
-    return datetime.utcnow()
+def _now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
-def _read_csv_if_exists(path: str) -> pd.DataFrame:
-    if os.path.exists(path):
-        return pd.read_csv(path)
-    return pd.DataFrame()
 
-def _coerce_col(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
-    cols = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower() in cols:
-            return cols[cand.lower()]
-    return None
+def _safe_float(x) -> Optional[float]:
+    try:
+        if x is None:
+            return None
+        if isinstance(x, str) and x.strip() == "":
+            return None
+        v = float(x)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    except Exception:
+        return None
 
-def _normalize_weights(items: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-    items = [(t, float(w)) for t, w in items if t and pd.notna(w)]
-    s = sum(w for _, w in items)
-    if s <= 0:
-        return []
-    return [(t, w / s) for t, w in items]
 
-def _pick_safe_ticker(price_df: pd.DataFrame) -> Optional[str]:
-    for t in SAFE_CANDIDATES:
-        if t in price_df.columns:
-            return t
-    return None
+def _pct(x: Optional[float]) -> Optional[float]:
+    if x is None:
+        return None
+    return x * 100.0
 
-def _download_history(tickers: List[str], start: datetime, end: datetime) -> pd.DataFrame:
+
+def _ensure_yf():
     if yf is None:
-        return pd.DataFrame()
-    if not tickers:
-        return pd.DataFrame()
-    data = yf.download(
-        tickers=tickers,
-        start=start.date().isoformat(),
-        end=end.date().isoformat(),
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
-    if data is None or len(getattr(data, "columns", [])) == 0:
-        return pd.DataFrame()
-
-    # Normalize to a simple price frame
-    if isinstance(data.columns, pd.MultiIndex):
-        if "Adj Close" in data.columns.get_level_values(0):
-            data = data["Adj Close"]
-        elif "Close" in data.columns.get_level_values(0):
-            data = data["Close"]
-        else:
-            data = data[data.columns.levels[0][0]]
-
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.droplevel(0, axis=1)
-
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-
-    data = data.sort_index().ffill().bfill()
-    return data
+        raise RuntimeError("yfinance is not available. Add it to requirements.txt")
 
 
 # -----------------------------
-# Data model: overrides
+# Parsing wave_weights.csv flexibly
+# Expected common formats:
+# 1) columns: Wave, Ticker, Weight
+# 2) columns: wave_name, ticker, weight
+# 3) wide format: first col Wave, then tickers as columns with weights (rare)
 # -----------------------------
-
-@dataclass
-class SessionOverrides:
-    # exposure multiplier additive delta relative to mode base exposure
-    exposure_delta: float = 0.0
-    # smartsafe delta additive to SMARTSAFE_BY_VIX baseline (clamped)
-    smartsafe_delta: float = 0.0
-
-
-def validate_overrides(overrides: Optional[dict]) -> SessionOverrides:
-    if not overrides:
-        return SessionOverrides()
-    ex = float(overrides.get("exposure_delta", 0.0))
-    ss = float(overrides.get("smartsafe_delta", 0.0))
-
-    ex = float(np.clip(ex, -MAX_EXPOSURE_DELTA, MAX_EXPOSURE_DELTA))
-    ss = float(np.clip(ss, -MAX_SMARTSAFE_DELTA, MAX_SMARTSAFE_DELTA))
-    return SessionOverrides(exposure_delta=ex, smartsafe_delta=ss)
-
-
-# -----------------------------
-# Load wave weights
-# -----------------------------
-
-def _load_wave_weights() -> Dict[str, List[Tuple[str, float]]]:
-    df = _read_csv_if_exists(WEIGHTS_FILE)
-    if df.empty:
+def _load_wave_weights() -> Dict[str, pd.Series]:
+    if not os.path.exists(WAVE_WEIGHTS_CSV):
         return {}
 
-    wave_col = _coerce_col(df, ["Wave", "wave", "WaveName", "wave_name"])
-    ticker_col = _coerce_col(df, ["Ticker", "ticker", "Symbol", "symbol"])
-    weight_col = _coerce_col(df, ["Weight", "weight", "Pct", "pct"])
+    df = pd.read_csv(WAVE_WEIGHTS_CSV)
 
-    if not wave_col or not ticker_col or not weight_col:
-        return {}
+    # normalize columns
+    cols = {c: c.strip() for c in df.columns}
+    df.rename(columns=cols, inplace=True)
 
-    weights: Dict[str, List[Tuple[str, float]]] = {}
-    for _, r in df.iterrows():
-        w = str(r[wave_col]).strip()
-        t = str(r[ticker_col]).strip().upper()
-        wt = r[weight_col]
-        if not w or not t or pd.isna(wt):
-            continue
-        weights.setdefault(w, []).append((t, float(wt)))
+    lower = {c.lower(): c for c in df.columns}
 
-    # Normalize each wave
-    for k in list(weights.keys()):
-        weights[k] = _normalize_weights(weights[k])
+    # long format
+    if ("wave" in lower or "wave_name" in lower) and ("ticker" in lower) and ("weight" in lower):
+        wave_col = lower.get("wave", lower.get("wave_name"))
+        tick_col = lower["ticker"]
+        w_col = lower["weight"]
 
+        df[wave_col] = df[wave_col].astype(str).str.strip()
+        df[tick_col] = df[tick_col].astype(str).str.strip().str.upper()
+        df[w_col] = pd.to_numeric(df[w_col], errors="coerce").fillna(0.0)
+
+        weights: Dict[str, pd.Series] = {}
+        for wave, g in df.groupby(wave_col):
+            g = g.copy()
+            g = g[g[tick_col].notna() & (g[tick_col] != "")]
+            if len(g) == 0:
+                weights[wave] = pd.Series(dtype=float)
+                continue
+            s = g.groupby(tick_col)[w_col].sum()
+            s = s[s != 0.0]
+            # normalize
+            if s.sum() != 0:
+                s = s / s.sum()
+            weights[wave] = s.sort_values(ascending=False)
+        return weights
+
+    # fallback wide: first column is Wave; other columns tickers
+    first = df.columns[0]
+    weights: Dict[str, pd.Series] = {}
+    for _, row in df.iterrows():
+        wave = str(row[first]).strip()
+        vals = {}
+        for c in df.columns[1:]:
+            t = str(c).strip().upper()
+            v = _safe_float(row[c])
+            if v is None or v == 0:
+                continue
+            vals[t] = v
+        s = pd.Series(vals, dtype=float)
+        if s.sum() != 0:
+            s = s / s.sum()
+        weights[wave] = s.sort_values(ascending=False)
     return weights
 
 
-WAVE_WEIGHTS: Dict[str, List[Tuple[str, float]]] = _load_wave_weights()
+WAVE_WEIGHTS: Dict[str, pd.Series] = _load_wave_weights()
 
 
-# -----------------------------
-# Public API used by app.py
-# -----------------------------
+def refresh_weights() -> None:
+    global WAVE_WEIGHTS
+    WAVE_WEIGHTS = _load_wave_weights()
+
+
+def _discover_log_waves() -> List[str]:
+    waves = set()
+    if os.path.isdir(LOG_PERF_DIR):
+        for fn in os.listdir(LOG_PERF_DIR):
+            if fn.endswith("_performance_daily.csv"):
+                wave = fn.replace("_performance_daily.csv", "")
+                waves.add(wave)
+    if os.path.isdir(LOG_POS_DIR):
+        for fn in os.listdir(LOG_POS_DIR):
+            if "_positions_" in fn and fn.endswith(".csv"):
+                wave = fn.split("_positions_")[0]
+                waves.add(wave)
+    return sorted(waves)
+
 
 def get_all_waves() -> List[str]:
-    return sorted(list(WAVE_WEIGHTS.keys()))
-
-def get_modes() -> List[str]:
-    return MODES.copy()
-
-def get_wave_holdings(wave_name: str, overrides: Optional[dict] = None) -> pd.DataFrame:
     """
-    Returns target holdings table (not intraday live fills).
-    For the console Top-10, this is enough.
+    SOURCE OF TRUTH:
+      1) all Waves present in wave_weights.csv
+      2) plus any waves present in logs (so nothing is orphaned)
     """
-    if wave_name not in WAVE_WEIGHTS:
-        return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
+    refresh_weights()
+    waves_from_weights = set(WAVE_WEIGHTS.keys())
+    waves_from_logs = set(_discover_log_waves())
+    all_waves = sorted(waves_from_weights.union(waves_from_logs))
+    return all_waves
 
-    holdings = WAVE_WEIGHTS[wave_name]
-    df = pd.DataFrame(holdings, columns=["Ticker", "Weight"]).copy()
-    # Names are optional; keep it simple (ticker only)
-    df["Name"] = df["Ticker"]
-    df = df.sort_values("Weight", ascending=False).reset_index(drop=True)
-    return df[["Ticker", "Name", "Weight"]]
 
-def get_benchmark_mix_table(wave: Optional[str] = None) -> pd.DataFrame:
-    """
-    Simple transparent benchmark:
-    - If wave exists: benchmark = SPY 60% + VTV 40% (placeholder mix)
-    - Otherwise: return a combined table for all waves.
+# -----------------------------
+# Benchmark mapping (simple default)
+# If you already have custom mappings elsewhere, you can replace this.
+# -----------------------------
+DEFAULT_BENCHMARK = "SPY"
 
-    You can replace this with your real composite-benchmark mapping later.
-    """
-    def _mix_rows(w: str) -> List[dict]:
-        return [
-            {"Wave": w, "Ticker": "SPY", "Name": "SPDR S&P 500 ETF", "Weight": 0.60},
-            {"Wave": w, "Ticker": "VTV", "Name": "Vanguard Value ETF", "Weight": 0.40},
-        ]
+def get_benchmark_ticker_for_wave(wave_name: str) -> str:
+    # Keep it simple + resilient. If you have per-wave mappings, add here.
+    # You can also encode benchmark tickers in wave_weights.csv if desired.
+    return DEFAULT_BENCHMARK
 
-    if wave:
-        return pd.DataFrame(_mix_rows(wave))
 
-    rows = []
-    for w in get_all_waves():
-        rows.extend(_mix_rows(w))
-    return pd.DataFrame(rows)
+# -----------------------------
+# Price history
+# -----------------------------
+_PRICE_CACHE: Dict[Tuple[Tuple[str, ...], str, str], pd.DataFrame] = {}
 
-def _vix_regime(vix_level: float) -> str:
-    if math.isnan(vix_level):
-        return "Unknown"
-    for name, lo, hi in VIX_REGIMES:
-        if lo <= vix_level < hi:
-            return name
-    return "Unknown"
+def _download_history(tickers: List[str], start: str, end: str) -> pd.DataFrame:
+    _ensure_yf()
+    tickers = sorted(list({t for t in tickers if isinstance(t, str) and t.strip() != ""}))
+    if not tickers:
+        return pd.DataFrame()
 
-def _smartsafe_fraction(regime: str, overrides: SessionOverrides) -> float:
-    base = SMARTSAFE_BY_VIX.get(regime, 0.0)
-    frac = base + overrides.smartsafe_delta
-    return float(np.clip(frac, 0.0, 0.80))  # never exceed 80% safe sleeve
+    key = (tuple(tickers), start, end)
+    if key in _PRICE_CACHE:
+        return _PRICE_CACHE[key].copy()
+
+    data = yf.download(
+        tickers=tickers,
+        start=start,
+        end=end,
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+        threads=True,
+    )
+
+    # yf returns multiindex for many tickers, series for one
+    if isinstance(data.columns, pd.MultiIndex):
+        # use Adj Close equivalent: with auto_adjust True, "Close" is adjusted
+        if ("Close" in data.columns.get_level_values(0)):
+            close = data["Close"].copy()
+        else:
+            close = data.xs("Close", axis=1, level=0, drop_level=True)
+    else:
+        # single ticker
+        close = data[["Close"]].copy()
+        close.columns = [tickers[0]]
+
+    close = close.dropna(how="all")
+    _PRICE_CACHE[key] = close.copy()
+    return close
+
+
+def _returns_from_prices(price_df: pd.DataFrame) -> pd.DataFrame:
+    if price_df is None or price_df.empty:
+        return pd.DataFrame()
+    ret = price_df.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return ret
+
+
+# -----------------------------
+# NAV simulation (lightweight)
+# -----------------------------
+@dataclass
+class SimConfig:
+    mode: str = "Standard"
+    exposure: float = 1.0
+    smartsafe: float = 0.0
+
+
+def _normalize_weights(s: pd.Series) -> pd.Series:
+    if s is None or len(s) == 0:
+        return pd.Series(dtype=float)
+    s = s.copy()
+    s.index = s.index.astype(str).str.upper()
+    s = s.groupby(s.index).sum()
+    s = s[s != 0.0]
+    if s.sum() != 0:
+        s = s / s.sum()
+    return s.sort_values(ascending=False)
+
+
+def _wave_holdings(wave_name: str) -> pd.Series:
+    refresh_weights()
+    s = WAVE_WEIGHTS.get(wave_name, pd.Series(dtype=float))
+    return _normalize_weights(s)
+
 
 def compute_history_nav(
     wave_name: str,
     mode: str,
     days: int = 365,
-    overrides: Optional[dict] = None,
+    end_date: Optional[datetime] = None,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
 ) -> pd.DataFrame:
     """
-    Computes wave NAV and benchmark NAV with:
-    - daily rebalance (simple)
-    - mode exposure multiplier
-    - SmartSafe based on VIX regime (+ optional session overrides)
-    Returns DataFrame indexed by date with columns:
-      wave_nav, bm_nav, wave_ret, bm_ret
+    Returns a DataFrame with columns:
+      ['date','wave_nav','bm_nav','wave_ret','bm_ret','alpha','vix','regime']
+    If insufficient data, returns empty df with those columns.
     """
-    if wave_name not in WAVE_WEIGHTS:
-        raise ValueError(f"Unknown Wave: {wave_name}")
-    if mode not in MODE_BASE_EXPOSURE:
-        raise ValueError(f"Unknown mode: {mode}")
+    if end_date is None:
+        end_date = datetime.utcnow()
 
-    ov = validate_overrides(overrides)
+    holdings = _wave_holdings(wave_name)
+    bm_ticker = get_benchmark_ticker_for_wave(wave_name)
 
-    end = _today_utc()
-    start = end - timedelta(days=int(days) + 10)
+    cols = ["date", "wave_nav", "bm_nav", "wave_ret", "bm_ret", "alpha", "vix", "regime"]
+    if holdings is None or holdings.empty:
+        return pd.DataFrame(columns=cols)
 
-    wave_holdings = WAVE_WEIGHTS[wave_name]
-    wave_tickers = [t for t, _ in wave_holdings]
+    tickers = list(holdings.index)
+    # include benchmark + vix
+    all_tickers = list(set(tickers + [bm_ticker, VIX_TICKER]))
 
-    # Benchmark tickers (simple mix placeholder)
-    bm_mix = get_benchmark_mix_table(wave_name)
-    bm_tickers = bm_mix["Ticker"].astype(str).str.upper().tolist()
+    start_date = (end_date - timedelta(days=int(days * 2.2))).strftime("%Y-%m-%d")
+    end_str = (end_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    tickers = sorted(list(set(wave_tickers + bm_tickers + [SPY_TICKER, VIX_TICKER] + SAFE_CANDIDATES)))
+    price = _download_history(all_tickers, start=start_date, end=end_str)
+    if price.empty or len(price) < 30:
+        return pd.DataFrame(columns=cols)
 
-    price = _download_history(tickers, start=start, end=end)
-    if price.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
+    # trim to last N trading rows (approx)
+    price = price.tail(max(days + 10, 60))
 
-    # Trim to days
-    if len(price) > days:
-        price = price.iloc[-days:]
+    rets = _returns_from_prices(price)
 
-    # Ensure required series exist
-    if SPY_TICKER not in price.columns:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-    if VIX_TICKER not in price.columns:
-        # allow missing VIX: assume Medium
-        price[VIX_TICKER] = np.nan
+    # align weights to available columns
+    avail = [t for t in tickers if t in rets.columns]
+    if len(avail) < 3:
+        return pd.DataFrame(columns=cols)
 
-    safe_ticker = _pick_safe_ticker(price)
+    w = holdings.reindex(avail).fillna(0.0)
+    w = _normalize_weights(w)
+    if w.empty:
+        return pd.DataFrame(columns=cols)
 
-    # Daily returns
-    ret = price.pct_change().fillna(0.0)
+    # base mode parameters
+    base_exposure = MODE_BASE_EXPOSURE.get(mode, 1.0)
+    base_smartsafe = MODE_SMARTSAFE_BASE.get(mode, 0.0)
 
-    # Static weights
-    wave_w = pd.Series({t: w for t, w in wave_holdings}, dtype=float)
-    wave_w = wave_w / wave_w.sum() if wave_w.sum() > 0 else wave_w
+    exposure = float(exposure_override) if exposure_override is not None else base_exposure
+    smartsafe = float(smartsafe_override) if smartsafe_override is not None else base_smartsafe
 
-    bm_w = pd.Series(
-        bm_mix.set_index("Ticker")["Weight"].astype(float).to_dict(),
-        dtype=float,
-    )
-    bm_w = bm_w / bm_w.sum() if bm_w.sum() > 0 else bm_w
+    # wave daily return: (1 - smartsafe)*exposure*(w•r)  (simple)
+    wave_core = (rets[avail] * w.values).sum(axis=1)
+    wave_ret = (1.0 - smartsafe) * exposure * wave_core
 
-    # Build NAVs
-    wave_nav = []
-    bm_nav = []
-    wave_nav_val = 1.0
-    bm_nav_val = 1.0
+    # benchmark return
+    if bm_ticker not in rets.columns:
+        return pd.DataFrame(columns=cols)
+    bm_ret = rets[bm_ticker].fillna(0.0)
 
-    base_exposure = MODE_BASE_EXPOSURE[mode] + ov.exposure_delta
-    base_exposure = float(np.clip(base_exposure, 0.50, 1.50))
+    # alpha
+    alpha = wave_ret - bm_ret
 
-    for dt in ret.index:
-        vix_level = float(price.loc[dt, VIX_TICKER]) if VIX_TICKER in price.columns else float("nan")
-        regime = _vix_regime(vix_level) if not math.isnan(vix_level) else "Medium"
-        ss_frac = _smartsafe_fraction(regime, ov) if safe_ticker else 0.0
+    # NAVs
+    wave_nav = (1.0 + wave_ret).cumprod()
+    bm_nav = (1.0 + bm_ret).cumprod()
 
-        # Effective wave weights = (1-ss)*base_exposure*wave + ss*safe
-        w_eff = wave_w.copy()
-        # scale risk sleeve
-        w_eff = w_eff * (1.0 - ss_frac)
-        if safe_ticker:
-            w_eff[safe_ticker] = w_eff.get(safe_ticker, 0.0) + ss_frac
+    # vix + regime
+    vix = None
+    if VIX_TICKER in price.columns:
+        vix = price[VIX_TICKER].copy().fillna(method="ffill").fillna(method="bfill")
+    else:
+        vix = pd.Series(index=wave_nav.index, data=np.nan)
 
-        # Apply exposure scaling: multiply risk sleeve contribution by base_exposure
-        # Implemented by scaling returns impact (not leverage financing)
-        wave_ret_day = 0.0
-        for t, w in w_eff.items():
-            if t not in ret.columns:
-                continue
-            r = float(ret.loc[dt, t])
-            if t == safe_ticker:
-                wave_ret_day += w * r
-            else:
-                wave_ret_day += w * (base_exposure * r)
+    regime = pd.Series(index=wave_nav.index, dtype=str)
+    for name, lo, hi in REGIMES:
+        mask = (vix >= lo) & (vix < hi)
+        regime.loc[mask] = name
+    regime = regime.fillna("Unknown")
 
-        # Benchmark: simple static mix (no SmartSafe)
-        bm_ret_day = 0.0
-        for t, w in bm_w.items():
-            if t not in ret.columns:
-                continue
-            bm_ret_day += float(w) * float(ret.loc[dt, t])
+    out = pd.DataFrame({
+        "date": wave_nav.index,
+        "wave_nav": wave_nav.values,
+        "bm_nav": bm_nav.values,
+        "wave_ret": wave_ret.values,
+        "bm_ret": bm_ret.values,
+        "alpha": alpha.values,
+        "vix": vix.reindex(wave_nav.index).values,
+        "regime": regime.values
+    })
 
-        wave_nav_val *= (1.0 + wave_ret_day)
-        bm_nav_val *= (1.0 + bm_ret_day)
-
-        wave_nav.append(wave_nav_val)
-        bm_nav.append(bm_nav_val)
-
-    out = pd.DataFrame(
-        {
-            "wave_nav": wave_nav,
-            "bm_nav": bm_nav,
-        },
-        index=ret.index,
-    )
-    out["wave_ret"] = out["wave_nav"].pct_change().fillna(0.0)
-    out["bm_ret"] = out["bm_nav"].pct_change().fillna(0.0)
+    # hard-trim to last `days`
+    if len(out) > days:
+        out = out.tail(days).reset_index(drop=True)
     return out
+
+
+# -----------------------------
+# Summaries
+# -----------------------------
+def _window_return(nav: pd.Series) -> Optional[float]:
+    if nav is None or len(nav) < 2:
+        return None
+    return float(nav.iloc[-1] / nav.iloc[0] - 1.0)
+
+
+def compute_multi_window_summary(wave_name: str, mode: str) -> Dict[str, Optional[float]]:
+    """
+    Returns fractional returns (not %): intraday (1d), 30d, 60d, 365d and alpha versions.
+    """
+    windows = {"1D": 2, "30D": 30, "60D": 60, "365D": 365}
+    out: Dict[str, Optional[float]] = {}
+
+    for k, d in windows.items():
+        df = compute_history_nav(wave_name, mode, days=d)
+        if df.empty or len(df) < min(10, d // 2 + 1):
+            out[f"{k}_return"] = None
+            out[f"{k}_alpha"] = None
+            continue
+        out[f"{k}_return"] = _window_return(df["wave_nav"])
+        out[f"{k}_alpha"] = _window_return((df["alpha"] + 1.0).cumprod())  # synthetic alpha NAV
+    return out
+
+
+def top_holdings(wave_name: str, n: int = 10) -> pd.DataFrame:
+    s = _wave_holdings(wave_name)
+    if s is None or s.empty:
+        return pd.DataFrame(columns=["ticker", "weight"])
+    s = s.head(n)
+    return pd.DataFrame({"ticker": s.index, "weight": (s.values * 100.0)})
+
+
+# -----------------------------
+# Attribution (Vol regime + Conditional grid)
+# -----------------------------
+def volatility_regime_attribution(df_nav: pd.DataFrame) -> pd.DataFrame:
+    """
+    Inputs df_nav from compute_history_nav() which includes alpha + regime.
+    Returns table: regime, days, wave_ret, bm_ret, alpha
+    """
+    if df_nav is None or df_nav.empty or "regime" not in df_nav.columns:
+        return pd.DataFrame(columns=["regime", "days", "wave_ret", "bm_ret", "alpha"])
+
+    g = df_nav.groupby("regime")
+    rows = []
+    for rg, sub in g:
+        if len(sub) < 5:
+            continue
+        wave = float((1.0 + sub["wave_ret"]).prod() - 1.0)
+        bm = float((1.0 + sub["bm_ret"]).prod() - 1.0)
+        a = float((1.0 + sub["alpha"]).prod() - 1.0)
+        rows.append({"regime": rg, "days": int(len(sub)), "wave_ret": wave, "bm_ret": bm, "alpha": a})
+    if not rows:
+        return pd.DataFrame(columns=["regime", "days", "wave_ret", "bm_ret", "alpha"])
+    return pd.DataFrame(rows).sort_values("days", ascending=False).reset_index(drop=True)
+
+
+def conditional_attribution_grid(df_nav: pd.DataFrame) -> pd.DataFrame:
+    """
+    Simple conditional grid: regime x trend(Up/Down) using benchmark 10d slope sign.
+    Outputs mean daily alpha and days.
+    """
+    cols = ["regime", "trend", "days", "mean_daily_alpha", "cum_alpha"]
+    if df_nav is None or df_nav.empty:
+        return pd.DataFrame(columns=cols)
+
+    if "bm_nav" not in df_nav.columns or "alpha" not in df_nav.columns:
+        return pd.DataFrame(columns=cols)
+
+    bm = df_nav["bm_nav"].astype(float)
+    slope = bm.pct_change(10).fillna(0.0)
+    trend = np.where(slope >= 0, "Uptrend", "Downtrend")
+
+    work = df_nav.copy()
+    work["trend"] = trend
+
+    rows = []
+    for (rg, tr), sub in work.groupby(["regime", "trend"]):
+        if len(sub) < 10:
+            continue
+        mean_alpha = float(sub["alpha"].mean())
+        cum_alpha = float((1.0 + sub["alpha"]).prod() - 1.0)
+        rows.append({
+            "regime": rg,
+            "trend": tr,
+            "days": int(len(sub)),
+            "mean_daily_alpha": mean_alpha,
+            "cum_alpha": cum_alpha
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(rows).sort_values(["regime", "trend"]).reset_index(drop=True)
+
+
+def log_conditional_attribution(wave_name: str, mode: str, grid: pd.DataFrame, df_nav: pd.DataFrame) -> str:
+    """
+    Writes:
+      logs/attribution/<Wave>_conditional_<mode>_YYYYMMDD.csv
+      logs/attribution/<Wave>_nav_<mode>_YYYYMMDD.csv  (light)
+    """
+    date = _today_yyyymmdd()
+    safe_mode = mode.replace(" ", "_").replace("/", "_")
+    grid_path = os.path.join(LOG_ATTR_DIR, f"{wave_name}_conditional_{safe_mode}_{date}.csv")
+    nav_path = os.path.join(LOG_ATTR_DIR, f"{wave_name}_nav_{safe_mode}_{date}.csv")
+
+    try:
+        if grid is not None and not grid.empty:
+            grid.to_csv(grid_path, index=False)
+        else:
+            pd.DataFrame(columns=["regime","trend","days","mean_daily_alpha","cum_alpha"]).to_csv(grid_path, index=False)
+
+        # save a light nav file (date + alpha + regime)
+        if df_nav is not None and not df_nav.empty:
+            slim = df_nav[["date","wave_nav","bm_nav","alpha","regime"]].copy()
+            slim.to_csv(nav_path, index=False)
+        else:
+            pd.DataFrame(columns=["date","wave_nav","bm_nav","alpha","regime"]).to_csv(nav_path, index=False)
+    except Exception:
+        pass
+
+    return grid_path
+
+
+# -----------------------------
+# Diagnostics + Recommendations (preview-first)
+# -----------------------------
+def diagnostics_for_wave(wave_name: str) -> List[Dict]:
+    """
+    Simple structural checks from weights.
+    """
+    s = _wave_holdings(wave_name)
+    diags = []
+
+    if s is None or s.empty:
+        diags.append({"level": "WARN", "msg": "No holdings found for this Wave (check wave_weights.csv)."})
+        return diags
+
+    top1 = float(s.iloc[0])
+    top3 = float(s.iloc[:3].sum())
+
+    if top1 >= 0.60:
+        diags.append({"level": "WARN", "msg": f"High single-name concentration: top holding is {top1*100:.1f}%."})
+    if top3 >= 0.85:
+        diags.append({"level": "WARN", "msg": f"High top-3 concentration: top-3 sum to {top3*100:.1f}%."})
+    if len(s) < 8:
+        diags.append({"level": "INFO", "msg": f"Low breadth: only {len(s)} holdings in weights file."})
+
+    if not diags:
+        diags.append({"level": "PASS", "msg": "No issues detected."})
+    return diags
+
+
+def _log_recommendation_event(event: Dict) -> None:
+    date = _today_yyyymmdd()
+    path = os.path.join(LOG_RECO_DIR, f"recommendation_events_{date}.jsonl")
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception:
+        pass
+
+
+def generate_recommendations(
+    wave_name: str,
+    mode: str,
+    df_nav: pd.DataFrame,
+    grid: pd.DataFrame
+) -> List[Dict]:
+    """
+    Simple, safe, wave-scoped suggestions based on conditional grid.
+    Output: list of dicts with preview deltas only (no persistent auto-apply unless user clicks).
+    """
+    recos: List[Dict] = []
+    if df_nav is None or df_nav.empty or grid is None or grid.empty:
+        return recos
+
+    # Find "benign regime" (Low/Medium + Uptrend) edge: positive mean daily alpha
+    benign = grid[(grid["regime"].isin(["Low","Medium"])) & (grid["trend"] == "Uptrend")].copy()
+    if len(benign) >= 1:
+        best = benign.sort_values("mean_daily_alpha", ascending=False).iloc[0]
+        mean_bp = float(best["mean_daily_alpha"] * 10000.0)
+        days = int(best["days"])
+
+        if days >= 25 and mean_bp >= 6.0:
+            # Suggest a slight exposure increase in benign regimes (preview)
+            recos.append({
+                "title": "Slightly increase exposure in benign regimes",
+                "confidence": "Medium" if mean_bp < 12 else "High",
+                "why": f"Low/Medium + Uptrend mean daily alpha is {mean_bp:.1f} bp/day over {days} days.",
+                "deltas": {"exposure_delta": 0.05, "smartsafe_delta": 0.00},
+                "guardrails": SAFE_APPLY_LIMITS,
+            })
+
+    return recos
+
+
+def apply_recommendation_preview(
+    wave_name: str,
+    mode: str,
+    current_exposure: float,
+    current_smartsafe: float,
+    deltas: Dict[str, float],
+) -> Tuple[float, float, Dict]:
+    """
+    Applies guardrails and returns (new_exposure, new_smartsafe, applied_deltas)
+    """
+    exp_d = float(deltas.get("exposure_delta", 0.0))
+    ss_d = float(deltas.get("smartsafe_delta", 0.0))
+
+    # cap deltas
+    exp_d = float(np.clip(exp_d, -SAFE_APPLY_LIMITS["max_exposure_delta"], SAFE_APPLY_LIMITS["max_exposure_delta"]))
+    ss_d = float(np.clip(ss_d, -SAFE_APPLY_LIMITS["max_smartsafe_delta"], SAFE_APPLY_LIMITS["max_smartsafe_delta"]))
+
+    new_exposure = float(np.clip(current_exposure + exp_d, 0.0, 1.25))
+    new_smartsafe = float(np.clip(current_smartsafe + ss_d, 0.0, 0.90))
+
+    applied = {"exposure_delta": exp_d, "smartsafe_delta": ss_d}
+    return new_exposure, new_smartsafe, applied
+
+
+# -----------------------------
+# Optional: compute static basket return for attribution
+# -----------------------------
+def compute_static_basket_nav(wave_name: str, days: int = 365) -> pd.DataFrame:
+    """
+    Static basket = fixed weights, no smartsafe, exposure=1.0
+    Useful as a baseline for overlay contribution.
+    """
+    df = compute_history_nav(wave_name, mode="Standard", days=days, exposure_override=1.0, smartsafe_override=0.0)
+    if df.empty:
+        return df
+    df = df.copy()
+    df["static_nav"] = df["wave_nav"]
+    return df
+
+
+# -----------------------------
+# Convenience for app: wave detail bundle
+# -----------------------------
+def wave_detail_bundle(
+    wave_name: str,
+    mode: str,
+    exposure_override: Optional[float] = None,
+    smartsafe_override: Optional[float] = None,
+) -> Dict:
+    df365 = compute_history_nav(wave_name, mode, days=365, exposure_override=exposure_override, smartsafe_override=smartsafe_override)
+    summary = compute_multi_window_summary(wave_name, mode)
+    holds = top_holdings(wave_name, n=10)
+    diags = diagnostics_for_wave(wave_name)
+
+    vol_attr = volatility_regime_attribution(df365)
+    cond_grid = conditional_attribution_grid(df365)
+
+    # persistent log for conditional attribution
+    log_path = log_conditional_attribution(wave_name, mode, cond_grid, df365)
+
+    # recommendations
+    recos = generate_recommendations(wave_name, mode, df365, cond_grid)
+
+    return {
+        "wave": wave_name,
+        "mode": mode,
+        "summary": summary,
+        "holdings": holds,
+        "diagnostics": diags,
+        "df365": df365,
+        "vol_attr": vol_attr,
+        "cond_grid": cond_grid,
+        "cond_log_path": log_path,
+        "recommendations": recos,
+    }
