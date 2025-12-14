@@ -1768,3 +1768,4 @@ with tab_vector:
         else:
             ws_tbl = ws_tbl.sort_values("WaveScore", ascending=False, na_position="last")
             show_df(ws_tbl, selected_wave, key="wavescore_table")
+            
