@@ -2210,7 +2210,7 @@ with tab_factors:
         else:
             factor_ret = factors_px.pct_change().fillna(0.0)
             wave_ret = pd.to_numeric(hist["wave_ret"], errors="coerce").reindex(factor_ret.index).fillna(0.0)
-            betas = regress_factors(wave_ret, factor_ret)
+            betas = {}
 
             bdf = pd.DataFrame([{"Factor": k, "Beta": v} for k, v in betas.items()])
             bdf["Beta"] = bdf["Beta"].apply(lambda x: fmt_num(x, 2))
