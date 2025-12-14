@@ -2213,7 +2213,7 @@ with tab_factors:
             betas = {}
 
             bdf = pd.DataFrame([{"Factor": k, "Beta": v} for k, v in betas.items()])
-            bdf["Beta"] = bdf["Beta"].apply(lambda x: fmt_num(x, 2))
+            bdf["Beta"] = bdf["Beta"].apply(lambda x: round(x, 2))
             st.dataframe(bdf, use_container_width=True)
 
             st.markdown("#### Factor Notes")
