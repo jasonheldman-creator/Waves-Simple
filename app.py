@@ -48,7 +48,11 @@ try:
     import plotly.graph_objects as go
 except Exception:
     go = None
-
+# ============================================================
+# SAFETY STUBS (prevents NameError during Streamlit parse)
+# ============================================================
+def selectable_table_jump(*args, **kwargs):
+    return None
 # ============================================================
 # Streamlit config
 # ============================================================
