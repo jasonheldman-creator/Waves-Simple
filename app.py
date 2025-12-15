@@ -1,5 +1,20 @@
-# app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
-# FULL PRODUCTION FILE — MEAT RESTORE BUILD (SAFE, DEMO-READY)
+# waves_engine.py — WAVES Intelligence™ DEMO ENGINE (STUB)
+# Purpose:
+#   Provide deterministic synthetic history + holdings so the console "meat" lights up
+#   (Risk Lab, Correlation, WaveScore, Attribution, Insight Layer, Benchmark Truth).
+#
+# How it works:
+#   - Reads wave list + holdings from wave_weights.csv when available
+#   - Generates NAV series per (wave, mode) using deterministic seeded random walk
+#   - Generates benchmark NAV similarly (slower / different seed)
+#   - Exposes the minimal API the console expects:
+#       get_all_waves()
+#       get_wave_holdings(wave_name)
+#       get_benchmark_mix_table()
+#       compute_history_nav(wave_name, mode="Standard", days=365)
+#
+# IMPORTANT:
+#   This is a demo-only stub. Rename your real engine to waves_engine_real.py first.
 
 from __future__ import annotations
 
@@ -7,257 +22,204 @@ import os
 import math
 import hashlib
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Dict, Any, Optional
 
 import numpy as np
 import pandas as pd
-import streamlit as st
+
 
 # -------------------------------
-# Optional libs
+# Utilities
 # -------------------------------
-try:
-    import yfinance as yf
-except Exception:
-    yf = None
+def _sha_seed(text: str) -> int:
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return int(h[:8], 16)  # deterministic 32-bit seed
 
-try:
-    import plotly.graph_objects as go
-except Exception:
-    go = None
+def _business_days(end_dt: Optional[pd.Timestamp], days: int) -> pd.DatetimeIndex:
+    if end_dt is None:
+        end_dt = pd.Timestamp.utcnow().normalize()
+    # buffer to ensure enough business days
+    start = (end_dt - pd.Timedelta(days=int(days * 1.8) + 30)).normalize()
+    idx = pd.date_range(start=start, end=end_dt, freq="B")
+    if len(idx) > days:
+        idx = idx[-days:]
+    return idx
+
+def _read_wave_weights(path: str = "wave_weights.csv") -> pd.DataFrame:
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=["wave", "ticker", "weight"])
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame(columns=["wave", "ticker", "weight"])
+
+    df.columns = [str(c).strip() for c in df.columns]
+    lower = {c.lower(): c for c in df.columns}
+
+    if not {"wave", "ticker", "weight"}.issubset(set(lower.keys())):
+        # try common alternates
+        wave_c = lower.get("wave_name") or lower.get("wavename") or lower.get("wave")
+        tick_c = lower.get("symbol") or lower.get("ticker")
+        wgt_c = lower.get("pct") or lower.get("weight")
+        if not (wave_c and tick_c and wgt_c):
+            return pd.DataFrame(columns=["wave", "ticker", "weight"])
+        df = df.rename(columns={wave_c: "wave", tick_c: "ticker", wgt_c: "weight"})
+    else:
+        df = df.rename(columns={lower["wave"]: "wave", lower["ticker"]: "ticker", lower["weight"]: "weight"})
+
+    df["wave"] = df["wave"].astype(str).str.strip()
+    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0.0)
+
+    df = df[(df["wave"] != "") & (df["ticker"] != "")]
+    df = df.groupby(["wave", "ticker"], as_index=False)["weight"].sum()
+
+    # normalize per wave
+    out_rows = []
+    for w, g in df.groupby("wave"):
+        tot = float(g["weight"].sum())
+        gg = g.copy()
+        if tot > 0:
+            gg["weight"] = gg["weight"] / tot
+        out_rows.append(gg)
+    if out_rows:
+        df = pd.concat(out_rows, ignore_index=True)
+    else:
+        df = pd.DataFrame(columns=["wave", "ticker", "weight"])
+
+    return df
+
 
 # -------------------------------
-# Engine import (guarded)
+# Public API (expected by console)
 # -------------------------------
-ENGINE_IMPORT_ERROR = None
-try:
-    import waves_engine as we
-except Exception as e:
-    we = None
-    ENGINE_IMPORT_ERROR = e
+def get_all_waves() -> List[str]:
+    df = _read_wave_weights()
+    if df.empty:
+        # fallback list so the UI still works
+        return [
+            "S&P 500 Wave",
+            "AI & Cloud MegaCap Wave",
+            "Quantum Computing Wave",
+            "Crypto Wave",
+            "Future Power & Energy Wave",
+        ]
+    waves = sorted(list(set(df["wave"].astype(str).str.strip().tolist())))
+    waves = [w for w in waves if w and w.lower() != "nan"]
+    return waves
 
-# ============================================================
-# MODE ALIASES
-# ============================================================
-MODE_ALIASES = {
-    "Standard": ["Standard", "standard", "STANDARD", "Base", "BASE", "Normal", "NORMAL"],
-    "Alpha-Minus-Beta": [
-        "Alpha-Minus-Beta", "alpha-minus-beta", "Alpha Minus Beta", "AMB", "amb"
-    ],
-    "Private Logic": [
-        "Private Logic", "Private Logic™", "Private Logic Enhanced", "PLE", "ple"
-    ],
-}
 
-def mode_candidates(mode: str) -> List[str]:
-    out, seen = [], set()
-    for m in MODE_ALIASES.get(mode, [mode]):
-        if m.lower() not in seen:
-            out.append(m)
-            seen.add(m.lower())
-    return out
+def get_wave_holdings(wave_name: str) -> pd.DataFrame:
+    df = _read_wave_weights()
+    if df.empty:
+        # safe fallback holdings
+        fallback = [
+            ("NVDA", 0.18),
+            ("MSFT", 0.16),
+            ("AAPL", 0.14),
+            ("AMZN", 0.12),
+            ("META", 0.10),
+            ("GOOGL", 0.10),
+            ("TSLA", 0.08),
+            ("BRK.B", 0.06),
+            ("AVGO", 0.04),
+            ("LLY", 0.02),
+        ]
+        out = pd.DataFrame(fallback, columns=["Ticker", "Weight"])
+        out["Name"] = ""
+        return out[["Ticker", "Name", "Weight"]]
 
-# ============================================================
-# STREAMLIT CONFIG
-# ============================================================
-st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+    w = str(wave_name).strip()
+    g = df[df["wave"].astype(str).str.strip().str.lower() == w.lower()].copy()
+    if g.empty:
+        # if wave not found, just return top 10 overall
+        g = df.copy()
 
-# ============================================================
-# UI CSS
-# ============================================================
-st.markdown("""
-<style>
-.block-container { padding-top: 1rem; padding-bottom: 2rem; }
-.waves-sticky {
-  position: sticky; top: 0; z-index: 999;
-  backdrop-filter: blur(10px);
-  padding: 10px; border-radius: 14px;
-  background: rgba(10,15,28,0.65);
-}
-.waves-chip {
-  display:inline-block; padding:6px 10px; margin:4px;
-  border-radius:999px; font-size:0.85rem;
-  background: rgba(255,255,255,0.05);
-}
-</style>
-""", unsafe_allow_html=True)
+    g = g.groupby("ticker", as_index=False)["weight"].sum()
+    g = g.sort_values("weight", ascending=False).head(25).copy()
 
-# ============================================================
-# HELPERS
-# ============================================================
-def fmt_pct(x): 
-    try: return f"{float(x)*100:.2f}%" 
-    except: return "—"
+    tot = float(g["weight"].sum())
+    if tot > 0:
+        g["weight"] = g["weight"] / tot
 
-def fmt_num(x): 
-    try: return f"{float(x):.2f}" 
-    except: return "—"
+    out = pd.DataFrame({
+        "Ticker": g["ticker"].astype(str).str.upper().str.strip(),
+        "Name": "",
+        "Weight": pd.to_numeric(g["weight"], errors="coerce").fillna(0.0),
+    })
+    return out[["Ticker", "Name", "Weight"]]
 
-def safe_series(s):
-    return s.dropna() if isinstance(s, pd.Series) else pd.Series(dtype=float)
 
-# ============================================================
-# HISTORY LOADER (SAFE)
-# ============================================================
-@st.cache_data(show_spinner=False)
-def load_history(wave, mode, days, force_csv=False):
-    if we and not force_csv:
-        for m in mode_candidates(mode):
-            try:
-                df = we.compute_history_nav(wave, mode=m, days=days)
-                if isinstance(df, pd.DataFrame) and not df.empty:
-                    return df
-            except Exception:
-                pass
-
-    if os.path.exists("wave_history.csv"):
-        try:
-            df = pd.read_csv("wave_history.csv")
-            return df
-        except Exception:
-            pass
-
-    return pd.DataFrame()
-
-# ============================================================
-# MARKET INTEL
-# ============================================================
-@st.cache_data(show_spinner=False)
-def market_intel():
-    if yf is None:
-        return pd.DataFrame()
-
-    tickers = ["SPY","QQQ","IWM","TLT","GLD","BTC-USD","^VIX","^TNX"]
-    px = yf.download(tickers, period="2mo", auto_adjust=True, progress=False)
+def get_benchmark_mix_table() -> pd.DataFrame:
+    """
+    Simple benchmark mix table for Benchmark Truth panel.
+    You can customize later. For demos, this is enough.
+    """
+    waves = get_all_waves()
+    # universal blended benchmark: SPY/QQQ/IWM/TLT/GLD
+    mix = [("SPY", 0.45), ("QQQ", 0.25), ("IWM", 0.10), ("TLT", 0.12), ("GLD", 0.08)]
     rows = []
-    for t in tickers:
-        if t not in px:
-            continue
-        s = px[t].dropna()
-        if len(s) < 2:
-            continue
-        rows.append({
-            "Ticker": t,
-            "Last": fmt_num(s.iloc[-1]),
-            "1D": fmt_pct(s.iloc[-1]/s.iloc[-2]-1),
-            "30D": fmt_pct(s.iloc[-1]/s.iloc[-21]-1 if len(s)>=21 else np.nan)
-        })
+    for w in waves:
+        for t, wt in mix:
+            rows.append({"Wave": w, "Ticker": t, "Name": "", "Weight": wt})
     return pd.DataFrame(rows)
 
-# ============================================================
-# WAVESCORE (DISPLAY-ONLY)
-# ============================================================
-def grade(score):
-    if not math.isfinite(score): return "N/A"
-    if score>=90: return "A+"
-    if score>=80: return "A"
-    if score>=70: return "B"
-    if score>=60: return "C"
-    return "D"
 
-def compute_wavescore(df):
-    if df.empty: return np.nan
-    return np.clip(65 + np.random.normal(0,5), 40, 95)
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+    """
+    Deterministic synthetic NAV history. Same wave+mode => same series each run.
+    Output columns expected by console:
+      - wave_nav, bm_nav, wave_ret, bm_ret
+    """
+    days = int(max(60, min(days, 1500)))
 
-# ============================================================
-# MAIN UI
-# ============================================================
-st.title("WAVES Intelligence™ Institutional Console")
+    wave = str(wave_name).strip()
+    mode = str(mode).strip()
 
-if ENGINE_IMPORT_ERROR:
-    st.error("Engine import failed — running in fallback mode.")
-    st.code(str(ENGINE_IMPORT_ERROR))
+    idx = _business_days(pd.Timestamp.utcnow().normalize(), days)
 
-# Sidebar
-with st.sidebar:
-    mode = st.selectbox("Mode", list(MODE_ALIASES.keys()))
-    wave = st.selectbox("Wave", we.get_all_waves() if we and hasattr(we,"get_all_waves") else ["Demo Wave"])
-    days = st.slider("History window (days)", 90, 1500, 365, 30)
-    force_csv = st.toggle("Force CSV history (debug/demo)", False)
-    expose_raw = st.toggle("Expose raw series (advanced)", False)
+    # Seeded RNGs (stable)
+    rng_w = np.random.default_rng(_sha_seed(f"WAVE::{wave}::{mode}"))
+    rng_b = np.random.default_rng(_sha_seed(f"BM::{wave}::{mode}"))
 
-# Load history
-hist = load_history(wave, mode, days, force_csv)
-
-# Sticky summary
-wavescore = compute_wavescore(hist)
-st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
-st.markdown(f'<span class="waves-chip">WaveScore: {fmt_num(wavescore)} ({grade(wavescore)})</span>', unsafe_allow_html=True)
-st.markdown(f'<span class="waves-chip">History Rows: {len(hist)}</span>', unsafe_allow_html=True)
-st.markdown(f'<span class="waves-chip">Mode: {mode}</span>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Tabs
-tabs = st.tabs([
-    "Console",
-    "Benchmark Truth",
-    "Attribution",
-    "Wave Doctor + What-If",
-    "Risk Lab",
-    "Correlation",
-    "Vector OS Insight Layer"
-])
-
-# ---------------- Console ----------------
-with tabs[0]:
-    st.subheader("Market Intelligence")
-    mi = market_intel()
-    st.dataframe(mi, use_container_width=True) if not mi.empty else st.info("Market data unavailable.")
-
-# ---------------- Benchmark Truth ----------------
-with tabs[1]:
-    st.subheader("Benchmark Truth")
-    st.info("Benchmark mix & difficulty validated at engine layer.")
-
-# ---------------- Attribution ----------------
-with tabs[2]:
-    st.subheader("Alpha Attribution — Engine vs Static Basket")
-    if hist.empty:
-        st.warning("Not enough engine history to run attribution.")
+    # Mode affects drift/vol so modes look different (demo-friendly)
+    mode_l = mode.lower()
+    if "alpha" in mode_l or "amb" in mode_l:
+        drift = 0.00055
+        vol = 0.0130
+    elif "private" in mode_l or "ple" in mode_l:
+        drift = 0.00070
+        vol = 0.0160
     else:
-        st.success("Engine alpha dominates static basket on available history.")
+        drift = 0.00045
+        vol = 0.0110
 
-# ---------------- Wave Doctor + What-If ----------------
-with tabs[3]:
-    st.subheader("Wave Doctor")
-    if hist.empty:
-        st.warning("Data Integrity Flag: No history returned.")
-    else:
-        st.success("Wave health normal.")
+    # Benchmark: smoother, slightly lower drift
+    bm_drift = max(0.00025, drift - 0.00015)
+    bm_vol = max(0.0085, vol - 0.0035)
 
-    st.subheader("What-If Lab (Shadow Simulation)")
-    st.info("Shadow simulation only. Engine state unchanged.")
+    # Generate daily log-returns
+    w_ret = rng_w.normal(loc=drift, scale=vol, size=len(idx))
+    b_ret = rng_b.normal(loc=bm_drift, scale=bm_vol, size=len(idx))
 
-# ---------------- Risk Lab ----------------
-with tabs[4]:
-    st.subheader("Risk Lab")
-    if hist.empty:
-        st.warning("Not enough data to compute risk metrics.")
-    else:
-        st.success("Risk metrics computed.")
+    # Add gentle regime waves so charts look realistic (still deterministic)
+    t = np.linspace(0, 6 * math.pi, len(idx))
+    w_ret = w_ret + 0.0015 * np.sin(t)
+    b_ret = b_ret + 0.0010 * np.sin(t + 0.7)
 
-# ---------------- Correlation ----------------
-with tabs[5]:
-    st.subheader("Correlation")
-    if not expose_raw:
-        st.info("Correlation hidden while raw series exposure is disabled.")
-    else:
-        st.success("Correlation matrix rendered.")
+    # Convert to NAV (start at 100)
+    wave_nav = 100.0 * np.exp(np.cumsum(w_ret))
+    bm_nav = 100.0 * np.exp(np.cumsum(b_ret))
 
-# ---------------- Vector OS Insight ----------------
-with tabs[6]:
-    st.subheader("Vector OS Insight Layer")
-    if hist.empty:
-        st.info("Not enough data for insights yet.")
-    else:
-        st.success("System behaving within expected regime.")
+    df = pd.DataFrame(
+        {
+            "wave_nav": wave_nav,
+            "bm_nav": bm_nav,
+        },
+        index=pd.to_datetime(idx),
+    )
 
-# Diagnostics
-with st.expander("System Diagnostics"):
-    st.write("Engine loaded:", we is not None)
-    st.write("History rows:", len(hist))
-    st.write("Mode candidates:", mode_candidates(mode))
+    df["wave_ret"] = pd.Series(df["wave_nav"]).pct_change().values
+    df["bm_ret"] = pd.Series(df["bm_nav"]).pct_change().values
+
+    return df
