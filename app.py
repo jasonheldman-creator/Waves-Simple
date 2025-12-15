@@ -1516,6 +1516,61 @@ def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
             out["flags"].append("No history returned")
             return out
 
+        idx = pd.to_datetime(hist.index, errors="coerce")
+        idx = idx[~idx.isna()].sort_values()
+
+        out["rows"] = int(len(idx))
+        if len(idx) == 0:
+            out["flags"].append("No valid dates in history index")
+            return out
+
+        out["first_date"] = idx[0].date().isoformat()
+        out["last_date"] = idx[-1].date().isoformat()
+
+        today = datetime.utcnow().date()
+        out["age_days"] = int((today - idx[-1].date()).days)
+
+        # Expected business days between first and last
+        bdays = _business_day_range(idx[0], idx[-1])
+        have = pd.DatetimeIndex(idx.normalize().unique())
+        missing = bdays.difference(have)
+
+        out["missing_bdays"] = int(len(missing))
+        out["missing_pct"] = float(len(missing) / max(1, len(bdays)))
+
+        score = 100.0
+        score -= min(40.0, out["missing_pct"] * 200.0)
+        if out["age_days"] is not None and out["age_days"] > 3:
+            score -= min(25.0, float(out["age_days"] - 3) * 5.0)
+
+        out["completeness_score"] = float(np.clip(score, 0.0, 100.0))
+
+        if out["age_days"] is not None and out["age_days"] >= 7:
+            out["flags"].append("Data is stale (>=7 days old)")
+        if out["missing_pct"] is not None and out["missing_pct"] >= 0.05:
+            out["flags"].append("Significant missing business days (>=5%)")
+        if out["rows"] < 60:
+            out["flags"].append("Limited history (<60 points)")
+
+        return out
+    except Exception:
+        out["flags"].append("Coverage report error")
+        return out
+    out: Dict[str, Any] = {
+        "rows": 0,
+        "first_date": None,
+        "last_date": None,
+        "age_days": None,
+        "missing_bdays": None,
+        "missing_pct": None,
+        "completeness_score": None,
+        "flags": [],
+    }
+    try:
+        if hist is None or hist.empty:
+            out["flags"].append("No history returned")
+            return out
+
         idx = pd.to_datetime(hist.index)
         idx = idx.sort_values()
         out["rows"] = int(len(idx))
