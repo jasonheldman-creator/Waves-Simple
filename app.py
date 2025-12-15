@@ -65,6 +65,9 @@ except Exception:
     go = None
 
 st.write("Booting…")
+st.write("Before engine import")
+import waves_engine as we
+st.write("After engine import")
 st.stop()
 
 # ============================================================
