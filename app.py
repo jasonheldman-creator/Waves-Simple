@@ -2,12 +2,12 @@
 # FULL PRODUCTION FILE (NO PATCHES) — STABLE UI + HISTORY FALLBACKS (MODE-ALIAS FIX)
 #
 # Fixes:
-#   1) Removes accidental st.stop() that prevented UI from rendering (already fixed here).
-#   2) Adds robust history loader:
+#   1) Prevents blank/failed UI by using guarded engine import + diagnostics.
+#   2) Robust history loader:
 #        - tries engine functions (multiple signatures)
 #        - tries MULTIPLE mode aliases (Standard / standard / STANDARD, etc.)
 #        - falls back to wave_history.csv (already in repo)
-#   3) Shows diagnostics instead of blank screen if something fails.
+#   3) Clean syntax + no duplicated blocks (mobile-safe copy/paste).
 #
 # Keeps your structure:
 #   • Sticky summary bar
@@ -60,8 +60,6 @@ except Exception as e:
 # ============================================================
 # MODE ALIASES (critical fix)
 # ============================================================
-# Your UI names vs whatever the engine/CSV might store.
-# We will try these in order when calling the engine and filtering CSV.
 MODE_ALIASES: Dict[str, List[str]] = {
     "Standard": [
         "Standard", "standard", "STANDARD",
@@ -79,9 +77,9 @@ MODE_ALIASES: Dict[str, List[str]] = {
     ],
 }
 
+
 def mode_candidates(selected_mode: str) -> List[str]:
     cands = MODE_ALIASES.get(selected_mode, [selected_mode])
-    # ensure unique, stable order
     seen = set()
     out: List[str] = []
     for m in cands + [selected_mode]:
@@ -135,9 +133,6 @@ st.markdown(
   line-height: 1.0rem;
   white-space: nowrap;
 }
-
-/* Section header */
-.waves-hdr { font-weight: 800; letter-spacing: 0.2px; margin-bottom: 4px; }
 
 /* Tighter tables */
 div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
@@ -196,12 +191,6 @@ def safe_series(s: Optional[pd.Series]) -> pd.Series:
     return s.copy()
 
 
-def safe_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    return df.copy()
-
-
 # ============================================================
 # Basic return/risk math
 # ============================================================
@@ -216,13 +205,6 @@ def ret_from_nav(nav: pd.Series, window: int) -> float:
     if start <= 0:
         return float("nan")
     return (end / start) - 1.0
-
-
-def annualized_vol(daily_ret: pd.Series) -> float:
-    daily_ret = safe_series(daily_ret).astype(float)
-    if len(daily_ret) < 2:
-        return float("nan")
-    return float(daily_ret.std() * np.sqrt(252))
 
 
 def max_drawdown(nav: pd.Series) -> float:
@@ -400,26 +382,10 @@ def fetch_prices_daily(tickers: List[str], days: int = 365) -> pd.DataFrame:
     return data
 
 
-@st.cache_data(show_spinner=False)
-def compute_spy_nav(days: int = 365) -> pd.Series:
-    px = fetch_prices_daily(["SPY"], days=days)
-    if px.empty or "SPY" not in px.columns:
-        return pd.Series(dtype=float)
-    nav = (1.0 + px["SPY"].pct_change().fillna(0.0)).cumprod()
-    nav.name = "spy_nav"
-    return nav
-
-
 # ============================================================
 # HISTORY LOADER (engine → CSV fallback)
 # ============================================================
 def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standard output columns expected by this app:
-      index = datetime
-      columns include:
-        wave_nav, bm_nav, wave_ret, bm_ret
-    """
     if df is None or df.empty:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
 
@@ -435,12 +401,9 @@ def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
     out.index = pd.to_datetime(out.index, errors="coerce")
     out = out[~out.index.isna()].sort_index()
 
-    # Normalize common column names
     ren = {}
     for c in out.columns:
-        cs = str(c).strip()
-        low = cs.lower()
-
+        low = str(c).strip().lower()
         if low in ["wave_nav", "nav_wave", "portfolio_nav", "wave value", "wavevalue", "nav", "portfolio_nav_usd"]:
             ren[c] = "wave_nav"
         if low in ["bm_nav", "bench_nav", "benchmark_nav", "benchmark value", "bm value", "benchmark_nav_usd"]:
@@ -452,13 +415,11 @@ def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
 
     out = out.rename(columns=ren)
 
-    # If returns missing but nav present, compute
     if "wave_ret" not in out.columns and "wave_nav" in out.columns:
         out["wave_ret"] = pd.to_numeric(out["wave_nav"], errors="coerce").pct_change()
     if "bm_ret" not in out.columns and "bm_nav" in out.columns:
         out["bm_ret"] = pd.to_numeric(out["bm_nav"], errors="coerce").pct_change()
 
-    # Force numeric
     for col in ["wave_nav", "bm_nav", "wave_ret", "bm_ret"]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -472,8 +433,7 @@ def load_wave_history_csv(path: str = "wave_history.csv") -> pd.DataFrame:
     if not os.path.exists(path):
         return pd.DataFrame()
     try:
-        df = pd.read_csv(path)
-        return df
+        return pd.read_csv(path)
     except Exception:
         return pd.DataFrame()
 
@@ -483,13 +443,6 @@ def _loose_eq(a: str, b: str) -> bool:
 
 
 def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
-    """
-    Attempts to build history from wave_history.csv.
-    Supports:
-      - with or without Mode column
-      - with date column or datetime index
-      - loose matching for wave + mode
-    """
     raw = load_wave_history_csv("wave_history.csv")
     if raw is None or raw.empty:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
@@ -497,7 +450,6 @@ def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
     df = raw.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Find likely columns
     wave_cols = [c for c in df.columns if c.lower() in ["wave", "wave_name", "wavename"]]
     mode_cols = [c for c in df.columns if c.lower() in ["mode", "risk_mode", "strategy_mode"]]
     date_cols = [c for c in df.columns if c.lower() in ["date", "timestamp", "datetime"]]
@@ -510,7 +462,6 @@ def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
         df[wc] = df[wc].astype(str)
         df = df[df[wc].astype(str).apply(lambda x: _loose_eq(x, wave_name))]
 
-    # If mode column exists, allow alias matching
     if mc:
         df[mc] = df[mc].astype(str)
         cands = mode_candidates(mode)
@@ -528,24 +479,12 @@ def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def compute_wave_history(wave_name: str, mode: str, days: int = 365, force_csv: bool = False) -> pd.DataFrame:
-    """
-    Robust history fetch:
-      1) engine: compute_history_nav(wave, mode=..., days=...) using mode aliases
-      2) engine: compute_history_nav(wave, mode, days)  (positional)
-      3) engine: get_history_nav / get_wave_history / history_nav / compute_history using mode aliases
-      4) fallback: wave_history.csv (mode alias match)
-    """
-    # Force CSV for debug/demo stability if needed
-    if force_csv:
-        return history_from_csv(wave_name, mode, days)
-
-    # 0) If engine missing, go straight to CSV
-    if we is None:
+    if force_csv or we is None:
         return history_from_csv(wave_name, mode, days)
 
     cands = mode_candidates(mode)
 
-    # 1) Primary expected function
+    # Primary expected engine function
     try:
         if hasattr(we, "compute_history_nav"):
             for m in cands:
@@ -567,7 +506,7 @@ def compute_wave_history(wave_name: str, mode: str, days: int = 365, force_csv: 
     except Exception:
         pass
 
-    # 2) Alternate engine functions (common variants)
+    # Alternate engine functions
     candidates = ["get_history_nav", "get_wave_history", "history_nav", "compute_nav_history", "compute_history"]
     for fn in candidates:
         if hasattr(we, fn):
@@ -584,13 +523,11 @@ def compute_wave_history(wave_name: str, mode: str, days: int = 365, force_csv: 
                 except Exception:
                     continue
 
-    # 3) Fallback to CSV
     return history_from_csv(wave_name, mode, days)
 
 
 @st.cache_data(show_spinner=False)
 def get_all_waves_safe() -> List[str]:
-    # Prefer engine list if available
     if we is not None and hasattr(we, "get_all_waves"):
         try:
             waves = we.get_all_waves()
@@ -602,7 +539,6 @@ def get_all_waves_safe() -> List[str]:
         except Exception:
             pass
 
-    # fallback from config/weights/list
     for p in ["wave_config.csv", "wave_weights.csv", "list.csv"]:
         if os.path.exists(p):
             try:
@@ -616,7 +552,6 @@ def get_all_waves_safe() -> List[str]:
             except Exception:
                 pass
 
-    # fallback: benchmark mix table
     if we is not None and hasattr(we, "get_benchmark_mix_table"):
         try:
             bm = we.get_benchmark_mix_table()
@@ -654,778 +589,6 @@ def get_wave_holdings(wave_name: str) -> pd.DataFrame:
         except Exception:
             pass
 
-    # fallback: wave_weights.csv
-    if os.path.exists("wave_weights.csv"):
-        try:
-            df = pd.read_csv("wave_weights.csv")
-            cols = {c.lower(): c for c in df.columns}
-            if {"wave", "ticker", "weight"}.issubset(set(cols.keys())):
-                wf = df[df[cols["wave"]].astype(str).apply(lambda x: _loose_eq(x, wave_name))].copy()
-                wf["Ticker"] = wf[cols["ticker"]].astype(str).str.strip()
-                wf["Weight"] = pd.to_numeric(wf[cols["weight"]], errors="coerce").fillna(0.0)
-                wf = wf.groupby("Ticker", as_index=False)["Weight"].sum()
-                total = float(wf["Weight"].sum())
-                if total > 0:
-                    wf["Weight"] = wf["Weight"] / total
-                wf["Name"] = ""
-                return wf[["Ticker", "Name", "Weight"]]
-        except Exception:
-            pass
-
-    return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
-
-
-# ============================================================
-# Benchmark snapshot + drift tracking
-# ============================================================
-def _normalize_bm_rows(bm_rows: pd.DataFrame) -> pd.DataFrame:
-    if bm_rows is None or bm_rows.empty:
-        return pd.DataFrame(columns=["Ticker", "Weight"])
-    df = bm_rows.copy()
-    if "Ticker" not in df.columns or "Weight" not in df.columns:
-        return pd.DataFrame(columns=["Ticker", "Weight"])
-    df["Ticker"] = df["Ticker"].astype(str).str.upper().str.strip()
-    df["Weight"] = pd.to_numeric(df["Weight"], errors="coerce").fillna(0.0)
-    df = df.groupby("Ticker", as_index=False)["Weight"].sum()
-    tot = float(df["Weight"].sum())
-    if tot > 0:
-        df["Weight"] = df["Weight"] / tot
-    df["Weight"] = df["Weight"].round(8)
-    df = df.sort_values(["Ticker"]).reset_index(drop=True)
-    return df[["Ticker", "Weight"]]
-
-
-def benchmark_snapshot_id(wave_name: str, bm_mix_df: pd.DataFrame) -> str:
-    try:
-        if bm_mix_df is None or bm_mix_df.empty:
-            return "BM-NA"
-        rows = bm_mix_df[bm_mix_df["Wave"] == wave_name].copy() if "Wave" in bm_mix_df.columns else bm_mix_df.copy()
-        rows = _normalize_bm_rows(rows)
-        if rows.empty:
-            return "BM-NA"
-        payload = "|".join([f"{r.Ticker}:{r.Weight:.8f}" for r in rows.itertuples(index=False)])
-        h = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10].upper()
-        return f"BM-{h}"
-    except Exception:
-        return "BM-ERR"
-
-
-def benchmark_drift_status(wave_name: str, mode: str, snapshot_id: str) -> str:
-    key = f"bm_snapshot::{mode}::{wave_name}"
-    prior = st.session_state.get(key)
-    if prior is None:
-        st.session_state[key] = snapshot_id
-        return "stable"
-    if str(prior) == str(snapshot_id):
-        return "stable"
-    st.session_state[key] = snapshot_id
-    return "drift"
-
-
-def _business_day_range(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DatetimeIndex:
-    try:
-        return pd.date_range(start=start_dt.normalize(), end=end_dt.normalize(), freq="B")
-    except Exception:
-        return pd.DatetimeIndex([])
-
-
-def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
-    out: Dict[str, Any] = {
-        "rows": 0,
-        "first_date": None,
-        "last_date": None,
-        "age_days": None,
-        "missing_bdays": None,
-        "missing_pct": None,
-        "completeness_score": None,
-        "flags": [],
-    }
-    try:
-        if hist is None or hist.empty:
-            out["flags"].append("No history returned")
-            return out
-
-        idx = pd.to_datetime(hist.index)
-        idx = idx.sort_values()
-        out["rows"] = int(len(idx))
-        out["first_date"] = idx[0].date().isoformat() if len(idx) else None
-        out["last_date"] = idx[-1].date().isoformat() if len(idx) else None
-
-        today = datetime.utcnow().date()
-        last_dt = idx[-1].date()
-        out["age_days"] = int((today - last_dt).days)
-
-        bdays = _business_day_range(idx[0], idx[-1])
-        have = pd.DatetimeIndex(idx.normalize().unique())
-        missing = bdays.difference(have)
-        out["missing_bdays"] = int(len(missing))
-        out["missing_pct"] = float(len(missing) / max(1, len(bdays)))
-
-        score = 100.0
-        score -= min(40.0, out["missing_pct"] * 200.0)
-        if out["age_days"] is not None and out["age_days"] > 3:
-            score -= min(25.0, float(out["age_days"] - 3) * 5.0)
-        score = float(np.clip(score, 0.0, 100.0))
-        out["completeness_score"] = score
-
-        if
-        # app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
-# FULL PRODUCTION FILE (NO PATCHES) — STABLE UI + HISTORY FALLBACKS (MODE-ALIAS FIX)
-#
-# Fixes:
-#   1) Removes accidental st.stop() that prevented UI from rendering (already fixed here).
-#   2) Adds robust history loader:
-#        - tries engine functions (multiple signatures)
-#        - tries MULTIPLE mode aliases (Standard / standard / STANDARD, etc.)
-#        - falls back to wave_history.csv (already in repo)
-#   3) Shows diagnostics instead of blank screen if something fails.
-#
-# Keeps your structure:
-#   • Sticky summary bar
-#   • Alpha Heatmap
-#   • Risk Lab (Sharpe/Sortino/VaR/CVaR/Drawdown/Rolling)
-#   • Correlation matrix
-#   • WaveScore leaderboard (console-side approximation)
-#   • Benchmark snapshot + coverage panel
-#
-# Notes:
-#   • Engine math is not modified.
-#   • This app only *reads* history; if engine isn’t writing, we still display from wave_history.csv.
-
-from __future__ import annotations
-
-import os
-import math
-import hashlib
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
-import pandas as pd
-import streamlit as st
-
-# -------------------------------
-# Optional libs
-# -------------------------------
-try:
-    import yfinance as yf
-except Exception:
-    yf = None
-
-try:
-    import plotly.graph_objects as go
-except Exception:
-    go = None
-
-# -------------------------------
-# Engine import (guarded)
-# -------------------------------
-ENGINE_IMPORT_ERROR = None
-try:
-    import waves_engine as we  # your engine module
-except Exception as e:
-    we = None
-    ENGINE_IMPORT_ERROR = e
-
-
-# ============================================================
-# MODE ALIASES (critical fix)
-# ============================================================
-# Your UI names vs whatever the engine/CSV might store.
-# We will try these in order when calling the engine and filtering CSV.
-MODE_ALIASES: Dict[str, List[str]] = {
-    "Standard": [
-        "Standard", "standard", "STANDARD",
-        "Base", "BASE", "Normal", "NORMAL"
-    ],
-    "Alpha-Minus-Beta": [
-        "Alpha-Minus-Beta", "alpha-minus-beta", "ALPHA-MINUS-BETA",
-        "Alpha Minus Beta", "alpha minus beta",
-        "AMB", "amb"
-    ],
-    "Private Logic": [
-        "Private Logic", "private logic", "PRIVATE LOGIC",
-        "Private Logic™", "Private Logic Enhanced", "Private Logic Enhanced™",
-        "PLE", "ple"
-    ],
-}
-
-def mode_candidates(selected_mode: str) -> List[str]:
-    cands = MODE_ALIASES.get(selected_mode, [selected_mode])
-    # ensure unique, stable order
-    seen = set()
-    out: List[str] = []
-    for m in cands + [selected_mode]:
-        ms = str(m).strip()
-        if ms and ms not in seen:
-            out.append(ms)
-            seen.add(ms)
-    return out
-
-
-# ============================================================
-# Streamlit config
-# ============================================================
-st.set_page_config(
-    page_title="WAVES Intelligence™ Console",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ============================================================
-# Global UI CSS
-# ============================================================
-st.markdown(
-    """
-<style>
-.block-container { padding-top: 1rem; padding-bottom: 2.0rem; }
-
-/* Sticky summary container */
-.waves-sticky {
-  position: sticky;
-  top: 0;
-  z-index: 999;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  padding: 10px 12px 10px 12px;
-  margin: 0 0 12px 0;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(10, 15, 28, 0.66);
-}
-
-/* Summary chips */
-.waves-chip {
-  display: inline-block;
-  padding: 6px 10px;
-  margin: 6px 8px 0 0;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
-  font-size: 0.85rem;
-  line-height: 1.0rem;
-  white-space: nowrap;
-}
-
-/* Section header */
-.waves-hdr { font-weight: 800; letter-spacing: 0.2px; margin-bottom: 4px; }
-
-/* Tighter tables */
-div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
-
-/* Reduce whitespace for mobile */
-@media (max-width: 700px) {
-  .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# ============================================================
-# Helpers: formatting
-# ============================================================
-def fmt_pct(x: Any, digits: int = 2) -> str:
-    try:
-        if x is None:
-            return "—"
-        x = float(x)
-        if math.isnan(x):
-            return "—"
-        return f"{x*100:0.{digits}f}%"
-    except Exception:
-        return "—"
-
-
-def fmt_num(x: Any, digits: int = 2) -> str:
-    try:
-        if x is None:
-            return "—"
-        x = float(x)
-        if math.isnan(x):
-            return "—"
-        return f"{x:.{digits}f}"
-    except Exception:
-        return "—"
-
-
-def fmt_score(x: Any) -> str:
-    try:
-        if x is None:
-            return "—"
-        x = float(x)
-        if math.isnan(x):
-            return "—"
-        return f"{x:.1f}"
-    except Exception:
-        return "—"
-
-
-def safe_series(s: Optional[pd.Series]) -> pd.Series:
-    if s is None or len(s) == 0:
-        return pd.Series(dtype=float)
-    return s.copy()
-
-
-def safe_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    return df.copy()
-
-
-# ============================================================
-# Basic return/risk math
-# ============================================================
-def ret_from_nav(nav: pd.Series, window: int) -> float:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < 2:
-        return float("nan")
-    window = max(2, min(int(window), len(nav)))
-    sub = nav.iloc[-window:]
-    start = float(sub.iloc[0])
-    end = float(sub.iloc[-1])
-    if start <= 0:
-        return float("nan")
-    return (end / start) - 1.0
-
-
-def annualized_vol(daily_ret: pd.Series) -> float:
-    daily_ret = safe_series(daily_ret).astype(float)
-    if len(daily_ret) < 2:
-        return float("nan")
-    return float(daily_ret.std() * np.sqrt(252))
-
-
-def max_drawdown(nav: pd.Series) -> float:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < 2:
-        return float("nan")
-    running_max = nav.cummax()
-    dd = (nav / running_max) - 1.0
-    return float(dd.min())
-
-
-def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
-    daily_wave = safe_series(daily_wave).astype(float)
-    daily_bm = safe_series(daily_bm).astype(float)
-    df = pd.concat([daily_wave.rename("w"), daily_bm.rename("b")], axis=1).dropna()
-    if df.shape[0] < 2:
-        return float("nan")
-    diff = df["w"] - df["b"]
-    return float(diff.std() * np.sqrt(252))
-
-
-def information_ratio(nav_wave: pd.Series, nav_bm: pd.Series, te: float) -> float:
-    nav_wave = safe_series(nav_wave).astype(float)
-    nav_bm = safe_series(nav_bm).astype(float)
-    if len(nav_wave) < 2 or len(nav_bm) < 2:
-        return float("nan")
-    if te is None or (isinstance(te, float) and (math.isnan(te) or te <= 0)):
-        return float("nan")
-    excess = ret_from_nav(nav_wave, len(nav_wave)) - ret_from_nav(nav_bm, len(nav_bm))
-    return float(excess / te)
-
-
-def beta_ols(y: pd.Series, x: pd.Series) -> float:
-    y = safe_series(y).astype(float)
-    x = safe_series(x).astype(float)
-    df = pd.concat([y.rename("y"), x.rename("x")], axis=1).dropna()
-    if df.shape[0] < 20:
-        return float("nan")
-    vx = float(df["x"].var())
-    if not math.isfinite(vx) or vx <= 0:
-        return float("nan")
-    cov = float(df["y"].cov(df["x"]))
-    return float(cov / vx)
-
-
-def sharpe_ratio(daily_ret: pd.Series, rf_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    rf_daily = rf_annual / 252.0
-    ex = r - rf_daily
-    vol = float(ex.std())
-    if not math.isfinite(vol) or vol <= 0:
-        return float("nan")
-    return float(ex.mean() / vol * np.sqrt(252))
-
-
-def downside_deviation(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    mar_daily = mar_annual / 252.0
-    d = np.minimum(0.0, (r - mar_daily).values)
-    dd = float(np.sqrt(np.mean(d**2)))
-    return float(dd * np.sqrt(252))
-
-
-def sortino_ratio(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    mar_daily = mar_annual / 252.0
-    ex = float((r - mar_daily).mean()) * 252.0
-    dd = downside_deviation(r, mar_annual=mar_annual)
-    if not math.isfinite(dd) or dd <= 0:
-        return float("nan")
-    return float(ex / dd)
-
-
-def var_cvar(daily_ret: pd.Series, level: float = 0.95) -> Tuple[float, float]:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 50:
-        return (float("nan"), float("nan"))
-    q = float(np.quantile(r.values, 1.0 - level))
-    tail = r[r <= q]
-    cvar = float(tail.mean()) if len(tail) else float("nan")
-    return (q, cvar)
-
-
-def skew_kurt(daily_ret: pd.Series) -> Tuple[float, float]:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 50:
-        return (float("nan"), float("nan"))
-    sk = float(pd.Series(r).skew())
-    ku = float(pd.Series(r).kurtosis())
-    return (sk, ku)
-
-
-def rolling_return_from_nav(nav: pd.Series, window: int) -> pd.Series:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < window + 1:
-        return pd.Series(dtype=float)
-    return (nav / nav.shift(window) - 1.0).rename(f"ret_{window}")
-
-
-def rolling_alpha_from_nav(wave_nav: pd.Series, bm_nav: pd.Series, window: int) -> pd.Series:
-    w = rolling_return_from_nav(wave_nav, window)
-    b = rolling_return_from_nav(bm_nav, window)
-    df = pd.concat([w, b], axis=1).dropna()
-    if df.empty:
-        return pd.Series(dtype=float)
-    return (df.iloc[:, 0] - df.iloc[:, 1]).rename(f"alpha_{window}")
-
-
-def rolling_vol(daily_ret: pd.Series, window: int = 20) -> pd.Series:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < window + 5:
-        return pd.Series(dtype=float)
-    return (r.rolling(window).std() * np.sqrt(252)).rename(f"vol_{window}")
-
-
-def drawdown_series(nav: pd.Series) -> pd.Series:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < 2:
-        return pd.Series(dtype=float)
-    peak = nav.cummax()
-    return ((nav / peak) - 1.0).rename("drawdown")
-
-
-def alpha_persistence(alpha_series: pd.Series) -> float:
-    a = safe_series(alpha_series).dropna()
-    if len(a) < 30:
-        return float("nan")
-    return float((a > 0).mean())
-
-
-# ============================================================
-# Data fetch (optional)
-# ============================================================
-@st.cache_data(show_spinner=False)
-def fetch_prices_daily(tickers: List[str], days: int = 365) -> pd.DataFrame:
-    if yf is None or not tickers:
-        return pd.DataFrame()
-
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=days + 260)
-
-    data = yf.download(
-        tickers=sorted(list(set(tickers))),
-        start=start.isoformat(),
-        end=end.isoformat(),
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
-
-    if isinstance(data.columns, pd.MultiIndex):
-        if "Adj Close" in data.columns.get_level_values(0):
-            data = data["Adj Close"]
-        elif "Close" in data.columns.get_level_values(0):
-            data = data["Close"]
-        else:
-            data = data[data.columns.levels[0][0]]
-
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.droplevel(0, axis=1)
-
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-
-    data = data.sort_index().ffill().bfill()
-    if len(data) > days:
-        data = data.iloc[-days:]
-    return data
-
-
-@st.cache_data(show_spinner=False)
-def compute_spy_nav(days: int = 365) -> pd.Series:
-    px = fetch_prices_daily(["SPY"], days=days)
-    if px.empty or "SPY" not in px.columns:
-        return pd.Series(dtype=float)
-    nav = (1.0 + px["SPY"].pct_change().fillna(0.0)).cumprod()
-    nav.name = "spy_nav"
-    return nav
-
-
-# ============================================================
-# HISTORY LOADER (engine → CSV fallback)
-# ============================================================
-def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standard output columns expected by this app:
-      index = datetime
-      columns include:
-        wave_nav, bm_nav, wave_ret, bm_ret
-    """
-    if df is None or df.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    out = df.copy()
-
-    # If date column exists, set as index
-    for dc in ["date", "Date", "timestamp", "Timestamp", "datetime", "Datetime"]:
-        if dc in out.columns:
-            out[dc] = pd.to_datetime(out[dc], errors="coerce")
-            out = out.dropna(subset=[dc]).set_index(dc)
-            break
-
-    out.index = pd.to_datetime(out.index, errors="coerce")
-    out = out[~out.index.isna()].sort_index()
-
-    # Normalize common column names
-    ren = {}
-    for c in out.columns:
-        cs = str(c).strip()
-        low = cs.lower()
-
-        if low in ["wave_nav", "nav_wave", "portfolio_nav", "wave value", "wavevalue", "nav", "portfolio_nav_usd"]:
-            ren[c] = "wave_nav"
-        if low in ["bm_nav", "bench_nav", "benchmark_nav", "benchmark value", "bm value", "benchmark_nav_usd"]:
-            ren[c] = "bm_nav"
-        if low in ["wave_ret", "ret_wave", "portfolio_ret", "wave return", "portfolio_return"]:
-            ren[c] = "wave_ret"
-        if low in ["bm_ret", "ret_bm", "benchmark_ret", "benchmark return", "benchmark_return"]:
-            ren[c] = "bm_ret"
-
-    out = out.rename(columns=ren)
-
-    # If returns missing but nav present, compute
-    if "wave_ret" not in out.columns and "wave_nav" in out.columns:
-        out["wave_ret"] = pd.to_numeric(out["wave_nav"], errors="coerce").pct_change()
-    if "bm_ret" not in out.columns and "bm_nav" in out.columns:
-        out["bm_ret"] = pd.to_numeric(out["bm_nav"], errors="coerce").pct_change()
-
-    # Force numeric
-    for col in ["wave_nav", "bm_nav", "wave_ret", "bm_ret"]:
-        if col in out.columns:
-            out[col] = pd.to_numeric(out[col], errors="coerce")
-
-    out = out[["wave_nav", "bm_nav", "wave_ret", "bm_ret"]].dropna(how="all")
-    return out
-
-
-@st.cache_data(show_spinner=False)
-def load_wave_history_csv(path: str = "wave_history.csv") -> pd.DataFrame:
-    if not os.path.exists(path):
-        return pd.DataFrame()
-    try:
-        df = pd.read_csv(path)
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-def _loose_eq(a: str, b: str) -> bool:
-    return str(a).strip().lower() == str(b).strip().lower()
-
-
-def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
-    """
-    Attempts to build history from wave_history.csv.
-    Supports:
-      - with or without Mode column
-      - with date column or datetime index
-      - loose matching for wave + mode
-    """
-    raw = load_wave_history_csv("wave_history.csv")
-    if raw is None or raw.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
-
-    df = raw.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-
-    # Find likely columns
-    wave_cols = [c for c in df.columns if c.lower() in ["wave", "wave_name", "wavename"]]
-    mode_cols = [c for c in df.columns if c.lower() in ["mode", "risk_mode", "strategy_mode"]]
-    date_cols = [c for c in df.columns if c.lower() in ["date", "timestamp", "datetime"]]
-
-    wc = wave_cols[0] if wave_cols else None
-    mc = mode_cols[0] if mode_cols else None
-    dc = date_cols[0] if date_cols else None
-
-    if wc:
-        df[wc] = df[wc].astype(str)
-        df = df[df[wc].astype(str).apply(lambda x: _loose_eq(x, wave_name))]
-
-    # If mode column exists, allow alias matching
-    if mc:
-        df[mc] = df[mc].astype(str)
-        cands = mode_candidates(mode)
-        df = df[df[mc].astype(str).apply(lambda x: any(_loose_eq(x, m) for m in cands))]
-
-    if dc:
-        df[dc] = pd.to_datetime(df[dc], errors="coerce")
-        df = df.dropna(subset=[dc]).sort_values(dc).set_index(dc)
-
-    out = _standardize_history(df)
-    if len(out) > days:
-        out = out.iloc[-days:]
-    return out
-
-
-@st.cache_data(show_spinner=False)
-def compute_wave_history(wave_name: str, mode: str, days: int = 365, force_csv: bool = False) -> pd.DataFrame:
-    """
-    Robust history fetch:
-      1) engine: compute_history_nav(wave, mode=..., days=...) using mode aliases
-      2) engine: compute_history_nav(wave, mode, days)  (positional)
-      3) engine: get_history_nav / get_wave_history / history_nav / compute_history using mode aliases
-      4) fallback: wave_history.csv (mode alias match)
-    """
-    # Force CSV for debug/demo stability if needed
-    if force_csv:
-        return history_from_csv(wave_name, mode, days)
-
-    # 0) If engine missing, go straight to CSV
-    if we is None:
-        return history_from_csv(wave_name, mode, days)
-
-    cands = mode_candidates(mode)
-
-    # 1) Primary expected function
-    try:
-        if hasattr(we, "compute_history_nav"):
-            for m in cands:
-                try:
-                    df = we.compute_history_nav(wave_name, mode=m, days=days)
-                    df = _standardize_history(df)
-                    if not df.empty:
-                        return df
-                except TypeError:
-                    try:
-                        df = we.compute_history_nav(wave_name, m, days)
-                        df = _standardize_history(df)
-                        if not df.empty:
-                            return df
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    # 2) Alternate engine functions (common variants)
-    candidates = ["get_history_nav", "get_wave_history", "history_nav", "compute_nav_history", "compute_history"]
-    for fn in candidates:
-        if hasattr(we, fn):
-            f = getattr(we, fn)
-            for m in cands:
-                try:
-                    try:
-                        df = f(wave_name, mode=m, days=days)
-                    except TypeError:
-                        df = f(wave_name, m, days)
-                    df = _standardize_history(df)
-                    if not df.empty:
-                        return df
-                except Exception:
-                    continue
-
-    # 3) Fallback to CSV
-    return history_from_csv(wave_name, mode, days)
-
-
-@st.cache_data(show_spinner=False)
-def get_all_waves_safe() -> List[str]:
-    # Prefer engine list if available
-    if we is not None and hasattr(we, "get_all_waves"):
-        try:
-            waves = we.get_all_waves()
-            if isinstance(waves, (list, tuple)):
-                out = [str(x).strip() for x in waves]
-                out = [w for w in out if w and w.lower() != "nan"]
-                if out:
-                    return sorted(out)
-        except Exception:
-            pass
-
-    # fallback from config/weights/list
-    for p in ["wave_config.csv", "wave_weights.csv", "list.csv"]:
-        if os.path.exists(p):
-            try:
-                df = pd.read_csv(p)
-                for col in ["Wave", "wave", "wave_name", "wavename"]:
-                    if col in df.columns:
-                        waves = sorted(list(set(df[col].astype(str).str.strip().tolist())))
-                        waves = [w for w in waves if w and w.lower() != "nan"]
-                        if waves:
-                            return waves
-            except Exception:
-                pass
-
-    # fallback: benchmark mix table
-    if we is not None and hasattr(we, "get_benchmark_mix_table"):
-        try:
-            bm = we.get_benchmark_mix_table()
-            if isinstance(bm, pd.DataFrame) and "Wave" in bm.columns:
-                waves = sorted(list(set(bm["Wave"].astype(str).str.strip().tolist())))
-                waves = [w for w in waves if w and w.lower() != "nan"]
-                return waves
-        except Exception:
-            pass
-
-    return []
-
-
-@st.cache_data(show_spinner=False)
-def get_benchmark_mix() -> pd.DataFrame:
-    if we is None:
-        return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
-    if hasattr(we, "get_benchmark_mix_table"):
-        try:
-            df = we.get_benchmark_mix_table()
-            if isinstance(df, pd.DataFrame):
-                return df
-        except Exception:
-            pass
-    return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
-
-
-@st.cache_data(show_spinner=False)
-def get_wave_holdings(wave_name: str) -> pd.DataFrame:
-    if we is not None and hasattr(we, "get_wave_holdings"):
-        try:
-            df = we.get_wave_holdings(wave_name)
-            if isinstance(df, pd.DataFrame):
-                return df
-        except Exception:
-            pass
-
-    # fallback: wave_weights.csv
     if os.path.exists("wave_weights.csv"):
         try:
             df = pd.read_csv("wave_weights.csv")
@@ -1530,7 +693,6 @@ def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
         today = datetime.utcnow().date()
         out["age_days"] = int((today - idx[-1].date()).days)
 
-        # Expected business days between first and last
         bdays = _business_day_range(idx[0], idx[-1])
         have = pd.DatetimeIndex(idx.normalize().unique())
         missing = bdays.difference(have)
@@ -1552,54 +714,6 @@ def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
         if out["rows"] < 60:
             out["flags"].append("Limited history (<60 points)")
 
-        return out
-    except Exception:
-        out["flags"].append("Coverage report error")
-        return out
-    out: Dict[str, Any] = {
-        "rows": 0,
-        "first_date": None,
-        "last_date": None,
-        "age_days": None,
-        "missing_bdays": None,
-        "missing_pct": None,
-        "completeness_score": None,
-        "flags": [],
-    }
-    try:
-        if hist is None or hist.empty:
-            out["flags"].append("No history returned")
-            return out
-
-        idx = pd.to_datetime(hist.index)
-        idx = idx.sort_values()
-        out["rows"] = int(len(idx))
-        out["first_date"] = idx[0].date().isoformat() if len(idx) else None
-        out["last_date"] = idx[-1].date().isoformat() if len(idx) else None
-
-        today = datetime.utcnow().date()
-        last_dt = idx[-1].date()
-        out["age_days"] = int((today - last_dt).days)
-
-        bdays = _business_day_range(idx[0], idx[-1])
-        have = pd.DatetimeIndex(idx.normalize().unique())
-        missing = bdays.difference(have)
-        out["missing_bdays"] = int(len(missing))
-        out["missing_pct"] = float(len(missing) / max(1, len(bdays)))
-
-        score = 100.0
-        score -= min(40.0, out["missing_pct"] * 200.0)
-        if out["age_days"] is not None and out["age_days"] > 3:
-            score -= min(25.0, float(out["age_days"] - 3) * 5.0)
-        score = float(np.clip(score, 0.0, 100.0))
-        out["completeness_score"] = score
-
-        if out["age_days"] is not None and out["age_days"] >= 7:
-            out["flags"].append("Data is stale (>=7 days old)")
-        if out["missing_pct"] is not None and out["missing_pct"] >= 0.05:
-            out["flags"].append("Significant missing business days (>=5%)")
-        if out["rows"] < 60:
-            out["flags"].append("Limited history (<60 points)")
         return out
     except Exception:
         out["flags"].append("Coverage report error")
@@ -1643,7 +757,6 @@ def compute_wavescore_for_all_waves(all_waves: List[str], mode: str, days: int =
         mdd_wave = max_drawdown(nav_wave)
         hit_rate = float((wave_ret >= bm_ret).mean()) if len(wave_ret) else np.nan
 
-        # light scoring (display only)
         rq = float(np.clip((np.nan_to_num(ir) / 1.5), 0.0, 1.0) * 25.0)
         rc = float(np.clip(1.0 - (abs(np.nan_to_num(mdd_wave)) / 0.35), 0.0, 1.0) * 25.0)
         co = float(np.clip(np.nan_to_num(hit_rate), 0.0, 1.0) * 15.0)
@@ -1719,7 +832,6 @@ def plot_alpha_heatmap(alpha_df: pd.DataFrame, selected_wave: str, title: str):
 # ============================================================
 st.title("WAVES Intelligence™ Institutional Console")
 
-# Engine import status
 if ENGINE_IMPORT_ERROR is not None:
     st.error("Engine import failed. The app will use CSV fallbacks where possible.")
     st.code(str(ENGINE_IMPORT_ERROR))
@@ -1730,7 +842,7 @@ if not all_waves:
     with st.expander("Diagnostics"):
         st.write("Files present:")
         st.write({p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py"]})
-        st.stop()
+    st.stop()
 
 modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
 
@@ -1739,9 +851,8 @@ with st.sidebar:
     mode = st.selectbox("Mode", modes, index=0)
     selected_wave = st.selectbox("Wave", all_waves, index=0)
     days = st.slider("History window (days)", min_value=90, max_value=1500, value=365, step=30)
-
     force_csv = st.toggle("Force CSV history (debug/demo)", value=False)
-    st.caption("If history is empty, app will fall back to wave_history.csv automatically. Force CSV lets you confirm the file works.")
+    st.caption("History uses Engine → CSV fallback automatically. Force CSV confirms wave_history.csv works.")
 
 bm_mix = get_benchmark_mix()
 bm_id = benchmark_snapshot_id(selected_wave, bm_mix)
@@ -1782,7 +893,6 @@ if not hist.empty and len(hist) >= 2:
     ir = information_ratio(hist["wave_nav"], hist["bm_nav"], te)
     mdd = max_drawdown(hist["wave_nav"])
 
-# rank from wavescore table
 ws_df = compute_wavescore_for_all_waves(all_waves, mode=mode, days=min(days, 365), force_csv=force_csv)
 rank = None
 ws_val = np.nan
@@ -1794,16 +904,17 @@ if not ws_df.empty and selected_wave in set(ws_df["Wave"]):
     except Exception:
         rank = None
 
-chips = []
-chips.append(f"BM Snapshot: {bm_id} · {'Stable' if bm_drift=='stable' else 'DRIFT'}")
-chips.append(f"Coverage: {fmt_num(cov.get('completeness_score', np.nan), 1)} / 100")
-chips.append(f"Rows: {cov.get('rows','—')} · Age: {cov.get('age_days','—')}")
-chips.append(f"Regime: {regime}")
-chips.append(f"VIX: {fmt_num(vix_val,1) if math.isfinite(vix_val) else '—'}")
-chips.append(f"30D α: {fmt_pct(a30)} · 30D r: {fmt_pct(r30)}")
-chips.append(f"365D α: {fmt_pct(a365)} · 365D r: {fmt_pct(r365)}")
-chips.append(f"TE: {fmt_pct(te)} · IR: {fmt_num(ir,2)}")
-chips.append(f"WaveScore: {fmt_score(ws_val)} ({_grade_from_score(ws_val)}) · Rank: {rank if rank else '—'}")
+chips = [
+    f"BM Snapshot: {bm_id} · {'Stable' if bm_drift=='stable' else 'DRIFT'}",
+    f"Coverage: {fmt_num(cov.get('completeness_score', np.nan), 1)} / 100",
+    f"Rows: {cov.get('rows','—')} · Age: {cov.get('age_days','—')}",
+    f"Regime: {regime}",
+    f"VIX: {fmt_num(vix_val,1) if math.isfinite(vix_val) else '—'}",
+    f"30D α: {fmt_pct(a30)} · 30D r: {fmt_pct(r30)}",
+    f"365D α: {fmt_pct(a365)} · 365D r: {fmt_pct(r365)}",
+    f"TE: {fmt_pct(te)} · IR: {fmt_num(ir,2)}",
+    f"WaveScore: {fmt_score(ws_val)} ({_grade_from_score(ws_val)}) · Rank: {rank if rank else '—'}",
+]
 
 st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
 for c in chips:
@@ -1821,7 +932,7 @@ with tabs[0]:
     plot_alpha_heatmap(alpha_df, selected_wave, title=f"Alpha Heatmap — Mode: {mode}")
 
     st.subheader("Coverage & Data Integrity")
-    if cov["rows"] == 0:
+    if cov.get("rows", 0) == 0:
         st.warning("No history returned for this wave/mode. The app attempted engine → CSV fallback (with mode aliases).")
         st.caption(f"Mode candidates tried: {mode_candidates(mode)}")
 
@@ -1846,18 +957,18 @@ with tabs[0]:
         st.dataframe(hold2.head(10), use_container_width=True)
 
 # -------------------------
-# Factor Decomposition (light placeholder - engine dependent)
+# Factor Decomposition
 # -------------------------
 with tabs[1]:
     st.subheader("Factor Decomposition (Light)")
-    st.caption("If you have factor returns in your engine, we can plug them here. For now we show beta vs benchmark.")
+    st.caption("For now we show beta vs benchmark (single-factor).")
 
     if hist.empty or len(hist) < 20:
         st.info("Not enough history.")
     else:
         b = beta_ols(hist["wave_ret"], hist["bm_ret"])
         st.metric("Beta vs Benchmark", fmt_num(b, 2))
-        st.write("Tip: If you add factor series (e.g., SPY/QQQ/IWM/TLT/GLD/BTC) we can run a multi-factor regression here.")
+        st.write("Tip: If you add factor series (SPY/QQQ/IWM/TLT/GLD/BTC) we can run multi-factor regression here.")
 
 # -------------------------
 # Risk Lab
@@ -1874,7 +985,6 @@ with tabs[2]:
         dd = downside_deviation(r, 0.0)
         sk, ku = skew_kurt(r)
         v95, c95 = var_cvar(r, 0.95)
-        mdd_b = max_drawdown(hist["bm_nav"])
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Sharpe (0% rf)", fmt_num(sh, 2))
