@@ -65,9 +65,12 @@ except Exception:
     go = None
 
 st.write("Booting…")
-st.write("Before engine import")
-import waves_engine as we
-st.write("After engine import")
+st.write("Engine imported")
+
+st.write("Calling get_all_waves()")
+waves = we.get_all_waves()
+st.write("Waves:", waves)
+
 st.stop()
 
 # ============================================================
