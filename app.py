@@ -1205,7 +1205,7 @@ with tab_console:
         a60 = r60w - r60b
 
         r365w = ret_from_nav(nav_w, len(nav_w))
-        r365b = ret_from_nav(nav_b, len(nav_b)))
+        r365b = ret_from_nav(nav_b, len(nav_b))
         a365 = r365w - r365b
 
         overview_rows.append(
