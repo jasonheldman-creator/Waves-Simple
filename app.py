@@ -64,6 +64,8 @@ try:
 except Exception:
     go = None
 
+st.write("Booting…")
+st.stop()
 
 # ============================================================
 # Streamlit config
