@@ -1,501 +1,118 @@
 wave,ticker,weight
-S&P 500 Wave,AAPL,0.103673
-S&P 500 Wave,MSFT,0.093807
-S&P 500 Wave,AMZN,0.084879
-S&P 500 Wave,NVDA,0.076800
-S&P 500 Wave,GOOGL,0.069490
-S&P 500 Wave,META,0.062876
-S&P 500 Wave,BRK-B,0.056892
-S&P 500 Wave,JPM,0.051476
-S&P 500 Wave,JNJ,0.046571
-S&P 500 Wave,XOM,0.042127
-S&P 500 Wave,V,0.038100
-S&P 500 Wave,PG,0.034451
-S&P 500 Wave,UNH,0.031144
-S&P 500 Wave,HD,0.028149
-S&P 500 Wave,MA,0.025439
-S&P 500 Wave,AVGO,0.022990
-S&P 500 Wave,LLY,0.020779
-S&P 500 Wave,COST,0.018785
-S&P 500 Wave,MRK,0.016988
-S&P 500 Wave,ABBV,0.015363
-S&P 500 Wave,KO,0.013893
-S&P 500 Wave,PEP,0.012565
-S&P 500 Wave,ADBE,0.011368
-S&P 500 Wave,CRM,0.010291
-S&P 500 Wave,WMT,0.009317
-AI Wave,NVDA,0.103673
-AI Wave,MSFT,0.093807
-AI Wave,GOOGL,0.084879
-AI Wave,AMZN,0.076800
-AI Wave,META,0.069490
-AI Wave,AAPL,0.062876
-AI Wave,AMD,0.056892
-AI Wave,AVGO,0.051476
-AI Wave,TSM,0.046571
-AI Wave,ASML,0.042127
-AI Wave,ORCL,0.038100
-AI Wave,CRM,0.034451
-AI Wave,NOW,0.031144
-AI Wave,SNOW,0.028149
-AI Wave,PLTR,0.025439
-AI Wave,IBM,0.022990
-AI Wave,INTC,0.020779
-AI Wave,QCOM,0.018785
-AI Wave,MU,0.016988
-AI Wave,ADI,0.015363
-AI Wave,TXN,0.013893
-AI Wave,ARM,0.012565
-AI Wave,SMCI,0.011368
-AI Wave,ANET,0.010291
-AI Wave,DELL,0.009317
-Quantum Computing Wave,IONQ,0.103673
-Quantum Computing Wave,RGTI,0.093807
-Quantum Computing Wave,QBTS,0.084879
-Quantum Computing Wave,QUBT,0.076800
-Quantum Computing Wave,IBM,0.069490
-Quantum Computing Wave,GOOGL,0.062876
-Quantum Computing Wave,MSFT,0.056892
-Quantum Computing Wave,AMZN,0.051476
-Quantum Computing Wave,NVDA,0.046571
-Quantum Computing Wave,INTC,0.042127
-Quantum Computing Wave,AMD,0.038100
-Quantum Computing Wave,MU,0.034451
-Quantum Computing Wave,AVGO,0.031144
-Quantum Computing Wave,TSM,0.028149
-Quantum Computing Wave,ASML,0.025439
-Quantum Computing Wave,LRCX,0.022990
-Quantum Computing Wave,AMAT,0.020779
-Quantum Computing Wave,KLAC,0.018785
-Quantum Computing Wave,QCOM,0.016988
-Quantum Computing Wave,TXN,0.015363
-Quantum Computing Wave,ADI,0.013893
-Quantum Computing Wave,NXPI,0.012565
-Quantum Computing Wave,TER,0.011368
-Quantum Computing Wave,HON,0.010291
-Quantum Computing Wave,ACN,0.009317
-Crypto Income Wave,COIN,0.103673
-Crypto Income Wave,MSTR,0.093807
-Crypto Income Wave,MARA,0.084879
-Crypto Income Wave,RIOT,0.076800
-Crypto Income Wave,CLSK,0.069490
-Crypto Income Wave,HUT,0.062876
-Crypto Income Wave,BITF,0.056892
-Crypto Income Wave,CIFR,0.051476
-Crypto Income Wave,WULF,0.046571
-Crypto Income Wave,IREN,0.042127
-Crypto Income Wave,SQ,0.038100
-Crypto Income Wave,PYPL,0.034451
-Crypto Income Wave,HOOD,0.031144
-Crypto Income Wave,V,0.028149
-Crypto Income Wave,MA,0.025439
-Crypto Income Wave,CME,0.022990
-Crypto Income Wave,ICE,0.020779
-Crypto Income Wave,JPM,0.018785
-Crypto Income Wave,GS,0.016988
-Crypto Income Wave,MS,0.015363
-Crypto Income Wave,SCHW,0.013893
-Crypto Income Wave,NDAQ,0.012565
-Crypto Income Wave,FIS,0.011368
-Crypto Income Wave,GPN,0.010291
-Crypto Income Wave,BK,0.009317
-Cloud/Software Wave,MSFT,0.103673
-Cloud/Software Wave,AMZN,0.093807
-Cloud/Software Wave,GOOGL,0.084879
-Cloud/Software Wave,ORCL,0.076800
-Cloud/Software Wave,CRM,0.069490
-Cloud/Software Wave,NOW,0.062876
-Cloud/Software Wave,SNOW,0.056892
-Cloud/Software Wave,DDOG,0.051476
-Cloud/Software Wave,MDB,0.046571
-Cloud/Software Wave,TEAM,0.042127
-Cloud/Software Wave,ADBE,0.038100
-Cloud/Software Wave,INTU,0.034451
-Cloud/Software Wave,SHOP,0.031144
-Cloud/Software Wave,NET,0.028149
-Cloud/Software Wave,OKTA,0.025439
-Cloud/Software Wave,ZS,0.022990
-Cloud/Software Wave,PANW,0.020779
-Cloud/Software Wave,FTNT,0.018785
-Cloud/Software Wave,CRWD,0.016988
-Cloud/Software Wave,TWLO,0.015363
-Cloud/Software Wave,ZM,0.013893
-Cloud/Software Wave,DOCN,0.012565
-Cloud/Software Wave,GTLB,0.011368
-Cloud/Software Wave,HUBS,0.010291
-Cloud/Software Wave,WIX,0.009317
-Cybersecurity Wave,PANW,0.103673
-Cybersecurity Wave,CRWD,0.093807
-Cybersecurity Wave,FTNT,0.084879
-Cybersecurity Wave,ZS,0.076800
-Cybersecurity Wave,OKTA,0.069490
-Cybersecurity Wave,S,0.062876
-Cybersecurity Wave,NET,0.056892
-Cybersecurity Wave,CYBR,0.051476
-Cybersecurity Wave,TENB,0.046571
-Cybersecurity Wave,RPD,0.042127
-Cybersecurity Wave,VRNS,0.038100
-Cybersecurity Wave,CHKP,0.034451
-Cybersecurity Wave,GEN,0.031144
-Cybersecurity Wave,AKAM,0.028149
-Cybersecurity Wave,CSCO,0.025439
-Cybersecurity Wave,MSFT,0.022990
-Cybersecurity Wave,IBM,0.020779
-Cybersecurity Wave,QCOM,0.018785
-Cybersecurity Wave,AVGO,0.016988
-Cybersecurity Wave,TXN,0.015363
-Cybersecurity Wave,ADI,0.013893
-Cybersecurity Wave,AMZN,0.012565
-Cybersecurity Wave,GOOGL,0.011368
-Cybersecurity Wave,META,0.010291
-Cybersecurity Wave,BBAI,0.009317
-FinTech Wave,V,0.103673
-FinTech Wave,MA,0.093807
-FinTech Wave,JPM,0.084879
-FinTech Wave,BAC,0.076800
-FinTech Wave,WFC,0.069490
-FinTech Wave,GS,0.062876
-FinTech Wave,MS,0.056892
-FinTech Wave,SCHW,0.051476
-FinTech Wave,BLK,0.046571
-FinTech Wave,SPGI,0.042127
-FinTech Wave,ICE,0.038100
-FinTech Wave,CME,0.034451
-FinTech Wave,PAYX,0.031144
-FinTech Wave,ADP,0.028149
-FinTech Wave,PYPL,0.025439
-FinTech Wave,SQ,0.022990
-FinTech Wave,SOFI,0.020779
-FinTech Wave,HOOD,0.018785
-FinTech Wave,AFRM,0.016988
-FinTech Wave,UPST,0.015363
-FinTech Wave,FIS,0.013893
-FinTech Wave,FISV,0.012565
-FinTech Wave,GPN,0.011368
-FinTech Wave,AXP,0.010291
-FinTech Wave,COF,0.009317
-Healthcare Innovation Wave,LLY,0.103673
-Healthcare Innovation Wave,UNH,0.093807
-Healthcare Innovation Wave,JNJ,0.084879
-Healthcare Innovation Wave,MRK,0.076800
-Healthcare Innovation Wave,ABBV,0.069490
-Healthcare Innovation Wave,TMO,0.062876
-Healthcare Innovation Wave,DHR,0.056892
-Healthcare Innovation Wave,ABT,0.051476
-Healthcare Innovation Wave,MDT,0.046571
-Healthcare Innovation Wave,ISRG,0.042127
-Healthcare Innovation Wave,SYK,0.038100
-Healthcare Innovation Wave,BMY,0.034451
-Healthcare Innovation Wave,PFE,0.031144
-Healthcare Innovation Wave,VRTX,0.028149
-Healthcare Innovation Wave,REGN,0.025439
-Healthcare Innovation Wave,AMGN,0.022990
-Healthcare Innovation Wave,GILD,0.020779
-Healthcare Innovation Wave,BSX,0.018785
-Healthcare Innovation Wave,HCA,0.016988
-Healthcare Innovation Wave,CI,0.015363
-Healthcare Innovation Wave,ZBH,0.013893
-Healthcare Innovation Wave,ILMN,0.012565
-Healthcare Innovation Wave,DXCM,0.011368
-Healthcare Innovation Wave,IDXX,0.010291
-Healthcare Innovation Wave,HUM,0.009317
-Biotech & Genomics Wave,VRTX,0.103673
-Biotech & Genomics Wave,REGN,0.093807
-Biotech & Genomics Wave,AMGN,0.084879
-Biotech & Genomics Wave,GILD,0.076800
-Biotech & Genomics Wave,BIIB,0.069490
-Biotech & Genomics Wave,MRNA,0.062876
-Biotech & Genomics Wave,BNTX,0.056892
-Biotech & Genomics Wave,ILMN,0.051476
-Biotech & Genomics Wave,CRSP,0.046571
-Biotech & Genomics Wave,NTLA,0.042127
-Biotech & Genomics Wave,EDIT,0.038100
-Biotech & Genomics Wave,BEAM,0.034451
-Biotech & Genomics Wave,TWST,0.031144
-Biotech & Genomics Wave,PACB,0.028149
-Biotech & Genomics Wave,EXAS,0.025439
-Biotech & Genomics Wave,SGEN,0.022990
-Biotech & Genomics Wave,INCY,0.020779
-Biotech & Genomics Wave,ALNY,0.018785
-Biotech & Genomics Wave,SRPT,0.016988
-Biotech & Genomics Wave,NBIX,0.015363
-Biotech & Genomics Wave,IONS,0.013893
-Biotech & Genomics Wave,ARGX,0.012565
-Biotech & Genomics Wave,RPRX,0.011368
-Biotech & Genomics Wave,BMRN,0.010291
-Biotech & Genomics Wave,DVAX,0.009317
-Clean Transit-Infrastructure Wave,CAT,0.103673
-Clean Transit-Infrastructure Wave,DE,0.093807
-Clean Transit-Infrastructure Wave,PCAR,0.084879
-Clean Transit-Infrastructure Wave,CMI,0.076800
-Clean Transit-Infrastructure Wave,NUE,0.069490
-Clean Transit-Infrastructure Wave,STLD,0.062876
-Clean Transit-Infrastructure Wave,URI,0.056892
-Clean Transit-Infrastructure Wave,FAST,0.051476
-Clean Transit-Infrastructure Wave,PWR,0.046571
-Clean Transit-Infrastructure Wave,EMR,0.042127
-Clean Transit-Infrastructure Wave,ETN,0.038100
-Clean Transit-Infrastructure Wave,ABB,0.034451
-Clean Transit-Infrastructure Wave,HON,0.031144
-Clean Transit-Infrastructure Wave,GE,0.028149
-Clean Transit-Infrastructure Wave,WAB,0.025439
-Clean Transit-Infrastructure Wave,CSX,0.022990
-Clean Transit-Infrastructure Wave,UNP,0.020779
-Clean Transit-Infrastructure Wave,NSC,0.018785
-Clean Transit-Infrastructure Wave,J,0.016988
-Clean Transit-Infrastructure Wave,VMC,0.015363
-Clean Transit-Infrastructure Wave,MLM,0.013893
-Clean Transit-Infrastructure Wave,EXP,0.012565
-Clean Transit-Infrastructure Wave,APTV,0.011368
-Clean Transit-Infrastructure Wave,BWA,0.010291
-Clean Transit-Infrastructure Wave,LEA,0.009317
-Future Power & Energy Wave,NEE,0.103673
-Future Power & Energy Wave,TSLA,0.093807
-Future Power & Energy Wave,FSLR,0.084879
-Future Power & Energy Wave,ENPH,0.076800
-Future Power & Energy Wave,SEDG,0.069490
-Future Power & Energy Wave,BE,0.062876
-Future Power & Energy Wave,PLUG,0.056892
-Future Power & Energy Wave,CHPT,0.051476
-Future Power & Energy Wave,EVGO,0.046571
-Future Power & Energy Wave,RUN,0.042127
-Future Power & Energy Wave,NOVA,0.038100
-Future Power & Energy Wave,SPWR,0.034451
-Future Power & Energy Wave,STEM,0.031144
-Future Power & Energy Wave,FLNC,0.028149
-Future Power & Energy Wave,NXT,0.025439
-Future Power & Energy Wave,ALB,0.022990
-Future Power & Energy Wave,SQM,0.020779
-Future Power & Energy Wave,LTHM,0.018785
-Future Power & Energy Wave,AES,0.016988
-Future Power & Energy Wave,CEG,0.015363
-Future Power & Energy Wave,GEV,0.013893
-Future Power & Energy Wave,EIX,0.012565
-Future Power & Energy Wave,D,0.011368
-Future Power & Energy Wave,DUK,0.010291
-Future Power & Energy Wave,SO,0.009317
-Defense & Aerospace Wave,LMT,0.103673
-Defense & Aerospace Wave,NOC,0.093807
-Defense & Aerospace Wave,RTX,0.084879
-Defense & Aerospace Wave,GD,0.076800
-Defense & Aerospace Wave,BA,0.069490
-Defense & Aerospace Wave,LHX,0.062876
-Defense & Aerospace Wave,HII,0.056892
-Defense & Aerospace Wave,TXT,0.051476
-Defense & Aerospace Wave,TDG,0.046571
-Defense & Aerospace Wave,HEI,0.042127
-Defense & Aerospace Wave,KTOS,0.038100
-Defense & Aerospace Wave,AVAV,0.034451
-Defense & Aerospace Wave,MRCY,0.031144
-Defense & Aerospace Wave,BWXT,0.028149
-Defense & Aerospace Wave,SAIC,0.025439
-Defense & Aerospace Wave,PLTR,0.022990
-Defense & Aerospace Wave,HON,0.020779
-Defense & Aerospace Wave,GE,0.018785
-Defense & Aerospace Wave,HWM,0.016988
-Defense & Aerospace Wave,CW,0.015363
-Defense & Aerospace Wave,LDOS,0.013893
-Defense & Aerospace Wave,CACI,0.012565
-Defense & Aerospace Wave,DRS,0.011368
-Defense & Aerospace Wave,OSIS,0.010291
-Defense & Aerospace Wave,SPCE,0.009317
-Consumer Disruption Wave,AMZN,0.103673
-Consumer Disruption Wave,TSLA,0.093807
-Consumer Disruption Wave,META,0.084879
-Consumer Disruption Wave,GOOGL,0.076800
-Consumer Disruption Wave,AAPL,0.069490
-Consumer Disruption Wave,NFLX,0.062876
-Consumer Disruption Wave,DIS,0.056892
-Consumer Disruption Wave,UBER,0.051476
-Consumer Disruption Wave,ABNB,0.046571
-Consumer Disruption Wave,BKNG,0.042127
-Consumer Disruption Wave,RBLX,0.038100
-Consumer Disruption Wave,ROKU,0.034451
-Consumer Disruption Wave,SPOT,0.031144
-Consumer Disruption Wave,SHOP,0.028149
-Consumer Disruption Wave,ETSY,0.025439
-Consumer Disruption Wave,PINS,0.022990
-Consumer Disruption Wave,SNAP,0.020779
-Consumer Disruption Wave,NKE,0.018785
-Consumer Disruption Wave,SBUX,0.016988
-Consumer Disruption Wave,MCD,0.015363
-Consumer Disruption Wave,COST,0.013893
-Consumer Disruption Wave,WMT,0.012565
-Consumer Disruption Wave,TGT,0.011368
-Consumer Disruption Wave,HD,0.010291
-Consumer Disruption Wave,LOW,0.009317
-Semiconductors Wave,NVDA,0.103673
-Semiconductors Wave,AMD,0.093807
-Semiconductors Wave,AVGO,0.084879
-Semiconductors Wave,TSM,0.076800
-Semiconductors Wave,ASML,0.069490
-Semiconductors Wave,AMAT,0.062876
-Semiconductors Wave,LRCX,0.056892
-Semiconductors Wave,KLAC,0.051476
-Semiconductors Wave,QCOM,0.046571
-Semiconductors Wave,TXN,0.042127
-Semiconductors Wave,ADI,0.038100
-Semiconductors Wave,MU,0.034451
-Semiconductors Wave,INTC,0.031144
-Semiconductors Wave,NXPI,0.028149
-Semiconductors Wave,ON,0.025439
-Semiconductors Wave,MCHP,0.022990
-Semiconductors Wave,MRVL,0.020779
-Semiconductors Wave,ARM,0.018785
-Semiconductors Wave,TER,0.016988
-Semiconductors Wave,GFS,0.015363
-Semiconductors Wave,STM,0.013893
-Semiconductors Wave,SWKS,0.012565
-Semiconductors Wave,QRVO,0.011368
-Semiconductors Wave,MPWR,0.010291
-Semiconductors Wave,ENTG,0.009317
-Robotics & Automation Wave,TSLA,0.103673
-Robotics & Automation Wave,NVDA,0.093807
-Robotics & Automation Wave,ISRG,0.084879
-Robotics & Automation Wave,ROK,0.076800
-Robotics & Automation Wave,TER,0.069490
-Robotics & Automation Wave,HON,0.062876
-Robotics & Automation Wave,ABB,0.056892
-Robotics & Automation Wave,FANUY,0.051476
-Robotics & Automation Wave,SIEGY,0.046571
-Robotics & Automation Wave,ZBRA,0.042127
-Robotics & Automation Wave,SYM,0.038100
-Robotics & Automation Wave,PATH,0.034451
-Robotics & Automation Wave,CGNX,0.031144
-Robotics & Automation Wave,AMBA,0.028149
-Robotics & Automation Wave,MBLY,0.025439
-Robotics & Automation Wave,AUR,0.022990
-Robotics & Automation Wave,IRDM,0.020779
-Robotics & Automation Wave,QCOM,0.018785
-Robotics & Automation Wave,AMD,0.016988
-Robotics & Automation Wave,MSFT,0.015363
-Robotics & Automation Wave,GOOGL,0.013893
-Robotics & Automation Wave,AMZN,0.012565
-Robotics & Automation Wave,AAPL,0.011368
-Robotics & Automation Wave,ANET,0.010291
-Robotics & Automation Wave,NXPI,0.009317
-Space Economy Wave,RKLB,0.103673
-Space Economy Wave,SPCE,0.093807
-Space Economy Wave,PLTR,0.084879
-Space Economy Wave,LMT,0.076800
-Space Economy Wave,NOC,0.069490
-Space Economy Wave,RTX,0.062876
-Space Economy Wave,BA,0.056892
-Space Economy Wave,IRDM,0.051476
-Space Economy Wave,VSAT,0.046571
-Space Economy Wave,TRMB,0.042127
-Space Economy Wave,HWM,0.038100
-Space Economy Wave,HON,0.034451
-Space Economy Wave,KTOS,0.031144
-Space Economy Wave,AVAV,0.028149
-Space Economy Wave,GRMN,0.025439
-Space Economy Wave,INTC,0.022990
-Space Economy Wave,QCOM,0.020779
-Space Economy Wave,AMD,0.018785
-Space Economy Wave,NVDA,0.016988
-Space Economy Wave,MSFT,0.015363
-Space Economy Wave,GOOGL,0.013893
-Space Economy Wave,AMZN,0.012565
-Space Economy Wave,TSLA,0.011368
-Space Economy Wave,AAPL,0.010291
-Space Economy Wave,LHX,0.009317
-Materials & Mining Wave,FCX,0.103673
-Materials & Mining Wave,NEM,0.093807
-Materials & Mining Wave,GOLD,0.084879
-Materials & Mining Wave,RIO,0.076800
-Materials & Mining Wave,BHP,0.069490
-Materials & Mining Wave,SCCO,0.062876
-Materials & Mining Wave,TECK,0.056892
-Materials & Mining Wave,VALE,0.051476
-Materials & Mining Wave,X,0.046571
-Materials & Mining Wave,NUE,0.042127
-Materials & Mining Wave,STLD,0.038100
-Materials & Mining Wave,LIN,0.034451
-Materials & Mining Wave,APD,0.031144
-Materials & Mining Wave,ECL,0.028149
-Materials & Mining Wave,SHW,0.025439
-Materials & Mining Wave,DD,0.022990
-Materials & Mining Wave,DOW,0.020779
-Materials & Mining Wave,LYB,0.018785
-Materials & Mining Wave,ALB,0.016988
-Materials & Mining Wave,SQM,0.015363
-Materials & Mining Wave,CF,0.013893
-Materials & Mining Wave,MOS,0.012565
-Materials & Mining Wave,IFF,0.011368
-Materials & Mining Wave,CTVA,0.010291
-Materials & Mining Wave,FMC,0.009317
-Muni Ladder Wave,NZF,0.103673
-Muni Ladder Wave,NVG,0.093807
-Muni Ladder Wave,NAD,0.084879
-Muni Ladder Wave,NID,0.076800
-Muni Ladder Wave,NEA,0.069490
-Muni Ladder Wave,NUV,0.062876
-Muni Ladder Wave,NXR,0.056892
-Muni Ladder Wave,NXP,0.051476
-Muni Ladder Wave,VMO,0.046571
-Muni Ladder Wave,VGM,0.042127
-Muni Ladder Wave,BKN,0.038100
-Muni Ladder Wave,BTT,0.034451
-Muni Ladder Wave,BLE,0.031144
-Muni Ladder Wave,MHD,0.028149
-Muni Ladder Wave,MHI,0.025439
-Muni Ladder Wave,MUJ,0.022990
-Muni Ladder Wave,MUI,0.020779
-Muni Ladder Wave,MYD,0.018785
-Muni Ladder Wave,MQT,0.016988
-Muni Ladder Wave,PMF,0.015363
-Muni Ladder Wave,PMX,0.013893
-Muni Ladder Wave,PML,0.012565
-Muni Ladder Wave,VKQ,0.011368
-Muni Ladder Wave,EVN,0.010291
-Muni Ladder Wave,NAC,0.009317
-Small Cap Growth Wave,CELH,0.103673
-Small Cap Growth Wave,DUOL,0.093807
-Small Cap Growth Wave,BILL,0.084879
-Small Cap Growth Wave,SOFI,0.076800
-Small Cap Growth Wave,AFRM,0.069490
-Small Cap Growth Wave,UPST,0.062876
-Small Cap Growth Wave,RBLX,0.056892
-Small Cap Growth Wave,DKNG,0.051476
-Small Cap Growth Wave,U,0.046571
-Small Cap Growth Wave,PATH,0.042127
-Small Cap Growth Wave,GTLB,0.038100
-Small Cap Growth Wave,IOT,0.034451
-Small Cap Growth Wave,FSLY,0.031144
-Small Cap Growth Wave,FOUR,0.028149
-Small Cap Growth Wave,DOCN,0.025439
-Small Cap Growth Wave,ETSY,0.022990
-Small Cap Growth Wave,ROKU,0.020779
-Small Cap Growth Wave,TTD,0.018785
-Small Cap Growth Wave,DDOG,0.016988
-Small Cap Growth Wave,NET,0.015363
-Small Cap Growth Wave,SNOW,0.013893
-Small Cap Growth Wave,MDB,0.012565
-Small Cap Growth Wave,ZS,0.011368
-Small Cap Growth Wave,OKTA,0.010291
-Small Cap Growth Wave,TWLO,0.009317
-Small to Mid Cap Growth Wave,CRWD,0.103673
-Small to Mid Cap Growth Wave,PANW,0.093807
-Small to Mid Cap Growth Wave,FTNT,0.084879
-Small to Mid Cap Growth Wave,DDOG,0.076800
-Small to Mid Cap Growth Wave,SNOW,0.069490
-Small to Mid Cap Growth Wave,MDB,0.062876
-Small to Mid Cap Growth Wave,TEAM,0.056892
-Small to Mid Cap Growth Wave,HUBS,0.051476
-Small to Mid Cap Growth Wave,SHOP,0.046571
-Small to Mid Cap Growth Wave,SE,0.042127
-Small to Mid Cap Growth Wave,MELI,0.038100
-Small to Mid Cap Growth Wave,ABNB,0.034451
-Small to Mid Cap Growth Wave,UBER,0.031144
-Small to Mid Cap Growth Wave,AMD,0.028149
-Small to Mid Cap Growth Wave,MU,0.025439
-Small to Mid Cap Growth Wave,ON,0.022990
-Small to Mid Cap Growth Wave,ANET,0.020779
-Small to Mid Cap Growth Wave,SMCI,0.018785
-Small to Mid Cap Growth Wave,PLTR,0.016988
-Small to Mid Cap Growth Wave,COIN,0.015363
-Small to Mid Cap Growth Wave,SQ,0.013893
-Small to Mid Cap Growth Wave,PYPL,0.012565
-Small to Mid Cap Growth Wave,CFLT,0.011368
-Small to Mid Cap Growth Wave,SPLK,0.010291
-Small to Mid Cap Growth Wave,NOW,0.009317
+
+S&P 500 Wave,NVDA,0.11
+S&P 500 Wave,MSFT,0.10
+S&P 500 Wave,AAPL,0.09
+S&P 500 Wave,AMZN,0.09
+S&P 500 Wave,GOOGL,0.08
+S&P 500 Wave,META,0.07
+S&P 500 Wave,AVGO,0.06
+S&P 500 Wave,AMD,0.06
+S&P 500 Wave,TSM,0.05
+S&P 500 Wave,ORCL,0.05
+S&P 500 Wave,JPM,0.04
+S&P 500 Wave,UNH,0.04
+S&P 500 Wave,COST,0.04
+S&P 500 Wave,LLY,0.04
+S&P 500 Wave,BRK.B,0.04
+
+
+Growth Wave,NVDA,0.14
+Growth Wave,MSFT,0.12
+Growth Wave,AMZN,0.11
+Growth Wave,META,0.10
+Growth Wave,GOOGL,0.09
+Growth Wave,AMD,0.08
+Growth Wave,AVGO,0.07
+Growth Wave,TSM,0.07
+Growth Wave,CRM,0.06
+Growth Wave,NOW,0.06
+Growth Wave,SHOP,0.05
+Growth Wave,ADBE,0.05
+
+
+Small Cap Growth Wave,AVAV,0.12
+Small Cap Growth Wave,CROX,0.11
+Small Cap Growth Wave,IRDM,0.10
+Small Cap Growth Wave,SMCI,0.10
+Small Cap Growth Wave,PLTR,0.09
+Small Cap Growth Wave,AXON,0.09
+Small Cap Growth Wave,RGEN,0.08
+Small Cap Growth Wave,GTLS,0.08
+Small Cap Growth Wave,TMDX,0.07
+Small Cap Growth Wave,ENSG,0.06
+Small Cap Growth Wave,ALGM,0.05
+Small Cap Growth Wave,IONQ,0.05
+
+
+Small-Mid Cap Growth Wave,AXON,0.11
+Small-Mid Cap Growth Wave,PLTR,0.10
+Small-Mid Cap Growth Wave,SMCI,0.10
+Small-Mid Cap Growth Wave,RGEN,0.09
+Small-Mid Cap Growth Wave,ENSG,0.09
+Small-Mid Cap Growth Wave,ALGM,0.08
+Small-Mid Cap Growth Wave,IRDM,0.08
+Small-Mid Cap Growth Wave,AVAV,0.07
+Small-Mid Cap Growth Wave,CELH,0.07
+Small-Mid Cap Growth Wave,TMDX,0.06
+Small-Mid Cap Growth Wave,CROX,0.05
+
+
+Future Power & Energy Wave,NEE,0.14
+Future Power & Energy Wave,FSLR,0.12
+Future Power & Energy Wave,ENPH,0.11
+Future Power & Energy Wave,VST,0.10
+Future Power & Energy Wave,CEG,0.09
+Future Power & Energy Wave,NRG,0.09
+Future Power & Energy Wave,BEPC,0.08
+Future Power & Energy Wave,ALB,0.07
+Future Power & Energy Wave,SEDG,0.06
+Future Power & Energy Wave,TSLA,0.05
+Future Power & Energy Wave,PCG,0.04
+Future Power & Energy Wave,AES,0.05
+
+
+Quantum Computing Wave,IONQ,0.18
+Quantum Computing Wave,RGTI,0.14
+Quantum Computing Wave,QBTS,0.12
+Quantum Computing Wave,NVDA,0.12
+Quantum Computing Wave,MSFT,0.10
+Quantum Computing Wave,GOOGL,0.10
+Quantum Computing Wave,IBM,0.08
+Quantum Computing Wave,AMZN,0.06
+Quantum Computing Wave,INTC,0.05
+Quantum Computing Wave,TSM,0.05
+
+
+Clean Transit-Infrastructure Wave,ALB,0.13
+Clean Transit-Infrastructure Wave,CHPT,0.11
+Clean Transit-Infrastructure Wave,ENPH,0.10
+Clean Transit-Infrastructure Wave,BLDP,0.09
+Clean Transit-Infrastructure Wave,BE,0.09
+Clean Transit-Infrastructure Wave,NEE,0.09
+Clean Transit-Infrastructure Wave,PCG,0.08
+Clean Transit-Infrastructure Wave,TSLA,0.08
+Clean Transit-Infrastructure Wave,FLNC,0.07
+Clean Transit-Infrastructure Wave,GNRC,0.06
+Clean Transit-Infrastructure Wave,AES,0.10
+
+
+Crypto Income Wave,COIN,0.20
+Crypto Income Wave,MSTR,0.18
+Crypto Income Wave,RIOT,0.14
+Crypto Income Wave,MARA,0.14
+Crypto Income Wave,CLS,0.10
+Crypto Income Wave,HUT,0.08
+Crypto Income Wave,GLXY,0.08
+Crypto Income Wave,SI,0.08
+
+
+Income Wave,TLT,0.18
+Income Wave,LQD,0.16
+Income Wave,IEF,0.14
+Income Wave,VCIT,0.12
+Income Wave,BNDX,0.10
+Income Wave,MUB,0.10
+Income Wave,SHY,0.08
+Income Wave,JNK,0.06
+Income Wave,EMB,0.06
