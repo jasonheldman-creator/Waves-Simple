@@ -900,10 +900,138 @@ tabs = st.tabs([
 ])
 
 # TAB: Console
+# -------------------------
+# TAB: Console (RESTORED RICH VIEW + PERFORMANCE MATRIX)
+# -------------------------
+@st.cache_data(show_spinner=False)
+def build_performance_matrix(all_waves: List[str], mode: str, days: int = 365) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    for w in all_waves:
+        h = compute_wave_history(w, mode=mode, days=days)
+        if h is None or h.empty or len(h) < 2:
+            rows.append({
+                "Wave": w,
+                "1D Return": np.nan, "1D Alpha": np.nan,
+                "30D Return": np.nan, "30D Alpha": np.nan,
+                "60D Return": np.nan, "60D Alpha": np.nan,
+                "365D Return": np.nan, "365D Alpha": np.nan,
+                "Rows": 0,
+            })
+            continue
+
+        nav_w = h["wave_nav"]
+        nav_b = h["bm_nav"]
+
+        # 1D return/alpha from last 2 points
+        r1 = np.nan
+        a1 = np.nan
+        if len(nav_w) >= 2 and len(nav_b) >= 2:
+            r1 = float(nav_w.iloc[-1] / nav_w.iloc[-2] - 1.0)
+            b1 = float(nav_b.iloc[-1] / nav_b.iloc[-2] - 1.0)
+            a1 = r1 - b1
+
+        # Window returns and alphas
+        r30 = ret_from_nav(nav_w, min(30, len(nav_w)))
+        b30 = ret_from_nav(nav_b, min(30, len(nav_b)))
+        a30 = r30 - b30
+
+        r60 = ret_from_nav(nav_w, min(60, len(nav_w)))
+        b60 = ret_from_nav(nav_b, min(60, len(nav_b)))
+        a60 = r60 - b60
+
+        r365 = ret_from_nav(nav_w, min(365, len(nav_w)))
+        b365 = ret_from_nav(nav_b, min(365, len(nav_b)))
+        a365 = r365 - b365
+
+        rows.append({
+            "Wave": w,
+            "1D Return": r1, "1D Alpha": a1,
+            "30D Return": r30, "30D Alpha": a30,
+            "60D Return": r60, "60D Alpha": a60,
+            "365D Return": r365, "365D Alpha": a365,
+            "Rows": int(len(h)),
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    # Put selected wave first for scan readability
+    if "Wave" in df.columns and selected_wave in set(df["Wave"]):
+        top = df[df["Wave"] == selected_wave]
+        rest = df[df["Wave"] != selected_wave]
+        df = pd.concat([top, rest], axis=0)
+
+    return df.reset_index(drop=True)
+
+
 with tabs[0]:
+    st.subheader("All-Waves Performance Matrix (Returns + Alpha)")
+    perf_df = build_performance_matrix(all_waves, mode=mode, days=min(days, 365))
+
+    if perf_df is None or perf_df.empty:
+        st.info("Performance matrix unavailable (no history).")
+    else:
+        # Pretty formatting + mobile scan
+        try:
+            st.dataframe(
+                perf_df,
+                use_container_width=True,
+                column_config={
+                    "1D Return": st.column_config.NumberColumn("1D r", format="%.2f"),
+                    "1D Alpha": st.column_config.NumberColumn("1D α", format="%.2f"),
+                    "30D Return": st.column_config.NumberColumn("30D r", format="%.2f"),
+                    "30D Alpha": st.column_config.NumberColumn("30D α", format="%.2f"),
+                    "60D Return": st.column_config.NumberColumn("60D r", format="%.2f"),
+                    "60D Alpha": st.column_config.NumberColumn("60D α", format="%.2f"),
+                    "365D Return": st.column_config.NumberColumn("365D r", format="%.2f"),
+                    "365D Alpha": st.column_config.NumberColumn("365D α", format="%.2f"),
+                    "Rows": st.column_config.NumberColumn("Rows", format="%d"),
+                },
+            )
+            st.caption("Note: values are raw decimals (e.g., 0.10 = 10%).")
+        except Exception:
+            st.dataframe(perf_df, use_container_width=True)
+
+    st.divider()
+
     st.subheader("Alpha Heatmap (All Waves × Timeframe)")
     alpha_df = build_alpha_matrix(all_waves, mode=mode)
     plot_alpha_heatmap(alpha_df, title=f"Alpha Heatmap — Mode: {mode}")
+
+    st.divider()
+
+    st.subheader("Selected Wave — NAV vs Benchmark + Diagnostics")
+    if hist is None or hist.empty or len(hist) < 5:
+        st.warning("Not enough history for charts for this wave/mode.")
+    else:
+        # Normalize NAVs to 1.0 for readable comparison
+        nav_df = pd.concat(
+            [hist["wave_nav"].rename("Wave NAV"), hist["bm_nav"].rename("Benchmark NAV")],
+            axis=1
+        ).dropna()
+        if not nav_df.empty:
+            nav_df = nav_df / nav_df.iloc[0]
+            st.line_chart(nav_df)
+
+        # Rolling alpha + drawdown charts
+        st.write("Rolling 30D Alpha")
+        ra = rolling_alpha_from_nav(hist["wave_nav"], hist["bm_nav"], window=30).dropna()
+        if len(ra) > 0:
+            st.line_chart(ra.rename("Rolling 30D Alpha"))
+        else:
+            st.info("Not enough data for rolling 30D alpha.")
+
+        st.write("Drawdown (Wave vs Benchmark)")
+        dd_w = drawdown_series(hist["wave_nav"])
+        dd_b = drawdown_series(hist["bm_nav"])
+        dd_df = pd.concat([dd_w.rename("Wave"), dd_b.rename("Benchmark")], axis=1).dropna()
+        if not dd_df.empty:
+            st.line_chart(dd_df)
+        else:
+            st.info("Drawdown chart unavailable.")
+
+    st.divider()
 
     st.subheader("Coverage & Data Integrity")
     if cov.get("rows", 0) == 0:
@@ -914,6 +1042,8 @@ with tabs[0]:
     c3.metric("Completeness Score", fmt_num(cov.get("completeness_score", np.nan), 1))
     with st.expander("Coverage Details"):
         st.write(cov)
+
+    st.divider()
 
     st.subheader("Top-10 Holdings (Clickable)")
     hold = get_wave_holdings(selected_wave)
@@ -927,7 +1057,8 @@ with tabs[0]:
         if tot > 0:
             hold2["Weight"] = hold2["Weight"] / tot
         hold2 = hold2.sort_values("Weight", ascending=False).reset_index(drop=True)
-        hold2["Google"] = hold2["Ticker"].apply(_google_quote)
+        hold2["Google"] = hold2["Ticker"].apply(lambda t: f"https://www.google.com/finance/quote/{t}")
+
         try:
             st.dataframe(
                 hold2.head(10),
