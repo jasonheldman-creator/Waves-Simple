@@ -992,7 +992,7 @@ def build_alpha_matrix(all_waves: List[str], mode: str) -> pd.DataFrame:
         a60 = r60w - r60b
 
         r365w = ret_from_nav(nav_w, len(nav_w))
-        r365b = ret_from_nav(nav_b, len(nav_b)))
+        r365b = ret_from_nav(nav_b, len(nav_b))
         a365 = r365w - r365b
 
         rows.append({"Wave": wname, "1D Alpha": a1, "30D Alpha": a30, "60D Alpha": a60, "365D Alpha": a365})
