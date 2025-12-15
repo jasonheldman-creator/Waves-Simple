@@ -1,5 +1,16 @@
 # app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
 # FULL PRODUCTION FILE (NO PATCHES) — STABLE UI + HISTORY FALLBACKS
+#
+# Fixes:
+#   1) Prevents blank screen by never "silent-stopping" without diagnostics.
+#   2) Robust history loader (engine → wave_history.csv fallback).
+#   3) Diagnostics expander at bottom to avoid silent failures.
+#   4) Fixes mdd scope bug (Insight Layer no longer references undefined vars).
+#   5) Makes Top-10 holdings links truly clickable (LinkColumn) + fallback.
+#
+# Notes:
+#   • Engine math is NOT modified.
+#   • App reads history; if engine isn’t writing, it falls back to wave_history.csv.
 
 from __future__ import annotations
 
@@ -31,7 +42,7 @@ except Exception:
 # -------------------------------
 ENGINE_IMPORT_ERROR = None
 try:
-    import waves_engine as we
+    import waves_engine as we  # your engine module
 except Exception as e:
     we = None
     ENGINE_IMPORT_ERROR = e
@@ -52,20 +63,23 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+.block-container { padding-top: 1rem; padding-bottom: 2.0rem; }
 
+/* Sticky summary container */
 .waves-sticky {
   position: sticky;
   top: 0;
   z-index: 999;
   backdrop-filter: blur(10px);
-  padding: 10px 12px;
-  margin-bottom: 12px;
+  -webkit-backdrop-filter: blur(10px);
+  padding: 10px 12px 10px 12px;
+  margin: 0 0 12px 0;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(10, 15, 28, 0.66);
 }
 
+/* Summary chips */
 .waves-chip {
   display: inline-block;
   padding: 6px 10px;
@@ -74,11 +88,16 @@ st.markdown(
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.04);
   font-size: 0.85rem;
+  line-height: 1.0rem;
+  white-space: nowrap;
 }
 
-div[data-testid="stDataFrame"] {
-  border-radius: 12px;
-  overflow: hidden;
+/* Tighter tables */
+div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
+
+/* Reduce whitespace for mobile */
+@media (max-width: 700px) {
+  .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
 }
 </style>
 """,
@@ -86,48 +105,199 @@ div[data-testid="stDataFrame"] {
 )
 
 # ============================================================
-# Helpers
+# Helpers: formatting
 # ============================================================
-def fmt_pct(x: Any, d: int = 2) -> str:
+def fmt_pct(x: Any, digits: int = 2) -> str:
     try:
-        return f"{float(x)*100:.{d}f}%" if math.isfinite(float(x)) else "—"
+        if x is None:
+            return "—"
+        x = float(x)
+        if math.isnan(x):
+            return "—"
+        return f"{x*100:0.{digits}f}%"
     except Exception:
         return "—"
 
-def fmt_num(x: Any, d: int = 2) -> str:
+
+def fmt_num(x: Any, digits: int = 2) -> str:
     try:
-        return f"{float(x):.{d}f}" if math.isfinite(float(x)) else "—"
+        if x is None:
+            return "—"
+        x = float(x)
+        if math.isnan(x):
+            return "—"
+        return f"{x:.{digits}f}"
     except Exception:
         return "—"
+
+
+def fmt_score(x: Any) -> str:
+    try:
+        if x is None:
+            return "—"
+        x = float(x)
+        if math.isnan(x):
+            return "—"
+        return f"{x:.1f}"
+    except Exception:
+        return "—"
+
 
 def safe_series(s: Optional[pd.Series]) -> pd.Series:
-    return s.dropna().astype(float) if isinstance(s, pd.Series) else pd.Series(dtype=float)
+    if s is None or len(s) == 0:
+        return pd.Series(dtype=float)
+    return s.copy()
+
 
 # ============================================================
-# Core math
+# Basic return/risk math
 # ============================================================
 def ret_from_nav(nav: pd.Series, window: int) -> float:
-    nav = safe_series(nav)
+    nav = safe_series(nav).astype(float)
     if len(nav) < 2:
-        return np.nan
-    sub = nav.iloc[-max(2, min(window, len(nav))):]
-    return sub.iloc[-1] / sub.iloc[0] - 1
+        return float("nan")
+    window = max(2, min(int(window), len(nav)))
+    sub = nav.iloc[-window:]
+    start = float(sub.iloc[0])
+    end = float(sub.iloc[-1])
+    if start <= 0:
+        return float("nan")
+    return (end / start) - 1.0
+
 
 def max_drawdown(nav: pd.Series) -> float:
-    nav = safe_series(nav)
+    nav = safe_series(nav).astype(float)
     if len(nav) < 2:
-        return np.nan
-    return ((nav / nav.cummax()) - 1).min()
+        return float("nan")
+    running_max = nav.cummax()
+    dd = (nav / running_max) - 1.0
+    return float(dd.min())
 
-def tracking_error(w: pd.Series, b: pd.Series) -> float:
-    df = pd.concat([safe_series(w), safe_series(b)], axis=1).dropna()
-    return df.iloc[:,0].sub(df.iloc[:,1]).std() * np.sqrt(252) if len(df) > 1 else np.nan
-    # ================================
-# PART 2 of 4 — History + holdings + benchmark mix (engine → CSV fallbacks)
-# Paste this DIRECTLY UNDER Part 1
-# ================================
 
-# ============================================================
+def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
+    daily_wave = safe_series(daily_wave).astype(float)
+    daily_bm = safe_series(daily_bm).astype(float)
+    df = pd.concat([daily_wave.rename("w"), daily_bm.rename("b")], axis=1).dropna()
+    if df.shape[0] < 2:
+        return float("nan")
+    diff = df["w"] - df["b"]
+    return float(diff.std() * np.sqrt(252))
+
+
+def information_ratio(nav_wave: pd.Series, nav_bm: pd.Series, te: float) -> float:
+    nav_wave = safe_series(nav_wave).astype(float)
+    nav_bm = safe_series(nav_bm).astype(float)
+    if len(nav_wave) < 2 or len(nav_bm) < 2:
+        return float("nan")
+    if te is None or (isinstance(te, float) and (math.isnan(te) or te <= 0)):
+        return float("nan")
+    excess = ret_from_nav(nav_wave, len(nav_wave)) - ret_from_nav(nav_bm, len(nav_bm))
+    return float(excess / te)
+
+
+def beta_ols(y: pd.Series, x: pd.Series) -> float:
+    y = safe_series(y).astype(float)
+    x = safe_series(x).astype(float)
+    df = pd.concat([y.rename("y"), x.rename("x")], axis=1).dropna()
+    if df.shape[0] < 20:
+        return float("nan")
+    vx = float(df["x"].var())
+    if not math.isfinite(vx) or vx <= 0:
+        return float("nan")
+    cov = float(df["y"].cov(df["x"]))
+    return float(cov / vx)
+
+
+def sharpe_ratio(daily_ret: pd.Series, rf_annual: float = 0.0) -> float:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < 20:
+        return float("nan")
+    rf_daily = rf_annual / 252.0
+    ex = r - rf_daily
+    vol = float(ex.std())
+    if not math.isfinite(vol) or vol <= 0:
+        return float("nan")
+    return float(ex.mean() / vol * np.sqrt(252))
+
+
+def downside_deviation(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < 20:
+        return float("nan")
+    mar_daily = mar_annual / 252.0
+    d = np.minimum(0.0, (r - mar_daily).values)
+    dd = float(np.sqrt(np.mean(d**2)))
+    return float(dd * np.sqrt(252))
+
+
+def sortino_ratio(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < 20:
+        return float("nan")
+    mar_daily = mar_annual / 252.0
+    ex = float((r - mar_daily).mean()) * 252.0
+    dd = downside_deviation(r, mar_annual=mar_annual)
+    if not math.isfinite(dd) or dd <= 0:
+        return float("nan")
+    return float(ex / dd)
+
+
+def var_cvar(daily_ret: pd.Series, level: float = 0.95) -> Tuple[float, float]:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < 50:
+        return (float("nan"), float("nan"))
+    q = float(np.quantile(r.values, 1.0 - level))
+    tail = r[r <= q]
+    cvar = float(tail.mean()) if len(tail) else float("nan")
+    return (q, cvar)
+
+
+def skew_kurt(daily_ret: pd.Series) -> Tuple[float, float]:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < 50:
+        return (float("nan"), float("nan"))
+    sk = float(pd.Series(r).skew())
+    ku = float(pd.Series(r).kurtosis())
+    return (sk, ku)
+
+
+def rolling_return_from_nav(nav: pd.Series, window: int) -> pd.Series:
+    nav = safe_series(nav).astype(float)
+    if len(nav) < window + 1:
+        return pd.Series(dtype=float)
+    return (nav / nav.shift(window) - 1.0).rename(f"ret_{window}")
+
+
+def rolling_alpha_from_nav(wave_nav: pd.Series, bm_nav: pd.Series, window: int) -> pd.Series:
+    w = rolling_return_from_nav(wave_nav, window)
+    b = rolling_return_from_nav(bm_nav, window)
+    df = pd.concat([w, b], axis=1).dropna()
+    if df.empty:
+        return pd.Series(dtype=float)
+    return (df.iloc[:, 0] - df.iloc[:, 1]).rename(f"alpha_{window}")
+
+
+def rolling_vol(daily_ret: pd.Series, window: int = 20) -> pd.Series:
+    r = safe_series(daily_ret).astype(float)
+    if len(r) < window + 5:
+        return pd.Series(dtype=float)
+    return (r.rolling(window).std() * np.sqrt(252)).rename(f"vol_{window}")
+
+
+def drawdown_series(nav: pd.Series) -> pd.Series:
+    nav = safe_series(nav).astype(float)
+    if len(nav) < 2:
+        return pd.Series(dtype=float)
+    peak = nav.cummax()
+    return ((nav / peak) - 1.0).rename("drawdown")
+
+
+def alpha_persistence(alpha_series: pd.Series) -> float:
+    a = safe_series(alpha_series).dropna()
+    if len(a) < 30:
+        return float("nan")
+    return float((a > 0).mean())
+    # ============================================================
 # Optional data fetch (yfinance) — used for VIX chip
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -384,9 +554,7 @@ def get_wave_holdings(wave_name: str) -> pd.DataFrame:
         try:
             df = we.get_wave_holdings(wave_name)
             if isinstance(df, pd.DataFrame) and not df.empty:
-                # try to normalize columns lightly
                 out = df.copy()
-                # common variants
                 if "Ticker" not in out.columns:
                     for alt in ["ticker", "symbol", "Symbol"]:
                         if alt in out.columns:
@@ -533,141 +701,8 @@ def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
     except Exception:
         out["flags"].append("Coverage report error")
         return out
-        # ================================
-# PART 3 of 4 — Wavescore + Alpha matrix + charts + Risk helpers
-# Paste this DIRECTLY UNDER Part 2
-# ================================
-
-# ============================================================
-# Return/Risk helpers (used across tabs)
-# ============================================================
-def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
-    daily_wave = safe_series(daily_wave).astype(float)
-    daily_bm = safe_series(daily_bm).astype(float)
-    df = pd.concat([daily_wave.rename("w"), daily_bm.rename("b")], axis=1).dropna()
-    if df.shape[0] < 2:
-        return float("nan")
-    diff = df["w"] - df["b"]
-    return float(diff.std() * np.sqrt(252))
-
-
-def information_ratio(nav_wave: pd.Series, nav_bm: pd.Series, te: float) -> float:
-    nav_wave = safe_series(nav_wave).astype(float)
-    nav_bm = safe_series(nav_bm).astype(float)
-    if len(nav_wave) < 2 or len(nav_bm) < 2:
-        return float("nan")
-    if te is None or (isinstance(te, float) and (math.isnan(te) or te <= 0)):
-        return float("nan")
-    excess = ret_from_nav(nav_wave, len(nav_wave)) - ret_from_nav(nav_bm, len(nav_bm))
-    return float(excess / te)
-
-
-def beta_ols(y: pd.Series, x: pd.Series) -> float:
-    y = safe_series(y).astype(float)
-    x = safe_series(x).astype(float)
-    df = pd.concat([y.rename("y"), x.rename("x")], axis=1).dropna()
-    if df.shape[0] < 20:
-        return float("nan")
-    vx = float(df["x"].var())
-    if not math.isfinite(vx) or vx <= 0:
-        return float("nan")
-    cov = float(df["y"].cov(df["x"]))
-    return float(cov / vx)
-
-
-def sharpe_ratio(daily_ret: pd.Series, rf_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    rf_daily = rf_annual / 252.0
-    ex = r - rf_daily
-    vol = float(ex.std())
-    if not math.isfinite(vol) or vol <= 0:
-        return float("nan")
-    return float(ex.mean() / vol * np.sqrt(252))
-
-
-def downside_deviation(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    mar_daily = mar_annual / 252.0
-    d = np.minimum(0.0, (r - mar_daily).values)
-    dd = float(np.sqrt(np.mean(d**2)))
-    return float(dd * np.sqrt(252))
-
-
-def sortino_ratio(daily_ret: pd.Series, mar_annual: float = 0.0) -> float:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 20:
-        return float("nan")
-    mar_daily = mar_annual / 252.0
-    ex = float((r - mar_daily).mean()) * 252.0
-    dd = downside_deviation(r, mar_annual=mar_annual)
-    if not math.isfinite(dd) or dd <= 0:
-        return float("nan")
-    return float(ex / dd)
-
-
-def var_cvar(daily_ret: pd.Series, level: float = 0.95) -> Tuple[float, float]:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 50:
-        return (float("nan"), float("nan"))
-    q = float(np.quantile(r.values, 1.0 - level))
-    tail = r[r <= q]
-    cvar = float(tail.mean()) if len(tail) else float("nan")
-    return (q, cvar)
-
-
-def skew_kurt(daily_ret: pd.Series) -> Tuple[float, float]:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < 50:
-        return (float("nan"), float("nan"))
-    sk = float(pd.Series(r).skew())
-    ku = float(pd.Series(r).kurtosis())
-    return (sk, ku)
-
-
-def rolling_return_from_nav(nav: pd.Series, window: int) -> pd.Series:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < window + 1:
-        return pd.Series(dtype=float)
-    return (nav / nav.shift(window) - 1.0).rename(f"ret_{window}")
-
-
-def rolling_alpha_from_nav(wave_nav: pd.Series, bm_nav: pd.Series, window: int) -> pd.Series:
-    w = rolling_return_from_nav(wave_nav, window)
-    b = rolling_return_from_nav(bm_nav, window)
-    df = pd.concat([w, b], axis=1).dropna()
-    if df.empty:
-        return pd.Series(dtype=float)
-    return (df.iloc[:, 0] - df.iloc[:, 1]).rename(f"alpha_{window}")
-
-
-def rolling_vol(daily_ret: pd.Series, window: int = 20) -> pd.Series:
-    r = safe_series(daily_ret).astype(float)
-    if len(r) < window + 5:
-        return pd.Series(dtype=float)
-    return (r.rolling(window).std() * np.sqrt(252)).rename(f"vol_{window}")
-
-
-def drawdown_series(nav: pd.Series) -> pd.Series:
-    nav = safe_series(nav).astype(float)
-    if len(nav) < 2:
-        return pd.Series(dtype=float)
-    peak = nav.cummax()
-    return ((nav / peak) - 1.0).rename("drawdown")
-
-
-def alpha_persistence(alpha_series: pd.Series) -> float:
-    a = safe_series(alpha_series).dropna()
-    if len(a) < 30:
-        return float("nan")
-    return float((a > 0).mean())
-
-
-# ============================================================
-# WaveScore (console-side approximation display)
+        # ============================================================
+# WaveScore (console-side approximation)
 # ============================================================
 def _grade_from_score(score: float) -> str:
     if score is None or (isinstance(score, float) and math.isnan(score)):
@@ -688,10 +723,8 @@ def compute_wavescore_for_all_waves(all_waves: List[str], mode: str, days: int =
     rows: List[Dict[str, Any]] = []
     for wave in all_waves:
         hist = compute_wave_history(wave, mode=mode, days=days)
-        if hist is None or hist.empty or len(hist) < 20:
-            rows.append(
-                {"Wave": wave, "WaveScore": np.nan, "Grade": "N/A", "IR_365D": np.nan, "Alpha_365D": np.nan}
-            )
+        if hist.empty or len(hist) < 20:
+            rows.append({"Wave": wave, "WaveScore": np.nan, "Grade": "N/A", "IR_365D": np.nan, "Alpha_365D": np.nan})
             continue
 
         nav_wave = hist["wave_nav"]
@@ -705,7 +738,7 @@ def compute_wavescore_for_all_waves(all_waves: List[str], mode: str, days: int =
         mdd_wave = max_drawdown(nav_wave)
         hit_rate = float((wave_ret >= bm_ret).mean()) if len(wave_ret) else np.nan
 
-        # lightweight display scoring only
+        # lightweight scoring (display only)
         rq = float(np.clip((np.nan_to_num(ir) / 1.5), 0.0, 1.0) * 25.0)
         rc = float(np.clip(1.0 - (abs(np.nan_to_num(mdd_wave)) / 0.35), 0.0, 1.0) * 25.0)
         co = float(np.clip(np.nan_to_num(hit_rate), 0.0, 1.0) * 15.0)
@@ -713,31 +746,21 @@ def compute_wavescore_for_all_waves(all_waves: List[str], mode: str, days: int =
         tr = 10.0
 
         total = float(np.clip(rq + rc + co + rs + tr, 0.0, 100.0))
-        rows.append(
-            {
-                "Wave": wave,
-                "WaveScore": total,
-                "Grade": _grade_from_score(total),
-                "IR_365D": ir,
-                "Alpha_365D": alpha_365,
-            }
-        )
+        rows.append({"Wave": wave, "WaveScore": total, "Grade": _grade_from_score(total), "IR_365D": ir, "Alpha_365D": alpha_365})
 
     df = pd.DataFrame(rows) if rows else pd.DataFrame()
-    if df.empty:
-        return df
-    return df.sort_values("Wave")
+    return df.sort_values("Wave") if not df.empty else df
 
 
 # ============================================================
-# Alpha Heatmap (all waves × timeframe)
+# Alpha Heatmap
 # ============================================================
 @st.cache_data(show_spinner=False)
 def build_alpha_matrix(all_waves: List[str], mode: str) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for wname in all_waves:
         hist = compute_wave_history(wname, mode=mode, days=365)
-        if hist is None or hist.empty or len(hist) < 2:
+        if hist.empty or len(hist) < 2:
             rows.append({"Wave": wname, "1D Alpha": np.nan, "30D Alpha": np.nan, "60D Alpha": np.nan, "365D Alpha": np.nan})
             continue
 
@@ -768,7 +791,7 @@ def plot_alpha_heatmap(alpha_df: pd.DataFrame, selected_wave: str, title: str):
         st.info("No alpha columns to plot.")
         return
 
-    # Put selected wave on top
+    # Move selected wave to top
     if "Wave" in df.columns and selected_wave in set(df["Wave"]):
         top = df[df["Wave"] == selected_wave]
         rest = df[df["Wave"] != selected_wave]
@@ -783,40 +806,25 @@ def plot_alpha_heatmap(alpha_df: pd.DataFrame, selected_wave: str, title: str):
         v = 0.10
 
     fig = go.Figure(data=go.Heatmap(z=z, x=x, y=y, zmin=-v, zmax=v, colorbar=dict(title="Alpha")))
-    fig.update_layout(
-        title=title,
-        height=min(900, 240 + 22 * max(10, len(y))),
-        margin=dict(l=80, r=40, t=60, b=40),
-    )
+    fig.update_layout(title=title, height=min(900, 240 + 22 * max(10, len(y))), margin=dict(l=80, r=40, t=60, b=40))
     st.plotly_chart(fig, use_container_width=True)
-    # ================================
-# PART 4 of 4 — Main UI + Tabs + Diagnostics (final)
-# Paste this DIRECTLY UNDER Part 3
-# ================================
+
 
 # ============================================================
 # Main UI
 # ============================================================
 st.title("WAVES Intelligence™ Institutional Console")
 
-# Engine import status
 if ENGINE_IMPORT_ERROR is not None:
     st.error("Engine import failed. The app will use CSV fallbacks where possible.")
     st.code(str(ENGINE_IMPORT_ERROR))
 
 all_waves = get_all_waves_safe()
 if not all_waves:
-    st.warning(
-        "No waves discovered yet. If unexpected, check: engine import, wave_config.csv, wave_weights.csv, or list.csv."
-    )
+    st.warning("No waves discovered yet. If this is unexpected, check: engine import, wave_config.csv, wave_weights.csv, or list.csv.")
     with st.expander("Diagnostics"):
         st.write("Files present:")
-        st.write(
-            {
-                p: os.path.exists(p)
-                for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py"]
-            }
-        )
+        st.write({p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py"]})
     st.stop()
 
 modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
@@ -855,7 +863,7 @@ if hist is not None and (not hist.empty) and len(hist) >= 2:
     te = tracking_error(hist["wave_ret"], hist["bm_ret"])
     ir = information_ratio(hist["wave_nav"], hist["bm_nav"], te)
 
-# Regime chip (optional)
+# Sticky summary regime chip (optional)
 regime = "neutral"
 vix_val = np.nan
 if yf is not None:
@@ -870,7 +878,6 @@ if yf is not None:
     except Exception:
         pass
 
-# Wavescore rank
 ws_df = compute_wavescore_for_all_waves(all_waves, mode=mode, days=min(days, 365))
 rank = None
 ws_val = np.nan
@@ -882,7 +889,6 @@ if not ws_df.empty and selected_wave in set(ws_df["Wave"]):
     except Exception:
         rank = None
 
-# Sticky summary bar
 chips = []
 chips.append(f"BM Snapshot: {bm_id} · {'Stable' if bm_drift=='stable' else 'DRIFT'}")
 chips.append(f"Coverage: {cov.get('completeness_score','—')} / 100")
@@ -892,6 +898,7 @@ chips.append(f"VIX: {fmt_num(vix_val,1) if math.isfinite(vix_val) else '—'}")
 chips.append(f"30D α: {fmt_pct(a30)} · 30D r: {fmt_pct(r30)}")
 chips.append(f"365D α: {fmt_pct(a365)} · 365D r: {fmt_pct(r365)}")
 chips.append(f"TE: {fmt_pct(te)} · IR: {fmt_num(ir,2)}")
+# ✅ THIS IS THE LINE THAT FIXES YOUR ERROR (fmt_score, not fmt_sc)
 chips.append(f"WaveScore: {fmt_score(ws_val)} ({_grade_from_score(ws_val)}) · Rank: {rank if rank else '—'}")
 
 st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
@@ -900,7 +907,6 @@ for c in chips:
 st.markdown("</div>", unsafe_allow_html=True)
 
 tabs = st.tabs(["Console", "Factor Decomposition", "Risk Lab", "Correlation", "Vector OS Insight Layer"])
-
 # -------------------------
 # Console
 # -------------------------
@@ -924,7 +930,7 @@ with tabs[0]:
     st.subheader("Holdings (Top 10) — Clickable")
     hold = get_wave_holdings(selected_wave)
 
-    if hold is None or hold.empty:
+    if hold.empty:
         st.info("Holdings unavailable (engine did not return holdings and wave_weights.csv mapping did not match).")
     else:
         hold2 = hold.copy()
@@ -946,14 +952,17 @@ with tabs[0]:
         hold2["Ticker"] = hold2["Ticker"].astype(str).str.upper().str.strip()
         hold2["Weight"] = pd.to_numeric(hold2.get("Weight", 0.0), errors="coerce").fillna(0.0)
 
-        # normalize safely
+        # normalize (safe)
         tot = float(hold2["Weight"].sum())
         if tot > 0:
             hold2["Weight"] = hold2["Weight"] / tot
 
         hold2 = hold2.sort_values("Weight", ascending=False).reset_index(drop=True)
+
+        # Build Google Finance links
         hold2["Google"] = hold2["Ticker"].apply(lambda t: f"https://www.google.com/finance/quote/{t}")
 
+        # Use true clickable links (Streamlit LinkColumn)
         try:
             st.dataframe(
                 hold2.head(10),
@@ -966,6 +975,7 @@ with tabs[0]:
         except Exception:
             st.dataframe(hold2.head(10), use_container_width=True)
 
+
 # -------------------------
 # Factor Decomposition
 # -------------------------
@@ -973,33 +983,34 @@ with tabs[1]:
     st.subheader("Factor Decomposition (Light)")
     st.caption("Beta vs benchmark from daily returns. (Add factor series later for multi-factor regression.)")
 
-    if hist is None or hist.empty or len(hist) < 20:
+    if hist.empty or len(hist) < 20:
         st.info("Not enough history.")
     else:
         b = beta_ols(hist["wave_ret"], hist["bm_ret"])
         st.metric("Beta vs Benchmark", fmt_num(b, 2))
         st.write("Tip: Add factor series (SPY/QQQ/IWM/TLT/GLD/BTC) for multi-factor regression.")
 
+
 # -------------------------
 # Risk Lab
 # -------------------------
 with tabs[2]:
     st.subheader("Risk Lab")
-    if hist is None or hist.empty or len(hist) < 50:
+    if hist.empty or len(hist) < 50:
         st.info("Not enough data to compute risk lab metrics.")
     else:
         r = hist["wave_ret"].dropna()
 
         sh = sharpe_ratio(r, 0.0)
         so = sortino_ratio(r, 0.0)
-        dd = downside_deviation(r, 0.0)
+        ddn = downside_deviation(r, 0.0)
         sk, ku = skew_kurt(r)
         v95, c95 = var_cvar(r, 0.95)
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Sharpe (0% rf)", fmt_num(sh, 2))
         c2.metric("Sortino (0% MAR)", fmt_num(so, 2))
-        c3.metric("Downside Dev", fmt_pct(dd))
+        c3.metric("Downside Dev", fmt_pct(ddn))
         c4.metric("Max Drawdown", fmt_pct(mdd))
 
         c5, c6, c7, c8 = st.columns(4)
@@ -1010,8 +1021,8 @@ with tabs[2]:
 
         st.write("Drawdown (Wave vs Benchmark)")
         dd_w = drawdown_series(hist["wave_nav"])
-        dd_b = drawdown_series(hist["bm_nav"])
-        dd_df = pd.concat([dd_w.rename("Wave"), dd_b.rename("Benchmark")], axis=1).dropna()
+        dd_bm = drawdown_series(hist["bm_nav"])
+        dd_df = pd.concat([dd_w.rename("Wave"), dd_bm.rename("Benchmark")], axis=1).dropna()
         st.line_chart(dd_df)
 
         st.write("Rolling 30D Alpha + Rolling Vol")
@@ -1024,6 +1035,7 @@ with tabs[2]:
         ap = alpha_persistence(ra)
         st.metric("Alpha Persistence", fmt_pct(ap))
 
+
 # -------------------------
 # Correlation
 # -------------------------
@@ -1031,7 +1043,7 @@ with tabs[3]:
     st.subheader("Correlation")
     st.caption("Correlation uses daily returns over the selected window and mode.")
 
-    rets: Dict[str, pd.Series] = {}
+    rets = {}
     for w in all_waves:
         h = compute_wave_history(w, mode=mode, days=min(days, 365))
         if h is not None and (not h.empty) and "wave_ret" in h.columns:
@@ -1042,6 +1054,7 @@ with tabs[3]:
     else:
         ret_df = pd.DataFrame(rets).dropna(how="all")
         corr = ret_df.corr()
+
         st.dataframe(corr, use_container_width=True)
 
         if selected_wave in corr.columns:
@@ -1057,15 +1070,16 @@ with tabs[3]:
                 st.write("Least Correlated")
                 st.dataframe(least.to_frame("corr"), use_container_width=True)
 
+
 # -------------------------
 # Vector OS Insight Layer
 # -------------------------
 with tabs[4]:
     st.subheader("Vector OS Insight Layer")
-    if hist is None or hist.empty or len(hist) < 20:
+    if hist.empty or len(hist) < 20:
         st.info("Not enough data for insights yet.")
     else:
-        notes: List[str] = []
+        notes = []
 
         if cov.get("flags"):
             notes.append("**Data Integrity Flags:** " + "; ".join(cov["flags"]))
@@ -1083,6 +1097,7 @@ with tabs[4]:
 
         for n in notes:
             st.markdown(f"- {n}")
+
 
 # ============================================================
 # Footer diagnostics (prevents silent deaths)
