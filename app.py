@@ -783,7 +783,7 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
 
     # convert to percent-points for display tables
     for c in [c for c in df.columns if "    # convert to percent-points for display tables
-    for c in [c for c in df.columns if "Return" in c or "Alpha" in c]:
+    for c in [c for c in df.columns if ("Return" in c or "Alpha" in c)]:
         df[c] = pd.to_numeric(df[c], errors="coerce") * 100.0
 
     # pin selected wave at top
