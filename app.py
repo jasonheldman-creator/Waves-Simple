@@ -15,6 +15,7 @@
 #   • Drawdown Monitor
 #   • Alerts & Flags Panel
 #   • Governance Export Pack (IC/Board-ready downloads)
+#   • Alpha Heat Index (NEW) — 0–100 index derived from alpha matrix
 #
 # Notes:
 #   • Engine math NOT modified.
@@ -159,8 +160,7 @@ def safe_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     return df.copy()
-
-# ============================================================
+    # ============================================================
 # Basic return/risk math
 # ============================================================
 def ret_from_nav(nav: pd.Series, window: int) -> float:
@@ -727,13 +727,10 @@ def benchmark_difficulty_proxy(rows: pd.DataFrame) -> Dict[str, Any]:
         w = (r["Weight"] / tot).values
         out["top_weight"] = float(np.max(w))
         out["hhi"] = float(np.sum(w**2))
-        # entropy
         eps = 1e-12
         out["entropy"] = float(-np.sum(w * np.log(w + eps)))
-        # heuristic difficulty: higher conc + lower entropy => harder (more idiosyncratic)
-        # map roughly into [-25, +25] vs SPY as "baseline 0"
-        conc_pen = (out["hhi"] - 0.06) * 180.0  # SPY-ish HHI ~0.04-0.06
-        ent_bonus = (out["entropy"] - 2.6) * -12.0  # higher entropy => easier
+        conc_pen = (out["hhi"] - 0.06) * 180.0
+        ent_bonus = (out["entropy"] - 2.6) * -12.0
         raw = conc_pen + ent_bonus
         out["difficulty_vs_spy"] = float(np.clip(raw, -25.0, 25.0))
         return out
@@ -828,6 +825,70 @@ def plot_alpha_heatmap(alpha_df: pd.DataFrame, title: str):
 
 
 # ============================================================
+# Alpha Heat Index (NEW) — 0–100 index derived from alpha matrix
+# ============================================================
+def _robust_z(series: pd.Series) -> pd.Series:
+    x = pd.to_numeric(series, errors="coerce").astype(float)
+    med = float(np.nanmedian(x.values)) if len(x) else 0.0
+    mad = float(np.nanmedian(np.abs(x.values - med))) if len(x) else 0.0
+    if not math.isfinite(mad) or mad == 0:
+        std = float(np.nanstd(x.values)) if len(x) else 0.0
+        if not math.isfinite(std) or std == 0:
+            return pd.Series(np.zeros(len(x)), index=series.index)
+        mean = float(np.nanmean(x.values))
+        return (x - mean) / std
+    return (x - med) / (1.4826 * mad)
+
+def _to_heat(z: pd.Series, z_clip: float = 2.5) -> pd.Series:
+    zc = z.clip(-z_clip, z_clip)
+    return 100.0 / (1.0 + np.exp(-zc))
+
+@st.cache_data(show_spinner=False)
+def build_alpha_heat_index(all_waves: List[str], mode: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Returns:
+      heat_df: 0–100 index per timeframe (relative to peer waves)
+      raw_df:  raw alpha in % points (for transparency)
+    """
+    alpha_df = build_alpha_matrix(all_waves, mode=mode)
+    if alpha_df is None or alpha_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    df = alpha_df.copy()
+    cols = [c for c in ["1D Alpha", "30D Alpha", "60D Alpha", "365D Alpha"] if c in df.columns]
+    if not cols:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Raw alphas in % points
+    raw = df[["Wave"] + cols].copy()
+    for c in cols:
+        raw[c] = pd.to_numeric(raw[c], errors="coerce") * 100.0
+
+    # Heat 0–100 per column (robust z across waves)
+    heat = pd.DataFrame({"Wave": raw["Wave"].astype(str)})
+    for c in cols:
+        z = _robust_z(raw[c])
+        heat[c] = _to_heat(z, z_clip=2.5)
+
+    heat = heat.set_index("Wave").round(1)
+    raw = raw.set_index("Wave").round(2)
+    return heat, raw
+
+def describe_ahi_cell(alpha_pct_points: float, heat_value: float, label: str) -> str:
+    if alpha_pct_points is None or (isinstance(alpha_pct_points, float) and math.isnan(alpha_pct_points)):
+        return f"{label}: alpha not available."
+    direction = "positive" if alpha_pct_points > 0 else "negative" if alpha_pct_points < 0 else "flat"
+    strength = (
+        "very strong" if heat_value >= 80 else
+        "strong" if heat_value >= 65 else
+        "neutral" if heat_value >= 45 else
+        "weak" if heat_value >= 30 else
+        "very weak"
+    )
+    return f"{label}: raw alpha {alpha_pct_points:.2f} pts ({direction}); AHI {heat_value:.1f}/100 ({strength} vs peer Waves)."
+
+
+# ============================================================
 # Performance Matrix (Returns + Alpha) — percent + red/green heat
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -881,11 +942,9 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
     if df.empty:
         return df
 
-    # Convert decimals → percent points (so styling/format is simple)
     for c in [c for c in df.columns if "Return" in c or "Alpha" in c]:
         df[c] = pd.to_numeric(df[c], errors="coerce") * 100.0
 
-    # Put selected wave first
     if "Wave" in df.columns and selected_wave in set(df["Wave"]):
         top = df[df["Wave"] == selected_wave]
         rest = df[df["Wave"] != selected_wave]
@@ -1015,7 +1074,6 @@ bm_drift = benchmark_drift_status(selected_wave, mode, bm_id)
 hist = compute_wave_history(selected_wave, mode=mode, days=days)
 cov = coverage_report(hist)
 
-# Precompute stats used across multiple tabs (avoid NameError landmines)
 mdd = np.nan
 mdd_b = np.nan
 r30 = np.nan
@@ -1039,7 +1097,6 @@ if hist is not None and (not hist.empty) and len(hist) >= 2:
     te = tracking_error(hist["wave_ret"], hist["bm_ret"])
     ir = information_ratio(hist["wave_nav"], hist["bm_nav"], te)
 
-# Sticky regime chip (optional)
 regime = "neutral"
 vix_val = np.nan
 if yf is not None:
@@ -1054,7 +1111,6 @@ if yf is not None:
     except Exception:
         pass
 
-# WaveScore
 ws_df = compute_wavescore_for_all_waves(all_waves, mode=mode, days=min(days, 365))
 rank = None
 ws_val = np.nan
@@ -1066,7 +1122,6 @@ if not ws_df.empty and selected_wave in set(ws_df["Wave"]):
     except Exception:
         rank = None
 
-# Benchmark difficulty proxy (truth)
 bm_rows = pd.DataFrame()
 try:
     if bm_mix is not None and not bm_mix.empty and "Wave" in bm_mix.columns:
@@ -1078,7 +1133,6 @@ except Exception:
     bm_rows = pd.DataFrame()
 difficulty = benchmark_difficulty_proxy(bm_rows)
 
-# Sticky chips
 chips = []
 chips.append(f"BM Snapshot: {bm_id} · {'Stable' if bm_drift=='stable' else 'DRIFT'}")
 chips.append(f"Coverage: {fmt_num(cov.get('completeness_score', np.nan),1)} / 100")
@@ -1097,10 +1151,11 @@ for c in chips:
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
-# Tabs (RESTORED + ELITE)
+# Tabs (RESTORED + ELITE) + AHI TAB INSERTED
 # ============================================================
 tabs = st.tabs([
     "Console",
+    "Alpha Heat Index",  # NEW TAB
     "Attribution",
     "Factor Decomposition",
     "Risk Lab",
@@ -1113,7 +1168,6 @@ tabs = st.tabs([
     "Governance Export",
     "Vector OS Insight Layer",
 ])
-
 # -------------------------
 # TAB: Console (RESTORED RICH VIEW + PERFORMANCE MATRIX)
 # -------------------------
@@ -1205,9 +1259,48 @@ with tabs[0]:
             st.dataframe(hold2.head(10), use_container_width=True)
 
 # -------------------------
-# TAB: Attribution (Engine vs Static Basket proxy)
+# TAB: Alpha Heat Index (NEW)
 # -------------------------
 with tabs[1]:
+    st.subheader("Alpha Heat Index (0–100)")
+    st.caption("Derived from the alpha matrix across Waves. 50 = median; 80+ = strong relative alpha. Observational only (not a signal).")
+
+    heat_df, raw_df = build_alpha_heat_index(all_waves, mode=mode)
+
+    if heat_df is None or heat_df.empty:
+        st.info("AHI unavailable (not enough alpha data).")
+    else:
+        # Put selected wave first (like your performance matrix)
+        if selected_wave in heat_df.index:
+            heat_df = pd.concat([heat_df.loc[[selected_wave]], heat_df.drop(index=[selected_wave])], axis=0)
+            raw_df = pd.concat([raw_df.loc[[selected_wave]], raw_df.drop(index=[selected_wave])], axis=0)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Selected Wave", selected_wave)
+        c2.metric("Mode", mode)
+        c3.metric("AHI Rows", str(len(heat_df)))
+
+        st.write("### AHI Matrix (0–100)")
+        st.dataframe(heat_df.style.format("{:.1f}").background_gradient(axis=None), use_container_width=True)
+
+        with st.expander("Show raw alpha used (percent points)"):
+            st.dataframe(raw_df, use_container_width=True)
+
+        st.write("### Deterministic Explanation")
+        col1, col2 = st.columns(2)
+        with col1:
+            w = st.selectbox("Wave", list(heat_df.index), index=0 if selected_wave in heat_df.index else 0)
+        with col2:
+            tf = st.selectbox("Timeframe", ["1D Alpha", "30D Alpha", "60D Alpha", "365D Alpha"])
+
+        a_val = float(raw_df.loc[w, tf]) if (raw_df is not None and tf in raw_df.columns and w in raw_df.index) else float("nan")
+        h_val = float(heat_df.loc[w, tf]) if (heat_df is not None and tf in heat_df.columns and w in heat_df.index) else float("nan")
+        st.code(describe_ahi_cell(a_val, h_val, tf), language="text")
+
+# -------------------------
+# TAB: Attribution (Engine vs Static Basket proxy)
+# -------------------------
+with tabs[2]:
     st.subheader("Attribution (Engine vs Static Basket Proxy)")
     st.caption("This is a **console-side** proxy: compares Wave returns to Benchmark returns (alpha).")
     if hist is None or hist.empty or len(hist) < 30:
@@ -1222,7 +1315,7 @@ with tabs[1]:
 # -------------------------
 # TAB: Factor Decomposition
 # -------------------------
-with tabs[2]:
+with tabs[3]:
     st.subheader("Factor Decomposition (Light)")
     st.caption("Beta vs benchmark from daily returns.")
     if hist is None or hist.empty or len(hist) < 20:
@@ -1234,7 +1327,7 @@ with tabs[2]:
 # -------------------------
 # TAB: Risk Lab
 # -------------------------
-with tabs[3]:
+with tabs[4]:
     st.subheader("Risk Lab")
     if hist is None or hist.empty or len(hist) < 50:
         st.info("Not enough data to compute risk lab metrics.")
@@ -1275,7 +1368,7 @@ with tabs[3]:
 # -------------------------
 # TAB: Correlation
 # -------------------------
-with tabs[4]:
+with tabs[5]:
     st.subheader("Correlation (Daily Returns)")
     rets = {}
     for w in all_waves:
@@ -1293,7 +1386,7 @@ with tabs[4]:
 # -------------------------
 # TAB: Mode Proof (Elite)
 # -------------------------
-with tabs[5]:
+with tabs[6]:
     st.subheader("Mode Separation Proof (Side-by-Side)")
     st.caption("Same wave across modes — proves strategies are distinct.")
     modes_to_check = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
@@ -1319,7 +1412,7 @@ with tabs[5]:
 # -------------------------
 # TAB: Benchmark Truth (Elite)
 # -------------------------
-with tabs[6]:
+with tabs[7]:
     st.subheader("Benchmark Truth & Difficulty")
     st.write(f"**Snapshot:** {bm_id} · **Drift:** {bm_drift.upper()}")
     c1, c2, c3, c4 = st.columns(4)
@@ -1339,7 +1432,7 @@ with tabs[6]:
 # -------------------------
 # TAB: Drawdown Monitor (Elite)
 # -------------------------
-with tabs[7]:
+with tabs[8]:
     st.subheader("Drawdown Monitor")
     if hist is None or hist.empty or len(hist) < 60:
         st.info("Not enough history for drawdown monitor.")
@@ -1353,7 +1446,7 @@ with tabs[7]:
 # -------------------------
 # TAB: Alerts (Elite)
 # -------------------------
-with tabs[8]:
+with tabs[9]:
     st.subheader("Alerts & Flags")
     notes = build_alerts(selected_wave, mode, hist, cov, bm_drift, te, a30, mdd)
     for n in notes:
@@ -1362,7 +1455,7 @@ with tabs[8]:
 # -------------------------
 # TAB: WaveScore Leaderboard
 # -------------------------
-with tabs[9]:
+with tabs[10]:
     st.subheader("WaveScore Leaderboard (Console Approx.)")
     if ws_df is None or ws_df.empty:
         st.info("WaveScore unavailable (no history).")
@@ -1375,7 +1468,7 @@ with tabs[9]:
 # -------------------------
 # TAB: Governance Export (Elite)
 # -------------------------
-with tabs[10]:
+with tabs[11]:
     st.subheader("Governance Export Pack (IC / Board Ready)")
 
     md = make_ic_pack_markdown(
@@ -1416,7 +1509,7 @@ with tabs[10]:
 # -------------------------
 # TAB: Vector OS Insight Layer
 # -------------------------
-with tabs[11]:
+with tabs[12]:
     st.subheader("Vector OS Insight Layer")
     if hist is None or hist.empty or len(hist) < 20:
         st.info("Not enough data for insights yet.")
@@ -1440,4 +1533,3 @@ with st.expander("System Diagnostics (if something looks off)"):
     if hist is not None and not hist.empty:
         st.write("History columns:", list(hist.columns))
         st.write("History tail:", hist.tail(3))
-        
