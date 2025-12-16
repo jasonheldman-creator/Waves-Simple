@@ -1281,7 +1281,7 @@ with tabs[1]:
         c3.metric("AHI Rows", str(len(heat_df)))
 
         st.write("### AHI Matrix (0–100)")
-        st.dataframe(heat_df.style.format("{:.1f}").background_gradient(axis=None), use_container_width=True)
+        st.dataframe(heat_df, use_container_width=True)
 
         with st.expander("Show raw alpha used (percent points)"):
             st.dataframe(raw_df, use_container_width=True)
