@@ -1654,3 +1654,4 @@ with st.expander("System Diagnostics (if something looks off)"):
     if hist is not None and not hist.empty:
         st.write("History columns:", list(hist.columns))
         st.write("History tail:", hist.tail(3))
+        
