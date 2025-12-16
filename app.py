@@ -1786,6 +1786,161 @@ with T["Diagnostics"]:
         st.write("History tail:", hist.tail(3))
 
 # ============================================================
+# FINAL SECTION: Scoring Grid (IC / Diligence Scorecard)
+# ============================================================
+st.divider()
+st.subheader("IC Scorecard — Scoring Grid (Diligence / Investor Use)")
+st.caption("Use this grid to score the quality of analytics + integrity signals for the selected Wave/Mode. Observational only (not advice).")
+
+# Default rubric rows (0–5 each). You can edit scores live.
+_default_rubric = [
+    {
+        "Category": "Data Integrity",
+        "Metric": "Coverage Score (0–100)",
+        "What it means": "History completeness + freshness. Higher = more reliable analytics.",
+        "Auto value": float(cov.get("completeness_score")) if cov.get("completeness_score") is not None else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 3,
+        "How to score (quick)": "5: ≥90 | 4: 85–89 | 3: 75–84 | 2: 65–74 | 1: 50–64 | 0: <50",
+    },
+    {
+        "Category": "Benchmark Integrity",
+        "Metric": "Benchmark Drift",
+        "What it means": "Whether benchmark snapshot changed in-session.",
+        "Auto value": 0 if bm_drift == "stable" else 1,
+        "Score (0-5)": 0,
+        "Weight": 3,
+        "How to score (quick)": "5: Stable | 2: Drift once | 0: Repeated drift",
+    },
+    {
+        "Category": "Risk-Adjusted Quality",
+        "Metric": "Information Ratio (IR)",
+        "What it means": "Alpha per unit of active risk.",
+        "Auto value": float(ir) if math.isfinite(ir) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 3,
+        "How to score (quick)": "5: ≥0.75 | 4: 0.50–0.74 | 3: 0.25–0.49 | 2: 0.10–0.24 | 1: 0–0.09 | 0: <0",
+    },
+    {
+        "Category": "Return vs Benchmark",
+        "Metric": "30D Alpha",
+        "What it means": "Near-term relative performance.",
+        "Auto value": float(a30) if math.isfinite(a30) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 2,
+        "How to score (quick)": "5: ≥+3% | 4: +1–3% | 3: 0–1% | 2: −1–0% | 1: −3–−1% | 0: <−3%",
+    },
+    {
+        "Category": "Return vs Benchmark",
+        "Metric": "60D Alpha",
+        "What it means": "Medium-term relative performance.",
+        "Auto value": float(a60) if math.isfinite(a60) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 2,
+        "How to score (quick)": "5: ≥+4% | 4: +2–4% | 3: 0–2% | 2: −2–0% | 1: −4–−2% | 0: <−4%",
+    },
+    {
+        "Category": "Risk Control",
+        "Metric": "Max Drawdown (Wave)",
+        "What it means": "Worst peak-to-trough loss over the selected window.",
+        "Auto value": float(mdd) if math.isfinite(mdd) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 3,
+        "How to score (quick)": "5: >−10% | 4: −15–−10% | 3: −20–−15% | 2: −25–−20% | 1: −35–−25% | 0: ≤−35%",
+    },
+    {
+        "Category": "Active Risk",
+        "Metric": "Tracking Error (TE)",
+        "What it means": "How aggressively the Wave deviates from benchmark.",
+        "Auto value": float(te) if math.isfinite(te) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 2,
+        "How to score (quick)": "5: ≤6% | 4: 6–10% | 3: 10–14% | 2: 14–18% | 1: 18–25% | 0: >25%",
+    },
+    {
+        "Category": "Consistency",
+        "Metric": "Alpha Persistence (Rolling 30D)",
+        "What it means": "Percent of rolling windows where alpha is positive.",
+        "Auto value": float(alpha_persistence(rolling_alpha_from_nav(hist['wave_nav'], hist['bm_nav'], 30)))
+        if (hist is not None and not hist.empty and "wave_nav" in hist.columns and "bm_nav" in hist.columns)
+        else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 2,
+        "How to score (quick)": "5: ≥65% | 4: 60–64% | 3: 55–59% | 2: 50–54% | 1: 45–49% | 0: <45%",
+    },
+    {
+        "Category": "Governance",
+        "Metric": "WaveScore (Console Approx.)",
+        "What it means": "Console-side composite. (Not the locked WaveScore spec.)",
+        "Auto value": float(ws_val) if math.isfinite(ws_val) else np.nan,
+        "Score (0-5)": 0,
+        "Weight": 3,
+        "How to score (quick)": "5: ≥85 | 4: 75–84 | 3: 65–74 | 2: 55–64 | 1: 45–54 | 0: <45",
+    },
+]
+
+# Session persistence
+key = f"ic_scorecard::{selected_wave}::{mode}"
+if key not in st.session_state:
+    st.session_state[key] = pd.DataFrame(_default_rubric)
+
+score_df = st.session_state[key].copy()
+
+# Friendly formatting
+_show = score_df.copy()
+_show["Auto value"] = _show["Auto value"].apply(lambda x: float(x) if (x is not None and math.isfinite(float(x))) else np.nan)
+
+st.info("Tip: Fill **Score (0–5)** live during diligence calls. Weights stay constant unless you change them.")
+
+edited = st.data_editor(
+    _show,
+    use_container_width=True,
+    num_rows="fixed",
+    column_config={
+        "Score (0-5)": st.column_config.NumberColumn("Score (0-5)", min_value=0, max_value=5, step=1),
+        "Weight": st.column_config.NumberColumn("Weight", min_value=1, max_value=5, step=1),
+    },
+    disabled=["Category", "Metric", "What it means", "Auto value", "How to score (quick)"],
+)
+
+# Persist edits back
+st.session_state[key] = edited.copy()
+
+# Compute totals
+calc = edited.copy()
+calc["Score (0-5)"] = pd.to_numeric(calc["Score (0-5)"], errors="coerce").fillna(0.0)
+calc["Weight"] = pd.to_numeric(calc["Weight"], errors="coerce").fillna(1.0)
+calc["Weighted Points"] = calc["Score (0-5)"] * calc["Weight"]
+
+max_points = float((5.0 * calc["Weight"]).sum()) if len(calc) else 0.0
+total_points = float(calc["Weighted Points"].sum()) if len(calc) else 0.0
+pct = (total_points / max_points * 100.0) if max_points > 0 else float("nan")
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Weighted Points", f"{total_points:.1f}")
+c2.metric("Max Possible", f"{max_points:.1f}")
+c3.metric("Score (0–100)", f"{pct:.1f}" if math.isfinite(pct) else "—")
+c4.metric("Grade", _grade_from_score(pct) if math.isfinite(pct) else "N/A")
+
+with st.expander("Scorecard Notes (optional)"):
+    note_key = f"{key}::notes"
+    st.session_state.setdefault(note_key, "")
+    st.session_state[note_key] = st.text_area(
+        "Notes you can copy into investor emails / diligence docs:",
+        value=st.session_state[note_key],
+        height=120,
+    )
+
+# Export
+st.download_button(
+    "Download Scorecard (CSV)",
+    data=calc.to_csv(index=False).encode("utf-8"),
+    file_name=f"IC_Scorecard_{selected_wave.replace(' ','_')}_{mode.replace(' ','_')}.csv",
+    mime="text/csv",
+    use_container_width=True,
+)
+
+# ============================================================
 # EOF guardrails
 # ============================================================
 # Never leave trailing, unclosed blocks or strings below this line.
