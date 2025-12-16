@@ -1765,15 +1765,28 @@ with tabs[_tab("Definitions & Methodology")]:
 with st.expander("System Diagnostics (if something looks off)"):
     st.write("Engine loaded:", we is not None)
     st.write("Engine import error:", str(ENGINE_IMPORT_ERROR) if ENGINE_IMPORT_ERROR else "None")
-    st.write("Decision engine loaded:", (generate_decisions is not None) or (build_daily_wave_activity is not None))
+
+    st.write(
+        "Decision engine loaded:",
+        (generate_decisions is not None) or (build_daily_wave_activity is not None),
+    )
     st.write("Decision import error:", str(DECISION_IMPORT_ERROR) if DECISION_IMPORT_ERROR else "None")
+
     st.write(
         "Files present:",
-        {p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]},
+        {
+            "wave_config.csv": os.path.exists("wave_config.csv"),
+            "wave_weights.csv": os.path.exists("wave_weights.csv"),
+            "wave_history.csv": os.path.exists("wave_history.csv"),
+            "list.csv": os.path.exists("list.csv"),
+            "waves_engine.py": os.path.exists("waves_engine.py"),
+            "decision_engine.py": os.path.exists("decision_engine.py"),
+        },
     )
-    st.write("Selected:", {"wave": selected_wave, "mode": mode, "days": days, "advanced_mode": advanced_mode})
+
+    st.write("Selected:", {"wave": selected_wave, "mode": mode, "days": days})
     st.write("History shape:", None if hist is None else hist.shape)
+
     if hist is not None and not hist.empty:
         st.write("History columns:", list(hist.columns))
         st.write("History tail:", hist.tail(3))
-        
