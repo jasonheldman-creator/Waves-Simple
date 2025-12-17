@@ -1316,8 +1316,64 @@ def make_ic_pack_markdown(
     rank: Optional[int],
     r30: float,
     a30: float,
-    r60
-    # ============================================================
+    r60: float,
+    a60: float,
+    r365: float,
+    a365: float,
+    te: float,
+    ir: float,
+    mdd: float,
+    mdd_b: float,
+    difficulty: Dict[str, Any],
+    analytics_score: float,
+    analytics_grade: str,
+    analytics_flags: str,
+) -> str:
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return f"""# WAVES Intelligence™ — Governance / IC Pack
+
+**Timestamp:** {ts}  
+**Wave:** {wave}  
+**Mode:** {mode}  
+
+## Governance-Native Analytics Scorecard
+- Analytics Grade: **{analytics_grade}**
+- Analytics Score: **{fmt_score(analytics_score)} / 100**
+- Flags: **{analytics_flags if analytics_flags else "None"}**
+
+## Benchmark Integrity
+- Snapshot ID: **{bm_id}**
+- Drift status: **{bm_drift.upper()}**
+- Difficulty vs SPY (proxy): **{fmt_num(difficulty.get('difficulty_vs_spy'), 2)}**
+- HHI (concentration): **{fmt_num(difficulty.get('hhi'), 4)}**
+- Entropy (diversification): **{fmt_num(difficulty.get('entropy'), 3)}**
+- Top weight: **{fmt_pct(difficulty.get('top_weight'), 2)}**
+
+## Coverage / Data Quality
+- Rows: **{cov.get('rows', '—')}**
+- First date: **{cov.get('first_date', '—')}**
+- Last date: **{cov.get('last_date', '—')}**
+- Age (days): **{cov.get('age_days', '—')}**
+- Completeness score: **{fmt_num(cov.get('completeness_score', np.nan), 1)} / 100**
+- Flags: **{'; '.join(cov.get('flags', [])) if cov.get('flags') else 'None'}**
+
+## Performance vs Benchmark
+- 30D Return: **{fmt_pct(r30)}** | 30D Alpha: **{fmt_pct(a30)}**
+- 60D Return: **{fmt_pct(r60)}** | 60D Alpha: **{fmt_pct(a60)}**
+- 365D Return: **{fmt_pct(r365)}** | 365D Alpha: **{fmt_pct(a365)}**
+
+## Risk / Efficiency
+- Tracking Error: **{fmt_pct(te)}**
+- Information Ratio: **{fmt_num(ir, 2)}**
+- Max Drawdown (Wave): **{fmt_pct(mdd)}**
+- Max Drawdown (Benchmark): **{fmt_pct(mdd_b)}**
+
+## WaveScore (Console Approx.)
+- WaveScore: **{fmt_score(ws_val)}**
+- Grade: **{ws_grade}**
+- Rank: **{rank if rank else '—'}**
+"""
+# ============================================================
 # Diagnostics (safe)
 # ============================================================
 def render_diagnostics(selected_wave: str, mode: str, days: int, hist: pd.DataFrame):
