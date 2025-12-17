@@ -1337,11 +1337,6 @@ with tabs[0]:
         for w in (wins[:4] if wins else ["(none)"]):
             st.write("• " + w)
 
-        st.markdown("
-                st.markdown("**Key Wins**")
-        for w in (wins[:4] if wins else ["(none)"]):
-            st.write("• " + w)
-
         st.markdown("**Key Risks**")
         for r in (risks[:4] if risks else ["(none)"]):
             st.write("• " + r)
