@@ -387,3 +387,4 @@ with tabs[5]:
         )
 
     ui.safe_panel("Diagnostics", panel)
+    
