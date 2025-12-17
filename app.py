@@ -174,7 +174,7 @@ def safe_series(s: Optional[pd.Series]) -> pd.Series:
     return s.copy()
 
 
-# ✅ NEW: safe float helper (prevents NoneType float() crash)
+# ✅ CRITICAL FIX: safe float helper (prevents float(None) crash)
 def safe_float(x: Any, default: float = np.nan) -> float:
     try:
         if x is None:
@@ -861,26 +861,6 @@ def _score_to_grade_af(score: float) -> str:
         return "N/A"
 
 
-def _clip01(x: Any) -> float:
-    try:
-        v = float(x)
-        if not math.isfinite(v):
-            return float("nan")
-        return float(np.clip(v, 0.0, 1.0))
-    except Exception:
-        return float("nan")
-
-
-def _clip100(x: Any) -> float:
-    try:
-        v = float(x)
-        if not math.isfinite(v):
-            return float("nan")
-        return float(np.clip(v, 0.0, 100.0))
-    except Exception:
-        return float("nan")
-
-
 def _drift_penalty(status: str) -> float:
     s = str(status).lower().strip()
     return 1.0 if s == "stable" else 0.0
@@ -897,7 +877,7 @@ def _explainability_proxy(cov: Dict[str, Any], bm_drift: str, hist_rows: int) ->
         miss = safe_float(cov.get("missing_pct"))
 
         if math.isfinite(score):
-            base += (score - 90.0) * 0.25  # modest bump/penalty
+            base += (score - 90.0) * 0.25
         if math.isfinite(age) and age > 3:
             base -= min(20.0, (age - 3) * 3.5)
         if math.isfinite(miss) and miss > 0.02:
@@ -928,11 +908,9 @@ def compute_analytics_scorecard_all_waves(all_waves: List[str], mode: str, days:
         hist = _standardize_history(hist)
         cov = coverage_report(hist)
 
-        # Benchmark snapshot/drift
         bid = benchmark_snapshot_id(w, bm_mix)
         drift = benchmark_drift_status(w, mode, bid)
 
-        # Compute core observables if possible
         te = np.nan
         ir = np.nan
         mdd = np.nan
@@ -947,8 +925,7 @@ def compute_analytics_scorecard_all_waves(all_waves: List[str], mode: str, days:
             except Exception:
                 pass
 
-        # --- Domain scores (0-100) ---
-        # ✅ FIXED: safe handling of None values (prevents float(None) TypeError)
+        # ✅ FIX: safe handling of None values (prevents float(None) TypeError)
         coverage_score = safe_float(cov.get("completeness_score"))
         age_days = safe_float(cov.get("age_days"))
         rows_n = int(cov.get("rows") or 0)
@@ -968,32 +945,27 @@ def compute_analytics_scorecard_all_waves(all_waves: List[str], mode: str, days:
 
         # D2 Benchmark Fidelity & Drift Control
         d2 = 92.0 * _drift_penalty(drift) + 78.0 * (1.0 - _drift_penalty(drift))
-        # Slightly penalize if benchmark mix is missing/NA
         if str(bid).upper() in ["BM-NA", "BM-ERR"]:
             d2 -= 12.0
         d2 = float(np.clip(d2, 0.0, 100.0))
 
-        # D3 Risk Discipline (uses TE/Vol/MDD when available)
+        # D3 Risk Discipline
         d3 = 80.0
         if math.isfinite(te):
-            # TE: 0.05 good, 0.20 poor
             d3 += float(np.clip((0.10 - te) * 250.0, -25.0, 15.0))
         if math.isfinite(vol):
-            # Vol: 0.15 good, 0.30 poor
             d3 += float(np.clip((0.22 - vol) * 140.0, -25.0, 15.0))
         if math.isfinite(mdd):
-            # MDD: -0.10 good, -0.30 poor
             d3 += float(np.clip((-0.18 - mdd) * 120.0, -25.0, 15.0))
         d3 = float(np.clip(d3, 0.0, 100.0))
 
-        # D4 Efficiency / Performance Quality proxy (IR)
+        # D4 Efficiency / Quality proxy (IR)
         d4 = 55.0
         if math.isfinite(ir):
-            # IR mapping: 0.0->55, 0.5->70, 1.0->85, 1.5->95
             d4 = float(np.clip(55.0 + ir * 30.0, 0.0, 100.0))
         d4 = float(np.clip(d4, 0.0, 100.0))
 
-        # D5 Explainability & Decision Readiness (proxy)
+        # D5 Explainability proxy
         d5 = _explainability_proxy(cov, drift, rows_n)
 
         total = float(np.clip((d1 + d2 + d3 + d4 + d5) / 5.0, 0.0, 100.0))
@@ -1214,7 +1186,7 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
         return df
 
     for c in [c for c in df.columns if "Return" in c or "Alpha" in c]:
-        df[c] = pd.to_numeric(df[c], errors="coerce") * 100.0  # percent points
+        df[c] = pd.to_numeric(df[c], errors="coerce") * 100.0
 
     if "Wave" in df.columns and selected_wave in set(df["Wave"]):
         top = df[df["Wave"] == selected_wave]
@@ -1421,12 +1393,7 @@ if not all_waves:
     st.warning("No waves discovered yet. If unexpected, check engine import + CSV files.")
     with st.expander("Diagnostics"):
         st.write("Files present:")
-        st.write(
-            {
-                p: os.path.exists(p)
-                for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]
-            }
-        )
+        st.write({p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]})
     st.stop()
 
 modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
@@ -1437,7 +1404,6 @@ with st.sidebar:
     selected_wave = st.selectbox("Wave", all_waves, index=0)
     days = st.slider("History window (days)", min_value=90, max_value=1500, value=365, step=30)
     st.caption("If history is empty, app falls back to wave_history.csv automatically.")
-
     with st.expander("Diagnostics"):
         st.caption("Open after page loads to inspect engine/files/history.")
 
@@ -1532,7 +1498,6 @@ sys_grade = "N/A"
 sel_analytics_score = np.nan
 sel_analytics_grade = "N/A"
 sel_analytics_flags = ""
-
 if scorecard_df is not None and not scorecard_df.empty:
     try:
         sys_score = float(scorecard_df["AnalyticsScore"].mean())
@@ -1572,7 +1537,6 @@ for c in chips:
 st.markdown("</div>", unsafe_allow_html=True)
 st.caption("Observational analytics only (not trading advice).")
 
-# Tabs (keeps all original + adds scorecard as first IC governance surface inside existing tabs)
 tabs = st.tabs(
     [
         "IC Summary",
@@ -1731,7 +1695,6 @@ with tabs[0]:
             top = sc[sc["Wave"] == selected_wave]
             rest = sc[sc["Wave"] != selected_wave]
             sc = pd.concat([top, rest], axis=0)
-
         show_cols = [
             "Wave",
             "Grade",
