@@ -1098,3 +1098,332 @@ def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 3
         }
     )
     return out
+    
+    # ============================================================
+# ADD-ON: Canonical History Provider for the Console
+# Provides: compute_history_nav(wave_name, mode="Standard", days=365)
+#
+# Safe design:
+#   1) If you already have any internal history function, we try it first.
+#   2) Else we read wave_history.csv (recommended immediate solution).
+#   3) Else (optional) we can synthesize history from yfinance using a benchmark mix
+#      (best-effort; non-fatal if yfinance not available).
+# ============================================================
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
+
+import numpy as np
+import pandas as pd
+
+# Optional yfinance (do NOT hard-require)
+try:
+    import yfinance as yf  # type: ignore
+except Exception:
+    yf = None
+
+
+def _to_dt_index(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize a dataframe to have a datetime index if possible."""
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    for dc in ["date", "Date", "timestamp", "Timestamp", "datetime", "Datetime"]:
+        if dc in out.columns:
+            out[dc] = pd.to_datetime(out[dc], errors="coerce")
+            out = out.dropna(subset=[dc]).set_index(dc)
+            break
+    out.index = pd.to_datetime(out.index, errors="coerce")
+    out = out[~out.index.isna()].sort_index()
+    return out
+
+
+def _standardize_history_engine(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Output spec the app expects:
+      index = datetime
+      columns include:
+        wave_nav, bm_nav (required)
+        wave_ret, bm_ret (optional; will be derived if missing)
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
+
+    out = _to_dt_index(df)
+
+    # Normalize column names
+    ren = {}
+    for c in out.columns:
+        low = str(c).strip().lower()
+        if low in ["wave_nav", "nav_wave", "portfolio_nav", "nav", "wavevalue", "wave value"]:
+            ren[c] = "wave_nav"
+        elif low in ["bm_nav", "bench_nav", "benchmark_nav", "benchmark", "benchmark value", "bm value"]:
+            ren[c] = "bm_nav"
+        elif low in ["wave_ret", "ret_wave", "portfolio_ret", "return", "wave_return", "wave return"]:
+            ren[c] = "wave_ret"
+        elif low in ["bm_ret", "ret_bm", "benchmark_ret", "bm_return", "benchmark_return", "benchmark return"]:
+            ren[c] = "bm_ret"
+    out = out.rename(columns=ren)
+
+    # Coerce numeric
+    for col in ["wave_nav", "bm_nav", "wave_ret", "bm_ret"]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    # Derive returns if missing
+    if "wave_ret" not in out.columns and "wave_nav" in out.columns:
+        out["wave_ret"] = out["wave_nav"].pct_change()
+    if "bm_ret" not in out.columns and "bm_nav" in out.columns:
+        out["bm_ret"] = out["bm_nav"].pct_change()
+
+    # Keep only canonical columns
+    cols = [c for c in ["wave_nav", "bm_nav", "wave_ret", "bm_ret"] if c in out.columns]
+    out = out[cols].dropna(how="all")
+
+    return out
+
+
+def _read_wave_history_csv(path: str = "wave_history.csv") -> pd.DataFrame:
+    """Reads wave_history.csv if present. Non-fatal if missing."""
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def _history_from_csv(wave_name: str, mode: str, days: int, path: str = "wave_history.csv") -> pd.DataFrame:
+    """
+    Expected CSV columns (minimum):
+      date, wave, mode, wave_nav, bm_nav
+    Also supported aliases:
+      wave_name, wavename, risk_mode, strategy_mode, benchmark_nav, bm_nav
+    """
+    raw = _read_wave_history_csv(path)
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
+
+    df = raw.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Identify key columns
+    wave_cols = [c for c in df.columns if c.lower() in ["wave", "wave_name", "wavename"]]
+    mode_cols = [c for c in df.columns if c.lower() in ["mode", "risk_mode", "strategy_mode"]]
+    date_cols = [c for c in df.columns if c.lower() in ["date", "timestamp", "datetime"]]
+
+    wc = wave_cols[0] if wave_cols else None
+    mc = mode_cols[0] if mode_cols else None
+    dc = date_cols[0] if date_cols else None
+
+    # Filter
+    if wc:
+        df[wc] = df[wc].astype(str)
+        df = df[df[wc] == str(wave_name)]
+    if mc:
+        df[mc] = df[mc].astype(str)
+        df = df[df[mc].str.lower() == str(mode).lower()]
+
+    # Date index
+    if dc:
+        df[dc] = pd.to_datetime(df[dc], errors="coerce")
+        df = df.dropna(subset=[dc]).sort_values(dc).set_index(dc)
+
+    out = _standardize_history_engine(df)
+    if len(out) > int(days):
+        out = out.iloc[-int(days):]
+    return out
+
+
+def _yf_download_prices(tickers: List[str], days: int) -> pd.DataFrame:
+    """Best-effort daily adjusted close download. Returns empty df if yf unavailable."""
+    if yf is None or not tickers:
+        return pd.DataFrame()
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=int(days) + 520)
+    try:
+        data = yf.download(
+            tickers=sorted(list(set([t.upper().strip() for t in tickers if str(t).strip()]))),
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+        )
+        if data is None or getattr(data, "empty", True):
+            return pd.DataFrame()
+
+        # Flatten yfinance output
+        if isinstance(getattr(data, "columns", None), pd.MultiIndex):
+            if "Adj Close" in data.columns.get_level_values(0):
+                data = data["Adj Close"]
+            elif "Close" in data.columns.get_level_values(0):
+                data = data["Close"]
+            else:
+                data = data[data.columns.levels[0][0]]
+
+        if isinstance(getattr(data, "columns", None), pd.MultiIndex):
+            data = data.droplevel(0, axis=1)
+
+        if isinstance(data, pd.Series):
+            data = data.to_frame()
+
+        data = data.sort_index().ffill().bfill()
+
+        if len(data) > int(days):
+            data = data.iloc[-int(days):]
+
+        return data
+    except Exception:
+        return pd.DataFrame()
+
+
+def _compute_nav_from_prices(price_df: pd.DataFrame, weights: Dict[str, float]) -> pd.Series:
+    """Create a normalized NAV series from price_df and weights."""
+    if price_df is None or price_df.empty:
+        return pd.Series(dtype=float)
+
+    # Normalize weights
+    w = {str(k).upper().strip(): float(v) for k, v in (weights or {}).items() if k is not None}
+    if not w:
+        return pd.Series(dtype=float)
+
+    # Align tickers
+    cols = [c for c in price_df.columns if str(c).upper().strip() in w]
+    if not cols:
+        return pd.Series(dtype=float)
+
+    sub = price_df[cols].copy()
+    sub.columns = [str(c).upper().strip() for c in sub.columns]
+    sub = sub.ffill().bfill()
+
+    # Normalize each ticker to 1.0 at start
+    base = sub.iloc[0].replace(0, np.nan)
+    norm = sub.divide(base, axis=1)
+
+    # Weighted sum
+    total_w = float(sum([w.get(c, 0.0) for c in norm.columns]))
+    if total_w <= 0:
+        return pd.Series(dtype=float)
+
+    nav = pd.Series(0.0, index=norm.index)
+    for c in norm.columns:
+        nav = nav + norm[c] * (w.get(c, 0.0) / total_w)
+
+    return nav.astype(float)
+
+
+def _get_benchmark_mix_table_safe() -> pd.DataFrame:
+    """
+    Tries to use an existing engine function if present.
+    If your engine already has get_benchmark_mix_table(), we use it.
+    Otherwise, we try benchmark_mix.csv as a fallback.
+    """
+    # If you already implemented this elsewhere, prefer it
+    try:
+        if "get_benchmark_mix_table" in globals() and callable(globals()["get_benchmark_mix_table"]):
+            df = globals()["get_benchmark_mix_table"]()
+            if isinstance(df, pd.DataFrame):
+                return df
+    except Exception:
+        pass
+
+    # Fallback: benchmark_mix.csv
+    for p in ["benchmark_mix.csv", "benchmark_mix_table.csv"]:
+        if os.path.exists(p):
+            try:
+                df = pd.read_csv(p)
+                df.columns = [str(c).strip() for c in df.columns]
+                return df
+            except Exception:
+                continue
+
+    return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
+
+
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+    """
+    Canonical history provider used by the Streamlit console.
+
+    Returns a DataFrame with:
+      index datetime
+      wave_nav, bm_nav, wave_ret, bm_ret
+
+    Source order:
+      1) If you already have an internal history function, try it.
+      2) wave_history.csv filtered by wave+mode
+      3) yfinance synth (benchmark-only; best-effort) -> still returns bm_nav + placeholder wave_nav if possible
+    """
+    w = str(wave_name)
+    m = str(mode)
+    d = int(days)
+
+    # --------------------------------------------------------
+    # 1) Try any internal history function you might already have
+    # --------------------------------------------------------
+    internal_candidates = [
+        "get_history_nav",
+        "get_wave_history",
+        "history_nav",
+        "compute_nav_history",
+        "compute_history",
+    ]
+    for fn in internal_candidates:
+        try:
+            if fn in globals() and callable(globals()[fn]):
+                f = globals()[fn]
+                try:
+                    df = f(w, mode=m, days=d)
+                except TypeError:
+                    df = f(w, m, d)
+                df = _standardize_history_engine(df)
+                if df is not None and not df.empty:
+                    return df
+        except Exception:
+            continue
+
+    # --------------------------------------------------------
+    # 2) CSV fallback (recommended immediate solution)
+    # --------------------------------------------------------
+    df_csv = _history_from_csv(w, m, d, path="wave_history.csv")
+    if df_csv is not None and not df_csv.empty:
+        return df_csv
+
+    # --------------------------------------------------------
+    # 3) Best-effort yfinance synth using benchmark mix ONLY
+    #    (non-fatal; returns empty if no benchmark mix)
+    # --------------------------------------------------------
+    bm_mix = _get_benchmark_mix_table_safe()
+    if isinstance(bm_mix, pd.DataFrame) and not bm_mix.empty and "Wave" in bm_mix.columns:
+        try:
+            rows = bm_mix[bm_mix["Wave"].astype(str) == w].copy()
+            if "Ticker" in rows.columns and "Weight" in rows.columns and not rows.empty:
+                rows["Ticker"] = rows["Ticker"].astype(str).str.upper().str.strip()
+                rows["Weight"] = pd.to_numeric(rows["Weight"], errors="coerce").fillna(0.0)
+
+                weights = {r["Ticker"]: float(r["Weight"]) for _, r in rows.iterrows() if float(r["Weight"]) > 0}
+                tickers = list(weights.keys())
+
+                prices = _yf_download_prices(tickers, d)
+                bm_nav = _compute_nav_from_prices(prices, weights)
+
+                if bm_nav is not None and len(bm_nav) >= 2:
+                    out = pd.DataFrame(index=bm_nav.index)
+                    out["bm_nav"] = bm_nav
+                    # Placeholder wave_nav if we only have benchmark; keeps console alive but signals missing wave history
+                    out["wave_nav"] = np.nan
+                    out["bm_ret"] = out["bm_nav"].pct_change()
+                    out["wave_ret"] = np.nan
+                    out = out.dropna(how="all")
+                    return out
+        except Exception:
+            pass
+
+    # Nothing found
+    return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"])
