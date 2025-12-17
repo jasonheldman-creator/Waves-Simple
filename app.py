@@ -7,11 +7,13 @@
 #   • Definitions drawers (self-explanatory)
 #   • Overview readability upgrades: sort + 365D toggle
 #   • Alpha heatmap + rolling alpha/vol + governance export pack
+#   • NEW: Governance-Native Analytics Scorecard (A–F, 0–100) — layers on top, no engine math changes
 #
 # Notes:
 #   • Engine math NOT modified.
 #   • Robust history loader: engine functions → wave_history.csv fallback
 #   • Decision Engine is optional: app will not crash if decision_engine.py missing.
+#   • Scorecard uses existing observable analytics (coverage, drift, risk/efficiency, explainability proxy).
 
 from __future__ import annotations
 
@@ -332,7 +334,9 @@ def _grade_from_score(score: float) -> str:
     if score >= 60:
         return "C"
     return "D"
-    # ============================================================
+
+
+# ============================================================
 # Styling helpers: % matrix + green/red heat
 # ============================================================
 def _heat_color(val: Any) -> str:
@@ -376,6 +380,7 @@ GLOSSARY: Dict[str, str] = {
     "Difficulty vs SPY": "Heuristic: concentration/diversification proxy. Higher positive can imply harder to beat consistently.",
     "WaveScore": "Console-side approximation (NOT the locked WAVESCORE™ spec).",
     "Decision Intelligence": "OS layer: actions/watch/notes based on observable analytics (not advice).",
+    "Analytics Scorecard": "Governance-native quality grade for analytics reliability and decision readiness (not performance).",
 }
 
 
@@ -461,7 +466,9 @@ def fetch_prices_daily(tickers: List[str], days: int = 365) -> pd.DataFrame:
     if len(data) > days:
         data = data.iloc[-days:]
     return data
-    # ============================================================
+
+
+# ============================================================
 # HISTORY LOADER (engine → CSV fallback)
 # ============================================================
 def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
@@ -690,7 +697,9 @@ def get_wave_holdings(wave_name: str) -> pd.DataFrame:
             pass
 
     return pd.DataFrame(columns=["Ticker", "Name", "Weight"])
-    # ============================================================
+
+
+# ============================================================
 # Benchmark snapshot + drift tracking + difficulty proxy
 # ============================================================
 def _normalize_bm_rows(bm_rows: pd.DataFrame) -> pd.DataFrame:
@@ -819,6 +828,221 @@ def benchmark_difficulty_proxy(rows: pd.DataFrame) -> Dict[str, Any]:
 
 
 # ============================================================
+# Governance-Native Analytics Scorecard (NEW)
+# ============================================================
+def _score_to_grade_af(score: float) -> str:
+    try:
+        s = float(score)
+        if not math.isfinite(s):
+            return "N/A"
+        if s >= 90:
+            return "A"
+        if s >= 80:
+            return "B"
+        if s >= 70:
+            return "C"
+        if s >= 60:
+            return "D"
+        return "F"
+    except Exception:
+        return "N/A"
+
+
+def _clip01(x: Any) -> float:
+    try:
+        v = float(x)
+        if not math.isfinite(v):
+            return float("nan")
+        return float(np.clip(v, 0.0, 1.0))
+    except Exception:
+        return float("nan")
+
+
+def _clip100(x: Any) -> float:
+    try:
+        v = float(x)
+        if not math.isfinite(v):
+            return float("nan")
+        return float(np.clip(v, 0.0, 100.0))
+    except Exception:
+        return float("nan")
+
+
+def _drift_penalty(status: str) -> float:
+    s = str(status).lower().strip()
+    return 1.0 if s == "stable" else 0.0
+
+
+def _explainability_proxy(cov: Dict[str, Any], bm_drift: str, hist_rows: int) -> float:
+    """
+    Conservative proxy (0-100) if you don't have a dedicated AI confidence metric.
+    """
+    try:
+        base = 88.0
+        score = float(cov.get("completeness_score", np.nan))
+        age = float(cov.get("age_days", np.nan))
+        miss = float(cov.get("missing_pct", np.nan))
+
+        if math.isfinite(score):
+            base += (score - 90.0) * 0.25  # modest bump/penalty
+        if math.isfinite(age) and age > 3:
+            base -= min(20.0, (age - 3) * 3.5)
+        if math.isfinite(miss) and miss > 0.02:
+            base -= min(20.0, (miss - 0.02) * 400.0)
+        if str(bm_drift).lower().strip() != "stable":
+            base -= 15.0
+        if hist_rows < 90:
+            base -= 8.0
+        if hist_rows < 60:
+            base -= 12.0
+
+        return float(np.clip(base, 0.0, 100.0))
+    except Exception:
+        return 75.0
+
+
+@st.cache_data(show_spinner=False)
+def compute_analytics_scorecard_all_waves(all_waves: List[str], mode: str, days: int = 365) -> pd.DataFrame:
+    """
+    Scores *analytics quality* using observable signals already present.
+    No engine math changes. No dependence on decision_engine.py.
+    """
+    bm_mix = get_benchmark_mix()
+
+    rows: List[Dict[str, Any]] = []
+    for w in all_waves:
+        hist = compute_wave_history(w, mode=mode, days=days)
+        hist = _standardize_history(hist)
+        cov = coverage_report(hist)
+
+        # Benchmark snapshot/drift
+        bid = benchmark_snapshot_id(w, bm_mix)
+        drift = benchmark_drift_status(w, mode, bid)
+
+        # Compute core observables if possible
+        te = np.nan
+        ir = np.nan
+        mdd = np.nan
+        vol = np.nan
+
+        if hist is not None and not hist.empty and len(hist) >= 20:
+            try:
+                te = tracking_error(hist["wave_ret"], hist["bm_ret"])
+                ir = information_ratio(hist["wave_nav"], hist["bm_nav"], te)
+                mdd = max_drawdown(hist["wave_nav"])
+                vol = annualized_vol(hist["wave_ret"])
+            except Exception:
+                pass
+
+        # --- Domain scores (0-100) ---
+        coverage_score = float(cov.get("completeness_score", np.nan))
+        age_days = float(cov.get("age_days", np.nan))
+        rows_n = int(cov.get("rows", 0) or 0)
+        miss_pct = float(cov.get("missing_pct", np.nan))
+
+        # D1 Data Integrity & Coverage
+        d1 = 85.0
+        if math.isfinite(coverage_score):
+            d1 = 0.85 * coverage_score + 0.15 * 95.0
+        if math.isfinite(age_days) and age_days > 3:
+            d1 -= min(25.0, (age_days - 3) * 4.0)
+        if rows_n < 60:
+            d1 -= 15.0
+        if math.isfinite(miss_pct) and miss_pct > 0.05:
+            d1 -= min(20.0, (miss_pct - 0.05) * 400.0)
+        d1 = float(np.clip(d1, 0.0, 100.0))
+
+        # D2 Benchmark Fidelity & Drift Control
+        d2 = 92.0 * _drift_penalty(drift) + 78.0 * (1.0 - _drift_penalty(drift))
+        # Slightly penalize if benchmark mix is missing/NA
+        if str(bid).upper() in ["BM-NA", "BM-ERR"]:
+            d2 -= 12.0
+        d2 = float(np.clip(d2, 0.0, 100.0))
+
+        # D3 Risk Discipline (uses TE/Vol/MDD when available)
+        d3 = 80.0
+        if math.isfinite(te):
+            # TE: 0.05 good, 0.20 poor
+            d3 += float(np.clip((0.10 - te) * 250.0, -25.0, 15.0))
+        if math.isfinite(vol):
+            # Vol: 0.15 good, 0.30 poor
+            d3 += float(np.clip((0.22 - vol) * 140.0, -25.0, 15.0))
+        if math.isfinite(mdd):
+            # MDD: -0.10 good, -0.30 poor
+            d3 += float(np.clip((-0.18 - mdd) * 120.0, -25.0, 15.0))
+        d3 = float(np.clip(d3, 0.0, 100.0))
+
+        # D4 Efficiency / Performance Quality proxy (IR)
+        d4 = 55.0
+        if math.isfinite(ir):
+            # IR mapping: 0.0->55, 0.5->70, 1.0->85, 1.5->95
+            d4 = float(np.clip(55.0 + ir * 30.0, 0.0, 100.0))
+        d4 = float(np.clip(d4, 0.0, 100.0))
+
+        # D5 Explainability & Decision Readiness (proxy)
+        d5 = _explainability_proxy(cov, drift, rows_n)
+
+        total = float(np.clip((d1 + d2 + d3 + d4 + d5) / 5.0, 0.0, 100.0))
+        grade = _score_to_grade_af(total)
+
+        flags = []
+        if d1 < 70:
+            flags.append("DATA")
+        if d2 < 70:
+            flags.append("BM")
+        if d3 < 70:
+            flags.append("RISK")
+        if d5 < 70:
+            flags.append("EXPLAIN")
+
+        rows.append(
+            {
+                "Wave": w,
+                "AnalyticsScore": total,
+                "Grade": grade,
+                "D1_DataIntegrity": d1,
+                "D2_BenchmarkFidelity": d2,
+                "D3_RiskDiscipline": d3,
+                "D4_EfficiencyQuality": d4,
+                "D5_DecisionReadiness": d5,
+                "CoverageScore": coverage_score,
+                "AgeDays": age_days,
+                "Rows": rows_n,
+                "BM_Snapshot": bid,
+                "BM_Drift": drift,
+                "TE": te,
+                "IR": ir,
+                "MaxDD": mdd,
+                "Vol": vol,
+                "Flags": " ".join(flags) if flags else "",
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    for c in [
+        "AnalyticsScore",
+        "D1_DataIntegrity",
+        "D2_BenchmarkFidelity",
+        "D3_RiskDiscipline",
+        "D4_EfficiencyQuality",
+        "D5_DecisionReadiness",
+        "CoverageScore",
+        "AgeDays",
+        "TE",
+        "IR",
+        "MaxDD",
+        "Vol",
+    ]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").round(2)
+
+    return df.sort_values(["AnalyticsScore", "Wave"], ascending=[False, True]).reset_index(drop=True)
+
+
+# ============================================================
 # WaveScore (console-side approximation)
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -826,6 +1050,7 @@ def compute_wavescore_for_all_waves(all_waves: List[str], mode: str, days: int =
     rows: List[Dict[str, Any]] = []
     for wave in all_waves:
         hist = compute_wave_history(wave, mode=mode, days=days)
+        hist = _standardize_history(hist)
         if hist is None or hist.empty or len(hist) < 20:
             rows.append({"Wave": wave, "WaveScore": np.nan, "Grade": "N/A", "IR_365D": np.nan, "Alpha_365D": np.nan})
             continue
@@ -862,6 +1087,7 @@ def build_alpha_matrix(all_waves: List[str], mode: str) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for wname in all_waves:
         hist = compute_wave_history(wname, mode=mode, days=365)
+        hist = _standardize_history(hist)
         if hist is None or hist.empty or len(hist) < 2:
             rows.append({"Wave": wname, "1D Alpha": np.nan, "30D Alpha": np.nan, "60D Alpha": np.nan, "365D Alpha": np.nan})
             continue
@@ -914,15 +1140,22 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
     rows: List[Dict[str, Any]] = []
     for w in all_waves:
         h = compute_wave_history(w, mode=mode, days=days)
+        h = _standardize_history(h)
         if h is None or h.empty or len(h) < 2:
-            rows.append({
-                "Wave": w,
-                "1D Return": np.nan, "1D Alpha": np.nan,
-                "30D Return": np.nan, "30D Alpha": np.nan,
-                "60D Return": np.nan, "60D Alpha": np.nan,
-                "365D Return": np.nan, "365D Alpha": np.nan,
-                "Rows": 0,
-            })
+            rows.append(
+                {
+                    "Wave": w,
+                    "1D Return": np.nan,
+                    "1D Alpha": np.nan,
+                    "30D Return": np.nan,
+                    "30D Alpha": np.nan,
+                    "60D Return": np.nan,
+                    "60D Alpha": np.nan,
+                    "365D Return": np.nan,
+                    "365D Alpha": np.nan,
+                    "Rows": 0,
+                }
+            )
             continue
 
         nav_w = h["wave_nav"]
@@ -947,14 +1180,20 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
         b365 = ret_from_nav(nav_b, min(365, len(nav_b)))
         a365 = r365 - b365
 
-        rows.append({
-            "Wave": w,
-            "1D Return": r1, "1D Alpha": a1,
-            "30D Return": r30, "30D Alpha": a30,
-            "60D Return": r60, "60D Alpha": a60,
-            "365D Return": r365, "365D Alpha": a365,
-            "Rows": int(len(h)),
-        })
+        rows.append(
+            {
+                "Wave": w,
+                "1D Return": r1,
+                "1D Alpha": a1,
+                "30D Return": r30,
+                "30D Alpha": a30,
+                "60D Return": r60,
+                "60D Alpha": a60,
+                "365D Return": r365,
+                "365D Alpha": a365,
+                "Rows": int(len(h)),
+            }
+        )
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -969,17 +1208,12 @@ def build_performance_matrix(all_waves: List[str], mode: str, selected_wave: str
         df = pd.concat([top, rest], axis=0)
 
     return df.reset_index(drop=True)
-    # ============================================================
+
+
+# ============================================================
 # Alerts & Flags
 # ============================================================
-def build_alerts(
-    hist: pd.DataFrame,
-    cov: Dict[str, Any],
-    bm_drift: str,
-    te: float,
-    a30: float,
-    mdd: float
-) -> List[str]:
+def build_alerts(hist: pd.DataFrame, cov: Dict[str, Any], bm_drift: str, te: float, a30: float, mdd: float) -> List[str]:
     notes: List[str] = []
     try:
         if cov.get("flags"):
@@ -1014,9 +1248,12 @@ def build_decision_ctx(
     regime: str,
     te: float,
     ir: float,
-    r30: float, a30: float,
-    r60: float, a60: float,
-    r365: float, a365: float,
+    r30: float,
+    a30: float,
+    r60: float,
+    a60: float,
+    r365: float,
+    a365: float,
     mdd: float,
     wavescore: float,
     rank: Optional[int],
@@ -1039,9 +1276,12 @@ def build_decision_ctx(
         "regime": regime,
         "te": te,
         "ir": ir,
-        "r30": r30, "a30": a30,
-        "r60": r60, "a60": a60,
-        "r365": r365, "a365": a365,
+        "r30": r30,
+        "a30": a30,
+        "r60": r60,
+        "a60": a60,
+        "r365": r365,
+        "a365": a365,
         "mdd": mdd,
         "wavescore": wavescore,
         "rank": rank,
@@ -1060,12 +1300,20 @@ def make_ic_pack_markdown(
     ws_val: float,
     ws_grade: str,
     rank: Optional[int],
-    r30: float, a30: float,
-    r60: float, a60: float,
-    r365: float, a365: float,
-    te: float, ir: float,
-    mdd: float, mdd_b: float,
+    r30: float,
+    a30: float,
+    r60: float,
+    a60: float,
+    r365: float,
+    a365: float,
+    te: float,
+    ir: float,
+    mdd: float,
+    mdd_b: float,
     difficulty: Dict[str, Any],
+    analytics_score: float,
+    analytics_grade: str,
+    analytics_flags: str,
 ) -> str:
     ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""# WAVES Intelligence™ — Governance / IC Pack
@@ -1073,6 +1321,11 @@ def make_ic_pack_markdown(
 **Timestamp:** {ts}  
 **Wave:** {wave}  
 **Mode:** {mode}  
+
+## Governance-Native Analytics Scorecard
+- Analytics Grade: **{analytics_grade}**
+- Analytics Score: **{fmt_score(analytics_score)} / 100**
+- Flags: **{analytics_flags if analytics_flags else "None"}**
 
 ## Benchmark Integrity
 - Snapshot ID: **{bm_id}**
@@ -1119,14 +1372,26 @@ def render_diagnostics(selected_wave: str, mode: str, days: int, hist: pd.DataFr
     st.write("Decision import error:", str(DECISION_IMPORT_ERROR) if DECISION_IMPORT_ERROR else "None")
     st.write(
         "Files present:",
-        {p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]},
+        {
+            p: os.path.exists(p)
+            for p in [
+                "wave_config.csv",
+                "wave_weights.csv",
+                "wave_history.csv",
+                "list.csv",
+                "waves_engine.py",
+                "decision_engine.py",
+            ]
+        },
     )
     st.write("Selected:", {"wave": selected_wave, "mode": mode, "days": days})
     st.write("History shape:", None if hist is None else getattr(hist, "shape", None))
     if hist is not None and not hist.empty:
         st.write("History columns:", list(hist.columns))
         st.write("History tail:", hist.tail(3))
-        # ============================================================
+
+
+# ============================================================
 # MAIN UI
 # ============================================================
 st.title("WAVES Intelligence™ Institutional Console")
@@ -1144,7 +1409,12 @@ if not all_waves:
     st.warning("No waves discovered yet. If unexpected, check engine import + CSV files.")
     with st.expander("Diagnostics"):
         st.write("Files present:")
-        st.write({p: os.path.exists(p) for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]})
+        st.write(
+            {
+                p: os.path.exists(p)
+                for p in ["wave_config.csv", "wave_weights.csv", "wave_history.csv", "list.csv", "waves_engine.py", "decision_engine.py"]
+            }
+        )
     st.stop()
 
 modes = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
@@ -1155,6 +1425,10 @@ with st.sidebar:
     selected_wave = st.selectbox("Wave", all_waves, index=0)
     days = st.slider("History window (days)", min_value=90, max_value=1500, value=365, step=30)
     st.caption("If history is empty, app falls back to wave_history.csv automatically.")
+
+    with st.expander("Diagnostics"):
+        # Render later after we compute hist, but keep UI slot
+        st.caption("Open after page loads to inspect engine/files/history.")
 
 bm_mix = get_benchmark_mix()
 bm_id = benchmark_snapshot_id(selected_wave, bm_mix)
@@ -1199,7 +1473,6 @@ if yf is not None:
     try:
         vix_df = fetch_prices_daily(["^VIX"], days=30)
         if not vix_df.empty:
-            # vix_df may have "^VIX" or "Adj Close" depending on yf behavior; handle common cases
             if "^VIX" in vix_df.columns:
                 vix_val = float(vix_df["^VIX"].dropna().iloc[-1])
             else:
@@ -1241,8 +1514,33 @@ difficulty = benchmark_difficulty_proxy(bm_rows)
 # Confidence meter
 conf_level, conf_reason = confidence_from_integrity(cov, bm_drift)
 
+# Analytics Scorecard (system + selected)
+scorecard_df = compute_analytics_scorecard_all_waves(all_waves, mode=mode, days=min(days, 365))
+sys_score = np.nan
+sys_grade = "N/A"
+sel_analytics_score = np.nan
+sel_analytics_grade = "N/A"
+sel_analytics_flags = ""
+if scorecard_df is not None and not scorecard_df.empty:
+    try:
+        sys_score = float(scorecard_df["AnalyticsScore"].mean())
+        sys_grade = _score_to_grade_af(sys_score)
+    except Exception:
+        pass
+
+    try:
+        row = scorecard_df[scorecard_df["Wave"] == selected_wave]
+        if not row.empty:
+            sel_analytics_score = float(row["AnalyticsScore"].iloc[0])
+            sel_analytics_grade = str(row["Grade"].iloc[0])
+            sel_analytics_flags = str(row.get("Flags", "").iloc[0]) if "Flags" in row.columns else ""
+    except Exception:
+        pass
+
 # Sticky chips
 chips = [
+    f"System Analytics: {sys_grade} ({fmt_score(sys_score)})",
+    f"Wave Analytics: {sel_analytics_grade} ({fmt_score(sel_analytics_score)})",
     f"BM Snapshot: {bm_id} · {'Stable' if bm_drift=='stable' else 'DRIFT'}",
     f"Coverage: {fmt_num(cov.get('completeness_score', np.nan),1)} / 100",
     f"Rows: {cov.get('rows','—')} · Age: {cov.get('age_days','—')}",
@@ -1262,30 +1560,44 @@ for c in chips:
 st.markdown("</div>", unsafe_allow_html=True)
 st.caption("Observational analytics only (not trading advice).")
 
-# Tabs
-tabs = st.tabs([
-    "IC Summary",
-    "Overview",
-    "Attribution",
-    "Factor Decomposition",
-    "Risk Lab",
-    "Correlation",
-    "Strategy Separation",
-    "Benchmark Integrity",
-    "Drawdown Monitor",
-    "Diligence Flags",
-    "WaveScore Leaderboard",
-    "Governance Export",
-    "IC Notes",
-    "Daily Movement / Volatility",
-    "Decision Intelligence",
-])
+# Tabs (keeps all original + adds scorecard as first IC governance surface inside existing tabs)
+tabs = st.tabs(
+    [
+        "IC Summary",
+        "Overview",
+        "Attribution",
+        "Factor Decomposition",
+        "Risk Lab",
+        "Correlation",
+        "Strategy Separation",
+        "Benchmark Integrity",
+        "Drawdown Monitor",
+        "Diligence Flags",
+        "WaveScore Leaderboard",
+        "Governance Export",
+        "IC Notes",
+        "Daily Movement / Volatility",
+        "Decision Intelligence",
+    ]
+)
+
 # ============================================================
 # TAB 0: IC Summary
 # ============================================================
 with tabs[0]:
     st.subheader(f"IC Summary — {selected_wave} ({mode})")
     st.caption("Decision-grade summary: what matters now, why, and what to check next.")
+
+    # Governance header inside IC Summary
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("Wave Analytics Grade", f"{sel_analytics_grade} ({fmt_score(sel_analytics_score)})")
+    g2.metric("System Analytics Grade", f"{sys_grade} ({fmt_score(sys_score)})")
+    g3.metric("Data Integrity (Coverage)", fmt_num(cov.get("completeness_score", np.nan), 1))
+    g4.metric("Benchmark Drift", "Stable" if bm_drift == "stable" else "DRIFT")
+    if sel_analytics_flags:
+        st.info(f"Scorecard Flags: {sel_analytics_flags}")
+
+    st.divider()
 
     ctx = build_decision_ctx(
         wave=selected_wave,
@@ -1297,9 +1609,12 @@ with tabs[0]:
         regime=regime,
         te=te,
         ir=ir,
-        r30=r30, a30=a30,
-        r60=r60, a60=a60,
-        r365=r365, a365=a365,
+        r30=r30,
+        a30=a30,
+        r60=r60,
+        a60=a60,
+        r365=r365,
+        a365=a365,
         mdd=mdd,
         wavescore=ws_val,
         rank=rank,
@@ -1379,10 +1694,7 @@ with tabs[0]:
             st.warning("Not enough history for charts for this wave/mode.")
         else:
             if chart_mode == "NAV vs Benchmark":
-                nav_df = pd.concat(
-                    [hist["wave_nav"].rename("Wave NAV"), hist["bm_nav"].rename("Benchmark NAV")],
-                    axis=1
-                ).dropna()
+                nav_df = pd.concat([hist["wave_nav"].rename("Wave NAV"), hist["bm_nav"].rename("Benchmark NAV")], axis=1).dropna()
                 if not nav_df.empty:
                     nav_df = nav_df / nav_df.iloc[0]
                     st.line_chart(nav_df)
@@ -1395,6 +1707,33 @@ with tabs[0]:
                 else:
                     st.info("Not enough data for rolling 30D alpha.")
         st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    st.markdown("### Analytics Scorecard (Governance-Native)")
+    st.caption("This grades analytics reliability and decision readiness (not performance).")
+    if scorecard_df is None or scorecard_df.empty:
+        st.info("Scorecard unavailable (no multi-wave history).")
+    else:
+        sc = scorecard_df.copy()
+        # Keep selected wave on top
+        if selected_wave in set(sc["Wave"]):
+            top = sc[sc["Wave"] == selected_wave]
+            rest = sc[sc["Wave"] != selected_wave]
+            sc = pd.concat([top, rest], axis=0)
+        show_cols = [
+            "Wave",
+            "Grade",
+            "AnalyticsScore",
+            "D1_DataIntegrity",
+            "D2_BenchmarkFidelity",
+            "D3_RiskDiscipline",
+            "D4_EfficiencyQuality",
+            "D5_DecisionReadiness",
+            "Flags",
+        ]
+        show_cols = [c for c in show_cols if c in sc.columns]
+        st.dataframe(sc[show_cols], use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### Top Holdings (Grounding)")
@@ -1426,11 +1765,16 @@ with tabs[0]:
 
     render_definitions(
         keys=[
-            "Alpha", "Tracking Error (TE)", "Information Ratio (IR)",
-            "Max Drawdown (MaxDD)", "Benchmark Snapshot / Drift",
-            "Coverage Score", "Decision Intelligence"
+            "Analytics Scorecard",
+            "Alpha",
+            "Tracking Error (TE)",
+            "Information Ratio (IR)",
+            "Max Drawdown (MaxDD)",
+            "Benchmark Snapshot / Drift",
+            "Coverage Score",
+            "Decision Intelligence",
         ],
-        title="Definitions (IC Summary)"
+        title="Definitions (IC Summary)",
     )
 
 # ============================================================
@@ -1439,13 +1783,26 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Overview — All Waves (Performance Matrix + Heatmap + Selected Deep View)")
 
+    st.markdown("### Governance Header")
+    h1, h2, h3, h4, h5 = st.columns([1.1, 1.2, 1.0, 1.0, 1.2])
+    h1.metric("System Analytics", f"{sys_grade} ({fmt_score(sys_score)})")
+    h2.metric("Selected Wave Analytics", f"{sel_analytics_grade} ({fmt_score(sel_analytics_score)})")
+    h3.metric("Coverage", fmt_num(cov.get("completeness_score", np.nan), 1))
+    h4.metric("BM Drift", "Stable" if bm_drift == "stable" else "DRIFT")
+    h5.metric("Confidence", conf_level)
+    st.caption(conf_reason)
+
+    with st.expander("Scorecard (All Waves) — Expand to inspect"):
+        if scorecard_df is None or scorecard_df.empty:
+            st.info("Scorecard unavailable.")
+        else:
+            st.dataframe(scorecard_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
     cA, cB, cC = st.columns([1.2, 1.0, 1.2])
     with cA:
-        sort_by = st.selectbox(
-            "Sort matrix by",
-            ["Selected First (default)", "30D Alpha", "60D Alpha", "30D Return", "WaveScore", "Rows"],
-            index=0
-        )
+        sort_by = st.selectbox("Sort matrix by", ["Selected First (default)", "30D Alpha", "60D Alpha", "30D Return", "WaveScore", "Rows"], index=0)
     with cB:
         show_365 = st.toggle("Show 365D columns", value=False)
     with cC:
@@ -1459,12 +1816,7 @@ with tabs[1]:
         df = perf_df.copy()
 
         if sort_by != "Selected First (default)":
-            key_map = {
-                "30D Alpha": "30D Alpha",
-                "60D Alpha": "60D Alpha",
-                "30D Return": "30D Return",
-                "Rows": "Rows",
-            }
+            key_map = {"30D Alpha": "30D Alpha", "60D Alpha": "60D Alpha", "30D Return": "30D Return", "Rows": "Rows"}
             if sort_by in key_map and key_map[sort_by] in df.columns:
                 df = df.sort_values(key_map[sort_by], ascending=False, na_position="last")
             elif sort_by == "WaveScore":
@@ -1483,10 +1835,7 @@ with tabs[1]:
 
         st.dataframe(style_perf_df(df), use_container_width=True)
         st.caption("Values shown as **percent points**. Green = positive, Red = negative.")
-        render_definitions(
-            keys=["Alpha", "Return", "Tracking Error (TE)", "Information Ratio (IR)"],
-            title="Definitions (Matrix)"
-        )
+        render_definitions(keys=["Alpha", "Return", "Tracking Error (TE)", "Information Ratio (IR)"], title="Definitions (Matrix)")
 
     st.divider()
     st.subheader("Alpha Heatmap (All Waves × Timeframe)")
@@ -1499,10 +1848,7 @@ with tabs[1]:
     if hist is None or hist.empty or len(hist) < 5:
         st.warning("Not enough history for charts for this wave/mode.")
     else:
-        nav_df = pd.concat(
-            [hist["wave_nav"].rename("Wave NAV"), hist["bm_nav"].rename("Benchmark NAV")],
-            axis=1
-        ).dropna()
+        nav_df = pd.concat([hist["wave_nav"].rename("Wave NAV"), hist["bm_nav"].rename("Benchmark NAV")], axis=1).dropna()
         if not nav_df.empty:
             nav_df = nav_df / nav_df.iloc[0]
             st.line_chart(nav_df)
@@ -1631,10 +1977,7 @@ with tabs[4]:
         ap = alpha_persistence(ra)
         st.metric("Alpha Persistence (Rolling 30D windows)", fmt_pct(ap))
 
-    render_definitions(
-        keys=["Tracking Error (TE)", "Information Ratio (IR)", "Max Drawdown (MaxDD)"],
-        title="Definitions (Risk Lab)"
-    )
+    render_definitions(keys=["Tracking Error (TE)", "Information Ratio (IR)", "Max Drawdown (MaxDD)"], title="Definitions (Risk Lab)")
 
 # ============================================================
 # TAB 5: Correlation
@@ -1644,6 +1987,7 @@ with tabs[5]:
     rets = {}
     for w in all_waves:
         h = compute_wave_history(w, mode=mode, days=min(days, 365))
+        h = _standardize_history(h)
         if h is not None and not h.empty and "wave_ret" in h.columns:
             rets[w] = h["wave_ret"]
 
@@ -1670,14 +2014,16 @@ with tabs[6]:
             continue
         rw = ret_from_nav(h["wave_nav"], min(365, len(h)))
         rb = ret_from_nav(h["bm_nav"], min(365, len(h)))
-        rows.append({
-            "Mode": m,
-            "Rows": int(len(h)),
-            "365D Return": rw * 100.0,
-            "365D Alpha": (rw - rb) * 100.0,
-            "MaxDD": max_drawdown(h["wave_nav"]) * 100.0,
-            "TE": tracking_error(h["wave_ret"], h["bm_ret"]) * 100.0,
-        })
+        rows.append(
+            {
+                "Mode": m,
+                "Rows": int(len(h)),
+                "365D Return": rw * 100.0,
+                "365D Alpha": (rw - rb) * 100.0,
+                "MaxDD": max_drawdown(h["wave_nav"]) * 100.0,
+                "TE": tracking_error(h["wave_ret"], h["bm_ret"]) * 100.0,
+            }
+        )
     dfm = pd.DataFrame(rows)
     st.dataframe(style_perf_df(dfm), use_container_width=True)
 
@@ -1701,10 +2047,7 @@ with tabs[7]:
         show["Weight %"] = show["Weight"] * 100.0
         st.dataframe(show[["Ticker", "Weight %"]], use_container_width=True)
 
-    render_definitions(
-        keys=["Benchmark Snapshot / Drift", "Difficulty vs SPY"],
-        title="Definitions (Benchmark Integrity)"
-    )
+    render_definitions(keys=["Benchmark Snapshot / Drift", "Difficulty vs SPY"], title="Definitions (Benchmark Integrity)")
 
 # ============================================================
 # TAB 8: Drawdown Monitor
@@ -1730,6 +2073,7 @@ with tabs[9]:
         st.markdown(f"- {n}")
     st.divider()
     st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+    render_definitions(keys=["Analytics Scorecard", "Coverage Score", "Benchmark Snapshot / Drift"], title="Definitions (Diligence Flags)")
 
 # ============================================================
 # TAB 10: WaveScore Leaderboard
@@ -1759,12 +2103,20 @@ with tabs[11]:
         ws_val=ws_val,
         ws_grade=_grade_from_score(ws_val),
         rank=rank,
-        r30=r30, a30=a30,
-        r60=r60, a60=a60,
-        r365=r365, a365=a365,
-        te=te, ir=ir,
-        mdd=mdd, mdd_b=mdd_b,
+        r30=r30,
+        a30=a30,
+        r60=r60,
+        a60=a60,
+        r365=r365,
+        a365=a365,
+        te=te,
+        ir=ir,
+        mdd=mdd,
+        mdd_b=mdd_b,
         difficulty=difficulty,
+        analytics_score=sel_analytics_score,
+        analytics_grade=sel_analytics_grade,
+        analytics_flags=sel_analytics_flags,
     )
 
     st.download_button(
@@ -1785,6 +2137,15 @@ with tabs[11]:
             use_container_width=True,
         )
 
+    if scorecard_df is not None and not scorecard_df.empty:
+        st.download_button(
+            "Download Analytics Scorecard (CSV)",
+            data=scorecard_df.to_csv(index=False).encode("utf-8"),
+            file_name=f"Analytics_Scorecard_{mode.replace(' ','_')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
 # ============================================================
 # TAB 12: IC Notes
 # ============================================================
@@ -1793,7 +2154,7 @@ with tabs[12]:
     notes = build_alerts(hist, cov, bm_drift, te, a30, mdd)
     for n in notes:
         st.markdown(f"- {n}")
-    render_definitions(keys=["Decision Intelligence"], title="Definitions (IC Notes)")
+    render_definitions(keys=["Decision Intelligence", "Analytics Scorecard"], title="Definitions (IC Notes)")
 
 # ============================================================
 # TAB 13: Daily Movement / Volatility
@@ -1812,9 +2173,12 @@ with tabs[13]:
         regime=regime,
         te=te,
         ir=ir,
-        r30=r30, a30=a30,
-        r60=r60, a60=a60,
-        r365=r365, a365=a365,
+        r30=r30,
+        a30=a30,
+        r60=r60,
+        a60=a60,
+        r365=r365,
+        a365=a365,
         mdd=mdd,
         wavescore=ws_val,
         rank=rank,
@@ -1870,9 +2234,12 @@ with tabs[14]:
         regime=regime,
         te=te,
         ir=ir,
-        r30=r30, a30=a30,
-        r60=r60, a60=a60,
-        r365=r365, a365=a365,
+        r30=r30,
+        a30=a30,
+        r60=r60,
+        a60=a60,
+        r365=r365,
+        a365=a365,
         mdd=mdd,
         wavescore=ws_val,
         rank=rank,
@@ -1905,4 +2272,9 @@ with tabs[14]:
         with st.expander("Context (ctx) used for these decisions"):
             st.json(ctx)
 
-# =====
+# ============================================================
+# Sidebar Diagnostics fill-in (after hist computed)
+# ============================================================
+with st.sidebar:
+    with st.expander("Diagnostics", expanded=False):
+        render_diagnostics(selected_wave, mode, days, hist)
