@@ -174,6 +174,19 @@ def safe_series(s: Optional[pd.Series]) -> pd.Series:
     return s.copy()
 
 
+# ✅ NEW: safe float helper (prevents NoneType float() crash)
+def safe_float(x: Any, default: float = np.nan) -> float:
+    try:
+        if x is None:
+            return default
+        v = float(x)
+        if not math.isfinite(v):
+            return default
+        return v
+    except Exception:
+        return default
+
+
 # ============================================================
 # Basic return/risk math
 # ============================================================
@@ -402,9 +415,9 @@ def confidence_from_integrity(cov: Dict[str, Any], bm_drift: str) -> Tuple[str, 
       level in {"High","Medium","Low"}
     """
     try:
-        score = float(cov.get("completeness_score")) if cov.get("completeness_score") is not None else float("nan")
-        age = float(cov.get("age_days")) if cov.get("age_days") is not None else float("nan")
-        rows = int(cov.get("rows", 0)) if cov.get("rows") is not None else 0
+        score = safe_float(cov.get("completeness_score"))
+        age = safe_float(cov.get("age_days"))
+        rows = int(cov.get("rows") or 0)
 
         drift = (str(bm_drift).lower().strip() != "stable")
         issues = []
@@ -879,9 +892,9 @@ def _explainability_proxy(cov: Dict[str, Any], bm_drift: str, hist_rows: int) ->
     """
     try:
         base = 88.0
-        score = float(cov.get("completeness_score", np.nan))
-        age = float(cov.get("age_days", np.nan))
-        miss = float(cov.get("missing_pct", np.nan))
+        score = safe_float(cov.get("completeness_score"))
+        age = safe_float(cov.get("age_days"))
+        miss = safe_float(cov.get("missing_pct"))
 
         if math.isfinite(score):
             base += (score - 90.0) * 0.25  # modest bump/penalty
@@ -935,10 +948,11 @@ def compute_analytics_scorecard_all_waves(all_waves: List[str], mode: str, days:
                 pass
 
         # --- Domain scores (0-100) ---
-        coverage_score = float(cov.get("completeness_score", np.nan))
-        age_days = float(cov.get("age_days", np.nan))
-        rows_n = int(cov.get("rows", 0) or 0)
-        miss_pct = float(cov.get("missing_pct", np.nan))
+        # ✅ FIXED: safe handling of None values (prevents float(None) TypeError)
+        coverage_score = safe_float(cov.get("completeness_score"))
+        age_days = safe_float(cov.get("age_days"))
+        rows_n = int(cov.get("rows") or 0)
+        miss_pct = safe_float(cov.get("missing_pct"))
 
         # D1 Data Integrity & Coverage
         d1 = 85.0
@@ -1302,66 +1316,8 @@ def make_ic_pack_markdown(
     rank: Optional[int],
     r30: float,
     a30: float,
-    r60: float,
-    a60: float,
-    r365: float,
-    a365: float,
-    te: float,
-    ir: float,
-    mdd: float,
-    mdd_b: float,
-    difficulty: Dict[str, Any],
-    analytics_score: float,
-    analytics_grade: str,
-    analytics_flags: str,
-) -> str:
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    return f"""# WAVES Intelligence™ — Governance / IC Pack
-
-**Timestamp:** {ts}  
-**Wave:** {wave}  
-**Mode:** {mode}  
-
-## Governance-Native Analytics Scorecard
-- Analytics Grade: **{analytics_grade}**
-- Analytics Score: **{fmt_score(analytics_score)} / 100**
-- Flags: **{analytics_flags if analytics_flags else "None"}**
-
-## Benchmark Integrity
-- Snapshot ID: **{bm_id}**
-- Drift status: **{bm_drift.upper()}**
-- Difficulty vs SPY (proxy): **{fmt_num(difficulty.get('difficulty_vs_spy'), 2)}**
-- HHI (concentration): **{fmt_num(difficulty.get('hhi'), 4)}**
-- Entropy (diversification): **{fmt_num(difficulty.get('entropy'), 3)}**
-- Top weight: **{fmt_pct(difficulty.get('top_weight'), 2)}**
-
-## Coverage / Data Quality
-- Rows: **{cov.get('rows', '—')}**
-- First date: **{cov.get('first_date', '—')}**
-- Last date: **{cov.get('last_date', '—')}**
-- Age (days): **{cov.get('age_days', '—')}**
-- Completeness score: **{fmt_num(cov.get('completeness_score', np.nan), 1)} / 100**
-- Flags: **{'; '.join(cov.get('flags', [])) if cov.get('flags') else 'None'}**
-
-## Performance vs Benchmark
-- 30D Return: **{fmt_pct(r30)}** | 30D Alpha: **{fmt_pct(a30)}**
-- 60D Return: **{fmt_pct(r60)}** | 60D Alpha: **{fmt_pct(a60)}**
-- 365D Return: **{fmt_pct(r365)}** | 365D Alpha: **{fmt_pct(a365)}**
-
-## Risk / Efficiency
-- Tracking Error: **{fmt_pct(te)}**
-- Information Ratio: **{fmt_num(ir, 2)}**
-- Max Drawdown (Wave): **{fmt_pct(mdd)}**
-- Max Drawdown (Benchmark): **{fmt_pct(mdd_b)}**
-
-## WaveScore (Console Approx.)
-- WaveScore: **{fmt_score(ws_val)}**
-- Grade: **{ws_grade}**
-- Rank: **{rank if rank else '—'}**
-"""
-
-
-# ============================================================
+    r60
+    # ============================================================
 # Diagnostics (safe)
 # ============================================================
 def render_diagnostics(selected_wave: str, mode: str, days: int, hist: pd.DataFrame):
@@ -1427,7 +1383,6 @@ with st.sidebar:
     st.caption("If history is empty, app falls back to wave_history.csv automatically.")
 
     with st.expander("Diagnostics"):
-        # Render later after we compute hist, but keep UI slot
         st.caption("Open after page loads to inspect engine/files/history.")
 
 bm_mix = get_benchmark_mix()
@@ -1521,6 +1476,7 @@ sys_grade = "N/A"
 sel_analytics_score = np.nan
 sel_analytics_grade = "N/A"
 sel_analytics_flags = ""
+
 if scorecard_df is not None and not scorecard_df.empty:
     try:
         sys_score = float(scorecard_df["AnalyticsScore"].mean())
@@ -1588,7 +1544,6 @@ with tabs[0]:
     st.subheader(f"IC Summary — {selected_wave} ({mode})")
     st.caption("Decision-grade summary: what matters now, why, and what to check next.")
 
-    # Governance header inside IC Summary
     g1, g2, g3, g4 = st.columns(4)
     g1.metric("Wave Analytics Grade", f"{sel_analytics_grade} ({fmt_score(sel_analytics_score)})")
     g2.metric("System Analytics Grade", f"{sys_grade} ({fmt_score(sys_score)})")
@@ -1716,11 +1671,11 @@ with tabs[0]:
         st.info("Scorecard unavailable (no multi-wave history).")
     else:
         sc = scorecard_df.copy()
-        # Keep selected wave on top
         if selected_wave in set(sc["Wave"]):
             top = sc[sc["Wave"] == selected_wave]
             rest = sc[sc["Wave"] != selected_wave]
             sc = pd.concat([top, rest], axis=0)
+
         show_cols = [
             "Wave",
             "Grade",
