@@ -511,7 +511,7 @@ def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
     if len(out) > days:
         out = out.iloc[-days:]
     return out
-    @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def compute_wave_history(wave_name: str, mode: str, days: int = 365) -> pd.DataFrame:
     if we is None:
         return history_from_csv(wave_name, mode, days)
