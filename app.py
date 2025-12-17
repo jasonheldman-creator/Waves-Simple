@@ -1484,3 +1484,4 @@ with tabs[5]:
     st.markdown("#### Optional libs")
     st.write(f"yfinance: {'OK' if yf is not None else 'missing'}")
     st.write(f"plotly: {'OK' if go is not None else 'missing'}")
+    
