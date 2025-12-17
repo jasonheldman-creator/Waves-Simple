@@ -471,7 +471,6 @@ def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
     out = out[["wave_nav", "bm_nav", "wave_ret", "bm_ret"]].dropna(how="all")
     return out
 
-
 @st.cache_data(show_spinner=False)
 def load_wave_history_csv(path: str = "wave_history.csv") -> pd.DataFrame:
     if not os.path.exists(path):
