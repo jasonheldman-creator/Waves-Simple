@@ -1962,3 +1962,4 @@ with tabs[5]:
 with st.sidebar:
     with st.expander("Diagnostics", expanded=False):
         render_diagnostics(selected_wave, mode, days, hist)
+        
