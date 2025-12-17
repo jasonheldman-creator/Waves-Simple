@@ -3,10 +3,12 @@
 #
 # vNEXT — CANONICAL COHESION LOCK + IC ONE-PAGER + FIDELITY INSPECTOR + AI EXPLAIN
 #         + COMPARATOR + BETA RELIABILITY + DIAGNOSTICS (ALWAYS BOOTS)
+#         + VECTOR™ TRUTH LAYER (READ-ONLY, DETERMINISTIC)
 #
 # Boot-safety rules:
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
 #   • Guarded optional imports (yfinance / plotly)
+#   • Guarded vector_truth import (app still boots if missing)
 #   • Every major section wrapped so the app still boots if a panel fails
 #   • Diagnostics tab always available (engine import errors, empty history, etc.)
 #
@@ -49,6 +51,17 @@ except Exception as e:
     we = None
     ENGINE_IMPORT_ERROR = e
 
+# -------------------------------
+# Vector Truth import (guarded)
+# -------------------------------
+VECTOR_TRUTH_IMPORT_ERROR = None
+try:
+    from vector_truth import build_vector_truth_report, format_vector_truth_markdown
+except Exception as e:
+    build_vector_truth_report = None
+    format_vector_truth_markdown = None
+    VECTOR_TRUTH_IMPORT_ERROR = e
+
 
 # ============================================================
 # Streamlit config
@@ -68,6 +81,7 @@ ENABLE_FIDELITY_INSPECTOR = True
 ENABLE_AI_EXPLAIN = True
 ENABLE_COMPARATOR = True
 ENABLE_YFINANCE_CHIPS = True  # auto-disables if yf missing
+ENABLE_VECTOR_TRUTH = True    # auto-disables if vector_truth import missing
 
 
 # ============================================================
@@ -365,6 +379,10 @@ GLOSSARY: Dict[str, str] = {
     "Analytics Scorecard": "Governance-native reliability grade for analytics outputs (not performance).",
     "Beta (vs Benchmark)": "Regression slope of Wave daily returns vs Benchmark daily returns.",
     "Beta Reliability Score": "0–100: beta-target match + linkage quality (R²) + sample size.",
+    "Vector™ Truth Layer": (
+        "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
+        "attributes alpha to risk-on/off regimes, and scores durability/fragility."
+    ),
 }
 
 
@@ -494,9 +512,7 @@ def history_from_csv(wave_name: str, mode: str, days: int) -> pd.DataFrame:
     if len(out) > days:
         out = out.iloc[-days:]
     return out
-
-
-@st.cache_data(show_spinner=False)
+    @st.cache_data(show_spinner=False)
 def compute_wave_history(wave_name: str, mode: str, days: int = 365) -> pd.DataFrame:
     if we is None:
         return history_from_csv(wave_name, mode, days)
@@ -861,9 +877,7 @@ def compute_analytics_score_for_selected(hist_sel: pd.DataFrame, cov: Dict[str, 
         return {"AnalyticsScore": total, "Grade": grade, "Flags": " ".join(flags) if flags else ""}
     except Exception:
         return {"AnalyticsScore": np.nan, "Grade": "N/A", "Flags": "ERR"}
-
-
-# ============================================================
+        # ============================================================
 # Risk Reaction Score (0-100)
 # ============================================================
 def risk_reaction_score(te: float, mdd: float, cvar95: float) -> float:
@@ -1017,6 +1031,132 @@ def compute_metrics_from_hist(hist_sel: pd.DataFrame) -> Dict[str, Any]:
 
 
 # ============================================================
+# Vector™ Truth: input builders (boot-safe, deterministic)
+# ============================================================
+def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeIndex) -> Optional[pd.Series]:
+    """
+    Optional: if engine exposes exposure history (0..1), use it.
+    Otherwise return None and we fall back gracefully.
+    """
+    try:
+        if we is None:
+            return None
+        # Candidate engine hooks (safe attempts)
+        candidates = ["get_exposure_series", "compute_exposure_series", "get_exposure_history", "exposure_series"]
+        for fn in candidates:
+            if hasattr(we, fn):
+                f = getattr(we, fn)
+                try:
+                    try:
+                        s = f(wave_name, mode=mode)
+                    except TypeError:
+                        s = f(wave_name, mode)
+                    if isinstance(s, (pd.Series, pd.DataFrame)):
+                        if isinstance(s, pd.DataFrame):
+                            # pick first numeric column if DF
+                            num_cols = [c for c in s.columns if np.issubdtype(s[c].dtype, np.number)]
+                            if num_cols:
+                                s = s[num_cols[0]]
+                            else:
+                                continue
+                        s = pd.to_numeric(s, errors="coerce")
+                        s.index = pd.to_datetime(s.index, errors="coerce")
+                        s = s.dropna()
+                        if len(s) == 0:
+                            continue
+                        # align to hist index
+                        s = s.reindex(hist_index).ffill().bfill()
+                        # clamp 0..1
+                        s = s.clip(lower=0.0, upper=1.0)
+                        return s
+                except Exception:
+                    continue
+        return None
+    except Exception:
+        return None
+
+
+def _build_regime_series_from_benchmark(hist_sel: pd.DataFrame) -> Optional[pd.Series]:
+    """
+    Deterministic, simple regime labeling:
+      • RISK_OFF when benchmark daily return < 0
+      • RISK_ON otherwise
+    """
+    try:
+        if hist_sel is None or hist_sel.empty or "bm_ret" not in hist_sel.columns:
+            return None
+        b = pd.to_numeric(hist_sel["bm_ret"], errors="coerce")
+        reg = np.where(b.fillna(0.0).values < 0.0, "RISK_OFF", "RISK_ON")
+        return pd.Series(reg, index=hist_sel.index)
+    except Exception:
+        return None
+
+
+def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, metrics: Dict[str, Any], days: int):
+    """
+    Renders Vector™ Truth Layer report (read-only) using best-available inputs.
+    This does NOT change any engine math; it only interprets canonical outputs.
+    """
+    if not ENABLE_VECTOR_TRUTH or build_vector_truth_report is None or format_vector_truth_markdown is None:
+        st.info(f"Vector™ Truth Layer unavailable (import issue): {VECTOR_TRUTH_IMPORT_ERROR}")
+        return
+
+    if hist_sel is None or hist_sel.empty:
+        st.info("Vector™ Truth Layer: no canonical history available.")
+        return
+
+    # Daily alpha series
+    alpha_series = (pd.to_numeric(hist_sel["wave_ret"], errors="coerce") - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")).dropna()
+    if len(alpha_series) > 0:
+        alpha_series = alpha_series.values.tolist()
+    else:
+        alpha_series = None
+
+    # Regime labels (simple, deterministic)
+    reg_series = _build_regime_series_from_benchmark(hist_sel)
+    regime_series = reg_series.values.tolist() if reg_series is not None and len(reg_series) else None
+
+    # Capital-weighted alpha: realized investor experience (canonical 365D alpha if available; else full-window alpha)
+    cap_alpha = safe_float(metrics.get("a365"))
+    if not math.isfinite(cap_alpha):
+        # fallback: full-window alpha using nav
+        try:
+            cap_alpha = ret_from_nav(hist_sel["wave_nav"], len(hist_sel)) - ret_from_nav(hist_sel["bm_nav"], len(hist_sel))
+        except Exception:
+            cap_alpha = float("nan")
+
+    # Exposure-adjusted alpha: if exposure series exists, normalize; else equals cap alpha (graceful)
+    exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+    exp_adj_alpha = cap_alpha
+    if exp_series is not None:
+        avg_exp = float(pd.to_numeric(exp_series, errors="coerce").dropna().mean()) if len(exp_series.dropna()) else 1.0
+        avg_exp = max(0.10, min(1.0, avg_exp))
+        if math.isfinite(cap_alpha):
+            exp_adj_alpha = cap_alpha / avg_exp
+
+    report = build_vector_truth_report(
+        wave_name=str(selected_wave),
+        timeframe_label=f"{min(int(days), int(len(hist_sel)))}D window",
+        total_excess_return=cap_alpha,           # total excess return (wave - bm)
+        capital_weighted_alpha=cap_alpha,        # realized
+        exposure_adjusted_alpha=exp_adj_alpha,   # normalized if exposure available
+        alpha_series=alpha_series,               # daily alpha series
+        regime_series=regime_series,             # risk-on/off labels
+    )
+
+    st.markdown(format_vector_truth_markdown(report))
+
+    # Small disclosure (IC-friendly)
+    with st.expander("Vector™ Truth Notes (Method)"):
+        st.write(
+            "Capital-weighted alpha uses canonical Wave vs Benchmark performance (investor-experience). "
+            "Exposure-adjusted alpha normalizes by average exposure if exposure history is available from the engine; "
+            "otherwise it defaults to capital-weighted alpha (no inflation). "
+            "Risk-on/off regimes are labeled deterministically from benchmark daily return sign unless a richer regime feed exists."
+        )
+
+
+# ============================================================
 # UI helpers
 # ============================================================
 def chip(label: str):
@@ -1155,6 +1295,12 @@ with tabs[0]:
         st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # VECTOR TRUTH: place in IC Summary (ICs see it first)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Vector™ Truth Layer (Read-Only)")
+        safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
+        st.markdown("</div>", unsafe_allow_html=True)
+
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Key Wins / Key Risks / Next Actions")
         wins, risks, actions = [], [], []
@@ -1189,6 +1335,11 @@ with tabs[0]:
             actions.append("Proceed: governance is stable; use comparator to position vs other waves.")
 
         st.markdown("**Key Wins**")
+        for w in (wins[:4] if wins else ["(none)"]):
+            st.write("• " + w)
+
+        st.markdown("
+                st.markdown("**Key Wins**")
         for w in (wins[:4] if wins else ["(none)"]):
             st.write("• " + w)
 
@@ -1460,6 +1611,15 @@ with tabs[5]:
         st.success("waves_engine imported successfully.")
 
     st.markdown("---")
+    st.markdown("#### Vector Truth status")
+    if build_vector_truth_report is None or format_vector_truth_markdown is None:
+        st.warning("Vector Truth import failed or is unavailable.")
+        if VECTOR_TRUTH_IMPORT_ERROR is not None:
+            st.code(str(VECTOR_TRUTH_IMPORT_ERROR))
+    else:
+        st.success("Vector Truth imported successfully.")
+
+    st.markdown("---")
     st.markdown("#### Canonical history checks")
     st.write(f"Rows: {int(cov.get('rows') or 0)}")
     st.write(f"FirstDate: {cov.get('first_date')}")
@@ -1484,4 +1644,3 @@ with tabs[5]:
     st.markdown("#### Optional libs")
     st.write(f"yfinance: {'OK' if yf is not None else 'missing'}")
     st.write(f"plotly: {'OK' if go is not None else 'missing'}")
-    
