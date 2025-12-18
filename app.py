@@ -1,11 +1,13 @@
+App 71:
+
 # app.py — WAVES Intelligence™ Institutional Console (Vector OS Edition)
 # FULL PRODUCTION FILE (NO PATCHES) — SINGLE-FILE ONLY
 #
 # vNEXT — CANONICAL COHESION LOCK + IC ONE-PAGER + FIDELITY INSPECTOR + AI EXPLAIN
 #         + COMPARATOR + BETA RELIABILITY + DIAGNOSTICS (ALWAYS BOOTS)
 #         + VECTOR™ TRUTH LAYER (READ-ONLY, DETERMINISTIC)
+#         + VECTOR™ REFEREE (VERDICT + ASSUMPTIONS + FAILURE FLAGS)
 #         + ALPHA SNAPSHOT (ALL WAVES) + ALPHA CAPTURE + RISK-ON/OFF ATTRIBUTION
-#         + VECTOR AVATAR (BOTTOM-FIXED, CLICK TO JUMP TO VECTOR PANEL)
 #
 # Boot-safety rules:
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
@@ -42,11 +44,6 @@ try:
     import plotly.graph_objects as go
 except Exception:
     go = None
-
-try:
-    from PIL import Image
-except Exception:
-    Image = None  # boot-safe: avatar can fall back to plain text
 
 # -------------------------------
 # Engine import (guarded)
@@ -89,18 +86,8 @@ ENABLE_AI_EXPLAIN = True
 ENABLE_COMPARATOR = True
 ENABLE_YFINANCE_CHIPS = True  # auto-disables if yf missing
 ENABLE_VECTOR_TRUTH = True    # auto-disables if vector_truth import missing
+ENABLE_VECTOR_REFEREE = True  # referee verdict + assumptions + failure flags
 ENABLE_ALPHA_SNAPSHOT = True  # ALL WAVES snapshot table
-
-# Vector Avatar / Panel
-ENABLE_VECTOR_AVATAR = True
-VECTOR_AVATAR_MAX_PX = 120
-# Recommended: save your new image here: assets/vector_avatar.png
-VECTOR_AVATAR_PATHS = [
-    "assets/vector_avatar.png",      # <- recommended canonical path
-    "assets/vector_full.png",
-    "assets/vector_robot_clean2.png",
-    "assets/vector_robot.png",
-]
 
 
 # ============================================================
@@ -110,7 +97,6 @@ st.markdown(
     """
 <style>
 .block-container { padding-top: 0.85rem; padding-bottom: 2.0rem; }
-
 .waves-big-wave {
   font-size: 2.2rem; font-weight: 850; letter-spacing: 0.2px;
   line-height: 2.45rem; margin: 0.1rem 0 0.15rem 0;
@@ -152,36 +138,12 @@ hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.8rem 
   .waves-big-wave { font-size: 1.75rem; line-height: 2.0rem; }
   .waves-tile-value { font-size: 1.30rem; line-height: 1.55rem; }
 }
-
-/* Vector Avatar: fixed bottom-right (clickable anchor) */
-.vector-fab {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 10000;
-  text-decoration: none;
-}
-.vector-fab img {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.22);
-  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
-  background: rgba(255,255,255,0.04);
-}
-.vector-fab .label {
-  display: block;
-  text-align: center;
-  margin-top: 6px;
-  font-size: 12px;
-  opacity: 0.9;
-  color: rgba(255,255,255,0.90);
-}
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
 # ============================================================
 # Helpers: formatting / safety
 # ============================================================
@@ -397,9 +359,7 @@ def beta_band(score: float) -> str:
     if s >= 60:
         return "D"
     return "F"
-
-
-# ============================================================
+    # ============================================================
 # Glossary / Definitions
 # ============================================================
 GLOSSARY: Dict[str, str] = {
@@ -434,6 +394,15 @@ GLOSSARY: Dict[str, str] = {
         "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
         "attributes alpha to risk-on/off regimes, and scores durability/fragility."
     ),
+    "Vector™ — Truth Referee": (
+        "Independent, read-only layer that rules on causality, validates assumptions, "
+        "and flags when benchmark-based explanations fail to explain observed outcomes."
+    ),
+    "Alpha Classification": (
+        "Structural = regime/exposure-driven or benchmark linkage degraded; "
+        "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha."
+    ),
+    "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave’s regime-aware design.",
 }
 
 
@@ -441,7 +410,9 @@ def render_definitions(keys: List[str], title: str = "Definitions"):
     with st.expander(title):
         for k in keys:
             st.markdown(f"**{k}:** {GLOSSARY.get(k, '(definition not found)')}")
-            # ============================================================
+
+
+# ============================================================
 # Optional yfinance chips
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -639,9 +610,7 @@ def get_benchmark_mix() -> pd.DataFrame:
         except Exception:
             pass
     return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
-
-
-# ============================================================
+    # ============================================================
 # Benchmark snapshot + drift + diff + difficulty proxy
 # ============================================================
 def _normalize_bm_rows(bm_rows: pd.DataFrame) -> pd.DataFrame:
@@ -949,35 +918,6 @@ def risk_reaction_score(te: float, mdd: float, cvar95: float) -> float:
         return float(np.clip(score, 0.0, 100.0))
     except Exception:
         return float("nan")
-
-
-# ============================================================
-# Avatar loader (BOOT SAFE) — prevents MediaFileStorageError
-# ============================================================
-def _find_vector_avatar_path() -> Optional[str]:
-    for p in VECTOR_AVATAR_PATHS:
-        try:
-            if p and os.path.exists(p):
-                return p
-        except Exception:
-            continue
-    return None
-
-
-def _load_avatar_image(path: str) -> Any:
-    """
-    Returns a PIL Image if possible; else returns the path.
-    Always boot-safe.
-    """
-    try:
-        if not path or not os.path.exists(path):
-            return None
-        if Image is None:
-            return path
-        img = Image.open(path)
-        return img
-    except Exception:
-        return None
         # ============================================================
 # Deterministic AI Explanation Layer (rules-based)
 # ============================================================
@@ -1107,7 +1047,7 @@ def compute_metrics_from_hist(hist_sel: pd.DataFrame) -> Dict[str, Any]:
 
 
 # ============================================================
-# Vector™ Truth: input builders (boot-safe, deterministic)
+# Vector™ Alpha Enhancements (exposure + regimes + capture)
 # ============================================================
 def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeIndex) -> Optional[pd.Series]:
     try:
@@ -1134,8 +1074,7 @@ def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeI
                         s = s.dropna()
                         if len(s) == 0:
                             continue
-                        s = s.reindex(hist_index).ff
-                                                s = s.reindex(hist_index).ffill().bfill()
+                        s = s.reindex(hist_index).ffill().bfill()
                         s = s.clip(lower=0.0, upper=1.0)
                         return s
                 except Exception:
@@ -1146,11 +1085,6 @@ def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeI
 
 
 def _build_regime_series_from_benchmark(hist_sel: pd.DataFrame) -> Optional[pd.Series]:
-    """
-    Deterministic, simple regime labeling:
-      • RISK_OFF when benchmark daily return < 0
-      • RISK_ON otherwise
-    """
     try:
         if hist_sel is None or hist_sel.empty or "bm_ret" not in hist_sel.columns:
             return None
@@ -1169,11 +1103,6 @@ def _compound_from_daily(daily: pd.Series) -> float:
 
 
 def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.Series:
-    """
-    Alpha Capture daily series:
-      daily_alpha = wave_ret - bm_ret
-      if exposure exists: daily_alpha / max(0.10, exposure)
-    """
     if hist is None or hist.empty:
         return pd.Series(dtype=float)
     w = pd.to_numeric(hist.get("wave_ret"), errors="coerce")
@@ -1191,9 +1120,6 @@ def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.S
 
 
 def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: int = 60) -> Dict[str, Any]:
-    """
-    Returns capital-weighted alpha + exposure-adjusted alpha + risk-on/off split for a window.
-    """
     out = {
         "cap_alpha": np.nan,
         "exp_adj_alpha": np.nan,
@@ -1209,24 +1135,20 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
     if h.empty or len(h) < 2:
         return out
 
-    # capital-weighted alpha (window)
     try:
         cap_alpha = ret_from_nav(h["wave_nav"], len(h)) - ret_from_nav(h["bm_nav"], len(h))
     except Exception:
         cap_alpha = float("nan")
     out["cap_alpha"] = cap_alpha
 
-    # exposure-adjusted alpha (window)
     exp = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(h.index))
     if exp is None:
         out["exp_adj_alpha"] = cap_alpha
     else:
-        exp_num = pd.to_numeric(exp, errors="coerce").dropna()
-        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+        avg_exp = float(pd.to_numeric(exp, errors="coerce").dropna().mean()) if len(pd.to_numeric(exp, errors="coerce").dropna()) else 1.0
         avg_exp = max(0.10, min(1.0, avg_exp))
-        out["exp_adj_alpha"] = (cap_alpha / avg_exp) if math.isfinite(cap_alpha) else float("nan")
+        out["exp_adj_alpha"] = cap_alpha / avg_exp if math.isfinite(cap_alpha) else float("nan")
 
-    # risk-on/off attribution using alpha-capture daily series (compounded)
     ac = _alpha_capture_series(h, wave_name, mode)
     if len(ac) >= 2:
         reg = _build_regime_series_from_benchmark(h)
@@ -1238,19 +1160,21 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
             rf = _compound_from_daily(risk_off) if len(risk_off) >= 2 else float("nan")
             out["risk_on_alpha"] = ro
             out["risk_off_alpha"] = rf
-
             tot = 0.0
             if math.isfinite(ro):
                 tot += ro
             if math.isfinite(rf):
                 tot += rf
             if tot != 0.0:
-                out["risk_on_share"] = (ro / tot) if math.isfinite(ro) else np.nan
-                out["risk_off_share"] = (rf / tot) if math.isfinite(rf) else np.nan
+                out["risk_on_share"] = ro / tot if math.isfinite(ro) else np.nan
+                out["risk_off_share"] = rf / tot if math.isfinite(rf) else np.nan
 
     return out
 
 
+# ============================================================
+# Vector™ Truth Panel (existing module; boot-safe)
+# ============================================================
 def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, metrics: Dict[str, Any], days: int):
     if not ENABLE_VECTOR_TRUTH or build_vector_truth_report is None or format_vector_truth_markdown is None:
         st.info(f"Vector™ Truth Layer unavailable (import issue): {VECTOR_TRUTH_IMPORT_ERROR}")
@@ -1260,14 +1184,11 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         st.info("Vector™ Truth Layer: no canonical history available.")
         return
 
-    alpha_series = (
-        pd.to_numeric(hist_sel["wave_ret"], errors="coerce")
-        - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")
-    ).dropna()
-    alpha_series_list = alpha_series.values.tolist() if len(alpha_series) else None
+    alpha_series = (pd.to_numeric(hist_sel["wave_ret"], errors="coerce") - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")).dropna()
+    alpha_series = alpha_series.values.tolist() if len(alpha_series) else None
 
     reg_series = _build_regime_series_from_benchmark(hist_sel)
-    regime_series_list = reg_series.values.tolist() if reg_series is not None and len(reg_series) else None
+    regime_series = reg_series.values.tolist() if reg_series is not None and len(reg_series) else None
 
     cap_alpha = safe_float(metrics.get("a365"))
     if not math.isfinite(cap_alpha):
@@ -1279,8 +1200,7 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
     exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
     exp_adj_alpha = cap_alpha
     if exp_series is not None:
-        exp_num = pd.to_numeric(exp_series, errors="coerce").dropna()
-        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+        avg_exp = float(pd.to_numeric(exp_series, errors="coerce").dropna().mean()) if len(exp_series.dropna()) else 1.0
         avg_exp = max(0.10, min(1.0, avg_exp))
         if math.isfinite(cap_alpha):
             exp_adj_alpha = cap_alpha / avg_exp
@@ -1291,8 +1211,8 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         total_excess_return=cap_alpha,
         capital_weighted_alpha=cap_alpha,
         exposure_adjusted_alpha=exp_adj_alpha,
-        alpha_series=alpha_series_list,
-        regime_series=regime_series_list,
+        alpha_series=alpha_series,
+        regime_series=regime_series,
     )
 
     st.markdown(format_vector_truth_markdown(report))
@@ -1307,5 +1227,803 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
 
 
 # ============================================================
+# Vector™ Referee (Deterministic, Governance-Native)
+# ============================================================
+def _alpha_classification(cap_alpha: float, beta_score: float, bm_drift: str, rr_score: float) -> str:
+    a = safe_float(cap_alpha)
+    bs = safe_float(beta_score)
+    rr = safe_float(rr_score)
+    drift = (str(bm_drift).lower().strip() != "stable")
+
+    if not math.isfinite(a):
+        return "Unknown"
+    if abs(a) < 0.005:
+        return "Not Present"
+    if drift:
+        return "Structural"
+    if math.isfinite(bs) and bs < 75:
+        return "Structural"
+    if math.isfinite(rr) and rr >= 75:
+        return "Structural"
+    return "Incidental"
+
+
+def _primary_alpha_source(mode: str, cap_alpha: float, exp_adj_alpha: float, beta_score: float) -> str:
+    a = safe_float(cap_alpha)
+    ea = safe_float(exp_adj_alpha)
+    bs = safe_float(beta_score)
+
+    if not math.isfinite(a):
+        return "Unknown"
+    if abs(a) < 0.005:
+        return "No dominant alpha source detected (near-flat)."
+    if math.isfinite(ea) and math.isfinite(a) and (ea > a * 1.20):
+        return "Adaptive Exposure Control (SmartSafe / VIX / risk gating)"
+    if math.isfinite(bs) and bs < 75:
+        return "Regime/Exposure effects (benchmark linkage degraded by design)"
+    if "alpha-minus-beta" in str(mode).lower():
+        return "Beta-managed alpha (alpha-minus-beta discipline)"
+    return "Selection/tilt vs benchmark mix (within stable linkage)"
+
+
+def _assumption_checklist(bm_drift: str, beta_score: float) -> List[Tuple[str, bool, str]]:
+    drift_ok = (str(bm_drift).lower().strip() == "stable")
+    bs = safe_float(beta_score)
+
+    out = []
+    out.append(("Fully-invested benchmark assumption", False, "Wave may use exposure control / cash sweeps; benchmark may be fully invested."))
+    out.append(("Stable beta assumption", math.isfinite(bs) and bs >= 80, "Beta reliability indicates linkage quality; low score often means mismatch (expected or needs review)."))
+    out.append(("Linear risk-return assumption", False, "Regime gating + nonlinear exposure breaks linear assumptions (by design)."))
+    out.append(("Regime-aware exposure control", True, "System is explicitly designed to vary exposure across regimes."))
+    out.append(("Capital preservation priority", True, "Risk controls (TE/MaxDD/CVaR) are first-class governance signals."))
+    out.append(("Benchmark-anchored governance", drift_ok, "Benchmark snapshot stability is required for clean comparisons (drift = governance flag)."))
+    return out
+
+
+def _vector_failure_flags(metrics: Dict[str, Any], cov: Dict[str, Any], bm_drift: str, beta_score: float) -> List[str]:
+    flags = []
+    a365 = safe_float(metrics.get("a365"))
+    a30 = safe_float(metrics.get("a30"))
+    te = safe_float(metrics.get("te"))
+    mdd = safe_float(metrics.get("mdd"))
+    cvar95 = safe_float(metrics.get("cvar95"))
+    cov_score = safe_float(cov.get("completeness_score"))
+    age = safe_float(cov.get("age_days"))
+    bs = safe_float(beta_score)
+
+    if math.isfinite(a365) and a365 < -0.02:
+        flags.append("Persistent negative alpha (365D) vs benchmark.")
+    if math.isfinite(a30) and a30 < -0.04:
+        flags.append("Short-term underperformance (30D) needs review.")
+    if str(bm_drift).lower().strip() != "stable":
+        flags.append("Benchmark drift detected — freeze benchmark mix for governance / demos.")
+    if math.isfinite(bs) and bs < 65:
+        flags.append("Very low beta reliability — benchmark may not explain systematic exposure.")
+    if math.isfinite(te) and te >= 0.22:
+        flags.append("High active risk (TE) — confirm exposure caps / SmartSafe posture.")
+    if math.isfinite(mdd) and mdd <= -0.25:
+        flags.append("Deep drawdown — resilience review needed.")
+    if math.isfinite(cvar95) and cvar95 <= -0.03:
+        flags.append("Tail risk elevated (CVaR) — stress review needed.")
+    if math.isfinite(cov_score) and cov_score < 85:
+        flags.append("Coverage score < 85 — history integrity check recommended.")
+    if math.isfinite(age) and age >= 5:
+        flags.append("Data staleness (>=5 days) — pipeline freshness check recommended.")
+    return flags
+
+
+def _vector_referee_verdict_block(
+    selected_wave: str,
+    mode: str,
+    hist_sel: pd.DataFrame,
+    metrics: Dict[str, Any],
+    cov: Dict[str, Any],
+    bm_drift: str,
+    beta_val: float,
+    beta_r2: float,
+    beta_n: int,
+    beta_score: float,
+    beta_grade: str,
+    rr_score: float,
+):
+    cap_alpha = safe_float(metrics.get("a365"))
+    if not math.isfinite(cap_alpha):
+        cap_alpha = safe_float(metrics.get("a60"))
+    if not math.isfinite(cap_alpha):
+        cap_alpha = safe_float(metrics.get("a30"))
+
+    exp_adj_alpha = cap_alpha
+    try:
+        if hist_sel is not None and not hist_sel.empty:
+            exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+            if exp_series is not None:
+                avg_exp = float(pd.to_numeric(exp_series, errors="coerce").dropna().mean()) if len(exp_series.dropna()) else 1.0
+                avg_exp = max(0.10, min(1.0, avg_exp))
+                if math.isfinite(cap_alpha):
+                    exp_adj_alpha = cap_alpha / avg_exp
+    except Exception:
+        pass
+
+    classification = _alpha_classification(cap_alpha, beta_score, bm_drift, rr_score)
+    primary_source = _primary_alpha_source(mode, cap_alpha, exp_adj_alpha, beta_score)
+
+    assumption_status = "Satisfied"
+    if str(bm_drift).lower().strip() != "stable" or (math.isfinite(safe_float(beta_score)) and safe_float(beta_score) < 80):
+        assumption_status = "Violated (Expected)"
+
+    st.markdown("### Vector™ — Truth Referee")
+    st.caption("Independent attribution + assumption-validation layer (read-only, deterministic).")
+
+    t1, t2, t3 = st.columns(3, gap="medium")
+    with t1:
+        tile("Alpha Classification", classification, "Structural = regime/exposure-driven; Incidental = selection/tilt w/ stable linkage")
+    with t2:
+        tile("Benchmark Assumption", assumption_status, f"BM drift: {bm_drift} · BetaRel: {beta_grade} ({fmt_num(beta_score,1)}/100)")
+    with t3:
+        tile("Primary Alpha Source", "Referee inference", primary_source)
+
+    st.markdown("#### Vector Verdict")
+    verdict_lines = [
+        f"**Primary Alpha Source:** {primary_source}",
+        f"**Benchmark Assumption Status:** {assumption_status}",
+        f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs tgt {fmt_num(beta_target_for_mode(mode),2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}",
+        f"**Regime Dependence:** {'High' if classification == 'Structural' else 'Moderate' if classification == 'Incidental' else 'Low'}",
+        f"**Alpha Classification:** {classification}",
+    ]
+    for line in verdict_lines:
+        st.write("• " + line)
+
+    st.markdown("#### Assumptions Tested by Vector")
+    checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
+    for label, passes, note in checks:
+        icon = "✅" if passes else "❌"
+        st.write(f"{icon} **{label}** — {note}")
+
+    st.markdown("#### What Vector Would Flag if This Were Failing")
+    ff = _vector_failure_flags(metrics, cov, bm_drift, beta_score)
+    if not ff:
+        st.success("No failure flags triggered by referee rules.")
+    else:
+        for f in ff[:6]:
+            st.write("• " + f)
+
+    st.caption("Vector does not optimize performance. It validates causality and flags when benchmark assumptions fail.")
+    st.caption("**Role of Waves:** Reference implementations used to expose platform behavior under live market regimes.")
+
+
+# ============================================================
 # UI helpers
 # ============================================================
+def chip(label: str):
+    st.markdown(f'<span class="waves-chip">{label}</span>', unsafe_allow_html=True)
+
+
+def tile(label: str, value: str, sub: str = ""):
+    st.markdown(
+        f"""
+<div class="waves-tile">
+  <div class="waves-tile-label">{label}</div>
+  <div class="waves-tile-value">{value}</div>
+  <div class="waves-tile-sub">{sub}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def safe_panel(title: str, fn):
+    try:
+        fn()
+    except Exception as e:
+        st.error(f"{title} failed (non-fatal): {e}")
+
+
+# ============================================================
+# Sidebar controls
+# ============================================================
+all_waves = get_all_waves_safe()
+if not all_waves:
+    st.warning("No waves found. Ensure engine is available or CSVs are present (wave_config.csv / wave_weights.csv / list.csv).")
+
+st.sidebar.markdown("## Controls")
+mode = st.sidebar.selectbox("Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic"], index=0)
+selected_wave = st.sidebar.selectbox("Selected Wave", options=all_waves if all_waves else ["(none)"], index=0)
+scan_mode = st.sidebar.toggle("Scan Mode (fast, fewer visuals)", value=True)
+days = st.sidebar.selectbox("History Window", [365, 730, 1095, 2520], index=0)
+st.sidebar.markdown("---")
+st.sidebar.caption("Governance: every metric shown is computed from the canonical hist_sel (selected Wave + Mode).")
+
+
+# ============================================================
+# Canonical source-of-truth (selected wave)
+# ============================================================
+hist_sel = _standardize_history(compute_wave_history(selected_wave, mode, days=days)) if selected_wave and selected_wave != "(none)" else pd.DataFrame()
+cov = coverage_report(hist_sel)
+
+bm_mix = get_benchmark_mix()
+bm_rows_now = _bm_rows_for_wave(bm_mix, selected_wave) if selected_wave and selected_wave != "(none)" else pd.DataFrame(columns=["Ticker", "Weight"])
+bm_id = benchmark_snapshot_id(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
+bm_drift = benchmark_drift_status(selected_wave, mode, bm_id) if selected_wave and selected_wave != "(none)" else "stable"
+bm_diff = benchmark_diff_table(selected_wave, mode, bm_rows_now) if ENABLE_FIDELITY_INSPECTOR else pd.DataFrame()
+
+metrics = compute_metrics_from_hist(hist_sel)
+conf_level, conf_reason = confidence_from_integrity(cov, bm_drift)
+sel_score = compute_analytics_score_for_selected(hist_sel, cov, bm_drift) if ENABLE_SCORECARD else {"AnalyticsScore": np.nan, "Grade": "N/A", "Flags": ""}
+rr_score = risk_reaction_score(metrics["te"], metrics["mdd"], metrics["cvar95"])
+
+difficulty = benchmark_difficulty_proxy(bm_rows_now)
+te_band = te_risk_band(metrics["te"])
+
+beta_target = beta_target_for_mode(mode)
+beta_val, beta_r2, beta_n = beta_and_r2(
+    hist_sel["wave_ret"] if not hist_sel.empty else pd.Series(dtype=float),
+    hist_sel["bm_ret"] if not hist_sel.empty else pd.Series(dtype=float),
+)
+beta_score = beta_reliability_score(beta_val, beta_r2, beta_n, beta_target)
+beta_grade = beta_band(beta_score)
+
+
+# ============================================================
+# BIG HEADER
+# ============================================================
+st.markdown(f'<div class="waves-big-wave">{selected_wave}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="waves-subhead">Mode: <b>{mode}</b> &nbsp; • &nbsp; Canonical window: last {days} trading days (max)</div>',
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# Sticky chip bar
+# ============================================================
+st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
+chip(f"Confidence: {conf_level}")
+if ENABLE_SCORECARD:
+    chip(f"Wave Analytics: {sel_score.get('Grade','N/A')} ({fmt_num(sel_score.get('AnalyticsScore'), 1)}) {sel_score.get('Flags','')}")
+chip(f"BM: {bm_id} · {bm_drift.capitalize()}")
+chip(f"Coverage: {fmt_num(cov.get('completeness_score'),1)} · AgeDays: {fmt_int(cov.get('age_days'))}")
+chip(f"30D α {fmt_pct(metrics['a30'])} · r {fmt_pct(metrics['r30'])}")
+chip(f"60D α {fmt_pct(metrics['a60'])} · r {fmt_pct(metrics['r60'])}")
+chip(f"Risk: TE {fmt_pct(metrics['te'])} ({te_band}) · MaxDD {fmt_pct(metrics['mdd'])}")
+chip(f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)}) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ============================================================
+# Tabs
+# ============================================================
+tab_names = [
+    "IC Summary",
+    "Overview",
+    "Risk + Advanced",
+    "Benchmark Governance",
+    "Comparator",
+    "Alpha Snapshot",
+    "Diagnostics",
+]
+tabs = st.tabs(tab_names)
+
+
+# ============================================================
+# IC SUMMARY
+# ============================================================
+with tabs[0]:
+    st.markdown("### Executive IC One-Pager")
+
+    colA, colB = st.columns([1.2, 1.0], gap="large")
+
+    with colA:
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### What is this wave?")
+        st.write(
+            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
+            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
+        )
+        st.markdown("**Trust + Governance**")
+        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
+        st.markdown("**Performance vs Benchmark**")
+        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
+        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
+        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Vector Referee (IC first)
+        if ENABLE_VECTOR_REFEREE:
+            st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+            safe_panel(
+                "Vector Referee",
+                lambda: _vector_referee_verdict_block(
+                    selected_wave=selected_wave,
+                    mode=mode,
+                    hist_sel=hist_sel,
+                    metrics=metrics,
+                    cov=cov,
+                    bm_drift=bm_drift,
+                    beta_val=beta_val,
+                    beta_r2=beta_r2,
+                    beta_n=beta_n,
+                    beta_score=beta_score,
+                    beta_grade=beta_grade,
+                    rr_score=rr_score,
+                ),
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Vector Truth (existing)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Vector™ Truth Layer (Read-Only)")
+        safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Alpha enhancements summary (selected wave)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Alpha Enhancements (Selected Wave)")
+        attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
+        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
+        ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+        st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
+        st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
+        st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
+        st.write(
+            f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_on_share'),2)} share)"
+        )
+        st.write(
+            f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_off_share'),2)} share)"
+        )
+        render_definitions(
+            ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
+            title="Definitions (Alpha Enhancements)",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Key Wins / Key Risks / Next Actions")
+        wins, risks, actions = [], [], []
+
+        if conf_level == "High":
+            wins.append("Fresh + complete coverage supports institutional trust.")
+        if bm_drift == "stable":
+            wins.append("Benchmark snapshot is stable (governance green).")
+        if math.isfinite(beta_score) and beta_score >= 80:
+            wins.append("Benchmark systematic exposure match (beta reliability is strong).")
+        if math.isfinite(metrics["a30"]) and metrics["a30"] > 0:
+            wins.append("Positive 30D alpha versus benchmark mix.")
+
+        if conf_level != "High":
+            risks.append("Data trust flags present (coverage/age/rows).")
+        if bm_drift != "stable":
+            risks.append("Benchmark drift detected (composition changed in-session).")
+        if math.isfinite(beta_score) and beta_score < 75:
+            risks.append("Beta reliability low (benchmark may not match systematic exposure).")
+        if math.isfinite(metrics["mdd"]) and metrics["mdd"] <= -0.25:
+            risks.append("Deep drawdown regime risk is elevated.")
+
+        if bm_drift != "stable":
+            actions.append("Freeze benchmark mix for demos/governance, then re-run.")
+        if math.isfinite(beta_score) and beta_score < 75:
+            actions.append("Review benchmark mix: adjust exposures to match wave beta target (or justify intentional mismatch).")
+        if math.isfinite(metrics["te"]) and metrics["te"] >= 0.20:
+            actions.append("Confirm exposure caps / SmartSafe posture for high active risk.")
+        if conf_level != "High":
+            actions.append("Inspect history pipeline for missing days or stale writes.")
+        if not actions:
+            actions.append("Proceed: governance is stable; use comparator and alpha snapshot for positioning.")
+
+        st.markdown("**Key Wins**")
+        for w in (wins[:4] if wins else ["(none)"]):
+            st.write("• " + w)
+
+        st.markdown("**Key Risks**")
+        for r in (risks[:4] if risks else ["(none)"]):
+            st.write("• " + r)
+
+        st.markdown("**Next Actions**")
+        for a in (actions[:4] if actions else ["(none)"]):
+            st.write("• " + a)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with colB:
+        st.markdown("#### IC Tiles")
+        c1, c2 = st.columns(2, gap="medium")
+        with c1:
+            tile("Confidence", conf_level, conf_reason)
+            tile("Benchmark", "Stable" if bm_drift == "stable" else "Drift", bm_id)
+            tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
+        with c2:
+            tile("Analytics Grade", sel_score.get("Grade", "N/A"), f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}")
+            tile("Beta Reliability", beta_grade, f"{fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+            tile("Active Risk (TE)", fmt_pct(metrics["te"]), f"Band: {te_band}")
+
+        st.markdown("---")
+        render_definitions(
+            [
+                "Canonical (Source of Truth)",
+                "Return",
+                "Alpha",
+                "Alpha Capture",
+                "Tracking Error (TE)",
+                "Max Drawdown (MaxDD)",
+                "CVaR 95% (daily)",
+                "Analytics Scorecard",
+                "Benchmark Snapshot / Drift",
+                "Beta (vs Benchmark)",
+                "Beta Reliability Score",
+                "Vector™ — Truth Referee",
+                "Alpha Classification",
+                "Assumptions Tested",
+            ],
+            title="Definitions (IC)",
+        )
+
+
+# ============================================================
+# OVERVIEW
+# ============================================================
+with tabs[1]:
+    st.markdown("### Overview (Canonical Metrics)")
+    st.caption("Everything below is computed from the same canonical hist_sel object (no duplicate math).")
+
+    truth = {
+        "CanonicalEndDate": str(pd.to_datetime(hist_sel.index).max().date()) if not hist_sel.empty else "—",
+        "Rows": int(cov.get("rows") or 0),
+        "BMSnapshot": bm_id,
+        "BMDrift": bm_drift,
+        "CoverageScore": fmt_num(cov.get("completeness_score"), 1),
+        "AgeDays": fmt_int(cov.get("age_days")),
+        "Beta": fmt_num(beta_val, 2),
+        "BetaTarget": fmt_num(beta_target, 2),
+        "BetaReliability": fmt_num(beta_score, 1),
+        "30DReturn": fmt_pct(metrics["r30"]),
+        "30DAlpha": fmt_pct(metrics["a30"]),
+        "TE": fmt_pct(metrics["te"]),
+        "MaxDD": fmt_pct(metrics["mdd"]),
+        "Sharpe": fmt_num(metrics["sharpe"], 2),
+        "CVaR95": fmt_pct(metrics["cvar95"]),
+        "RiskReaction": fmt_num(rr_score, 1),
+    }
+    st.markdown("#### Cohesion Lock (Truth Table)")
+    st.dataframe(pd.DataFrame([truth]), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("#### Performance vs Benchmark")
+    perf_df = pd.DataFrame(
+        [
+            {"Window": "1D", "Return": metrics["r1"], "Alpha": metrics["a1"]},
+            {"Window": "30D", "Return": metrics["r30"], "Alpha": metrics["a30"]},
+            {"Window": "60D", "Return": metrics["r60"], "Alpha": metrics["a60"]},
+            {"Window": "365D", "Return": metrics["r365"], "Alpha": metrics["a365"]},
+        ]
+    )
+    show = perf_df.copy()
+    show["Return"] = show["Return"].apply(fmt_pct)
+    show["Alpha"] = show["Alpha"].apply(fmt_pct)
+    st.dataframe(show, use_container_width=True, hide_index=True)
+
+    if not scan_mode and not hist_sel.empty:
+        st.markdown("---")
+        st.markdown("#### NAV Preview (Wave vs Benchmark)")
+        nav_view = hist_sel[["wave_nav", "bm_nav"]].tail(120).copy()
+        nav_view = nav_view.rename(columns={"wave_nav": "Wave NAV", "bm_nav": "Benchmark NAV"})
+        st.line_chart(nav_view, height=240, use_container_width=True)
+
+
+# ============================================================
+# RISK + ADVANCED
+# ============================================================
+with tabs[2]:
+    st.markdown("### Risk + Advanced Analytics (Canonical)")
+
+    c1, c2, c3 = st.columns(3, gap="medium")
+    with c1:
+        st.metric("Sharpe (0% rf)", value=fmt_num(metrics["sharpe"], 2))
+        st.metric("Sortino (0% MAR)", value=fmt_num(metrics["sortino"], 2))
+    with c2:
+        st.metric("Volatility (ann.)", value=fmt_pct(metrics["vol"], 2))
+        ddv = downside_deviation(hist_sel["wave_ret"]) if not hist_sel.empty else np.nan
+        st.metric("Downside Dev (ann.)", value=fmt_pct(ddv, 2))
+    with c3:
+        st.metric("Max Drawdown", value=fmt_pct(metrics["mdd"], 2))
+        st.metric("TE (ann.)", value=fmt_pct(metrics["te"], 2))
+
+    st.markdown("---")
+    c4, c5, c6 = st.columns(3, gap="medium")
+    with c4:
+        st.metric("VaR 95% (daily)", value=fmt_pct(metrics["var95"], 2))
+    with c5:
+        st.metric("CVaR 95% (daily)", value=fmt_pct(metrics["cvar95"], 2))
+    with c6:
+        st.metric("Risk Reaction Score", value=f"{fmt_num(rr_score,1)}/100")
+
+    render_definitions(
+        ["Sharpe", "Sortino", "Max Drawdown (MaxDD)", "Tracking Error (TE)", "VaR 95% (daily)", "CVaR 95% (daily)", "Risk Reaction Score"],
+        title="Definitions (Risk & Advanced)",
+    )
+
+    if ENABLE_AI_EXPLAIN:
+        st.markdown("---")
+        st.markdown("#### AI Explanation Layer (Rules-Based, Deterministic)")
+        explain = ai_explain_narrative(
+            cov=cov,
+            bm_drift=bm_drift,
+            r30=metrics["r30"],
+            a30=metrics["a30"],
+            r60=metrics["r60"],
+            a60=metrics["a60"],
+            te=metrics["te"],
+            mdd=metrics["mdd"],
+            sharpe=metrics["sharpe"],
+            cvar95=metrics["cvar95"],
+            rr_score=rr_score,
+            beta_val=beta_val,
+            beta_target=beta_target,
+            beta_score=beta_score,
+        )
+
+        cols = st.columns(2, gap="large")
+        with cols[0]:
+            st.markdown("**What changed recently**")
+            for s in explain["What changed recently"]:
+                st.write("• " + s)
+            st.markdown("**Why the alpha looks like this**")
+            for s in explain["Why the alpha looks like this"]:
+                st.write("• " + s)
+        with cols[1]:
+            st.markdown("**Risk driver**")
+            for s in explain["Risk driver"]:
+                st.write("• " + s)
+            st.markdown("**What to verify**")
+            for s in explain["What to verify"]:
+                st.write("• " + s)
+
+
+# ============================================================
+# BENCHMARK GOVERNANCE
+# ============================================================
+with tabs[3]:
+    st.markdown("### Benchmark Governance (Fidelity Inspector)")
+
+    left, right = st.columns([1.0, 1.1], gap="large")
+
+    with left:
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Inspector Summary")
+        st.write(f"**Snapshot:** {bm_id}")
+        st.write(f"**Drift Status:** {bm_drift}")
+        st.write(f"**Active Risk Band (TE):** {te_band} (TE {fmt_pct(metrics['te'])})")
+        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+        st.write(f"**Difficulty vs SPY (proxy):** {fmt_num(difficulty.get('difficulty_vs_spy'), 1)} (range ~ -25 to +25)")
+        st.caption("Difficulty is a concentration/diversification heuristic (not a promise).")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if bm_rows_now is not None and not bm_rows_now.empty:
+            st.markdown("#### Current Benchmark Composition")
+            bm_show = bm_rows_now.copy()
+            bm_show["WeightPct"] = (bm_show["Weight"] * 100).round(2)
+            bm_show = bm_show.drop(columns=["Weight"]).sort_values("WeightPct", ascending=False).reset_index(drop=True)
+            st.dataframe(bm_show, use_container_width=True, hide_index=True)
+        else:
+            st.info("No benchmark mix table available for this wave.")
+
+    with right:
+        st.markdown("#### Composition Change vs Last Session")
+        if bm_diff is None or bm_diff.empty:
+            st.info("No prior snapshot stored yet (or no meaningful changes).")
+        else:
+            st.dataframe(bm_diff, use_container_width=True, hide_index=True)
+
+        render_definitions(
+            ["Benchmark Snapshot / Drift", "Difficulty vs SPY", "Tracking Error (TE)", "Beta Reliability Score"],
+            title="Definitions (Benchmark Governance)",
+        )
+
+
+# ============================================================
+# COMPARATOR
+# ============================================================
+with tabs[4]:
+    st.markdown("### Wave-to-Wave Comparator")
+
+    if not ENABLE_COMPARATOR:
+        st.info("Comparator disabled.")
+    else:
+        col1, col2 = st.columns([1.0, 1.0], gap="large")
+        with col1:
+            wave_a = selected_wave
+            st.caption("Wave A (selected)")
+            st.write(f"**{wave_a}**")
+        with col2:
+            wave_b = st.selectbox("Wave B", options=[w for w in all_waves if w != selected_wave] if all_waves else ["(none)"], index=0)
+
+        def load_metrics_for(w: str) -> Dict[str, Any]:
+            h = _standardize_history(compute_wave_history(w, mode, days=days))
+            c = coverage_report(h)
+            bid = benchmark_snapshot_id(w, bm_mix)
+            d = benchmark_drift_status(w, mode, bid)
+            m = compute_metrics_from_hist(h)
+            bt = beta_target_for_mode(mode)
+            bv, br2, bn = beta_and_r2(
+                h["wave_ret"] if not h.empty else pd.Series(dtype=float),
+                h["bm_ret"] if not h.empty else pd.Series(dtype=float),
+            )
+            bs = beta_reliability_score(bv, br2, bn, bt)
+            return {"cov": c, "bm_id": bid, "bm_drift": d, "m": m, "beta": bv, "beta_score": bs}
+
+        if wave_b and wave_b != "(none)":
+            a = load_metrics_for(wave_a)
+            b = load_metrics_for(wave_b)
+
+            comp = pd.DataFrame(
+                [
+                    {"Metric": "30D Return", "Wave A": fmt_pct(a["m"]["r30"]), "Wave B": fmt_pct(b["m"]["r30"])},
+                    {"Metric": "30D Alpha", "Wave A": fmt_pct(a["m"]["a30"]), "Wave B": fmt_pct(b["m"]["a30"])},
+                    {"Metric": "60D Return", "Wave A": fmt_pct(a["m"]["r60"]), "Wave B": fmt_pct(b["m"]["r60"])},
+                    {"Metric": "60D Alpha", "Wave A": fmt_pct(a["m"]["a60"]), "Wave B": fmt_pct(b["m"]["a60"])},
+                    {"Metric": "TE", "Wave A": fmt_pct(a["m"]["te"]), "Wave B": fmt_pct(b["m"]["te"])},
+                    {"Metric": "MaxDD", "Wave A": fmt_pct(a["m"]["mdd"]), "Wave B": fmt_pct(b["m"]["mdd"])},
+                    {"Metric": "CVaR 95%", "Wave A": fmt_pct(a["m"]["cvar95"]), "Wave B": fmt_pct(b["m"]["cvar95"])},
+                    {"Metric": "Beta", "Wave A": fmt_num(a["beta"], 2), "Wave B": fmt_num(b["beta"], 2)},
+                    {"Metric": "Beta Reliability", "Wave A": fmt_num(a["beta_score"], 1), "Wave B": fmt_num(b["beta_score"], 1)},
+                    {"Metric": "BM Snapshot", "Wave A": a["bm_id"], "Wave B": b["bm_id"]},
+                    {"Metric": "BM Drift", "Wave A": a["bm_drift"], "Wave B": b["bm_drift"]},
+                ]
+            )
+            st.dataframe(comp, use_container_width=True, hide_index=True)
+        else:
+            st.info("Pick Wave B to compare.")
+
+
+# ============================================================
+# ALPHA SNAPSHOT (ALL WAVES)
+# ============================================================
+with tabs[5]:
+    st.markdown("### Alpha Snapshot (All Waves)")
+    st.caption("Intraday / 30D / 60D / 365D — Return + Alpha + Alpha Capture (exposure-normalized when available).")
+
+    if not ENABLE_ALPHA_SNAPSHOT:
+        st.info("Alpha Snapshot disabled.")
+    else:
+        snap_days = st.selectbox("Snapshot lookback used for loading histories (>=365 recommended)", [365, 730, 1095, 2520], index=0)
+        show_ro_rf = st.toggle("Include Risk-On / Risk-Off Attribution (60D)", value=False)
+        limit_n = st.slider(
+            "Max waves to compute (speed control)",
+            min_value=5,
+            max_value=max(5, len(all_waves) if all_waves else 5),
+            value=min(20, len(all_waves) if all_waves else 5),
+        )
+
+        @st.cache_data(show_spinner=False)
+        def _compute_snapshot_row(wave_name: str, mode: str, days: int) -> Dict[str, Any]:
+            h = _standardize_history(compute_wave_history(wave_name, mode, days=days))
+            m = compute_metrics_from_hist(h)
+
+            ac = _alpha_capture_series(h, wave_name, mode)
+            ac30 = _compound_from_daily(ac.tail(min(30, len(ac)))) if len(ac) >= 2 else float("nan")
+            ac60 = _compound_from_daily(ac.tail(min(60, len(ac)))) if len(ac) >= 2 else float("nan")
+            ac365 = _compound_from_daily(ac.tail(min(365, len(ac)))) if len(ac) >= 2 else float("nan")
+
+            attrib60 = _risk_on_off_attrib(h, wave_name, mode, window=60)
+
+            return {
+                "Wave": wave_name,
+                "1D Ret": m["r1"],
+                "1D Alpha": m["a1"],
+                "30D Ret": m["r30"],
+                "30D Alpha": m["a30"],
+                "30D AlphaCapture": ac30,
+                "60D Ret": m["r60"],
+                "60D Alpha": m["a60"],
+                "60D AlphaCapture": ac60,
+                "365D Ret": m["r365"],
+                "365D Alpha": m["a365"],
+                "365D AlphaCapture": ac365,
+                "60D CapAlpha": attrib60.get("cap_alpha"),
+                "60D ExpAdjAlpha": attrib60.get("exp_adj_alpha"),
+                "60D RiskOnAlpha": attrib60.get("risk_on_alpha"),
+                "60D RiskOffAlpha": attrib60.get("risk_off_alpha"),
+                "CoverageRows": int(len(h)) if h is not None else 0,
+            }
+
+        if not all_waves:
+            st.info("No waves available to snapshot.")
+        else:
+            waves_to_run = all_waves[: int(limit_n)]
+            rows: List[Dict[str, Any]] = []
+            prog = st.progress(0)
+
+            for i, w in enumerate(waves_to_run):
+                try:
+                    rows.append(_compute_snapshot_row(w, mode, snap_days))
+                except Exception:
+                    rows.append({"Wave": w})
+                prog.progress(int((i + 1) / max(1, len(waves_to_run)) * 100))
+
+            df = pd.DataFrame(rows)
+            display = df.copy()
+
+            pct_cols = [c for c in display.columns if ("Ret" in c or "Alpha" in c or "AlphaCapture" in c or "CapAlpha" in c or "ExpAdjAlpha" in c or "RiskOnAlpha" in c or "RiskOffAlpha" in c)]
+            for c in pct_cols:
+                if c in display.columns:
+                    display[c] = display[c].apply(fmt_pct)
+
+            sort_by = st.selectbox(
+                "Sort by",
+                ["60D AlphaCapture", "60D Alpha", "30D AlphaCapture", "30D Alpha", "365D AlphaCapture", "365D Alpha"],
+                index=0,
+            )
+            try:
+                df_sorted = df.sort_values(sort_by, ascending=False, na_position="last")
+                display = display.set_index("Wave").loc[df_sorted["Wave"]].reset_index()
+            except Exception:
+                pass
+
+            if not show_ro_rf:
+                display = display.drop(columns=["60D RiskOnAlpha", "60D RiskOffAlpha"], errors="ignore")
+
+            st.dataframe(display, use_container_width=True, hide_index=True)
+
+            render_definitions(
+                ["Alpha Capture", "Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution"],
+                title="Definitions (Alpha Snapshot)",
+            )
+
+
+# ============================================================
+# DIAGNOSTICS (always boots)
+# ============================================================
+with tabs[6]:
+    st.markdown("### Diagnostics (Boot-Safe)")
+
+    st.markdown("#### Engine status")
+    if we is None:
+        st.error(f"waves_engine import failed: {ENGINE_IMPORT_ERROR}")
+        st.write("Fallback mode will attempt to load wave_history.csv / config CSVs.")
+    else:
+        st.success("waves_engine imported successfully.")
+
+    st.markdown("---")
+    st.markdown("#### Vector Truth status")
+    if build_vector_truth_report is None or format_vector_truth_markdown is None:
+        st.warning("Vector Truth import failed or is unavailable.")
+        if VECTOR_TRUTH_IMPORT_ERROR is not None:
+            st.code(str(VECTOR_TRUTH_IMPORT_ERROR))
+    else:
+        st.success("Vector Truth imported successfully.")
+
+    st.markdown("---")
+    st.markdown("#### Vector Referee status")
+    if ENABLE_VECTOR_REFEREE:
+        st.success("Vector Referee is active (deterministic rules running).")
+        st.caption("Referee uses canonical hist_sel + benchmark drift + beta reliability + risk signals. Read-only.")
+    else:
+        st.info("Vector Referee disabled.")
+
+    st.markdown("---")
+    st.markdown("#### Canonical history checks")
+    st.write(f"Rows: {int(cov.get('rows') or 0)}")
+    st.write(f"FirstDate: {cov.get('first_date')}")
+    st.write(f"LastDate: {cov.get('last_date')}")
+    st.write(f"AgeDays: {cov.get('age_days')}")
+    st.write(f"MissingBDays: {cov.get('missing_bdays')}")
+    st.write(f"MissingPct: {fmt_num(cov.get('missing_pct'), 4)}")
+    st.write(f"CoverageScore: {fmt_num(cov.get('completeness_score'), 1)}")
+    if cov.get("flags"):
+        st.warning(" | ".join([str(x) for x in cov.get("flags")]))
+    else:
+        st.success("No coverage flags.")
+
+    st.markdown("---")
+    st.markdown("#### Canonical columns preview")
+    if hist_sel is None or hist_sel.empty:
+        st.info("hist_sel is empty.")
+    else:
+        st.dataframe(hist_sel.tail(20), use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("#### Optional libs")
+    st.write(f"yfinance: {'OK' if yf is not None else 'missing'}")
+    st.write(f"plotly: {'OK' if go is not None else 'missing'}")
