@@ -2275,3 +2275,111 @@ with tabs[5]:
             ac30 = _compound_from_daily(ac.tail(min(30, len(ac)))) if len(ac) >= 2 else float("nan")
             ac60 = _compound_from_daily(ac.tail(min(60, len(ac)))) if len(ac) >= 2 else float("nan")
             ac365 = _compound_from_daily(ac.tail(min(
+                        ac365 = _compound_from_daily(ac.tail(min(365, len(ac)))) if len(ac) >= 2 else float("nan")
+
+            row = {
+                "Wave": wave_name,
+                "1D Return": m.get("r1", np.nan),
+                "1D Alpha": m.get("a1", np.nan),
+                "30D Return": m.get("r30", np.nan),
+                "30D Alpha": m.get("a30", np.nan),
+                "60D Return": m.get("r60", np.nan),
+                "60D Alpha": m.get("a60", np.nan),
+                "365D Return": m.get("r365", np.nan),
+                "365D Alpha": m.get("a365", np.nan),
+                "Alpha Capture 30D": ac30,
+                "Alpha Capture 60D": ac60,
+                "Alpha Capture 365D": ac365,
+                "TE": m.get("te", np.nan),
+                "MaxDD": m.get("mdd", np.nan),
+                "CVaR95": m.get("cvar95", np.nan),
+            }
+
+            if show_ro_rf:
+                attrib60 = _risk_on_off_attrib(h, wave_name, mode, window=60)
+                row["Risk-On Alpha 60D"] = attrib60.get("risk_on_alpha", np.nan)
+                row["Risk-Off Alpha 60D"] = attrib60.get("risk_off_alpha", np.nan)
+
+            return row
+
+        # Build snapshot table (speed-controlled)
+        waves_to_run = (all_waves[: int(limit_n)] if all_waves else [])
+        rows = []
+        for w in waves_to_run:
+            try:
+                rows.append(_compute_snapshot_row(w, mode, snap_days))
+            except Exception:
+                continue
+
+        if not rows:
+            st.info("Snapshot could not be built (no histories returned).")
+        else:
+            df = pd.DataFrame(rows)
+
+            # Display-friendly formatting copy
+            show = df.copy()
+            pct_cols = [
+                "1D Return", "1D Alpha",
+                "30D Return", "30D Alpha",
+                "60D Return", "60D Alpha",
+                "365D Return", "365D Alpha",
+                "Alpha Capture 30D", "Alpha Capture 60D", "Alpha Capture 365D",
+                "TE", "MaxDD", "CVaR95",
+                "Risk-On Alpha 60D", "Risk-Off Alpha 60D",
+            ]
+            for c in pct_cols:
+                if c in show.columns:
+                    show[c] = show[c].apply(lambda x: fmt_pct(x, 2) if math.isfinite(safe_float(x)) else "—")
+
+            st.dataframe(show, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                "Download Alpha Snapshot CSV",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name="alpha_snapshot.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+
+# ============================================================
+# DIAGNOSTICS (ALWAYS BOOTS)
+# ============================================================
+with tabs[6]:
+    st.markdown("### Diagnostics (Always Boots)")
+
+    st.markdown("#### Import Status")
+    st.write(f"**waves_engine import:** {'OK' if ENGINE_IMPORT_ERROR is None else 'ERROR'}")
+    if ENGINE_IMPORT_ERROR is not None:
+        st.error(str(ENGINE_IMPORT_ERROR))
+
+    st.write(f"**vector_truth import:** {'OK' if VECTOR_TRUTH_IMPORT_ERROR is None else 'ERROR'}")
+    if VECTOR_TRUTH_IMPORT_ERROR is not None:
+        st.warning(str(VECTOR_TRUTH_IMPORT_ERROR))
+
+    st.markdown("---")
+    st.markdown("#### Canonical History Health")
+    st.write(f"Rows: **{fmt_int(cov.get('rows'))}**")
+    st.write(f"First: **{cov.get('first_date')}** · Last: **{cov.get('last_date')}**")
+    st.write(
+        f"AgeDays: **{fmt_int(cov.get('age_days'))}** · "
+        f"MissingBDays: **{fmt_int(cov.get('missing_bdays'))}** · "
+        f"Missing%: **{fmt_num(safe_float(cov.get('missing_pct'))*100.0, 1)}%**"
+    )
+    st.write(f"Coverage Score: **{fmt_num(cov.get('completeness_score'), 1)}**")
+    if cov.get("flags"):
+        st.markdown("**Flags:**")
+        for f in cov["flags"]:
+            st.write("• " + str(f))
+
+    st.markdown("---")
+    st.markdown("#### Quick Sanity Outputs")
+    st.write(f"1D r {fmt_pct(metrics['r1'])} | 1D α {fmt_pct(metrics['a1'])}")
+    st.write(f"30D r {fmt_pct(metrics['r30'])} | 30D α {fmt_pct(metrics['a30'])}")
+    st.write(f"60D r {fmt_pct(metrics['r60'])} | 60D α {fmt_pct(metrics['a60'])}")
+    st.write(f"365D r {fmt_pct(metrics['r365'])} | 365D α {fmt_pct(metrics['a365'])}")
+    st.write(f"TE {fmt_pct(metrics['te'])} | MaxDD {fmt_pct(metrics['mdd'])} | CVaR {fmt_pct(metrics['cvar95'])}")
+    st.write(f"BetaRel {beta_grade} ({fmt_num(beta_score,1)}/100) | BM drift {bm_drift}")
+
+    st.markdown("---")
+    st.caption("If you see a red Streamlit error box, open Streamlit → Manage app → Logs. This build is designed to keep running even if a panel fails.")
