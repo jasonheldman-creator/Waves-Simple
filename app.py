@@ -1891,51 +1891,222 @@ with tabs[0]:
     st.markdown("### Executive IC One-Pager")
 
     # --------------------------------------------------------
-    # Helpers (safe getters)
+    # Safe helpers
     # --------------------------------------------------------
-    def _ss_get(key, default=None):
-        try:
-            return st.session_state.get(key, default)
-        except Exception:
-            return default
-
-    def _pick(*vals):
-        for v in vals:
-            if v is not None:
-                return v
-        return None
-
-    def _fmt_pct(x):
+    def _fmt_pct_local(x):
         if x is None:
             return "—"
         try:
-            # prefer existing formatter if present
-            if "fmt_pct" in locals():
+            # use existing fmt_pct if available
+            if "fmt_pct" in globals():
                 return fmt_pct(x)
             return f"{float(x)*100:.2f}%"
         except Exception:
             return "—"
 
+    def _fmt_num_local(x, digits=1):
+        if x is None:
+            return "—"
+        try:
+            if "fmt_num" in globals():
+                return fmt_num(x, digits)
+            return f"{float(x):.{digits}f}"
+        except Exception:
+            return "—"
+
+    def _ep():
+        try:
+            return st.session_state.get("exec_pack", {}) or {}
+        except Exception:
+            return {}
+
+    ep = _ep()
+
     # --------------------------------------------------------
-    # (1) Final Verdict + Assumptions (keep existing calls)
+    # (0) Optional: Final Verdict + Assumptions (keep your existing system)
     # --------------------------------------------------------
     try:
+        # Final Verdict box (only if your flags + function exist)
         if ("VECTOR_GOVERNANCE_ENABLED" in globals() and VECTOR_GOVERNANCE_ENABLED) and \
            ("ENABLE_FINAL_VERDICT" in globals() and ENABLE_FINAL_VERDICT) and \
-           ("render_final_verdict_box" in globals()) and \
-           ("final_verdict" in locals() or "final_verdict" in globals()):
-            render_final_verdict_box(_pick(locals().get("final_verdict"), globals().get("final_verdict")))
+           ("render_final_verdict_box" in globals()):
+            # final_verdict may live in locals/globals/session_state; pick safest
+            fv = None
+            try:
+                fv = st.session_state.get("final_verdict")
+            except Exception:
+                fv = None
+            if fv is None:
+                fv = globals().get("final_verdict")
+            if fv is not None:
+                render_final_verdict_box(fv)
     except Exception:
         pass
 
     try:
+        # Assumptions panel (if you have it)
         if "render_assumptions_panel" in globals():
-            render_assumptions_panel(bm_drift=_pick(_ss_get("bm_drift"), locals().get("bm_drift")))
+            # feed bm_drift if we have it
+            render_assumptions_panel(bm_drift=ep.get("bm_drift"))
     except Exception:
         pass
 
     st.divider()
 
+    # --------------------------------------------------------
+    # (1) Vector Confidence Index™ (VCI) — now reads exec_pack
+    # --------------------------------------------------------
+    st.markdown("#### Vector Confidence Index™")
+
+    # readiness gating (exec-pack based)
+    cov = ep.get("cov")
+    bm_drift = ep.get("bm_drift")
+    beta_score = ep.get("beta_score")
+    rr_score = ep.get("risk_reaction")
+
+    vci_ready = (cov is not None) and (bm_drift is not None) and (beta_score is not None) and (rr_score is not None)
+
+    if not vci_ready or ("compute_vector_confidence" not in globals()):
+        st.info("VCI unavailable (governance signals not built yet).")
+    else:
+        try:
+            vci = compute_vector_confidence(cov, bm_drift, beta_score, rr_score)
+
+            vci_band = (
+                "High Trust" if vci >= 85 else
+                "Moderate Trust" if vci >= 70 else
+                "Low Trust"
+            )
+
+            c1, c2 = st.columns([1.0, 1.4], gap="medium")
+            with c1:
+                if "tile" in globals():
+                    tile("VCI Score", f"{vci:.0f}/100", vci_band)
+                else:
+                    st.metric("VCI Score", f"{vci:.0f}/100", vci_band)
+            with c2:
+                st.caption(
+                    "VCI measures confidence in data integrity, benchmark stability, "
+                    "and attribution reliability — not performance."
+                )
+        except Exception:
+            st.info("VCI unavailable (governance signals not built yet).")
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # (2) Alpha Clarity Layer
+    # --------------------------------------------------------
+    st.markdown("#### Alpha Clarity Layer")
+
+    alpha_30d = ep.get("alpha_30d")
+    alpha_60d = ep.get("alpha_60d")
+    alpha_365d = ep.get("alpha_365d")
+    avg_exposure = ep.get("avg_exposure")
+
+    attrib_60d = ep.get("attrib_60d")
+    attrib_365d = ep.get("attrib_365d")
+    attrib_exec = attrib_365d if isinstance(attrib_365d, dict) else attrib_60d if isinstance(attrib_60d, dict) else None
+
+    left, right = st.columns([1.15, 1.0], gap="large")
+
+    # ---- Capital-Weighted Alpha
+    with left:
+        st.markdown("**Capital-Weighted Alpha**")
+
+        # choose the best available reported alpha: 12M -> 60D -> 30D
+        reported_alpha = alpha_365d if alpha_365d is not None else alpha_60d if alpha_60d is not None else alpha_30d
+
+        if (reported_alpha is None) or (avg_exposure is None):
+            st.caption("Unavailable (needs reported alpha + average exposure).")
+        else:
+            try:
+                # simple IC-grade definition: alpha per active capital deployed
+                # (you can refine later; this is safe + coherent)
+                cwa = float(reported_alpha) * float(avg_exposure)
+
+                st.write(f"Reported Alpha: **{_fmt_pct_local(reported_alpha)}**")
+                st.write(f"Avg Exposure: **{_fmt_num_local(avg_exposure, 2)}**")
+                st.write(f"Capital-Weighted Alpha: **{_fmt_pct_local(cwa)}**")
+                st.caption("Alpha contextualized by average active exposure (SmartSafe / gating aware).")
+            except Exception:
+                st.caption("Unavailable (needs reported alpha + average exposure).")
+
+    # ---- Regime Attribution (last 12M preferred, else 60D)
+    with right:
+        st.markdown("**Regime Attribution**")
+
+        if attrib_exec is None:
+            st.caption("Unavailable (needs regime attribution signals).")
+        else:
+            try:
+                risk_on = float(attrib_exec.get("risk_on", 0.0) or 0.0)
+                risk_off = float(attrib_exec.get("risk_off", 0.0) or 0.0)
+                total = abs(risk_on) + abs(risk_off)
+                defense_capture = (risk_off / total) if total > 0 else 0.0
+
+                st.write(f"Risk-On Contribution: **{_fmt_pct_local(risk_on)}**")
+                st.write(f"Risk-Off Contribution: **{_fmt_pct_local(risk_off)}**")
+                st.write(f"Defense Capture Ratio: **{_fmt_num_local(defense_capture, 2)}**")
+                st.caption("Separates offensive return generation from defensive capital preservation.")
+            except Exception:
+                st.caption("Unavailable (needs regime attribution signals).")
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # (3) Key Wins / Key Risks / Actions (IC-grade, compact)
+    # --------------------------------------------------------
+    st.markdown("#### Key Wins / Key Risks / Actions")
+
+    conf_level = ep.get("conf_level")
+    bm_drift = ep.get("bm_drift")
+    beta_rel = ep.get("beta_rel")  # numeric score, used as reliability proxy (your UI uses ~53.8)
+    wins, risks, actions = [], [], []
+
+    # Wins
+    if conf_level == "High":
+        wins.append("High governance confidence (signals complete).")
+    if isinstance(bm_drift, str) and bm_drift.lower() == "stable":
+        wins.append("Benchmark stability confirmed (low drift).")
+
+    # Risks
+    try:
+        if beta_rel is not None and float(beta_rel) < 65:
+            risks.append("Very low beta reliability — benchmark may not explain systematic exposure.")
+            actions.append("Review benchmark mix + factor exposures; consider re-benchmarking or widening the proxy basket.")
+    except Exception:
+        pass
+
+    # Add an action if we have CWA inputs (even if alpha is negative, this is still committee useful)
+    if (avg_exposure is not None) and (alpha_60d is not None or alpha_365d is not None or alpha_30d is not None):
+        actions.append("Use Capital-Weighted Alpha to explain performance under SmartSafe / exposure controls.")
+
+    # Render 3 columns
+    cA, cB, cC = st.columns(3)
+    with cA:
+        st.markdown("**Wins**")
+        if wins:
+            for w in wins:
+                st.write(f"• {w}")
+        else:
+            st.caption("—")
+
+    with cB:
+        st.markdown("**Risks**")
+        if risks:
+            for r in risks:
+                st.write(f"• {r}")
+        else:
+            st.caption("—")
+
+    with cC:
+        st.markdown("**Actions**")
+        if actions:
+            for a in actions:
+                st.write(f"• {a}")
+        else:
+            st.caption("—")
     # --------------------------------------------------------
     # (2) VCI — reads from session_state exec_pack FIRST
     # --------------------------------------------------------
