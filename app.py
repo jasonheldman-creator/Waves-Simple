@@ -16,6 +16,7 @@ import waves_engine as we
 # ============================================================
 
 VERSION = "v17.1"
+BENCHMARK_ID_DISPLAY_LENGTH = 30
 
 st.set_page_config(
     page_title="WAVES Intelligence™",
@@ -25,6 +26,7 @@ st.set_page_config(
 )
 
 # Clear Streamlit cache on deployment to avoid issues
+# Only clears once per session to avoid performance impact
 if 'cache_cleared' not in st.session_state:
     st.cache_data.clear()
     st.cache_resource.clear()
@@ -52,7 +54,7 @@ def benchmark_snapshot_id(wave_name: str, benchmark_mix: Dict[str, float]) -> st
     # Use hash for long IDs to prevent length issues
     full_id = f"{wave_name}_{ticker_str}"
     if len(full_id) > 100:
-        ticker_hash = hashlib.md5(ticker_str.encode()).hexdigest()[:8]
+        ticker_hash = hashlib.sha256(ticker_str.encode()).hexdigest()[:16]
         return f"{wave_name}_{ticker_hash}"
     
     return full_id
@@ -208,7 +210,7 @@ def main():
         bm_id = benchmark_snapshot_id(selected_wave, bm_mix)
         
         st.markdown("---")
-        st.caption(f"Benchmark ID: {bm_id[:30]}...")
+        st.caption(f"Benchmark ID: {bm_id[:BENCHMARK_ID_DISPLAY_LENGTH]}...")
     
     # Main content area
     if not selected_wave:
@@ -277,8 +279,7 @@ def main():
                         st.dataframe(nav_df, use_container_width=True)
                         
         except Exception as e:
-            st.error(f"Error loading performance data: {e}")
-            st.exception(e)
+            st.error(f"Error loading performance data: {str(e)}")
     
     # Tab 2: Holdings
     with tab2:
@@ -311,8 +312,7 @@ def main():
                             st.metric("Max Position", f"{max_weight:.2%}")
                         
         except Exception as e:
-            st.error(f"Error loading holdings: {e}")
-            st.exception(e)
+            st.error(f"Error loading holdings: {str(e)}")
     
     # Tab 3: Diagnostics
     with tab3:
@@ -355,8 +355,7 @@ def main():
                         st.json(diagnostics)
                         
         except Exception as e:
-            st.error(f"Error loading diagnostics: {e}")
-            st.exception(e)
+            st.error(f"Error loading diagnostics: {str(e)}")
     
     # Tab 4: Parameters
     with tab4:
@@ -387,8 +386,7 @@ def main():
                     )
                         
         except Exception as e:
-            st.error(f"Error loading parameters: {e}")
-            st.exception(e)
+            st.error(f"Error loading parameters: {str(e)}")
     
     # Footer
     st.markdown("---")
