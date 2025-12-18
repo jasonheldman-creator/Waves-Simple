@@ -1099,3 +1099,4 @@ def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 3
     )
     return out
     
+    
