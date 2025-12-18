@@ -2343,7 +2343,123 @@ with tabs[5]:
                 ["Alpha Capture", "Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution"],
                 title="Definitions (Alpha Snapshot)",
             )
+# ============================================================
+# HEAT INDEX (Alpha Heatmap / Scan View) — DROP-IN BLOCK
+# Place this INSIDE:  with tabs[5]:   (Alpha Snapshot tab)
+# Safe: uses existing "df" snapshot table built above (NO new math paths)
+# ============================================================
 
+st.markdown("---")
+st.markdown("### Alpha Heat Index (Scan View)")
+st.caption("Read-only visualization. Uses the existing Alpha Snapshot table (no additional analytics paths).")
+
+# Guard: requires df created above in Alpha Snapshot section
+if "df" not in locals() or df is None or df.empty or "Wave" not in df.columns:
+    st.info("Heat Index unavailable (snapshot table not built yet).")
+else:
+    # Choose which columns to heatmap (only those already computed in df)
+    heat_cols_default = [
+        "30D Alpha", "60D Alpha", "365D Alpha",
+        "30D AlphaCapture", "60D AlphaCapture", "365D AlphaCapture",
+    ]
+    heat_cols = [c for c in heat_cols_default if c in df.columns]
+
+    if not heat_cols:
+        st.info("Heat Index unavailable (expected alpha columns not found in snapshot).")
+    else:
+        # Controls
+        cA, cB, cC = st.columns([1.1, 1.1, 1.2], gap="medium")
+        with cA:
+            heat_center = st.selectbox("Center", ["0% (neutral)"], index=0)
+        with cB:
+            heat_scale = st.selectbox("Scale", ["Auto (robust)"], index=0)
+        with cC:
+            top_n = st.slider(
+                "Rows (top by selected sort metric)",
+                min_value=5,
+                max_value=max(5, int(len(df))),
+                value=min(20, int(len(df))),
+            )
+
+        # Sort metric for heat view
+        sort_metric = st.selectbox(
+            "Sort heat index by",
+            [c for c in ["60D AlphaCapture", "60D Alpha", "30D AlphaCapture", "30D Alpha", "365D AlphaCapture", "365D Alpha"] if c in df.columns],
+            index=0,
+        )
+
+        # Build heat table from df (numeric) + safe ranking
+        heat_df = df.copy()
+
+        # Ensure numeric types for styling
+        for c in heat_cols + [sort_metric]:
+            if c in heat_df.columns:
+                heat_df[c] = pd.to_numeric(heat_df[c], errors="coerce")
+
+        # Stable sort (desc), then take top_n
+        heat_df = heat_df.sort_values(sort_metric, ascending=False, na_position="last").head(int(top_n))
+
+        # Keep a clean display subset
+        keep_cols = ["Wave"] + heat_cols + (["CoverageRows"] if "CoverageRows" in heat_df.columns else [])
+        heat_view = heat_df[keep_cols].copy()
+
+        # Formatter + robust scaling helper
+        def _robust_minmax(s: pd.Series) -> Tuple[float, float]:
+            x = pd.to_numeric(s, errors="coerce").dropna()
+            if len(x) < 5:
+                return (-0.05, 0.05)
+            lo = float(np.quantile(x.values, 0.10))
+            hi = float(np.quantile(x.values, 0.90))
+            if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
+                return (-0.05, 0.05)
+            # widen slightly so colors aren’t too extreme
+            pad = 0.15 * (hi - lo)
+            return (lo - pad, hi + pad)
+
+        # Build per-column vmin/vmax (robust)
+        vmins, vmaxs = {}, {}
+        for c in heat_cols:
+            lo, hi = _robust_minmax(heat_view[c])
+            vmins[c], vmaxs[c] = lo, hi
+
+        # Style: diverging around 0 (neutral)
+        # Uses Pandas Styler; Streamlit supports it in st.dataframe
+        sty = heat_view.style
+
+        for c in heat_cols:
+            vmin = vmins.get(c, -0.05)
+            vmax = vmaxs.get(c, 0.05)
+            try:
+                sty = sty.background_gradient(
+                    subset=[c],
+                    cmap="RdYlGn",   # built-in matplotlib palette name; no manual colors specified
+                    vmin=vmin,
+                    vmax=vmax,
+                )
+            except Exception:
+                pass
+
+        # Format percent columns
+        for c in heat_cols:
+            try:
+                sty = sty.format({c: lambda x: fmt_pct(x, 2)})
+            except Exception:
+                pass
+
+        if "CoverageRows" in heat_view.columns:
+            try:
+                sty = sty.format({"CoverageRows": lambda x: fmt_int(x)})
+            except Exception:
+                pass
+
+        st.dataframe(sty, use_container_width=True, hide_index=True)
+
+        with st.expander("Heat Index notes (what you’re seeing)"):
+            st.write(
+                "This is a scan layer only. It visualizes the already-computed Alpha Snapshot metrics. "
+                "Green = positive, Red = negative, with robust auto-scaling per column."
+            )
+            render_definitions(["Alpha", "Alpha Capture"], title="Definitions (Heat Index)")
 
 # ============================================================
 # DIAGNOSTICS (always boots)
