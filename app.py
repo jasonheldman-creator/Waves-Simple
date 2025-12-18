@@ -6,6 +6,8 @@
 #         + VECTOR™ TRUTH LAYER (READ-ONLY, DETERMINISTIC)
 #         + VECTOR™ REFEREE (VERDICT + ASSUMPTIONS + FAILURE FLAGS)
 #         + ALPHA SNAPSHOT (ALL WAVES) + ALPHA CAPTURE + RISK-ON/OFF ATTRIBUTION
+#         + NEW: VECTOR GOVERNANCE LAYER (Status Bar + Final Verdict Box + Assumptions Panel
+#                + Gating Warnings + Wave Purpose Statements)
 #
 # Boot-safety rules:
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
@@ -87,6 +89,14 @@ ENABLE_VECTOR_TRUTH = True    # auto-disables if vector_truth import missing
 ENABLE_VECTOR_REFEREE = True  # referee verdict + assumptions + failure flags
 ENABLE_ALPHA_SNAPSHOT = True  # ALL WAVES snapshot table
 
+# NEW: Vector Governance Layer (the 5 items you listed)
+VECTOR_GOVERNANCE_ENABLED = True
+ENABLE_VECTOR_STATUS_BAR = True
+ENABLE_FINAL_VERDICT_BOX = True
+ENABLE_ASSUMPTIONS_PANEL = True
+ENABLE_GATING_WARNINGS = True
+ENABLE_WAVE_PURPOSE_STATEMENTS = True
+
 
 # ============================================================
 # Global UI CSS
@@ -108,6 +118,7 @@ st.markdown(
   border-radius: 14px; border: 1px solid rgba(255,255,255,0.10);
   background: rgba(10, 15, 28, 0.66);
 }
+
 .waves-chip {
   display: inline-block; padding: 8px 12px; margin: 6px 8px 0 0;
   border-radius: 999px; border: 1px solid rgba(255,255,255,0.12);
@@ -130,6 +141,38 @@ st.markdown(
 .waves-tile-sub { opacity: 0.75; font-size: 0.92rem; margin-top: 0.20rem; }
 
 hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.8rem 0; }
+
+.vector-status {
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.035);
+  padding: 10px 12px;
+  margin: 10px 0 12px 0;
+}
+.vector-status .title { font-weight: 900; letter-spacing: 0.3px; margin-bottom: 4px; }
+.vector-status .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.vector-pill {
+  display: inline-block;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(10, 15, 28, 0.40);
+  font-size: 0.90rem;
+}
+.vector-warn {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 204, 0, 0.20);
+  background: rgba(255, 204, 0, 0.06);
+  padding: 10px 12px;
+  margin: 10px 0 12px 0;
+}
+.vector-crit {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 80, 80, 0.22);
+  background: rgba(255, 80, 80, 0.07);
+  padding: 10px 12px;
+  margin: 10px 0 12px 0;
+}
 
 @media (max-width: 700px) {
   .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
@@ -357,7 +400,9 @@ def beta_band(score: float) -> str:
     if s >= 60:
         return "D"
     return "F"
-    # ============================================================
+
+
+# ============================================================
 # Glossary / Definitions
 # ============================================================
 GLOSSARY: Dict[str, str] = {
@@ -401,6 +446,8 @@ GLOSSARY: Dict[str, str] = {
         "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha."
     ),
     "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave’s regime-aware design.",
+    "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only; does not block the app.",
+    "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance).",
 }
 
 
@@ -608,7 +655,9 @@ def get_benchmark_mix() -> pd.DataFrame:
         except Exception:
             pass
     return pd.DataFrame(columns=["Wave", "Ticker", "Name", "Weight"])
-    # ============================================================
+
+
+# ============================================================
 # Benchmark snapshot + drift + diff + difficulty proxy
 # ============================================================
 def _normalize_bm_rows(bm_rows: pd.DataFrame) -> pd.DataFrame:
@@ -916,7 +965,9 @@ def risk_reaction_score(te: float, mdd: float, cvar95: float) -> float:
         return float(np.clip(score, 0.0, 100.0))
     except Exception:
         return float("nan")
-        # ============================================================
+
+
+# ============================================================
 # Deterministic AI Explanation Layer (rules-based)
 # ============================================================
 def ai_explain_narrative(
@@ -1048,6 +1099,10 @@ def compute_metrics_from_hist(hist_sel: pd.DataFrame) -> Dict[str, Any]:
 # Vector™ Alpha Enhancements (exposure + regimes + capture)
 # ============================================================
 def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeIndex) -> Optional[pd.Series]:
+    """
+    Optional: if engine exposes exposure history (0..1), use it.
+    Otherwise return None and we fall back gracefully.
+    """
     try:
         if we is None:
             return None
@@ -1083,6 +1138,11 @@ def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeI
 
 
 def _build_regime_series_from_benchmark(hist_sel: pd.DataFrame) -> Optional[pd.Series]:
+    """
+    Deterministic, simple regime labeling:
+      • RISK_OFF when benchmark daily return < 0
+      • RISK_ON otherwise
+    """
     try:
         if hist_sel is None or hist_sel.empty or "bm_ret" not in hist_sel.columns:
             return None
@@ -1101,6 +1161,11 @@ def _compound_from_daily(daily: pd.Series) -> float:
 
 
 def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.Series:
+    """
+    Alpha Capture daily series:
+      daily_alpha = wave_ret - bm_ret
+      if exposure exists: daily_alpha / max(0.10, exposure)
+    """
     if hist is None or hist.empty:
         return pd.Series(dtype=float)
     w = pd.to_numeric(hist.get("wave_ret"), errors="coerce")
@@ -1118,6 +1183,9 @@ def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.S
 
 
 def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: int = 60) -> Dict[str, Any]:
+    """
+    Returns capital-weighted alpha + exposure-adjusted alpha + risk-on/off split for a window.
+    """
     out = {
         "cap_alpha": np.nan,
         "exp_adj_alpha": np.nan,
@@ -1133,20 +1201,24 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
     if h.empty or len(h) < 2:
         return out
 
+    # capital-weighted alpha (window)
     try:
         cap_alpha = ret_from_nav(h["wave_nav"], len(h)) - ret_from_nav(h["bm_nav"], len(h))
     except Exception:
         cap_alpha = float("nan")
     out["cap_alpha"] = cap_alpha
 
+    # exposure-adjusted alpha (window)
     exp = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(h.index))
     if exp is None:
         out["exp_adj_alpha"] = cap_alpha
     else:
-        avg_exp = float(pd.to_numeric(exp, errors="coerce").dropna().mean()) if len(pd.to_numeric(exp, errors="coerce").dropna()) else 1.0
+        exp_num = pd.to_numeric(exp, errors="coerce").dropna()
+        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
         avg_exp = max(0.10, min(1.0, avg_exp))
         out["exp_adj_alpha"] = cap_alpha / avg_exp if math.isfinite(cap_alpha) else float("nan")
 
+    # risk-on/off attribution using alpha-capture daily series (compounded)
     ac = _alpha_capture_series(h, wave_name, mode)
     if len(ac) >= 2:
         reg = _build_regime_series_from_benchmark(h)
@@ -1182,7 +1254,9 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         st.info("Vector™ Truth Layer: no canonical history available.")
         return
 
-    alpha_series = (pd.to_numeric(hist_sel["wave_ret"], errors="coerce") - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")).dropna()
+    alpha_series = (
+        pd.to_numeric(hist_sel["wave_ret"], errors="coerce") - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")
+    ).dropna()
     alpha_series = alpha_series.values.tolist() if len(alpha_series) else None
 
     reg_series = _build_regime_series_from_benchmark(hist_sel)
@@ -1198,7 +1272,8 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
     exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
     exp_adj_alpha = cap_alpha
     if exp_series is not None:
-        avg_exp = float(pd.to_numeric(exp_series, errors="coerce").dropna().mean()) if len(exp_series.dropna()) else 1.0
+        exp_num = pd.to_numeric(exp_series, errors="coerce").dropna()
+        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
         avg_exp = max(0.10, min(1.0, avg_exp))
         if math.isfinite(cap_alpha):
             exp_adj_alpha = cap_alpha / avg_exp
@@ -1268,7 +1343,7 @@ def _assumption_checklist(bm_drift: str, beta_score: float) -> List[Tuple[str, b
     drift_ok = (str(bm_drift).lower().strip() == "stable")
     bs = safe_float(beta_score)
 
-    out = []
+    out: List[Tuple[str, bool, str]] = []
     out.append(("Fully-invested benchmark assumption", False, "Wave may use exposure control / cash sweeps; benchmark may be fully invested."))
     out.append(("Stable beta assumption", math.isfinite(bs) and bs >= 80, "Beta reliability indicates linkage quality; low score often means mismatch (expected or needs review)."))
     out.append(("Linear risk-return assumption", False, "Regime gating + nonlinear exposure breaks linear assumptions (by design)."))
@@ -1279,7 +1354,7 @@ def _assumption_checklist(bm_drift: str, beta_score: float) -> List[Tuple[str, b
 
 
 def _vector_failure_flags(metrics: Dict[str, Any], cov: Dict[str, Any], bm_drift: str, beta_score: float) -> List[str]:
-    flags = []
+    flags: List[str] = []
     a365 = safe_float(metrics.get("a365"))
     a30 = safe_float(metrics.get("a30"))
     te = safe_float(metrics.get("te"))
@@ -1335,7 +1410,8 @@ def _vector_referee_verdict_block(
         if hist_sel is not None and not hist_sel.empty:
             exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
             if exp_series is not None:
-                avg_exp = float(pd.to_numeric(exp_series, errors="coerce").dropna().mean()) if len(exp_series.dropna()) else 1.0
+                exp_num = pd.to_numeric(exp_series, errors="coerce").dropna()
+                avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
                 avg_exp = max(0.10, min(1.0, avg_exp))
                 if math.isfinite(cap_alpha):
                     exp_adj_alpha = cap_alpha / avg_exp
@@ -1417,6 +1493,267 @@ def safe_panel(title: str, fn):
 
 
 # ============================================================
+# VECTOR GOVERNANCE LAYER (your 5 items)
+# ============================================================
+# 5️⃣ Wave Purpose Statements (edit anytime; safe + non-math)
+WAVE_PURPOSE: Dict[str, str] = {
+    # Put your top “hero” waves here first; anything missing falls back safely.
+    "S&P 500 Wave": "Core U.S. large-cap baseline wave designed for broad market participation with governance-native benchmarking.",
+    "US Growth Wave": "Growth-tilted U.S. equity wave designed to capture upside leadership while measuring discipline versus a custom growth benchmark.",
+    "Small Cap Growth Wave": "Small-cap growth wave designed to target higher upside with tighter risk controls and transparent benchmark-relative attribution.",
+    "Small to Mid Cap Growth Wave": "SMID growth wave designed to balance upside capture and drawdown control, with benchmark fidelity checks.",
+    "AI & Automation Wave": "Innovation wave designed to capture AI/automation leadership while using governance to prevent benchmark illusion.",
+    "Quantum Computing Wave": "Frontier innovation wave designed for asymmetric upside; governance emphasizes benchmark fit + risk regime clarity.",
+    "Future Power & Energy Wave": "Energy-transition wave designed to capture multi-year structural themes while controlling drawdowns and tracking error.",
+    "Clean Transit-Infrastructure Wave": "Infrastructure/transition wave designed for durable exposure with risk-aware regime behavior and benchmark verification.",
+    "Crypto Income Wave": "Crypto yield/income wave designed to maximize risk-adjusted income signals with explicit regime-aware transparency.",
+    "SmartSafe Money Market Wave": "Capital-preservation wave designed for stability and liquidity; used as a governance anchor during risk-off regimes.",
+}
+
+def wave_purpose_statement(wave_name: str) -> str:
+    if not ENABLE_WAVE_PURPOSE_STATEMENTS:
+        return ""
+    if not wave_name or wave_name == "(none)":
+        return ""
+    return WAVE_PURPOSE.get(wave_name, "Purpose statement not set yet for this Wave. Add it to WAVE_PURPOSE in app.py.")
+
+
+# 4️⃣ Gating Warnings (read-only; non-blocking)
+def build_gating_warnings(
+    cov: Dict[str, Any],
+    bm_drift: str,
+    beta_score: float,
+    beta_n: int,
+    selected_wave: str,
+) -> Dict[str, List[str]]:
+    warns: List[str] = []
+    crits: List[str] = []
+
+    rows = int(cov.get("rows") or 0)
+    age = safe_float(cov.get("age_days"))
+    cov_score = safe_float(cov.get("completeness_score"))
+    miss_pct = safe_float(cov.get("missing_pct"))
+    bs = safe_float(beta_score)
+
+    if selected_wave == "(none)" or not selected_wave:
+        crits.append("No wave selected — governance cannot evaluate.")
+        return {"warn": warns, "crit": crits}
+
+    if str(bm_drift).lower().strip() != "stable":
+        crits.append("Benchmark drift detected — freeze benchmark mix for demo/governance comparisons.")
+
+    if math.isfinite(cov_score) and cov_score < 75:
+        crits.append(f"Coverage score is low ({fmt_num(cov_score,1)}) — analytics reliability is compromised.")
+    elif math.isfinite(cov_score) and cov_score < 85:
+        warns.append(f"Coverage score < 85 ({fmt_num(cov_score,1)}) — treat risk/alpha outputs with caution.")
+
+    if math.isfinite(age) and age >= 7:
+        crits.append(f"Data is stale ({fmt_int(age)} days old) — refresh pipeline before relying on results.")
+    elif math.isfinite(age) and age >= 5:
+        warns.append(f"Data is getting stale ({fmt_int(age)} days old) — freshness check recommended.")
+
+    if rows < 60:
+        crits.append("History window is too short (<60 points) — stability of risk metrics is weak.")
+    elif rows < 90:
+        warns.append("Limited history (<90 points) — risk metrics may be noisy.")
+
+    if math.isfinite(miss_pct) and miss_pct >= 0.08:
+        crits.append(f"Missing business days is high ({fmt_num(miss_pct*100,1)}%) — verify data integrity.")
+    elif math.isfinite(miss_pct) and miss_pct >= 0.05:
+        warns.append(f"Missing business days ≥5% ({fmt_num(miss_pct*100,1)}%) — verify history continuity.")
+
+    if math.isfinite(bs) and bs < 65:
+        crits.append(f"Very low beta reliability ({fmt_num(bs,1)}/100) — benchmark may not explain systematic exposure.")
+    elif math.isfinite(bs) and bs < 75:
+        warns.append(f"Beta reliability <75 ({fmt_num(bs,1)}/100) — benchmark fit likely weak (expected or needs review).")
+
+    if beta_n < 30:
+        warns.append("Insufficient sample for beta reliability (<30 points).")
+
+    return {"warn": warns, "crit": crits}
+
+
+# 1️⃣ Vector Status Bar (always visible under title)
+def render_vector_status_bar(
+    conf_level: str,
+    bm_drift: str,
+    beta_grade: str,
+    beta_score: float,
+    rr_score: float,
+    sel_score: Dict[str, Any],
+    metrics: Dict[str, Any],
+):
+    if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_VECTOR_STATUS_BAR):
+        return
+
+    pills = [
+        f"Vector Status: {conf_level}",
+        f"BM: {bm_drift.upper()}",
+        f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)})",
+        f"Risk Reaction: {fmt_num(rr_score,1)}/100",
+        f"30D α {fmt_pct(metrics.get('a30'))} · 60D α {fmt_pct(metrics.get('a60'))}",
+    ]
+    if ENABLE_SCORECARD:
+        pills.insert(1, f"Analytics: {sel_score.get('Grade','N/A')} ({fmt_num(sel_score.get('AnalyticsScore'),1)})")
+
+    st.markdown('<div class="vector-status">', unsafe_allow_html=True)
+    st.markdown('<div class="title">Vector™ Status Bar</div>', unsafe_allow_html=True)
+    st.markdown('<div class="row">', unsafe_allow_html=True)
+    for p in pills:
+        st.markdown(f'<span class="vector-pill">{p}</span>', unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
+
+# 2️⃣ Final Verdict Box (compact IC-grade decision box)
+def build_final_verdict(
+    selected_wave: str,
+    mode: str,
+    metrics: Dict[str, Any],
+    cov: Dict[str, Any],
+    bm_drift: str,
+    beta_score: float,
+    rr_score: float,
+) -> Dict[str, Any]:
+    """
+    Deterministic verdict:
+      - Green/Amber/Red based on gating + confidence heuristics
+      - Includes classification + primary source (from Referee logic)
+    """
+    cap_alpha = safe_float(metrics.get("a365"))
+    if not math.isfinite(cap_alpha):
+        cap_alpha = safe_float(metrics.get("a60"))
+    if not math.isfinite(cap_alpha):
+        cap_alpha = safe_float(metrics.get("a30"))
+
+    # exposure-adjusted alpha (best-effort)
+    exp_adj_alpha = cap_alpha
+    try:
+        exp = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index)) if 'hist_sel' in globals() else None
+        if exp is not None:
+            exp_num = pd.to_numeric(exp, errors="coerce").dropna()
+            avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+            avg_exp = max(0.10, min(1.0, avg_exp))
+            if math.isfinite(cap_alpha):
+                exp_adj_alpha = cap_alpha / avg_exp
+    except Exception:
+        pass
+
+    classification = _alpha_classification(cap_alpha, beta_score, bm_drift, rr_score)
+    primary = _primary_alpha_source(mode, cap_alpha, exp_adj_alpha, beta_score)
+
+    # verdict color logic (non-blocking)
+    cov_score = safe_float(cov.get("completeness_score"))
+    age = safe_float(cov.get("age_days"))
+    rows = int(cov.get("rows") or 0)
+    bs = safe_float(beta_score)
+    drift = (str(bm_drift).lower().strip() != "stable")
+
+    red_triggers = 0
+    amber_triggers = 0
+
+    if drift:
+        red_triggers += 1
+    if math.isfinite(cov_score) and cov_score < 75:
+        red_triggers += 1
+    if math.isfinite(age) and age >= 7:
+        red_triggers += 1
+    if rows < 60:
+        red_triggers += 1
+    if math.isfinite(bs) and bs < 65:
+        red_triggers += 1
+
+    if math.isfinite(cov_score) and 75 <= cov_score < 85:
+        amber_triggers += 1
+    if math.isfinite(age) and 5 <= age < 7:
+        amber_triggers += 1
+    if 60 <= rows < 90:
+        amber_triggers += 1
+    if math.isfinite(bs) and 65 <= bs < 75:
+        amber_triggers += 1
+
+    if red_triggers >= 2:
+        verdict = "RED — Not governance-ready"
+        action = "Freeze benchmark + fix data integrity; do not present as final results."
+    elif red_triggers == 1 or amber_triggers >= 2:
+        verdict = "AMBER — Demo with caveats"
+        action = "Proceed, but disclose warnings; use Referee + Truth Layer to explain."
+    else:
+        verdict = "GREEN — Governance-ready"
+        action = "Proceed; use comparator + snapshot for positioning."
+
+    return {
+        "verdict": verdict,
+        "classification": classification,
+        "primary_source": primary,
+        "cap_alpha": cap_alpha,
+        "exp_adj_alpha": exp_adj_alpha,
+        "action": action,
+    }
+
+
+def render_final_verdict_box(v: Dict[str, Any], bm_id: str, beta_grade: str, beta_score: float, conf_level: str):
+    if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX):
+        return
+    st.markdown("#### Final Verdict (Vector™)")
+    st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3, gap="medium")
+    with c1:
+        tile("Verdict", str(v.get("verdict", "—")), f"Confidence: {conf_level} · BM: {bm_id}")
+    with c2:
+        tile("Alpha Classification", str(v.get("classification", "—")), f"Cap α: {fmt_pct(v.get('cap_alpha'))} · ExpAdj α: {fmt_pct(v.get('exp_adj_alpha'))}")
+    with c3:
+        tile("Benchmark Fit", f"{beta_grade}", f"BetaRel {fmt_num(beta_score,1)}/100")
+    st.markdown("**Primary Source:** " + str(v.get("primary_source", "—")))
+    st.markdown("**Recommended Action:** " + str(v.get("action", "—")))
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# 3️⃣ Assumptions Panel (clean UI wrapper around checklist)
+def render_assumptions_panel(bm_drift: str, beta_score: float):
+    if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_ASSUMPTIONS_PANEL):
+        return
+    with st.expander("Assumptions Panel (Vector™) — tested every refresh", expanded=False):
+        st.caption("Deterministic governance checks. These are *not* opinions; they’re rule-based assumptions validation.")
+        checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
+        for label, passes, note in checks:
+            st.write(f"{'✅' if passes else '❌'} **{label}** — {note}")
+        render_definitions(["Assumptions Tested"], title="Definitions (Assumptions)")
+
+
+# 4️⃣ Gating Warnings (render)
+def render_gating_warnings(g: Dict[str, List[str]]):
+    if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_GATING_WARNINGS):
+        return
+    crits = g.get("crit", [])
+    warns = g.get("warn", [])
+
+    if not crits and not warns:
+        return
+
+    if crits:
+        st.markdown('<div class="vector-crit">', unsafe_allow_html=True)
+        st.markdown("**Gating Warnings — Critical (Vector™):**")
+        for w in crits[:6]:
+            st.write("• " + w)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if warns:
+        st.markdown('<div class="vector-warn">', unsafe_allow_html=True)
+        st.markdown("**Gating Warnings — Caution (Vector™):**")
+        for w in warns[:6]:
+            st.write("• " + w)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("What are gating warnings?"):
+        st.write(
+            "These warnings are governance checks. They do not block the app. "
+            "They tell you whether the analytics are demo-ready, and what needs to be stabilized "
+            "(benchmark drift, stale data, missing days, short history, benchmark fit)."
+        )
+        render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
+
+
+# ============================================================
 # Sidebar controls
 # ============================================================
 all_waves = get_all_waves_safe()
@@ -1460,6 +1797,10 @@ beta_val, beta_r2, beta_n = beta_and_r2(
 beta_score = beta_reliability_score(beta_val, beta_r2, beta_n, beta_target)
 beta_grade = beta_band(beta_score)
 
+# Vector governance computations (non-blocking)
+gating = build_gating_warnings(cov, bm_drift, beta_score, beta_n, selected_wave) if VECTOR_GOVERNANCE_ENABLED else {"warn": [], "crit": []}
+final_verdict = build_final_verdict(selected_wave, mode, metrics, cov, bm_drift, beta_score, rr_score) if VECTOR_GOVERNANCE_ENABLED else {}
+
 
 # ============================================================
 # BIG HEADER
@@ -1470,9 +1811,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# 1️⃣ Vector Status Bar (new)
+render_vector_status_bar(
+    conf_level=conf_level,
+    bm_drift=bm_drift,
+    beta_grade=beta_grade,
+    beta_score=beta_score,
+    rr_score=rr_score,
+    sel_score=sel_score,
+    metrics=metrics,
+)
+
+# 4️⃣ Gating Warnings (new)
+render_gating_warnings(gating)
 
 # ============================================================
-# Sticky chip bar
+# Sticky chip bar (existing)
 # ============================================================
 st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
 chip(f"Confidence: {conf_level}")
@@ -1508,11 +1862,27 @@ tabs = st.tabs(tab_names)
 with tabs[0]:
     st.markdown("### Executive IC One-Pager")
 
+    # 2️⃣ Final Verdict Box (new; placed FIRST in IC)
+    if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
+        render_final_verdict_box(final_verdict, bm_id=bm_id, beta_grade=beta_grade, beta_score=beta_score, conf_level=conf_level)
+        # 3️⃣ Assumptions Panel (new; right under verdict)
+        render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
+
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
     with colA:
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### What is this wave?")
+
+        # 5️⃣ Wave Purpose Statement (new; IC-first)
+        purpose = wave_purpose_statement(selected_wave)
+        if purpose:
+            st.markdown("**Wave Purpose Statement (Vector™):**")
+            st.write(purpose)
+            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
+        else:
+            st.caption("Purpose statement disabled or not set.")
+
         st.write(
             "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
             "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
@@ -1641,6 +2011,8 @@ with tabs[0]:
         render_definitions(
             [
                 "Canonical (Source of Truth)",
+                "Wave Purpose Statement",
+                "Gating Warnings",
                 "Return",
                 "Alpha",
                 "Alpha Capture",
@@ -1930,20 +2302,23 @@ with tabs[5]:
             st.info("No waves available to snapshot.")
         else:
             waves_to_run = all_waves[: int(limit_n)]
-            rows: List[Dict[str, Any]] = []
+            rows_out: List[Dict[str, Any]] = []
             prog = st.progress(0)
 
             for i, w in enumerate(waves_to_run):
                 try:
-                    rows.append(_compute_snapshot_row(w, mode, snap_days))
+                    rows_out.append(_compute_snapshot_row(w, mode, snap_days))
                 except Exception:
-                    rows.append({"Wave": w})
+                    rows_out.append({"Wave": w})
                 prog.progress(int((i + 1) / max(1, len(waves_to_run)) * 100))
 
-            df = pd.DataFrame(rows)
+            df = pd.DataFrame(rows_out)
             display = df.copy()
 
-            pct_cols = [c for c in display.columns if ("Ret" in c or "Alpha" in c or "AlphaCapture" in c or "CapAlpha" in c or "ExpAdjAlpha" in c or "RiskOnAlpha" in c or "RiskOffAlpha" in c)]
+            pct_cols = [
+                c for c in display.columns
+                if ("Ret" in c or "Alpha" in c or "AlphaCapture" in c or "CapAlpha" in c or "ExpAdjAlpha" in c or "RiskOnAlpha" in c or "RiskOffAlpha" in c)
+            ]
             for c in pct_cols:
                 if c in display.columns:
                     display[c] = display[c].apply(fmt_pct)
@@ -2001,6 +2376,13 @@ with tabs[6]:
         st.info("Vector Referee disabled.")
 
     st.markdown("---")
+    st.markdown("#### Vector Governance Layer status")
+    if VECTOR_GOVERNANCE_ENABLED:
+        st.success("Vector Governance Layer is active (Status Bar + Verdict + Assumptions + Gating + Purpose).")
+    else:
+        st.info("Vector Governance Layer disabled.")
+
+    st.markdown("---")
     st.markdown("#### Canonical history checks")
     st.write(f"Rows: {int(cov.get('rows') or 0)}")
     st.write(f"FirstDate: {cov.get('first_date')}")
@@ -2025,3 +2407,65 @@ with tabs[6]:
     st.markdown("#### Optional libs")
     st.write(f"yfinance: {'OK' if yf is not None else 'missing'}")
     st.write(f"plotly: {'OK' if go is not None else 'missing'}")
+
+    st.markdown("---")
+    st.markdown("#### Notes")
+    st.caption(
+        "If you see benchmark drift or low coverage warnings, stabilize the benchmark mix and refresh the history pipeline. "
+        "This console is designed to never crash from missing optional modules."
+    )
+# ============================================================
+# OPTIONAL: MARKET INTEL FOOTER (boot-safe)
+# ============================================================
+try:
+    st.markdown("---")
+    st.markdown("### Market Intel (Optional)")
+
+    if not ENABLE_YFINANCE_CHIPS or yf is None:
+        st.caption("Market Intel disabled (yfinance missing or flag off).")
+    else:
+        tickers = ["SPY", "QQQ", "IWM", "TLT", "GLD", "BTC-USD", "^VIX", "^TNX"]
+        px = fetch_prices_daily(tickers, days=220)
+
+        if px is None or px.empty:
+            st.caption("No Market Intel data returned.")
+        else:
+            # Normalize to 100 for quick compare
+            norm = px / px.iloc[0] * 100.0
+            if not scan_mode:
+                st.line_chart(norm, height=240, use_container_width=True)
+            else:
+                # scan-mode: compact 30D + 5D moves
+                rets = {}
+                for t in norm.columns:
+                    s = norm[t].dropna()
+                    if len(s) < 6:
+                        continue
+                    r5 = (s.iloc[-1] / s.iloc[-6] - 1.0)
+                    r30 = (s.iloc[-1] / s.iloc[max(0, len(s) - 31)] - 1.0) if len(s) >= 31 else np.nan
+                    rets[t] = {"5D": r5, "30D": r30}
+
+                if rets:
+                    mini = pd.DataFrame(rets).T.reset_index().rename(columns={"index": "Ticker"})
+                    mini["5D"] = mini["5D"].apply(fmt_pct)
+                    mini["30D"] = mini["30D"].apply(fmt_pct)
+                    st.dataframe(mini, use_container_width=True, hide_index=True)
+except Exception as _e:
+    st.error(f"Market Intel footer failed (non-fatal): {_e}")
+
+
+# ============================================================
+# FINAL FOOTER
+# ============================================================
+try:
+    st.markdown("---")
+    st.caption(
+        f"WAVES Intelligence™ Institutional Console · Vector OS Edition · "
+        f"Canonical Cohesion Lock ACTIVE · Build: vNEXT · Render: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+    )
+except Exception:
+    pass
+
+# =========================
+# END OF FILE
+# =========================
