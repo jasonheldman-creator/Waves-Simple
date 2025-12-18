@@ -1857,171 +1857,180 @@ tabs = st.tabs(tab_names)
 
 
 # ============================================================
-# IC SUMMARY — EXECUTIVE ONE-PAGER (BOOT-SAFE)
+# IC SUMMARY
 # ============================================================
 with tabs[0]:
     st.markdown("### Executive IC One-Pager")
 
-    # --------------------------------------------------------
-    # Load executive packet (single source of truth)
-    # --------------------------------------------------------
-    exec_pack = _ss_get("exec_pack", {}) or {}
+    # 2️⃣ Final Verdict Box (new; placed FIRST in IC)
+    if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
+        render_final_verdict_box(final_verdict, bm_id=bm_id, beta_grade=beta_grade, beta_score=beta_score, conf_level=conf_level)
+        # 3️⃣ Assumptions Panel (new; right under verdict)
+        render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
 
-    # Safe pulls
-    alpha_30d   = safe_float(exec_pack.get("alpha_30d"))
-    alpha_60d   = safe_float(exec_pack.get("alpha_60d"))
-    alpha_365d  = safe_float(exec_pack.get("alpha_365d"))
-
-    avg_exposure = safe_float(exec_pack.get("avg_exposure"))
-    beta_score   = safe_float(exec_pack.get("beta_score"))
-    beta_rel     = exec_pack.get("beta_rel", "N/A")
-    bm_drift     = exec_pack.get("bm_drift", "unknown")
-    rr_score     = safe_float(exec_pack.get("risk_reaction"))
-    cov          = exec_pack.get("cov")  # may be None
-
-    # --------------------------------------------------------
-    # Sticky Executive Status Bar
-    # --------------------------------------------------------
-    with st.container():
-        st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
-
-        chips = []
-
-        # Confidence from coverage + drift
-        if isinstance(cov, dict):
-            conf_level, conf_msg = confidence_from_integrity(cov, bm_drift)
-        else:
-            conf_level, conf_msg = ("Medium", "Coverage diagnostics unavailable.")
-
-        chips.append(f"Confidence: {conf_level}")
-        chips.append(f"Benchmark: {str(bm_drift).capitalize()}")
-
-        if math.isfinite(beta_score):
-            chips.append(f"BetaRel: {beta_rel} ({beta_score:.1f})")
-
-        if math.isfinite(rr_score):
-            chips.append(f"Risk Reaction: {rr_score:.0f}/100")
-
-        for c in chips:
-            st.markdown(f'<span class="waves-chip">{c}</span>', unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # --------------------------------------------------------
-    # Vector Confidence Index™ (VCI)
-    # --------------------------------------------------------
-    st.markdown("#### Vector Confidence Index™")
-
-    vci_ready = (
-        ENABLE_VCI
-        and isinstance(cov, dict)
-        and math.isfinite(beta_score)
-        and math.isfinite(rr_score)
-        and bm_drift in ("stable", "drift")
-    )
-
-    if not vci_ready:
-        st.info("VCI unavailable — awaiting full governance signals (coverage, beta reliability, risk reaction).")
-    else:
-        vci = compute_vector_confidence(
-            cov=cov,
-            bm_drift=bm_drift,
-            beta_score=beta_score,
-            rr_score=rr_score,
-        )
-
-        band = "High Trust" if vci >= 85 else "Moderate Trust" if vci >= 70 else "Low Trust"
-
-        c1, c2 = st.columns([1.0, 1.4])
-        with c1:
-            st.markdown(
-                f"""
-                <div class="waves-tile">
-                  <div class="waves-tile-label">VCI Score</div>
-                  <div class="waves-tile-value">{vci:.0f}/100</div>
-                  <div class="waves-tile-sub">{band}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with c2:
-            st.caption(
-                "VCI measures confidence in data integrity, benchmark stability, "
-                "and attribution reliability — **not performance**."
-            )
-
-    st.markdown("---")
-
-    # --------------------------------------------------------
-    # Alpha Clarity Layer (Enhancement #3)
-    # --------------------------------------------------------
-    st.markdown("#### Alpha Clarity Layer")
-
-    # Capital-weighted alpha = reported alpha
-    if math.isfinite(alpha_60d):
-        st.markdown(f"**Capital-Weighted Alpha (60D):** {fmt_pct(alpha_60d)}")
-    else:
-        st.caption("Capital-Weighted Alpha unavailable.")
-
-    # Exposure-adjusted alpha
-    if math.isfinite(alpha_60d) and math.isfinite(avg_exposure) and avg_exposure > 0:
-        ea = alpha_60d / avg_exposure
-        st.markdown(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(ea)}")
-    else:
-        st.caption("Exposure-Adjusted Alpha unavailable (needs average exposure).")
-
-    # --------------------------------------------------------
-    # Executive Wins / Risks / Actions
-    # --------------------------------------------------------
-    st.markdown("---")
-    st.markdown("#### Key Wins / Risks / Actions")
-
-    wins = []
-    risks = []
-    actions = []
-
-    if math.isfinite(alpha_60d) and alpha_60d > 0:
-        wins.append("Positive alpha over the last 60 days.")
-    if conf_level == "High":
-        wins.append("High governance confidence (fresh data, stable benchmark).")
-
-    if beta_rel == "F":
-        risks.append("Beta reliability below target — exposure mismatch vs benchmark.")
-    if bm_drift == "drift":
-        risks.append("Benchmark composition recently changed.")
-
-    if risks:
-        actions.append("Review benchmark construction and beta targets.")
-    if conf_level != "High":
-        actions.append("Improve data coverage freshness before external demos.")
-
-    colW, colR, colA = st.columns(3)
-
-    with colW:
-        st.markdown("**Wins**")
-        if wins:
-            for w in wins:
-                st.write("•", w)
-        else:
-            st.write("—")
-
-    with colR:
-        st.markdown("**Risks**")
-        if risks:
-            for r in risks:
-                st.write("•", r)
-        else:
-            st.write("—")
+    colA, colB = st.columns([1.2, 1.0], gap="large")
 
     with colA:
-        st.markdown("**Actions**")
-        if actions:
-            for a in actions:
-                st.write("•", a)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### What is this wave?")
+
+        # 5️⃣ Wave Purpose Statement (new; IC-first)
+        purpose = wave_purpose_statement(selected_wave)
+        if purpose:
+            st.markdown("**Wave Purpose Statement (Vector™):**")
+            st.write(purpose)
+            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
         else:
-            st.write("—")
+            st.caption("Purpose statement disabled or not set.")
+
+        st.write(
+            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
+            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
+        )
+        st.markdown("**Trust + Governance**")
+        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
+        st.markdown("**Performance vs Benchmark**")
+        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
+        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
+        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Vector Referee (IC first)
+        if ENABLE_VECTOR_REFEREE:
+            st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+            safe_panel(
+                "Vector Referee",
+                lambda: _vector_referee_verdict_block(
+                    selected_wave=selected_wave,
+                    mode=mode,
+                    hist_sel=hist_sel,
+                    metrics=metrics,
+                    cov=cov,
+                    bm_drift=bm_drift,
+                    beta_val=beta_val,
+                    beta_r2=beta_r2,
+                    beta_n=beta_n,
+                    beta_score=beta_score,
+                    beta_grade=beta_grade,
+                    rr_score=rr_score,
+                ),
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Vector Truth (existing)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Vector™ Truth Layer (Read-Only)")
+        safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Alpha enhancements summary (selected wave)
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Alpha Enhancements (Selected Wave)")
+        attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
+        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
+        ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+        st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
+        st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
+        st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
+        st.write(
+            f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_on_share'),2)} share)"
+        )
+        st.write(
+            f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_off_share'),2)} share)"
+        )
+        render_definitions(
+            ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
+            title="Definitions (Alpha Enhancements)",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Key Wins / Key Risks / Next Actions")
+        wins, risks, actions = [], [], []
+
+        if conf_level == "High":
+            wins.append("Fresh + complete coverage supports institutional trust.")
+        if bm_drift == "stable":
+            wins.append("Benchmark snapshot is stable (governance green).")
+        if math.isfinite(beta_score) and beta_score >= 80:
+            wins.append("Benchmark systematic exposure match (beta reliability is strong).")
+        if math.isfinite(metrics["a30"]) and metrics["a30"] > 0:
+            wins.append("Positive 30D alpha versus benchmark mix.")
+
+        if conf_level != "High":
+            risks.append("Data trust flags present (coverage/age/rows).")
+        if bm_drift != "stable":
+            risks.append("Benchmark drift detected (composition changed in-session).")
+        if math.isfinite(beta_score) and beta_score < 75:
+            risks.append("Beta reliability low (benchmark may not match systematic exposure).")
+        if math.isfinite(metrics["mdd"]) and metrics["mdd"] <= -0.25:
+            risks.append("Deep drawdown regime risk is elevated.")
+
+        if bm_drift != "stable":
+            actions.append("Freeze benchmark mix for demos/governance, then re-run.")
+        if math.isfinite(beta_score) and beta_score < 75:
+            actions.append("Review benchmark mix: adjust exposures to match wave beta target (or justify intentional mismatch).")
+        if math.isfinite(metrics["te"]) and metrics["te"] >= 0.20:
+            actions.append("Confirm exposure caps / SmartSafe posture for high active risk.")
+        if conf_level != "High":
+            actions.append("Inspect history pipeline for missing days or stale writes.")
+        if not actions:
+            actions.append("Proceed: governance is stable; use comparator and alpha snapshot for positioning.")
+
+        st.markdown("**Key Wins**")
+        for w in (wins[:4] if wins else ["(none)"]):
+            st.write("• " + w)
+
+        st.markdown("**Key Risks**")
+        for r in (risks[:4] if risks else ["(none)"]):
+            st.write("• " + r)
+
+        st.markdown("**Next Actions**")
+        for a in (actions[:4] if actions else ["(none)"]):
+            st.write("• " + a)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with colB:
+        st.markdown("#### IC Tiles")
+        c1, c2 = st.columns(2, gap="medium")
+        with c1:
+            tile("Confidence", conf_level, conf_reason)
+            tile("Benchmark", "Stable" if bm_drift == "stable" else "Drift", bm_id)
+            tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
+        with c2:
+            tile("Analytics Grade", sel_score.get("Grade", "N/A"), f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}")
+            tile("Beta Reliability", beta_grade, f"{fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+            tile("Active Risk (TE)", fmt_pct(metrics["te"]), f"Band: {te_band}")
+
+        st.markdown("---")
+        render_definitions(
+            [
+                "Canonical (Source of Truth)",
+                "Wave Purpose Statement",
+                "Gating Warnings",
+                "Return",
+                "Alpha",
+                "Alpha Capture",
+                "Tracking Error (TE)",
+                "Max Drawdown (MaxDD)",
+                "CVaR 95% (daily)",
+                "Analytics Scorecard",
+                "Benchmark Snapshot / Drift",
+                "Beta (vs Benchmark)",
+                "Beta Reliability Score",
+                "Vector™ — Truth Referee",
+                "Alpha Classification",
+                "Assumptions Tested",
+            ],
+            title="Definitions (IC)",
+        )
+
+
 # ============================================================
 # OVERVIEW
 # ============================================================
