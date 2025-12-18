@@ -1891,7 +1891,7 @@ else:
         )
         st.caption(
         "VCI activates once governance, beta reliability, and attribution checks complete."
-    )
+        )
 
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
