@@ -363,7 +363,7 @@ def max_drawdown(nav: pd.Series) -> float:
     running_max = nav.cummax()
     dd = (nav / running_max) - 1.0
     return float(dd.min())
-    def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
+def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
     w = safe_series(daily_wave).astype(float)
     b = safe_series(daily_bm).astype(float)
     df = pd.concat([w.rename("w"), b.rename("b")], axis=1).dropna()
