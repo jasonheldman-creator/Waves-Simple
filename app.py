@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from typing import Dict, Optional
+import hashlib
 
 # Import the waves engine
 import waves_engine as we
@@ -13,6 +14,8 @@ import waves_engine as we
 # ============================================================
 # Configuration
 # ============================================================
+
+VERSION = "v17.1"
 
 st.set_page_config(
     page_title="WAVES Intelligence™",
@@ -49,11 +52,26 @@ def benchmark_snapshot_id(wave_name: str, benchmark_mix: Dict[str, float]) -> st
     # Use hash for long IDs to prevent length issues
     full_id = f"{wave_name}_{ticker_str}"
     if len(full_id) > 100:
-        import hashlib
         ticker_hash = hashlib.md5(ticker_str.encode()).hexdigest()[:8]
         return f"{wave_name}_{ticker_hash}"
     
     return full_id
+
+
+def calculate_return(final_value: float, initial_value: float) -> Optional[float]:
+    """
+    Calculate percentage return, handling division by zero.
+    
+    Args:
+        final_value: Final value
+        initial_value: Initial value
+        
+    Returns:
+        Percentage return or None if calculation not possible
+    """
+    if initial_value != 0:
+        return (final_value / initial_value - 1) * 100
+    return None
 
 
 def format_percentage(value: float, decimals: int = 2) -> str:
@@ -235,18 +253,20 @@ def main():
                     with col2:
                         if len(nav_df) > 1:
                             initial_nav = nav_df['nav'].iloc[0]
-                            if initial_nav != 0:
-                                total_return = (latest_nav / initial_nav - 1) * 100
+                            total_return = calculate_return(latest_nav, initial_nav)
+                            if total_return is not None:
                                 st.metric("Total Return", f"{total_return:.2f}%")
                             else:
                                 st.metric("Total Return", "N/A")
                     
                     with col3:
                         if 'benchmark_nav' in nav_df.columns and len(nav_df) > 1:
+                            initial_nav = nav_df['nav'].iloc[0]
                             initial_bm = nav_df['benchmark_nav'].iloc[0]
-                            if initial_bm != 0 and initial_nav != 0:
-                                total_return = (latest_nav / initial_nav - 1) * 100
-                                bm_return = (nav_df['benchmark_nav'].iloc[-1] / initial_bm - 1) * 100
+                            total_return = calculate_return(latest_nav, initial_nav)
+                            bm_return = calculate_return(nav_df['benchmark_nav'].iloc[-1], initial_bm)
+                            
+                            if total_return is not None and bm_return is not None:
                                 alpha = total_return - bm_return
                                 st.metric("Alpha vs Benchmark", f"{alpha:.2f}%")
                             else:
@@ -372,7 +392,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.caption(f"WAVES Intelligence™ v17.1 | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption(f"WAVES Intelligence™ {VERSION} | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 # ============================================================
