@@ -1863,49 +1863,67 @@ with tabs[0]:
     st.markdown("### Executive IC One-Pager")
 
     # --------------------------------------------------------
-    # (1) Final Verdict + Assumptions (existing features)
+    # Helpers (safe getters)
     # --------------------------------------------------------
-    # Keep your existing gating flags + calls (safe if undefined)
+    def _ss_get(key, default=None):
+        try:
+            return st.session_state.get(key, default)
+        except Exception:
+            return default
+
+    def _pick(*vals):
+        for v in vals:
+            if v is not None:
+                return v
+        return None
+
+    def _fmt_pct(x):
+        if x is None:
+            return "—"
+        try:
+            # prefer existing formatter if present
+            if "fmt_pct" in locals():
+                return fmt_pct(x)
+            return f"{float(x)*100:.2f}%"
+        except Exception:
+            return "—"
+
+    # --------------------------------------------------------
+    # (1) Final Verdict + Assumptions (keep existing calls)
+    # --------------------------------------------------------
     try:
-        if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT:
-            render_final_verdict_box(final_verdict)
+        if ("VECTOR_GOVERNANCE_ENABLED" in globals() and VECTOR_GOVERNANCE_ENABLED) and \
+           ("ENABLE_FINAL_VERDICT" in globals() and ENABLE_FINAL_VERDICT) and \
+           ("render_final_verdict_box" in globals()) and \
+           ("final_verdict" in locals() or "final_verdict" in globals()):
+            render_final_verdict_box(_pick(locals().get("final_verdict"), globals().get("final_verdict")))
     except Exception:
         pass
 
     try:
-        render_assumptions_panel(bm_drift=bm_drift)
+        if "render_assumptions_panel" in globals():
+            render_assumptions_panel(bm_drift=_pick(_ss_get("bm_drift"), locals().get("bm_drift")))
     except Exception:
         pass
 
     st.divider()
 
     # --------------------------------------------------------
-    # (2) Vector Confidence Index™ (VCI) — Tightened Activation
+    # (2) VCI — reads from session_state exec_pack FIRST
     # --------------------------------------------------------
     st.markdown("#### Vector Confidence Index™")
 
-    def _present(name: str) -> bool:
-        return (name in locals()) and (locals().get(name) is not None)
+    exec_pack = _ss_get("exec_pack", {}) or {}
 
-    # Governance-signal readiness:
-    # - Must exist
-    # - Must be non-None
-    # - Must be the correct structural type where relevant
-    vci_ready = (
-        _present("cov")
-        and _present("bm_drift")
-        and _present("beta_score")
-        and _present("rr_score")
-    )
+    # Pull from exec_pack > session_state direct > locals
+    cov = _pick(exec_pack.get("cov"), _ss_get("cov"), locals().get("cov"))
+    bm_drift = _pick(exec_pack.get("bm_drift"), _ss_get("bm_drift"), locals().get("bm_drift"))
+    beta_score = _pick(exec_pack.get("beta_score"), _ss_get("beta_score"), locals().get("beta_score"))
+    rr_score = _pick(exec_pack.get("risk_reaction"), exec_pack.get("rr_score"), _ss_get("rr_score"), locals().get("rr_score"))
 
-    # Optional: sanity checks (won’t break if types differ)
-    try:
-        # cov often matrix-like; accept list/tuple/np/pd
-        _ = cov  # referenced only to confirm no NameError
-    except Exception:
-        vci_ready = False
+    vci_ready = (cov is not None) and (bm_drift is not None) and (beta_score is not None) and (rr_score is not None)
 
-    if not vci_ready:
+    if not vci_ready or ("compute_vector_confidence" not in globals()):
         st.info("VCI unavailable (governance signals not built yet).")
     else:
         try:
@@ -1915,11 +1933,9 @@ with tabs[0]:
                 "Moderate Trust" if vci >= 70 else
                 "Low Trust"
             )
-
             c1, c2 = st.columns([1.0, 1.4], gap="medium")
             with c1:
-                # Prefer your tile() styling if present
-                if "tile" in locals():
+                if "tile" in globals():
                     tile("VCI Score", f"{vci:.0f}/100", vci_band)
                 else:
                     st.metric("VCI Score", f"{vci:.0f}/100", vci_band)
@@ -1934,66 +1950,55 @@ with tabs[0]:
     st.divider()
 
     # --------------------------------------------------------
-    # (3) Alpha Clarity Layer (Executive, lightweight)
-    #     • Capital-Weighted Alpha
-    #     • Regime Attribution (Risk-On vs Risk-Off)
+    # (3) Alpha Clarity Layer — Capital-Weighted + Regime Attribution
     # --------------------------------------------------------
     st.markdown("#### Alpha Clarity Layer")
 
-    # Choose the best available attribution window for executive framing:
-    # Prefer attrib12m if present; else attrib60 if present.
-    attrib_exec = None
-    if "attrib12m" in locals() and locals().get("attrib12m") is not None:
-        attrib_exec = locals().get("attrib12m")
-        attrib_label = "LAST 12M"
-    elif "attrib365" in locals() and locals().get("attrib365") is not None:
-        attrib_exec = locals().get("attrib365")
-        attrib_label = "LAST 12M"
-    elif "attrib60" in locals() and locals().get("attrib60") is not None:
-        attrib_exec = locals().get("attrib60")
-        attrib_label = "LAST 60D"
-    else:
-        attrib_label = "LAST 12M"
+    # Pull alpha / exposure from exec_pack > session_state > locals
+    alpha_365d = _pick(exec_pack.get("alpha_365d"), _ss_get("alpha_365d"), locals().get("alpha_365d"), locals().get("alpha_1y"), locals().get("alpha1y"))
+    alpha_60d  = _pick(exec_pack.get("alpha_60d"),  _ss_get("alpha_60d"),  locals().get("alpha_60d"))
+    alpha_30d  = _pick(exec_pack.get("alpha_30d"),  _ss_get("alpha_30d"),  locals().get("alpha_30d"))
 
-    # ---- Capital-Weighted Alpha (CWA) ----
-    # This is purely a presentation layer:
-    # reported_alpha * avg_exposure (if both exist).
-    reported_alpha = None
-    avg_exposure = None
+    # Exposure: accept multiple likely names
+    avg_exposure = _pick(
+        exec_pack.get("avg_exposure"),
+        _ss_get("avg_exposure"),
+        locals().get("avg_exposure"),
+        locals().get("avg_exposure_12m"),
+        locals().get("mean_exposure"),
+        locals().get("exposure_avg")
+    )
 
-    # Try common variable names without forcing engine changes
-    for k in ["alpha_12m", "alpha12m", "alpha_1y", "alpha1y", "alpha", "reported_alpha"]:
-        if k in locals() and locals().get(k) is not None:
-            reported_alpha = locals().get(k)
-            break
+    # Attribution dicts
+    attrib365 = _pick(exec_pack.get("attrib_365d"), _ss_get("attrib365"), locals().get("attrib365"))
+    attrib60  = _pick(exec_pack.get("attrib_60d"),  _ss_get("attrib60"),  locals().get("attrib60"))
+    attrib_exec = _pick(attrib365, attrib60)
 
-    for k in ["avg_exposure_12m", "avg_exposure", "avg_expo", "mean_exposure", "exposure_avg"]:
-        if k in locals() and locals().get(k) is not None:
-            avg_exposure = locals().get(k)
-            break
+    # Layout
+    c1, c2 = st.columns([1.15, 1.0], gap="large")
 
-    cwa = None
-    eff = None
-    if (reported_alpha is not None) and (avg_exposure is not None):
-        try:
-            cwa = float(reported_alpha) * float(avg_exposure)
-            eff = (float(avg_exposure))  # simple efficiency ratio proxy
-        except Exception:
-            cwa, eff = None, None
-
-    c1, c2 = st.columns([1.2, 1.0], gap="medium")
     with c1:
         st.markdown("**Capital-Weighted Alpha**")
-        if (cwa is None) or ("fmt_pct" not in locals()):
+
+        # Choose "reported alpha" as 12M if available, else 60D, else 30D
+        reported_alpha = _pick(alpha_365d, alpha_60d, alpha_30d)
+
+        if reported_alpha is None or avg_exposure is None:
             st.caption("Unavailable (needs reported alpha + average exposure).")
         else:
-            st.write(f"Reported Alpha: **{fmt_pct(reported_alpha)}**")
-            st.write(f"Capital-Weighted Alpha: **{fmt_pct(cwa)}**")
-            st.write(f"Exposure Efficiency: **{eff:.2f}**")
-            st.caption("Alpha earned per dollar actively deployed, net of defensive exposure controls.")
+            try:
+                cwa = float(reported_alpha) * float(avg_exposure)
+                st.write(f"Reported Alpha: **{_fmt_pct(reported_alpha)}**")
+                st.write(f"Capital-Weighted Alpha: **{_fmt_pct(cwa)}**")
+                st.write(f"Exposure Efficiency: **{float(avg_exposure):.2f}**")
+                st.caption("Alpha earned per dollar actively deployed, net of defensive exposure controls.")
+            except Exception:
+                st.caption("Unavailable (needs reported alpha + average exposure).")
+
     with c2:
         st.markdown("**Regime Attribution**")
-        if attrib_exec is None or ("fmt_pct" not in locals()):
+
+        if attrib_exec is None or not hasattr(attrib_exec, "get"):
             st.caption("Unavailable (needs regime attribution signals).")
         else:
             ro = attrib_exec.get("risk_on") or 0.0
@@ -2001,58 +2006,63 @@ with tabs[0]:
             total = abs(ro) + abs(rf)
             defense_capture = (rf / total) if total > 0 else 0.0
 
-            st.write(f"Window: **{attrib_label}**")
-            st.write(f"Risk-On Contribution: **{fmt_pct(ro)}**")
-            st.write(f"Risk-Off Contribution: **{fmt_pct(rf)}**")
+            st.write(f"Risk-On Contribution: **{_fmt_pct(ro)}**")
+            st.write(f"Risk-Off Contribution: **{_fmt_pct(rf)}**")
             st.write(f"Defense Capture Ratio: **{defense_capture:.2f}**")
             st.caption("Separates offensive return generation from defensive capital preservation.")
 
     st.divider()
 
     # --------------------------------------------------------
-    # (4) Key Wins / Key Risks / Actions (existing narrative layer)
+    # (4) Key Wins / Key Risks / Actions (compact + IC-grade)
     # --------------------------------------------------------
-    try:
-        st.markdown("#### Key Wins / Key Risks / Actions")
+    st.markdown("#### Key Wins / Key Risks / Actions")
 
-        wins, risks, actions = [], [], []
+    wins, risks, actions = [], [], []
 
-        # Example hooks (keep your existing rules if you already have them)
-        if "conf_level" in locals() and conf_level == "High":
-            wins.append("High governance confidence (signals complete).")
-        if "bm_drift" in locals() and bm_drift == "stable":
-            wins.append("Benchmark stability confirmed (low drift).")
-        if "bm_drift" in locals() and bm_drift != "stable":
-            risks.append("Benchmark drift detected — validate mix stability.")
+    conf_level = _pick(exec_pack.get("conf_level"), _ss_get("conf_level"), locals().get("conf_level"))
+    if conf_level == "High":
+        wins.append("High governance confidence (signals complete).")
+    if bm_drift == "stable":
+        wins.append("Benchmark stability confirmed (low drift).")
+    elif bm_drift is not None:
+        risks.append("Benchmark drift detected — validate mix stability.")
 
-        if (cwa is not None) and (reported_alpha is not None) and (avg_exposure is not None):
-            actions.append("Use Capital-Weighted Alpha in committee discussions to contextualize SmartSafe exposure control.")
+    # If beta reliability is low, push an action
+    beta_rel = _pick(exec_pack.get("beta_rel"), _ss_get("beta_rel"), locals().get("beta_rel"))
+    if beta_rel is not None:
+        try:
+            if float(beta_rel) < 65:
+                risks.append("Low beta reliability — benchmark may not explain systematic exposure.")
+                actions.append("Review benchmark composition and factor exposures; re-run stability checks.")
+        except Exception:
+            pass
 
-        # Render compact
-        colA, colB, colC = st.columns(3)
-        with colA:
-            st.markdown("**Wins**")
-            if wins:
-                for w in wins:
-                    st.write(f"• {w}")
-            else:
-                st.caption("—")
-        with colB:
-            st.markdown("**Risks**")
-            if risks:
-                for r in risks:
-                    st.write(f"• {r}")
-            else:
-                st.caption("—")
-        with colC:
-            st.markdown("**Actions**")
-            if actions:
-                for a in actions:
-                    st.write(f"• {a}")
-            else:
-                st.caption("—")
-    except Exception:
-        pass
+    if (avg_exposure is not None) and (alpha_365d is not None):
+        actions.append("Use Capital-Weighted Alpha in committee discussions to contextualize SmartSafe exposure control.")
+
+    colA, colB, colC = st.columns(3)
+    with colA:
+        st.markdown("**Wins**")
+        if wins:
+            for w in wins:
+                st.write(f"• {w}")
+        else:
+            st.caption("—")
+    with colB:
+        st.markdown("**Risks**")
+        if risks:
+            for r in risks:
+                st.write(f"• {r}")
+        else:
+            st.caption("—")
+    with colC:
+        st.markdown("**Actions**")
+        if actions:
+            for a in actions:
+                st.write(f"• {a}")
+        else:
+            st.caption("—")
 # ============================================================
 # OVERVIEW
 # ============================================================
