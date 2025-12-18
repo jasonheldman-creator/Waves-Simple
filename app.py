@@ -2247,8 +2247,8 @@ with tabs[4]:
             st.info("Pick Wave B to compare.")
 
 
-# ============================================================
-# ALPHA SNAPSHOT (ALL WAVES)
+# # ============================================================
+# ALPHA SNAPSHOT (ALL WAVES) — BOOT-SAFE REPLACEMENT
 # ============================================================
 with tabs[5]:
     st.markdown("### Alpha Snapshot (All Waves)")
@@ -2257,7 +2257,11 @@ with tabs[5]:
     if not ENABLE_ALPHA_SNAPSHOT:
         st.info("Alpha Snapshot disabled.")
     else:
-        snap_days = st.selectbox("Snapshot lookback used for loading histories (>=365 recommended)", [365, 730, 1095, 2520], index=0)
+        snap_days = st.selectbox(
+            "Snapshot lookback used for loading histories (>=365 recommended)",
+            [365, 730, 1095, 2520],
+            index=0,
+        )
         show_ro_rf = st.toggle("Include Risk-On / Risk-Off Attribution (60D)", value=False)
         limit_n = st.slider(
             "Max waves to compute (speed control)",
@@ -2266,18 +2270,32 @@ with tabs[5]:
             value=min(20, len(all_waves) if all_waves else 5),
         )
 
+        def _ac_compound(ac: pd.Series, n: int) -> float:
+            """Boot-safe compounded alpha capture over last n points."""
+            try:
+                if ac is None:
+                    return float("nan")
+                ac = pd.to_numeric(ac, errors="coerce").dropna()
+                if len(ac) < 2:
+                    return float("nan")
+                tail = ac.tail(min(int(n), int(len(ac))))
+                if len(tail) < 2:
+                    return float("nan")
+                return _compound_from_daily(tail)
+            except Exception:
+                return float("nan")
+
         @st.cache_data(show_spinner=False)
-        def _compute_snapshot_row(wave_name: str, mode: str, days: int) -> Dict[str, Any]:
+        def _compute_snapshot_row(wave_name: str, mode: str, days: int, include_ro_rf: bool) -> Dict[str, Any]:
             h = _standardize_history(compute_wave_history(wave_name, mode, days=days))
             m = compute_metrics_from_hist(h)
 
             ac = _alpha_capture_series(h, wave_name, mode)
-            ac30 = _compound_from_daily(ac.tail(min(30, len(ac)))) if len(ac) >= 2 else float("nan")
-            ac60 = _compound_from_daily(ac.tail(min(60, len(ac)))) if len(ac) >= 2 else float("nan")
-            ac365 = _compound_from_daily(ac.tail(min(
-                        ac365 = _compound_from_daily(ac.tail(min(365, len(ac)))) if len(ac) >= 2 else float("nan")
+            ac30 = _ac_compound(ac, 30)
+            ac60 = _ac_compound(ac, 60)
+            ac365 = _ac_compound(ac, 365)
 
-            row = {
+            row: Dict[str, Any] = {
                 "Wave": wave_name,
                 "1D Return": m.get("r1", np.nan),
                 "1D Alpha": m.get("a1", np.nan),
@@ -2295,7 +2313,7 @@ with tabs[5]:
                 "CVaR95": m.get("cvar95", np.nan),
             }
 
-            if show_ro_rf:
+            if include_ro_rf:
                 attrib60 = _risk_on_off_attrib(h, wave_name, mode, window=60)
                 row["Risk-On Alpha 60D"] = attrib60.get("risk_on_alpha", np.nan)
                 row["Risk-Off Alpha 60D"] = attrib60.get("risk_off_alpha", np.nan)
@@ -2304,10 +2322,10 @@ with tabs[5]:
 
         # Build snapshot table (speed-controlled)
         waves_to_run = (all_waves[: int(limit_n)] if all_waves else [])
-        rows = []
+        rows: List[Dict[str, Any]] = []
         for w in waves_to_run:
             try:
-                rows.append(_compute_snapshot_row(w, mode, snap_days))
+                rows.append(_compute_snapshot_row(w, mode, snap_days, show_ro_rf))
             except Exception:
                 continue
 
@@ -2340,7 +2358,6 @@ with tabs[5]:
                 mime="text/csv",
                 use_container_width=True,
             )
-
 
 # ============================================================
 # DIAGNOSTICS (ALWAYS BOOTS)
