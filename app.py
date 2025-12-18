@@ -45,7 +45,15 @@ def benchmark_snapshot_id(wave_name: str, benchmark_mix: Dict[str, float]) -> st
     # Sort tickers for consistent ID generation
     sorted_tickers = sorted(benchmark_mix.items())
     ticker_str = "_".join([f"{t}:{w:.2f}" for t, w in sorted_tickers])
-    return f"{wave_name}_{ticker_str}"
+    
+    # Use hash for long IDs to prevent length issues
+    full_id = f"{wave_name}_{ticker_str}"
+    if len(full_id) > 100:
+        import hashlib
+        ticker_hash = hashlib.md5(ticker_str.encode()).hexdigest()[:8]
+        return f"{wave_name}_{ticker_hash}"
+    
+    return full_id
 
 
 def format_percentage(value: float, decimals: int = 2) -> str:
@@ -68,12 +76,24 @@ def get_benchmark_weights(wave_name: str) -> Dict[str, float]:
     Returns:
         Dictionary mapping ticker symbols to weights
     """
+    # Default benchmarks based on wave type
+    DEFAULT_BENCHMARKS = {
+        "SMID": {"IWM": 0.6, "IJR": 0.4},
+        "Large": {"SPY": 1.0},
+        "Thematic": {"QQQ": 1.0},
+        "Defensive": {"BIL": 1.0},
+        "Crypto": {"BTC-USD": 1.0},
+    }
+    
     try:
         benchmark_table = we.get_benchmark_mix_table()
         wave_row = benchmark_table[benchmark_table['wave'] == wave_name]
         
         if wave_row.empty:
-            # Return a default benchmark if wave not found
+            # Try to find appropriate default based on wave name
+            for wave_type, benchmark in DEFAULT_BENCHMARKS.items():
+                if wave_type.lower() in wave_name.lower():
+                    return benchmark
             return {"SPY": 1.0}
         
         # Extract benchmark mix from the row
@@ -214,14 +234,23 @@ def main():
                     
                     with col2:
                         if len(nav_df) > 1:
-                            total_return = (latest_nav / nav_df['nav'].iloc[0] - 1) * 100
-                            st.metric("Total Return", f"{total_return:.2f}%")
+                            initial_nav = nav_df['nav'].iloc[0]
+                            if initial_nav != 0:
+                                total_return = (latest_nav / initial_nav - 1) * 100
+                                st.metric("Total Return", f"{total_return:.2f}%")
+                            else:
+                                st.metric("Total Return", "N/A")
                     
                     with col3:
                         if 'benchmark_nav' in nav_df.columns and len(nav_df) > 1:
-                            bm_return = (nav_df['benchmark_nav'].iloc[-1] / nav_df['benchmark_nav'].iloc[0] - 1) * 100
-                            alpha = total_return - bm_return
-                            st.metric("Alpha vs Benchmark", f"{alpha:.2f}%")
+                            initial_bm = nav_df['benchmark_nav'].iloc[0]
+                            if initial_bm != 0 and initial_nav != 0:
+                                total_return = (latest_nav / initial_nav - 1) * 100
+                                bm_return = (nav_df['benchmark_nav'].iloc[-1] / initial_bm - 1) * 100
+                                alpha = total_return - bm_return
+                                st.metric("Alpha vs Benchmark", f"{alpha:.2f}%")
+                            else:
+                                st.metric("Alpha vs Benchmark", "N/A")
                     
                     # Show data table in expander
                     with st.expander("View Raw Data"):
