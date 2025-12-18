@@ -1603,7 +1603,35 @@ def render_vector_status_bar(
         st.markdown(f'<span class="vector-pill">{p}</span>', unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
+# ============================================================
+# Executive Snapshot (IC Summary bridge)
+# ============================================================
+try:
+    st.session_state["exec_pack"] = {
+        # --- Alpha (prefer metrics dict if present) ---
+        "alpha_30d": (metrics.get("a30") if "metrics" in locals() and metrics is not None else None),
+        "alpha_60d": (metrics.get("a60") if "metrics" in locals() and metrics is not None else None),
+        "alpha_365d": (metrics.get("a365") if "metrics" in locals() and metrics is not None else None),
 
+        # --- Regime Attribution ---
+        "attrib_60d": (attrib60 if "attrib60" in locals() else None),
+        "attrib_365d": (attrib365 if "attrib365" in locals() else None),
+
+        # --- Exposure (prefer metrics dict if present) ---
+        "avg_exposure": (metrics.get("avg_exposure") if "metrics" in locals() and metrics is not None else None),
+
+        # --- Governance / Risk ---
+        "beta_score": (beta_score if "beta_score" in locals() else None),
+        "beta_rel": (beta_score if "beta_score" in locals() else None),  # use raw score as reliability value
+        "risk_reaction": (rr_score if "rr_score" in locals() else None),
+        "bm_drift": (bm_drift if "bm_drift" in locals() else None),
+        "conf_level": (conf_level if "conf_level" in locals() else None),
+
+        # --- VCI Inputs ---
+        "cov": (cov if "cov" in locals() else None),
+    }
+except Exception:
+    pass
 # 2️⃣ Final Verdict Box (compact IC-grade decision box)
 def build_final_verdict(
     selected_wave: str,
