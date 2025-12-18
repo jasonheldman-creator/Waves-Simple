@@ -5,7 +5,7 @@
 #         + COMPARATOR + BETA RELIABILITY + DIAGNOSTICS (ALWAYS BOOTS)
 #         + VECTOR™ TRUTH LAYER (READ-ONLY, DETERMINISTIC)
 #         + ALPHA SNAPSHOT (ALL WAVES) + ALPHA CAPTURE + RISK-ON/OFF ATTRIBUTION
-#         + VECTOR AVATAR BUTTON (IMAGE) + ASK VECTOR PANEL  ✅ NEW
+#         + VECTOR AVATAR (BOTTOM-FIXED, CLICK TO JUMP TO VECTOR PANEL)
 #
 # Boot-safety rules:
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os
 import math
-import base64
 import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,6 +42,11 @@ try:
     import plotly.graph_objects as go
 except Exception:
     go = None
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None  # boot-safe: avatar can fall back to plain text
 
 # -------------------------------
 # Engine import (guarded)
@@ -87,8 +91,16 @@ ENABLE_YFINANCE_CHIPS = True  # auto-disables if yf missing
 ENABLE_VECTOR_TRUTH = True    # auto-disables if vector_truth import missing
 ENABLE_ALPHA_SNAPSHOT = True  # ALL WAVES snapshot table
 
-# ✅ NEW: Vector avatar + Ask Vector
+# Vector Avatar / Panel
 ENABLE_VECTOR_AVATAR = True
+VECTOR_AVATAR_MAX_PX = 120
+# Recommended: save your new image here: assets/vector_avatar.png
+VECTOR_AVATAR_PATHS = [
+    "assets/vector_avatar.png",      # <- recommended canonical path
+    "assets/vector_full.png",
+    "assets/vector_robot_clean2.png",
+    "assets/vector_robot.png",
+]
 
 
 # ============================================================
@@ -98,6 +110,7 @@ st.markdown(
     """
 <style>
 .block-container { padding-top: 0.85rem; padding-bottom: 2.0rem; }
+
 .waves-big-wave {
   font-size: 2.2rem; font-weight: 850; letter-spacing: 0.2px;
   line-height: 2.45rem; margin: 0.1rem 0 0.15rem 0;
@@ -140,24 +153,35 @@ hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.8rem 
   .waves-tile-value { font-size: 1.30rem; line-height: 1.55rem; }
 }
 
-/* ✅ NEW: small floating Vector image (decorative) */
-.vector-float {
+/* Vector Avatar: fixed bottom-right (clickable anchor) */
+.vector-fab {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  width: 92px;
-  opacity: 0.92;
-  z-index: 9999;
-  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.35));
-  border-radius: 18px;
+  z-index: 10000;
+  text-decoration: none;
 }
-.vector-float img { width: 100%; border-radius: 18px; }
+.vector-fab img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  background: rgba(255,255,255,0.04);
+}
+.vector-fab .label {
+  display: block;
+  text-align: center;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.9;
+  color: rgba(255,255,255,0.90);
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
-
-
 # ============================================================
 # Helpers: formatting / safety
 # ============================================================
@@ -203,137 +227,6 @@ def fmt_int(x: Any) -> str:
 
 
 # ============================================================
-# ✅ NEW: Vector image loader + sidebar button + “Ask Vector”
-# ============================================================
-def _read_file_bytes(path: str) -> Optional[bytes]:
-    try:
-        if not path:
-            return None
-        if not os.path.exists(path):
-            return None
-        with open(path, "rb") as f:
-            return f.read()
-    except Exception:
-        return None
-
-
-def find_vector_image_bytes() -> Tuple[Optional[bytes], str]:
-    """
-    Tries to locate the new Vector image in common places.
-    You can also override from the sidebar.
-    """
-    # If user already set an override path, use it first
-    override = st.session_state.get("vector_img_path_override", "").strip()
-    if override:
-        b = _read_file_bytes(override)
-        if b:
-            return b, override
-
-    # Common candidates (edit/add if your folder name differs)
-    candidates = [
-        # suggested folder style
-        os.path.join("vector_assets", "vector_new.png"),
-        os.path.join("vector_assets", "vector.png"),
-        os.path.join("vector_assets", "vector_avatar.png"),
-        os.path.join("vector_assets", "VECTOR.png"),
-        # common root filenames
-        "vector_new.png",
-        "vector.png",
-        "vector_avatar.png",
-        "vector_robot_clean2.png",
-        "vector_full.png",
-        # user sometimes uses a vectors/ folder
-        os.path.join("vectors", "vector_new.png"),
-        os.path.join("vectors", "vector.png"),
-        os.path.join("vectors", "vector_avatar.png"),
-    ]
-
-    for p in candidates:
-        b = _read_file_bytes(p)
-        if b:
-            return b, p
-
-    return None, ""
-
-
-def bytes_to_data_uri_png(b: bytes) -> str:
-    enc = base64.b64encode(b).decode("utf-8")
-    return f"data:image/png;base64,{enc}"
-
-
-def render_vector_floating_image(vector_bytes: Optional[bytes]):
-    if not ENABLE_VECTOR_AVATAR or not vector_bytes:
-        return
-    try:
-        uri = bytes_to_data_uri_png(vector_bytes)
-        st.markdown(
-            f"""
-<div class="vector-float">
-  <img src="{uri}" alt="Vector" />
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-    except Exception:
-        pass
-
-
-def init_vector_state():
-    if "vector_open" not in st.session_state:
-        st.session_state["vector_open"] = False
-    if "vector_question" not in st.session_state:
-        st.session_state["vector_question"] = ""
-
-
-def vector_referee_answer(
-    question: str,
-    selected_wave: str,
-    mode: str,
-    metrics: Dict[str, Any],
-    cov: Dict[str, Any],
-    bm_id: str,
-    bm_drift: str,
-    beta_grade: str,
-    beta_score: float,
-) -> str:
-    """
-    Deterministic “referee” answer: concise + grounded in canonical outputs.
-    (No external calls; no hallucinated data.)
-    """
-    q = (question or "").strip().lower()
-    lines: List[str] = []
-
-    lines.append(f"**Vector Referee (canonical)** — Wave: **{selected_wave}** · Mode: **{mode}**")
-    lines.append(f"- Confidence: **{cov.get('completeness_score', '—')}** (AgeDays: **{cov.get('age_days', '—')}**) · BM: **{bm_id}** ({bm_drift})")
-    lines.append(f"- Beta Reliability: **{beta_grade}** ({fmt_num(beta_score,1)}/100)")
-    lines.append(f"- 30D: Return {fmt_pct(metrics.get('r30'))} · Alpha {fmt_pct(metrics.get('a30'))}")
-    lines.append(f"- 60D: Return {fmt_pct(metrics.get('r60'))} · Alpha {fmt_pct(metrics.get('a60'))}")
-    lines.append(f"- 365D: Return {fmt_pct(metrics.get('r365'))} · Alpha {fmt_pct(metrics.get('a365'))}")
-
-    # Simple routing
-    if any(k in q for k in ["alpha", "where", "come from", "source", "explain"]):
-        lines.append("")
-        lines.append("**Alpha interpretation (governance-safe):**")
-        lines.append("- Capital-weighted alpha is Wave minus Benchmark over the same window (investor-experience).")
-        lines.append("- If SmartSafe / VIX scaling reduces exposure, raw alpha can look “high” vs a fully-invested benchmark.")
-        lines.append("- Use **Exposure-Adjusted Alpha** and **Risk-On/Risk-Off attribution** to show *how* alpha was captured, not just *that* it exists.")
-    elif any(k in q for k in ["beta", "reliability", "benchmark", "match"]):
-        lines.append("")
-        lines.append("**Beta / benchmark fidelity:**")
-        lines.append("- A low beta reliability score means the benchmark mix is not tightly explaining the wave’s returns (or the wave has exposure gating).")
-        lines.append("- This can be *good* if it’s intentional (VIX scaling / cash sweeps), but it must be explicitly attributed and shown in-console.")
-    elif any(k in q for k in ["trust", "confidence", "data", "coverage"]):
-        lines.append("")
-        lines.append("**Trust / data integrity:**")
-        lines.append("- Check CoverageScore, missing business days, and benchmark drift. Freeze benchmark composition for demos.")
-    else:
-        lines.append("")
-        lines.append("Ask me specifically about **alpha source**, **exposure-adjusted alpha**, **risk-on/off**, **beta reliability**, or **benchmark drift**, and I’ll referee it against the canonical dataset.")
-
-    return "\n".join(lines)
-
-
-# ============================================================
 # Basic return/risk math
 # ============================================================
 def ret_from_nav(nav: pd.Series, window: int) -> float:
@@ -363,6 +256,8 @@ def max_drawdown(nav: pd.Series) -> float:
     running_max = nav.cummax()
     dd = (nav / running_max) - 1.0
     return float(dd.min())
+
+
 def tracking_error(daily_wave: pd.Series, daily_bm: pd.Series) -> float:
     w = safe_series(daily_wave).astype(float)
     b = safe_series(daily_bm).astype(float)
@@ -539,10 +434,6 @@ GLOSSARY: Dict[str, str] = {
         "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
         "attributes alpha to risk-on/off regimes, and scores durability/fragility."
     ),
-    "Vector Referee": (
-        "A deterministic, read-only referee panel that explains outputs using the canonical dataset "
-        "(no external calls; no conflicting math)."
-    ),
 }
 
 
@@ -550,9 +441,7 @@ def render_definitions(keys: List[str], title: str = "Definitions"):
     with st.expander(title):
         for k in keys:
             st.markdown(f"**{k}:** {GLOSSARY.get(k, '(definition not found)')}")
-
-
-# ============================================================
+            # ============================================================
 # Optional yfinance chips
 # ============================================================
 @st.cache_data(show_spinner=False)
@@ -585,7 +474,9 @@ def fetch_prices_daily(tickers: List[str], days: int = 365) -> pd.DataFrame:
     if len(data) > days:
         data = data.iloc[-days:]
     return data
-    # ============================================================
+
+
+# ============================================================
 # History loader (engine → CSV fallback)
 # ============================================================
 def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
@@ -860,125 +751,561 @@ def benchmark_difficulty_proxy(rows: pd.DataFrame) -> Dict[str, Any]:
         return out
     except Exception:
         return out
-        # ============================================================
-# VECTOR™ REFEREE — FLOATING IMAGE + PANEL (NON-DESTRUCTIVE)
+
+
 # ============================================================
+# Coverage + Confidence
+# ============================================================
+def coverage_report(hist: pd.DataFrame) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "rows": 0,
+        "first_date": None,
+        "last_date": None,
+        "age_days": None,
+        "missing_bdays": None,
+        "missing_pct": None,
+        "completeness_score": None,
+        "flags": [],
+    }
+    try:
+        if hist is None or hist.empty:
+            out["flags"].append("No history returned")
+            return out
 
-# Session state
-if "vector_open" not in st.session_state:
-    st.session_state["vector_open"] = False
+        idx = pd.to_datetime(hist.index).sort_values()
+        out["rows"] = int(len(idx))
+        out["first_date"] = idx[0].date().isoformat() if len(idx) else None
+        out["last_date"] = idx[-1].date().isoformat() if len(idx) else None
+
+        today = datetime.utcnow().date()
+        last_dt = idx[-1].date()
+        out["age_days"] = int((today - last_dt).days)
+
+        bdays = pd.date_range(start=idx[0].normalize(), end=idx[-1].normalize(), freq="B")
+        have = pd.DatetimeIndex(idx.normalize().unique())
+        missing = bdays.difference(have)
+        out["missing_bdays"] = int(len(missing))
+        out["missing_pct"] = float(len(missing) / max(1, len(bdays)))
+
+        score = 100.0
+        score -= min(40.0, out["missing_pct"] * 200.0)
+        if out["age_days"] is not None and out["age_days"] > 3:
+            score -= min(25.0, float(out["age_days"] - 3) * 5.0)
+        out["completeness_score"] = float(np.clip(score, 0.0, 100.0))
+
+        if out["age_days"] is not None and out["age_days"] >= 7:
+            out["flags"].append("Data is stale (>=7 days old)")
+        if out["missing_pct"] is not None and out["missing_pct"] >= 0.05:
+            out["flags"].append("Significant missing business days (>=5%)")
+        if out["rows"] < 60:
+            out["flags"].append("Limited history (<60 points)")
+        return out
+    except Exception:
+        out["flags"].append("Coverage report error")
+        return out
 
 
-# --- Vector floating image (bottom-right) ---
-st.markdown(
+def confidence_from_integrity(cov: Dict[str, Any], bm_drift: str) -> Tuple[str, str]:
+    try:
+        score = safe_float(cov.get("completeness_score"))
+        age = safe_float(cov.get("age_days"))
+        rows = int(cov.get("rows") or 0)
+
+        drift = (str(bm_drift).lower().strip() != "stable")
+        issues: List[str] = []
+
+        if drift:
+            issues.append("benchmark drift")
+        if math.isfinite(score) and score < 85:
+            issues.append("coverage < 85")
+        if math.isfinite(age) and age >= 5:
+            issues.append("stale (>=5d)")
+        if rows < 90:
+            issues.append("limited history")
+
+        if not issues:
+            return ("High", "Fresh + complete history and stable benchmark snapshot.")
+        if drift or (math.isfinite(score) and score < 75) or (math.isfinite(age) and age >= 7) or rows < 60:
+            return ("Low", "Potential trust issues: " + ", ".join(issues) + ".")
+        return ("Medium", "Some caution flags: " + ", ".join(issues) + ".")
+    except Exception:
+        return ("Medium", "Confidence heuristic unavailable (non-fatal).")
+
+
+# ============================================================
+# Governance-native Analytics Scorecard (selected wave)
+# ============================================================
+def _score_to_grade_af(score: float) -> str:
+    s = safe_float(score)
+    if not math.isfinite(s):
+        return "N/A"
+    if s >= 90:
+        return "A"
+    if s >= 80:
+        return "B"
+    if s >= 70:
+        return "C"
+    if s >= 60:
+        return "D"
+    return "F"
+
+
+def compute_analytics_score_for_selected(hist_sel: pd.DataFrame, cov: Dict[str, Any], bm_drift: str) -> Dict[str, Any]:
+    try:
+        rows_n = int(cov.get("rows") or 0)
+        coverage_score = safe_float(cov.get("completeness_score"))
+        age_days = safe_float(cov.get("age_days"))
+        miss_pct = safe_float(cov.get("missing_pct"))
+
+        te = np.nan
+        ir = np.nan
+        mdd = np.nan
+        vol = np.nan
+
+        if hist_sel is not None and not hist_sel.empty and len(hist_sel) >= 20:
+            te = tracking_error(hist_sel["wave_ret"], hist_sel["bm_ret"])
+            ir = information_ratio(hist_sel["wave_nav"], hist_sel["bm_nav"], te)
+            mdd = max_drawdown(hist_sel["wave_nav"])
+            vol = annualized_vol(hist_sel["wave_ret"])
+
+        # D1 Data Integrity
+        d1 = 85.0
+        if math.isfinite(coverage_score):
+            d1 = 0.85 * coverage_score + 0.15 * 95.0
+        if math.isfinite(age_days) and age_days > 3:
+            d1 -= min(25.0, (age_days - 3) * 4.0)
+        if rows_n < 60:
+            d1 -= 15.0
+        if math.isfinite(miss_pct) and miss_pct > 0.05:
+            d1 -= min(20.0, (miss_pct - 0.05) * 400.0)
+        d1 = float(np.clip(d1, 0.0, 100.0))
+
+        # D2 Benchmark fidelity
+        d2 = 92.0 if str(bm_drift).lower().strip() == "stable" else 78.0
+
+        # D3 Risk discipline
+        d3 = 80.0
+        if math.isfinite(te):
+            d3 += float(np.clip((0.10 - te) * 250.0, -25.0, 15.0))
+        if math.isfinite(vol):
+            d3 += float(np.clip((0.22 - vol) * 140.0, -25.0, 15.0))
+        if math.isfinite(mdd):
+            d3 += float(np.clip((-0.18 - mdd) * 120.0, -25.0, 15.0))
+        d3 = float(np.clip(d3, 0.0, 100.0))
+
+        # D4 Efficiency quality (IR proxy)
+        d4 = 55.0
+        if math.isfinite(ir):
+            d4 = float(np.clip(55.0 + ir * 30.0, 0.0, 100.0))
+
+        # D5 Decision readiness
+        d5 = 88.0
+        if math.isfinite(coverage_score):
+            d5 += (coverage_score - 90.0) * 0.25
+        if math.isfinite(age_days) and age_days > 3:
+            d5 -= min(20.0, (age_days - 3) * 3.5)
+        if str(bm_drift).lower().strip() != "stable":
+            d5 -= 15.0
+        if rows_n < 90:
+            d5 -= 8.0
+        if rows_n < 60:
+            d5 -= 12.0
+        d5 = float(np.clip(d5, 0.0, 100.0))
+
+        total = float(np.clip((d1 + d2 + d3 + d4 + d5) / 5.0, 0.0, 100.0))
+        grade = _score_to_grade_af(total)
+
+        flags: List[str] = []
+        if d1 < 70:
+            flags.append("DATA")
+        if d2 < 70:
+            flags.append("BM")
+        if d3 < 70:
+            flags.append("RISK")
+        if d5 < 70:
+            flags.append("READY")
+
+        return {"AnalyticsScore": total, "Grade": grade, "Flags": " ".join(flags) if flags else ""}
+    except Exception:
+        return {"AnalyticsScore": np.nan, "Grade": "N/A", "Flags": "ERR"}
+
+
+# ============================================================
+# Risk Reaction Score (0-100)
+# ============================================================
+def risk_reaction_score(te: float, mdd: float, cvar95: float) -> float:
+    try:
+        te_v = safe_float(te)
+        mdd_v = safe_float(mdd)
+        cvar_v = safe_float(cvar95)
+
+        score = 80.0
+        if math.isfinite(te_v):
+            score += float(np.clip((0.12 - te_v) * 200.0, -25.0, 15.0))
+        if math.isfinite(mdd_v):
+            score += float(np.clip((-0.18 - mdd_v) * 120.0, -25.0, 15.0))
+        if math.isfinite(cvar_v):
+            score += float(np.clip((-0.025 - cvar_v) * 900.0, -25.0, 15.0))
+        return float(np.clip(score, 0.0, 100.0))
+    except Exception:
+        return float("nan")
+
+
+# ============================================================
+# Avatar loader (BOOT SAFE) — prevents MediaFileStorageError
+# ============================================================
+def _find_vector_avatar_path() -> Optional[str]:
+    for p in VECTOR_AVATAR_PATHS:
+        try:
+            if p and os.path.exists(p):
+                return p
+        except Exception:
+            continue
+    return None
+
+
+def _load_avatar_image(path: str) -> Any:
     """
-<style>
-.vector-float {
-    position: fixed;
-    bottom: 18px;
-    right: 18px;
-    z-index: 9999;
-    text-align: center;
-}
-.vector-float img {
-    border-radius: 16px;
-    cursor: pointer;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-}
-.vector-float button {
-    margin-top: 6px;
-    width: 120px;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown('<div class="vector-float">', unsafe_allow_html=True)
-
-st.image(
-    "assets/vector_avatar.png",   # ✅ NEW IMAGE YOU SAVED
-    width=120,
-)
-
-if st.button("Vector ⚖️", key="vector_toggle"):
-    st.session_state["vector_open"] = not st.session_state["vector_open"]
-
-st.markdown("</div>", unsafe_allow_html=True)
-
-
+    Returns a PIL Image if possible; else returns the path.
+    Always boot-safe.
+    """
+    try:
+        if not path or not os.path.exists(path):
+            return None
+        if Image is None:
+            return path
+        img = Image.open(path)
+        return img
+    except Exception:
+        return None
+        # ============================================================
+# Deterministic AI Explanation Layer (rules-based)
 # ============================================================
-# VECTOR™ REFEREE PANEL (SIDEBAR)
-# ============================================================
+def ai_explain_narrative(
+    cov: Dict[str, Any],
+    bm_drift: str,
+    r30: float,
+    a30: float,
+    r60: float,
+    a60: float,
+    te: float,
+    mdd: float,
+    sharpe: float,
+    cvar95: float,
+    rr_score: float,
+    beta_val: float,
+    beta_target: float,
+    beta_score: float,
+) -> Dict[str, List[str]]:
+    out: Dict[str, List[str]] = {
+        "What changed recently": [],
+        "Why the alpha looks like this": [],
+        "Risk driver": [],
+        "What to verify": [],
+    }
 
-if st.session_state.get("vector_open", False):
+    age = safe_float(cov.get("age_days"))
+    cov_score = safe_float(cov.get("completeness_score"))
+    rows = int(cov.get("rows") or 0)
 
-    with st.sidebar:
-        st.markdown("## 🤖 Vector™ Referee")
-        st.caption("WAVES Intelligence • Governance Layer")
+    if str(bm_drift).lower().strip() != "stable":
+        out["What changed recently"].append("Benchmark snapshot drift detected in-session (composition changed).")
+    if math.isfinite(age) and age >= 3:
+        out["What changed recently"].append(f"History freshness: last datapoint is {int(age)} day(s) old.")
+    if rows < 90:
+        out["What changed recently"].append("Limited history window may reduce stability of risk metrics.")
+    if not out["What changed recently"]:
+        out["What changed recently"].append("No major governance changes detected (stable benchmark + fresh coverage).")
 
-        st.markdown(
-            """
-Vector is a **read-only referee**, not a decision engine.
-
-Its job:
-• Explain *where* alpha is coming from  
-• Surface fragility vs durability  
-• Highlight governance risks  
-• Prevent self-deception  
-"""
-        )
-
-        st.markdown("---")
-
-        # ---- Context-aware explanation (safe reads only) ----
-        if "metrics" in locals():
-
-            st.markdown("### Current Wave Check")
-
-            st.write(f"**Wave:** {selected_wave}")
-            st.write(f"**Mode:** {mode}")
-
-            if metrics.get("a30") is not None:
-                st.write(f"**30D Alpha:** {fmt_pct(metrics['a30'])}")
-
-            if metrics.get("a60") is not None:
-                st.write(f"**60D Alpha:** {fmt_pct(metrics['a60'])}")
-
-            if metrics.get("te") is not None:
-                st.write(f"**Tracking Error:** {fmt_pct(metrics['te'])} ({te_band})")
-
-            if metrics.get("mdd") is not None:
-                st.write(f"**Max Drawdown:** {fmt_pct(metrics['mdd'])}")
-
-            if "beta_score" in locals():
-                st.write(f"**Beta Reliability:** {fmt_num(beta_score,1)}/100")
-
-            st.markdown("---")
-
-            # ---- Governance interpretation (deterministic) ----
-            st.markdown("### Vector Interpretation")
-
-            if bm_drift != "stable":
-                st.warning("Benchmark drift detected — governance risk.")
-
-            if conf_level == "High":
-                st.success("Data integrity is strong. Outputs are IC-ready.")
-            elif conf_level == "Medium":
-                st.info("Some caution flags present. Review before IC use.")
-            else:
-                st.error("Low confidence. Do not rely on alpha conclusions yet.")
-
-            if math.isfinite(metrics.get("a30", np.nan)) and abs(metrics["a30"]) > 0.08:
-                st.warning("Large recent alpha — confirm benchmark + exposure effects.")
-
-            if math.isfinite(beta_score) and beta_score < 75:
-                st.warning("Beta reliability is weak — benchmark mismatch possible.")
-
+    if math.isfinite(a30):
+        if a30 > 0.02:
+            out["Why the alpha looks like this"].append("Positive 30D alpha: wave has recently outperformed its benchmark mix.")
+        elif a30 < -0.02:
+            out["Why the alpha looks like this"].append("Negative 30D alpha: recent underperformance versus benchmark mix.")
         else:
-            st.info("Vector awaiting canonical metrics.")
+            out["Why the alpha looks like this"].append("30D alpha near flat: wave and benchmark moving similarly.")
+    if math.isfinite(te):
+        out["Why the alpha looks like this"].append(f"Active risk (TE {fmt_pct(te)}) is {te_risk_band(te)}; alpha magnitude often scales with active risk.")
 
-        st.markdown("---")
-        st.caption(
-            "Vector explanations are deterministic, reproducible, and audit-safe."
+    driver_bits = []
+    if math.isfinite(te):
+        driver_bits.append(f"TE {fmt_pct(te)}")
+    if math.isfinite(mdd):
+        driver_bits.append(f"MaxDD {fmt_pct(mdd)}")
+    if math.isfinite(cvar95):
+        driver_bits.append(f"CVaR {fmt_pct(cvar95)}")
+    if driver_bits:
+        out["Risk driver"].append("Risk posture driven by: " + ", ".join(driver_bits) + ".")
+    if math.isfinite(rr_score):
+        out["Risk driver"].append(f"Risk Reaction Score: {rr_score:.1f}/100.")
+    if math.isfinite(sharpe):
+        out["Risk driver"].append(f"Sharpe: {sharpe:.2f}.")
+    if math.isfinite(beta_val):
+        out["Risk driver"].append(
+            f"Beta vs benchmark: {beta_val:.2f} (target {beta_target:.2f}) · Beta Reliability {fmt_num(beta_score,1)}/100."
         )
+
+    if math.isfinite(cov_score) and cov_score < 85:
+        out["What to verify"].append("Coverage score < 85: inspect missing business days + pipeline consistency.")
+    if str(bm_drift).lower().strip() != "stable":
+        out["What to verify"].append("Benchmark drift: freeze benchmark mix for demos/governance.")
+    if math.isfinite(a30) and abs(a30) >= 0.08:
+        out["What to verify"].append("Large alpha: confirm benchmark weights + verify no gaps/rollovers in history.")
+    if math.isfinite(beta_score) and beta_score < 75:
+        out["What to verify"].append("Beta reliability low: benchmark may not match systematic exposure (review mix).")
+    if not out["What to verify"]:
+        out["What to verify"].append("No critical verification flags triggered.")
+
+    return out
+
+
+# ============================================================
+# Metrics from canonical hist_sel
+# ============================================================
+def compute_metrics_from_hist(hist_sel: pd.DataFrame) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "r1": np.nan, "a1": np.nan,
+        "r30": np.nan, "a30": np.nan,
+        "r60": np.nan, "a60": np.nan,
+        "r365": np.nan, "a365": np.nan,
+        "te": np.nan, "ir": np.nan,
+        "mdd": np.nan, "vol": np.nan,
+        "sharpe": np.nan, "sortino": np.nan,
+        "var95": np.nan, "cvar95": np.nan,
+    }
+    if hist_sel is None or hist_sel.empty:
+        return out
+
+    nav_w = hist_sel["wave_nav"].astype(float)
+    nav_b = hist_sel["bm_nav"].astype(float)
+    wret = hist_sel["wave_ret"].astype(float)
+    bret = hist_sel["bm_ret"].astype(float)
+
+    if len(nav_w) >= 2 and len(nav_b) >= 2:
+        out["r1"] = float(nav_w.iloc[-1] / nav_w.iloc[-2] - 1.0)
+        out["a1"] = float(out["r1"] - (nav_b.iloc[-1] / nav_b.iloc[-2] - 1.0))
+
+    out["r30"] = ret_from_nav(nav_w, min(30, len(nav_w)))
+    out["a30"] = out["r30"] - ret_from_nav(nav_b, min(30, len(nav_b)))
+
+    out["r60"] = ret_from_nav(nav_w, min(60, len(nav_w)))
+    out["a60"] = out["r60"] - ret_from_nav(nav_b, min(60, len(nav_b)))
+
+    out["r365"] = ret_from_nav(nav_w, min(365, len(nav_w)))
+    out["a365"] = out["r365"] - ret_from_nav(nav_b, min(365, len(nav_b)))
+
+    out["te"] = tracking_error(wret, bret)
+    out["ir"] = information_ratio(nav_w, nav_b, out["te"])
+    out["mdd"] = max_drawdown(nav_w)
+    out["vol"] = annualized_vol(wret)
+    out["sharpe"] = sharpe_ratio(wret, rf_annual=0.0)
+    out["sortino"] = sortino_ratio(wret, mar_annual=0.0)
+    v, cv = var_cvar(wret, level=0.95)
+    out["var95"] = v
+    out["cvar95"] = cv
+    return out
+
+
+# ============================================================
+# Vector™ Truth: input builders (boot-safe, deterministic)
+# ============================================================
+def _try_get_exposure_series(wave_name: str, mode: str, hist_index: pd.DatetimeIndex) -> Optional[pd.Series]:
+    try:
+        if we is None:
+            return None
+        candidates = ["get_exposure_series", "compute_exposure_series", "get_exposure_history", "exposure_series"]
+        for fn in candidates:
+            if hasattr(we, fn):
+                f = getattr(we, fn)
+                try:
+                    try:
+                        s = f(wave_name, mode=mode)
+                    except TypeError:
+                        s = f(wave_name, mode)
+                    if isinstance(s, (pd.Series, pd.DataFrame)):
+                        if isinstance(s, pd.DataFrame):
+                            num_cols = [c for c in s.columns if np.issubdtype(s[c].dtype, np.number)]
+                            if num_cols:
+                                s = s[num_cols[0]]
+                            else:
+                                continue
+                        s = pd.to_numeric(s, errors="coerce")
+                        s.index = pd.to_datetime(s.index, errors="coerce")
+                        s = s.dropna()
+                        if len(s) == 0:
+                            continue
+                        s = s.reindex(hist_index).ff
+                                                s = s.reindex(hist_index).ffill().bfill()
+                        s = s.clip(lower=0.0, upper=1.0)
+                        return s
+                except Exception:
+                    continue
+        return None
+    except Exception:
+        return None
+
+
+def _build_regime_series_from_benchmark(hist_sel: pd.DataFrame) -> Optional[pd.Series]:
+    """
+    Deterministic, simple regime labeling:
+      • RISK_OFF when benchmark daily return < 0
+      • RISK_ON otherwise
+    """
+    try:
+        if hist_sel is None or hist_sel.empty or "bm_ret" not in hist_sel.columns:
+            return None
+        b = pd.to_numeric(hist_sel["bm_ret"], errors="coerce")
+        reg = np.where(b.fillna(0.0).values < 0.0, "RISK_OFF", "RISK_ON")
+        return pd.Series(reg, index=hist_sel.index)
+    except Exception:
+        return None
+
+
+def _compound_from_daily(daily: pd.Series) -> float:
+    d = pd.to_numeric(daily, errors="coerce").dropna()
+    if len(d) < 2:
+        return float("nan")
+    return float((1.0 + d).prod() - 1.0)
+
+
+def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.Series:
+    """
+    Alpha Capture daily series:
+      daily_alpha = wave_ret - bm_ret
+      if exposure exists: daily_alpha / max(0.10, exposure)
+    """
+    if hist is None or hist.empty:
+        return pd.Series(dtype=float)
+    w = pd.to_numeric(hist.get("wave_ret"), errors="coerce")
+    b = pd.to_numeric(hist.get("bm_ret"), errors="coerce")
+    da = (w - b).dropna()
+    if len(da) == 0:
+        return pd.Series(dtype=float)
+
+    exp = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(hist.index))
+    if exp is None:
+        return da
+    exp = pd.to_numeric(exp, errors="coerce").reindex(da.index).ffill().bfill()
+    exp = exp.clip(lower=0.10, upper=1.0)
+    return (da / exp).replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: int = 60) -> Dict[str, Any]:
+    """
+    Returns capital-weighted alpha + exposure-adjusted alpha + risk-on/off split for a window.
+    """
+    out = {
+        "cap_alpha": np.nan,
+        "exp_adj_alpha": np.nan,
+        "risk_on_alpha": np.nan,
+        "risk_off_alpha": np.nan,
+        "risk_on_share": np.nan,
+        "risk_off_share": np.nan,
+    }
+    if hist is None or hist.empty:
+        return out
+
+    h = hist.tail(max(2, int(window))).copy()
+    if h.empty or len(h) < 2:
+        return out
+
+    # capital-weighted alpha (window)
+    try:
+        cap_alpha = ret_from_nav(h["wave_nav"], len(h)) - ret_from_nav(h["bm_nav"], len(h))
+    except Exception:
+        cap_alpha = float("nan")
+    out["cap_alpha"] = cap_alpha
+
+    # exposure-adjusted alpha (window)
+    exp = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(h.index))
+    if exp is None:
+        out["exp_adj_alpha"] = cap_alpha
+    else:
+        exp_num = pd.to_numeric(exp, errors="coerce").dropna()
+        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+        avg_exp = max(0.10, min(1.0, avg_exp))
+        out["exp_adj_alpha"] = (cap_alpha / avg_exp) if math.isfinite(cap_alpha) else float("nan")
+
+    # risk-on/off attribution using alpha-capture daily series (compounded)
+    ac = _alpha_capture_series(h, wave_name, mode)
+    if len(ac) >= 2:
+        reg = _build_regime_series_from_benchmark(h)
+        if reg is not None:
+            reg = reg.reindex(ac.index)
+            risk_on = ac[reg == "RISK_ON"]
+            risk_off = ac[reg == "RISK_OFF"]
+            ro = _compound_from_daily(risk_on) if len(risk_on) >= 2 else float("nan")
+            rf = _compound_from_daily(risk_off) if len(risk_off) >= 2 else float("nan")
+            out["risk_on_alpha"] = ro
+            out["risk_off_alpha"] = rf
+
+            tot = 0.0
+            if math.isfinite(ro):
+                tot += ro
+            if math.isfinite(rf):
+                tot += rf
+            if tot != 0.0:
+                out["risk_on_share"] = (ro / tot) if math.isfinite(ro) else np.nan
+                out["risk_off_share"] = (rf / tot) if math.isfinite(rf) else np.nan
+
+    return out
+
+
+def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, metrics: Dict[str, Any], days: int):
+    if not ENABLE_VECTOR_TRUTH or build_vector_truth_report is None or format_vector_truth_markdown is None:
+        st.info(f"Vector™ Truth Layer unavailable (import issue): {VECTOR_TRUTH_IMPORT_ERROR}")
+        return
+
+    if hist_sel is None or hist_sel.empty:
+        st.info("Vector™ Truth Layer: no canonical history available.")
+        return
+
+    alpha_series = (
+        pd.to_numeric(hist_sel["wave_ret"], errors="coerce")
+        - pd.to_numeric(hist_sel["bm_ret"], errors="coerce")
+    ).dropna()
+    alpha_series_list = alpha_series.values.tolist() if len(alpha_series) else None
+
+    reg_series = _build_regime_series_from_benchmark(hist_sel)
+    regime_series_list = reg_series.values.tolist() if reg_series is not None and len(reg_series) else None
+
+    cap_alpha = safe_float(metrics.get("a365"))
+    if not math.isfinite(cap_alpha):
+        try:
+            cap_alpha = ret_from_nav(hist_sel["wave_nav"], len(hist_sel)) - ret_from_nav(hist_sel["bm_nav"], len(hist_sel))
+        except Exception:
+            cap_alpha = float("nan")
+
+    exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+    exp_adj_alpha = cap_alpha
+    if exp_series is not None:
+        exp_num = pd.to_numeric(exp_series, errors="coerce").dropna()
+        avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+        avg_exp = max(0.10, min(1.0, avg_exp))
+        if math.isfinite(cap_alpha):
+            exp_adj_alpha = cap_alpha / avg_exp
+
+    report = build_vector_truth_report(
+        wave_name=str(selected_wave),
+        timeframe_label=f"{min(int(days), int(len(hist_sel)))}D window",
+        total_excess_return=cap_alpha,
+        capital_weighted_alpha=cap_alpha,
+        exposure_adjusted_alpha=exp_adj_alpha,
+        alpha_series=alpha_series_list,
+        regime_series=regime_series_list,
+    )
+
+    st.markdown(format_vector_truth_markdown(report))
+
+    with st.expander("Vector™ Truth Notes (Method)"):
+        st.write(
+            "Capital-weighted alpha uses canonical Wave vs Benchmark performance (investor-experience). "
+            "Exposure-adjusted alpha normalizes by average exposure if exposure history is available from the engine; "
+            "otherwise it defaults to capital-weighted alpha (no inflation). "
+            "Risk-on/off regimes are labeled deterministically from benchmark daily return sign unless a richer regime feed exists."
+        )
+
+
+# ============================================================
+# UI helpers
+# ============================================================
