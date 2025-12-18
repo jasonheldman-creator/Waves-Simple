@@ -1868,6 +1868,28 @@ with tabs[0]:
         # 3️⃣ Assumptions Panel (new; right under verdict)
         render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
 
+st.markdown("#### Vector Confidence Index™")
+
+if not all(k in locals() for k in ["cov", "bm_drift", "beta_score", "rr_score"]):
+    st.info("VCI unavailable (governance signals not built yet).")
+else:
+    vci = compute_vector_confidence(cov, bm_drift, beta_score, rr_score)
+
+    vci_band = (
+        "High Trust" if vci >= 85 else
+        "Moderate Trust" if vci >= 70 else
+        "Low Trust"
+    )
+
+    c1, c2 = st.columns([1.0, 1.4], gap="medium")
+    with c1:
+        tile("VCI Score", f"{vci:.0f}/100", vci_band)
+    with c2:
+        st.caption(
+            "VCI measures confidence in data integrity, benchmark stability, "
+            "and attribution reliability — not performance."
+        )
+
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
     with colA:
