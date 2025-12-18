@@ -1889,6 +1889,9 @@ else:
             "VCI measures confidence in data integrity, benchmark stability, "
             "and attribution reliability — not performance."
         )
+            st.caption(
+        "VCI activates once governance, beta reliability, and attribution checks complete."
+    )
 
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
