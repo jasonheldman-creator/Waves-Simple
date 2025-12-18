@@ -1889,7 +1889,7 @@ else:
             "VCI measures confidence in data integrity, benchmark stability, "
             "and attribution reliability — not performance."
         )
-            st.caption(
+        st.caption(
         "VCI activates once governance, beta reliability, and attribution checks complete."
     )
 
