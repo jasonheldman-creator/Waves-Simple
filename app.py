@@ -1228,8 +1228,7 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
 
     # risk-on/off attribution using alpha-capture daily series (compounded)
     ac = _alpha_capture_series(h, wave_name, mode)
-    if len(ac) >= 
-    2:
+    if len(ac) >= 2:
         reg = _build_regime_series_from_benchmark(h)
         if reg is not None:
             reg = reg.reindex(ac.index)
