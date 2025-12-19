@@ -1855,49 +1855,106 @@ tab_names = [
 ]
 tabs = st.tabs(tab_names)
 
-
 # ============================================================
-# IC SUMMARY
+# IC SUMMARY (REWRITE — GOVERNANCE-SAFE, NO CONTRADICTIONS)
 # ============================================================
 with tabs[0]:
     st.markdown("### Executive IC One-Pager")
 
     # 2️⃣ Final Verdict Box (new; placed FIRST in IC)
     if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
-        render_final_verdict_box(final_verdict, bm_id=bm_id, beta_grade=beta_grade, beta_score=beta_score, conf_level=conf_level)
+        render_final_verdict_box(
+            final_verdict,
+            bm_id=bm_id,
+            beta_grade=beta_grade,
+            beta_score=beta_score,
+            conf_level=conf_level,
+        )
         # 3️⃣ Assumptions Panel (new; right under verdict)
         render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
 
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
+    # -------------------------
+    # Left Column (IC Narrative + Governance)
+    # -------------------------
     with colA:
+        # === Card: What is this wave? (Single-Truth) ===
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### What is this wave?")
 
-        # 5️⃣ Wave Purpose Statement (new; IC-first)
+        # 5️⃣ Wave Purpose Statement (IC-first) — SINGLE VOICE OF TRUTH
         purpose = wave_purpose_statement(selected_wave)
-        if purpose:
+
+        if (not purpose) or ("Purpose statement not set yet" in str(purpose)):
+            # If missing, show ONLY the warning and STOP. No generic filler text.
+            st.markdown("**Wave Purpose Statement (Vector™):**")
+            st.warning(str(purpose) if purpose else "Purpose statement disabled or not set.")
+            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
+            st.markdown("</div>", unsafe_allow_html=True)  # end card
+        else:
             st.markdown("**Wave Purpose Statement (Vector™):**")
             st.write(purpose)
             st.caption("Purpose is positioning + governance; it does not affect analytics math.")
-        else:
-            st.caption("Purpose statement disabled or not set.")
 
-        st.write(
-            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
-            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
-        )
-        st.markdown("**Trust + Governance**")
-        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
-        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
-        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
-        st.markdown("**Performance vs Benchmark**")
-        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
-        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
-        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
-        st.markdown("</div>", unsafe_allow_html=True)
+            # ✅ Only show the generic platform-level description when purpose is actually present
+            st.write(
+                "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
+                "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
+            )
 
-        # Vector Referee (IC first)
+            # Trust + Governance
+            st.markdown("**Trust + Governance**")
+            st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+            st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+            st.write(
+                f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · "
+                f"β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · "
+                f"R² {fmt_num(beta_r2,2)} · n {beta_n}"
+            )
+
+            # Performance vs Benchmark
+            st.markdown("**Performance vs Benchmark**")
+            st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
+            st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
+            st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
+
+            # ✅ Alpha Context Bridge (Causal Completeness)
+            # Trigger when alpha looks "too strong" for weak linkage (low beta score or low R²).
+            try:
+                a365 = safe_float(metrics.get("a365"))
+                a60 = safe_float(metrics.get("a60"))
+                a30 = safe_float(metrics.get("a30"))
+                bs = safe_float(beta_score)
+                r2v = safe_float(beta_r2)
+
+                big_alpha = (
+                    (math.isfinite(a365) and abs(a365) >= 0.15) or
+                    (math.isfinite(a60) and abs(a60) >= 0.10)
+                )
+                weak_linkage = (
+                    (math.isfinite(bs) and bs < 70) or
+                    (math.isfinite(r2v) and r2v < 0.60) or
+                    (str(bm_drift).lower().strip() != "stable")
+                )
+
+                if big_alpha and weak_linkage:
+                    primary_hint = str(final_verdict.get("primary_source", "")).strip() if isinstance(final_verdict, dict) else ""
+                    st.info(
+                        "**Alpha Context (Vector™):** Elevated alpha with weaker benchmark fit/reliability usually means "
+                        "**exposure scaling (SmartSafe™ / risk gating), regime behavior, or benchmark mismatch** is driving results — "
+                        "not a simple selection-only story.\n\n"
+                        "Vector recommends using:\n"
+                        "• **Exposure-Adjusted Alpha** (normalizes alpha by average exposure)\n"
+                        "• **Risk-On vs Risk-Off Attribution** (shows where alpha was earned)\n"
+                        + (f"\n\nReferee hint: **{primary_hint}**" if primary_hint else "")
+                    )
+            except Exception:
+                pass
+
+            st.markdown("</div>", unsafe_allow_html=True)  # end card
+
+        # === Vector Referee (IC first) ===
         if ENABLE_VECTOR_REFEREE:
             st.markdown('<div class="waves-card">', unsafe_allow_html=True)
             safe_panel(
@@ -1919,18 +1976,19 @@ with tabs[0]:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Vector Truth (existing)
+        # === Vector Truth (existing) ===
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Vector™ Truth Layer (Read-Only)")
         safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Alpha enhancements summary (selected wave)
+        # === Alpha enhancements summary (selected wave) ===
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Alpha Enhancements (Selected Wave)")
         attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
         ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
         ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+
         st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
         st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
         st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
@@ -1948,6 +2006,7 @@ with tabs[0]:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # === Key Wins / Key Risks / Next Actions ===
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Key Wins / Key Risks / Next Actions")
         wins, risks, actions = [], [], []
@@ -1956,25 +2015,25 @@ with tabs[0]:
             wins.append("Fresh + complete coverage supports institutional trust.")
         if bm_drift == "stable":
             wins.append("Benchmark snapshot is stable (governance green).")
-        if math.isfinite(beta_score) and beta_score >= 80:
+        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) >= 80:
             wins.append("Benchmark systematic exposure match (beta reliability is strong).")
-        if math.isfinite(metrics["a30"]) and metrics["a30"] > 0:
+        if math.isfinite(safe_float(metrics["a30"])) and safe_float(metrics["a30"]) > 0:
             wins.append("Positive 30D alpha versus benchmark mix.")
 
         if conf_level != "High":
             risks.append("Data trust flags present (coverage/age/rows).")
         if bm_drift != "stable":
             risks.append("Benchmark drift detected (composition changed in-session).")
-        if math.isfinite(beta_score) and beta_score < 75:
+        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) < 75:
             risks.append("Beta reliability low (benchmark may not match systematic exposure).")
-        if math.isfinite(metrics["mdd"]) and metrics["mdd"] <= -0.25:
+        if math.isfinite(safe_float(metrics["mdd"])) and safe_float(metrics["mdd"]) <= -0.25:
             risks.append("Deep drawdown regime risk is elevated.")
 
         if bm_drift != "stable":
             actions.append("Freeze benchmark mix for demos/governance, then re-run.")
-        if math.isfinite(beta_score) and beta_score < 75:
+        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) < 75:
             actions.append("Review benchmark mix: adjust exposures to match wave beta target (or justify intentional mismatch).")
-        if math.isfinite(metrics["te"]) and metrics["te"] >= 0.20:
+        if math.isfinite(safe_float(metrics["te"])) and safe_float(metrics["te"]) >= 0.20:
             actions.append("Confirm exposure caps / SmartSafe posture for high active risk.")
         if conf_level != "High":
             actions.append("Inspect history pipeline for missing days or stale writes.")
@@ -1995,6 +2054,9 @@ with tabs[0]:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # -------------------------
+    # Right Column (IC Tiles + Definitions)
+    # -------------------------
     with colB:
         st.markdown("#### IC Tiles")
         c1, c2 = st.columns(2, gap="medium")
@@ -2003,7 +2065,11 @@ with tabs[0]:
             tile("Benchmark", "Stable" if bm_drift == "stable" else "Drift", bm_id)
             tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
         with c2:
-            tile("Analytics Grade", sel_score.get("Grade", "N/A"), f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}")
+            tile(
+                "Analytics Grade",
+                sel_score.get("Grade", "N/A"),
+                f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}",
+            )
             tile("Beta Reliability", beta_grade, f"{fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
             tile("Active Risk (TE)", fmt_pct(metrics["te"]), f"Band: {te_band}")
 
@@ -2029,8 +2095,6 @@ with tabs[0]:
             ],
             title="Definitions (IC)",
         )
-
-
 # ============================================================
 # OVERVIEW
 # ============================================================
