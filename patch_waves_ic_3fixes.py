@@ -1,16 +1,19 @@
 """
-patch_waves_ic_grade_numeric.py
-WAVES IC: Convert A–F grade DISPLAY to 0–100 score DISPLAY (no engine/math changes).
+patch_waves_ic_grade_numeric_v2.py
+WAVES IC: Remove A–F letter display and show 0–100 score everywhere we can, safely.
 
-What this fixes (UI only):
-- "Benchmark Fit" big letter (ex: F)  -> "53.7/100"
-- "Beta Reliability" big letter (ex: F) -> "53.7/100"
-- "Analytics Grade" big letter (ex: A) -> "90.2/100"
+Targets (UI only):
+- tile("Benchmark Fit", "F", "BetaRel 53.7/100 ...")  -> tile(..., "53.7/100", ...)
+- tile("Beta Reliability", "F", "53.7/100 ...")      -> tile(..., "53.7/100", ...)
+- tile("Analytics Grade", "A", "90.2/100 RISK")      -> tile(..., "90.2/100", ...)
+
+Also targets common text patterns like:
+- "Beta Reliability: F (53.7/100)" -> "Beta Reliability: 53.7/100"
+- "Benchmark Fit: F (53.7/100)"    -> "Benchmark Fit: 53.7/100"
 
 SAFE BEHAVIOR:
-- Creates a timestamped backup copy of app.py before changes
-- Refuses to patch if anchors aren't found (so it won't corrupt your file)
-- Only touches the SECOND argument of tile("...", <BIG_VALUE>, <SUBTITLE>)
+- Creates timestamped backup of app.py
+- Refuses to write if it can’t find anything to change (so we don’t “half patch”)
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-APP_PATH = Path("app.py")  # run in same folder as app.py
+APP_PATH = Path("app.py")
 
 def die(msg: str, code: int = 1):
     print(f"\n❌ {msg}\n")
@@ -34,23 +37,36 @@ def backup_file(path: Path) -> Path:
     print(f"✅ Backup created: {bak}")
     return bak
 
-def _choose_score_var(subtitle_src: str, candidates: list[str]) -> str | None:
+def _first_score_in_text(expr: str) -> str | None:
     """
-    Pick the first candidate variable name that appears in the subtitle expression.
+    Try to extract a "53.7/100" or f"{beta_rel:.1f}/100" style snippet from text.
+    Returns an expression to use as the big value.
     """
-    for v in candidates:
-        # match whole identifier (avoid partial hits)
-        if re.search(rf"\b{re.escape(v)}\b", subtitle_src):
-            return v
+    # f"{var:.1f}/100" inside an f-string / format
+    m = re.search(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*\.?\d*f\}", expr)
+    if m:
+        var = m.group(1)
+        return f'f"{{{var}:.1f}}/100"'
+
+    # explicit var mention like beta_rel or risk_score (even if not in braces)
+    for var in ["beta_rel", "beta_score", "risk_score", "risk_pts", "analytics_score", "fit_score"]:
+        if re.search(rf"\b{var}\b", expr):
+            return f'f"{{{var}:.1f}}/100"'
+
+    # literal "53.7/100"
+    m2 = re.search(r"(\d+(?:\.\d+)?)\s*/\s*100", expr)
+    if m2:
+        val = m2.group(1)
+        return f'"{val}/100"'
+
     return None
 
-def patch_tile_big_value_to_numeric(src: str, title: str, score_candidates: list[str]) -> str:
+def patch_all_tile_calls(src: str, title: str) -> tuple[str, int]:
     """
-    Find tile("TITLE", BIG, SUBTITLE) and replace BIG with f"{score:.1f}/100"
-    using a numeric score variable referenced in SUBTITLE.
+    Patch ALL tile("title", BIG, SUB) occurrences by replacing BIG with a 0–100 string
+    derived from SUB whenever possible.
     """
-    # Match tile("Title", <big_expr>, <subtitle_expr>)
-    # Works across newlines; non-greedy.
+    # Capture tile("Title", big_expr, sub_expr) across newlines
     pattern = re.compile(
         rf"""
         tile\(\s*
@@ -62,77 +78,89 @@ def patch_tile_big_value_to_numeric(src: str, title: str, score_candidates: list
         re.VERBOSE | re.DOTALL,
     )
 
-    m = pattern.search(src)
-    if not m:
-        die(f'Anchor not found: tile("{title}", ...)  (Fix: {title})')
+    out = []
+    last = 0
+    changed = 0
 
-    big_expr = m.group("big")
-    sub_expr = m.group("sub")
+    for m in pattern.finditer(src):
+        out.append(src[last:m.start()])
+        old_call = m.group(0)
+        big_expr = m.group("big")
+        sub_expr = m.group("sub")
 
-    score_var = _choose_score_var(sub_expr, score_candidates)
-    if not score_var:
-        die(
-            f'Could not find any known numeric score variable in tile("{title}") subtitle.\n'
-            f"Tried: {score_candidates}\n"
-            f"Subtitle expression snippet:\n{sub_expr[:400]}"
-        )
+        new_big = _first_score_in_text(sub_expr)
+        if not new_big:
+            # If we can’t infer a numeric score from subtitle, leave unchanged (safe)
+            out.append(old_call)
+            last = m.end()
+            continue
 
-    # Replace ONLY the BIG expr inside this matched tile call
-    new_big = f'f"{{{score_var}:.1f}}/100"'
+        new_call = old_call.replace(big_expr, new_big, 1)
+        if new_call != old_call:
+            changed += 1
+            out.append(new_call)
+        else:
+            out.append(old_call)
 
-    # Rebuild the matched tile(...) text with big replaced
-    old_call = m.group(0)
-    new_call = old_call.replace(big_expr, new_big, 1)
+        last = m.end()
 
-    if old_call == new_call:
-        die(f'No change applied for tile("{title}") — unexpected pattern.')
+    out.append(src[last:])
+    return ("".join(out), changed)
 
-    src2 = src[: m.start()] + new_call + src[m.end() :]
-    print(f'✅ Patched: tile("{title}") big value -> {score_var}/100')
-    return src2
+def patch_grade_text_patterns(src: str) -> tuple[str, int]:
+    """
+    Replace common "X: F (53.7/100)" patterns.
+    """
+    patterns = [
+        # Beta Reliability: F (53.7/100) -> Beta Reliability: 53.7/100
+        (re.compile(r"(Beta\s*Reliability\s*:\s*)([A-F][+-]?)\s*\(\s*(\d+(?:\.\d+)?)\s*/\s*100\s*\)", re.IGNORECASE),
+         r"\1\3/100"),
+        # Benchmark Fit: F (53.7/100) -> Benchmark Fit: 53.7/100
+        (re.compile(r"(Benchmark\s*Fit\s*:\s*)([A-F][+-]?)\s*\(\s*(\d+(?:\.\d+)?)\s*/\s*100\s*\)", re.IGNORECASE),
+         r"\1\3/100"),
+        # Analytics Grade: A (90.2/100) -> Analytics Score: 90.2/100  (optional rename)
+        (re.compile(r"(Analytics\s*Grade\s*:\s*)([A-F][+-]?)\s*\(\s*(\d+(?:\.\d+)?)\s*/\s*100\s*\)", re.IGNORECASE),
+         r"Analytics Score: \3/100"),
+    ]
+
+    total = 0
+    for rx, repl in patterns:
+        src, n = rx.subn(repl, src)
+        total += n
+    return src, total
 
 def main():
     if not APP_PATH.exists():
-        die(f"Could not find {APP_PATH.resolve()}. Run this script in the same folder as app.py.")
+        die(f"Could not find {APP_PATH.resolve()}. Run this in the same folder as app.py.")
 
     src = APP_PATH.read_text(encoding="utf-8")
     backup_file(APP_PATH)
 
-    # --- Fix A–F display to 0–100 display (UI only) ---
+    total_changes = 0
 
-    # "Benchmark Fit" big letter -> numeric score (usually beta_rel or beta_score)
-    src = patch_tile_big_value_to_numeric(
-        src,
-        title="Benchmark Fit",
-        score_candidates=[
-            "beta_rel", "beta_score", "beta_reliability", "betarel",
-            "bench_fit", "benchmark_fit", "fit_score"
-        ],
-    )
+    # Patch ALL occurrences (Executive IC One-Pager + IC Tiles + anywhere else)
+    for t in ["Benchmark Fit", "Beta Reliability", "Analytics Grade"]:
+        src, n = patch_all_tile_calls(src, t)
+        print(f'✅ tile("{t}") patched occurrences: {n}')
+        total_changes += n
 
-    # "Beta Reliability" big letter -> numeric score (usually beta_rel or beta_score)
-    src = patch_tile_big_value_to_numeric(
-        src,
-        title="Beta Reliability",
-        score_candidates=[
-            "beta_rel", "beta_score", "beta_reliability", "betarel",
-            "br_score", "rel_score"
-        ],
-    )
+    # Patch common text patterns that still show A–F
+    src, ntext = patch_grade_text_patterns(src)
+    if ntext:
+        print(f"✅ Text A–F patterns patched: {ntext}")
+    total_changes += ntext
 
-    # "Analytics Grade" big letter -> numeric score (usually risk_score or risk_pts)
-    src = patch_tile_big_value_to_numeric(
-        src,
-        title="Analytics Grade",
-        score_candidates=[
-            "risk_score", "risk_pts", "risk_total", "risk_val", "risk",
-            "analytics_score", "grade_score"
-        ],
-    )
+    if total_changes == 0:
+        die(
+            "No changes were applied.\n"
+            "That means your UI is not using tile(\"Benchmark Fit\"/\"Beta Reliability\"/\"Analytics Grade\") "
+            "or the strings differ.\n"
+            "Next step: search app.py for 'Benchmark Fit' / 'Beta Reliability' / 'Analytics Grade' and we’ll target the exact pattern."
+        )
 
     APP_PATH.write_text(src, encoding="utf-8")
-    print("\n✅ DONE. app.py updated: grade letters replaced with 0–100 display.\n")
-    print("Next: restart Streamlit. If anything looks off, restore the .bak_ file created above.")
+    print(f"\n✅ DONE. Total changes applied: {total_changes}\n")
+    print("Next: restart Streamlit / redeploy so the new app.py is actually loaded.")
 
 if __name__ == "__main__":
     main()
