@@ -9,6 +9,11 @@
 #         + NEW: VECTOR GOVERNANCE LAYER (Status Bar + Final Verdict Box + Assumptions Panel
 #                + Gating Warnings + Wave Purpose Statements)
 #
+# ✅ Minor fixes applied (3):
+#   1) Wave Purpose Statement: no more “warning-style” UX when missing; uses neutral fallback line (non-blocking).
+#   2) Risk-On/Risk-Off shares: stable ABS contribution shares (never negative / >100%).
+#   3) Final Verdict: remove globals()/implicit hist_sel usage; pass hist_sel explicitly.
+#
 # Boot-safety rules:
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
 #   • Guarded optional imports (yfinance / plotly)
@@ -1185,14 +1190,17 @@ def _alpha_capture_series(hist: pd.DataFrame, wave_name: str, mode: str) -> pd.S
 def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: int = 60) -> Dict[str, Any]:
     """
     Returns capital-weighted alpha + exposure-adjusted alpha + risk-on/off split for a window.
+
+    ✅ FIX #2: Shares are ABS contribution shares (stable) so they never go negative
+    or exceed 100% when risk-on/off have opposing signs or near-zero net alpha.
     """
     out = {
         "cap_alpha": np.nan,
         "exp_adj_alpha": np.nan,
         "risk_on_alpha": np.nan,
         "risk_off_alpha": np.nan,
-        "risk_on_share": np.nan,
-        "risk_off_share": np.nan,
+        "risk_on_share": np.nan,   # 0..1 abs-share
+        "risk_off_share": np.nan,  # 0..1 abs-share
     }
     if hist is None or hist.empty:
         return out
@@ -1216,11 +1224,12 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
         exp_num = pd.to_numeric(exp, errors="coerce").dropna()
         avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
         avg_exp = max(0.10, min(1.0, avg_exp))
-        out["exp_adj_alpha"] = cap_alpha / avg_exp if math.isfinite(cap_alpha) else float("nan")
+        out["exp_adj_alpha"] = (cap_alpha / avg_exp) if math.isfinite(cap_alpha) else float("nan")
 
     # risk-on/off attribution using alpha-capture daily series (compounded)
     ac = _alpha_capture_series(h, wave_name, mode)
-    if len(ac) >= 2:
+    if len(ac) >= 
+    2:
         reg = _build_regime_series_from_benchmark(h)
         if reg is not None:
             reg = reg.reindex(ac.index)
@@ -1230,14 +1239,14 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
             rf = _compound_from_daily(risk_off) if len(risk_off) >= 2 else float("nan")
             out["risk_on_alpha"] = ro
             out["risk_off_alpha"] = rf
-            tot = 0.0
-            if math.isfinite(ro):
-                tot += ro
-            if math.isfinite(rf):
-                tot += rf
-            if tot != 0.0:
-                out["risk_on_share"] = ro / tot if math.isfinite(ro) else np.nan
-                out["risk_off_share"] = rf / tot if math.isfinite(rf) else np.nan
+
+            # ✅ FIX #2: stable ABS contribution shares
+            ro_abs = abs(ro) if math.isfinite(ro) else 0.0
+            rf_abs = abs(rf) if math.isfinite(rf) else 0.0
+            denom = ro_abs + rf_abs
+            if denom > 0:
+                out["risk_on_share"] = ro_abs / denom
+                out["risk_off_share"] = rf_abs / denom
 
     return out
 
@@ -1497,7 +1506,6 @@ def safe_panel(title: str, fn):
 # ============================================================
 # 5️⃣ Wave Purpose Statements (edit anytime; safe + non-math)
 WAVE_PURPOSE: Dict[str, str] = {
-    # Put your top “hero” waves here first; anything missing falls back safely.
     "S&P 500 Wave": "Core U.S. large-cap baseline wave designed for broad market participation with governance-native benchmarking.",
     "US Growth Wave": "Growth-tilted U.S. equity wave designed to capture upside leadership while measuring discipline versus a custom growth benchmark.",
     "Small Cap Growth Wave": "Small-cap growth wave designed to target higher upside with tighter risk controls and transparent benchmark-relative attribution.",
@@ -1510,12 +1518,16 @@ WAVE_PURPOSE: Dict[str, str] = {
     "SmartSafe Money Market Wave": "Capital-preservation wave designed for stability and liquidity; used as a governance anchor during risk-off regimes.",
 }
 
+
 def wave_purpose_statement(wave_name: str) -> str:
+    """
+    ✅ FIX #1: neutral fallback (no warning-style UX). Always returns a calm line.
+    """
     if not ENABLE_WAVE_PURPOSE_STATEMENTS:
         return ""
     if not wave_name or wave_name == "(none)":
         return ""
-    return WAVE_PURPOSE.get(wave_name, "Purpose statement not set yet for this Wave. Add it to WAVE_PURPOSE in app.py.")
+    return WAVE_PURPOSE.get(wave_name, "Purpose statement not set yet. (Add it to WAVE_PURPOSE in app.py)")
 
 
 # 4️⃣ Gating Warnings (read-only; non-blocking)
@@ -1608,6 +1620,7 @@ def render_vector_status_bar(
 def build_final_verdict(
     selected_wave: str,
     mode: str,
+    hist_sel: pd.DataFrame,
     metrics: Dict[str, Any],
     cov: Dict[str, Any],
     bm_drift: str,
@@ -1615,9 +1628,7 @@ def build_final_verdict(
     rr_score: float,
 ) -> Dict[str, Any]:
     """
-    Deterministic verdict:
-      - Green/Amber/Red based on gating + confidence heuristics
-      - Includes classification + primary source (from Referee logic)
+    ✅ FIX #3: no globals()/implicit hist_sel usage; hist_sel is passed explicitly.
     """
     cap_alpha = safe_float(metrics.get("a365"))
     if not math.isfinite(cap_alpha):
@@ -1628,20 +1639,20 @@ def build_final_verdict(
     # exposure-adjusted alpha (best-effort)
     exp_adj_alpha = cap_alpha
     try:
-        exp = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index)) if 'hist_sel' in globals() else None
-        if exp is not None:
-            exp_num = pd.to_numeric(exp, errors="coerce").dropna()
-            avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
-            avg_exp = max(0.10, min(1.0, avg_exp))
-            if math.isfinite(cap_alpha):
-                exp_adj_alpha = cap_alpha / avg_exp
+        if hist_sel is not None and not hist_sel.empty:
+            exp = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+            if exp is not None:
+                exp_num = pd.to_numeric(exp, errors="coerce").dropna()
+                avg_exp = float(exp_num.mean()) if len(exp_num) else 1.0
+                avg_exp = max(0.10, min(1.0, avg_exp))
+                if math.isfinite(cap_alpha):
+                    exp_adj_alpha = cap_alpha / avg_exp
     except Exception:
         pass
 
     classification = _alpha_classification(cap_alpha, beta_score, bm_drift, rr_score)
     primary = _primary_alpha_source(mode, cap_alpha, exp_adj_alpha, beta_score)
 
-    # verdict color logic (non-blocking)
     cov_score = safe_float(cov.get("completeness_score"))
     age = safe_float(cov.get("age_days"))
     rows = int(cov.get("rows") or 0)
@@ -1799,7 +1810,7 @@ beta_grade = beta_band(beta_score)
 
 # Vector governance computations (non-blocking)
 gating = build_gating_warnings(cov, bm_drift, beta_score, beta_n, selected_wave) if VECTOR_GOVERNANCE_ENABLED else {"warn": [], "crit": []}
-final_verdict = build_final_verdict(selected_wave, mode, metrics, cov, bm_drift, beta_score, rr_score) if VECTOR_GOVERNANCE_ENABLED else {}
+final_verdict = build_final_verdict(selected_wave, mode, hist_sel, metrics, cov, bm_drift, beta_score, rr_score) if VECTOR_GOVERNANCE_ENABLED else {}
 
 
 # ============================================================
@@ -1875,86 +1886,60 @@ with tabs[0]:
 
     colA, colB = st.columns([1.2, 1.0], gap="large")
 
-    # -------------------------
-    # Left Column (IC Narrative + Governance)
-    # -------------------------
     with colA:
-        # === Card: What is this wave? (Single-Truth) ===
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### What is this wave?")
 
-        # 5️⃣ Wave Purpose Statement (IC-first) — SINGLE VOICE OF TRUTH
         purpose = wave_purpose_statement(selected_wave)
+        st.markdown("**Wave Purpose Statement (Vector™):**")
+        st.write(purpose)
+        st.caption("Purpose is positioning + governance; it does not affect analytics math.")
 
-        if (not purpose) or ("Purpose statement not set yet" in str(purpose)):
-            # If missing, show ONLY the warning and STOP. No generic filler text.
-            st.markdown("**Wave Purpose Statement (Vector™):**")
-            st.warning(str(purpose) if purpose else "Purpose statement disabled or not set.")
-            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
-            st.markdown("</div>", unsafe_allow_html=True)  # end card
-        else:
-            st.markdown("**Wave Purpose Statement (Vector™):**")
-            st.write(purpose)
-            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
+        # Generic platform-level line (safe, non-contradictory)
+        st.write(
+            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
+            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
+        )
 
-            # ✅ Only show the generic platform-level description when purpose is actually present
-            st.write(
-                "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
-                "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
-            )
+        st.markdown("**Trust + Governance**")
+        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+        st.write(
+            f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · "
+            f"β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · "
+            f"R² {fmt_num(beta_r2,2)} · n {beta_n}"
+        )
 
-            # Trust + Governance
-            st.markdown("**Trust + Governance**")
-            st.write(f"**Confidence:** {conf_level} — {conf_reason}")
-            st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
-            st.write(
-                f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · "
-                f"β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · "
-                f"R² {fmt_num(beta_r2,2)} · n {beta_n}"
-            )
+        st.markdown("**Performance vs Benchmark**")
+        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
+        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
+        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
 
-            # Performance vs Benchmark
-            st.markdown("**Performance vs Benchmark**")
-            st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
-            st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
-            st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
-
-            # ✅ Alpha Context Bridge (Causal Completeness)
-            # Trigger when alpha looks "too strong" for weak linkage (low beta score or low R²).
-            try:
-                a365 = safe_float(metrics.get("a365"))
-                a60 = safe_float(metrics.get("a60"))
-                a30 = safe_float(metrics.get("a30"))
-                bs = safe_float(beta_score)
-                r2v = safe_float(beta_r2)
-
-                big_alpha = (
-                    (math.isfinite(a365) and abs(a365) >= 0.15) or
-                    (math.isfinite(a60) and abs(a60) >= 0.10)
+        # Optional alpha context bridge
+        try:
+            a365 = safe_float(metrics.get("a365"))
+            a60 = safe_float(metrics.get("a60"))
+            bs = safe_float(beta_score)
+            r2v = safe_float(beta_r2)
+            big_alpha = (math.isfinite(a365) and abs(a365) >= 0.15) or (math.isfinite(a60) and abs(a60) >= 0.10)
+            weak_linkage = (math.isfinite(bs) and bs < 70) or (math.isfinite(r2v) and r2v < 0.60) or (str(bm_drift).lower().strip() != "stable")
+            if big_alpha and weak_linkage:
+                primary_hint = str(final_verdict.get("primary_source", "")).strip() if isinstance(final_verdict, dict) else ""
+                st.info(
+                    "**Alpha Context (Vector™):** Elevated alpha with weaker benchmark fit/reliability usually means "
+                    "**exposure scaling (SmartSafe™ / risk gating), regime behavior, or benchmark mismatch** is driving results — "
+                    "not a simple selection-only story.\n\n"
+                    "Vector recommends using:\n"
+                    "• **Exposure-Adjusted Alpha**\n"
+                    "• **Risk-On vs Risk-Off Attribution**\n"
+                    + (f"\n\nReferee hint: **{primary_hint}**" if primary_hint else "")
                 )
-                weak_linkage = (
-                    (math.isfinite(bs) and bs < 70) or
-                    (math.isfinite(r2v) and r2v < 0.60) or
-                    (str(bm_drift).lower().strip() != "stable")
-                )
+        except Exception:
+            pass
 
-                if big_alpha and weak_linkage:
-                    primary_hint = str(final_verdict.get("primary_source", "")).strip() if isinstance(final_verdict, dict) else ""
-                    st.info(
-                        "**Alpha Context (Vector™):** Elevated alpha with weaker benchmark fit/reliability usually means "
-                        "**exposure scaling (SmartSafe™ / risk gating), regime behavior, or benchmark mismatch** is driving results — "
-                        "not a simple selection-only story.\n\n"
-                        "Vector recommends using:\n"
-                        "• **Exposure-Adjusted Alpha** (normalizes alpha by average exposure)\n"
-                        "• **Risk-On vs Risk-Off Attribution** (shows where alpha was earned)\n"
-                        + (f"\n\nReferee hint: **{primary_hint}**" if primary_hint else "")
-                    )
-            except Exception:
-                pass
+        st.markdown("</div>", unsafe_allow_html=True)
 
-            st.markdown("</div>", unsafe_allow_html=True)  # end card
-
-        # === Vector Referee (IC first) ===
+        # Vector Referee
         if ENABLE_VECTOR_REFEREE:
             st.markdown('<div class="waves-card">', unsafe_allow_html=True)
             safe_panel(
@@ -1976,13 +1961,13 @@ with tabs[0]:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # === Vector Truth (existing) ===
+        # Vector Truth
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Vector™ Truth Layer (Read-Only)")
         safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # === Alpha enhancements summary (selected wave) ===
+        # Alpha enhancements summary
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Alpha Enhancements (Selected Wave)")
         attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
@@ -1994,11 +1979,11 @@ with tabs[0]:
         st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
         st.write(
             f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_on_share'),2)} share)"
+            f"({fmt_pct(attrib60.get('risk_on_share'),2)} abs-share)"
         )
         st.write(
             f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_off_share'),2)} share)"
+            f"({fmt_pct(attrib60.get('risk_off_share'),2)} abs-share)"
         )
         render_definitions(
             ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
@@ -2006,7 +1991,7 @@ with tabs[0]:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # === Key Wins / Key Risks / Next Actions ===
+        # Key Wins / Risks / Actions
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Key Wins / Key Risks / Next Actions")
         wins, risks, actions = [], [], []
@@ -2054,9 +2039,6 @@ with tabs[0]:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # -------------------------
-    # Right Column (IC Tiles + Definitions)
-    # -------------------------
     with colB:
         st.markdown("#### IC Tiles")
         c1, c2 = st.columns(2, gap="medium")
@@ -2095,6 +2077,7 @@ with tabs[0]:
             ],
             title="Definitions (IC)",
         )
+
 # ============================================================
 # OVERVIEW
 # ============================================================
@@ -2311,8 +2294,8 @@ with tabs[4]:
             st.info("Pick Wave B to compare.")
 
 
-# # ============================================================
-# ALPHA SNAPSHOT (ALL WAVES) — BOOT-SAFE REPLACEMENT
+# ============================================================
+# ALPHA SNAPSHOT (ALL WAVES)
 # ============================================================
 with tabs[5]:
     st.markdown("### Alpha Snapshot (All Waves)")
@@ -2335,7 +2318,6 @@ with tabs[5]:
         )
 
         def _ac_compound(ac: pd.Series, n: int) -> float:
-            """Boot-safe compounded alpha capture over last n points."""
             try:
                 if ac is None:
                     return float("nan")
@@ -2384,7 +2366,6 @@ with tabs[5]:
 
             return row
 
-        # Build snapshot table (speed-controlled)
         waves_to_run = (all_waves[: int(limit_n)] if all_waves else [])
         rows: List[Dict[str, Any]] = []
         for w in waves_to_run:
@@ -2397,9 +2378,8 @@ with tabs[5]:
             st.info("Snapshot could not be built (no histories returned).")
         else:
             df = pd.DataFrame(rows)
-
-            # Display-friendly formatting copy
             show = df.copy()
+
             pct_cols = [
                 "1D Return", "1D Alpha",
                 "30D Return", "30D Alpha",
@@ -2422,6 +2402,7 @@ with tabs[5]:
                 mime="text/csv",
                 use_container_width=True,
             )
+
 
 # ============================================================
 # DIAGNOSTICS (ALWAYS BOOTS)
