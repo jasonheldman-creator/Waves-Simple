@@ -1991,87 +1991,134 @@ tab_names = [
 tabs = st.tabs(tab_names)
 
 # ============================================================
-# IC SUMMARY (1–100 Scoring; no A–F)
+# IC SUMMARY — EXECUTIVE, SCORE-BASED, GOVERNANCE-SAFE
 # ============================================================
 with tabs[0]:
-    st.markdown("### Executive IC One-Pager")
-    st.caption("Governance-safe summary. Scores are 1–100 (higher is better).")
 
-    def _band_100(x: float) -> str:
-        try:
-            x = float(x)
-        except Exception:
-            return "—"
-        if x >= 85: return "Elite"
-        if x >= 70: return "Strong"
-        if x >= 55: return "Mixed"
-        return "Weak"
+    st.markdown("### 📘 Investment Committee Summary")
+    st.caption(
+        "Executive snapshot derived from canonical metrics. "
+        "Score-based (1–100). No execution. No allocation changes."
+    )
 
-    def _clamp01_to_100(x, default=None):
-        if x is None:
-            return default
-        try:
-            v = float(x)
-        except Exception:
-            return default
-        # If someone accidentally passes 0–1, convert to 0–100
-        if 0.0 <= v <= 1.0:
-            v = 100.0 * v
-        return max(0.0, min(100.0, v))
+    # --------------------------------------------------------
+    # 1. OVERALL SYSTEM SCORE (PRIMARY SIGNAL)
+    # --------------------------------------------------------
+    overall_score = int(round(
+        0.40 * analytics_score +
+        0.25 * risk_reaction_score +
+        0.20 * beta_score +
+        0.15 * conf_level
+    ))
 
-    # --- Pull canonical signals safely (no NameError crashes) ---
-    analytics_100 = _clamp01_to_100(locals().get("analytics_score", None), default=None)
-    beta_rel_100  = _clamp01_to_100(locals().get("beta_score", None), default=None)
-    rr_100        = _clamp01_to_100(locals().get("rr_score", None), default=None)
-    vci_100       = _clamp01_to_100(locals().get("vci", None), default=None)
+    score_band = (
+        "Strong" if overall_score >= 80 else
+        "Moderate" if overall_score >= 65 else
+        "Fragile"
+    )
 
-    bm_state = locals().get("bm_drift", None)
-    bm_state_txt = "stable" if (str(bm_state).lower() == "stable") else (str(bm_state) if bm_state is not None else "—")
-
-    # --- Top tiles ---
-    c1, c2, c3 = st.columns([1.2, 1.2, 1.2], gap="medium")
-
+    c1, c2, c3 = st.columns([1.1, 1.0, 1.0])
     with c1:
-        tile("System Confidence", f"{_band_100(vci_100)}" if vci_100 is not None else "—", f"{vci_100:.0f}/100" if vci_100 is not None else "")
+        tile("System Score", f"{overall_score}/100", score_band)
     with c2:
-        tile("Benchmark Drift", bm_state_txt.upper(), "")
+        tile("Confidence", f"{conf_level:.0f}/100", "Data integrity")
     with c3:
-        tile("Analytics Score", f"{analytics_100:.0f}/100" if analytics_100 is not None else "—", _band_100(analytics_100) if analytics_100 is not None else "")
+        tile("Benchmark Status", bm_drift.upper(), "Stability")
 
-    c4, c5 = st.columns([1.2, 1.2], gap="medium")
+    st.divider()
+
+    # --------------------------------------------------------
+    # 2. RISK & CONTROL SNAPSHOT (WHAT IC CARES ABOUT)
+    # --------------------------------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        tile("Beta Discipline", f"{beta_score:.0f}/100", f"β {beta_real:.2f} / tgt {beta_target:.2f}")
+    with c2:
+        tile("Risk Reaction", f"{risk_reaction_score:.0f}/100", "Drawdown behavior")
+    with c3:
+        tile("Tracking Error", f"{te:.2f}%", "Active risk")
     with c4:
-        tile("Beta Reliability", f"{beta_rel_100:.0f}/100" if beta_rel_100 is not None else "—", _band_100(beta_rel_100) if beta_rel_100 is not None else "")
-    with c5:
-        tile("Risk Reaction", f"{rr_100:.0f}/100" if rr_100 is not None else "—", _band_100(rr_100) if rr_100 is not None else "")
+        tile("Max Drawdown", f"{max_dd:.2f}%", "Historical")
 
-    st.markdown("---")
+    st.divider()
 
-    # --- Gating warnings (keeps your existing warns/crits behavior if present) ---
-    crits = locals().get("crits", []) or []
-    warns = locals().get("warns", []) or []
+    # --------------------------------------------------------
+    # 3. PERFORMANCE ATTRIBUTION (NO DUPLICATE MATH)
+    # --------------------------------------------------------
+    st.markdown("#### Performance vs Benchmark")
 
-    if crits:
-        st.markdown('<div class="vector-crit">', unsafe_allow_html=True)
-        st.markdown("**Gating Warnings — Critical**")
-        for w in crits[:6]:
-            st.write("• " + str(w))
-        st.markdown("</div>", unsafe_allow_html=True)
+    perf_rows = [
+        ("30D", alpha_30d, ret_30d),
+        ("60D", alpha_60d, ret_60d),
+        ("365D", alpha_365d, ret_365d),
+    ]
 
-    if warns:
-        st.markdown('<div class="vector-warn">', unsafe_allow_html=True)
-        st.markdown("**Gating Warnings — Caution**")
-        for w in warns[:6]:
-            st.write("• " + str(w))
-        st.markdown("</div>", unsafe_allow_html=True)
+    perf_df = pd.DataFrame(
+        perf_rows,
+        columns=["Window", "Alpha", "Return"]
+    )
 
-    with st.expander("What are gating warnings?"):
+    st.dataframe(
+        perf_df.style.format({
+            "Alpha": "{:.2f}%",
+            "Return": "{:.2f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.caption(
+        "Alpha reflects exposure-adjusted performance versus the canonical benchmark. "
+        "All figures sourced from the same history object."
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # 4. GOVERNANCE FLAGS (IC ACTIONABILITY)
+    # --------------------------------------------------------
+    flags = []
+    if beta_score < 60:
+        flags.append("Low beta reliability — benchmark may not explain exposure.")
+    if bm_drift != "stable":
+        flags.append("Benchmark drift detected — review attribution context.")
+    if max_dd < -20:
+        flags.append("Deep drawdown history — heightened risk sensitivity.")
+
+    if flags:
+        st.markdown("#### Governance Notes")
+        for f in flags:
+            st.warning(f)
+    else:
+        st.success("No material governance concerns detected.")
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # 5. IC INTERPRETATION (CLEAR, NON-OVERLAPPING)
+    # --------------------------------------------------------
+    st.markdown("#### IC Interpretation")
+
+    interpretation = (
+        "The system exhibits strong internal coherence and stable benchmark alignment. "
+        "Risk controls are behaving within expected tolerances. "
+        "Observed alpha is primarily attributable to strategy execution rather than benchmark distortion."
+        if overall_score >= 80 else
+        "System signals are mixed. Performance is acceptable, but risk or benchmark fidelity "
+        "requires monitoring before increasing reliance."
+        if overall_score >= 65 else
+        "System reliability is fragile. Outputs should be interpreted cautiously until "
+        "risk controls or benchmark alignment improve."
+    )
+
+    st.info(interpretation)
+
+    with st.expander("What this summary is / is not"):
         st.write(
-            "These are governance checks. They indicate whether analytics are trustworthy "
-            "(benchmark drift, stale data, missing history, low beta reliability, etc.)."
+            "This summary is designed for investment committees and governance review. "
+            "It consolidates signal quality, risk behavior, and attribution integrity into a single page. "
+            "It does not provide trade recommendations or allocation instructions."
         )
-
-    st.markdown("---")
-    st.caption("Everything below should use the same canonical `hist_sel` object (no duplicate math).")
     
     # ============================================================
 # INTELLIGENCE CENTER (Tightened; Adds “Why” tags)
