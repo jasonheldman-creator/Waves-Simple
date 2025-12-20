@@ -1766,147 +1766,126 @@ def render_gating_warnings(g: Dict[str, List[str]]):
 # INTELLIGENCE CENTER — CROSS-WAVE SYSTEM INTELLIGENCE
 # ============================================================
 with tabs[1]:
-
-    st.markdown("## 🧠 Intelligence Center")
-
+    st.markdown("### 🧠 Intelligence Center")
     st.caption(
         "Cross-wave system intelligence (read-only). "
         "Soft guidance only. No execution or allocation changes."
     )
 
-    # --------------------------------------------------------
-    # Controls
-    # --------------------------------------------------------
-    waves_used = st.slider(
-        "Waves analyzed",
-        min_value=6,
-        max_value=len(all_waves),
-        value=min(18, len(all_waves)),
-    )
+    # ---------- Controls ----------
+    all_waves_local = locals().get("all_waves", []) or []
 
-    corr_days = st.selectbox(
-        "Correlation window (days)",
-        [30, 60, 90, 180],
-        index=2,
-    )
-
-    focus = st.selectbox(
-        "Focus",
-        ["System State", "Diversification", "Relative Opportunity"],
-        index=0,
-    )
-
-    show_corr = st.toggle("Show correlation matrix", value=True)
-
-    # --------------------------------------------------------
-    # System State
-    # --------------------------------------------------------
-    st.markdown("### System State")
-
-    c1, c2, c3 = st.columns(3)
-
+    c1, c2, c3 = st.columns([1.2, 1.0, 1.2], gap="medium")
     with c1:
-        tile("Market Regime", market_regime, "benchmark sign dominance")
-
+        waves_n = st.slider(
+            "Waves analyzed",
+            min_value=4,
+            max_value=max(4, len(all_waves_local)),
+            value=min(18, len(all_waves_local)),
+        )
     with c2:
-        tile(
-            "Correlation State",
-            f"{corr_state:.2f}",
-            (
-                "Low"
-                if corr_state <= 0.35 else
-                "Moderate"
-                if corr_state <= 0.65 else
-                "High"
-            )
-        )
-
+        corr_days = st.selectbox("Correlation window (days)", [30, 60, 90, 120, 180], index=2)
     with c3:
-        tile("System Confidence", conf_level, f"BM drift: {bm_drift}")
-
-    # --------------------------------------------------------
-    # Diversification & Crowd Risk
-    # --------------------------------------------------------
-    st.markdown("### Diversification & Crowd Risk")
-
-    if show_corr:
-        st.dataframe(
-            corr_matrix,
-            use_container_width=True,
+        focus = st.selectbox(
+            "Focus",
+            ["System State", "Diversification & Crowd Risk", "Relative Opportunity"],
+            index=0,
         )
 
-    st.success(
-        "Lower correlation environment. Diversification benefits are stronger than usual."
-        if corr_state <= 0.35 else
-        "Higher correlation environment. Crowding risk is elevated."
-    )
+    waves_subset = all_waves_local[:waves_n]
 
-    # --------------------------------------------------------
-    # Relative Opportunity (Soft Guidance)
-    # --------------------------------------------------------
-    st.markdown("### Relative Opportunity (Soft Guidance)")
+    # ---------- Required helpers ----------
+    _ic_load = locals().get("_ic_load_wave_metrics", None)
+    _ic_retmat = locals().get("_ic_return_matrix", None)
 
-    def why_tag(row):
-        bits = []
+    if not _ic_load or not _ic_retmat or not waves_subset:
+        st.warning("Intelligence Center unavailable (missing helpers or waves).")
+    else:
+        import numpy as np
+        import pandas as pd
 
-        if corr_state <= 0.35:
-            bits.append("low correlation")
-        elif corr_state >= 0.70:
-            bits.append("high correlation")
+        R = _ic_retmat(waves_subset, mode=locals().get("mode", "Standard"), days=corr_days)
 
-        if "risk-on" in market_regime.lower():
-            bits.append("risk-on regime")
-        elif "risk-off" in market_regime.lower():
-            bits.append("risk-off regime")
+        if R is None or len(R) == 0:
+            st.warning("Insufficient data to compute correlation.")
+        else:
+            if not isinstance(R, pd.DataFrame):
+                R = pd.DataFrame(R, columns=[w.get("name", str(i)) if isinstance(w, dict) else str(w)
+                                             for i, w in enumerate(waves_subset)])
 
-        rr = row.get("risk_reaction", None)
-        if isinstance(rr, (int, float)):
-            if rr >= 75:
-                bits.append("strong risk reaction")
-            elif rr <= 45:
-                bits.append("weak risk reaction")
+            C = R.corr()
 
-        return " + ".join(bits[:3]) if bits else "system backdrop"
+            # ---------- SYSTEM STATE ----------
+            if focus == "System State":
+                st.markdown("#### System State")
 
-    opp_rows = []
-    for row in opportunity_rows:
-        row = row.copy()
-        row["Why"] = why_tag(row)
-        opp_rows.append(row)
+                avg_r = R.mean().mean()
+                regime = "Risk-On dominant" if avg_r >= 0 else "Risk-Off pressure"
 
-    opp_df = pd.DataFrame(opp_rows)
+                cA, cB, cC = st.columns(3)
+                with cA:
+                    st.metric("Market Regime", regime)
+                with cB:
+                    off = C.values.copy()
+                    np.fill_diagonal(off, np.nan)
+                    corr_state = float(np.nanmean(np.abs(off)))
+                    st.metric("Correlation State", f"{corr_state:.2f}")
+                with cC:
+                    st.metric("System Confidence", locals().get("conf_level", "—"))
 
-    opp_df = opp_df[["Guidance", "Wave", "Why"]]
+            # ---------- DIVERSIFICATION ----------
+            if focus == "Diversification & Crowd Risk":
+                st.markdown("#### Diversification & Crowd Risk")
+                st.dataframe(C.round(2), use_container_width=True)
 
-    st.dataframe(
-        opp_df,
-        use_container_width=True,
-        hide_index=True,
-    )
+                off = C.values.copy()
+                np.fill_diagonal(off, np.nan)
+                crowd = float(np.nanmean(np.abs(off)))
 
-    # --------------------------------------------------------
-    # Portfolio Construction Intelligence
-    # --------------------------------------------------------
-    st.markdown("### Portfolio Construction Intelligence (Read-Only)")
+                if crowd < 0.45:
+                    st.success("Lower correlation environment. Diversification benefits are stronger than usual.")
+                elif crowd < 0.65:
+                    st.info("Moderate crowding. Diversification still meaningful.")
+                else:
+                    st.warning("High crowding. Diversification is scarce.")
 
-    st.markdown(
-        """
-        • When correlations compress, emphasize true diversifiers and risk controls.  
-        • When risk-off dominates, prefer lower tracking error and tighter drawdowns.  
-        • When risk-on dominates, dispersion and relative opportunity matter more than correlation.
-        """
-    )
+            # ---------- RELATIVE OPPORTUNITY ----------
+            if focus == "Relative Opportunity":
+                st.markdown("#### Relative Opportunity (Soft Guidance)")
 
-    st.success(
-        "Construction cue: Dispersion is healthy; relative opportunity signals are more actionable."
-    )
+                rows = []
+                for w in waves_subset:
+                    name = w.get("name") if isinstance(w, dict) else str(w)
+                    blob = _ic_load(name, locals().get("mode", "Standard")) or {}
+                    m = blob.get("m", {})
 
-    # --------------------------------------------------------
-    # IC Watchlist
-    # --------------------------------------------------------
-    with st.expander("What the System Is Watching"):
-        for item in watchlist:
-            st.write("• " + item)
+                    a30 = m.get("alpha_30d")
+                    a60 = m.get("alpha_60d")
+
+                    corr_mean = float(np.nanmean(np.abs(C.loc[name].drop(name)))) if name in C.index else None
+
+                    why = []
+                    if corr_mean is not None and corr_mean < 0.45:
+                        why.append("low correlation")
+                    if a30 is not None and a30 > 0:
+                        why.append("positive 30D alpha")
+                    if a60 is not None and a60 > 0:
+                        why.append("positive 60D alpha")
+
+                    guidance = "FAVOR" if len(why) >= 2 else "MONITOR"
+
+                    rows.append({
+                        "Guidance": guidance,
+                        "Wave": name,
+                        "Why": " • ".join(why[:3]) if why else "mixed signals",
+                    })
+
+                df = pd.DataFrame(rows)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.success(
+                    "Construction cue: dispersion is healthy; relative opportunity signals are more actionable."
+                )
             
 # ============================================================
 # Sidebar controls
