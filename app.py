@@ -2120,7 +2120,7 @@ with tabs[0]:
             "It does not provide trade recommendations or allocation instructions."
         )
     
-    # ============================================================
+# ============================================================
 # INTELLIGENCE CENTER (Tightened; Adds “Why” tags)
 # ============================================================
 with tabs[1]:
