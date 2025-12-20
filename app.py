@@ -1763,221 +1763,149 @@ def render_gating_warnings(g: Dict[str, List[str]]):
         render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
 
 # ============================================================
-# INTELLIGENCE CENTER — CROSS-WAVE SYSTEM INTELLIGENCE
+# IC SUMMARY TAB (0) — GOVERNANCE-SAFE, NON-REDUNDANT
+#   • Removes A–F grading → uses 0–100 scores
+#   • Shows only the “top-level truth” (no duplicates of IC Center tables)
 # ============================================================
-with tabs[1]:
-    st.markdown("### 🧠 Intelligence Center")
-    st.caption(
-        "Cross-wave system intelligence (read-only). "
-        "Soft guidance only. No execution or allocation changes."
+with tabs[0]:
+    st.markdown("### IC Summary (System One-Pager)")
+
+    # --- Robust inputs (do not hard-fail if something isn't built yet) ---
+    _conf_level = locals().get("conf_level", locals().get("conf", "—"))
+    _bm_drift = locals().get("bm_drift", "unknown")
+    _beta_score = locals().get("beta_score", None)
+    _rr_score = locals().get("rr_score", None)
+
+    # Canonical analytics score (0–100) — prefer an existing numeric score if present
+    _analytics_score = None
+    for k in ["analytics_score", "analytics", "wave_analytics_score", "score_analytics"]:
+        if k in locals():
+            try:
+                _analytics_score = float(locals()[k])
+                break
+            except Exception:
+                pass
+
+    # Fallback: derive a conservative composite score from signals we usually have
+    if _analytics_score is None:
+        comps = []
+        for v in [_beta_score, _rr_score]:
+            try:
+                if v is not None:
+                    comps.append(float(v))
+            except Exception:
+                pass
+        # If nothing is available, stay neutral
+        _analytics_score = float(sum(comps) / len(comps)) if comps else 70.0
+
+    _analytics_score = max(0.0, min(100.0, _analytics_score))
+    _analytics_score_disp = f"{_analytics_score:.1f}/100"
+
+    # --- Gating warnings (re-use what you already compute) ---
+    _crits = locals().get("crits", [])
+    _warns = locals().get("warns", [])
+
+    c1, c2 = st.columns([1.2, 1.0], gap="large")
+    with c1:
+        st.markdown("#### Vector™ Status")
+        # Minimal, non-duplicative “truth tiles”
+        try:
+            tile("System Confidence", str(_conf_level), "Governance confidence")
+        except Exception:
+            st.write(f"**System Confidence:** {_conf_level}")
+
+        try:
+            tile("Benchmark Drift", str(_bm_drift).upper(), "Stability of benchmark snapshot")
+        except Exception:
+            st.write(f"**Benchmark Drift:** {_bm_drift}")
+
+        try:
+            if _beta_score is not None:
+                tile("Beta Reliability", f"{float(_beta_score):.1f}/100", "How well BM explains exposure")
+        except Exception:
+            pass
+
+        try:
+            if _rr_score is not None:
+                tile("Risk Reaction", f"{float(_rr_score):.1f}/100", "Risk responsiveness / controls")
+        except Exception:
+            pass
+
+        try:
+            tile("Analytics Score", _analytics_score_disp, "0–100 (replaces letter grades)")
+        except Exception:
+            st.write(f"**Analytics Score:** {_analytics_score_disp}")
+
+    with c2:
+        st.markdown("#### Gating Warnings (Top)")
+        if _crits:
+            st.error("Critical")
+            for w in _crits[:4]:
+                st.write("• " + str(w))
+        if _warns:
+            st.warning("Caution")
+            for w in _warns[:4]:
+                st.write("• " + str(w))
+        if (not _crits) and (not _warns):
+            st.success("No gating warnings triggered.")
+
+        with st.expander("What are gating warnings?"):
+            st.write(
+                "Governance checks that tell you whether analytics are trustworthy "
+                "(benchmark drift, stale data, missing coverage, unstable regression, etc.). "
+                "They are *not* performance signals."
+            )
+
+    st.divider()
+
+    # ------------------------------------------------------------
+    # Opportunity Snapshot (Soft Guidance) — WITH “WHY” TAGS
+    #   NOTE: This is intentionally LIGHT and non-duplicative.
+    #   If IC Center already produces a full table, this stays summary-only.
+    # ------------------------------------------------------------
+    st.markdown("#### Opportunity Snapshot (Soft Guidance)")
+
+    # Prefer a precomputed opportunity list if your IC Center creates one
+    # Expected shape: [{"wave": "...", "guidance": "FAVOR/MONITOR/AVOID", "why": ["tag1","tag2"]}, ...]
+    opps = (
+        st.session_state.get("ic_opportunities")
+        if "ic_opportunities" in st.session_state
+        else locals().get("ic_opportunities", None)
     )
 
-    # ---------- Controls ----------
-    all_waves_local = locals().get("all_waves", []) or []
+    # If not available, create a small placeholder list from the waves you have
+    if not opps:
+        all_waves_local = locals().get("all_waves", [])
+        opps = []
+        for w in (all_waves_local[:8] if isinstance(all_waves_local, list) else []):
+            # Conservative default tags (you can refine later)
+            opps.append({
+                "wave": str(w),
+                "guidance": "MONITOR",
+                "why": ["needs IC Center signals"]
+            })
 
-    c1, c2, c3 = st.columns([1.2, 1.0, 1.2], gap="medium")
-    with c1:
-        waves_n = st.slider(
-            "Waves analyzed",
-            min_value=4,
-            max_value=max(4, len(all_waves_local)),
-            value=min(18, len(all_waves_local)),
-        )
-    with c2:
-        corr_days = st.selectbox("Correlation window (days)", [30, 60, 90, 120, 180], index=2)
-    with c3:
-        focus = st.selectbox(
-            "Focus",
-            ["System State", "Diversification & Crowd Risk", "Relative Opportunity"],
-            index=0,
-        )
-
-    waves_subset = all_waves_local[:waves_n]
-
-    # ---------- Required helpers ----------
-    _ic_load = locals().get("_ic_load_wave_metrics", None)
-    _ic_retmat = locals().get("_ic_return_matrix", None)
-
-    if not _ic_load or not _ic_retmat or not waves_subset:
-        st.warning("Intelligence Center unavailable (missing helpers or waves).")
-    else:
-        import numpy as np
+    # Render
+    try:
         import pandas as pd
+        rows = []
+        for o in opps[:12]:
+            why = o.get("why", [])
+            why_txt = " · ".join([f"#{str(t).replace(' ', '')}" for t in why]) if why else "—"
+            rows.append({
+                "Guidance": o.get("guidance", "—"),
+                "Wave": o.get("wave", "—"),
+                "Why": why_txt
+            })
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    except Exception:
+        for o in opps[:12]:
+            why = o.get("why", [])
+            why_txt = " · ".join([f"#{str(t).replace(' ', '')}" for t in why]) if why else "—"
+            st.write(f"**{o.get('guidance','—')}** — {o.get('wave','—')}  \n{why_txt}")
 
-        R = _ic_retmat(waves_subset, mode=locals().get("mode", "Standard"), days=corr_days)
-
-        if R is None or len(R) == 0:
-            st.warning("Insufficient data to compute correlation.")
-        else:
-            if not isinstance(R, pd.DataFrame):
-                R = pd.DataFrame(R, columns=[w.get("name", str(i)) if isinstance(w, dict) else str(w)
-                                             for i, w in enumerate(waves_subset)])
-
-            C = R.corr()
-
-            # ---------- SYSTEM STATE ----------
-            if focus == "System State":
-                st.markdown("#### System State")
-
-                avg_r = R.mean().mean()
-                regime = "Risk-On dominant" if avg_r >= 0 else "Risk-Off pressure"
-
-                cA, cB, cC = st.columns(3)
-                with cA:
-                    st.metric("Market Regime", regime)
-                with cB:
-                    off = C.values.copy()
-                    np.fill_diagonal(off, np.nan)
-                    corr_state = float(np.nanmean(np.abs(off)))
-                    st.metric("Correlation State", f"{corr_state:.2f}")
-                with cC:
-                    st.metric("System Confidence", locals().get("conf_level", "—"))
-
-            # ---------- DIVERSIFICATION ----------
-            if focus == "Diversification & Crowd Risk":
-                st.markdown("#### Diversification & Crowd Risk")
-                st.dataframe(C.round(2), use_container_width=True)
-
-                off = C.values.copy()
-                np.fill_diagonal(off, np.nan)
-                crowd = float(np.nanmean(np.abs(off)))
-
-                if crowd < 0.45:
-                    st.success("Lower correlation environment. Diversification benefits are stronger than usual.")
-                elif crowd < 0.65:
-                    st.info("Moderate crowding. Diversification still meaningful.")
-                else:
-                    st.warning("High crowding. Diversification is scarce.")
-
-            # ---------- RELATIVE OPPORTUNITY ----------
-            if focus == "Relative Opportunity":
-                st.markdown("#### Relative Opportunity (Soft Guidance)")
-
-                rows = []
-                for w in waves_subset:
-                    name = w.get("name") if isinstance(w, dict) else str(w)
-                    blob = _ic_load(name, locals().get("mode", "Standard")) or {}
-                    m = blob.get("m", {})
-
-                    a30 = m.get("alpha_30d")
-                    a60 = m.get("alpha_60d")
-
-                    corr_mean = float(np.nanmean(np.abs(C.loc[name].drop(name)))) if name in C.index else None
-
-                    why = []
-                    if corr_mean is not None and corr_mean < 0.45:
-                        why.append("low correlation")
-                    if a30 is not None and a30 > 0:
-                        why.append("positive 30D alpha")
-                    if a60 is not None and a60 > 0:
-                        why.append("positive 60D alpha")
-
-                    guidance = "FAVOR" if len(why) >= 2 else "MONITOR"
-
-                    rows.append({
-                        "Guidance": guidance,
-                        "Wave": name,
-                        "Why": " • ".join(why[:3]) if why else "mixed signals",
-                    })
-
-                df = pd.DataFrame(rows)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-
-                st.success(
-                    "Construction cue: dispersion is healthy; relative opportunity signals are more actionable."
-                )
-            
-# ============================================================
-# Sidebar controls
-# ============================================================
-all_waves = get_all_waves_safe()
-if not all_waves:
-    st.warning("No waves found. Ensure engine is available or CSVs are present (wave_config.csv / wave_weights.csv / list.csv).")
-
-st.sidebar.markdown("## Controls")
-mode = st.sidebar.selectbox("Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic"], index=0)
-selected_wave = st.sidebar.selectbox("Selected Wave", options=all_waves if all_waves else ["(none)"], index=0)
-scan_mode = st.sidebar.toggle("Scan Mode (fast, fewer visuals)", value=True)
-days = st.sidebar.selectbox("History Window", [365, 730, 1095, 2520], index=0)
-st.sidebar.markdown("---")
-st.sidebar.caption("Governance: every metric shown is computed from the canonical hist_sel (selected Wave + Mode).")
-
-
-# ============================================================
-# Canonical source-of-truth (selected wave)
-# ============================================================
-hist_sel = _standardize_history(compute_wave_history(selected_wave, mode, days=days)) if selected_wave and selected_wave != "(none)" else pd.DataFrame()
-cov = coverage_report(hist_sel)
-
-bm_mix = get_benchmark_mix()
-bm_rows_now = _bm_rows_for_wave(bm_mix, selected_wave) if selected_wave and selected_wave != "(none)" else pd.DataFrame(columns=["Ticker", "Weight"])
-bm_id = benchmark_snapshot_id(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
-bm_drift = benchmark_drift_status(selected_wave, mode, bm_id) if selected_wave and selected_wave != "(none)" else "stable"
-bm_diff = benchmark_diff_table(selected_wave, mode, bm_rows_now) if ENABLE_FIDELITY_INSPECTOR else pd.DataFrame()
-
-metrics = compute_metrics_from_hist(hist_sel)
-conf_level, conf_reason = confidence_from_integrity(cov, bm_drift)
-sel_score = compute_analytics_score_for_selected(hist_sel, cov, bm_drift) if ENABLE_SCORECARD else {"AnalyticsScore": np.nan, "Grade": "N/A", "Flags": ""}
-rr_score = risk_reaction_score(metrics["te"], metrics["mdd"], metrics["cvar95"])
-
-difficulty = benchmark_difficulty_proxy(bm_rows_now)
-te_band = te_risk_band(metrics["te"])
-
-beta_target = beta_target_for_mode(mode)
-beta_val, beta_r2, beta_n = beta_and_r2(
-    hist_sel["wave_ret"] if not hist_sel.empty else pd.Series(dtype=float),
-    hist_sel["bm_ret"] if not hist_sel.empty else pd.Series(dtype=float),
-)
-beta_score = beta_reliability_score(beta_val, beta_r2, beta_n, beta_target)
-beta_grade = beta_band(beta_score)
-
-# Vector governance computations (non-blocking)
-gating = build_gating_warnings(cov, bm_drift, beta_score, beta_n, selected_wave) if VECTOR_GOVERNANCE_ENABLED else {"warn": [], "crit": []}
-final_verdict = build_final_verdict(selected_wave, mode, hist_sel, metrics, cov, bm_drift, beta_score, rr_score) if VECTOR_GOVERNANCE_ENABLED else {}
-
-
-# ============================================================
-# BIG HEADER
-# ============================================================
-st.markdown(f'<div class="waves-big-wave">{selected_wave}</div>', unsafe_allow_html=True)
-st.markdown(
-    f'<div class="waves-subhead">Mode: <b>{mode}</b> &nbsp; • &nbsp; Canonical window: last {days} trading days (max)</div>',
-    unsafe_allow_html=True,
-)
-
-# 1️⃣ Vector Status Bar (new)
-render_vector_status_bar(
-    conf_level=conf_level,
-    bm_drift=bm_drift,
-    beta_grade=beta_grade,
-    beta_score=beta_score,
-    rr_score=rr_score,
-    sel_score=sel_score,
-    metrics=metrics,
-)
-
-# 4️⃣ Gating Warnings (new)
-render_gating_warnings(gating)
-
-# ============================================================
-# Sticky chip bar (existing)
-# ============================================================
-st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
-chip(f"Confidence: {conf_level}")
-if ENABLE_SCORECARD:
-    chip(f"Wave Analytics: {sel_score.get('Grade','N/A')} ({fmt_num(sel_score.get('AnalyticsScore'), 1)}) {sel_score.get('Flags','')}")
-chip(f"BM: {bm_id} · {bm_drift.capitalize()}")
-chip(f"Coverage: {fmt_num(cov.get('completeness_score'),1)} · AgeDays: {fmt_int(cov.get('age_days'))}")
-chip(f"30D α {fmt_pct(metrics['a30'])} · r {fmt_pct(metrics['r30'])}")
-chip(f"60D α {fmt_pct(metrics['a60'])} · r {fmt_pct(metrics['r60'])}")
-chip(f"Risk: TE {fmt_pct(metrics['te'])} ({te_band}) · MaxDD {fmt_pct(metrics['mdd'])}")
-chip(f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)}) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
-st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ============================================================
-# Tabs
-# ============================================================
+    st.caption("IC Summary is intentionally non-redundant. Full diagnostics, correlations, and deeper tables live in Intelligence Center.")
 tab_names = [
     "IC Summary",
     "🧠 Intelligence Center",
