@@ -176,10 +176,77 @@ hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.8rem 
   margin: 10px 0 12px 0;
 }
 
+/* Final Verdict Badge Styles */
+.verdict-badge {
+  text-align: center;
+  padding: 20px 16px;
+  border-radius: 16px;
+  margin: 12px 0;
+}
+.verdict-badge-green {
+  border: 2px solid rgba(46, 213, 115, 0.30);
+  background: rgba(46, 213, 115, 0.10);
+}
+.verdict-badge-amber {
+  border: 2px solid rgba(255, 204, 0, 0.30);
+  background: rgba(255, 204, 0, 0.10);
+}
+.verdict-badge-red {
+  border: 2px solid rgba(255, 80, 80, 0.30);
+  background: rgba(255, 80, 80, 0.10);
+}
+.verdict-badge-title {
+  font-size: 2.5rem;
+  font-weight: 900;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.verdict-badge-subtitle {
+  font-size: 1.1rem;
+  opacity: 0.85;
+  margin-top: 4px;
+}
+.signal-tile-compact {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  min-height: 70px;
+}
+.signal-tile-label {
+  opacity: 0.75;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+.signal-tile-value {
+  font-size: 1.25rem;
+  font-weight: 750;
+  line-height: 1.45rem;
+}
+.action-checklist {
+  padding: 8px 0;
+}
+.action-item {
+  display: flex;
+  align-items: flex-start;
+  margin: 8px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.action-checkbox {
+  margin-right: 10px;
+  font-size: 1.1rem;
+}
+
 @media (max-width: 700px) {
   .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
   .waves-big-wave { font-size: 1.75rem; line-height: 2.0rem; }
   .waves-tile-value { font-size: 1.30rem; line-height: 1.55rem; }
+  .verdict-badge-title { font-size: 2.0rem; }
+  .verdict-badge-subtitle { font-size: 1.0rem; }
+  .signal-tile-value { font-size: 1.1rem; }
+}
 }
 </style>
 """,
@@ -700,13 +767,70 @@ def _bm_rows_for_wave(bm_mix_df: pd.DataFrame, wave_name: str) -> pd.DataFrame:
     return _normalize_bm_rows(rows[["Ticker", "Weight"]])
 
 
-def benchmark_snapshot_id(wave_name: str, bm_mix_df: pd.DataFrame) -> str:
+def benchmark_name(wave_name: str, bm_mix_df: pd.DataFrame) -> str:
+    """
+    Returns a human-readable benchmark name.
+    For simple benchmarks (1 ticker): returns "Ticker (Name)"
+    For composite benchmarks: returns detailed component list with weights
+    """
+    try:
+        rows = _bm_rows_for_wave(bm_mix_df, wave_name)
+        if rows.empty:
+            return "Benchmark not available"
+        
+        # Get ticker names if available from bm_mix_df
+        ticker_names = {}
+        if "Name" in bm_mix_df.columns and "Ticker" in bm_mix_df.columns:
+            name_map = bm_mix_df[["Ticker", "Name"]].drop_duplicates()
+            ticker_names = dict(zip(name_map["Ticker"], name_map["Name"]))
+        
+        if len(rows) == 1:
+            ticker = rows.iloc[0]["Ticker"]
+            name = ticker_names.get(ticker, "")
+            if name:
+                return f"{ticker} ({name})"
+            return ticker
+        else:
+            # Composite benchmark: show all components
+            components = []
+            for _, row in rows.iterrows():
+                ticker = row["Ticker"]
+                weight = row["Weight"]
+                name = ticker_names.get(ticker, "")
+                if name:
+                    components.append(f"{ticker} ({name}): {weight*100:.1f}%")
+                else:
+                    components.append(f"{ticker}: {weight*100:.1f}%")
+            return "Composite: " + " | ".join(components)
+    except Exception:
+        return "Benchmark error"
+
+
+def benchmark_snapshot_id(wave_name: str, mode: str, bm_mix_df: pd.DataFrame) -> str:
+    """
+    Generates a stable, deterministic benchmark ID that includes:
+    - Wave name
+    - Mode (Standard/Alpha-Minus-Beta/Private Logic)
+    - Benchmark tickers (sorted alphabetically)
+    - Benchmark weights (rounded to 8 decimals for consistency)
+    
+    The ID is stable across page refreshes as long as the benchmark definition doesn't change.
+    """
     try:
         rows = _bm_rows_for_wave(bm_mix_df, wave_name)
         if rows.empty:
             return "BM-NA"
-        payload = "|".join([f"{r.Ticker}:{r.Weight:.8f}" for r in rows.itertuples(index=False)])
-        h = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10].upper()
+        
+        # Create canonical payload with wave name, mode, and sorted tickers with weights
+        # Sort by ticker to ensure deterministic ordering
+        sorted_rows = rows.sort_values("Ticker").reset_index(drop=True)
+        ticker_weight_pairs = [f"{r.Ticker}:{r.Weight:.8f}" for r in sorted_rows.itertuples(index=False)]
+        
+        # Include wave name and mode in the hash for full context
+        payload = f"wave={wave_name}|mode={mode}|benchmark={','.join(ticker_weight_pairs)}"
+        
+        # Use SHA256 for better collision resistance, take first 12 chars
+        h = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12].upper()
         return f"BM-{h}"
     except Exception:
         return "BM-ERR"
@@ -1710,24 +1834,291 @@ def build_final_verdict(
         "cap_alpha": cap_alpha,
         "exp_adj_alpha": exp_adj_alpha,
         "action": action,
+        "red_triggers": red_triggers,
+        "amber_triggers": amber_triggers,
     }
 
 
-def render_final_verdict_box(v: Dict[str, Any], bm_id: str, beta_grade: str, beta_score: float, conf_level: str):
+def extract_verdict_drivers(v: Dict[str, Any], metrics: Dict[str, Any], cov: Dict[str, Any], 
+                           bm_drift: str, beta_score: float) -> List[str]:
+    """
+    Deterministically extract top 3 drivers for the verdict.
+    Always returns the same drivers in the same order for the same inputs.
+    """
+    drivers = []
+    
+    # Check RED triggers (most important)
+    if v.get("red_triggers", 0) >= 2:
+        if str(bm_drift).lower().strip() != "stable":
+            drivers.append("Benchmark drift detected — requires freeze for governance stability")
+        
+        cov_score = safe_float(cov.get("completeness_score"))
+        if math.isfinite(cov_score) and cov_score < 75:
+            drivers.append(f"Low data coverage ({fmt_num(cov_score,1)}/100) impacts analytics reliability")
+        
+        age = safe_float(cov.get("age_days"))
+        if math.isfinite(age) and age >= 7:
+            drivers.append(f"Stale data ({fmt_int(age)} days old) requires pipeline refresh")
+        
+        rows = int(cov.get("rows") or 0)
+        if rows < 60:
+            drivers.append(f"Insufficient history ({rows} days) for stable risk metrics")
+        
+        if math.isfinite(beta_score) and beta_score < 65:
+            drivers.append(f"Low beta reliability ({fmt_num(beta_score,1)}/100) questions benchmark fit")
+    
+    # Check AMBER triggers
+    elif v.get("amber_triggers", 0) >= 2 or v.get("red_triggers", 0) == 1:
+        cov_score = safe_float(cov.get("completeness_score"))
+        if math.isfinite(cov_score) and 75 <= cov_score < 85:
+            drivers.append(f"Coverage score borderline ({fmt_num(cov_score,1)}/100) — proceed with caution")
+        
+        age = safe_float(cov.get("age_days"))
+        if math.isfinite(age) and 5 <= age < 7:
+            drivers.append(f"Data freshness ({fmt_int(age)} days) nearing stale threshold")
+        
+        rows = int(cov.get("rows") or 0)
+        if 60 <= rows < 90:
+            drivers.append(f"Limited history ({rows} days) may produce noisy risk metrics")
+        
+        if math.isfinite(beta_score) and 65 <= beta_score < 75:
+            drivers.append(f"Moderate beta reliability ({fmt_num(beta_score,1)}/100) — verify benchmark fit")
+    
+    # GREEN - highlight strengths
+    else:
+        cov_score = safe_float(cov.get("completeness_score"))
+        if math.isfinite(cov_score) and cov_score >= 85:
+            drivers.append(f"Strong data coverage ({fmt_num(cov_score,1)}/100) supports reliable analytics")
+        
+        if math.isfinite(beta_score) and beta_score >= 75:
+            drivers.append(f"Good beta reliability ({fmt_num(beta_score,1)}/100) confirms benchmark alignment")
+        
+        age = safe_float(cov.get("age_days"))
+        if math.isfinite(age) and age < 5:
+            drivers.append(f"Fresh data ({fmt_int(age)} days old) ensures current insights")
+        
+        if str(bm_drift).lower().strip() == "stable":
+            drivers.append("Stable benchmark enables consistent governance comparisons")
+    
+    # Return top 3 (deterministic order)
+    return drivers[:3] if drivers else ["No specific drivers identified"]
+
+
+def extract_action_checklist(v: Dict[str, Any], metrics: Dict[str, Any], cov: Dict[str, Any],
+                             bm_drift: str, beta_score: float) -> List[str]:
+    """
+    Extract 3-5 recommended actions as checkbox items.
+    Deterministic order based on verdict severity.
+    """
+    actions = []
+    
+    verdict_str = str(v.get("verdict", "")).upper()
+    
+    if "RED" in verdict_str:
+        # Critical actions first
+        if str(bm_drift).lower().strip() != "stable":
+            actions.append("Freeze benchmark composition immediately")
+        
+        cov_score = safe_float(cov.get("completeness_score"))
+        age = safe_float(cov.get("age_days"))
+        if math.isfinite(age) and age >= 7:
+            actions.append("Refresh data pipeline — do not use stale outputs")
+        
+        if math.isfinite(cov_score) and cov_score < 75:
+            actions.append("Investigate data gaps and missing days")
+        
+        rows = int(cov.get("rows") or 0)
+        if rows < 60:
+            actions.append("Extend history window to at least 90 days")
+        
+        actions.append("Flag outputs as NOT governance-ready in any client reports")
+        
+    elif "AMBER" in verdict_str:
+        # Caution actions
+        actions.append("Disclose limitations and warnings in any client presentations")
+        
+        if str(bm_drift).lower().strip() != "stable":
+            actions.append("Freeze benchmark for consistency checks")
+        
+        actions.append("Use Vector Referee and Truth Layer to validate analytics")
+        actions.append("Monitor data freshness and coverage metrics")
+        actions.append("Prepare to escalate to RED if conditions worsen")
+        
+    else:  # GREEN
+        # Positive governance actions
+        actions.append("Proceed with confidence — governance checks passed")
+        actions.append("Use Comparator to position wave relative to alternatives")
+        actions.append("Review Alpha Snapshot for portfolio-level insights")
+        actions.append("Monitor benchmark drift and coverage on next refresh")
+        actions.append("Document governance posture for audit trail")
+    
+    # Return 3-5 actions
+    return actions[:5] if len(actions) >= 3 else actions
+
+
+def get_confidence_numeric(conf_level: str) -> int:
+    """Convert confidence level to 0-100 numeric score"""
+    conf_map = {
+        "High": 95,
+        "Medium": 75,
+        "Low": 45,
+        "Very Low": 20,
+    }
+    return conf_map.get(conf_level, 50)
+
+
+def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, beta_grade: str, 
+                             beta_score: float, conf_level: str, metrics: Dict[str, Any],
+                             cov: Dict[str, Any], bm_drift: str):
     if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX):
         return
-    st.markdown("#### Final Verdict (Vector™)")
+    
+    st.markdown("### Final Verdict (Vector™)")
+    
+    # === 1. Executive Verdict Badge ===
+    verdict_str = str(v.get("verdict", "—"))
+    verdict_color = "green"
+    verdict_short = "GREEN"
+    verdict_subtitle = "Governance-ready"
+    
+    if "RED" in verdict_str.upper():
+        verdict_color = "red"
+        verdict_short = "RED"
+        verdict_subtitle = "Not governance-ready"
+    elif "AMBER" in verdict_str.upper():
+        verdict_color = "amber"
+        verdict_short = "AMBER"
+        verdict_subtitle = "Demo with caveats"
+    else:
+        verdict_color = "green"
+        verdict_short = "GREEN"
+        verdict_subtitle = "Governance-ready"
+    
+    st.markdown(
+        f"""
+<div class="verdict-badge verdict-badge-{verdict_color}">
+  <div class="verdict-badge-title">{verdict_short}</div>
+  <div class="verdict-badge-subtitle">{verdict_subtitle}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    
+    # === 2. Confidence + Benchmark Display ===
     st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3, gap="medium")
-    with c1:
-        tile("Verdict", str(v.get("verdict", "—")), f"Confidence: {conf_level} · BM: {bm_id}")
-    with c2:
-        tile("Alpha Classification", str(v.get("classification", "—")), f"Cap α: {fmt_pct(v.get('cap_alpha'))} · ExpAdj α: {fmt_pct(v.get('exp_adj_alpha'))}")
-    with c3:
-        tile("Benchmark Fit", f"{beta_grade}", f"BetaRel {fmt_num(beta_score,1)}/100")
-    st.markdown("**Primary Source:** " + str(v.get("primary_source", "—")))
-    st.markdown("**Recommended Action:** " + str(v.get("action", "—")))
+    col1, col2 = st.columns(2)
+    with col1:
+        conf_numeric = get_confidence_numeric(conf_level)
+        st.markdown(f"**Confidence:** {conf_level} ({conf_numeric}/100)")
+        st.markdown(f"**Alpha Classification:** {v.get('classification', '—')}")
+    with col2:
+        st.markdown(f"**Benchmark Name:** {bm_name}")
+        st.markdown(f"**Benchmark ID:** `{bm_id}`")
     st.markdown("</div>", unsafe_allow_html=True)
+    
+    # === 3. Why this verdict? ===
+    st.markdown("#### Why this verdict?")
+    drivers = extract_verdict_drivers(v, metrics, cov, bm_drift, beta_score)
+    for driver in drivers:
+        st.markdown(f"• {driver}")
+    
+    # === 4. Action Checklist ===
+    st.markdown("#### Action Checklist")
+    st.markdown('<div class="action-checklist">', unsafe_allow_html=True)
+    actions = extract_action_checklist(v, metrics, cov, bm_drift, beta_score)
+    for action in actions:
+        st.markdown(
+            f'<div class="action-item"><span class="action-checkbox">☐</span> {action}</div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # === 5. Signal Tiles (Compact) ===
+    st.markdown("#### Governance Signals")
+    cols = st.columns(4)
+    with cols[0]:
+        st.markdown(
+            f"""
+<div class="signal-tile-compact">
+  <div class="signal-tile-label">Alpha Classification</div>
+  <div class="signal-tile-value">{v.get('classification', '—')}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with cols[1]:
+        st.markdown(
+            f"""
+<div class="signal-tile-compact">
+  <div class="signal-tile-label">Benchmark Fit</div>
+  <div class="signal-tile-value">{beta_grade}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with cols[2]:
+        st.markdown(
+            f"""
+<div class="signal-tile-compact">
+  <div class="signal-tile-label">Beta Reliability</div>
+  <div class="signal-tile-value">{fmt_num(beta_score,1)}/100</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with cols[3]:
+        cap_alpha = v.get("cap_alpha", 0)
+        st.markdown(
+            f"""
+<div class="signal-tile-compact">
+  <div class="signal-tile-label">Capture Alpha</div>
+  <div class="signal-tile-value">{fmt_pct(cap_alpha)}</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    
+    # === 6. Data Integrity / Assumptions (Collapsible) ===
+    with st.expander("📊 Data Integrity & Assumptions", expanded=False):
+        st.caption("Governance assumptions tested on every refresh. These are rule-based validations, not opinions.")
+        
+        # Get current timestamp and environment
+        now = datetime.now()
+        timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # Determine environment status (LIVE/SANDBOX/HYBRID)
+        # For this app, we'll check if we have real-time data or demo data
+        age_days = safe_float(cov.get("age_days"))
+        if math.isfinite(age_days):
+            if age_days < 2:
+                env_status = "LIVE"
+            elif age_days < 7:
+                env_status = "HYBRID"
+            else:
+                env_status = "SANDBOX"
+        else:
+            env_status = "UNKNOWN"
+        
+        st.markdown(f"**Timestamp:** {timestamp_str}")
+        st.markdown(f"**Environment:** {env_status}")
+        st.markdown("---")
+        
+        # Assumptions checklist
+        checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
+        for label, passes, note in checks:
+            st.write(f"{'✅' if passes else '❌'} **{label}** — {note}")
+        
+        # Coverage details
+        st.markdown("---")
+        st.markdown("**Coverage Details:**")
+        st.write(f"• Rows: {int(cov.get('rows') or 0)}")
+        st.write(f"• Completeness Score: {fmt_num(cov.get('completeness_score'), 1)}/100")
+        st.write(f"• Missing Days: {fmt_num(safe_float(cov.get('missing_pct')) * 100, 1)}%")
+        st.write(f"• Data Age: {fmt_int(cov.get('age_days'))} days")
+        st.write(f"• Benchmark Status: {bm_drift.capitalize()}")
+        
+        render_definitions(["Assumptions Tested", "Coverage Score", "Benchmark Snapshot / Drift"], 
+                          title="Definitions")
 
 
 # 3️⃣ Assumptions Panel (clean UI wrapper around checklist)
@@ -1799,7 +2190,8 @@ cov = coverage_report(hist_sel)
 
 bm_mix = get_benchmark_mix()
 bm_rows_now = _bm_rows_for_wave(bm_mix, selected_wave) if selected_wave and selected_wave != "(none)" else pd.DataFrame(columns=["Ticker", "Weight"])
-bm_id = benchmark_snapshot_id(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
+bm_id = benchmark_snapshot_id(selected_wave, mode, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
+bm_name = benchmark_name(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "N/A"
 bm_drift = benchmark_drift_status(selected_wave, mode, bm_id) if selected_wave and selected_wave != "(none)" else "stable"
 bm_diff = benchmark_diff_table(selected_wave, mode, bm_rows_now) if ENABLE_FIDELITY_INSPECTOR else pd.DataFrame()
 
@@ -1887,7 +2279,17 @@ with tabs[0]:
 
     # 2️⃣ Final Verdict Box (new; placed FIRST in IC)
     if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
-        render_final_verdict_box(final_verdict, bm_id=bm_id, beta_grade=beta_grade, beta_score=beta_score, conf_level=conf_level)
+        render_final_verdict_box(
+            final_verdict, 
+            bm_id=bm_id, 
+            bm_name=bm_name,
+            beta_grade=beta_grade, 
+            beta_score=beta_score, 
+            conf_level=conf_level,
+            metrics=metrics,
+            cov=cov,
+            bm_drift=bm_drift
+        )
         # 3️⃣ Assumptions Panel (new; right under verdict)
         render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
 
@@ -2255,7 +2657,7 @@ with tabs[5]:
         def load_metrics_for(w: str) -> Dict[str, Any]:
             h = _standardize_history(compute_wave_history(w, mode, days=days))
             c = coverage_report(h)
-            bid = benchmark_snapshot_id(w, bm_mix)
+            bid = benchmark_snapshot_id(w, mode, bm_mix)
             d = benchmark_drift_status(w, mode, bid)
             m = compute_metrics_from_hist(h)
             bt = beta_target_for_mode(mode)
