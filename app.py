@@ -921,7 +921,11 @@ GLOSSARY: Dict[str, str] = {
         "Structural = regime/exposure-driven or benchmark linkage degraded; "
         "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha."
     ),
-    "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave’s regime-aware design.",
+    "Assumptions Tested": (
+    "Explicit checklist of which standard investment assumptions hold "
+    "versus which are intentionally violated by regime-aware, "
+    "exposure-controlled portfolio design."
+),
     "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only; does not block the app.",
     "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance).",
     "Investment IC Score": (
