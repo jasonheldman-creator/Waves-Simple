@@ -1918,6 +1918,7 @@ tab_names = [
 ]
 tabs = st.tabs(tab_names)
 
+
 # ============================================================
 # IC SUMMARY — EXECUTIVE GOVERNANCE VIEW (SCORE-BASED)
 # ============================================================
