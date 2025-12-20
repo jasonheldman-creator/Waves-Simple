@@ -1930,15 +1930,20 @@ with tabs[0]:
         st.markdown("#### Alpha Analytics Suite (Selected Wave)")
         st.caption("Comprehensive alpha decomposition with exposure normalization and regime attribution")
         
-        # Calculate all alpha metrics for multiple windows
+        # Calculate alpha capture series once and reuse
+        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
+        
+        # Calculate all alpha metrics for multiple windows (optimized to reduce redundant calculations)
         attrib30 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=30)
         attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
         attrib365 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=min(365, len(hist_sel)))
         
-        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
-        ac30 = _compound_from_daily(ac_sel.tail(min(30, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
-        ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
-        ac365 = _compound_from_daily(ac_sel.tail(min(365, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+        # Calculate alpha capture for all windows in one pass
+        ac30, ac60, ac365 = float("nan"), float("nan"), float("nan")
+        if len(ac_sel) >= 2:
+            ac30 = _compound_from_daily(ac_sel.tail(min(30, len(ac_sel))))
+            ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel))))
+            ac365 = _compound_from_daily(ac_sel.tail(min(365, len(ac_sel))))
         
         # Create organized display columns
         alpha_col1, alpha_col2 = st.columns(2, gap="medium")
