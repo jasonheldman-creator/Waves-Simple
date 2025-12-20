@@ -2149,9 +2149,23 @@ tab_names = [
     "Diagnostics",
 ]
 tabs = st.tabs(tab_names)
-]
-tabs = st.tabs(tab_names)
 
+# ============================================================
+# INTELLIGENCE CENTER TAB
+# ============================================================
+with tabs[1]:
+    safe_panel(
+        "Intelligence Center",
+        lambda: render_intelligence_center(
+            all_waves=all_waves,
+            mode=mode,
+            days=days,
+            hist_sel=hist_sel,
+            conf_level=conf_level,
+            bm_drift=bm_drift,
+        ),
+    )
+    
 # ============================================================
 # IC SUMMARY (REWRITE — GOVERNANCE-SAFE, NO CONTRADICTIONS)
 # ============================================================
