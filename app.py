@@ -2167,216 +2167,122 @@ with tabs[1]:
     )
     
 # ============================================================
-# IC SUMMARY (REWRITE — GOVERNANCE-SAFE, NO CONTRADICTIONS)
+# IC SUMMARY — WAVE-SPECIFIC, GOVERNANCE-SAFE
 # ============================================================
 with tabs[0]:
-    st.markdown("### Executive IC One-Pager")
 
-    # 2️⃣ Final Verdict Box (new; placed FIRST in IC)
-    if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
-        render_final_verdict_box(
-            final_verdict,
-            bm_id=bm_id,
-            beta_grade=beta_grade,
-            beta_score=beta_score,
-            conf_level=conf_level,
+    st.markdown("### Executive IC Summary")
+
+    # --------------------------------------------------------
+    # WaveScore™ — Primary Signal (1–100)
+    # --------------------------------------------------------
+    st.markdown("#### WaveScore™")
+
+    col1, col2 = st.columns([1.2, 1.0], gap="large")
+
+    with col1:
+        tile(
+            "WaveScore™",
+            f"{wave_score:.1f} / 100",
+            (
+                "Institutional-grade strength"
+                if wave_score >= 85 else
+                "Competitive"
+                if wave_score >= 70 else
+                "Marginal"
+                if wave_score >= 55 else
+                "Weak"
+            )
         )
-        # 3️⃣ Assumptions Panel (new; right under verdict)
-        render_assumptions_panel(bm_drift=bm_drift, beta_score=beta_score)
 
-    colA, colB = st.columns([1.2, 1.0], gap="large")
+    with col2:
+        tile(
+            "Confidence",
+            conf_level,
+            f"BM drift: {bm_drift}"
+        )
+
+    st.caption(
+        "WaveScore™ is a composite 1–100 signal reflecting risk-adjusted performance, "
+        "discipline, and governance integrity. Letter grades are intentionally not used."
+    )
+
+    # --------------------------------------------------------
+    # Performance vs Benchmark (Canonical)
+    # --------------------------------------------------------
+    st.markdown("#### Performance vs Benchmark")
+
+    perf_rows = [
+        {"Window": "30D",  "Return": r30,  "Alpha": a30},
+        {"Window": "60D",  "Return": r60,  "Alpha": a60},
+        {"Window": "365D", "Return": r365, "Alpha": a365},
+    ]
+
+    st.dataframe(
+        pd.DataFrame(perf_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # --------------------------------------------------------
+    # Risk & Exposure Integrity (Numeric Only)
+    # --------------------------------------------------------
+    st.markdown("#### Risk & Exposure Integrity")
+
+    colA, colB, colC = st.columns(3)
 
     with colA:
-        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-        st.markdown("#### What is this wave?")
-
-        purpose = wave_purpose_statement(selected_wave)
-        st.markdown("**Wave Purpose Statement (Vector™):**")
-        st.write(purpose)
-        st.caption("Purpose is positioning + governance; it does not affect analytics math.")
-
-        # Generic platform-level line (safe, non-contradictory)
-        st.write(
-            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
-            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
-        )
-
-        st.markdown("**Trust + Governance**")
-        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
-        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
-        st.write(
-            f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · "
-            f"β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · "
-            f"R² {fmt_num(beta_r2,2)} · n {beta_n}"
-        )
-
-        st.markdown("**Performance vs Benchmark**")
-        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
-        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
-        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
-
-        # Optional alpha context bridge
-        try:
-            a365 = safe_float(metrics.get("a365"))
-            a60 = safe_float(metrics.get("a60"))
-            bs = safe_float(beta_score)
-            r2v = safe_float(beta_r2)
-            big_alpha = (math.isfinite(a365) and abs(a365) >= 0.15) or (math.isfinite(a60) and abs(a60) >= 0.10)
-            weak_linkage = (math.isfinite(bs) and bs < 70) or (math.isfinite(r2v) and r2v < 0.60) or (str(bm_drift).lower().strip() != "stable")
-            if big_alpha and weak_linkage:
-                primary_hint = str(final_verdict.get("primary_source", "")).strip() if isinstance(final_verdict, dict) else ""
-                st.info(
-                    "**Alpha Context (Vector™):** Elevated alpha with weaker benchmark fit/reliability usually means "
-                    "**exposure scaling (SmartSafe™ / risk gating), regime behavior, or benchmark mismatch** is driving results — "
-                    "not a simple selection-only story.\n\n"
-                    "Vector recommends using:\n"
-                    "• **Exposure-Adjusted Alpha**\n"
-                    "• **Risk-On vs Risk-Off Attribution**\n"
-                    + (f"\n\nReferee hint: **{primary_hint}**" if primary_hint else "")
-                )
-        except Exception:
-            pass
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Vector Referee
-        if ENABLE_VECTOR_REFEREE:
-            st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-            safe_panel(
-                "Vector Referee",
-                lambda: _vector_referee_verdict_block(
-                    selected_wave=selected_wave,
-                    mode=mode,
-                    hist_sel=hist_sel,
-                    metrics=metrics,
-                    cov=cov,
-                    bm_drift=bm_drift,
-                    beta_val=beta_val,
-                    beta_r2=beta_r2,
-                    beta_n=beta_n,
-                    beta_score=beta_score,
-                    beta_grade=beta_grade,
-                    rr_score=rr_score,
-                ),
+        tile(
+            "Risk Control Score",
+            f"{risk_score:.0f} / 100",
+            (
+                "Strong"
+                if risk_score >= 80 else
+                "Acceptable"
+                if risk_score >= 65 else
+                "Elevated"
             )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        # Vector Truth
-        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-        st.markdown("#### Vector™ Truth Layer (Read-Only)")
-        safe_panel("Vector Truth", lambda: _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days))
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Alpha enhancements summary
-        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-        st.markdown("#### Alpha Enhancements (Selected Wave)")
-        attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
-        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
-        ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
-
-        st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
-        st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
-        st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
-        st.write(
-            f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_on_share'),2)} abs-share)"
         )
-        st.write(
-            f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_off_share'),2)} abs-share)"
-        )
-        render_definitions(
-            ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
-            title="Definitions (Alpha Enhancements)",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Key Wins / Risks / Actions
-        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-        st.markdown("#### Key Wins / Key Risks / Next Actions")
-        wins, risks, actions = [], [], []
-
-        if conf_level == "High":
-            wins.append("Fresh + complete coverage supports institutional trust.")
-        if bm_drift == "stable":
-            wins.append("Benchmark snapshot is stable (governance green).")
-        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) >= 80:
-            wins.append("Benchmark systematic exposure match (beta reliability is strong).")
-        if math.isfinite(safe_float(metrics["a30"])) and safe_float(metrics["a30"]) > 0:
-            wins.append("Positive 30D alpha versus benchmark mix.")
-
-        if conf_level != "High":
-            risks.append("Data trust flags present (coverage/age/rows).")
-        if bm_drift != "stable":
-            risks.append("Benchmark drift detected (composition changed in-session).")
-        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) < 75:
-            risks.append("Beta reliability low (benchmark may not match systematic exposure).")
-        if math.isfinite(safe_float(metrics["mdd"])) and safe_float(metrics["mdd"]) <= -0.25:
-            risks.append("Deep drawdown regime risk is elevated.")
-
-        if bm_drift != "stable":
-            actions.append("Freeze benchmark mix for demos/governance, then re-run.")
-        if math.isfinite(safe_float(beta_score)) and safe_float(beta_score) < 75:
-            actions.append("Review benchmark mix: adjust exposures to match wave beta target (or justify intentional mismatch).")
-        if math.isfinite(safe_float(metrics["te"])) and safe_float(metrics["te"]) >= 0.20:
-            actions.append("Confirm exposure caps / SmartSafe posture for high active risk.")
-        if conf_level != "High":
-            actions.append("Inspect history pipeline for missing days or stale writes.")
-        if not actions:
-            actions.append("Proceed: governance is stable; use comparator and alpha snapshot for positioning.")
-
-        st.markdown("**Key Wins**")
-        for w in (wins[:4] if wins else ["(none)"]):
-            st.write("• " + w)
-
-        st.markdown("**Key Risks**")
-        for r in (risks[:4] if risks else ["(none)"]):
-            st.write("• " + r)
-
-        st.markdown("**Next Actions**")
-        for a in (actions[:4] if actions else ["(none)"]):
-            st.write("• " + a)
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     with colB:
-        st.markdown("#### IC Tiles")
-        c1, c2 = st.columns(2, gap="medium")
-        with c1:
-            tile("Confidence", conf_level, conf_reason)
-            tile("Benchmark", "Stable" if bm_drift == "stable" else "Drift", bm_id)
-            tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
-        with c2:
-            tile(
-                "Analytics Grade",
-                sel_score.get("Grade", "N/A"),
-                f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}",
-            )
-            tile("Beta Reliability", beta_grade, f"{fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
-            tile("Active Risk (TE)", fmt_pct(metrics["te"]), f"Band: {te_band}")
-
-        st.markdown("---")
-        render_definitions(
-            [
-                "Canonical (Source of Truth)",
-                "Wave Purpose Statement",
-                "Gating Warnings",
-                "Return",
-                "Alpha",
-                "Alpha Capture",
-                "Tracking Error (TE)",
-                "Max Drawdown (MaxDD)",
-                "CVaR 95% (daily)",
-                "Analytics Scorecard",
-                "Benchmark Snapshot / Drift",
-                "Beta (vs Benchmark)",
-                "Beta Reliability Score",
-                "Vector™ — Truth Referee",
-                "Alpha Classification",
-                "Assumptions Tested",
-            ],
-            title="Definitions (IC)",
+        tile(
+            "Beta Discipline Score",
+            f"{beta_score:.0f} / 100",
+            f"β {beta_real:.2f} vs tgt {beta_target:.2f}"
         )
+
+    with colC:
+        tile(
+            "Exposure Stability",
+            exposure_band,
+            f"TE {te:.2f}%"
+        )
+
+    # --------------------------------------------------------
+    # Governance Status (Binary + Context)
+    # --------------------------------------------------------
+    st.markdown("#### Governance Status")
+
+    colG1, colG2, colG3 = st.columns(3)
+
+    with colG1:
+        tile("Benchmark", "Stable" if bm_drift == "stable" else "Watch")
+
+    with colG2:
+        tile("Coverage", f"{coverage:.0f}%")
+
+    with colG3:
+        tile("Data Age", f"{age_days} day(s)")
+
+    # --------------------------------------------------------
+    # IC Summary Narrative (Single Sentence)
+    # --------------------------------------------------------
+    st.markdown("#### Summary")
+
+    st.info(
+        summary_sentence,
+        icon="🧠"
+    )
 
 # ============================================================
 # OVERVIEW
