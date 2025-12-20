@@ -878,76 +878,122 @@ def beta_reliability_score(beta: float, r2: float, n: int, beta_target: float) -
     return float(np.clip(score, 0.0, 100.0))
 
 
-# ============================================================
+# =============================================================================
 # Glossary / Definitions
-# ============================================================
+# =============================================================================
+
+from typing import Dict, List  # safe even if already imported elsewhere
 
 GLOSSARY: Dict[str, str] = {
+    "Canonical (Source of Truth)": (
+        "Governance rule: ALL displayed metrics should come from the same chosen "
+        "history window and mode selection (Wave NAV + Benchmark NAV + optional exposures)."
+    ),
 
-    "Canonical (Source of Truth)":
-        "Governance rule: all metrics are derived from the same canonical "
-        "time-series inputs (wave NAV, benchmark NAV, exposure state).",
+    "Return": "Wave return over the selected window.",
+    "Alpha": "Wave return minus Benchmark return over the same window.",
 
-    "Return":
-        "Wave total return over the selected window, net of exposure gating.",
+    "Alpha Capture": (
+        "Per your spec: daily (Wave return - Benchmark return), optionally exposure-scaled, "
+        "then compounded over the selected window."
+    ),
+    "Capital-Weighted Alpha": (
+        "Alpha scaled by capital actually deployed in the Wave (accounts for cash/sweeps "
+        "like SmartSafe so it reflects investor-experienced alpha)."
+    ),
+    "Exposure-Adjusted Alpha": (
+        "Alpha adjusted for exposure level (e.g., if exposure is 0.70, alpha is normalized "
+        "so comparisons across different exposure regimes are fair)."
+    ),
+    "Risk-On vs Risk-Off Attribution": (
+        "Breaks alpha into contributions earned during Risk-On vs Risk-Off regimes, based on "
+        "your regime classifier (trend/VIX/other signals used in the engine)."
+    ),
 
-    "Alpha":
-        "Wave return minus benchmark return over the same window.",
+    "Benchmark Truth": (
+        "A transparency panel that shows the actual benchmark mix used for this Wave/mode, "
+        "so there is no ambiguity about what alpha is measured against."
+    ),
+    "Benchmark Drift": (
+        "Change in benchmark composition/behavior across time (or changes in implied benchmark "
+        "exposure) that can reduce comparability of alpha across windows."
+    ),
 
-    "Alpha Capture":
-        "The portion of theoretical alpha actually realized after exposure "
-        "controls, risk gating, and capital weighting.",
+    "Beta (vs Benchmark)": (
+        "Regression slope of Wave returns vs Benchmark returns (sensitivity to benchmark moves)."
+    ),
+    "Beta Discipline": (
+        "How tightly realized beta matches the Wave's intended beta target for the selected mode."
+    ),
+    "Beta Drift": "Sustained deviation of realized beta from target (a governance flag).",
+    "Beta Reliability Score": (
+        "0–100 heuristic of how stable/credible the beta estimate is (sample size, noise, stability)."
+    ),
 
-    "Capital-Weighted Alpha":
-        "Alpha weighted by actual capital deployed, reflecting real investor experience.",
+    "Volatility": "Realized variability of returns over the selected window.",
+    "Max Drawdown": "Largest peak-to-trough decline in NAV over the selected window.",
+    "Downside Deviation": "Volatility measured using only negative returns (downside risk).",
 
-    "Exposure-Adjusted Alpha":
-        "Alpha normalized for active exposure, isolating selection skill from risk scaling.",
+    "WaveScore": (
+        "0–100 composite score summarizing risk-adjusted quality, discipline, and efficiency "
+        "(per WAVESCORE v1.0 spec)."
+    ),
+    "Return Quality": "WaveScore sub-score: alpha + information ratio quality.",
+    "Risk Control": "WaveScore sub-score: volatility, drawdown, downside risk, beta discipline.",
+    "Consistency": "WaveScore sub-score: hit-rate, stability, tail-loss frequency.",
+    "Resilience": "WaveScore sub-score: stress-period behavior (where data is available).",
+    "Efficiency": "WaveScore sub-score: fee drag, turnover/slippage, tax efficiency model.",
+    "Transparency & Governance": "WaveScore sub-score: data completeness, auditability, clarity.",
 
-    "Risk-On vs Risk-Off Attribution":
-        "Decomposes alpha into contributions earned during risk-on and risk-off regimes.",
+    "Vector Confidence Index™": (
+        "Measures confidence in integrity of the measurement system (data integrity, benchmark "
+        "stability, attribution reliability) — not performance."
+    ),
+    "Vector™ Truth Layer": (
+        "Read-only governance layer that reconciles outputs, highlights conflicts, and explains "
+        "what is driving results (benchmark, exposure, regime)."
+    ),
+    "Vector™ – Truth Referee": (
+        "Independent, read-only layer that flags when benchmark-based explanations or attribution "
+        "are unstable, inconsistent, or low-confidence."
+    ),
 
-    "Difficulty vs SPY":
-        "Relative challenge of outperforming the benchmark given concentration, "
-        "diversification, and regime constraints.",
+    "Alpha Classification": (
+        "Structural = regime/exposure-driven alpha. "
+        "Incidental = selection/tilt under stable risk/exposure. "
+        "Not Present = near-flat alpha."
+    ),
 
-    "Risk Reaction Score":
-        "0–100 heuristic measuring how effectively the Wave responds to risk regimes.",
+    "Assumptions Tested": (
+        "Explicit checklist of which standard investing assumptions hold versus which are "
+        "intentionally violated by exposure-controlled portfolio design."
+    ),
 
-    "Analytics Scorecard":
-        "Governance-native diagnostic view combining return quality, risk discipline, "
-        "and exposure behavior.",
+    "Gating Warnings": (
+        "Governance warnings triggered when risk, beta drift, benchmark drift, data gaps, "
+        "or instability thresholds are breached."
+    ),
 
-    "Beta (vs Benchmark)":
-        "Regression-based beta measuring sensitivity to the benchmark.",
+    "Wave Purpose Statement": "Plain-English description of the Wave’s intent and mandate.",
 
-    "Beta Reliability Score":
-        "0–100 measure of beta stability and consistency across time.",
+    "Investment IC Score": (
+        "0–100 composite intended for Investment Committee readiness: combines Return Quality, "
+        "Risk Reaction, and Confidence/Governance signals."
+    ),
 
-    "Vector™ Truth Layer":
-        "Read-only governance layer that decomposes performance and flags inconsistencies "
-        "between returns, risk, and benchmark explanations.",
-
-    "Alpha Classification":
-        "Structural: alpha driven by regime or exposure design. "
-        "Incidental: alpha from selection under stable exposure. "
-        "Not Present: near-flat alpha.",
-
-    "Assumptions Tested":
-        "Explicit checklist of which standard investment assumptions apply and which "
-        "are intentionally violated by exposure-controlled portfolio design.",
-
-    "Gating Warnings":
-        "Governance alerts triggered when risk, beta drift, or regime behavior "
-        "diverges from design intent.",
-
-    "Wave Purpose Statement":
-        "Plain-English description of the Wave’s objective and design rationale.",
-
-    "Investment IC Score":
-        "0–100 composite used for Investment Committee review, summarizing "
-        "return quality, risk reaction, and confidence."
+    "LIVE / SANDBOX / HYBRID": (
+        "Data regime tags: LIVE = real-money tracking, SANDBOX = backtest, HYBRID = mixed."
+    ),
 }
+
+
+def render_definitions(keys: List[str], title: str = "Glossary / Definitions") -> None:
+    """Renders a glossary expander without risking syntax issues from multiline literals."""
+    import streamlit as st
+
+    with st.expander(title):
+        for k in keys:
+            st.markdown(f"**{k}:** {GLOSSARY.get(k, '(missing definition)')}")
 
 # ============================================================
 # Optional yfinance chips
