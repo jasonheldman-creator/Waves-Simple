@@ -881,65 +881,73 @@ def beta_reliability_score(beta: float, r2: float, n: int, beta_target: float) -
 # ============================================================
 # Glossary / Definitions
 # ============================================================
+
 GLOSSARY: Dict[str, str] = {
-    "Canonical (Source of Truth)": (
-        "Governance rule: ALL metrics come from one standardized history object for the selected Wave+Mode "
-        "(hist_sel = wave_nav, bm_nav, wave_ret, bm_ret). Every panel reuses it. No duplicate math = no crisscross."
-    ),
-    "Return": "Wave return over the window (not annualized unless stated).",
-    "Alpha": "Wave return minus Benchmark return over the same window.",
-    "Alpha Capture": (
-        "Daily (Wave return − Benchmark return) optionally normalized by exposure (if exposure history exists). "
-        "Windowed alpha capture is compounded from daily alpha-capture series."
-    ),
-    "Capital-Weighted Alpha": "Investor-experience alpha (Wave return − Benchmark return) over the window.",
-    "Exposure-Adjusted Alpha": "Capital-weighted alpha divided by average exposure over the window (if exposure known).",
-    "Risk-On vs Risk-Off Attribution": "Alpha split by benchmark regime: Risk-Off when bm_ret < 0, else Risk-On.",
-    "Tracking Error (TE)": "Annualized volatility of (Wave daily returns − Benchmark daily returns).",
-    "Information Ratio (IR)": "Excess return divided by Tracking Error (risk-adjusted alpha).",
-    "Max Drawdown (MaxDD)": "Largest peak-to-trough decline over the period (negative).",
-    "VaR 95% (daily)": "Loss threshold where ~5% of days are worse (historical).",
-    "CVaR 95% (daily)": "Average loss of the worst ~5% of days (tail risk).",
-    "Sharpe": "Risk-adjusted return using total volatility (0% rf here).",
-    "Sortino": "Risk-adjusted return using downside deviation only.",
-    "Benchmark Snapshot / Drift": "A fingerprint of benchmark composition. Drift means it changed in-session.",
-    "Coverage Score": "0–100 heuristic of data completeness + freshness.",
-    "Difficulty vs SPY": "Concentration/diversification proxy (not a promise).",
-    "Risk Reaction Score": "0–100 heuristic of risk posture from TE/MaxDD/CVaR.",
-    "Analytics Scorecard": "Governance-native 0–100 reliability score for analytics outputs (not performance).",
-    "Beta (vs Benchmark)": "Regression slope of Wave daily returns vs Benchmark daily returns.",
-    "Beta Reliability Score": "0–100: beta-target match + linkage quality (R²) + sample size.",
-    "Vector™ Truth Layer": (
-        "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
-        "attributes alpha to risk-on/off regimes, and scores durability/fragility."
-    ),
-    "Vector™ — Truth Referee": (
-        "Independent, read-only layer that rules on causality, validates assumptions, "
-        "and flags when benchmark-based explanations fail to explain observed outcomes."
-    ),
-    "Alpha Classification": (
-    "Structural = regime/exposure-driven or benchmark linkage degraded; "
-    "Incidental = selection/tilt under stable linkage."
-),
-    "Assumptions Tested": (
-    "Explicit checklist of which standard investment assumptions hold "
-    "versus which are intentionally violated by regime-aware, "
-    "exposure-controlled portfolio design."
-),
-    "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only; does not block the app.",
-    "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance).",
-    "Investment IC Score": (
-        "0–100 composite for Investment Committee view: combines Analytics Score, Beta Reliability, "
-        "Risk Reaction, and Confidence. Governance-only. Not performance."
-    ),
+
+    "Canonical (Source of Truth)":
+        "Governance rule: all metrics are derived from the same canonical "
+        "time-series inputs (wave NAV, benchmark NAV, exposure state).",
+
+    "Return":
+        "Wave total return over the selected window, net of exposure gating.",
+
+    "Alpha":
+        "Wave return minus benchmark return over the same window.",
+
+    "Alpha Capture":
+        "The portion of theoretical alpha actually realized after exposure "
+        "controls, risk gating, and capital weighting.",
+
+    "Capital-Weighted Alpha":
+        "Alpha weighted by actual capital deployed, reflecting real investor experience.",
+
+    "Exposure-Adjusted Alpha":
+        "Alpha normalized for active exposure, isolating selection skill from risk scaling.",
+
+    "Risk-On vs Risk-Off Attribution":
+        "Decomposes alpha into contributions earned during risk-on and risk-off regimes.",
+
+    "Difficulty vs SPY":
+        "Relative challenge of outperforming the benchmark given concentration, "
+        "diversification, and regime constraints.",
+
+    "Risk Reaction Score":
+        "0–100 heuristic measuring how effectively the Wave responds to risk regimes.",
+
+    "Analytics Scorecard":
+        "Governance-native diagnostic view combining return quality, risk discipline, "
+        "and exposure behavior.",
+
+    "Beta (vs Benchmark)":
+        "Regression-based beta measuring sensitivity to the benchmark.",
+
+    "Beta Reliability Score":
+        "0–100 measure of beta stability and consistency across time.",
+
+    "Vector™ Truth Layer":
+        "Read-only governance layer that decomposes performance and flags inconsistencies "
+        "between returns, risk, and benchmark explanations.",
+
+    "Alpha Classification":
+        "Structural: alpha driven by regime or exposure design. "
+        "Incidental: alpha from selection under stable exposure. "
+        "Not Present: near-flat alpha.",
+
+    "Assumptions Tested":
+        "Explicit checklist of which standard investment assumptions apply and which "
+        "are intentionally violated by exposure-controlled portfolio design.",
+
+    "Gating Warnings":
+        "Governance alerts triggered when risk, beta drift, or regime behavior "
+        "diverges from design intent.",
+
+    "Wave Purpose Statement":
+        "Plain-English description of the Wave’s objective and design rationale.",
+
+    "Investment IC Score":
+        "0–100 composite used for Investment Committee review, summarizing "
+        "return quality, risk reaction, and confidence."
 }
-
-
-def render_definitions(keys: List[str], title: str = "Definitions"):
-    with st.expander(title):
-        for k in keys:
-            st.markdown(f"**{k}:** {GLOSSARY.get(k, '(definition not found)')}")
-
 
 # ============================================================
 # Optional yfinance chips
