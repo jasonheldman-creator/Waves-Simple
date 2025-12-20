@@ -1923,119 +1923,31 @@ tabs = st.tabs(tab_names)
 # IC SUMMARY — EXECUTIVE GOVERNANCE VIEW (SCORE-BASED)
 # ============================================================
 with tabs[0]:
+    st.markdown("### 📊 IC Summary — Executive View")
 
-    st.markdown("### Executive IC Summary")
-    st.caption(
-        "Governance-safe, read-only summary for investment committees. "
-        "Scores reflect risk-adjusted system quality and data integrity — not recommendations."
+    score = int(
+        0.35 * beta_score +
+        0.35 * rr_score +
+        0.30 * conf_level
     )
 
-    # --------------------------------------------------------
-    # 1. IC Composite Score (0–100)
-    # --------------------------------------------------------
-    # This score intentionally replaces all letter grades.
-    # It blends analytics quality, benchmark integrity, risk behavior, and data confidence.
-    ic_score = int(
-        round(
-            0.35 * analytics_score +
-            0.25 * beta_score +
-            0.20 * rr_score +
-            0.20 * conf_level
-        )
-    )
-
-    score_band = (
-        "Exceptional" if ic_score >= 90 else
-        "Strong" if ic_score >= 80 else
-        "Adequate" if ic_score >= 70 else
-        "Caution" if ic_score >= 60 else
-        "Weak"
-    )
-
-    col1, col2, col3 = st.columns([1.1, 1.2, 1.2])
-    with col1:
-        tile("IC Composite Score", f"{ic_score}/100", score_band)
-    with col2:
-        tile("System Confidence", f"{conf_level:.0f}/100", "Data integrity & coverage")
-    with col3:
-        tile("Benchmark Integrity", f"{beta_score:.0f}/100", "β reliability vs target")
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # 2. Current System State
-    # --------------------------------------------------------
-    st.markdown("#### Current System State")
+    score = max(0, min(100, score))
 
     c1, c2, c3 = st.columns(3)
+
     with c1:
-        tile(
-            "Market Regime",
-            regime_label,
-            "Derived from benchmark sign dominance"
-        )
+        st.metric("IC Score", f"{score}/100")
+
     with c2:
-        tile(
-            "Risk Reaction Score",
-            f"{rr_score:.1f}/100",
-            "Drawdown & volatility response"
-        )
+        st.metric("Risk Discipline", f"{beta_score:.0f}")
+
     with c3:
-        tile(
-            "Benchmark Drift",
-            "Stable" if not bm_drift else "Drifting",
-            "Composite benchmark consistency"
-        )
+        st.metric("Return Quality", f"{rr_score:.0f}")
 
-    st.divider()
-
-    # --------------------------------------------------------
-    # 3. Performance Context (Why results look the way they do)
-    # --------------------------------------------------------
-    st.markdown("#### Performance Context")
-
-    perf_rows = [
-        ("30D Alpha", f"{alpha_30d:+.2f}%", "Short-term relative performance"),
-        ("60D Alpha", f"{alpha_60d:+.2f}%", "Intermediate trend signal"),
-        ("Tracking Error", f"{te:.2f}%", "Active risk vs benchmark"),
-        ("Max Drawdown", f"{max_dd:.2f}%", "Worst peak-to-trough loss"),
-    ]
-
-    st.table(
-        {
-            "Metric": [r[0] for r in perf_rows],
-            "Value": [r[1] for r in perf_rows],
-            "Interpretation": [r[2] for r in perf_rows],
-        }
+    st.caption(
+        "Composite IC Score (0–100) replacing letter grades. "
+        "Derived from risk discipline, return quality, and confidence."
     )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # 4. Governance Flags & Assumptions
-    # --------------------------------------------------------
-    st.markdown("#### Governance Flags & Assumptions")
-
-    if crits or warns:
-        if crits:
-            st.error("Critical governance flags detected:")
-            for w in crits[:5]:
-                st.write("•", w)
-
-        if warns:
-            st.warning("Advisory governance warnings:")
-            for w in warns[:5]:
-                st.write("•", w)
-    else:
-        st.success("No active governance flags detected.")
-
-    with st.expander("What this summary is (and is not)"):
-        st.write(
-            "• This summary is **not** an allocation or execution signal.\n"
-            "• Scores reflect **system quality, risk behavior, and data integrity**.\n"
-            "• All figures are computed from the same canonical history — no duplicate math.\n"
-            "• Cross-wave opportunity analysis lives exclusively in the Intelligence Center tab."
-        )
     
 # ============================================================
 # INTELLIGENCE CENTER (Tightened; Adds “Why” tags)
