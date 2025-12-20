@@ -918,9 +918,9 @@ GLOSSARY: Dict[str, str] = {
         "and flags when benchmark-based explanations fail to explain observed outcomes."
     ),
     "Alpha Classification": (
-        "Structural = regime/exposure-driven or benchmark linkage degraded; "
-        "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha."
-    ),
+    "Structural = regime/exposure-driven or benchmark linkage degraded; "
+    "Incidental = selection/tilt under stable linkage."
+),
     "Assumptions Tested": (
     "Explicit checklist of which standard investment assumptions hold "
     "versus which are intentionally violated by regime-aware, "
