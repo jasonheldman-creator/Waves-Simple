@@ -1856,12 +1856,15 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ============================================================
 tab_names = [
     "IC Summary",
+    "🧠 Intelligence Center",
     "Overview",
     "Risk + Advanced",
     "Benchmark Governance",
     "Comparator",
     "Alpha Snapshot",
     "Diagnostics",
+]
+tabs = st.tabs(tab_names)
 ]
 tabs = st.tabs(tab_names)
 
