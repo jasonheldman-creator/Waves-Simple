@@ -1605,7 +1605,7 @@ def render_vector_status_bar(
         f"30D α {fmt_pct(metrics.get('a30'))} · 60D α {fmt_pct(metrics.get('a60'))}",
     ]
     if ENABLE_SCORECARD:
-        pills.insert(1, f"Analytics: {sel_score.get('Grade','N/A')} ({fmt_num(sel_score.get('AnalyticsScore'),1)})")
+        pills.insert(1, f"Analytics: {fmt_num(sel_score.get('AnalyticsScore'),1)}/100")
 
     st.markdown('<div class="vector-status">', unsafe_allow_html=True)
     st.markdown('<div class="title">Vector™ Status Bar</div>', unsafe_allow_html=True)
@@ -1763,149 +1763,224 @@ def render_gating_warnings(g: Dict[str, List[str]]):
         render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
 
 # ============================================================
-# IC SUMMARY TAB (0) — GOVERNANCE-SAFE, NON-REDUNDANT
-#   • Removes A–F grading → uses 0–100 scores
-#   • Shows only the “top-level truth” (no duplicates of IC Center tables)
+# INTELLIGENCE CENTER — CROSS-WAVE SYSTEM INTELLIGENCE
 # ============================================================
-with tabs[0]:
-    st.markdown("### IC Summary (System One-Pager)")
-
-    # --- Robust inputs (do not hard-fail if something isn't built yet) ---
-    _conf_level = locals().get("conf_level", locals().get("conf", "—"))
-    _bm_drift = locals().get("bm_drift", "unknown")
-    _beta_score = locals().get("beta_score", None)
-    _rr_score = locals().get("rr_score", None)
-
-    # Canonical analytics score (0–100) — prefer an existing numeric score if present
-    _analytics_score = None
-    for k in ["analytics_score", "analytics", "wave_analytics_score", "score_analytics"]:
-        if k in locals():
-            try:
-                _analytics_score = float(locals()[k])
-                break
-            except Exception:
-                pass
-
-    # Fallback: derive a conservative composite score from signals we usually have
-    if _analytics_score is None:
-        comps = []
-        for v in [_beta_score, _rr_score]:
-            try:
-                if v is not None:
-                    comps.append(float(v))
-            except Exception:
-                pass
-        # If nothing is available, stay neutral
-        _analytics_score = float(sum(comps) / len(comps)) if comps else 70.0
-
-    _analytics_score = max(0.0, min(100.0, _analytics_score))
-    _analytics_score_disp = f"{_analytics_score:.1f}/100"
-
-    # --- Gating warnings (re-use what you already compute) ---
-    _crits = locals().get("crits", [])
-    _warns = locals().get("warns", [])
-
-    c1, c2 = st.columns([1.2, 1.0], gap="large")
-    with c1:
-        st.markdown("#### Vector™ Status")
-        # Minimal, non-duplicative “truth tiles”
-        try:
-            tile("System Confidence", str(_conf_level), "Governance confidence")
-        except Exception:
-            st.write(f"**System Confidence:** {_conf_level}")
-
-        try:
-            tile("Benchmark Drift", str(_bm_drift).upper(), "Stability of benchmark snapshot")
-        except Exception:
-            st.write(f"**Benchmark Drift:** {_bm_drift}")
-
-        try:
-            if _beta_score is not None:
-                tile("Beta Reliability", f"{float(_beta_score):.1f}/100", "How well BM explains exposure")
-        except Exception:
-            pass
-
-        try:
-            if _rr_score is not None:
-                tile("Risk Reaction", f"{float(_rr_score):.1f}/100", "Risk responsiveness / controls")
-        except Exception:
-            pass
-
-        try:
-            tile("Analytics Score", _analytics_score_disp, "0–100 (replaces letter grades)")
-        except Exception:
-            st.write(f"**Analytics Score:** {_analytics_score_disp}")
-
-    with c2:
-        st.markdown("#### Gating Warnings (Top)")
-        if _crits:
-            st.error("Critical")
-            for w in _crits[:4]:
-                st.write("• " + str(w))
-        if _warns:
-            st.warning("Caution")
-            for w in _warns[:4]:
-                st.write("• " + str(w))
-        if (not _crits) and (not _warns):
-            st.success("No gating warnings triggered.")
-
-        with st.expander("What are gating warnings?"):
-            st.write(
-                "Governance checks that tell you whether analytics are trustworthy "
-                "(benchmark drift, stale data, missing coverage, unstable regression, etc.). "
-                "They are *not* performance signals."
-            )
-
-    st.divider()
-
-    # ------------------------------------------------------------
-    # Opportunity Snapshot (Soft Guidance) — WITH “WHY” TAGS
-    #   NOTE: This is intentionally LIGHT and non-duplicative.
-    #   If IC Center already produces a full table, this stays summary-only.
-    # ------------------------------------------------------------
-    st.markdown("#### Opportunity Snapshot (Soft Guidance)")
-
-    # Prefer a precomputed opportunity list if your IC Center creates one
-    # Expected shape: [{"wave": "...", "guidance": "FAVOR/MONITOR/AVOID", "why": ["tag1","tag2"]}, ...]
-    opps = (
-        st.session_state.get("ic_opportunities")
-        if "ic_opportunities" in st.session_state
-        else locals().get("ic_opportunities", None)
+with tabs[1]:
+    st.markdown("### 🧠 Intelligence Center")
+    st.caption(
+        "Cross-wave system intelligence (read-only). "
+        "Soft guidance only. No execution or allocation changes."
     )
 
-    # If not available, create a small placeholder list from the waves you have
-    if not opps:
-        all_waves_local = locals().get("all_waves", [])
-        opps = []
-        for w in (all_waves_local[:8] if isinstance(all_waves_local, list) else []):
-            # Conservative default tags (you can refine later)
-            opps.append({
-                "wave": str(w),
-                "guidance": "MONITOR",
-                "why": ["needs IC Center signals"]
-            })
+    # ---------- Controls ----------
+    all_waves_local = locals().get("all_waves", []) or []
 
-    # Render
-    try:
+    c1, c2, c3 = st.columns([1.2, 1.0, 1.2], gap="medium")
+    with c1:
+        waves_n = st.slider(
+            "Waves analyzed",
+            min_value=4,
+            max_value=max(4, len(all_waves_local)),
+            value=min(18, len(all_waves_local)),
+        )
+    with c2:
+        corr_days = st.selectbox("Correlation window (days)", [30, 60, 90, 120, 180], index=2)
+    with c3:
+        focus = st.selectbox(
+            "Focus",
+            ["System State", "Diversification & Crowd Risk", "Relative Opportunity"],
+            index=0,
+        )
+
+    waves_subset = all_waves_local[:waves_n]
+
+    # ---------- Required helpers ----------
+    _ic_load = locals().get("_ic_load_wave_metrics", None)
+    _ic_retmat = locals().get("_ic_return_matrix", None)
+
+    if not _ic_load or not _ic_retmat or not waves_subset:
+        st.warning("Intelligence Center unavailable (missing helpers or waves).")
+    else:
+        import numpy as np
         import pandas as pd
-        rows = []
-        for o in opps[:12]:
-            why = o.get("why", [])
-            why_txt = " · ".join([f"#{str(t).replace(' ', '')}" for t in why]) if why else "—"
-            rows.append({
-                "Guidance": o.get("guidance", "—"),
-                "Wave": o.get("wave", "—"),
-                "Why": why_txt
-            })
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    except Exception:
-        for o in opps[:12]:
-            why = o.get("why", [])
-            why_txt = " · ".join([f"#{str(t).replace(' ', '')}" for t in why]) if why else "—"
-            st.write(f"**{o.get('guidance','—')}** — {o.get('wave','—')}  \n{why_txt}")
 
-    st.caption("IC Summary is intentionally non-redundant. Full diagnostics, correlations, and deeper tables live in Intelligence Center.")
+        R = _ic_retmat(waves_subset, mode=locals().get("mode", "Standard"), days=corr_days)
+
+        if R is None or len(R) == 0:
+            st.warning("Insufficient data to compute correlation.")
+        else:
+            if not isinstance(R, pd.DataFrame):
+                R = pd.DataFrame(R, columns=[w.get("name", str(i)) if isinstance(w, dict) else str(w)
+                                             for i, w in enumerate(waves_subset)])
+
+            C = R.corr()
+
+            # ---------- SYSTEM STATE ----------
+            if focus == "System State":
+                st.markdown("#### System State")
+
+                avg_r = R.mean().mean()
+                regime = "Risk-On dominant" if avg_r >= 0 else "Risk-Off pressure"
+
+                cA, cB, cC = st.columns(3)
+                with cA:
+                    st.metric("Market Regime", regime)
+                with cB:
+                    off = C.values.copy()
+                    np.fill_diagonal(off, np.nan)
+                    corr_state = float(np.nanmean(np.abs(off)))
+                    st.metric("Correlation State", f"{corr_state:.2f}")
+                with cC:
+                    st.metric("System Confidence", locals().get("conf_level", "—"))
+
+            # ---------- DIVERSIFICATION ----------
+            if focus == "Diversification & Crowd Risk":
+                st.markdown("#### Diversification & Crowd Risk")
+                st.dataframe(C.round(2), use_container_width=True)
+
+                off = C.values.copy()
+                np.fill_diagonal(off, np.nan)
+                crowd = float(np.nanmean(np.abs(off)))
+
+                if crowd < 0.45:
+                    st.success("Lower correlation environment. Diversification benefits are stronger than usual.")
+                elif crowd < 0.65:
+                    st.info("Moderate crowding. Diversification still meaningful.")
+                else:
+                    st.warning("High crowding. Diversification is scarce.")
+
+            # ---------- RELATIVE OPPORTUNITY ----------
+            if focus == "Relative Opportunity":
+                st.markdown("#### Relative Opportunity (Soft Guidance)")
+
+                rows = []
+                for w in waves_subset:
+                    name = w.get("name") if isinstance(w, dict) else str(w)
+                    blob = _ic_load(name, locals().get("mode", "Standard")) or {}
+                    m = blob.get("m", {})
+
+                    a30 = m.get("alpha_30d")
+                    a60 = m.get("alpha_60d")
+
+                    corr_mean = float(np.nanmean(np.abs(C.loc[name].drop(name)))) if name in C.index else None
+
+                    why = []
+                    if corr_mean is not None and corr_mean < 0.45:
+                        why.append("low correlation")
+                    if a30 is not None and a30 > 0:
+                        why.append("positive 30D alpha")
+                    if a60 is not None and a60 > 0:
+                        why.append("positive 60D alpha")
+
+                    guidance = "FAVOR" if len(why) >= 2 else "MONITOR"
+
+                    rows.append({
+                        "Guidance": guidance,
+                        "Wave": name,
+                        "Why": " • ".join(why[:3]) if why else "mixed signals",
+                    })
+
+                df = pd.DataFrame(rows)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.success(
+                    "Construction cue: dispersion is healthy; relative opportunity signals are more actionable."
+                )
+            
+# ============================================================
+# Sidebar controls
+# ============================================================
+all_waves = get_all_waves_safe()
+if not all_waves:
+    st.warning("No waves found. Ensure engine is available or CSVs are present (wave_config.csv / wave_weights.csv / list.csv).")
+
+st.sidebar.markdown("## Controls")
+mode = st.sidebar.selectbox("Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic"], index=0)
+selected_wave = st.sidebar.selectbox("Selected Wave", options=all_waves if all_waves else ["(none)"], index=0)
+scan_mode = st.sidebar.toggle("Scan Mode (fast, fewer visuals)", value=True)
+days = st.sidebar.selectbox("History Window", [365, 730, 1095, 2520], index=0)
+st.sidebar.markdown("---")
+st.sidebar.caption("Governance: every metric shown is computed from the canonical hist_sel (selected Wave + Mode).")
+
+
+# ============================================================
+# Canonical source-of-truth (selected wave)
+# ============================================================
+hist_sel = _standardize_history(compute_wave_history(selected_wave, mode, days=days)) if selected_wave and selected_wave != "(none)" else pd.DataFrame()
+cov = coverage_report(hist_sel)
+
+bm_mix = get_benchmark_mix()
+bm_rows_now = _bm_rows_for_wave(bm_mix, selected_wave) if selected_wave and selected_wave != "(none)" else pd.DataFrame(columns=["Ticker", "Weight"])
+bm_id = benchmark_snapshot_id(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
+bm_drift = benchmark_drift_status(selected_wave, mode, bm_id) if selected_wave and selected_wave != "(none)" else "stable"
+bm_diff = benchmark_diff_table(selected_wave, mode, bm_rows_now) if ENABLE_FIDELITY_INSPECTOR else pd.DataFrame()
+
+metrics = compute_metrics_from_hist(hist_sel)
+conf_level, conf_reason = confidence_from_integrity(cov, bm_drift)
+sel_score = compute_analytics_score_for_selected(hist_sel, cov, bm_drift) if ENABLE_SCORECARD else {"AnalyticsScore": np.nan, "Grade": "N/A", "Flags": ""}
+rr_score = risk_reaction_score(metrics["te"], metrics["mdd"], metrics["cvar95"])
+
+difficulty = benchmark_difficulty_proxy(bm_rows_now)
+te_band = te_risk_band(metrics["te"])
+
+beta_target = beta_target_for_mode(mode)
+beta_val, beta_r2, beta_n = beta_and_r2(
+    hist_sel["wave_ret"] if not hist_sel.empty else pd.Series(dtype=float),
+    hist_sel["bm_ret"] if not hist_sel.empty else pd.Series(dtype=float),
+)
+beta_score = beta_reliability_score(beta_val, beta_r2, beta_n, beta_target)
+beta_grade = beta_band(beta_score)
+
+# Vector governance computations (non-blocking)
+gating = build_gating_warnings(cov, bm_drift, beta_score, beta_n, selected_wave) if VECTOR_GOVERNANCE_ENABLED else {"warn": [], "crit": []}
+final_verdict = build_final_verdict(selected_wave, mode, hist_sel, metrics, cov, bm_drift, beta_score, rr_score) if VECTOR_GOVERNANCE_ENABLED else {}
+
+
+# ============================================================
+# BIG HEADER
+# ============================================================
+st.markdown(f'<div class="waves-big-wave">{selected_wave}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="waves-subhead">Mode: <b>{mode}</b> &nbsp; • &nbsp; Canonical window: last {days} trading days (max)</div>',
+    unsafe_allow_html=True,
+)
+
+# 1️⃣ Vector Status Bar (new)
+render_vector_status_bar(
+    conf_level=conf_level,
+    bm_drift=bm_drift,
+    beta_grade=beta_grade,
+    beta_score=beta_score,
+    rr_score=rr_score,
+    sel_score=sel_score,
+    metrics=metrics,
+)
+
+# 4️⃣ Gating Warnings (new)
+render_gating_warnings(gating)
+
+# ============================================================
+# Sticky chip bar (existing)
+# ============================================================
+st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
+chip(f"Confidence: {conf_level}")
+if ENABLE_SCORECARD:
+chip(f"Analytics Score: {fmt_num(sel_score.get('AnalyticsScore'), 1)}/100 {sel_score.get('Flags','')}")
+chip(f"BM: {bm_id} · {bm_drift.capitalize()}")
+chip(f"Coverage: {fmt_num(cov.get('completeness_score'),1)} · AgeDays: {fmt_int(cov.get('age_days'))}")
+chip(f"30D α {fmt_pct(metrics['a30'])} · r {fmt_pct(metrics['r30'])}")
+chip(f"60D α {fmt_pct(metrics['a60'])} · r {fmt_pct(metrics['r60'])}")
+chip(f"Risk: TE {fmt_pct(metrics['te'])} ({te_band}) · MaxDD {fmt_pct(metrics['mdd'])}")
+chip(f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)}) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ============================================================
+# Tabs
+# ============================================================
+# ============================================================
+# Tabs (single, canonical)
+# ============================================================
 tab_names = [
     "IC Summary",
     "🧠 Intelligence Center",
@@ -1918,176 +1993,282 @@ tab_names = [
 ]
 tabs = st.tabs(tab_names)
 
-
 # ============================================================
-# IC SUMMARY — EXECUTIVE GOVERNANCE VIEW (SCORE-BASED)
+# IC SUMMARY (TAB 0) — EXECUTIVE, SCORE-BASED (NO A–F)
 # ============================================================
 with tabs[0]:
-    st.markdown("### 📊 IC Summary — Executive View")
-
-    score = int(
-        0.35 * beta_score +
-        0.35 * rr_score +
-        0.30 * conf_level
-    )
-
-    score = max(0, min(100, score))
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.metric("IC Score", f"{score}/100")
-
-    with c2:
-        st.metric("Risk Discipline", f"{beta_score:.0f}")
-
-    with c3:
-        st.metric("Return Quality", f"{rr_score:.0f}")
-
+    st.markdown("### Executive IC Summary")
     st.caption(
-        "Composite IC Score (0–100) replacing letter grades. "
-        "Derived from risk discipline, return quality, and confidence."
+        "Governance-safe, read-only one-pager. "
+        "Scores are 0–100 and reflect system quality (not recommendations)."
     )
-    
+
+    # --- IC Composite Score (0–100) ---
+    # Uses existing signals already computed in this app:
+    #   • AnalyticsScore (data+benchmark+risk readiness composite)
+    #   • Beta Reliability Score
+    #   • Risk Reaction Score
+    #   • Confidence level (integrity)
+    a_score = safe_float(sel_score.get("AnalyticsScore"))
+    b_score = safe_float(beta_score)
+    r_score = safe_float(rr_score)
+    conf_map = {"High": 95.0, "Medium": 80.0, "Low": 60.0}
+    c_score = conf_map.get(str(conf_level), np.nan)
+    parts = [v for v in [a_score, b_score, r_score, c_score] if math.isfinite(v)]
+    if parts:
+        ic_score = float(np.clip(0.35*a_score + 0.25*b_score + 0.20*r_score + 0.20*c_score, 0.0, 100.0))
+    else:
+        ic_score = 70.0
+
+    band = (
+        "Exceptional" if ic_score >= 90 else
+        "Strong" if ic_score >= 80 else
+        "Adequate" if ic_score >= 70 else
+        "Caution" if ic_score >= 60 else
+        "Weak"
+    )
+
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    with c1:
+        tile("IC Score", f"{ic_score:.0f}/100", band)
+    with c2:
+        tile("Analytics Score", f"{a_score:.0f}/100" if math.isfinite(a_score) else "—", "Integrity + readiness")
+    with c3:
+        tile("Beta Reliability", f"{b_score:.0f}/100" if math.isfinite(b_score) else "—", f"β {fmt_num(beta_val,2)} · tgt {fmt_num(beta_target,2)}")
+    with c4:
+        tile("Risk Reaction", f"{r_score:.0f}/100" if math.isfinite(r_score) else "—", f"TE {fmt_pct(metrics['te'])} · MaxDD {fmt_pct(metrics['mdd'])}")
+
+    st.divider()
+
+    left, right = st.columns([1.25, 1.0], gap="large")
+
+    with left:
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### What is this wave?")
+        st.write(f"**Wave:** {selected_wave}")
+        st.write(f"**Mode:** {mode}")
+
+        purpose = wave_purpose_statement(selected_wave)
+        st.write(f"**Purpose (Vector™):** {purpose}")
+
+        st.markdown("#### Trust + Governance")
+        st.write(f"**Confidence:** {conf_level} — {conf_reason}")
+        st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+        st.write(
+            f"**Beta Fit:** {beta_grade} ({fmt_num(beta_score,1)}/100) · "
+            f"β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · "
+            f"R² {fmt_num(beta_r2,2)} · n {beta_n}"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Performance vs Benchmark (Canonical)")
+        st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
+        st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
+        st.write(f"365D Return {fmt_pct(metrics['r365'])} | 365D Alpha {fmt_pct(metrics['a365'])}")
+        st.caption("All performance and alpha figures are computed from the same canonical history (hist_sel).")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Alpha Enhancements (Selected Wave)")
+        attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
+        ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
+        ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+
+        st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
+        st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
+        st.write(f"**Alpha Capture (60D):** {fmt_pct(ac60)}")
+        st.write(
+            f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_on_share'),2)} abs-share)"
+        )
+        st.write(
+            f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
+            f"({fmt_pct(attrib60.get('risk_off_share'),2)} abs-share)"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown("#### Gating Warnings (Decision Readiness)")
+        render_gating_warnings(gating)
+
+        st.markdown("#### Quick Actions")
+        v = final_verdict if isinstance(final_verdict, dict) else {}
+        if v:
+            st.info(f"**Vector Action:** {v.get('action','—')}")
+            st.write(f"**Verdict:** {v.get('verdict','—')}")
+            st.write(f"**Primary Source:** {v.get('primary_source','—')}")
+            st.write(f"**Alpha Class:** {v.get('classification','—')}")
+
+        with st.expander("Vector™ Referee (Details)", expanded=False):
+            if ENABLE_VECTOR_REFEREE:
+                _vector_referee_verdict_block(
+                    selected_wave=selected_wave,
+                    mode=mode,
+                    hist_sel=hist_sel,
+                    metrics=metrics,
+                    cov=cov,
+                    bm_drift=bm_drift,
+                    beta_val=beta_val,
+                    beta_r2=beta_r2,
+                    beta_n=beta_n,
+                    beta_score=beta_score,
+                    beta_grade=beta_grade,
+                    rr_score=rr_score,
+                )
+            else:
+                st.info("Vector Referee disabled.")
+
+        with st.expander("Vector™ Truth Layer (Details)", expanded=False):
+            _vector_truth_panel(selected_wave, mode, hist_sel, metrics, days)
+
 # ============================================================
-# INTELLIGENCE CENTER (Tightened; Adds “Why” tags)
+# INTELLIGENCE CENTER (TAB 1) — CROSS-WAVE, WITH “WHY” TAGS
 # ============================================================
 with tabs[1]:
     st.markdown("### 🧠 Intelligence Center")
-    st.caption("Cross-wave system intelligence (read-only). Soft guidance only — no execution.")
+    st.caption(
+        "Cross-wave intelligence: surfaces relative opportunity and risk patterns without duplicating IC Summary. "
+        "Every opportunity row includes explicit WHY tags."
+    )
 
-    # Controls
-    c1, c2, c3 = st.columns([1.2, 1.0, 1.2], gap="medium")
-
-    all_waves_local = locals().get("all_waves", []) or []
-    default_n = min(18, len(all_waves_local)) if len(all_waves_local) else 8
-
+    # Controls (speed-safe)
+    c1, c2, c3 = st.columns([1.2, 1.0, 1.0], gap="medium")
     with c1:
-        waves_n = st.slider("Waves analyzed", min_value=4, max_value=max(4, len(all_waves_local)), value=default_n)
+        ic_window = st.selectbox("Opportunity window", [30, 60, 365], index=1)
     with c2:
-        corr_days = st.selectbox("Correlation window (days)", [30, 60, 90, 120, 180], index=2)
+        max_waves = st.slider("Max waves to compute", 5, max(5, len(all_waves)), min(20, len(all_waves)))
     with c3:
-        focus = st.selectbox("Focus", ["System State", "Diversification & Crowd Risk", "Relative Opportunity"], index=0)
+        include_corr = st.toggle("Compute correlation matrix (slower)", value=False)
 
-    st.markdown("---")
+    waves_to_run = all_waves[: int(max_waves)]
 
-    # --- Helpers ---
-    def _why_tags(row: dict) -> str:
-        tags = []
+    @st.cache_data(show_spinner=False)
+    def _ic_metrics_for_wave(wave_name: str, mode: str, days: int) -> Dict[str, Any]:
+        h = _standardize_history(compute_wave_history(wave_name, mode, days=days))
+        c = coverage_report(h)
+        bid = benchmark_snapshot_id(wave_name, bm_mix)
+        drift = benchmark_drift_status(wave_name, mode, bid)
+        m = compute_metrics_from_hist(h)
 
-        a30 = row.get("Alpha_30D")
-        a60 = row.get("Alpha_60D")
-        te  = row.get("TE")
-        mdd = row.get("MaxDD")
-        br  = row.get("BetaRel")
+        bt = beta_target_for_mode(mode)
+        bv, br2, bn = beta_and_r2(
+            h["wave_ret"] if not h.empty else pd.Series(dtype=float),
+            h["bm_ret"] if not h.empty else pd.Series(dtype=float),
+        )
+        bs = beta_reliability_score(bv, br2, bn, bt)
 
-        try:
-            if a30 is not None and float(a30) > 0: tags.append("α30+")
-            if a60 is not None and float(a60) > 0: tags.append("α60+")
-        except Exception:
-            pass
+        rr = risk_reaction_score(m["te"], m["mdd"], m["cvar95"])
+        a = safe_float(m["a30"] if ic_window == 30 else m["a60"] if ic_window == 60 else m["a365"])
+        te = safe_float(m["te"])
+        covs = safe_float(c.get("completeness_score"))
+        aged = safe_float(c.get("age_days"))
 
-        try:
-            if te is not None and float(te) <= 12: tags.append("Low TE")
-            elif te is not None and float(te) >= 18: tags.append("High TE")
-        except Exception:
-            pass
+        # WHY tags (interpretable + deterministic)
+        why = []
+        if math.isfinite(a) and a >= 0.03:
+            why.append("AlphaUp")
+        if math.isfinite(a) and a <= -0.03:
+            why.append("AlphaDown")
+        if drift != "stable":
+            why.append("BenchmarkDrift")
+        if math.isfinite(bs) and bs < 75:
+            why.append("WeakBenchmarkFit")
+        if math.isfinite(te) and te < 0.10:
+            why.append("LowActiveRisk")
+        if math.isfinite(te) and te > 0.18:
+            why.append("HighActiveRisk")
+        if math.isfinite(covs) and covs < 85:
+            why.append("CoverageFlag")
+        if math.isfinite(aged) and aged >= 5:
+            why.append("StaleData")
 
-        try:
-            if mdd is not None and float(mdd) > -12: tags.append("Shallow DD")
-            elif mdd is not None and float(mdd) < -20: tags.append("Deep DD")
-        except Exception:
-            pass
+        # Opportunity label (non-prescriptive)
+        label = "Monitor"
+        if ("BenchmarkDrift" in why) or ("StaleData" in why):
+            label = "Hold — Fix inputs"
+        elif ("WeakBenchmarkFit" in why) and ("AlphaUp" in why):
+            label = "Review — Alpha may be regime/exposure-driven"
+        elif ("AlphaUp" in why) and ("LowActiveRisk" in why) and (drift == "stable"):
+            label = "Favorable — Clean alpha"
+        elif ("AlphaDown" in why) and ("HighActiveRisk" in why):
+            label = "Caution — Risk/underperformance"
+        elif ("AlphaUp" in why):
+            label = "Positive — Monitor durability"
 
-        try:
-            if br is not None and float(br) >= 75: tags.append("Beta可信")
-            elif br is not None and float(br) <= 55: tags.append("Beta薄")
-        except Exception:
-            pass
-
-        if not tags:
-            tags.append("Neutral")
-        return " • ".join(tags)
-
-    # We rely on your existing lightweight loader if present
-    _loader = locals().get("_ic_load_wave_metrics", None)
+        return {
+            "Wave": wave_name,
+            "Opportunity": label,
+            "Why": " · ".join([f"#{t}" for t in why]) if why else "—",
+            f"Alpha ({ic_window}D)": a,
+            "TE": te,
+            "MaxDD": safe_float(m["mdd"]),
+            "BetaRel": bs,
+            "RiskReaction": rr,
+            "Coverage": covs,
+            "AgeDays": aged,
+            "BM Drift": drift,
+        }
 
     rows = []
-    waves_to_use = list(all_waves_local)[:waves_n]
+    for w in waves_to_run:
+        try:
+            rows.append(_ic_metrics_for_wave(w, mode, days))
+        except Exception:
+            continue
 
-    if callable(_loader):
-        for w in waves_to_use:
-            try:
-                pack = _loader(wave_name=w, mode=locals().get("mode", "Standard"), days=locals().get("days", 365))
-                m = (pack or {}).get("m", {}) or {}
-                cov = (pack or {}).get("cov", {}) or {}
-
-                rows.append({
-                    "Wave": w,
-                    "Alpha_30D": m.get("alpha_30d"),
-                    "Return_30D": m.get("ret_30d"),
-                    "Alpha_60D": m.get("alpha_60d"),
-                    "Return_60D": m.get("ret_60d"),
-                    "TE": m.get("te"),
-                    "MaxDD": m.get("maxdd"),
-                    "BetaRel": m.get("beta_rel"),
-                    "Coverage": cov.get("coverage", None),
-                    "AgeDays": cov.get("age_days", None),
-                })
-            except Exception:
-                rows.append({"Wave": w})
+    if not rows:
+        st.info("Intelligence Center could not build rows (no histories returned).")
     else:
-        st.info("IC loader not available in scope (`_ic_load_wave_metrics`). Showing minimal IC view.")
-        for w in waves_to_use:
-            rows.append({"Wave": w})
+        df = pd.DataFrame(rows)
+        show = df.copy()
+        # format
+        for c in [f"Alpha ({ic_window}D)", "TE", "MaxDD"]:
+            if c in show.columns:
+                show[c] = show[c].apply(lambda x: fmt_pct(x, 2) if math.isfinite(safe_float(x)) else "—")
+        for c in ["BetaRel", "RiskReaction", "Coverage"]:
+            if c in show.columns:
+                show[c] = show[c].apply(lambda x: f"{safe_float(x):.0f}/100" if math.isfinite(safe_float(x)) else "—")
+        if "AgeDays" in show.columns:
+            show["AgeDays"] = show["AgeDays"].apply(lambda x: fmt_int(x))
 
-    import pandas as pd
-    df_ic = pd.DataFrame(rows)
+        st.dataframe(
+            show[["Opportunity", "Wave", "Why", f"Alpha ({ic_window}D)", "TE", "MaxDD", "BetaRel", "RiskReaction", "Coverage", "AgeDays", "BM Drift"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    # Tighten redundancy:
-    # - IC Summary stays summary-only
-    # - Intelligence Center owns cross-wave tables + why-tags
-    if focus in ("System State", "Diversification & Crowd Risk"):
-        st.subheader("System State")
-        bm_state = locals().get("bm_drift", None)
-        conf_lvl = locals().get("conf_level", None)
-        st.write(f"**BM drift:** {('stable' if str(bm_state).lower() == 'stable' else bm_state) if bm_state is not None else '—'}")
-        st.write(f"**Confidence:** {conf_lvl if conf_lvl is not None else '—'}")
+        with st.expander("What do the WHY tags mean?"):
+            st.write(
+                "**#AlphaUp / #AlphaDown**: relative performance vs benchmark over the selected window.\n\n"
+                "**#BenchmarkDrift**: benchmark snapshot changed in-session (governance flag).\n\n"
+                "**#WeakBenchmarkFit**: low beta reliability; benchmark may not explain systematic exposure.\n\n"
+                "**#LowActiveRisk / #HighActiveRisk**: tracking error band signals.\n\n"
+                "**#CoverageFlag / #StaleData**: data integrity warnings."
+            )
 
-        st.subheader("Diversification & Crowd Risk")
-        st.caption(f"Using {len(df_ic)} waves × {corr_days} days (window selection placeholder if your corr engine is elsewhere).")
-        st.write("If you already compute a correlation matrix elsewhere, keep it there — this tab is the display surface.")
-
-    if focus == "Relative Opportunity":
-        st.subheader("Relative Opportunity (Soft Guidance)")
-        st.caption("Includes a “Why” column (tags) so the rows are self-explaining.")
-
-        if not df_ic.empty:
-            # Create a simple guidance label from alpha + risk
-            def _guidance(r):
-                try:
-                    a60 = float(r.get("Alpha_60D")) if r.get("Alpha_60D") is not None else 0.0
-                    te  = float(r.get("TE")) if r.get("TE") is not None else 15.0
-                except Exception:
-                    return "MONITOR"
-                if a60 > 0.75 and te <= 16:
-                    return "FAVOR"
-                if a60 < -0.75:
-                    return "DE-RISK"
-                return "MONITOR"
-
-            df_ic["Guidance"] = df_ic.apply(_guidance, axis=1)
-            df_ic["Why"] = df_ic.apply(lambda r: _why_tags(r.to_dict()), axis=1)
-
-            show_cols = [c for c in ["Guidance", "Wave", "Why", "Alpha_30D", "Alpha_60D", "TE", "MaxDD", "BetaRel"] if c in df_ic.columns]
-            st.dataframe(df_ic[show_cols], use_container_width=True, hide_index=True)
+    if include_corr and rows:
+        st.divider()
+        st.markdown("#### Correlation Matrix (Wave daily returns)")
+        # build return matrix (best-effort)
+        rets = {}
+        for w in waves_to_run:
+            h = _standardize_history(compute_wave_history(w, mode, days=days))
+            if h is not None and not h.empty and "wave_ret" in h.columns:
+                r = pd.to_numeric(h["wave_ret"], errors="coerce").dropna()
+                if len(r) >= 60:
+                    rets[w] = r
+        if len(rets) < 3:
+            st.info("Not enough waves with sufficient return history to compute correlation.")
         else:
-            st.info("No IC rows available.")
-    
+            mat = pd.DataFrame(rets).dropna(how="any")
+            corr = mat.corr()
+            st.dataframe(corr.round(3), use_container_width=True)
+
 # ============================================================
-# OVERVIEW
+# OVERVIEW (TAB 2)
 # ============================================================
-with tabs[1]:
+with tabs[2]:
     st.markdown("### Overview (Canonical Metrics)")
     st.caption("Everything below is computed from the same canonical hist_sel object (no duplicate math).")
 
@@ -2134,11 +2315,10 @@ with tabs[1]:
         nav_view = nav_view.rename(columns={"wave_nav": "Wave NAV", "bm_nav": "Benchmark NAV"})
         st.line_chart(nav_view, height=240, use_container_width=True)
 
-
 # ============================================================
-# RISK + ADVANCED
+# RISK + ADVANCED (TAB 3)
 # ============================================================
-with tabs[2]:
+with tabs[3]:
     st.markdown("### Risk + Advanced Analytics (Canonical)")
 
     c1, c2, c3 = st.columns(3, gap="medium")
@@ -2161,11 +2341,6 @@ with tabs[2]:
         st.metric("CVaR 95% (daily)", value=fmt_pct(metrics["cvar95"], 2))
     with c6:
         st.metric("Risk Reaction Score", value=f"{fmt_num(rr_score,1)}/100")
-
-    render_definitions(
-        ["Sharpe", "Sortino", "Max Drawdown (MaxDD)", "Tracking Error (TE)", "VaR 95% (daily)", "CVaR 95% (daily)", "Risk Reaction Score"],
-        title="Definitions (Risk & Advanced)",
-    )
 
     if ENABLE_AI_EXPLAIN:
         st.markdown("---")
@@ -2203,11 +2378,10 @@ with tabs[2]:
             for s in explain["What to verify"]:
                 st.write("• " + s)
 
-
 # ============================================================
-# BENCHMARK GOVERNANCE
+# BENCHMARK GOVERNANCE (TAB 4)
 # ============================================================
-with tabs[3]:
+with tabs[4]:
     st.markdown("### Benchmark Governance (Fidelity Inspector)")
 
     left, right = st.columns([1.0, 1.1], gap="large")
@@ -2239,16 +2413,10 @@ with tabs[3]:
         else:
             st.dataframe(bm_diff, use_container_width=True, hide_index=True)
 
-        render_definitions(
-            ["Benchmark Snapshot / Drift", "Difficulty vs SPY", "Tracking Error (TE)", "Beta Reliability Score"],
-            title="Definitions (Benchmark Governance)",
-        )
-
-
 # ============================================================
-# COMPARATOR
+# COMPARATOR (TAB 5)
 # ============================================================
-with tabs[4]:
+with tabs[5]:
     st.markdown("### Wave-to-Wave Comparator")
 
     if not ENABLE_COMPARATOR:
@@ -2299,11 +2467,10 @@ with tabs[4]:
         else:
             st.info("Pick Wave B to compare.")
 
-
 # ============================================================
-# ALPHA SNAPSHOT (ALL WAVES)
+# ALPHA SNAPSHOT (TAB 6)
 # ============================================================
-with tabs[5]:
+with tabs[6]:
     st.markdown("### Alpha Snapshot (All Waves)")
     st.caption("Intraday / 30D / 60D / 365D — Return + Alpha + Alpha Capture (exposure-normalized when available).")
 
@@ -2409,11 +2576,10 @@ with tabs[5]:
                 use_container_width=True,
             )
 
-
 # ============================================================
-# DIAGNOSTICS (ALWAYS BOOTS)
+# DIAGNOSTICS (TAB 7) — ALWAYS BOOTS
 # ============================================================
-with tabs[6]:
+with tabs[7]:
     st.markdown("### Diagnostics (Always Boots)")
 
     st.markdown("#### Import Status")
@@ -2450,4 +2616,7 @@ with tabs[6]:
     st.write(f"BetaRel {beta_grade} ({fmt_num(beta_score,1)}/100) | BM drift {bm_drift}")
 
     st.markdown("---")
-    st.caption("If you see a red Streamlit error box, open Streamlit → Manage app → Logs. This build is designed to keep running even if a panel fails.")
+    st.caption(
+        "This build is designed to keep running even if a panel fails. "
+        "If you see a red Streamlit error box, open Streamlit → Manage app → Logs."
+    )
