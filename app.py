@@ -1927,24 +1927,56 @@ with tabs[0]:
 
         # Alpha enhancements summary (selected wave)
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-        st.markdown("#### Alpha Enhancements (Selected Wave)")
+        st.markdown("#### Alpha Analytics Suite (Selected Wave)")
+        st.caption("Comprehensive alpha decomposition with exposure normalization and regime attribution")
+        
+        # Calculate all alpha metrics for multiple windows
+        attrib30 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=30)
         attrib60 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=60)
+        attrib365 = _risk_on_off_attrib(hist_sel, selected_wave, mode, window=min(365, len(hist_sel)))
+        
         ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
+        ac30 = _compound_from_daily(ac_sel.tail(min(30, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
         ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
-        st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
-        st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
-        st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
-        st.write(
-            f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_on_share'),2)} share)"
-        )
-        st.write(
-            f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
-            f"({fmt_pct(attrib60.get('risk_off_share'),2)} share)"
-        )
+        ac365 = _compound_from_daily(ac_sel.tail(min(365, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
+        
+        # Create organized display columns
+        alpha_col1, alpha_col2 = st.columns(2, gap="medium")
+        
+        with alpha_col1:
+            st.markdown("**30-Day Alpha Analytics**")
+            st.write(f"• Capital-Weighted Alpha: {fmt_pct(attrib30.get('cap_alpha'))}")
+            st.write(f"• Exposure-Adjusted Alpha: {fmt_pct(attrib30.get('exp_adj_alpha'))}")
+            st.write(f"• Alpha Capture (exposure-normalized): {fmt_pct(ac30)}")
+            st.write(f"• Risk-On Alpha: {fmt_pct(attrib30.get('risk_on_alpha'))} ({fmt_pct(attrib30.get('risk_on_share'),2)} share)")
+            st.write(f"• Risk-Off Alpha: {fmt_pct(attrib30.get('risk_off_alpha'))} ({fmt_pct(attrib30.get('risk_off_share'),2)} share)")
+            
+            st.markdown("**60-Day Alpha Analytics**")
+            st.write(f"• Capital-Weighted Alpha: {fmt_pct(attrib60.get('cap_alpha'))}")
+            st.write(f"• Exposure-Adjusted Alpha: {fmt_pct(attrib60.get('exp_adj_alpha'))}")
+            st.write(f"• Alpha Capture (exposure-normalized): {fmt_pct(ac60)}")
+            st.write(f"• Risk-On Alpha: {fmt_pct(attrib60.get('risk_on_alpha'))} ({fmt_pct(attrib60.get('risk_on_share'),2)} share)")
+            st.write(f"• Risk-Off Alpha: {fmt_pct(attrib60.get('risk_off_alpha'))} ({fmt_pct(attrib60.get('risk_off_share'),2)} share)")
+        
+        with alpha_col2:
+            st.markdown("**1-Year (365D) Alpha Analytics**")
+            st.write(f"• Capital-Weighted Alpha: {fmt_pct(attrib365.get('cap_alpha'))}")
+            st.write(f"• Exposure-Adjusted Alpha: {fmt_pct(attrib365.get('exp_adj_alpha'))}")
+            st.write(f"• Alpha Capture (exposure-normalized): {fmt_pct(ac365)}")
+            st.write(f"• Risk-On Alpha: {fmt_pct(attrib365.get('risk_on_alpha'))} ({fmt_pct(attrib365.get('risk_on_share'),2)} share)")
+            st.write(f"• Risk-Off Alpha: {fmt_pct(attrib365.get('risk_off_alpha'))} ({fmt_pct(attrib365.get('risk_off_share'),2)} share)")
+            
+            st.markdown("**Daily Alpha Capture Summary**")
+            if len(ac_sel) >= 2:
+                st.write(f"• Latest Daily Alpha Capture: {fmt_pct(ac_sel.iloc[-1] if len(ac_sel) > 0 else float('nan'))}")
+                st.write(f"• Average Daily Alpha Capture: {fmt_pct(ac_sel.mean())}")
+                st.write(f"• Total Observations: {len(ac_sel)}")
+            else:
+                st.write("Insufficient data for daily alpha capture metrics")
+        
         render_definitions(
             ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
-            title="Definitions (Alpha Enhancements)",
+            title="Definitions (Alpha Analytics)",
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2252,13 +2284,17 @@ with tabs[4]:
 # ============================================================
 with tabs[5]:
     st.markdown("### Alpha Snapshot (All Waves)")
-    st.caption("Intraday / 30D / 60D / 365D — Return + Alpha + Alpha Capture (exposure-normalized when available).")
+    st.caption(
+        "**Comprehensive Alpha Analytics Overview** — Intraday Returns & Alpha Snapshot covering 30D, 60D, and 1-YEAR periods. "
+        "Includes Return, Alpha, Alpha Capture (exposure-normalized when available), Capital-Weighted Alpha, "
+        "Exposure-Adjusted Alpha, and Risk-On vs Risk-Off Attribution."
+    )
 
     if not ENABLE_ALPHA_SNAPSHOT:
         st.info("Alpha Snapshot disabled.")
     else:
         snap_days = st.selectbox("Snapshot lookback used for loading histories (>=365 recommended)", [365, 730, 1095, 2520], index=0)
-        show_ro_rf = st.toggle("Include Risk-On / Risk-Off Attribution (60D)", value=False)
+        show_ro_rf = st.toggle("Include Risk-On / Risk-Off Attribution (60D)", value=True)
         limit_n = st.slider(
             "Max waves to compute (speed control)",
             min_value=5,
@@ -2280,21 +2316,21 @@ with tabs[5]:
 
             return {
                 "Wave": wave_name,
-                "1D Ret": m["r1"],
-                "1D Alpha": m["a1"],
-                "30D Ret": m["r30"],
+                "Intraday Ret": m["r1"],
+                "Intraday Alpha": m["a1"],
+                "30D Return": m["r30"],
                 "30D Alpha": m["a30"],
                 "30D AlphaCapture": ac30,
-                "60D Ret": m["r60"],
+                "60D Return": m["r60"],
                 "60D Alpha": m["a60"],
                 "60D AlphaCapture": ac60,
-                "365D Ret": m["r365"],
-                "365D Alpha": m["a365"],
-                "365D AlphaCapture": ac365,
-                "60D CapAlpha": attrib60.get("cap_alpha"),
-                "60D ExpAdjAlpha": attrib60.get("exp_adj_alpha"),
-                "60D RiskOnAlpha": attrib60.get("risk_on_alpha"),
-                "60D RiskOffAlpha": attrib60.get("risk_off_alpha"),
+                "1Y Return": m["r365"],
+                "1Y Alpha": m["a365"],
+                "1Y AlphaCapture": ac365,
+                "60D Cap-Wtd Alpha": attrib60.get("cap_alpha"),
+                "60D Exp-Adj Alpha": attrib60.get("exp_adj_alpha"),
+                "60D RiskOn Alpha": attrib60.get("risk_on_alpha"),
+                "60D RiskOff Alpha": attrib60.get("risk_off_alpha"),
                 "CoverageRows": int(len(h)) if h is not None else 0,
             }
 
@@ -2317,7 +2353,7 @@ with tabs[5]:
 
             pct_cols = [
                 c for c in display.columns
-                if ("Ret" in c or "Alpha" in c or "AlphaCapture" in c or "CapAlpha" in c or "ExpAdjAlpha" in c or "RiskOnAlpha" in c or "RiskOffAlpha" in c)
+                if ("Ret" in c or "Alpha" in c or "AlphaCapture" in c or "Cap-Wtd" in c or "Exp-Adj" in c or "RiskOn" in c or "RiskOff" in c)
             ]
             for c in pct_cols:
                 if c in display.columns:
@@ -2325,7 +2361,7 @@ with tabs[5]:
 
             sort_by = st.selectbox(
                 "Sort by",
-                ["60D AlphaCapture", "60D Alpha", "30D AlphaCapture", "30D Alpha", "365D AlphaCapture", "365D Alpha"],
+                ["60D AlphaCapture", "60D Alpha", "30D AlphaCapture", "30D Alpha", "1Y AlphaCapture", "1Y Alpha"],
                 index=0,
             )
             try:
@@ -2335,7 +2371,7 @@ with tabs[5]:
                 pass
 
             if not show_ro_rf:
-                display = display.drop(columns=["60D RiskOnAlpha", "60D RiskOffAlpha"], errors="ignore")
+                display = display.drop(columns=["60D RiskOn Alpha", "60D RiskOff Alpha"], errors="ignore")
 
             st.dataframe(display, use_container_width=True, hide_index=True)
 
