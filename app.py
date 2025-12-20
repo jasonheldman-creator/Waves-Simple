@@ -1991,133 +1991,121 @@ tab_names = [
 tabs = st.tabs(tab_names)
 
 # ============================================================
-# IC SUMMARY — EXECUTIVE, SCORE-BASED, GOVERNANCE-SAFE
+# IC SUMMARY — EXECUTIVE GOVERNANCE VIEW (SCORE-BASED)
 # ============================================================
 with tabs[0]:
 
-    st.markdown("### 📘 Investment Committee Summary")
+    st.markdown("### Executive IC Summary")
     st.caption(
-        "Executive snapshot derived from canonical metrics. "
-        "Score-based (1–100). No execution. No allocation changes."
+        "Governance-safe, read-only summary for investment committees. "
+        "Scores reflect risk-adjusted system quality and data integrity — not recommendations."
     )
 
     # --------------------------------------------------------
-    # 1. OVERALL SYSTEM SCORE (PRIMARY SIGNAL)
+    # 1. IC Composite Score (0–100)
     # --------------------------------------------------------
-    overall_score = int(round(
-        0.40 * analytics_score +
-        0.25 * risk_reaction_score +
-        0.20 * beta_score +
-        0.15 * conf_level
-    ))
+    # This score intentionally replaces all letter grades.
+    # It blends analytics quality, benchmark integrity, risk behavior, and data confidence.
+    ic_score = int(
+        round(
+            0.35 * analytics_score +
+            0.25 * beta_score +
+            0.20 * rr_score +
+            0.20 * conf_level
+        )
+    )
 
     score_band = (
-        "Strong" if overall_score >= 80 else
-        "Moderate" if overall_score >= 65 else
-        "Fragile"
+        "Exceptional" if ic_score >= 90 else
+        "Strong" if ic_score >= 80 else
+        "Adequate" if ic_score >= 70 else
+        "Caution" if ic_score >= 60 else
+        "Weak"
     )
 
-    c1, c2, c3 = st.columns([1.1, 1.0, 1.0])
-    with c1:
-        tile("System Score", f"{overall_score}/100", score_band)
-    with c2:
-        tile("Confidence", f"{conf_level:.0f}/100", "Data integrity")
-    with c3:
-        tile("Benchmark Status", bm_drift.upper(), "Stability")
+    col1, col2, col3 = st.columns([1.1, 1.2, 1.2])
+    with col1:
+        tile("IC Composite Score", f"{ic_score}/100", score_band)
+    with col2:
+        tile("System Confidence", f"{conf_level:.0f}/100", "Data integrity & coverage")
+    with col3:
+        tile("Benchmark Integrity", f"{beta_score:.0f}/100", "β reliability vs target")
 
     st.divider()
 
     # --------------------------------------------------------
-    # 2. RISK & CONTROL SNAPSHOT (WHAT IC CARES ABOUT)
+    # 2. Current System State
     # --------------------------------------------------------
-    c1, c2, c3, c4 = st.columns(4)
+    st.markdown("#### Current System State")
+
+    c1, c2, c3 = st.columns(3)
     with c1:
-        tile("Beta Discipline", f"{beta_score:.0f}/100", f"β {beta_real:.2f} / tgt {beta_target:.2f}")
+        tile(
+            "Market Regime",
+            regime_label,
+            "Derived from benchmark sign dominance"
+        )
     with c2:
-        tile("Risk Reaction", f"{risk_reaction_score:.0f}/100", "Drawdown behavior")
+        tile(
+            "Risk Reaction Score",
+            f"{rr_score:.1f}/100",
+            "Drawdown & volatility response"
+        )
     with c3:
-        tile("Tracking Error", f"{te:.2f}%", "Active risk")
-    with c4:
-        tile("Max Drawdown", f"{max_dd:.2f}%", "Historical")
+        tile(
+            "Benchmark Drift",
+            "Stable" if not bm_drift else "Drifting",
+            "Composite benchmark consistency"
+        )
 
     st.divider()
 
     # --------------------------------------------------------
-    # 3. PERFORMANCE ATTRIBUTION (NO DUPLICATE MATH)
+    # 3. Performance Context (Why results look the way they do)
     # --------------------------------------------------------
-    st.markdown("#### Performance vs Benchmark")
+    st.markdown("#### Performance Context")
 
     perf_rows = [
-        ("30D", alpha_30d, ret_30d),
-        ("60D", alpha_60d, ret_60d),
-        ("365D", alpha_365d, ret_365d),
+        ("30D Alpha", f"{alpha_30d:+.2f}%", "Short-term relative performance"),
+        ("60D Alpha", f"{alpha_60d:+.2f}%", "Intermediate trend signal"),
+        ("Tracking Error", f"{te:.2f}%", "Active risk vs benchmark"),
+        ("Max Drawdown", f"{max_dd:.2f}%", "Worst peak-to-trough loss"),
     ]
 
-    perf_df = pd.DataFrame(
-        perf_rows,
-        columns=["Window", "Alpha", "Return"]
-    )
-
-    st.dataframe(
-        perf_df.style.format({
-            "Alpha": "{:.2f}%",
-            "Return": "{:.2f}%"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.caption(
-        "Alpha reflects exposure-adjusted performance versus the canonical benchmark. "
-        "All figures sourced from the same history object."
+    st.table(
+        {
+            "Metric": [r[0] for r in perf_rows],
+            "Value": [r[1] for r in perf_rows],
+            "Interpretation": [r[2] for r in perf_rows],
+        }
     )
 
     st.divider()
 
     # --------------------------------------------------------
-    # 4. GOVERNANCE FLAGS (IC ACTIONABILITY)
+    # 4. Governance Flags & Assumptions
     # --------------------------------------------------------
-    flags = []
-    if beta_score < 60:
-        flags.append("Low beta reliability — benchmark may not explain exposure.")
-    if bm_drift != "stable":
-        flags.append("Benchmark drift detected — review attribution context.")
-    if max_dd < -20:
-        flags.append("Deep drawdown history — heightened risk sensitivity.")
+    st.markdown("#### Governance Flags & Assumptions")
 
-    if flags:
-        st.markdown("#### Governance Notes")
-        for f in flags:
-            st.warning(f)
+    if crits or warns:
+        if crits:
+            st.error("Critical governance flags detected:")
+            for w in crits[:5]:
+                st.write("•", w)
+
+        if warns:
+            st.warning("Advisory governance warnings:")
+            for w in warns[:5]:
+                st.write("•", w)
     else:
-        st.success("No material governance concerns detected.")
+        st.success("No active governance flags detected.")
 
-    st.divider()
-
-    # --------------------------------------------------------
-    # 5. IC INTERPRETATION (CLEAR, NON-OVERLAPPING)
-    # --------------------------------------------------------
-    st.markdown("#### IC Interpretation")
-
-    interpretation = (
-        "The system exhibits strong internal coherence and stable benchmark alignment. "
-        "Risk controls are behaving within expected tolerances. "
-        "Observed alpha is primarily attributable to strategy execution rather than benchmark distortion."
-        if overall_score >= 80 else
-        "System signals are mixed. Performance is acceptable, but risk or benchmark fidelity "
-        "requires monitoring before increasing reliance."
-        if overall_score >= 65 else
-        "System reliability is fragile. Outputs should be interpreted cautiously until "
-        "risk controls or benchmark alignment improve."
-    )
-
-    st.info(interpretation)
-
-    with st.expander("What this summary is / is not"):
+    with st.expander("What this summary is (and is not)"):
         st.write(
-            "This summary is designed for investment committees and governance review. "
-            "It consolidates signal quality, risk behavior, and attribution integrity into a single page. "
-            "It does not provide trade recommendations or allocation instructions."
+            "• This summary is **not** an allocation or execution signal.\n"
+            "• Scores reflect **system quality, risk behavior, and data integrity**.\n"
+            "• All figures are computed from the same canonical history — no duplicate math.\n"
+            "• Cross-wave opportunity analysis lives exclusively in the Intelligence Center tab."
         )
     
 # ============================================================
