@@ -1432,7 +1432,7 @@ def _vector_referee_verdict_block(
     with t1:
         tile("Alpha Classification", classification, "Structural = regime/exposure-driven; Incidental = selection/tilt w/ stable linkage")
     with t2:
-        tile("Benchmark Assumption", assumption_status, f"BM drift: {bm_drift} · BetaRel: {beta_grade} ({fmt_num(beta_score,1)}/100)")
+        tile("Benchmark Assumption", assumption_status, f"BM drift: {bm_drift}")
     with t3:
         tile("Primary Alpha Source", "Referee inference", primary_source)
 
@@ -1440,7 +1440,7 @@ def _vector_referee_verdict_block(
     verdict_lines = [
         f"**Primary Alpha Source:** {primary_source}",
         f"**Benchmark Assumption Status:** {assumption_status}",
-        f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs tgt {fmt_num(beta_target_for_mode(mode),2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}",
+        f"**Beta Reliability:** {fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} vs tgt {fmt_num(beta_target_for_mode(mode),2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}",
         f"**Regime Dependence:** {'High' if classification == 'Structural' else 'Moderate' if classification == 'Incidental' else 'Low'}",
         f"**Alpha Classification:** {classification}",
     ]
@@ -1589,7 +1589,6 @@ def render_vector_status_bar(
     pills = [
         f"Vector Status: {conf_level}",
         f"BM: {bm_drift.upper()}",
-        f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)})",
         f"Risk Reaction: {fmt_num(rr_score,1)}/100",
         f"30D α {fmt_pct(metrics.get('a30'))} · 60D α {fmt_pct(metrics.get('a60'))}",
     ]
@@ -1696,13 +1695,11 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, beta_grade: str, bet
         return
     st.markdown("#### Final Verdict (Vector™)")
     st.markdown('<div class="waves-card">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3, gap="medium")
+    c1, c2 = st.columns(2, gap="medium")
     with c1:
         tile("Verdict", str(v.get("verdict", "—")), f"Confidence: {conf_level} · BM: {bm_id}")
     with c2:
         tile("Alpha Classification", str(v.get("classification", "—")), f"Cap α: {fmt_pct(v.get('cap_alpha'))} · ExpAdj α: {fmt_pct(v.get('exp_adj_alpha'))}")
-    with c3:
-        tile("Benchmark Fit", f"{beta_grade}", f"BetaRel {fmt_num(beta_score,1)}/100")
     st.markdown("**Primary Source:** " + str(v.get("primary_source", "—")))
     st.markdown("**Recommended Action:** " + str(v.get("action", "—")))
     st.markdown("</div>", unsafe_allow_html=True)
@@ -1837,7 +1834,6 @@ chip(f"Coverage: {fmt_num(cov.get('completeness_score'),1)} · AgeDays: {fmt_int
 chip(f"30D α {fmt_pct(metrics['a30'])} · r {fmt_pct(metrics['r30'])}")
 chip(f"60D α {fmt_pct(metrics['a60'])} · r {fmt_pct(metrics['r60'])}")
 chip(f"Risk: TE {fmt_pct(metrics['te'])} ({te_band}) · MaxDD {fmt_pct(metrics['mdd'])}")
-chip(f"BetaRel: {beta_grade} ({fmt_num(beta_score,1)}) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
 st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1890,7 +1886,7 @@ with tabs[0]:
         st.markdown("**Trust + Governance**")
         st.write(f"**Confidence:** {conf_level} — {conf_reason}")
         st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
-        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
+        st.write(f"**Beta Reliability:** {fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
         st.markdown("**Performance vs Benchmark**")
         st.write(f"30D Return {fmt_pct(metrics['r30'])} | 30D Alpha {fmt_pct(metrics['a30'])}")
         st.write(f"60D Return {fmt_pct(metrics['r60'])} | 60D Alpha {fmt_pct(metrics['a60'])}")
@@ -2041,7 +2037,7 @@ with tabs[0]:
             tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
         with c2:
             tile("Analytics Grade", sel_score.get("Grade", "N/A"), f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100 {sel_score.get('Flags','')}")
-            tile("Beta Reliability", beta_grade, f"{fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+            tile("Beta Reliability", f"{fmt_num(beta_score,1)}/100", f"β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
             tile("Active Risk (TE)", fmt_pct(metrics["te"]), f"Band: {te_band}")
 
         st.markdown("---")
@@ -2202,7 +2198,7 @@ with tabs[3]:
         st.write(f"**Snapshot:** {bm_id}")
         st.write(f"**Drift Status:** {bm_drift}")
         st.write(f"**Active Risk Band (TE):** {te_band} (TE {fmt_pct(metrics['te'])})")
-        st.write(f"**Beta Reliability:** {beta_grade} ({fmt_num(beta_score,1)}/100) · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
+        st.write(f"**Beta Reliability:** {fmt_num(beta_score,1)}/100 · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
         st.write(f"**Difficulty vs SPY (proxy):** {fmt_num(difficulty.get('difficulty_vs_spy'), 1)} (range ~ -25 to +25)")
         st.caption("Difficulty is a concentration/diversification heuristic (not a promise).")
         st.markdown("</div>", unsafe_allow_html=True)
