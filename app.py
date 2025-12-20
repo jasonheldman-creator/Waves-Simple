@@ -1762,7 +1762,291 @@ def render_gating_warnings(g: Dict[str, List[str]]):
         )
         render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
 
+# ============================================================
+# INTELLIGENCE CENTER (Cross-Wave System Layer — read-only)
+# ============================================================
+@st.cache_data(show_spinner=False)
+def _ic_load_wave_metrics(wave_name: str, mode: str, days: int) -> Dict[str, Any]:
+    """
+    Lightweight loader: returns canonical history + key metrics for a wave.
+    Boot-safe: returns empty structures if history is missing.
+    """
+    h = _standardize_history(compute_wave_history(wave_name, mode, days=days))
+    m = compute_metrics_from_hist(h) if h is not None and not h.empty else compute_metrics_from_hist(pd.DataFrame())
+    cov = coverage_report(h) if h is not None and not h.empty else {"rows": 0, "completeness_score": np.nan, "age_days": np.nan}
+    return {"hist": h, "m": m, "cov": cov}
 
+def _ic_return_matrix(
+    waves: List[str],
+    mode: str,
+    days: int,
+    window_days: int = 90,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Builds a daily return matrix (rows=dates, cols=waves).
+    Uses canonical wave_ret from each wave's standardized history.
+    """
+    cols = {}
+    used = []
+    for w in waves:
+        pack = _ic_load_wave_metrics(w, mode, days)
+        h = pack["hist"]
+        if h is None or h.empty or "wave_ret" not in h.columns:
+            continue
+        r = pd.to_numeric(h["wave_ret"], errors="coerce").dropna()
+        if len(r) < 30:
+            continue
+        cols[w] = r
+        used.append(w)
+
+    if not cols:
+        return (pd.DataFrame(), [])
+
+    df = pd.concat(cols, axis=1).dropna(how="all")
+    df = df.sort_index()
+    if window_days and len(df) > window_days:
+        df = df.iloc[-window_days:]
+    # drop columns that are mostly missing
+    keep = [c for c in df.columns if df[c].dropna().shape[0] >= 30]
+    df = df[keep]
+    used = [w for w in used if w in keep]
+    return df, used
+
+def _ic_corr_state(ret_mat: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Produces correlation summary:
+      - avg_corr (off-diagonal mean)
+      - max_corr_pair
+      - cluster_risk flag
+    """
+    out = {"avg_corr": np.nan, "max_pair": None, "max_corr": np.nan, "cluster_risk": "N/A"}
+    if ret_mat is None or ret_mat.empty or ret_mat.shape[1] < 3:
+        return out
+
+    corr = ret_mat.corr()
+    # off-diagonal average
+    mask = ~np.eye(corr.shape[0], dtype=bool)
+    vals = corr.values[mask]
+    vals = vals[np.isfinite(vals)]
+    if vals.size:
+        out["avg_corr"] = float(np.mean(vals))
+
+    # max pair
+    max_corr = -2.0
+    max_pair = None
+    cols = list(corr.columns)
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            v = corr.iloc[i, j]
+            if pd.notna(v) and float(v) > max_corr:
+                max_corr = float(v)
+                max_pair = (cols[i], cols[j])
+
+    if max_pair is not None:
+        out["max_pair"] = max_pair
+        out["max_corr"] = max_corr
+
+    # cluster risk heuristic
+    if math.isfinite(out["avg_corr"]):
+        if out["avg_corr"] >= 0.70:
+            out["cluster_risk"] = "High (crowded correlations)"
+        elif out["avg_corr"] >= 0.55:
+            out["cluster_risk"] = "Medium"
+        else:
+            out["cluster_risk"] = "Low"
+    return out
+
+def _ic_regime_from_selected(selected_hist: pd.DataFrame) -> str:
+    """
+    Deterministic regime label using selected benchmark daily return sign dominance.
+    """
+    try:
+        if selected_hist is None or selected_hist.empty or "bm_ret" not in selected_hist.columns:
+            return "Unknown"
+        b = pd.to_numeric(selected_hist["bm_ret"], errors="coerce").dropna()
+        if len(b) < 30:
+            return "Unknown"
+        off_share = float((b < 0).mean())
+        if off_share >= 0.60:
+            return "Risk-Off dominant"
+        if off_share <= 0.40:
+            return "Risk-On dominant"
+        return "Mixed / transition"
+    except Exception:
+        return "Unknown"
+
+def _ic_opportunity_signals(
+    waves: List[str],
+    mode: str,
+    days: int,
+    max_waves: int = 18,
+) -> pd.DataFrame:
+    """
+    Builds a cross-wave opportunity table using simple, explainable heuristics:
+      - 30D alpha (vs each wave’s benchmark)
+      - 60D alpha
+      - TE (active risk)
+      - “Opportunity Score” = alpha dispersion + risk-adjusted preference (soft)
+    """
+    rows = []
+    for w in waves[:max_waves]:
+        pack = _ic_load_wave_metrics(w, mode, days)
+        m = pack["m"]
+        cov = pack["cov"]
+        a30 = safe_float(m.get("a30"))
+        a60 = safe_float(m.get("a60"))
+        te = safe_float(m.get("te"))
+        age = safe_float(cov.get("age_days"))
+        covs = safe_float(cov.get("completeness_score"))
+
+        # Soft preference: favor +alpha with reasonable TE, penalize stale/weak coverage
+        score = 0.0
+        if math.isfinite(a30): score += a30 * 600.0
+        if math.isfinite(a60): score += a60 * 300.0
+        if math.isfinite(te):  score += float(np.clip((0.14 - te) * 180.0, -35.0, 35.0))
+        if math.isfinite(covs): score += float(np.clip((covs - 88.0) * 0.8, -10.0, 10.0))
+        if math.isfinite(age) and age >= 5: score -= 10.0
+
+        rows.append({
+            "Wave": w,
+            "30D Alpha": a30,
+            "60D Alpha": a60,
+            "TE": te,
+            "Coverage": covs,
+            "AgeDays": age,
+            "OpportunityScore": score,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values("OpportunityScore", ascending=False).reset_index(drop=True)
+
+def _ic_guidance(row: pd.Series) -> str:
+    """
+    Soft guidance language only (B): Favor / Monitor / Avoid.
+    Deterministic thresholds.
+    """
+    a30 = safe_float(row.get("30D Alpha"))
+    te = safe_float(row.get("TE"))
+    covs = safe_float(row.get("Coverage"))
+    age = safe_float(row.get("AgeDays"))
+
+    data_ok = (not math.isfinite(covs)) or (covs >= 80)
+    fresh_ok = (not math.isfinite(age)) or (age <= 7)
+
+    if not data_ok or not fresh_ok:
+        return "MONITOR (data caveat)"
+
+    if math.isfinite(a30) and a30 >= 0.03 and (not math.isfinite(te) or te <= 0.18):
+        return "FAVOR (risk-adjusted strength)"
+    if math.isfinite(a30) and a30 <= -0.03 and (math.isfinite(te) and te >= 0.18):
+        return "AVOID (weak + high active risk)"
+    return "MONITOR"
+
+def render_intelligence_center(
+    all_waves: List[str],
+    mode: str,
+    days: int,
+    hist_sel: pd.DataFrame,
+    conf_level: str,
+    bm_drift: str,
+):
+    st.markdown("### 🧠 Intelligence Center")
+    st.caption("Cross-wave system intelligence (read-only). Soft guidance only. No execution, no allocation changes.")
+
+    # Controls (IC-local)
+    c0, c1, c2, c3 = st.columns([1.1, 1.0, 1.0, 1.0], gap="medium")
+    with c0:
+        ic_limit = st.slider("Waves analyzed", 6, max(6, min(30, len(all_waves))), value=min(18, len(all_waves)))
+    with c1:
+        ic_corr_window = st.selectbox("Correlation window (days)", [60, 90, 120, 180], index=1)
+    with c2:
+        ic_focus = st.selectbox("Focus", ["System State", "Opportunity", "Construction"], index=0)
+    with c3:
+        show_matrix = st.toggle("Show correlation matrix", value=False)
+
+    # System State header
+    regime = _ic_regime_from_selected(hist_sel)
+    ret_mat, used = _ic_return_matrix(all_waves[:ic_limit], mode, days, window_days=int(ic_corr_window))
+    corr_state = _ic_corr_state(ret_mat)
+
+    h1, h2, h3, h4 = st.columns(4, gap="medium")
+    with h1:
+        tile("Market Regime", regime, "Deterministic (benchmark sign dominance)")
+    with h2:
+        tile("Correlation State", fmt_num(corr_state.get("avg_corr"), 2), str(corr_state.get("cluster_risk", "N/A")))
+    with h3:
+        tile("System Confidence", conf_level, f"BM drift: {bm_drift}")
+    with h4:
+        mp = corr_state.get("max_pair")
+        mp_txt = f"{mp[0]} ↔ {mp[1]}" if isinstance(mp, tuple) else "—"
+        tile("Max Pair Corr", fmt_num(corr_state.get("max_corr"), 2), mp_txt)
+
+    st.markdown("---")
+
+    # Main layout
+    left, right = st.columns([1.05, 1.0], gap="large")
+
+    with left:
+        st.markdown("#### Diversification & Crowd Risk")
+        if ret_mat is None or ret_mat.empty or ret_mat.shape[1] < 3:
+            st.info("Not enough history across waves to compute cross-wave correlations.")
+        else:
+            st.write(f"Using **{len(used)} waves** × **{len(ret_mat)} days**.")
+            if show_matrix:
+                st.dataframe(ret_mat.corr().round(2), use_container_width=True)
+
+            # simple interpretation text
+            avgc = safe_float(corr_state.get("avg_corr"))
+            if math.isfinite(avgc):
+                if avgc >= 0.70:
+                    st.warning("Correlation compression detected. Diversification benefits may be reduced (crowded tape).")
+                elif avgc >= 0.55:
+                    st.info("Moderate correlation environment. Diversification exists but may degrade in stress.")
+                else:
+                    st.success("Lower correlation environment. Diversification benefits are stronger than usual.")
+
+    with right:
+        st.markdown("#### Relative Opportunity (Soft Guidance)")
+        opp = _ic_opportunity_signals(all_waves, mode, days, max_waves=int(ic_limit))
+        if opp is None or opp.empty:
+            st.info("Opportunity table unavailable (missing wave histories).")
+        else:
+            show = opp.copy()
+            show["Guidance"] = show.apply(_ic_guidance, axis=1)
+            show["30D Alpha"] = show["30D Alpha"].apply(lambda x: fmt_pct(x, 2))
+            show["60D Alpha"] = show["60D Alpha"].apply(lambda x: fmt_pct(x, 2))
+            show["TE"] = show["TE"].apply(lambda x: fmt_pct(x, 2))
+            show["Coverage"] = show["Coverage"].apply(lambda x: fmt_num(x, 1))
+            show["AgeDays"] = show["AgeDays"].apply(lambda x: fmt_int(x))
+            show["OpportunityScore"] = show["OpportunityScore"].apply(lambda x: fmt_num(x, 1))
+            st.dataframe(show[["Guidance", "Wave", "30D Alpha", "60D Alpha", "TE", "Coverage", "AgeDays", "OpportunityScore"]],
+                         use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("#### Portfolio Construction Intelligence (Read-Only)")
+    st.write(
+        "This section translates correlation + regime into governance-native guidance:\n"
+        "• When **correlations compress**, emphasize true diversifiers and risk controls.\n"
+        "• When **risk-off dominates**, prefer lower TE and tighter drawdown behavior.\n"
+        "• When **risk-on dominates**, opportunity dispersion matters more than correlation.\n"
+    )
+
+    # Simple construction cue (deterministic)
+    avgc = safe_float(corr_state.get("avg_corr"))
+    if math.isfinite(avgc) and avgc >= 0.70:
+        st.info("Construction cue: **Favor diversification + risk controls**; treat multiple equity themes as one cluster.")
+    elif math.isfinite(avgc) and avgc <= 0.45:
+        st.success("Construction cue: **Dispersion is healthy**; relative opportunity signals are more actionable.")
+    else:
+        st.warning("Construction cue: **Balanced posture**; use opportunity + governance warnings together.")
+
+    with st.expander("What the System is Watching (IC Watchlist)"):
+        st.write("• Correlation compression (crowd risk)")
+        st.write("• Alpha dispersion across Waves (opportunity density)")
+        st.write("• Data freshness / coverage integrity (governance readiness)")
+        st.write("• Benchmark drift flags (demo integrity)")
 # ============================================================
 # Sidebar controls
 # ============================================================
