@@ -2028,123 +2028,129 @@ with tabs[1]:
     )
     
 # ============================================================
-# IC SUMMARY — WAVE-SPECIFIC, GOVERNANCE-SAFE
+# INTELLIGENCE CENTER — CROSS-WAVE SYSTEM INTELLIGENCE
 # ============================================================
-with tabs[0]:
-
-    st.markdown("### Executive IC Summary")
-
-    # --------------------------------------------------------
-    # WaveScore™ — Primary Signal (1–100)
-    # --------------------------------------------------------
-    st.markdown("#### WaveScore™")
-
-    col1, col2 = st.columns([1.2, 1.0], gap="large")
-
-    with col1:
-        tile(
-            "WaveScore™",
-            f"{wave_score:.1f} / 100",
-            (
-                "Institutional-grade strength"
-                if wave_score >= 85 else
-                "Competitive"
-                if wave_score >= 70 else
-                "Marginal"
-                if wave_score >= 55 else
-                "Weak"
-            )
-        )
-
-    with col2:
-        tile(
-            "Confidence",
-            conf_level,
-            f"BM drift: {bm_drift}"
-        )
-
+with tabs[1]:
+    st.markdown("### 🧠 Intelligence Center")
     st.caption(
-        "WaveScore™ is a composite 1–100 signal reflecting risk-adjusted performance, "
-        "discipline, and governance integrity. Letter grades are intentionally not used."
+        "Cross-wave system intelligence (read-only). "
+        "Soft guidance only. No execution or allocation changes."
     )
 
-    # --------------------------------------------------------
-    # Performance vs Benchmark (Canonical)
-    # --------------------------------------------------------
-    st.markdown("#### Performance vs Benchmark")
+    # ---------- Controls ----------
+    all_waves_local = locals().get("all_waves", []) or []
 
-    perf_rows = [
-        {"Window": "30D",  "Return": r30,  "Alpha": a30},
-        {"Window": "60D",  "Return": r60,  "Alpha": a60},
-        {"Window": "365D", "Return": r365, "Alpha": a365},
-    ]
-
-    st.dataframe(
-        pd.DataFrame(perf_rows),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    # --------------------------------------------------------
-    # Risk & Exposure Integrity (Numeric Only)
-    # --------------------------------------------------------
-    st.markdown("#### Risk & Exposure Integrity")
-
-    colA, colB, colC = st.columns(3)
-
-    with colA:
-        tile(
-            "Risk Control Score",
-            f"{risk_score:.0f} / 100",
-            (
-                "Strong"
-                if risk_score >= 80 else
-                "Acceptable"
-                if risk_score >= 65 else
-                "Elevated"
-            )
+    c1, c2, c3 = st.columns([1.2, 1.0, 1.2], gap="medium")
+    with c1:
+        waves_n = st.slider(
+            "Waves analyzed",
+            min_value=4,
+            max_value=max(4, len(all_waves_local)),
+            value=min(18, len(all_waves_local)),
+        )
+    with c2:
+        corr_days = st.selectbox("Correlation window (days)", [30, 60, 90, 120, 180], index=2)
+    with c3:
+        focus = st.selectbox(
+            "Focus",
+            ["System State", "Diversification & Crowd Risk", "Relative Opportunity"],
+            index=0,
         )
 
-    with colB:
-        tile(
-            "Beta Discipline Score",
-            f"{beta_score:.0f} / 100",
-            f"β {beta_real:.2f} vs tgt {beta_target:.2f}"
-        )
+    waves_subset = all_waves_local[:waves_n]
 
-    with colC:
-        tile(
-            "Exposure Stability",
-            exposure_band,
-            f"TE {te:.2f}%"
-        )
+    # ---------- Required helpers ----------
+    _ic_load = locals().get("_ic_load_wave_metrics", None)
+    _ic_retmat = locals().get("_ic_return_matrix", None)
 
-    # --------------------------------------------------------
-    # Governance Status (Binary + Context)
-    # --------------------------------------------------------
-    st.markdown("#### Governance Status")
+    if not _ic_load or not _ic_retmat or not waves_subset:
+        st.warning("Intelligence Center unavailable (missing helpers or waves).")
+    else:
+        import numpy as np
+        import pandas as pd
 
-    colG1, colG2, colG3 = st.columns(3)
+        R = _ic_retmat(waves_subset, mode=locals().get("mode", "Standard"), days=corr_days)
 
-    with colG1:
-        tile("Benchmark", "Stable" if bm_drift == "stable" else "Watch")
+        if R is None or len(R) == 0:
+            st.warning("Insufficient data to compute correlation.")
+        else:
+            if not isinstance(R, pd.DataFrame):
+                R = pd.DataFrame(R, columns=[w.get("name", str(i)) if isinstance(w, dict) else str(w)
+                                             for i, w in enumerate(waves_subset)])
 
-    with colG2:
-        tile("Coverage", f"{coverage:.0f}%")
+            C = R.corr()
 
-    with colG3:
-        tile("Data Age", f"{age_days} day(s)")
+            # ---------- SYSTEM STATE ----------
+            if focus == "System State":
+                st.markdown("#### System State")
 
-    # --------------------------------------------------------
-    # IC Summary Narrative (Single Sentence)
-    # --------------------------------------------------------
-    st.markdown("#### Summary")
+                avg_r = R.mean().mean()
+                regime = "Risk-On dominant" if avg_r >= 0 else "Risk-Off pressure"
 
-    st.info(
-        summary_sentence,
-        icon="🧠"
-    )
+                cA, cB, cC = st.columns(3)
+                with cA:
+                    st.metric("Market Regime", regime)
+                with cB:
+                    off = C.values.copy()
+                    np.fill_diagonal(off, np.nan)
+                    corr_state = float(np.nanmean(np.abs(off)))
+                    st.metric("Correlation State", f"{corr_state:.2f}")
+                with cC:
+                    st.metric("System Confidence", locals().get("conf_level", "—"))
 
+            # ---------- DIVERSIFICATION ----------
+            if focus == "Diversification & Crowd Risk":
+                st.markdown("#### Diversification & Crowd Risk")
+                st.dataframe(C.round(2), use_container_width=True)
+
+                off = C.values.copy()
+                np.fill_diagonal(off, np.nan)
+                crowd = float(np.nanmean(np.abs(off)))
+
+                if crowd < 0.45:
+                    st.success("Lower correlation environment. Diversification benefits are stronger than usual.")
+                elif crowd < 0.65:
+                    st.info("Moderate crowding. Diversification still meaningful.")
+                else:
+                    st.warning("High crowding. Diversification is scarce.")
+
+            # ---------- RELATIVE OPPORTUNITY ----------
+            if focus == "Relative Opportunity":
+                st.markdown("#### Relative Opportunity (Soft Guidance)")
+
+                rows = []
+                for w in waves_subset:
+                    name = w.get("name") if isinstance(w, dict) else str(w)
+                    blob = _ic_load(name, locals().get("mode", "Standard")) or {}
+                    m = blob.get("m", {})
+
+                    a30 = m.get("alpha_30d")
+                    a60 = m.get("alpha_60d")
+
+                    corr_mean = float(np.nanmean(np.abs(C.loc[name].drop(name)))) if name in C.index else None
+
+                    why = []
+                    if corr_mean is not None and corr_mean < 0.45:
+                        why.append("low correlation")
+                    if a30 is not None and a30 > 0:
+                        why.append("positive 30D alpha")
+                    if a60 is not None and a60 > 0:
+                        why.append("positive 60D alpha")
+
+                    guidance = "FAVOR" if len(why) >= 2 else "MONITOR"
+
+                    rows.append({
+                        "Guidance": guidance,
+                        "Wave": name,
+                        "Why": " • ".join(why[:3]) if why else "mixed signals",
+                    })
+
+                df = pd.DataFrame(rows)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.success(
+                    "Construction cue: dispersion is healthy; relative opportunity signals are more actionable."
+                )
 # ============================================================
 # OVERVIEW
 # ============================================================
