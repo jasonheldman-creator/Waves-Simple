@@ -23,6 +23,17 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+# Import alpha attribution module
+try:
+    from alpha_attribution import (
+        compute_alpha_attribution_series,
+        format_attribution_summary_table,
+        format_daily_attribution_sample
+    )
+    ALPHA_ATTRIBUTION_AVAILABLE = True
+except ImportError:
+    ALPHA_ATTRIBUTION_AVAILABLE = False
+
 # ============================================================================
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
@@ -2074,6 +2085,386 @@ def render_overlays_tab():
     st.info("Data unavailable")
 
 
+def render_attribution_tab():
+    """Render the Attribution tab with alpha decomposition."""
+    st.header("🎯 Alpha Attribution Analysis")
+    
+    st.markdown("""
+    **Precise, reconciled decomposition of Wave alpha into actionable components:**
+    
+    1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
+    2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
+    3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
+    4️⃣ **Residual Alpha** — Unexplained deviation and other factors
+    
+    **Reconciliation:** All components sum to total realized Wave alpha.
+    """)
+    
+    # Check if attribution module is available
+    if not ALPHA_ATTRIBUTION_AVAILABLE:
+        st.warning("⚠️ Alpha attribution module not available. Please ensure alpha_attribution.py is properly installed.")
+        return
+    
+    # Load wave history data
+    wave_df = safe_load_wave_history()
+    
+    if wave_df is None or wave_df.empty:
+        st.error("❌ Wave history data is not available. Cannot compute attribution.")
+        return
+    
+    # Get available waves
+    available_waves = sorted(wave_df['wave'].unique().tolist())
+    
+    if not available_waves:
+        st.error("❌ No waves found in history data.")
+        return
+    
+    # Configuration controls
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        selected_wave = st.selectbox(
+            "Select Wave",
+            available_waves,
+            key="attr_wave_select"
+        )
+    
+    with col2:
+        timeframe_options = {
+            "1 Day": 1,
+            "5 Days": 5,
+            "30 Days": 30,
+            "60 Days": 60,
+            "1 Year": 252
+        }
+        selected_timeframe = st.selectbox(
+            "Timeframe",
+            list(timeframe_options.keys()),
+            index=2,  # Default to 30 Days
+            key="attr_timeframe_select"
+        )
+        days = timeframe_options[selected_timeframe]
+    
+    with col3:
+        show_all_waves = st.checkbox(
+            "Show All Waves Comparison",
+            value=False,
+            key="attr_show_all"
+        )
+    
+    st.divider()
+    
+    # Compute attribution for selected wave
+    try:
+        # Filter data for selected wave
+        wave_data = wave_df[wave_df['wave'] == selected_wave].copy()
+        wave_data = wave_data.sort_values('date')
+        
+        # Take last N days
+        wave_data = wave_data.tail(days)
+        
+        if len(wave_data) == 0:
+            st.warning(f"⚠️ No data available for {selected_wave} in the selected timeframe.")
+            return
+        
+        # Prepare history DataFrame for attribution
+        wave_data.set_index('date', inplace=True)
+        history_df = pd.DataFrame({
+            'wave_ret': wave_data['portfolio_return'],
+            'bm_ret': wave_data['benchmark_return']
+        })
+        
+        # Compute attribution
+        with st.spinner(f"Computing attribution for {selected_wave}..."):
+            daily_df, summary = compute_alpha_attribution_series(
+                wave_name=selected_wave,
+                mode="Standard",
+                history_df=history_df,
+                diagnostics_df=None,  # Use fallback defaults
+                tilt_strength=0.8,
+                base_exposure=1.0
+            )
+        
+        # Display results
+        st.success(f"✅ Attribution computed successfully for {selected_wave} ({len(wave_data)} days)")
+        
+        # Summary section
+        st.subheader("📊 Attribution Summary")
+        
+        # Create summary metrics
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        
+        with col_m1:
+            st.metric(
+                "Total Wave Return",
+                f"{summary.total_wave_return * 100:+.2f}%"
+            )
+        
+        with col_m2:
+            st.metric(
+                "Total Benchmark Return",
+                f"{summary.total_benchmark_return * 100:+.2f}%"
+            )
+        
+        with col_m3:
+            st.metric(
+                "Total Alpha",
+                f"{summary.total_alpha * 100:+.2f}%",
+                delta=None
+            )
+        
+        with col_m4:
+            recon_status = "✅ PASS" if abs(summary.reconciliation_pct_error) < 0.01 else "⚠️ CHECK"
+            st.metric(
+                "Reconciliation",
+                recon_status,
+                delta=f"{summary.reconciliation_error * 100:.4f}%"
+            )
+        
+        st.divider()
+        
+        # Component breakdown table
+        st.subheader("🔍 Alpha Component Breakdown")
+        
+        component_data = {
+            "Component": [
+                "1️⃣ Exposure & Timing Alpha",
+                "2️⃣ Regime & VIX Overlay Alpha",
+                "3️⃣ Momentum & Trend Alpha",
+                "4️⃣ Volatility & Risk Control Alpha",
+                "5️⃣ Asset Selection Alpha (Residual)",
+                "**Total Alpha**"
+            ],
+            "Cumulative Alpha": [
+                f"{summary.exposure_timing_alpha * 100:+.2f}%",
+                f"{summary.regime_vix_alpha * 100:+.2f}%",
+                f"{summary.momentum_trend_alpha * 100:+.2f}%",
+                f"{summary.volatility_control_alpha * 100:+.2f}%",
+                f"{summary.asset_selection_alpha * 100:+.2f}%",
+                f"**{summary.total_alpha * 100:+.2f}%**"
+            ],
+            "Contribution to Total": [
+                f"{summary.exposure_timing_contribution_pct:+.1f}%",
+                f"{summary.regime_vix_contribution_pct:+.1f}%",
+                f"{summary.momentum_trend_contribution_pct:+.1f}%",
+                f"{summary.volatility_control_contribution_pct:+.1f}%",
+                f"{summary.asset_selection_contribution_pct:+.1f}%",
+                "**100.0%**"
+            ]
+        }
+        
+        st.dataframe(
+            pd.DataFrame(component_data),
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        st.divider()
+        
+        # Visualization - Waterfall chart
+        st.subheader("📈 Attribution Waterfall")
+        
+        # Create waterfall chart
+        components = [
+            "Start",
+            "Exposure & Timing",
+            "Regime & VIX",
+            "Momentum & Trend",
+            "Volatility Control",
+            "Asset Selection",
+            "Total Alpha"
+        ]
+        
+        values = [
+            0,  # Start at 0
+            summary.exposure_timing_alpha * 100,
+            summary.regime_vix_alpha * 100,
+            summary.momentum_trend_alpha * 100,
+            summary.volatility_control_alpha * 100,
+            summary.asset_selection_alpha * 100,
+            summary.total_alpha * 100
+        ]
+        
+        # Build measures for waterfall
+        measures = ["absolute", "relative", "relative", "relative", "relative", "relative", "total"]
+        
+        waterfall_fig = go.Figure(go.Waterfall(
+            name="Attribution",
+            orientation="v",
+            measure=measures,
+            x=components,
+            y=values,
+            connector={"line": {"color": "rgb(63, 63, 63)"}},
+            increasing={"marker": {"color": "green"}},
+            decreasing={"marker": {"color": "red"}},
+            totals={"marker": {"color": "blue"}}
+        ))
+        
+        waterfall_fig.update_layout(
+            title=f"Alpha Attribution Waterfall - {selected_wave}",
+            showlegend=False,
+            height=500
+        )
+        
+        st.plotly_chart(waterfall_fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Time series of cumulative components
+        st.subheader("📉 Cumulative Attribution Over Time")
+        
+        # Calculate cumulative sums
+        cumulative_df = pd.DataFrame({
+            'Date': daily_df.index,
+            'Exposure & Timing': daily_df['ExposureTimingα'].cumsum() * 100,
+            'Regime & VIX': daily_df['RegimeVIXα'].cumsum() * 100,
+            'Momentum & Trend': daily_df['MomentumTrendα'].cumsum() * 100,
+            'Volatility Control': daily_df['VolatilityControlα'].cumsum() * 100,
+            'Asset Selection': daily_df['AssetSelectionα'].cumsum() * 100,
+            'Total Alpha': daily_df['TotalAlpha'].cumsum() * 100
+        }).set_index('Date')
+        
+        ts_fig = go.Figure()
+        
+        for col in cumulative_df.columns:
+            ts_fig.add_trace(go.Scatter(
+                x=cumulative_df.index,
+                y=cumulative_df[col],
+                mode='lines',
+                name=col,
+                line=dict(width=2 if col == 'Total Alpha' else 1)
+            ))
+        
+        ts_fig.update_layout(
+            title=f"Cumulative Attribution Components - {selected_wave}",
+            xaxis_title="Date",
+            yaxis_title="Cumulative Alpha (%)",
+            hovermode='x unified',
+            height=500
+        )
+        
+        st.plotly_chart(ts_fig, use_container_width=True)
+        
+        st.divider()
+        
+        # Daily attribution sample
+        with st.expander("📋 View Daily Attribution Details (Last 20 Days)", expanded=False):
+            sample_df = daily_df.tail(20).copy()
+            
+            # Format for display
+            display_df = pd.DataFrame({
+                'Date': sample_df.index.strftime('%Y-%m-%d'),
+                'VIX': sample_df['VIX'].round(1),
+                'Regime': sample_df['Regime'],
+                'Exp%': sample_df['Exposure (%)'].round(0).astype(int),
+                'Safe%': sample_df['Safe (%)'].round(0).astype(int),
+                'ExposTimα': (sample_df['ExposureTimingα'] * 100).round(2),
+                'RegVIXα': (sample_df['RegimeVIXα'] * 100).round(2),
+                'MomTrendα': (sample_df['MomentumTrendα'] * 100).round(2),
+                'VolCtrlα': (sample_df['VolatilityControlα'] * 100).round(2),
+                'AssetSelα': (sample_df['AssetSelectionα'] * 100).round(2),
+                'Totalα': (sample_df['TotalAlpha'] * 100).round(2),
+                'WaveRet': (sample_df['WaveReturn'] * 100).round(2),
+                'BmRet': (sample_df['BenchmarkReturn'] * 100).round(2)
+            })
+            
+            st.dataframe(
+                display_df,
+                hide_index=True,
+                use_container_width=True
+            )
+        
+        # Download option
+        csv_data = daily_df.to_csv()
+        st.download_button(
+            label="📥 Download Full Daily Attribution (CSV)",
+            data=csv_data,
+            file_name=f"{selected_wave.replace(' ', '_')}_attribution_{days}d.csv",
+            mime="text/csv",
+            key="download_attribution"
+        )
+        
+    except Exception as e:
+        st.error(f"❌ Error computing attribution: {str(e)}")
+        st.exception(e)
+    
+    # All Waves Comparison
+    if show_all_waves:
+        st.divider()
+        st.subheader("🌊 All Waves Comparison")
+        
+        try:
+            comparison_data = []
+            
+            with st.spinner("Computing attribution for all waves..."):
+                for wave_name in available_waves:
+                    try:
+                        # Filter data for this wave
+                        wave_data = wave_df[wave_df['wave'] == wave_name].copy()
+                        wave_data = wave_data.sort_values('date')
+                        wave_data = wave_data.tail(days)
+                        
+                        if len(wave_data) == 0:
+                            continue
+                        
+                        # Prepare history DataFrame
+                        wave_data.set_index('date', inplace=True)
+                        history_df = pd.DataFrame({
+                            'wave_ret': wave_data['portfolio_return'],
+                            'bm_ret': wave_data['benchmark_return']
+                        })
+                        
+                        # Compute attribution
+                        _, summary = compute_alpha_attribution_series(
+                            wave_name=wave_name,
+                            mode="Standard",
+                            history_df=history_df,
+                            diagnostics_df=None,
+                            tilt_strength=0.8,
+                            base_exposure=1.0
+                        )
+                        
+                        comparison_data.append({
+                            'Wave': wave_name,
+                            'Days': len(wave_data),
+                            'Wave Return': f"{summary.total_wave_return * 100:+.2f}%",
+                            'Benchmark Return': f"{summary.total_benchmark_return * 100:+.2f}%",
+                            'Total Alpha': f"{summary.total_alpha * 100:+.2f}%",
+                            'Exposure & Timing': f"{summary.exposure_timing_alpha * 100:+.2f}%",
+                            'Regime & VIX': f"{summary.regime_vix_alpha * 100:+.2f}%",
+                            'Momentum & Trend': f"{summary.momentum_trend_alpha * 100:+.2f}%",
+                            'Volatility Control': f"{summary.volatility_control_alpha * 100:+.2f}%",
+                            'Asset Selection': f"{summary.asset_selection_alpha * 100:+.2f}%",
+                        })
+                        
+                    except Exception as wave_error:
+                        st.warning(f"⚠️ Could not compute attribution for {wave_name}: {str(wave_error)}")
+                        continue
+            
+            if comparison_data:
+                comparison_df = pd.DataFrame(comparison_data)
+                st.dataframe(
+                    comparison_df,
+                    hide_index=True,
+                    use_container_width=True
+                )
+                
+                # Download comparison
+                comparison_csv = comparison_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download All Waves Comparison (CSV)",
+                    data=comparison_csv,
+                    file_name=f"all_waves_attribution_{days}d.csv",
+                    mime="text/csv",
+                    key="download_all_waves"
+                )
+            else:
+                st.warning("⚠️ No comparison data available.")
+                
+        except Exception as e:
+            st.error(f"❌ Error computing all waves comparison: {str(e)}")
+
+
 # ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
@@ -2092,7 +2483,7 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays"])
+    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution"])
     
     with analytics_tabs[0]:
         render_executive_tab()
@@ -2108,6 +2499,9 @@ def main():
     
     with analytics_tabs[4]:
         render_overlays_tab()
+    
+    with analytics_tabs[5]:
+        render_attribution_tab()
 
 
 # Run the application
