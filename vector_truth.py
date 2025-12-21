@@ -331,7 +331,12 @@ def compute_durability(
     # If alpha is overwhelmingly concentrated in one regime + heavily dependent on exposure mgmt, it’s more fragile.
     frag = None
     if (aro is not None or aon is not None) and ema is not None:
-        reg_sum = _sum_ignore_none([abs(aro), abs(aon)])
+        # Sum absolute values, handling None safely
+        reg_sum = 0.0
+        if aro is not None:
+            reg_sum += abs(aro)
+        if aon is not None:
+            reg_sum += abs(aon)
         reg_conc = 0.0
         if reg_sum > 1e-9 and aro is not None and aon is not None:
             reg_conc = abs(abs(aro) - abs(aon)) / reg_sum  # 0 balanced, 1 concentrated
