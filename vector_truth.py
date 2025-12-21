@@ -180,8 +180,9 @@ def compute_alpha_sources(
       • Benchmark Construction Offset ~ Expected structural offset from benchmark composition choices
     
     Residual Strategy Return (POST-STRUCTURAL):
-      • Combined effects of selection, timing, and exposure path after structural overlays
+      • Combined effects of timing, exposure scaling, volatility control, and regime management after structural overlays
       • NOT labeled as "pure selection alpha" - reflects integrated strategy decisions
+      • Does NOT attribute to asset selection, static weights, or yield sources
     
     Avoids placeholder logic where components artificially balance to zero. 
     Provides N/A when data is insufficient rather than forcing reconciliation.
@@ -228,7 +229,7 @@ def compute_alpha_sources(
         # If residual is tiny relative to total, it's legitimate
         # If it's large, that indicates benchmark construction matters
 
-    # Assessment template - updated to avoid overstating selection
+    # Assessment template - updated to focus on timing, exposure, volatility control, and regime management
     # Language revised per requirements: residual strategy return reflects combined effects
     assessment_parts = []
     
@@ -243,11 +244,11 @@ def compute_alpha_sources(
         exp_abs = abs(exp_mgmt) if exp_mgmt is not None else 0
         
         if exp_abs > sel_abs * 1.2:
-            assessment_parts.append("Residual strategy return reflects combined effects of selection, timing, and exposure path after structural overlays, with exposure management as a meaningful contributor.")
+            assessment_parts.append("Residual strategy return reflects combined effects of timing, exposure scaling, volatility control, and regime management after structural overlays, with exposure management as a meaningful contributor.")
         elif sel_abs > exp_abs * 1.2:
-            assessment_parts.append("Residual strategy return reflects combined effects of selection, timing, and exposure path after structural overlays.")
+            assessment_parts.append("Residual strategy return reflects combined effects of timing, exposure scaling, volatility control, and regime management after structural overlays.")
         else:
-            assessment_parts.append("Residual strategy return shows balanced contributions from selection and exposure management after structural overlays.")
+            assessment_parts.append("Residual strategy return shows balanced contributions from timing, exposure scaling, volatility control, and regime management after structural overlays.")
     elif has_selection:
         assessment_parts.append("Residual strategy return component is observable. Exposure management effect requires additional exposure history for decomposition.")
     else:
@@ -368,7 +369,7 @@ def compute_durability(
         if abs(ema) > (abs(te) if te is not None else abs(ema)) * 0.4:
             alpha_type = "Structural + Regime-Adaptive"
         else:
-            alpha_type = "Residual Strategy (Selection-Dominant)"
+            alpha_type = "Residual Strategy (Timing & Exposure Dominant)"
 
     # Primary risk wording
     primary_risk = "N/A"
@@ -376,7 +377,7 @@ def compute_durability(
         if abs(ema) > abs(te) * 0.5:
             primary_risk = "Extended volatility suppression reduces exposure-management contribution."
         else:
-            primary_risk = "Dispersion collapse reduces selection opportunity."
+            primary_risk = "Dispersion collapse may reduce timing and exposure opportunity."
 
     # Verdict template
     if frag is None:
@@ -602,7 +603,7 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 **C. Residual Strategy Return (Alpha-Eligible, Post-Structural):**
 - **{_pct(residual_excess)}**
 
-*Structural effects offset by design. Residual strategy return reflects combined selection, timing, and exposure-path decisions after governance controls.*
+*Structural effects offset by design. Residual strategy return reflects combined timing, exposure scaling, volatility control, and regime management decisions after governance controls. Not attributed to asset selection, static weights, or yield sources.*
 
 ---
 
@@ -628,8 +629,8 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 
 **Vector Truth — Durability Scan**
 - Alpha Type: **{d.alpha_type}**
-  - *Selection-dominant refers to residual attribution after structural overlays.*
-  - *It does not imply pure stock selection.*
+  - *Timing & Exposure Dominant refers to residual attribution after structural overlays.*
+  - *It does not imply asset selection or static weight allocation.*
 - Fragility Score: **{frag}** *(0=Low, 1=High)*
 - Primary Risk: {d.primary_risk}
 
@@ -662,8 +663,8 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
 
 ---
 
-**Pure Selection Alpha (Net of Exposure Path): Not Reported**  
-*Requires assumptions this system explicitly does not make.*
+**Attribution Beyond Structural Components: Not Separately Reported**  
+*Residual returns attribute to timing, exposure scaling, volatility control, and regime management. Asset selection, static weights, and yield sources are not separately attributed.*
 
 ---
 

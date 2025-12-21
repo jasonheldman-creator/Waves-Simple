@@ -712,7 +712,8 @@ def _score_etf_candidate(etf: ETFBenchmarkCandidate, sector_weights: Dict[str, f
 
 @lru_cache(maxsize=64)
 def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
-    # Explicit override: Bitcoin benchmarks to spot BTC
+    # Explicit override: Bitcoin Wave uses BTC as difficulty reference benchmark
+    # (not passive beta or static asset allocation guidance)
     if wave_name == "Bitcoin Wave":
         return BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
