@@ -572,6 +572,167 @@ def fetch_prices_daily(tickers: List[str], days: int = 365) -> pd.DataFrame:
 
 
 # ============================================================
+# VIX Risk Meter™
+# ============================================================
+@st.cache_data(show_spinner=False, ttl=300)
+def get_vix_value() -> Dict[str, Any]:
+    """
+    Fetch current VIX (^VIX) value from yfinance.
+    Returns a dictionary with VIX value, change, and metadata.
+    Uses 5-minute cache (TTL=300 seconds) to reduce API load.
+    """
+    result = {
+        "value": None,
+        "change": None,
+        "prev_close": None,
+        "timestamp": None,
+        "available": False,
+        "error": None,
+    }
+    
+    try:
+        if yf is None:
+            result["error"] = "yfinance not available"
+            return result
+        
+        # Fetch VIX ticker
+        vix = yf.Ticker("^VIX")
+        
+        # Get current info
+        info = vix.info
+        if info and "regularMarketPrice" in info:
+            result["value"] = float(info.get("regularMarketPrice", 0))
+            result["prev_close"] = float(info.get("previousClose", result["value"]))
+            result["change"] = result["value"] - result["prev_close"]
+            result["timestamp"] = datetime.utcnow().isoformat()
+            result["available"] = True
+        else:
+            # Fallback: get latest from history
+            hist = vix.history(period="2d")
+            if hist is not None and not hist.empty and len(hist) >= 1:
+                result["value"] = float(hist["Close"].iloc[-1])
+                if len(hist) >= 2:
+                    result["prev_close"] = float(hist["Close"].iloc[-2])
+                    result["change"] = result["value"] - result["prev_close"]
+                else:
+                    result["prev_close"] = result["value"]
+                    result["change"] = 0.0
+                result["timestamp"] = datetime.utcnow().isoformat()
+                result["available"] = True
+            else:
+                result["error"] = "No VIX data returned from yfinance"
+        
+    except Exception as e:
+        result["error"] = f"VIX fetch error: {str(e)[:100]}"
+    
+    return result
+
+
+def get_vix_risk_band(vix_value: float) -> Tuple[str, str, str]:
+    """
+    Returns (band_name, band_color, band_description) for a given VIX value.
+    
+    VIX Risk Bands (standard market interpretation):
+    - Low Risk: VIX < 12 (very calm market)
+    - Normal: 12 <= VIX < 20 (typical market volatility)
+    - Elevated: 20 <= VIX < 30 (heightened uncertainty)
+    - High: 30 <= VIX < 40 (significant fear)
+    - Extreme: VIX >= 40 (panic/crisis mode)
+    """
+    v = safe_float(vix_value)
+    
+    if not math.isfinite(v):
+        return ("N/A", "rgba(128, 128, 128, 0.15)", "VIX data unavailable")
+    
+    if v < 12:
+        return ("Low Risk", "rgba(46, 213, 115, 0.15)", "Very calm market conditions")
+    elif v < 20:
+        return ("Normal", "rgba(52, 152, 219, 0.15)", "Typical market volatility")
+    elif v < 30:
+        return ("Elevated", "rgba(255, 204, 0, 0.15)", "Heightened market uncertainty")
+    elif v < 40:
+        return ("High", "rgba(255, 140, 0, 0.15)", "Significant market fear")
+    else:
+        return ("Extreme", "rgba(255, 80, 80, 0.15)", "Panic/crisis mode volatility")
+
+
+def render_vix_risk_meter():
+    """
+    Render VIX Risk Meter™ with multi-band logic and fallback safety.
+    Designed to match existing dark theme styling.
+    """
+    if not ENABLE_YFINANCE_CHIPS or yf is None:
+        return
+    
+    try:
+        vix_data = get_vix_value()
+        
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### VIX Risk Meter™")
+        
+        if not vix_data.get("available"):
+            # Fallback display when VIX data is unavailable
+            st.markdown('<div class="waves-tile">', unsafe_allow_html=True)
+            st.markdown('<div class="waves-tile-label">VIX (Volatility Index)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="waves-tile-value">—</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="waves-tile-sub">Data unavailable: {vix_data.get("error", "Unknown error")}</div>',
+                unsafe_allow_html=True
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.caption("VIX data temporarily unavailable. Market intel continues with other tickers.")
+        else:
+            # Normal display with VIX value
+            vix_value = vix_data.get("value", 0)
+            vix_change = vix_data.get("change", 0)
+            band_name, band_color, band_desc = get_vix_risk_band(vix_value)
+            
+            # Create colored tile based on risk band
+            st.markdown(
+                f"""
+<div class="waves-tile" style="background: {band_color}; border-color: {band_color.replace('0.15', '0.30')};">
+  <div class="waves-tile-label">VIX (Volatility Index)</div>
+  <div class="waves-tile-value">{vix_value:.2f}</div>
+  <div class="waves-tile-sub">
+    {'+' if vix_change >= 0 else ''}{vix_change:.2f} · {band_name}
+  </div>
+</div>
+""",
+                unsafe_allow_html=True
+            )
+            
+            # Risk interpretation
+            st.caption(f"**{band_name}:** {band_desc}")
+            
+            # Additional context
+            with st.expander("VIX Risk Meter™ Guide", expanded=False):
+                st.markdown("""
+**What is VIX?**
+The CBOE Volatility Index (VIX) measures the market's expectation of 30-day volatility based on S&P 500 index options. Often called the "fear gauge."
+
+**Risk Bands:**
+- **Low Risk (VIX < 12):** Very calm, complacent markets
+- **Normal (12-20):** Typical market volatility range
+- **Elevated (20-30):** Heightened uncertainty, caution warranted
+- **High (30-40):** Significant fear, major market stress
+- **Extreme (VIX ≥ 40):** Panic mode, crisis-level volatility
+
+**Trading Implications:**
+- Rising VIX typically signals increased hedging demand and market uncertainty
+- VIX > 30 often coincides with market corrections or crashes
+- VIX < 12 may indicate complacency and potential for sudden volatility spikes
+
+**Data Source:** Yahoo Finance (^VIX ticker), cached for 5 minutes.
+                """)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    except Exception as e:
+        # Ultimate fallback: silent failure or minimal error display
+        st.caption(f"VIX Risk Meter™ temporarily unavailable: {str(e)[:80]}")
+
+
+# ============================================================
 # History loader (engine → CSV fallback)
 # ============================================================
 def _standardize_history(df: pd.DataFrame) -> pd.DataFrame:
@@ -2892,6 +3053,12 @@ try:
     if not ENABLE_YFINANCE_CHIPS or yf is None:
         st.caption("Market Intel disabled (yfinance missing or flag off).")
     else:
+        # VIX Risk Meter™ - prominent display at top of Market Intel
+        render_vix_risk_meter()
+        
+        st.markdown("---")
+        st.markdown("#### Market Snapshot")
+        
         tickers = ["SPY", "QQQ", "IWM", "TLT", "GLD", "BTC-USD", "^VIX", "^TNX"]
         px = fetch_prices_daily(tickers, days=220)
 
