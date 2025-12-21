@@ -2650,6 +2650,55 @@ def render_sidebar_info():
     st.sidebar.text(f"Branch: {branch_name}")
     st.sidebar.text(f"Deployed: {deploy_time}")
     st.sidebar.text(f"Data as of: {data_timestamp}")
+    
+    # Ops Controls Section
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🛠️ Ops Controls (Admin)"):
+        # Confirmation checkbox
+        ops_confirmation = st.checkbox(
+            "I understand this will reset cached data.",
+            key="ops_confirmation"
+        )
+        
+        # Clear Streamlit Cache Button
+        if st.button(
+            "Clear Streamlit Cache",
+            disabled=not ops_confirmation,
+            key="clear_cache_button",
+            use_container_width=True
+        ):
+            try:
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("Cache cleared.")
+            except Exception:
+                st.warning("Cache clear unavailable.")
+        
+        # Reset Session State Button
+        if st.button(
+            "Reset Session State",
+            disabled=not ops_confirmation,
+            key="reset_session_button",
+            use_container_width=True
+        ):
+            # Preserve system keys (navigation-related)
+            system_keys = [key for key in st.session_state.keys() if key.startswith('_')]
+            
+            # Clear all non-system keys
+            keys_to_delete = [key for key in st.session_state.keys() if key not in system_keys]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            
+            st.success("Session state reset.")
+        
+        # Hard Rerun App Button
+        if st.button(
+            "Hard Rerun App",
+            disabled=not ops_confirmation,
+            key="hard_rerun_button",
+            use_container_width=True
+        ):
+            st.rerun()
 
 
 # ============================================================================
