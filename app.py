@@ -1,1 +1,2 @@
-<content_from_PR_#73_for_app.py>
+# This is the main application file for Waves-Simple.
+# Triggering Streamlit redeployment with this non-functional update.
