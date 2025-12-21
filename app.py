@@ -1,20 +1,148 @@
-from flask import Flask, request, jsonify
+# sandbox_app.py
+# WAVES Intelligence™ — Sandbox
+# Small–Mid Cap Value Acceleration Wave (Interactive Mock)
 
-app = Flask(__name__)
+import streamlit as st
+import pandas as pd
+import random
 
-@app.route('/')
-def index():
-    return "Welcome to the Waves App!"
+st.set_page_config(page_title="WAVES Intelligence™ — Sandbox", layout="wide")
 
-@app.route('/data', methods=['POST'])
-def data_handler():
-    data = request.json
-    processed_data = process_data(data)
-    return jsonify(processed_data)
+st.title("WAVES Intelligence™ — Sandbox")
+st.caption("Safe testing environment — production app.py untouched ✅")
+st.success("Sandbox loaded successfully.")
 
-def process_data(data):
-    # Example data processing logic
-    return {key: value[::-1] if isinstance(value, str) else value for key, value in data.items()}
+st.markdown("---")
 
-if __name__ == '__main__':
-    app.run(debug=True)
+st.subheader("📈 Small–Mid Cap Value Acceleration Wave")
+st.caption("Goal: capture SMID value + acceleration using simple, explainable filters + ranking.")
+
+# -----------------------------
+# Controls (Jason-friendly)
+# -----------------------------
+with st.expander("🔧 Filters & Construction Controls", expanded=True):
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        min_qoq_rev = st.slider("Min QoQ Revenue Growth (%)", 0, 80, 20, 1)
+        min_qoq_eps = st.slider("Min QoQ Earnings Growth (%)", 0, 120, 25, 1)
+    with c2:
+        max_pe = st.slider("Max P/E", 5, 30, 12, 1)
+        max_names = st.slider("Max holdings", 5, 30, 10, 1)
+    with c3:
+        seed = st.number_input("Random seed (stability)", min_value=1, max_value=9999, value=7, step=1)
+
+st.markdown("")
+
+# -----------------------------
+# Mock Universe (still mock but richer)
+# -----------------------------
+rng = random.Random(int(seed))
+tickers = [
+    "ALIT","CNMD","DXLG","HBB","HZO","MLKN","PRTS","RCMT","TUP","VIRC",
+    "SMCI","APLD","GDYN","CLMB","RAMP","SSTK","BLKB","EVCM","ARLO","OSPN",
+    "SGH","CALX","ACLS","KN","CMTL","SAFT","HDSN","LZB","GIII","KTB"
+]
+
+rows = []
+for t in tickers:
+    rev = round(rng.uniform(5, 60), 1)
+    eps = round(rng.uniform(-10, 120), 1)
+    pe = round(rng.uniform(6, 26), 1)
+    # add a couple “quality/risk” helpers (still mock)
+    ocf = round(rng.uniform(-50, 250), 1)     # $M
+    vol = round(rng.uniform(18, 65), 1)       # %
+    rows.append({
+        "Ticker": t,
+        "QoQ Revenue Growth (%)": rev,
+        "QoQ Earnings Growth (%)": eps,
+        "P/E Ratio": pe,
+        "Operating Cash Flow ($M)": ocf,
+        "Volatility (60D, %)": vol,
+    })
+
+df = pd.DataFrame(rows)
+
+# -----------------------------
+# Filter
+# -----------------------------
+filtered = df[
+    (df["QoQ Revenue Growth (%)"] >= min_qoq_rev) &
+    (df["QoQ Earnings Growth (%)"] >= min_qoq_eps) &
+    (df["P/E Ratio"] <= max_pe)
+].copy()
+
+# If nothing passes, show guidance
+if filtered.empty:
+    st.warning("No stocks pass the current filters. Try lowering growth thresholds or increasing Max P/E.")
+    st.dataframe(df, use_container_width=True)
+    st.stop()
+
+# -----------------------------
+# Ranking / Score (explainable)
+# -----------------------------
+# Higher rev + higher eps + lower P/E + positive OCF + lower vol wins
+filtered["RevScore"] = filtered["QoQ Revenue Growth (%)"].rank(pct=True)
+filtered["EpsScore"] = filtered["QoQ Earnings Growth (%)"].rank(pct=True)
+filtered["ValueScore"] = (1.0 / filtered["P/E Ratio"]).rank(pct=True)
+filtered["OCFScore"] = filtered["Operating Cash Flow ($M)"].rank(pct=True)
+filtered["StabilityScore"] = (1.0 / filtered["Volatility (60D, %)"]).rank(pct=True)
+
+filtered["CompositeScore"] = (
+    0.35 * filtered["RevScore"] +
+    0.35 * filtered["EpsScore"] +
+    0.20 * filtered["ValueScore"] +
+    0.05 * filtered["OCFScore"] +
+    0.05 * filtered["StabilityScore"]
+)
+
+filtered = filtered.sort_values("CompositeScore", ascending=False).head(int(max_names)).reset_index(drop=True)
+
+# -----------------------------
+# Weights (score-weighted, capped)
+# -----------------------------
+weights_raw = filtered["CompositeScore"].clip(lower=0.0001)
+weights = (weights_raw / weights_raw.sum()) * 100.0
+
+# cap each weight at 15% and renormalize
+cap = 15.0
+weights = weights.clip(upper=cap)
+weights = (weights / weights.sum()) * 100.0
+
+filtered["Weight (%)"] = weights.round(2)
+
+# Google links
+filtered["Google Quote"] = filtered["Ticker"].apply(lambda x: f"https://www.google.com/finance/quote/{x}:NYSE")
+
+# -----------------------------
+# Output
+# -----------------------------
+st.markdown("### ✅ Selected Holdings (Filtered + Ranked)")
+st.dataframe(
+    filtered[[
+        "Ticker","QoQ Revenue Growth (%)","QoQ Earnings Growth (%)","P/E Ratio",
+        "Operating Cash Flow ($M)","Volatility (60D, %)","CompositeScore","Weight (%)","Google Quote"
+    ]],
+    use_container_width=True
+)
+
+st.markdown("### Performance Snapshot (Mock)")
+perf = pd.DataFrame({
+    "Metric": ["30D Return", "60D Return", "365D Return", "Alpha (vs Russell 2000)"],
+    "Value": ["—", "—", "—", "—"]
+})
+st.table(perf)
+
+st.info(
+    "ℹ️ Performance values are intentionally set to dashes for now. "
+    "Next step is wiring this wave to real price series + benchmark (IWM/IJR) "
+    "and computing 30/60/365 returns + alpha."
+)
+
+st.markdown("---")
+st.subheader("Next Steps (we can do immediately)")
+st.markdown("
+1) **Plug into real tickers + real fundamentals** (later)  
+2) **Add benchmark (IWM/IJR blend)** + compute real 30/60/365 returns  
+3) **Alpha-Minus-Beta mode**: exposure scaling + beta discipline  
+4) Promote this Wave into production once it’s proven"
+)
