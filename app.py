@@ -397,6 +397,214 @@ def get_system_alerts():
     return alerts
 
 
+def generate_wave_narrative(wave_name, wave_data):
+    """
+    Generate an institutional narrative for a Wave.
+    
+    Args:
+        wave_name: Name of the wave
+        wave_data: DataFrame containing wave performance data
+        
+    Returns:
+        String containing the narrative
+    """
+    narrative_parts = []
+    
+    # Header
+    narrative_parts.append(f"# Institutional Narrative: {wave_name}")
+    narrative_parts.append("")
+    
+    try:
+        if wave_data is None or len(wave_data) == 0:
+            narrative_parts.append("**Data Status:** Insufficient data available for analysis.")
+            return "\n".join(narrative_parts)
+        
+        # Calculate key metrics
+        wave_data = wave_data.copy()
+        wave_data['alpha'] = wave_data['portfolio_return'] - wave_data['benchmark_return']
+        
+        # What Happened section
+        narrative_parts.append("## What Happened")
+        
+        # Get date range
+        start_date = wave_data['date'].min()
+        end_date = wave_data['date'].max()
+        num_days = len(wave_data)
+        
+        narrative_parts.append(f"Over the period from {start_date} to {end_date} ({num_days} trading days), {wave_name} generated the following performance:")
+        
+        cumulative_return = wave_data['portfolio_return'].sum()
+        cumulative_benchmark = wave_data['benchmark_return'].sum()
+        cumulative_alpha = wave_data['alpha'].sum()
+        
+        narrative_parts.append(f"- Portfolio Return: {cumulative_return*100:.2f}%")
+        narrative_parts.append(f"- Benchmark Return: {cumulative_benchmark*100:.2f}%")
+        narrative_parts.append(f"- Alpha Generated: {cumulative_alpha*100:.2f}%")
+        narrative_parts.append("")
+        
+        # Drivers of Alpha section
+        narrative_parts.append("## Drivers of Alpha")
+        
+        avg_daily_alpha = wave_data['alpha'].mean()
+        positive_days = len(wave_data[wave_data['alpha'] > 0])
+        total_days = len(wave_data)
+        win_rate = (positive_days / total_days * 100) if total_days > 0 else 0
+        
+        narrative_parts.append(f"The wave demonstrated an average daily alpha of {avg_daily_alpha*100:.4f}%, with positive alpha on {positive_days} of {total_days} trading days ({win_rate:.1f}% win rate).")
+        
+        # Identify best and worst days
+        best_day = wave_data.loc[wave_data['alpha'].idxmax()]
+        worst_day = wave_data.loc[wave_data['alpha'].idxmin()]
+        
+        narrative_parts.append(f"- Best performance: {best_day['alpha']*100:.2f}% alpha on {best_day['date']}")
+        narrative_parts.append(f"- Worst performance: {worst_day['alpha']*100:.2f}% alpha on {worst_day['date']}")
+        narrative_parts.append("")
+        
+        # Risk Posture section
+        narrative_parts.append("## Overall Risk Posture")
+        
+        volatility = wave_data['portfolio_return'].std()
+        sharpe_ratio = (avg_daily_alpha / volatility * np.sqrt(252)) if volatility > 0 else 0
+        
+        narrative_parts.append(f"Daily return volatility: {volatility*100:.2f}%")
+        narrative_parts.append(f"Annualized Sharpe Ratio (estimated): {sharpe_ratio:.2f}")
+        
+        # Calculate drawdown
+        cumulative_returns = (1 + wave_data['portfolio_return']).cumprod()
+        running_max = cumulative_returns.cummax()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = drawdown.min()
+        
+        narrative_parts.append(f"Maximum drawdown: {max_drawdown*100:.2f}%")
+        
+        # Risk assessment
+        if volatility < 0.01:
+            risk_level = "LOW"
+        elif volatility < 0.02:
+            risk_level = "MODERATE"
+        else:
+            risk_level = "HIGH"
+        
+        narrative_parts.append(f"Risk Level: {risk_level}")
+        narrative_parts.append("")
+        
+        # Recommended Action section
+        narrative_parts.append("## Recommended Action Language")
+        
+        if cumulative_alpha > 0.05:  # >5% cumulative alpha
+            if risk_level == "LOW":
+                action = "STRONG BUY - Wave is generating significant alpha with controlled risk. Consider increasing allocation."
+            elif risk_level == "MODERATE":
+                action = "BUY - Wave is generating strong alpha but monitor volatility. Maintain or slightly increase position."
+            else:
+                action = "HOLD - Wave is generating alpha but with elevated volatility. Monitor closely before increasing exposure."
+        elif cumulative_alpha > 0.01:  # >1% cumulative alpha
+            action = "HOLD - Wave is generating positive but modest alpha. Maintain current allocation and monitor."
+        elif cumulative_alpha > -0.01:  # Between -1% and 1%
+            action = "NEUTRAL - Wave is performing in line with benchmark. Review strategy and consider alternatives."
+        else:  # <-1% cumulative alpha
+            action = "REDUCE - Wave is underperforming benchmark. Consider reducing allocation or investigating root causes."
+        
+        narrative_parts.append(action)
+        narrative_parts.append("")
+        
+        # Data Quality Note
+        narrative_parts.append("---")
+        narrative_parts.append(f"*Analysis based on {num_days} days of data from {start_date} to {end_date}.*")
+        
+    except Exception as e:
+        narrative_parts.append(f"**Error generating narrative:** {str(e)}")
+        narrative_parts.append("**Data Status:** Some required fields may be unavailable.")
+    
+    return "\n".join(narrative_parts)
+
+
+def get_wave_data_for_narrative(wave_name):
+    """
+    Retrieve wave data for narrative generation.
+    Returns DataFrame for the specified wave over the last 30 days.
+    """
+    try:
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if not os.path.exists(wave_history_path):
+            return None
+        
+        df = pd.read_csv(wave_history_path)
+        
+        if 'date' not in df.columns or 'wave' not in df.columns or len(df) == 0:
+            return None
+        
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # Filter for specific wave
+        wave_df = df[df['wave'] == wave_name].copy()
+        
+        if len(wave_df) == 0:
+            return None
+        
+        # Get last 30 days
+        latest_date = wave_df['date'].max()
+        days_30_ago = latest_date - timedelta(days=30)
+        wave_df_30d = wave_df[wave_df['date'] >= days_30_ago].copy()
+        
+        return wave_df_30d
+        
+    except Exception as e:
+        return None
+
+
+def render_vector_explain_panel():
+    """Render the Vector Explain panel for generating Wave narratives."""
+    st.subheader("📝 Vector Explain")
+    st.write("Generate an institutional narrative for a selected Wave")
+    
+    try:
+        # Get list of available waves
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if not os.path.exists(wave_history_path):
+            st.warning("Wave history data not available")
+            return
+        
+        df = pd.read_csv(wave_history_path)
+        
+        if 'wave' not in df.columns or len(df) == 0:
+            st.warning("No wave data available")
+            return
+        
+        waves = sorted(df['wave'].unique())
+        
+        # Wave selector
+        selected_wave = st.selectbox(
+            "Select Wave",
+            options=waves,
+            help="Choose a wave to generate an institutional narrative"
+        )
+        
+        if st.button("Generate Narrative", type="primary"):
+            with st.spinner("Generating narrative..."):
+                wave_data = get_wave_data_for_narrative(selected_wave)
+                narrative = generate_wave_narrative(selected_wave, wave_data)
+                
+                # Store in session state
+                st.session_state['current_narrative'] = narrative
+        
+        # Display narrative if available
+        if 'current_narrative' in st.session_state:
+            st.divider()
+            st.markdown(st.session_state['current_narrative'])
+            
+            # Copy Summary button
+            st.divider()
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("📋 Copy Summary to Clipboard", use_container_width=True):
+                    st.code(st.session_state['current_narrative'], language=None)
+                    st.success("Summary displayed above - use your browser to copy the text")
+    
+    except Exception as e:
+        st.error(f"Error rendering Vector Explain panel: {str(e)}")
+
+
 def render_executive_section():
     """Render the Executive section with Leaderboard, Movers, and Alerts."""
     
@@ -494,7 +702,8 @@ with analytics_tabs[0]:
     # Executive tab - new addition
     render_executive_section()
 with analytics_tabs[1]:
-    st.write("Overview Content...")
+    st.header("Overview")
+    render_vector_explain_panel()
 with analytics_tabs[2]:
     st.write("Details Content...")
 with analytics_tabs[3]:
