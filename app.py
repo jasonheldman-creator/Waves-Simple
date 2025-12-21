@@ -624,7 +624,7 @@ GLOSSARY: Dict[str, str] = {
     "Wave Steward™": (
         "Advisory-only, read-only AI guidance layer for Wave creators. Provides qualitative diagnostics and human decision prompts "
         "while remaining fully isolated from analytics, alpha, benchmarking, and governance systems. Does not affect portfolio construction, "
-        "rebalancing, parameter changes, or system state."
+        "analytics, benchmarks, governance outputs, WaveScore calculations, rebalancing, parameter changes, or system state."
     ),
 }
 
@@ -853,7 +853,7 @@ def render_wave_steward(
         st.info("""
 **📋 Mandatory Disclosure:**
 
-Wave Steward™ provides non-binding guidance for human review. It does not affect portfolio construction, analytics, benchmarks, or governance outputs.
+Wave Steward™ provides non-binding guidance for human review. It does not affect portfolio construction, analytics, benchmarks, governance outputs, or WaveScore calculations.
         """)
         
         st.markdown("---")

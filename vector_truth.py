@@ -314,14 +314,16 @@ def compute_reconciliation(
     # (within 5% relative tolerance)
     if rel_gap < 0.05 and cwa is not None and eaa is not None:
         conclusion = (
-            "Capital-Weighted Alpha equals Exposure-Adjusted Alpha. "
-            "Equality reflects near-full exposure across window — not attribution certainty. "
+            "Capital-Weighted Alpha matches Exposure-Adjusted Alpha. "
+            "Identical values occur when average exposure ≈ 100% over the window. "
+            "Divergence will appear when exposure scaling or cash sweeps materially change average capital deployment. "
             "Both measures are valid; they answer different questions."
         )
     else:
         conclusion = (
             "Both are valid; they answer different questions. "
-            "Capital-weighted alpha should be reported with exposure context."
+            "Capital-weighted alpha should be reported with exposure context. "
+            "Divergence reflects exposure scaling or cash sweeps changing average capital deployment."
         )
 
     return VectorAlphaReconciliation(
@@ -584,16 +586,23 @@ def format_vector_truth_markdown(report: VectorTruthReport, attribution_confiden
 **A. Total Excess Return:**
 - **{_pct(s.total_excess_return)}**
 
-**B. Structural (Non-Alpha) Effects:**
-- Capital Preservation Overlay (VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
-- Benchmark Construction Offset (expected structural offset): **{_pct(s.benchmark_construction_effect)}**
+---
 
-**C. Residual Strategy Return (Post-Structural):**
+**B. Structural Effects (Non-Alpha Components):**
+
+*These components are structural/non-alpha by design and offset each other:*
+
+- **Capital Preservation Effect** (Structural/Non-Alpha): **{_pct(s.capital_preservation_effect)}**
+  - *VIX / Regime / SmartSafe overlays for capital preservation*
+- **Benchmark Construction Effect** (Structural/Non-Alpha): **{_pct(s.benchmark_construction_effect)}**
+  - *Expected structural offset from benchmark composition choices*
+
+---
+
+**C. Residual Strategy Return (Alpha-Eligible, Post-Structural):**
 - **{_pct(residual_excess)}**
-  - *Explicitly includes selection, timing, and exposure path effects.*
-  - *Residualized after structural controls.*
 
-*Note: Structural effects are non-alpha components. The residual strategy return reflects combined effects of selection, timing, and exposure path decisions after accounting for structural overlays.*
+*Structural effects offset by design. Residual strategy return reflects combined selection, timing, and exposure-path decisions after governance controls.*
 
 ---
 
@@ -780,15 +789,17 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
     interpretation = reliability_metrics.get("interpretation", "")
     
     md = f"""
-**Vector Truth — Attribution Reliability (Gate)**
+**VECTOR TRUTH — ALPHA RELIABILITY**
 
 - **Attribution Confidence:** {confidence}
-  - *High: Benchmark stable, clean data, high n*
-- **Window:** {window} days
-- **Benchmark Snapshot:** {bm_snapshot}
+  - *High: Benchmark stable, clean data, high n; Medium: Adequate context; Low: Limited reliability*
+- **Benchmark Snapshot Stability:** {bm_snapshot}
 - **Regime Coverage:** {regime_coverage}
-  - *Balanced if >20% mix of risk-on/off days; else Skewed*
+  - *Balanced if >20% mix of risk-on/off days; Skewed otherwise*
 - **Alpha Inflation Risk:** {inflation_risk}
+- **Alpha Inflation Risk:** {inflation_risk}
+
+**Context:** Analysis window: {window} days
 
 **Interpretation:** {interpretation}
 
