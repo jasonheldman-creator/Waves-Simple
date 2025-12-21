@@ -2441,6 +2441,11 @@ WAVE_PURPOSE: Dict[str, str] = {
     "Clean Transit-Infrastructure Wave": "Infrastructure/transition exposure. Durable positioning with risk-aware regime behavior and benchmark verification (architectural governance).",
     "Crypto Income Wave": "Crypto yield/income exposure. Maximizes risk-adjusted income signals with explicit regime-aware transparency (flexible, predictable governance).",
     "SmartSafe Money Market Wave": "Capital-preservation anchor. Designed for stability and liquidity; provides governance reference during risk-off regimes (architectural stability).",
+    # Additional waves from config
+    "AI & Cloud MegaCap Wave": "AI and cloud computing mega-cap exposure. Focuses on leading technology companies driving innovation in artificial intelligence and cloud infrastructure with governance-native benchmarking.",
+    "US MegaCap Core Wave": "Core U.S. mega-cap equity exposure. Provides broad market participation through leading large-cap companies with stable benchmark-relative analytics.",
+    "SmartSafe Treasury Cash Wave": "Capital preservation and liquidity anchor. Ultra-low risk exposure using treasury bills for defensive positioning during market uncertainty.",
+    "Small–Mid Cap Value Acceleration Wave": "Small to mid-cap value acceleration strategy. Targets companies with strong fundamentals (revenue/EPS growth, attractive valuations) with governed risk controls.",
 }
 
 def wave_purpose_statement(wave_name: str) -> str:
@@ -2449,6 +2454,210 @@ def wave_purpose_statement(wave_name: str) -> str:
     if not wave_name or wave_name == "(none)":
         return ""
     return WAVE_PURPOSE.get(wave_name, "Purpose statement not set yet for this Wave. Add it to WAVE_PURPOSE in app.py.")
+
+
+# ============================================================
+# Wave Header Card Helpers (UX improvements)
+# ============================================================
+def determine_current_posture(hist_sel: pd.DataFrame, wave_name: str, mode: str) -> str:
+    """
+    Determine current posture based on recent exposure and regime.
+    Returns: "Risk-On", "Risk-Off", "Neutral", or "De-Risked"
+    """
+    if hist_sel is None or hist_sel.empty:
+        return "Neutral"
+    
+    try:
+        # Get exposure if available
+        exp_series = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(hist_sel.index))
+        
+        # Look at most recent exposure
+        current_exposure = None
+        if exp_series is not None and len(exp_series) > 0:
+            recent_exp = exp_series.tail(5).mean()  # Average last 5 days
+            if math.isfinite(recent_exp):
+                current_exposure = recent_exp
+        
+        # Get current regime
+        regime_series = _build_regime_series_from_benchmark(hist_sel)
+        current_regime = None
+        if regime_series is not None and len(regime_series) > 0:
+            recent_regime = regime_series.tail(5)
+            # Count risk-on vs risk-off days
+            risk_on_count = (recent_regime == "RISK_ON").sum()
+            current_regime = "RISK_ON" if risk_on_count >= 3 else "RISK_OFF"
+        
+        # Determine posture
+        if current_exposure is not None:
+            if current_exposure < 0.30:
+                return "De-Risked"
+            elif current_exposure < 0.60:
+                return "Neutral"
+            elif current_regime == "RISK_OFF":
+                return "Risk-Off"
+            else:
+                return "Risk-On"
+        else:
+            # No exposure data, use regime only
+            if current_regime == "RISK_OFF":
+                return "Risk-Off"
+            elif current_regime == "RISK_ON":
+                return "Risk-On"
+            else:
+                return "Neutral"
+    except Exception:
+        return "Neutral"
+
+
+def get_current_exposure_display(hist_sel: pd.DataFrame, wave_name: str, mode: str) -> str:
+    """
+    Get current exposure percentage with SmartSafe allocation if available.
+    Returns formatted string like "Exposure: 85% • SmartSafe: 15%"
+    """
+    try:
+        exp_series = _try_get_exposure_series(wave_name, mode, pd.DatetimeIndex(hist_sel.index))
+        
+        if exp_series is not None and len(exp_series) > 0:
+            current_exp = exp_series.iloc[-1]
+            if math.isfinite(current_exp):
+                current_exp = max(0.0, min(1.0, current_exp))
+                smartsafe_pct = 1.0 - current_exp
+                return f"Exposure: {fmt_pct(current_exp)} • SmartSafe: {fmt_pct(smartsafe_pct)}"
+        
+        return "Exposure: ~100% (SmartSafe allocation data not available)"
+    except Exception:
+        return "Exposure: ~100% (SmartSafe allocation data not available)"
+
+
+def get_wave_truth_summary(metrics: Dict[str, Any], hist_sel: pd.DataFrame, selected_wave: str, mode: str) -> Dict[str, str]:
+    """
+    Build max 3 digestible bullets for Wave Truth Summary:
+    - Total Excess Return
+    - Drivers (Selection/Overlay Preservation/Mixed Control)
+    - Reliability (High/Medium/Low/Context-Dependent)
+    """
+    summary = {
+        "excess_return": "—",
+        "drivers": "—",
+        "reliability": "—"
+    }
+    
+    try:
+        # Total Excess Return (use 60D alpha as primary metric)
+        a60 = safe_float(metrics.get("a60"))
+        if math.isfinite(a60):
+            summary["excess_return"] = f"Total Excess Return (60D): {fmt_pct(a60)}"
+        else:
+            summary["excess_return"] = "Total Excess Return (60D): N/A"
+        
+        # Drivers - determine from alpha characteristics
+        try:
+            exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+            has_exposure_control = exp_series is not None and len(exp_series) > 0
+            
+            if has_exposure_control:
+                exp_var = exp_series.std() if len(exp_series) > 1 else 0.0
+                if exp_var > 0.15:
+                    summary["drivers"] = "Drivers: Overlay Preservation (VIX/Regime/SmartSafe controls active)"
+                else:
+                    summary["drivers"] = "Drivers: Mixed Control (Selection + moderate overlay)"
+            else:
+                summary["drivers"] = "Drivers: Selection (fully invested positioning)"
+        except Exception:
+            summary["drivers"] = "Drivers: Selection (fully invested positioning)"
+        
+        # Reliability - based on beta reliability and sample size
+        beta_val, beta_r2, beta_n = beta_and_r2(
+            hist_sel["wave_ret"] if not hist_sel.empty and "wave_ret" in hist_sel.columns else pd.Series(dtype=float),
+            hist_sel["bm_ret"] if not hist_sel.empty and "bm_ret" in hist_sel.columns else pd.Series(dtype=float),
+        )
+        
+        if beta_n >= 90 and math.isfinite(beta_r2) and beta_r2 >= 0.70:
+            summary["reliability"] = "Reliability: High (stable benchmark linkage, sufficient sample)"
+        elif beta_n >= 60 and math.isfinite(beta_r2) and beta_r2 >= 0.50:
+            summary["reliability"] = "Reliability: Medium (adequate governance, moderate sample)"
+        elif beta_n < 30:
+            summary["reliability"] = "Reliability: Context-Dependent (limited sample, early stage)"
+        else:
+            summary["reliability"] = "Reliability: Low (verify benchmark fit or sample quality)"
+            
+    except Exception:
+        pass
+    
+    return summary
+
+
+def render_wave_header_card(
+    selected_wave: str,
+    mode: str,
+    hist_sel: pd.DataFrame,
+    metrics: Dict[str, Any],
+):
+    """
+    Render compact Wave Header Card at top of Wave Detail View.
+    Includes: Wave Name, Mode, Purpose, Current Posture, Current Exposure
+    """
+    st.markdown('<div class="waves-card" style="margin-bottom: 16px;">', unsafe_allow_html=True)
+    
+    # Wave Name + Mode (already shown in big header, so make this compact)
+    purpose = wave_purpose_statement(selected_wave)
+    if purpose:
+        st.markdown(f"**Wave Purpose:** {purpose}")
+    
+    # Current Posture
+    posture = determine_current_posture(hist_sel, selected_wave, mode)
+    posture_color = {
+        "Risk-On": "rgba(46, 213, 115, 1)",
+        "Risk-Off": "rgba(255, 80, 80, 1)", 
+        "Neutral": "rgba(255, 204, 0, 1)",
+        "De-Risked": "rgba(100, 149, 237, 1)"
+    }.get(posture, "rgba(255, 255, 255, 0.85)")
+    
+    st.markdown(
+        f'<div style="margin: 8px 0;"><span style="font-weight: 600;">Current Posture:</span> '
+        f'<span style="color: {posture_color}; font-weight: 700;">{posture}</span></div>',
+        unsafe_allow_html=True
+    )
+    
+    # Current Exposure
+    exposure_display = get_current_exposure_display(hist_sel, selected_wave, mode)
+    st.markdown(f"**{exposure_display}**")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_wave_truth_summary(metrics: Dict[str, Any], hist_sel: pd.DataFrame, selected_wave: str, mode: str):
+    """
+    Render Wave Truth Summary with max 3 digestible bullets.
+    """
+    st.markdown('<div class="waves-card" style="margin-bottom: 16px;">', unsafe_allow_html=True)
+    st.markdown("**Wave Truth Summary**")
+    
+    summary = get_wave_truth_summary(metrics, hist_sel, selected_wave, mode)
+    
+    st.write(f"• {summary['excess_return']}")
+    st.write(f"• {summary['drivers']}")
+    st.write(f"• {summary['reliability']}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def get_overlay_contribution_note(hist_sel: pd.DataFrame, selected_wave: str, mode: str) -> Optional[str]:
+    """
+    Check if overlay contributions are present and return appropriate note.
+    Returns None if no overlay detected.
+    """
+    try:
+        exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+        
+        if exp_series is not None and len(exp_series) > 1:
+            exp_var = exp_series.std()
+            if exp_var > 0.05:  # Significant exposure variation
+                return "Overlay Contribution: Present (VIX / Regime / SmartSafe)—reported under Capital Preservation (non-alpha)"
+        
+        return None
+    except Exception:
+        return None
 
 
 # 4️⃣ Gating Warnings (read-only; non-blocking)
@@ -3015,6 +3224,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ============================================================
+# WAVE HEADER CARD (Compact quick reference)
+# ============================================================
+if selected_wave and selected_wave != "(none)":
+    render_wave_header_card(selected_wave, mode, hist_sel, metrics)
+
+# ============================================================
+# WAVE TRUTH SUMMARY (Max 3 digestible bullets)
+# ============================================================
+if selected_wave and selected_wave != "(none)":
+    render_wave_truth_summary(metrics, hist_sel, selected_wave, mode)
+
 # 1️⃣ Vector Status Bar (new)
 render_vector_status_bar(
     conf_level=conf_level,
@@ -3256,6 +3477,12 @@ with tabs[1]:
     st.caption("Capital-weighted alpha: investor-experience alpha (Wave return − Benchmark return) over the window (context vs control metric).")
     st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
     st.caption("Exposure-adjusted alpha: capital-weighted alpha divided by average exposure over the window if exposure known (architectural refinement).")
+    
+    # Overlay contribution note
+    overlay_note = get_overlay_contribution_note(hist_sel, selected_wave, mode)
+    if overlay_note:
+        st.info(f"ℹ️ {overlay_note}")
+    
     st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
     st.caption("Alpha capture: daily (Wave return − Benchmark return) optionally normalized by exposure, compounded over window (predictable system-feedback).")
     st.write(
