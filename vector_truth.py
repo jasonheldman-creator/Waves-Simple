@@ -170,16 +170,21 @@ def compute_alpha_sources(
     smartsafe_contribution: Optional[float] = None,
 ) -> VectorAlphaSources:
     """
-    Decomposes total excess into alpha sources with true decomposition from return streams.
+    Decomposes total excess into structural effects and residual strategy return.
     
-    Avoids placeholder logic where Selection Alpha == Total Excess and other components
-    artificially balance to zero. Instead, provides N/A when data is insufficient.
+    Enforces explicit separation between NON-ALPHA structural components and 
+    POST-STRUCTURAL residual returns to eliminate misleading symmetry.
 
-    Definitions:
-      • Security Selection Alpha ~ derived from risky sleeve returns when available
-      • Exposure Management Alpha ~ impact of exposure scaling (not forced to zero)
-      • Capital Preservation Effect ~ SmartSafe gating and risk-off positioning
-      • Benchmark Construction Effect ~ residual from benchmark composition choices
+    Structural Effects (NON-ALPHA):
+      • Capital Preservation Effect ~ VIX / Regime / SmartSafe overlays (capital preservation vs benchmark construction)
+      • Benchmark Construction Offset ~ Expected structural offset from benchmark composition choices
+    
+    Residual Strategy Return (POST-STRUCTURAL):
+      • Combined effects of selection, timing, and exposure path after structural overlays
+      • NOT labeled as "pure selection alpha" - reflects integrated strategy decisions
+    
+    Avoids placeholder logic where components artificially balance to zero. 
+    Provides N/A when data is insufficient rather than forcing reconciliation.
     """
     te = _safe_float(total_excess)
     cwa = _safe_float(capital_weighted_alpha)
@@ -224,6 +229,7 @@ def compute_alpha_sources(
         # If it's large, that indicates benchmark construction matters
 
     # Assessment template - updated to avoid overstating selection
+    # Language revised per requirements: residual strategy return reflects combined effects
     assessment_parts = []
     
     # Check if we have sufficient data for meaningful decomposition
@@ -237,13 +243,13 @@ def compute_alpha_sources(
         exp_abs = abs(exp_mgmt) if exp_mgmt is not None else 0
         
         if exp_abs > sel_abs * 1.2:
-            assessment_parts.append("This decomposition shows exposure management as a meaningful contributor to alpha.")
+            assessment_parts.append("Residual strategy return reflects combined effects of selection, timing, and exposure path after structural overlays, with exposure management as a meaningful contributor.")
         elif sel_abs > exp_abs * 1.2:
-            assessment_parts.append("This decomposition provides selection/overlay insight where sufficient resolution exists.")
+            assessment_parts.append("Residual strategy return reflects combined effects of selection, timing, and exposure path after structural overlays.")
         else:
-            assessment_parts.append("Alpha sources show balanced contributions from selection and exposure management.")
+            assessment_parts.append("Residual strategy return shows balanced contributions from selection and exposure management after structural overlays.")
     elif has_selection:
-        assessment_parts.append("Selection component is observable. Exposure management effect requires additional exposure history for decomposition.")
+        assessment_parts.append("Residual strategy return component is observable. Exposure management effect requires additional exposure history for decomposition.")
     else:
         assessment_parts.append("Insufficient data resolution for complete alpha source decomposition.")
 
@@ -251,11 +257,11 @@ def compute_alpha_sources(
         pres_abs = abs(preserve) if preserve is not None else 0
         te_abs = abs(te) if te is not None else 1e-9
         if pres_abs >= te_abs * 0.5:
-            assessment_parts.append("Capital preservation (SmartSafe/risk-off) contributed materially to total alpha.")
+            assessment_parts.append("Capital preservation overlay (NON-ALPHA structural effect) contributed materially to total excess return.")
 
-    # Add disclaimer about institutional residuals
+    # Add disclaimer about institutional residuals (non-alpha structural offset)
     if bench_eff is not None and abs(bench_eff) > (abs(te) if te is not None and te != 0 else 1.0) * 0.2:
-        assessment_parts.append("Institutional residuals from missing history or benchmark construction are present.")
+        assessment_parts.append("Benchmark construction offset (NON-ALPHA structural effect) is present from benchmark composition choices.")
 
     assessment = " ".join(assessment_parts).strip() if assessment_parts else "Decomposition limited by available data series."
 
@@ -304,10 +310,19 @@ def compute_reconciliation(
     else:
         risk = "HIGH"
 
-    conclusion = (
-        "Both are valid; they answer different questions. "
-        "Capital-weighted alpha should be reported with exposure context."
-    )
+    # Check if capital-weighted and exposure-adjusted are approximately equal
+    # (within 5% relative tolerance)
+    if rel_gap < 0.05 and cwa is not None and eaa is not None:
+        conclusion = (
+            "Capital-Weighted Alpha equals Exposure-Adjusted Alpha. "
+            "Equality reflects near-full exposure across window — not attribution certainty. "
+            "Both measures are valid; they answer different questions."
+        )
+    else:
+        conclusion = (
+            "Both are valid; they answer different questions. "
+            "Capital-weighted alpha should be reported with exposure context."
+        )
 
     return VectorAlphaReconciliation(
         capital_weighted_alpha=cwa,
