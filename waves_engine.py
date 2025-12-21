@@ -3,14 +3,14 @@
 #
 # NEW in v17.1:
 #   • Adds a "shadow" simulator: simulate_history_nav(... overrides ...)
-#     - Does NOT alter baseline compute_history_nav
-#   • Adds diagnostics helpers:
+#     - Does NOT alter baseline compute_history_nav (architectural stability)
+#   • Adds diagnostics helpers (predictable system-feedback):
 #     - get_latest_diagnostics(...)
 #     - get_parameter_defaults(...)
 #
 # NOTE:
-#   This engine is "mobile-friendly" and does not require CSVs.
-#   It uses internal holdings and an auto-constructed composite benchmark system.
+#   This engine is "mobile-friendly" and does not require CSVs (flexible onboarding).
+#   It uses internal holdings and an auto-constructed composite benchmark system (governance-native architecture).
 
 from __future__ import annotations
 
