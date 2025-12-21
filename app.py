@@ -1069,7 +1069,7 @@ def generate_ticker_content(
     selected_wave: str,
     mode: str,
     metrics: Dict[str, Any],
-    bm_id: str,
+    bm_display: str,
     vix_data: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
@@ -1151,7 +1151,7 @@ def generate_ticker_content(
     items.append(
         f'<div class="waves-ticker-item neutral">'
         f'<span class="ticker-label">Benchmark:</span>'
-        f'<span class="ticker-value">{bm_id}</span>'
+        f'<span class="ticker-value">{bm_display}</span>'
         f'</div>'
     )
     
@@ -1546,6 +1546,41 @@ def benchmark_drift_status(wave_name: str, mode: str, snapshot_id: str) -> str:
         return "stable"
     st.session_state[key] = snapshot_id
     return "drift"
+
+
+def benchmark_display_description(bm_name: str, bm_drift: str, bm_rows: pd.DataFrame) -> str:
+    """
+    Returns a human-readable benchmark description for institutional presentation.
+    Focuses on governance and stability messaging without exposing internal IDs.
+    
+    Args:
+        bm_name: The benchmark name (e.g., "SPY (S&P 500)" or "Composite: ...")
+        bm_drift: The drift status ("stable" or "drift")
+        bm_rows: DataFrame with benchmark composition
+    
+    Returns:
+        Human-readable description like "Benchmark Snapshot: Stable (Governed Composite)"
+    """
+    try:
+        # Determine if single-ticker or composite
+        is_composite = len(bm_rows) > 1 if not bm_rows.empty else False
+        
+        # Build status descriptor
+        if bm_drift.lower() == "stable":
+            status = "Stable"
+        else:
+            status = "Drift Detected"
+        
+        # Build type descriptor
+        if is_composite:
+            type_desc = "Governed Composite"
+        else:
+            type_desc = "Single Benchmark"
+        
+        # Combine into institutional-friendly description
+        return f"Benchmark Snapshot: {status} ({type_desc})"
+    except Exception:
+        return "Benchmark Snapshot: Status Unknown"
 
 
 def benchmark_diff_table(wave_name: str, mode: str, bm_rows_now: pd.DataFrame) -> pd.DataFrame:
@@ -2667,8 +2702,8 @@ def get_confidence_numeric(conf_level: str) -> int:
     return conf_map.get(conf_level, 50)
 
 
-def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, beta_grade: str, 
-                             beta_score: float, conf_level: str, metrics: Dict[str, Any],
+def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, bm_display: str, 
+                             beta_grade: str, beta_score: float, conf_level: str, metrics: Dict[str, Any],
                              cov: Dict[str, Any], bm_drift: str):
     if not (VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX):
         return
@@ -2712,8 +2747,8 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, beta_g
         st.markdown(f"**Confidence:** {conf_level} ({conf_numeric}/100)")
         st.markdown(f"**Alpha Classification:** {v.get('classification', '—')}")
     with col2:
-        st.markdown(f"**Benchmark Name:** {bm_name}")
-        st.markdown(f"**Benchmark ID:** `{bm_id}`")
+        st.markdown(f"**Benchmark:** {bm_display}")
+        st.caption(f"Internal ID: {bm_id}")
     st.markdown("</div>", unsafe_allow_html=True)
     
     # === 3. Why this verdict? ===
@@ -2893,6 +2928,7 @@ bm_rows_now = _bm_rows_for_wave(bm_mix, selected_wave) if selected_wave and sele
 bm_id = benchmark_snapshot_id(selected_wave, mode, bm_mix) if selected_wave and selected_wave != "(none)" else "BM-NA"
 bm_name = benchmark_name(selected_wave, bm_mix) if selected_wave and selected_wave != "(none)" else "N/A"
 bm_drift = benchmark_drift_status(selected_wave, mode, bm_id) if selected_wave and selected_wave != "(none)" else "stable"
+bm_display = benchmark_display_description(bm_name, bm_drift, bm_rows_now) if selected_wave and selected_wave != "(none)" else "Benchmark Snapshot: N/A"
 bm_diff = benchmark_diff_table(selected_wave, mode, bm_rows_now) if ENABLE_FIDELITY_INSPECTOR else pd.DataFrame()
 
 metrics = compute_metrics_from_hist(hist_sel)
@@ -2946,7 +2982,7 @@ st.markdown('<div class="waves-sticky">', unsafe_allow_html=True)
 chip(f"Confidence: {conf_level}")
 if ENABLE_SCORECARD:
     chip(f"Analytics WaveScore: {fmt_num(sel_score.get('AnalyticsScore'), 1)}/100 {sel_score.get('Flags','')}")
-chip(f"BM: {bm_id} · {bm_drift.capitalize()}")
+chip(f"{bm_display}")
 chip(f"Coverage: {fmt_num(cov.get('completeness_score'),1)} · AgeDays: {fmt_int(cov.get('age_days'))}")
 chip(f"30D α {fmt_pct(metrics['a30'])} · r {fmt_pct(metrics['r30'])}")
 chip(f"60D α {fmt_pct(metrics['a60'])} · r {fmt_pct(metrics['r60'])}")
@@ -2984,6 +3020,7 @@ with tabs[0]:
             final_verdict, 
             bm_id=bm_id, 
             bm_name=bm_name,
+            bm_display=bm_display,
             beta_grade=beta_grade, 
             beta_score=beta_score, 
             conf_level=conf_level,
@@ -3071,7 +3108,8 @@ with tabs[0]:
     with colB:
         st.markdown("#### Summary Metrics")
         st.write(f"**Confidence:** {conf_level}")
-        st.write(f"**Benchmark:** {bm_id} · {bm_drift}")
+        st.write(f"**Benchmark:** {bm_display}")
+        st.caption(f"Internal ID: {bm_id}")
         st.write(f"**Coverage Score:** {fmt_num(cov.get('completeness_score'),1)}/100")
         st.write(f"**Data Age:** {fmt_int(cov.get('age_days'))} days")
         st.write(f"**Analytics WaveScore:** {fmt_num(sel_score.get('AnalyticsScore'),1)}/100")
@@ -3093,7 +3131,7 @@ with tabs[1]:
     c1, c2 = st.columns(2, gap="medium")
     with c1:
         tile("Confidence", conf_level, conf_reason)
-        tile("Benchmark", "Stable" if bm_drift == "stable" else "Drift", bm_id)
+        tile("Benchmark", bm_display, f"Internal ID: {bm_id}")
         tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
     with c2:
         tile("Analytics WaveScore", f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100", f"{sel_score.get('Grade', 'N/A')} {sel_score.get('Flags','')}")
@@ -3114,7 +3152,8 @@ with tabs[1]:
     st.markdown('<div class="waves-card">', unsafe_allow_html=True)
     st.markdown("#### Trust + Governance (Detailed)")
     st.write(f"**Confidence:** {conf_level} — {conf_reason}")
-    st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
+    st.write(f"**Benchmark Snapshot:** {bm_display}")
+    st.caption(f"Internal ID: {bm_id} · Drift: {bm_drift}")
     st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
     st.caption("Beta derivation: regression slope of Wave daily returns vs Benchmark daily returns, with R² measuring fit quality (architectural governance metric).")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -3209,7 +3248,7 @@ with tabs[2]:
     truth = {
         "CanonicalEndDate": str(pd.to_datetime(hist_sel.index).max().date()) if not hist_sel.empty else "—",
         "Rows": int(cov.get("rows") or 0),
-        "BMSnapshot": bm_id,
+        "BMSnapshot": bm_display,
         "BMDrift": bm_drift,
         "CoverageScore": fmt_num(cov.get("completeness_score"), 1),
         "AgeDays": fmt_int(cov.get("age_days")),
@@ -3226,6 +3265,12 @@ with tabs[2]:
     }
     st.markdown("#### Cohesion Lock (Truth Table)")
     st.dataframe(pd.DataFrame([truth]), use_container_width=True, hide_index=True)
+    
+    with st.expander("🔍 Technical Details (Internal IDs)"):
+        st.caption("Internal identifiers for audit and compliance tracking:")
+        st.write(f"**Benchmark Internal ID:** `{bm_id}`")
+        st.write(f"**Benchmark Name:** {bm_name}")
+        st.caption("These internal IDs ensure benchmark composition governance and are used for drift detection.")
 
     st.markdown("---")
     st.markdown("#### Performance vs Benchmark")
@@ -3330,7 +3375,8 @@ with tabs[4]:
     with left:
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Inspector Summary")
-        st.write(f"**Snapshot:** {bm_id}")
+        st.write(f"**Snapshot:** {bm_display}")
+        st.caption(f"Internal ID: {bm_id}")
         st.write(f"**Drift Status:** {bm_drift}")
         st.write(f"**Active Risk Band (TE):** {te_band} (TE {fmt_pct(metrics['te'])})")
         st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
@@ -3380,8 +3426,11 @@ with tabs[5]:
         def load_metrics_for(w: str) -> Dict[str, Any]:
             h = _standardize_history(compute_wave_history(w, mode, days=days))
             c = coverage_report(h)
+            bm_rows = _bm_rows_for_wave(bm_mix, w)
             bid = benchmark_snapshot_id(w, mode, bm_mix)
+            bname = benchmark_name(w, bm_mix)
             d = benchmark_drift_status(w, mode, bid)
+            bdisplay = benchmark_display_description(bname, d, bm_rows)
             m = compute_metrics_from_hist(h)
             bt = beta_target_for_mode(mode)
             bv, br2, bn = beta_and_r2(
@@ -3389,7 +3438,7 @@ with tabs[5]:
                 h["bm_ret"] if not h.empty else pd.Series(dtype=float),
             )
             bs = beta_reliability_score(bv, br2, bn, bt)
-            return {"cov": c, "bm_id": bid, "bm_drift": d, "m": m, "beta": bv, "beta_score": bs}
+            return {"cov": c, "bm_id": bid, "bm_display": bdisplay, "bm_drift": d, "m": m, "beta": bv, "beta_score": bs}
 
         if wave_b and wave_b != "(none)":
             a = load_metrics_for(wave_a)
@@ -3406,11 +3455,17 @@ with tabs[5]:
                     {"Metric": "CVaR 95%", "Wave A": fmt_pct(a["m"]["cvar95"]), "Wave B": fmt_pct(b["m"]["cvar95"])},
                     {"Metric": "Beta", "Wave A": fmt_num(a["beta"], 2), "Wave B": fmt_num(b["beta"], 2)},
                     {"Metric": "Beta Reliability", "Wave A": fmt_num(a["beta_score"], 1), "Wave B": fmt_num(b["beta_score"], 1)},
-                    {"Metric": "BM Snapshot", "Wave A": a["bm_id"], "Wave B": b["bm_id"]},
+                    {"Metric": "Benchmark", "Wave A": a["bm_display"], "Wave B": b["bm_display"]},
                     {"Metric": "BM Drift", "Wave A": a["bm_drift"], "Wave B": b["bm_drift"]},
                 ]
             )
             st.dataframe(comp, use_container_width=True, hide_index=True)
+            
+            # Show internal IDs in technical section
+            with st.expander("🔍 Technical Details (Internal IDs)"):
+                st.caption("Internal benchmark identifiers for audit and compliance tracking:")
+                st.write(f"**Wave A Benchmark ID:** `{a['bm_id']}`")
+                st.write(f"**Wave B Benchmark ID:** `{b['bm_id']}`")
         else:
             st.info("Pick Wave B to compare.")
 
@@ -3673,7 +3728,7 @@ try:
         selected_wave=selected_wave,
         mode=mode,
         metrics=metrics,
-        bm_id=bm_id,
+        bm_display=bm_display,
         vix_data=ticker_vix_data,
     )
     
