@@ -25,10 +25,28 @@ st.sidebar.write("Description of Drawdown Monitor...")
 st.title("Institutional Console Analytics")
 
 # Placeholder for analytics tabs and data flows
-analytics_tabs = st.tabs(["Overview", "Details", "Reports"])
+analytics_tabs = st.tabs(["Overview", "Details", "Reports", "Overlays"])
 with analytics_tabs[0]:
     st.write("Overview Content...")
 with analytics_tabs[1]:
     st.write("Details Content...")
 with analytics_tabs[2]:
     st.write("Reports Content...")
+with analytics_tabs[3]:
+    st.header("Analytics Overlays")
+    
+    # Capital-Weighted Alpha Section
+    st.subheader("Capital-Weighted Alpha")
+    st.write("Data unavailable")
+    
+    st.divider()
+    
+    # Exposure-Adjusted Alpha Section
+    st.subheader("Exposure-Adjusted Alpha")
+    st.write("Data unavailable")
+    
+    st.divider()
+    
+    # Risk-On vs Risk-Off Attribution Section
+    st.subheader("Risk-On vs Risk-Off Attribution")
+    st.write("Data unavailable")
