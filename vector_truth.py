@@ -304,7 +304,7 @@ def compute_reconciliation(
 
     conclusion = (
         "Both are valid; they answer different questions. "
-        "Capital-weighted alpha should be reported with exposure context, not as pure selection skill."
+        "Capital-weighted alpha should be reported with exposure context."
     )
 
     return VectorAlphaReconciliation(
@@ -331,7 +331,12 @@ def compute_durability(
     # If alpha is overwhelmingly concentrated in one regime + heavily dependent on exposure mgmt, it’s more fragile.
     frag = None
     if (aro is not None or aon is not None) and ema is not None:
-        reg_sum = _sum_ignore_none([abs(aro), abs(aon)])
+        # Sum absolute values, handling None safely
+        reg_sum = 0.0
+        if aro is not None:
+            reg_sum += abs(aro)
+        if aon is not None:
+            reg_sum += abs(aon)
         reg_conc = 0.0
         if reg_sum > 1e-9 and aro is not None and aon is not None:
             reg_conc = abs(abs(aro) - abs(aon)) / reg_sum  # 0 balanced, 1 concentrated
@@ -490,14 +495,20 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
     md = f"""
 ### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
 
-**VECTOR TRUTH — PERFORMANCE DECOMPOSITION**
-- Total Excess Return: **{_pct(s.total_excess_return)}**
-- **Structural Effects (Non-Alpha):**
-  - Capital Preservation Effect (Overlay Contribution: VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
-  - Benchmark Construction Offset: **{_pct(s.benchmark_construction_effect)}** *(offset component, not alpha)*
-- Residual Excess Return (Unattributed): **{_pct(residual_excess)}**
+**VECTOR TRUTH — EXCESS RETURN DECOMPOSITION**
 
-*This section clarifies that total returns include both structural overlays (capital preservation mechanisms) and benchmark composition effects, which are not pure alpha sources.*
+**A. Total Excess Return:**
+- **{_pct(s.total_excess_return)}**
+
+**B. Structural (Non-Alpha) Effects:**
+- Capital Preservation (Overlay Contribution: VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
+- Benchmark Construction Offset (expected structural offset; not alpha): **{_pct(s.benchmark_construction_effect)}**
+
+**C. Residual Return (After Structural Controls):**
+- Residual Strategy Return (post-structural): **{_pct(residual_excess)}**
+  - *Includes Selection, Timing, and Exposure Path Effects (residualized)*
+
+*Note: Structural effects are non-alpha components. The residual strategy return reflects combined effects of selection, timing, and exposure path decisions after accounting for structural overlays.*
 
 ---
 
@@ -507,8 +518,8 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 
 {r.explanation}
 
-**Vector Conclusion:** {r.conclusion}  
-**Reported alpha inflation risk:** **{r.inflation_risk}**
+**Vector Conclusion:** Residual Strategy Return reflects combined effects (selection + timing + exposure path). {r.conclusion}  
+**Alpha inflation risk:** **{r.inflation_risk}**
 
 ---
 
@@ -551,6 +562,137 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
 **Vector Assessment:** {s.assessment}
 
 *Note: N/A values indicate insufficient data series for that component. This decomposition provides insight where sufficient resolution exists.*
+""".strip()
+    
+    return md
+
+
+def compute_alpha_reliability_metrics(
+    window_days: int,
+    bm_drift: str,
+    data_rows: int,
+    regime_coverage: Optional[Dict[str, int]] = None,
+    alpha_inflation_risk: str = "N/A",
+) -> Dict[str, Any]:
+    """
+    Compute Alpha Reliability Panel metrics.
+    
+    Args:
+        window_days: Analysis window in days
+        bm_drift: Benchmark drift status ("stable" or "drifting")
+        data_rows: Number of data rows available
+        regime_coverage: Dict with regime day counts (e.g., {"risk_on": 45, "risk_off": 15})
+        alpha_inflation_risk: Alpha inflation risk level from reconciliation
+    
+    Returns:
+        Dict with reliability metrics and interpretations
+    """
+    # Attribution Confidence
+    confidence = "Low"
+    confidence_reasons = []
+    
+    # Check benchmark stability
+    bm_stable = str(bm_drift).lower().strip() == "stable"
+    
+    # Check data quality
+    data_clean = data_rows >= 60
+    high_n = data_rows >= 200
+    
+    # Calculate regime balance if provided
+    regime_balanced = False
+    regime_status = "Unknown"
+    if regime_coverage and isinstance(regime_coverage, dict):
+        risk_on = regime_coverage.get("risk_on", 0)
+        risk_off = regime_coverage.get("risk_off", 0)
+        total = risk_on + risk_off
+        
+        if total > 0:
+            risk_off_pct = risk_off / total
+            # Balanced if >20% mix of each regime
+            regime_balanced = risk_off_pct >= 0.20 and risk_off_pct <= 0.80
+            
+            if regime_balanced:
+                regime_status = "Balanced"
+            elif risk_off_pct < 0.20:
+                regime_status = f"Skewed (Risk-On dominant: {risk_on}/{total} days)"
+            else:
+                regime_status = f"Skewed (Risk-Off dominant: {risk_off}/{total} days)"
+    
+    # Determine confidence level
+    if bm_stable and data_clean and high_n:
+        if regime_balanced:
+            confidence = "High"
+            confidence_reasons.append("Benchmark stable, clean data, high sample size, balanced regime coverage")
+        else:
+            confidence = "Medium"
+            confidence_reasons.append("Benchmark stable, clean data, high sample size, but regime coverage skewed")
+    elif bm_stable and data_clean:
+        confidence = "Medium"
+        confidence_reasons.append("Benchmark stable, adequate data, but sample size moderate or regime skewed")
+    else:
+        confidence = "Low"
+        if not bm_stable:
+            confidence_reasons.append("Benchmark drifting")
+        if not data_clean:
+            confidence_reasons.append(f"Insufficient data ({data_rows} rows, need ≥60)")
+    
+    # Benchmark snapshot status
+    bm_snapshot_status = "Stable" if bm_stable else "Drifting"
+    
+    # Interpretation guidance
+    interpretation_parts = []
+    if confidence == "High":
+        interpretation_parts.append("Attribution metrics are reliable under current conditions.")
+    elif confidence == "Medium":
+        interpretation_parts.append("Attribution metrics provide useful directional insight with noted limitations.")
+    else:
+        interpretation_parts.append("Attribution confidence is limited; results should be interpreted with caution.")
+    
+    if not regime_balanced and regime_coverage:
+        interpretation_parts.append("Consider extending window for better regime balance.")
+    
+    interpretation = " ".join(interpretation_parts)
+    
+    return {
+        "attribution_confidence": confidence,
+        "confidence_reasons": confidence_reasons,
+        "window_days": window_days,
+        "benchmark_snapshot": bm_snapshot_status,
+        "regime_coverage": regime_status,
+        "alpha_inflation_risk": alpha_inflation_risk,
+        "interpretation": interpretation,
+    }
+
+
+def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
+    """
+    Returns markdown for the ALPHA RELIABILITY panel.
+    
+    Args:
+        reliability_metrics: Dict from compute_alpha_reliability_metrics()
+    
+    Returns:
+        Formatted markdown string
+    """
+    confidence = reliability_metrics.get("attribution_confidence", "N/A")
+    window = reliability_metrics.get("window_days", "N/A")
+    bm_snapshot = reliability_metrics.get("benchmark_snapshot", "N/A")
+    regime_coverage = reliability_metrics.get("regime_coverage", "N/A")
+    inflation_risk = reliability_metrics.get("alpha_inflation_risk", "N/A")
+    interpretation = reliability_metrics.get("interpretation", "")
+    
+    md = f"""
+**VECTOR TRUTH — ALPHA RELIABILITY**
+
+- **Attribution Confidence:** {confidence}
+  - *High: Benchmark stable, clean data, high n*
+- **Window:** {window} days
+- **Benchmark Snapshot:** {bm_snapshot}
+- **Regime Coverage:** {regime_coverage}
+  - *Balanced if >20% mix of risk-on/off days; else Skewed*
+- **Alpha Inflation Risk:** {inflation_risk}
+
+**Interpretation:** {interpretation}
 """.strip()
     
     return md

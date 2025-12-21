@@ -62,11 +62,19 @@ except Exception as e:
 # -------------------------------
 VECTOR_TRUTH_IMPORT_ERROR = None
 try:
-    from vector_truth import build_vector_truth_report, format_vector_truth_markdown, render_vector_truth_alpha_attribution
+    from vector_truth import (
+        build_vector_truth_report, 
+        format_vector_truth_markdown, 
+        render_vector_truth_alpha_attribution,
+        compute_alpha_reliability_metrics,
+        render_alpha_reliability_panel
+    )
 except Exception as e:
     build_vector_truth_report = None
     format_vector_truth_markdown = None
     render_vector_truth_alpha_attribution = None
+    compute_alpha_reliability_metrics = None
+    render_alpha_reliability_panel = None
     VECTOR_TRUTH_IMPORT_ERROR = e
 
 
@@ -2170,8 +2178,42 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         regime_series=regime_series,
     )
 
-    # Render main Performance Decomposition and other sections
+    # Render main Excess Return Decomposition and other sections
     st.markdown(format_vector_truth_markdown(report))
+    
+    # Render Alpha Reliability Panel (new requirement)
+    if compute_alpha_reliability_metrics is not None and render_alpha_reliability_panel is not None:
+        # Calculate regime coverage
+        regime_coverage = None
+        if reg_series is not None and len(reg_series) > 0:
+            regime_counts = reg_series.value_counts().to_dict()
+            regime_coverage = {
+                "risk_on": regime_counts.get("RISK_ON", 0),
+                "risk_off": regime_counts.get("RISK_OFF", 0),
+            }
+        
+        # Get benchmark drift from session state or defaults
+        # We need to access bm_drift from the calling context
+        # For now, we'll compute it here or pass it as a parameter
+        # Let's assume we can access it from the metrics or compute it
+        try:
+            # Try to get from session state or compute
+            bm_mix = get_benchmark_mix()
+            bm_id = benchmark_snapshot_id(selected_wave, mode, bm_mix)
+            bm_drift = benchmark_drift_status(selected_wave, mode, bm_id)
+        except Exception:
+            bm_drift = "stable"  # Fallback
+        
+        reliability_metrics = compute_alpha_reliability_metrics(
+            window_days=min(int(days), len(hist_sel)),
+            bm_drift=bm_drift,
+            data_rows=len(hist_sel),
+            regime_coverage=regime_coverage,
+            alpha_inflation_risk=report.reconciliation.inflation_risk,
+        )
+        
+        st.markdown("---")
+        st.markdown(render_alpha_reliability_panel(reliability_metrics))
     
     # Render detailed Alpha Attribution in a collapsed expander
     if render_vector_truth_alpha_attribution is not None:
