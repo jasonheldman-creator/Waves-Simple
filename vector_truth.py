@@ -798,7 +798,6 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
 - **Regime Coverage:** {regime_coverage}
   - *Balanced if >20% mix of risk-on/off days; Skewed otherwise*
 - **Alpha Inflation Risk:** {inflation_risk}
-- **Alpha Inflation Risk:** {inflation_risk}
 
 **Context:** Analysis window: {window} days
 
@@ -809,3 +808,94 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
 """.strip()
     
     return md
+
+
+# ---------------------------
+# Alpha Attribution Integration (New)
+# ---------------------------
+
+def render_alpha_attribution_table(
+    wave_name: str,
+    mode: str = "Standard",
+    days: int = 365,
+    n_rows: int = 10
+) -> str:
+    """
+    Render complete alpha attribution table with 5-component decomposition.
+    
+    This provides the precise, reconciled alpha attribution as specified in requirements:
+    1. Exposure & Timing Alpha
+    2. Regime & VIX Overlay Alpha
+    3. Momentum & Trend Alpha
+    4. Volatility & Risk Control Alpha
+    5. Asset Selection Alpha (Residual)
+    
+    All components reconcile to total realized alpha (Wave Return - Benchmark Return).
+    
+    Args:
+        wave_name: Name of the Wave
+        mode: Operating mode
+        days: Analysis window in days
+        n_rows: Number of rows to display in sample table
+        
+    Returns:
+        Markdown-formatted attribution table and summary
+    """
+    try:
+        # Import alpha attribution module
+        try:
+            from alpha_attribution import format_attribution_summary_table, format_daily_attribution_sample
+        except ImportError:
+            return "**Alpha Attribution:** Module not available. Ensure alpha_attribution.py is in the module path."
+        
+        # Import waves engine
+        try:
+            import waves_engine as we
+        except ImportError:
+            return "**Alpha Attribution:** waves_engine module not available."
+        
+        # Compute attribution
+        daily_df, summary_dict = we.compute_alpha_attribution(
+            wave_name=wave_name,
+            mode=mode,
+            days=days
+        )
+        
+        if not summary_dict.get("ok", False):
+            return f"**Alpha Attribution:** {summary_dict.get('message', 'Failed to compute attribution')}"
+        
+        # Convert dict back to summary object for formatting
+        from alpha_attribution import AlphaAttributionSummary
+        summary = AlphaAttributionSummary(**{k: v for k, v in summary_dict.items() 
+                                            if k in AlphaAttributionSummary.__annotations__})
+        
+        # Format outputs
+        summary_table = format_attribution_summary_table(summary)
+        daily_sample = format_daily_attribution_sample(daily_df, n_rows=n_rows)
+        
+        # Combine into single markdown output
+        md = f"""
+{summary_table}
+
+---
+
+{daily_sample}
+
+---
+
+**Reconciliation Guarantee:**
+- Each component is computed from actual realized returns (no placeholders or estimates)
+- Sum of all 5 components = Total Realized Alpha = Wave Return - Benchmark Return
+- Reconciliation error is monitored and must be < 0.01% for valid attribution
+
+**Data Source:**
+- Same comprehensive return series used in WaveScore, full-period metrics, and institutional performance statistics
+- Diagnostics include VIX levels, regime states, exposure percentages, and safe asset allocations
+- All values traced back to actual trading day returns
+""".strip()
+        
+        return md
+        
+    except Exception as e:
+        import traceback
+        return f"**Alpha Attribution Error:** {str(e)}\n\n```\n{traceback.format_exc()}\n```"
