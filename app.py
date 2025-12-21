@@ -416,12 +416,30 @@ st.set_page_config(page_title="Institutional Console - Executive Layer v2", layo
 # ============================================================================
 
 # Legacy Crypto Waves to exclude (removed per requirement)
+# These waves are being deprecated in favor of a unified crypto approach:
+# - Single Crypto Income Wave for crypto income/yield representation
+# - Crypto Selection Engine (CSE) for broad crypto market exposure
 EXCLUDED_CRYPTO_WAVES = {
     "Multi-Cap Crypto Growth Wave",
     "Bitcoin Wave", 
     "Crypto Stable Yield Wave",
     "Crypto High-Yield Income Wave"
 }
+
+# Crypto sector classification for CSE universe identification
+# Based on institutional crypto classification standards (Grayscale, 21Shares, MarketVector)
+CRYPTO_SECTORS = [
+    'Store of Value / Settlement',
+    'Smart Contract Platforms (Layer 1)',
+    'Scaling Solutions (Layer 2)',
+    'Decentralized Finance (DeFi)',
+    'Infrastructure',
+    'AI / Compute / Data',
+    'Gaming / Metaverse',
+    'Payments / Remittance',
+    'Yield/Staking',
+    'Stablecoin Infrastructure'
+]
 
 # All Equity Waves that should be included in the lineup
 # Includes restored waves + 5 new waves (per requirement)
@@ -785,23 +803,9 @@ def get_cse_crypto_universe():
         if df is None or len(df) == 0:
             return []
         
-        # Identify crypto sectors
-        crypto_sectors = [
-            'Store of Value / Settlement',
-            'Smart Contract Platforms (Layer 1)',
-            'Scaling Solutions (Layer 2)',
-            'Decentralized Finance (DeFi)',
-            'Infrastructure',
-            'AI / Compute / Data',
-            'Gaming / Metaverse',
-            'Payments / Remittance',
-            'Yield/Staking',
-            'Stablecoin Infrastructure'
-        ]
-        
-        # Filter for crypto assets
+        # Filter for crypto assets using sector classification
         if 'Sector' in df.columns:
-            crypto_df = df[df['Sector'].isin(crypto_sectors)].copy()
+            crypto_df = df[df['Sector'].isin(CRYPTO_SECTORS)].copy()
         else:
             return []
         
@@ -840,9 +844,11 @@ def get_cse_wave_data(days=30):
         
         if len(cse_cryptos) == 0:
             # Return placeholder data indicating CSE is available but data is building
+            # Returning None here results in graceful "Data unavailable" display in UI
+            # This is the intended behavior during CSE data building phase
             return None
         
-        # For now, return None to indicate "Data unavailable" gracefully
+        # Return None to indicate "Data unavailable" gracefully
         # Future enhancement: compute actual CSE portfolio performance
         # from price data and market cap weights
         return None
