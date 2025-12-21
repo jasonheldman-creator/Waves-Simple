@@ -1,10 +1,1 @@
-# sandbox_app.py content moves to app.py
-
-import streamlit as st
-
-def main():
-    st.title("Welcome to the Promoted App")
-    st.write("This is the main entrypoint for the application.")
-
-if __name__ == "__main__":
-    main()
+{"version":"1ea68737e964cdae805c9abf708dceee34728e74","previous_content":"new_commit_changes","reverted_content":"prior_commit_changes"}
