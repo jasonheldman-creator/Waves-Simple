@@ -85,7 +85,9 @@ BTC_TICKER = "BTC-USD"  # used for crypto "VIX proxy"
 
 # Crypto yield overlays (APY assumptions per Wave)
 CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
-    "Crypto Income Wave": 0.08,  # Crypto Income Wave with CSE basket
+    "Crypto Stable Yield Wave": 0.04,
+    "Crypto Income & Yield Wave": 0.08,
+    "Crypto High-Yield Income Wave": 0.12,
 }
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
@@ -237,64 +239,6 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("SMH", 0.20, "VanEck Semiconductor ETF"),
     ],
 
-    # New Equity Waves (Wave Universe Refactor)
-    "Small Cap Growth Wave": [
-        Holding("IWO", 0.40, "iShares Russell 2000 Growth ETF"),
-        Holding("VBK", 0.30, "Vanguard Small-Cap Growth ETF"),
-        Holding("VTWO", 0.15, "Vanguard Russell 2000 ETF"),
-        Holding("IJH", 0.15, "iShares Core S&P Mid-Cap ETF"),
-    ],
-    "Small to Mid Cap Growth Wave": [
-        Holding("IJH", 0.25, "iShares Core S&P Mid-Cap ETF"),
-        Holding("IWP", 0.25, "iShares Russell Mid-Cap Growth ETF"),
-        Holding("MDY", 0.20, "SPDR S&P MidCap 400 ETF"),
-        Holding("IWO", 0.15, "iShares Russell 2000 Growth ETF"),
-        Holding("VBK", 0.15, "Vanguard Small-Cap Growth ETF"),
-    ],
-    "Future Power & Energy Wave": [
-        Holding("ICLN", 0.15, "iShares Global Clean Energy ETF"),
-        Holding("TAN", 0.15, "Invesco Solar ETF"),
-        Holding("NEE", 0.12, "NextEra Energy Inc."),
-        Holding("ENPH", 0.10, "Enphase Energy Inc."),
-        Holding("FSLR", 0.10, "First Solar Inc."),
-        Holding("XLE", 0.10, "Energy Select Sector SPDR"),
-        Holding("PLUG", 0.08, "Plug Power Inc."),
-        Holding("BE", 0.08, "Bloom Energy Corp."),
-        Holding("RUN", 0.07, "Sunrun Inc."),
-        Holding("SEDG", 0.05, "SolarEdge Technologies Inc."),
-    ],
-    "Quantum Computing Wave": [
-        Holding("IONQ", 0.20, "IonQ Inc."),
-        Holding("RGTI", 0.15, "Rigetti Computing Inc."),
-        Holding("QBTS", 0.15, "D-Wave Quantum Inc."),
-        Holding("IBM", 0.15, "International Business Machines Corp."),
-        Holding("GOOGL", 0.10, "Alphabet Inc. (Class A)"),
-        Holding("MSFT", 0.10, "Microsoft Corp."),
-        Holding("NVDA", 0.10, "NVIDIA Corp."),
-        Holding("AMD", 0.05, "Advanced Micro Devices Inc."),
-    ],
-    "Clean Transit-Infrastructure Wave": [
-        Holding("TSLA", 0.15, "Tesla Inc."),
-        Holding("RIVN", 0.08, "Rivian Automotive Inc."),
-        Holding("LCID", 0.07, "Lucid Group Inc."),
-        Holding("GM", 0.10, "General Motors"),
-        Holding("F", 0.10, "Ford Motor Co."),
-        Holding("PAVE", 0.15, "Global X U.S. Infrastructure Development"),
-        Holding("XLI", 0.15, "Industrial Select Sector SPDR"),
-        Holding("CAT", 0.08, "Caterpillar Inc."),
-        Holding("UNP", 0.07, "Union Pacific Corp."),
-        Holding("CHPT", 0.05, "ChargePoint Holdings Inc."),
-    ],
-
-    # Income Wave (equity income wave)
-    "Income Wave": [
-        Holding("VYM", 0.25, "Vanguard High Dividend Yield ETF"),
-        Holding("SCHD", 0.25, "Schwab U.S. Dividend Equity ETF"),
-        Holding("DVY", 0.20, "iShares Select Dividend ETF"),
-        Holding("HDV", 0.15, "iShares Core High Dividend ETF"),
-        Holding("NOBL", 0.15, "ProShares S&P 500 Dividend Aristocrats ETF"),
-    ],
-
     # Demas Fund Wave (value/quality + defensive tilt)
     "Demas Fund Wave": [
         Holding("BRK-B", 0.12, "Berkshire Hathaway (B)"),
@@ -309,7 +253,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("VTV", 0.12, "Vanguard Value ETF"),
     ],
 
-    # Crypto Waves
+    # Crypto growth Wave
     "Multi-Cap Crypto Growth Wave": [
         Holding("BTC-USD", 0.25, "Bitcoin"),
         Holding("ETH-USD", 0.20, "Ethereum"),
@@ -326,32 +270,34 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
     ],
     "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
 
-    # Crypto Income Wave - Dynamically uses CSE (Crypto Selection Engine) basket
-    # Represents top 1-200 cryptocurrencies per CSE ranking/selection logic
-    # Holdings are populated dynamically from Master_Stock_Sheet.csv crypto assets
-    # Note: This is a placeholder structure; actual holdings managed by CSE in app.py
-    "Crypto Income Wave": [
-        # Top crypto holdings by market cap (CSE basket representatives)
-        Holding("BTC-USD", 0.20, "Bitcoin"),
-        Holding("ETH-USD", 0.15, "Ethereum"),
-        Holding("BNB-USD", 0.08, "Binance Coin"),
-        Holding("SOL-USD", 0.08, "Solana"),
-        Holding("XRP-USD", 0.07, "XRP"),
-        Holding("ADA-USD", 0.05, "Cardano"),
-        Holding("AVAX-USD", 0.04, "Avalanche"),
-        Holding("DOT-USD", 0.04, "Polkadot"),
-        Holding("LINK-USD", 0.04, "Chainlink"),
-        Holding("MATIC-USD", 0.03, "Polygon"),
-        Holding("UNI-USD", 0.03, "Uniswap"),
-        Holding("AAVE-USD", 0.03, "Aave"),
-        Holding("ATOM-USD", 0.03, "Cosmos"),
-        Holding("MKR-USD", 0.02, "Maker"),
-        Holding("LDO-USD", 0.02, "Lido DAO"),
+    "Crypto Stable Yield Wave": [
+        Holding("USDC-USD", 0.35, "USD Coin"),
+        Holding("USDT-USD", 0.30, "Tether"),
+        Holding("DAI-USD", 0.20, "Dai"),
+        Holding("USDP-USD", 0.10, "Pax Dollar"),
+        Holding("sDAI-USD", 0.03, "Savings Dai (proxy)"),
         Holding("stETH-USD", 0.02, "Lido Staked Ether"),
-        Holding("GRT-USD", 0.02, "The Graph"),
-        Holding("INJ-USD", 0.02, "Injective"),
-        Holding("NEAR-USD", 0.02, "NEAR Protocol"),
-        Holding("APT-USD", 0.01, "Aptos"),
+    ],
+    "Crypto Income & Yield Wave": [
+        Holding("USDC-USD", 0.25, "USD Coin"),
+        Holding("USDT-USD", 0.20, "Tether"),
+        Holding("DAI-USD", 0.15, "Dai"),
+        Holding("USDP-USD", 0.05, "Pax Dollar"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.10, "Aave"),
+        Holding("MKR-USD", 0.05, "Maker"),
+        Holding("ETH-USD", 0.05, "Ethereum"),
+        Holding("BTC-USD", 0.05, "Bitcoin"),
+    ],
+    "Crypto High-Yield Income Wave": [
+        Holding("stETH-USD", 0.15, "Lido Staked Ether"),
+        Holding("AAVE-USD", 0.15, "Aave"),
+        Holding("MKR-USD", 0.10, "Maker"),
+        Holding("UNI-USD", 0.10, "Uniswap"),
+        Holding("GRT-USD", 0.10, "The Graph"),
+        Holding("LINK-USD", 0.10, "Chainlink"),
+        Holding("ETH-USD", 0.15, "Ethereum"),
+        Holding("BTC-USD", 0.15, "Bitcoin"),
     ],
 
     # SmartSafe Waves
@@ -429,34 +375,6 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
     "US Mid/Small Growth & Semis Wave": [
         Holding("IWP", 0.50, "iShares Russell Mid-Cap Growth ETF"),
         Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
-    ],
-
-    # New Equity Waves benchmarks
-    "Small Cap Growth Wave": [
-        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
-        Holding("VBK", 0.50, "Vanguard Small-Cap Growth ETF"),
-    ],
-    "Small to Mid Cap Growth Wave": [
-        Holding("IWP", 0.50, "iShares Russell Mid-Cap Growth ETF"),
-        Holding("IWO", 0.50, "iShares Russell 2000 Growth ETF"),
-    ],
-    "Future Power & Energy Wave": [
-        Holding("ICLN", 0.50, "iShares Global Clean Energy ETF"),
-        Holding("XLE", 0.50, "Energy Select Sector SPDR"),
-    ],
-    "Quantum Computing Wave": [
-        Holding("QQQ", 0.60, "Invesco QQQ Trust"),
-        Holding("VGT", 0.40, "Vanguard Information Technology ETF"),
-    ],
-    "Clean Transit-Infrastructure Wave": [
-        Holding("PAVE", 0.60, "Global X U.S. Infrastructure Development"),
-        Holding("XLI", 0.40, "Industrial Select Sector SPDR"),
-    ],
-    
-    # Income Wave benchmark
-    "Income Wave": [
-        Holding("VYM", 0.50, "Vanguard High Dividend Yield ETF"),
-        Holding("SCHD", 0.50, "Schwab U.S. Dividend Equity ETF"),
     ],
 
     "Demas Fund Wave": [
@@ -545,8 +463,25 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("LTC-USD", 0.05, "Litecoin"),
     ],
 
-    # Crypto Income Wave benchmark (uses CSE basket - Crypto Income Benchmark)
-    "Crypto Income Wave": [
+    "Crypto Stable Yield Wave": [
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
+    ],
+    
+    "Crypto Income & Yield Wave": [
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
+    ],
+    
+    "Crypto High-Yield Income Wave": [
         Holding("ETH-USD", 0.35, "Ethereum"),
         Holding("AAVE-USD", 0.20, "Aave"),
         Holding("UNI-USD", 0.15, "Uniswap"),
