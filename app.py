@@ -9,6 +9,12 @@ Modular structure:
 4. Reusable UI components
 5. Render functions for tabs and analytics
 6. Main entry point
+
+Executive Layer enhancements:
+- Mission Control: Market regime, VIX gate, alpha metrics, WaveScore leader, system health
+- WaveScore Command Center: Leaderboard (top 10), biggest movers, system alerts
+- Vector Explain: Institutional narrative generation with copy-to-clipboard
+- Compare Waves: Side-by-side metric comparison with winner determination
 """
 
 import streamlit as st
