@@ -106,7 +106,7 @@ ENABLE_WAVE_PURPOSE_STATEMENTS = True
 st.markdown(
     """
 <style>
-.block-container { padding-top: 0.85rem; padding-bottom: 2.0rem; }
+.block-container { padding-top: 0.85rem; padding-bottom: 65px; }
 .waves-big-wave {
   font-size: 2.2rem; font-weight: 850; letter-spacing: 0.2px;
   line-height: 2.45rem; margin: 0.1rem 0 0.15rem 0;
@@ -239,13 +239,95 @@ hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.8rem 
   font-size: 1.1rem;
 }
 
+/* WAVES Ticker Tape™ - Fixed Bottom Scrolling Ticker */
+.waves-ticker-container {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1000;
+  background: rgba(10, 15, 28, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow: hidden;
+  height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+.waves-ticker-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: rgba(46, 213, 115, 0.15);
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  font-weight: 900;
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  z-index: 10;
+  min-width: 180px;
+}
+
+.waves-ticker-content {
+  margin-left: 180px;
+  display: flex;
+  white-space: nowrap;
+  animation: ticker-scroll 60s linear infinite;
+  padding: 0 20px;
+}
+
+.waves-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 24px;
+  font-size: 0.90rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.waves-ticker-item .ticker-label {
+  font-weight: 700;
+  opacity: 0.85;
+  margin-right: 6px;
+}
+
+.waves-ticker-item .ticker-value {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.waves-ticker-item.positive .ticker-value {
+  color: rgba(46, 213, 115, 1);
+}
+
+.waves-ticker-item.negative .ticker-value {
+  color: rgba(255, 80, 80, 1);
+}
+
+.waves-ticker-item.neutral .ticker-value {
+  color: rgba(255, 204, 0, 1);
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
 @media (max-width: 700px) {
-  .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
+  .block-container { padding-left: 0.8rem; padding-right: 0.8rem; padding-bottom: 60px; }
   .waves-big-wave { font-size: 1.75rem; line-height: 2.0rem; }
   .waves-tile-value { font-size: 1.30rem; line-height: 1.55rem; }
   .verdict-badge-title { font-size: 2.0rem; }
   .verdict-badge-subtitle { font-size: 1.0rem; }
   .signal-tile-value { font-size: 1.1rem; }
+  .waves-ticker-label { min-width: 140px; font-size: 0.75rem; padding: 0 12px; }
+  .waves-ticker-content { margin-left: 140px; }
+  .waves-ticker-item { font-size: 0.80rem; padding: 0 16px; }
 }
 }
 </style>
@@ -654,6 +736,139 @@ def get_vix_risk_band(vix_value: float) -> Tuple[str, str, str]:
         return ("High", "rgba(255, 140, 0, 0.15)", "Significant market fear")
     else:
         return ("Extreme", "rgba(255, 80, 80, 0.15)", "Panic/crisis mode volatility")
+
+
+# ============================================================
+# WAVES Ticker Tape™ Content Generator
+# ============================================================
+def generate_ticker_content(
+    selected_wave: str,
+    mode: str,
+    metrics: Dict[str, Any],
+    bm_id: str,
+    vix_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Generate HTML content for the scrolling ticker tape.
+    Includes VIX, movers, wave details, and risk regime info.
+    Returns HTML string with ticker items.
+    """
+    items = []
+    
+    # 1. VIX Risk Meter (if available)
+    if vix_data and vix_data.get("available"):
+        vix_value = vix_data.get("value", 0)
+        vix_change = vix_data.get("change", 0)
+        band_name, _, _ = get_vix_risk_band(vix_value)
+        
+        vix_class = "positive" if vix_change < 0 else "negative" if vix_change > 0 else "neutral"
+        vix_sign = "+" if vix_change >= 0 else ""
+        items.append(
+            f'<div class="waves-ticker-item {vix_class}">'
+            f'<span class="ticker-label">VIX:</span>'
+            f'<span class="ticker-value">{vix_value:.2f} ({vix_sign}{vix_change:.2f}) {band_name}</span>'
+            f'</div>'
+        )
+    
+    # 2. Selected Wave Performance
+    if selected_wave and selected_wave != "(none)":
+        # 30D Alpha
+        a30 = safe_float(metrics.get("a30", 0))
+        if math.isfinite(a30):
+            alpha_class = "positive" if a30 > 0 else "negative" if a30 < 0 else "neutral"
+            items.append(
+                f'<div class="waves-ticker-item {alpha_class}">'
+                f'<span class="ticker-label">Selected Wave ({selected_wave}):</span>'
+                f'<span class="ticker-value">30D α {fmt_pct(a30)}</span>'
+                f'</div>'
+            )
+        
+        # 60D Alpha
+        a60 = safe_float(metrics.get("a60", 0))
+        if math.isfinite(a60):
+            alpha_class = "positive" if a60 > 0 else "negative" if a60 < 0 else "neutral"
+            items.append(
+                f'<div class="waves-ticker-item {alpha_class}">'
+                f'<span class="ticker-label">60D α:</span>'
+                f'<span class="ticker-value">{fmt_pct(a60)}</span>'
+                f'</div>'
+            )
+        
+        # Tracking Error
+        te = safe_float(metrics.get("te", 0))
+        if math.isfinite(te):
+            te_class = "neutral" if te < 0.15 else "negative"
+            items.append(
+                f'<div class="waves-ticker-item {te_class}">'
+                f'<span class="ticker-label">TE:</span>'
+                f'<span class="ticker-value">{fmt_pct(te)} ({te_risk_band(te)})</span>'
+                f'</div>'
+            )
+        
+        # Max Drawdown
+        mdd = safe_float(metrics.get("mdd", 0))
+        if math.isfinite(mdd):
+            mdd_class = "positive" if mdd > -0.10 else "negative"
+            items.append(
+                f'<div class="waves-ticker-item {mdd_class}">'
+                f'<span class="ticker-label">MaxDD:</span>'
+                f'<span class="ticker-value">{fmt_pct(mdd)}</span>'
+                f'</div>'
+            )
+    
+    # 3. Mode and Benchmark Info
+    items.append(
+        f'<div class="waves-ticker-item neutral">'
+        f'<span class="ticker-label">Mode:</span>'
+        f'<span class="ticker-value">{mode}</span>'
+        f'</div>'
+    )
+    
+    items.append(
+        f'<div class="waves-ticker-item neutral">'
+        f'<span class="ticker-label">Benchmark:</span>'
+        f'<span class="ticker-value">{bm_id}</span>'
+        f'</div>'
+    )
+    
+    # 4. Market Movers (if yfinance available)
+    if ENABLE_YFINANCE_CHIPS and yf is not None:
+        try:
+            # Get quick market snapshot
+            tickers_snapshot = ["SPY", "QQQ", "IWM"]
+            px = fetch_prices_daily(tickers_snapshot, days=5)
+            
+            if px is not None and not px.empty:
+                for ticker in tickers_snapshot:
+                    if ticker in px.columns:
+                        s = px[ticker].dropna()
+                        if len(s) >= 2:
+                            day_ret = (s.iloc[-1] / s.iloc[-2] - 1.0)
+                            ret_class = "positive" if day_ret > 0 else "negative" if day_ret < 0 else "neutral"
+                            sign = "+" if day_ret >= 0 else ""
+                            items.append(
+                                f'<div class="waves-ticker-item {ret_class}">'
+                                f'<span class="ticker-label">{ticker}:</span>'
+                                f'<span class="ticker-value">{sign}{day_ret*100:.2f}%</span>'
+                                f'</div>'
+                            )
+        except Exception:
+            # Silent fallback if market movers fail
+            pass
+    
+    # 5. Timestamp
+    now = datetime.utcnow()
+    items.append(
+        f'<div class="waves-ticker-item neutral">'
+        f'<span class="ticker-label">Updated:</span>'
+        f'<span class="ticker-value">{now.strftime("%H:%M UTC")}</span>'
+        f'</div>'
+    )
+    
+    # Double the items for seamless loop
+    ticker_html = "".join(items) + "".join(items)
+    
+    return ticker_html
 
 
 def render_vix_risk_meter():
@@ -3099,6 +3314,44 @@ try:
         f"Canonical Cohesion Lock ACTIVE · Build: vNEXT · Render: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
     )
 except Exception:
+    pass
+
+
+# ============================================================
+# WAVES TICKER TAPE™ (Fixed Bottom)
+# ============================================================
+try:
+    # Get VIX data for ticker (with caching)
+    ticker_vix_data = None
+    if ENABLE_YFINANCE_CHIPS and yf is not None:
+        try:
+            ticker_vix_data = get_vix_value()
+        except Exception:
+            pass
+    
+    # Generate ticker content
+    ticker_html = generate_ticker_content(
+        selected_wave=selected_wave,
+        mode=mode,
+        metrics=metrics,
+        bm_id=bm_id,
+        vix_data=ticker_vix_data,
+    )
+    
+    # Render ticker tape
+    st.markdown(
+        f"""
+<div class="waves-ticker-container">
+  <div class="waves-ticker-label">WAVES Ticker Tape™</div>
+  <div class="waves-ticker-content">
+    {ticker_html}
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+except Exception as e:
+    # Silent fallback - ticker tape is optional, shouldn't break app
     pass
 
 # =========================
