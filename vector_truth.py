@@ -437,7 +437,7 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 
 - Total Excess Return: **{_pct(s.total_excess_return)}**
 - Security Selection Alpha (Comparable-Exposure Contribution): **{_pct(s.security_selection_alpha)}**
-- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**  
+- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
   *Credited only when excess return is earned at equivalent capital at risk.*
 - Capital Preservation Effect (Overlay Contribution: VIX / Regime Controls): **{_pct(s.capital_preservation_effect)}**
 - Benchmark Construction Effect: **{_pct(s.benchmark_construction_effect)}**
