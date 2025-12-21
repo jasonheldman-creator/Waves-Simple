@@ -844,9 +844,9 @@ def render_wave_steward(
     
     # Collapsible section (default: collapsed)
     with st.expander("🤖 Wave Steward™ — AI Guidance (Advisory Only) 🔒 NON-BINDING / READ-ONLY", expanded=False):
-        # Header copy (required)
+        # Mandatory Header (required per specifications)
         st.markdown("""
-**Wave Steward™** is an advisory-only, read-only AI guidance layer for Wave creators. It provides qualitative diagnostics and human decision prompts while remaining fully isolated from analytics, alpha, benchmarking, and governance systems.
+**Wave Steward™** is an advisory-only, read-only AI guidance layer for Wave creators. It provides qualitative diagnostics and human decision prompts. It remains fully isolated from analytics, alpha, benchmarking, and governance systems.
         """)
         
         # Mandatory disclosure block (ALWAYS displayed)
