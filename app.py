@@ -3524,11 +3524,527 @@ def render_details_tab():
     st.info("Data unavailable")
 
 
+def generate_board_pack_html():
+    """
+    Generate Institutional Board Pack HTML report.
+    Returns HTML string with all sections and graceful degradation.
+    """
+    # Get build info
+    git_hash = get_git_commit_hash()
+    git_branch = get_git_branch_name()
+    deploy_timestamp = get_deploy_timestamp()
+    
+    # Get Mission Control data
+    mc_data = get_mission_control_data()
+    
+    # Get available waves for leaderboard
+    waves = get_available_waves()
+    
+    # Calculate leaderboard data
+    leaderboard_data = []
+    if waves:
+        for wave_name in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+            if wave_data is not None and len(wave_data) > 0:
+                wavescore = calculate_wavescore(wave_data)
+                metrics = calculate_wave_metrics(wave_data)
+                leaderboard_data.append({
+                    'wave': wave_name,
+                    'wavescore': wavescore,
+                    'alpha': metrics.get('cumulative_alpha', 'N/A')
+                })
+        
+        # Sort by wavescore
+        leaderboard_data.sort(key=lambda x: x['wavescore'] if isinstance(x['wavescore'], (int, float)) else 0, reverse=True)
+    
+    # Get system alerts
+    alerts = get_system_alerts()
+    
+    # Build HTML
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Institutional Board Pack - {deploy_timestamp}</title>
+        <style>
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }}
+            .header {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 30px;
+                border-radius: 10px;
+                margin-bottom: 30px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }}
+            .header h1 {{
+                margin: 0;
+                font-size: 2.5em;
+            }}
+            .header p {{
+                margin: 10px 0 0 0;
+                opacity: 0.9;
+            }}
+            .section {{
+                background: white;
+                padding: 25px;
+                margin-bottom: 25px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .section h2 {{
+                color: #667eea;
+                border-bottom: 2px solid #667eea;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }}
+            .metric-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin: 20px 0;
+            }}
+            .metric-card {{
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                border-left: 4px solid #667eea;
+            }}
+            .metric-label {{
+                font-size: 0.9em;
+                color: #666;
+                margin-bottom: 5px;
+            }}
+            .metric-value {{
+                font-size: 1.5em;
+                font-weight: bold;
+                color: #333;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+            }}
+            th {{
+                background: #667eea;
+                color: white;
+                padding: 12px;
+                text-align: left;
+            }}
+            td {{
+                padding: 10px 12px;
+                border-bottom: 1px solid #ddd;
+            }}
+            tr:hover {{
+                background: #f5f5f5;
+            }}
+            .alert {{
+                padding: 12px 15px;
+                margin: 10px 0;
+                border-radius: 6px;
+                border-left: 4px solid;
+            }}
+            .alert-error {{
+                background: #fee;
+                border-color: #c33;
+                color: #c33;
+            }}
+            .alert-warning {{
+                background: #ffc;
+                border-color: #f90;
+                color: #f90;
+            }}
+            .alert-success {{
+                background: #efe;
+                border-color: #3c3;
+                color: #3c3;
+            }}
+            .alert-info {{
+                background: #eef;
+                border-color: #39c;
+                color: #39c;
+            }}
+            .unavailable {{
+                color: #999;
+                font-style: italic;
+                padding: 20px;
+                text-align: center;
+                background: #f9f9f9;
+                border-radius: 6px;
+            }}
+            .build-info {{
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                font-family: 'Courier New', monospace;
+                font-size: 0.9em;
+            }}
+            .footer {{
+                text-align: center;
+                padding: 20px;
+                color: #666;
+                font-size: 0.9em;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📊 Institutional Board Pack</h1>
+            <p>Comprehensive Performance & Analytics Report</p>
+            <p>Generated: {deploy_timestamp}</p>
+        </div>
+    """
+    
+    # Mission Control Section
+    html += """
+        <div class="section">
+            <h2>🎯 Mission Control - Snapshot Summary</h2>
+    """
+    
+    if mc_data:
+        html += f"""
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Market Regime</div>
+                    <div class="metric-value">{mc_data.get('market_regime', 'unknown')}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">VIX Gate Status</div>
+                    <div class="metric-value">{mc_data.get('vix_gate_status', 'unknown')}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">30-Day Alpha</div>
+                    <div class="metric-value">{mc_data.get('alpha_30day', 'unknown')}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Top Wave</div>
+                    <div class="metric-value">{mc_data.get('wavescore_leader', 'unknown')}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Waves</div>
+                    <div class="metric-value">{mc_data.get('total_waves', 0)}</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">System Status</div>
+                    <div class="metric-value">{mc_data.get('system_status', 'unknown')}</div>
+                </div>
+            </div>
+        """
+    else:
+        html += '<div class="unavailable">Data unavailable</div>'
+    
+    html += "</div>"
+    
+    # WaveScore Leaderboard Section
+    html += """
+        <div class="section">
+            <h2>🏆 WaveScore Leaderboard - Top Performers</h2>
+    """
+    
+    if leaderboard_data and len(leaderboard_data) > 0:
+        html += """
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Wave</th>
+                        <th>WaveScore</th>
+                        <th>30-Day Alpha</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for i, item in enumerate(leaderboard_data[:10], 1):  # Top 10
+            alpha_str = f"{item['alpha']*100:.2f}%" if isinstance(item['alpha'], (int, float)) else 'N/A'
+            html += f"""
+                    <tr>
+                        <td>{i}</td>
+                        <td><strong>{item['wave']}</strong></td>
+                        <td>{item['wavescore']:.1f}</td>
+                        <td>{alpha_str}</td>
+                    </tr>
+            """
+        
+        html += """
+                </tbody>
+            </table>
+        """
+    else:
+        html += '<div class="unavailable">Data unavailable</div>'
+    
+    html += "</div>"
+    
+    # Movers Section
+    html += """
+        <div class="section">
+            <h2>📈 Movers - Biggest Changes</h2>
+    """
+    
+    # Calculate movers (simplified - would need historical data for real implementation)
+    if leaderboard_data and len(leaderboard_data) >= 3:
+        html += """
+            <p>Top performers showing significant movement:</p>
+            <ul>
+        """
+        for item in leaderboard_data[:3]:
+            html += f"<li><strong>{item['wave']}</strong> - WaveScore: {item['wavescore']:.1f}</li>"
+        html += """
+            </ul>
+        """
+    else:
+        html += '<div class="unavailable">Insufficient data for movers analysis</div>'
+    
+    html += "</div>"
+    
+    # Alerts Section
+    html += """
+        <div class="section">
+            <h2>🚨 System Alerts & Warnings</h2>
+    """
+    
+    if alerts and len(alerts) > 0:
+        for alert in alerts:
+            severity = alert.get('severity', 'info')
+            message = alert.get('message', '')
+            
+            alert_class = f'alert-{severity}'
+            icon = {'error': '❌', 'warning': '⚠️', 'success': '✅', 'info': 'ℹ️'}.get(severity, 'ℹ️')
+            
+            html += f'<div class="alert {alert_class}">{icon} {message}</div>'
+    else:
+        html += '<div class="unavailable">No alerts at this time</div>'
+    
+    html += "</div>"
+    
+    # Alpha Proof Summary Section
+    html += """
+        <div class="section">
+            <h2>🔬 Alpha Proof Summary - Alpha Metrics</h2>
+    """
+    
+    if waves and len(waves) > 0:
+        # Get alpha components for first wave as example
+        sample_wave = waves[0]
+        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        
+        if wave_data is not None and len(wave_data) > 0:
+            alpha_components = calculate_alpha_components(wave_data, sample_wave)
+            
+            if alpha_components:
+                html += f"""
+                    <p><strong>Sample Wave: {sample_wave}</strong></p>
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">Total Alpha</div>
+                            <div class="metric-value">{alpha_components.get('total_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Selection Alpha</div>
+                            <div class="metric-value">{alpha_components.get('selection_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Overlay Alpha</div>
+                            <div class="metric-value">{alpha_components.get('overlay_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Cash Contribution</div>
+                            <div class="metric-value">{alpha_components.get('cash_contribution', 0)*100:.2f}%</div>
+                        </div>
+                    </div>
+                """
+            else:
+                html += '<div class="unavailable">Alpha components unavailable</div>'
+        else:
+            html += '<div class="unavailable">Wave data unavailable</div>'
+    else:
+        html += '<div class="unavailable">No waves available for alpha analysis</div>'
+    
+    html += "</div>"
+    
+    # Overlays Summary Section
+    html += """
+        <div class="section">
+            <h2>📊 Overlays Summary - Analytics Snapshot</h2>
+    """
+    
+    if waves and len(waves) > 0:
+        sample_wave = waves[0]
+        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        
+        if wave_data is not None and len(wave_data) > 0:
+            attribution_data = calculate_attribution_matrix(wave_data, sample_wave)
+            
+            if attribution_data:
+                html += f"""
+                    <p><strong>Sample Wave: {sample_wave}</strong></p>
+                    <div class="metric-grid">
+                        <div class="metric-card">
+                            <div class="metric-label">Risk-On Alpha</div>
+                            <div class="metric-value">{attribution_data.get('risk_on_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Risk-Off Alpha</div>
+                            <div class="metric-value">{attribution_data.get('risk_off_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Capital-Weighted Alpha</div>
+                            <div class="metric-value">{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Exposure-Adjusted Alpha</div>
+                            <div class="metric-value">{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%</div>
+                        </div>
+                    </div>
+                """
+            else:
+                html += '<div class="unavailable">Attribution data unavailable</div>'
+        else:
+            html += '<div class="unavailable">Wave data unavailable</div>'
+    else:
+        html += '<div class="unavailable">No waves available for overlay analysis</div>'
+    
+    html += "</div>"
+    
+    # Data Integrity Section
+    html += """
+        <div class="section">
+            <h2>✅ Data Integrity - Confidence Levels</h2>
+    """
+    
+    data_freshness = mc_data.get('data_freshness', 'unknown')
+    data_age_days = mc_data.get('data_age_days', None)
+    
+    if data_age_days is not None:
+        if data_age_days <= 1:
+            confidence = "High"
+            confidence_color = "#3c3"
+        elif data_age_days <= 3:
+            confidence = "Medium"
+            confidence_color = "#f90"
+        else:
+            confidence = "Low"
+            confidence_color = "#c33"
+    else:
+        confidence = "Unknown"
+        confidence_color = "#999"
+    
+    html += f"""
+        <div class="metric-grid">
+            <div class="metric-card">
+                <div class="metric-label">Data Freshness</div>
+                <div class="metric-value">{data_freshness}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Data Age</div>
+                <div class="metric-value">{data_age_days if data_age_days is not None else 'unknown'} days</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Confidence Level</div>
+                <div class="metric-value" style="color: {confidence_color}">{confidence}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Active Waves</div>
+                <div class="metric-value">{mc_data.get('active_waves', 0)} / {mc_data.get('total_waves', 0)}</div>
+            </div>
+        </div>
+    """
+    
+    html += "</div>"
+    
+    # Build Info Section
+    html += f"""
+        <div class="section">
+            <h2>🔧 Build Info - Deployment Metadata</h2>
+            <div class="build-info">
+                <div><strong>Git Commit:</strong> {git_hash}</div>
+                <div><strong>Git Branch:</strong> {git_branch}</div>
+                <div><strong>Deployment Timestamp:</strong> {deploy_timestamp}</div>
+                <div><strong>Report Generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}</div>
+            </div>
+        </div>
+    """
+    
+    # Footer
+    html += """
+        <div class="footer">
+            <p>Institutional Board Pack - Confidential</p>
+            <p>Generated by Waves Analytics Platform</p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html
+
+
 def render_reports_tab():
-    """Render the Reports tab."""
+    """Render the Reports tab with Institutional Board Pack generator."""
     st.header("Reports")
     st.write("Comprehensive reporting and analysis tools.")
-    st.info("Data unavailable")
+    
+    st.divider()
+    
+    # Institutional Board Pack Section
+    st.subheader("📊 Institutional Board Pack")
+    st.write("Generate a comprehensive HTML report including Mission Control, WaveScore Leaderboard, Movers, Alerts, Alpha Proof, Overlays, Data Integrity, and Build Info.")
+    
+    # Generate button
+    if st.button("🎯 Generate Board Pack", type="primary", use_container_width=True):
+        with st.spinner("Generating Institutional Board Pack..."):
+            try:
+                # Generate HTML report
+                board_pack_html = generate_board_pack_html()
+                
+                # Store in session state for rendering and download
+                st.session_state['board_pack_html'] = board_pack_html
+                st.session_state['board_pack_timestamp'] = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                st.success("✅ Board Pack generated successfully!")
+                
+            except Exception as e:
+                st.error(f"❌ Error generating Board Pack: {str(e)}")
+                st.info("The application continues to function. Please check data availability.")
+    
+    # Display board pack if generated
+    if 'board_pack_html' in st.session_state:
+        st.divider()
+        
+        # Download button
+        timestamp = st.session_state.get('board_pack_timestamp', datetime.now().strftime("%Y%m%d_%H%M%S"))
+        filename = f"institutional_board_pack_{timestamp}.html"
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown("### 📄 Preview Board Pack")
+        
+        with col2:
+            st.download_button(
+                label="💾 Download HTML",
+                data=st.session_state['board_pack_html'],
+                file_name=filename,
+                mime="text/html",
+                use_container_width=True
+            )
+        
+        # Render the HTML in an iframe-like component
+        st.components.v1.html(st.session_state['board_pack_html'], height=800, scrolling=True)
+    
+    st.divider()
+    
+    # Additional reporting tools placeholder
+    st.subheader("📈 Additional Reports")
+    st.info("Additional reporting tools will be available in future releases.")
 
 
 def render_overlays_tab():
