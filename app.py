@@ -594,6 +594,20 @@ GLOSSARY: Dict[str, str] = {
     "Analytics Scorecard": "Governance-native reliability grade for analytics outputs (not performance).",
     "Beta (vs Benchmark)": "Regression slope of Wave daily returns vs Benchmark daily returns.",
     "Beta Reliability Score": "0–100: beta-target match + linkage quality (R²) + sample size.",
+    "Volatility Utilization Index™ (VUI™)": (
+        "0-100 score evaluating how effectively the WAVES system utilizes market volatility to generate protected upside. "
+        "Blends alpha captured in elevated/high VIX conditions (40%), downside drawdown avoided during elevated/high VIX (30%), "
+        "and recovery speed post-high VIX vs benchmarks (30%). Unlike raw VIX, VUI is a specialized governance signal."
+    ),
+    "VUI Volatility Regimes": (
+        "VIX-based market classification: Calm (VIX < 15), Elevated (15 ≤ VIX < 25), "
+        "Stress (25 ≤ VIX < 35), Crisis (VIX ≥ 35). Used to measure wave performance in different volatility environments."
+    ),
+    "VUI Qualitative Bands": (
+        "VUI score interpretation: Weaponized (>80) = outstanding volatility response optimization, "
+        "Adaptive (60-80) = good volatility utilization, Neutral (40-60) = moderate management, "
+        "Weak (<40) = poor volatility utilization."
+    ),
     "Vector™ Truth Layer": (
         "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
         "attributes alpha to risk-on/off regimes, and scores durability/fragility."
