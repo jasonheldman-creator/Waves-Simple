@@ -351,7 +351,7 @@ def compute_durability(
         if abs(ema) > (abs(te) if te is not None else abs(ema)) * 0.4:
             alpha_type = "Structural + Regime-Adaptive"
         else:
-            alpha_type = "Selection-Dominant"
+            alpha_type = "Residual Strategy (Selection-Dominant)"
 
     # Primary risk wording
     primary_risk = "N/A"
@@ -471,10 +471,15 @@ def build_vector_truth_report(
 # Rendering helpers (optional)
 # ---------------------------
 
-def format_vector_truth_markdown(report: VectorTruthReport) -> str:
+def format_vector_truth_markdown(report: VectorTruthReport, attribution_confidence: Optional[str] = None) -> str:
     """
     Returns a deterministic markdown block you can print in Streamlit.
     Handles N/A values appropriately and provides clear attribution context.
+    
+    Args:
+        report: VectorTruthReport containing all attribution data
+        attribution_confidence: Optional confidence level ("High", "Medium", "Low")
+                               If not "High", detailed decomposition will be suppressed
     
     NOTE: This function now returns markdown for PERFORMANCE DECOMPOSITION and other sections.
     The detailed ALPHA ATTRIBUTION section should be rendered separately using 
@@ -505,14 +510,55 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
     snapshot_id = report.benchmark_snapshot_id if report.benchmark_snapshot_id else "N/A"
     drift_status = report.benchmark_drift_status if report.benchmark_drift_status else "Stable"
     
-    md = f"""
+    # Check if we should suppress detailed decomposition based on attribution confidence
+    suppress_detailed = attribution_confidence is not None and attribution_confidence != "High"
+    
+    # Build the markdown output with conditional sections
+    if suppress_detailed:
+        # Simplified output when confidence is not High
+        md = f"""
 ### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
 
 > **Governance Notice:**  
 > Vector™ Truth provides governance-grade attribution and reliability signals.  
 > It does not predict future performance or isolate single-factor causality.
 
-**VECTOR TRUTH — EXCESS RETURN DECOMPOSITION**
+**Vector Truth — Excess Return Decomposition (Governance)**
+
+**Benchmark Snapshot Context:**
+- **Benchmark:** Governed Composite (fixed)
+- **Snapshot ID:** {snapshot_id}
+- **Window:** 365D
+- **Drift Status:** {drift_status.capitalize()}
+
+**A. Total Excess Return:**
+- **{_pct(s.total_excess_return)}**
+
+> **Attribution Notice:**  
+> *Attribution context insufficient for detailed decomposition.*  
+> Detailed breakdown of structural effects and residual returns is suppressed when Attribution Confidence is not High.
+
+---
+
+**Vector Truth — Alpha Reconciliation**
+- Capital-Weighted Alpha: **{_pct(r.capital_weighted_alpha)}**
+- Exposure-Adjusted Alpha: **{_pct(r.exposure_adjusted_alpha)}**
+
+{r.explanation}
+
+**Vector Conclusion:** {r.conclusion}  
+**Alpha inflation risk:** **{r.inflation_risk}**
+""".strip()
+    else:
+        # Full output when confidence is High
+        md = f"""
+### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
+
+> **Governance Notice:**  
+> Vector™ Truth provides governance-grade attribution and reliability signals.  
+> It does not predict future performance or isolate single-factor causality.
+
+**Vector Truth — Excess Return Decomposition (Governance)**
 
 **Benchmark Snapshot Context:**
 - **Benchmark:** Governed Composite (fixed)
@@ -524,29 +570,30 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 - **{_pct(s.total_excess_return)}**
 
 **B. Structural (Non-Alpha) Effects:**
-- Capital Preservation (Overlay Contribution: VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
-- Benchmark Construction Offset (expected structural offset; not alpha): **{_pct(s.benchmark_construction_effect)}**
+- Capital Preservation Overlay (VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
+- Benchmark Construction Offset (expected structural offset): **{_pct(s.benchmark_construction_effect)}**
 
-**C. Residual Return (After Structural Controls):**
-- Residual Strategy Return (post-structural): **{_pct(residual_excess)}**
-  - *Includes Selection, Timing, and Exposure Path Effects (residualized)*
+**C. Residual Strategy Return (Post-Structural):**
+- **{_pct(residual_excess)}**
+  - *Explicitly includes selection, timing, and exposure path effects.*
+  - *Residualized after structural controls.*
 
 *Note: Structural effects are non-alpha components. The residual strategy return reflects combined effects of selection, timing, and exposure path decisions after accounting for structural overlays.*
 
 ---
 
-**VECTOR TRUTH — ALPHA RECONCILIATION**
+**Vector Truth — Alpha Reconciliation**
 - Capital-Weighted Alpha: **{_pct(r.capital_weighted_alpha)}**
 - Exposure-Adjusted Alpha: **{_pct(r.exposure_adjusted_alpha)}**
 
 {r.explanation}
 
-**Vector Conclusion:** Residual Strategy Return reflects combined effects (selection + timing + exposure path). {r.conclusion}  
+**Vector Conclusion:** {r.conclusion}  
 **Alpha inflation risk:** **{r.inflation_risk}**
 
 ---
 
-**VECTOR TRUTH — REGIME ATTRIBUTION**
+**Vector Truth — Regime Attribution**
 - Alpha in Risk-On: **{_pct(g.alpha_risk_on)}**
 - Alpha in Risk-Off: **{_pct(g.alpha_risk_off)}**
 
@@ -555,14 +602,16 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 
 ---
 
-**VECTOR TRUTH — DURABILITY SCAN**
+**Vector Truth — Durability Scan**
 - Alpha Type: **{d.alpha_type}**
+  - *Selection-dominant refers to residual attribution after structural overlays.*
+  - *It does not imply pure stock selection.*
 - Fragility Score: **{frag}** *(0=Low, 1=High)*
 - Primary Risk: {d.primary_risk}
 
 **Vector Verdict:** {d.verdict}
 """.strip()
-
+    
     return md
 
 
@@ -574,10 +623,9 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
     s = report.sources
     
     md = f"""
-**VECTOR TRUTH — ALPHA ATTRIBUTION (STRICT)**
+**Alpha Enhancements — Representation Variants**
 
 **Detailed Attribution Breakdown:**
-- Security Selection Alpha: **{_pct(s.security_selection_alpha)}**
 - Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
 - Capital Preservation Effect: **{_pct(s.capital_preservation_effect)}**
 - Benchmark Construction Effect: **{_pct(s.benchmark_construction_effect)}**
@@ -586,10 +634,17 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
 
 *Note: N/A values indicate insufficient data series for that component. This decomposition provides insight where sufficient resolution exists.*
 
+*Footnote: Metrics re-express Residual Returns under selective adjustments without changing Absolute Validation Rules.*
+
 ---
 
 **Pure Selection Alpha (Net of Exposure Path): Not Reported**  
 *Requires assumptions this system explicitly does not make.*
+
+---
+
+**Governance Meta-Comment:**  
+*This detailed attribution layer operates under mandatory separation from portfolio decision processes. Attribution insights are diagnostic only and must not be mechanically translated into portfolio actions without independent governance review. This separation is architecturally enforced and non-negotiable.*
 """.strip()
     
     return md
@@ -710,7 +765,7 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
     interpretation = reliability_metrics.get("interpretation", "")
     
     md = f"""
-**VECTOR TRUTH — ALPHA RELIABILITY**
+**Vector Truth — Attribution Reliability (Gate)**
 
 - **Attribution Confidence:** {confidence}
   - *High: Benchmark stable, clean data, high n*
@@ -721,6 +776,9 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
 - **Alpha Inflation Risk:** {inflation_risk}
 
 **Interpretation:** {interpretation}
+
+**Attribution Gate Rule:**  
+*If Attribution Confidence is not High: Detailed decomposition is suppressed. Attribution context is insufficient for detailed decomposition. Durability labeling is also suppressed under low-confidence conditions.*
 """.strip()
     
     return md

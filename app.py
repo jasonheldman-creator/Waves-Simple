@@ -2189,10 +2189,9 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         benchmark_drift_status=bm_drift,
     )
 
-    # Render main Excess Return Decomposition and other sections
-    st.markdown(format_vector_truth_markdown(report))
-    
-    # Render Alpha Reliability Panel (new requirement)
+    # Compute Alpha Reliability Metrics first (needed for gating)
+    attribution_confidence = None
+    reliability_metrics = None
     if compute_alpha_reliability_metrics is not None and render_alpha_reliability_panel is not None:
         # Calculate regime coverage
         regime_coverage = None
@@ -2214,11 +2213,20 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
             alpha_inflation_risk=report.reconciliation.inflation_risk,
         )
         
+        attribution_confidence = reliability_metrics.get("attribution_confidence")
+    
+    # Render main Excess Return Decomposition and other sections
+    # Pass attribution_confidence for gating logic
+    st.markdown(format_vector_truth_markdown(report, attribution_confidence=attribution_confidence))
+    
+    # Render Alpha Reliability Panel
+    if reliability_metrics is not None:
         st.markdown("---")
         st.markdown(render_alpha_reliability_panel(reliability_metrics))
     
     # Render detailed Alpha Attribution in a collapsed expander
-    if render_vector_truth_alpha_attribution is not None:
+    # Only show if Attribution Confidence is High
+    if render_vector_truth_alpha_attribution is not None and attribution_confidence == "High":
         with st.expander("VECTOR TRUTH — ALPHA ATTRIBUTION (STRICT) — Detailed Attribution", expanded=False):
             st.markdown(render_vector_truth_alpha_attribution(report))
 
