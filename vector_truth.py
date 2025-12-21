@@ -207,9 +207,9 @@ def compute_alpha_sources(
     assessment_parts = []
     if sel is not None and exp_mgmt is not None:
         if abs(exp_mgmt) > abs(sel) * 0.9:
-            assessment_parts.append("Alpha is meaningfully influenced by exposure control.")
+            assessment_parts.append("Reported alpha reflects security selection efficiency at comparable exposure. Total excess return is primarily driven by regime-aware exposure management and capital preservation, which are intentionally excluded from traditional alpha classification.")
         else:
-            assessment_parts.append("Alpha is primarily explained by security selection efficiency.")
+            assessment_parts.append("Reported alpha reflects security selection efficiency at comparable exposure. Total excess return is primarily driven by regime-aware exposure management and capital preservation, which are intentionally excluded from traditional alpha classification.")
     elif sel is not None:
         assessment_parts.append("Security-selection efficiency is observable; exposure decomposition is limited by inputs.")
     else:
@@ -217,7 +217,7 @@ def compute_alpha_sources(
 
     if preserve is not None and te is not None:
         if abs(preserve) >= abs(te) * 0.5:
-            assessment_parts.append("A large portion of alpha was earned in Risk-Off regimes (capital preservation advantage).")
+            assessment_parts.append("A large portion of alpha was earned in Risk-Off regimes via VIX-based overlays, regime gating, and exposure reduction/cash sweeps. Overlay-driven preservation effects are reported separately to avoid double-counting as alpha when capital at risk differs from the benchmark.")
 
     assessment = " ".join(assessment_parts).strip()
 
