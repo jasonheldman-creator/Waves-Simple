@@ -34,6 +34,13 @@ try:
 except ImportError:
     ALPHA_ATTRIBUTION_AVAILABLE = False
 
+# Import VIX overlay diagnostics module
+try:
+    from vix_overlay_diagnostics import get_wave_diagnostics
+    VIX_DIAGNOSTICS_AVAILABLE = True
+except ImportError:
+    VIX_DIAGNOSTICS_AVAILABLE = False
+
 # ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
@@ -4047,6 +4054,157 @@ def render_reports_tab():
     st.info("Additional reporting tools will be available in future releases.")
 
 
+def render_overlay_proof_section():
+    """
+    Render Overlay Proof section showing VIX/regime overlay diagnostics.
+    Displays diagnostics table with VIX, Regime, Exposure, and Returns for the last N days.
+    """
+    st.subheader("Overlay Proof (Last 15 Days)")
+    st.write("Detailed VIX/regime overlay diagnostics showing exposure adjustments and alpha generation.")
+    
+    # Check if diagnostics module is available
+    if not VIX_DIAGNOSTICS_AVAILABLE:
+        st.warning("⚠️ VIX overlay diagnostics module not available.")
+        return
+    
+    # Get available waves
+    available_waves = get_available_waves()
+    
+    if not available_waves:
+        st.info("No wave data available for diagnostics.")
+        return
+    
+    # Create UI controls in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Wave selector - default to S&P 500 Wave (SPY Wave)
+        default_wave = "S&P 500 Wave" if "S&P 500 Wave" in available_waves else available_waves[0]
+        selected_wave = st.selectbox(
+            "Wave Selector",
+            options=available_waves,
+            index=available_waves.index(default_wave) if default_wave in available_waves else 0,
+            key="overlay_proof_wave_selector",
+            help="Select a wave to view VIX/regime overlay diagnostics"
+        )
+    
+    with col2:
+        # Mode selector - default to Standard
+        mode_options = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+        selected_mode = st.selectbox(
+            "Mode Selector",
+            options=mode_options,
+            index=0,  # Default to Standard
+            key="overlay_proof_mode_selector",
+            help="Select the operating mode for diagnostics"
+        )
+    
+    with col3:
+        # Days selector - default to 15
+        selected_days = st.number_input(
+            "Days Selector",
+            min_value=1,
+            max_value=365,
+            value=15,
+            step=1,
+            key="overlay_proof_days_selector",
+            help="Number of days to display in diagnostics"
+        )
+    
+    # Fetch diagnostics data
+    try:
+        with st.spinner(f"Fetching diagnostics for {selected_wave}..."):
+            diagnostics_df = get_wave_diagnostics(
+                wave_name=selected_wave,
+                mode=selected_mode,
+                days=selected_days
+            )
+        
+        # Check if diagnostics are available
+        if diagnostics_df is None or diagnostics_df.empty:
+            st.info("Diagnostics unavailable for the selected wave and parameters.")
+            return
+        
+        # Prepare the table with required columns
+        # Reset index to make Date a column
+        table_df = diagnostics_df.reset_index()
+        
+        # Ensure we have the required columns, create them if missing
+        display_columns = []
+        
+        # Date column
+        if 'date' in table_df.columns:
+            display_columns.append('date')
+            table_df = table_df.rename(columns={'date': 'Date'})
+        elif 'Date' not in table_df.columns:
+            table_df['Date'] = table_df.index
+        
+        if 'Date' not in display_columns:
+            display_columns.append('Date')
+        
+        # Add other columns if they exist
+        column_mapping = {
+            'VIX': 'VIX',
+            'Regime': 'Regime',
+            'VIX_Exposure': 'VIX_Exposure',
+            'Safe_Fraction': 'Safe_Fraction',
+            'Exposure': 'Exposure',
+            'Wave_Return': 'Wave_Return',
+            'Benchmark_Return': 'Benchmark_Return'
+        }
+        
+        for col_name in column_mapping.keys():
+            if col_name in table_df.columns:
+                display_columns.append(col_name)
+        
+        # Calculate Realized_Alpha if we have both returns
+        if 'Wave_Return' in table_df.columns and 'Benchmark_Return' in table_df.columns:
+            table_df['Realized_Alpha'] = table_df['Wave_Return'] - table_df['Benchmark_Return']
+            display_columns.append('Realized_Alpha')
+        
+        # Filter to only the columns we want to display
+        final_columns = [col for col in display_columns if col in table_df.columns]
+        display_df = table_df[final_columns].copy()
+        
+        # Format numeric columns for better display
+        if 'VIX' in display_df.columns:
+            display_df['VIX'] = display_df['VIX'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "N/A")
+        
+        for col in ['VIX_Exposure', 'Safe_Fraction', 'Exposure', 'Wave_Return', 'Benchmark_Return', 'Realized_Alpha']:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+        
+        # Format Date column
+        if 'Date' in display_df.columns:
+            display_df['Date'] = pd.to_datetime(display_df['Date']).dt.strftime('%Y-%m-%d')
+        
+        # Display the table
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Display summary statistics
+        st.markdown("**Summary Statistics**")
+        summary_col1, summary_col2, summary_col3 = st.columns(3)
+        
+        with summary_col1:
+            if 'Wave_Return' in diagnostics_df.columns:
+                total_wave_return = diagnostics_df['Wave_Return'].sum()
+                st.metric("Total Wave Return", f"{total_wave_return:.2%}")
+        
+        with summary_col2:
+            if 'Benchmark_Return' in diagnostics_df.columns:
+                total_bm_return = diagnostics_df['Benchmark_Return'].sum()
+                st.metric("Total Benchmark Return", f"{total_bm_return:.2%}")
+        
+        with summary_col3:
+            if 'Wave_Return' in diagnostics_df.columns and 'Benchmark_Return' in diagnostics_df.columns:
+                total_alpha = total_wave_return - total_bm_return
+                st.metric("Total Alpha", f"{total_alpha:.2%}")
+        
+    except Exception as e:
+        st.error(f"Error fetching diagnostics: {str(e)}")
+        st.info("Diagnostics unavailable. The application continues to function.")
+
+
 def render_overlays_tab():
     """Render the Overlays tab."""
     st.header("Analytics Overlays")
@@ -4069,6 +4227,11 @@ def render_overlays_tab():
     st.subheader("Risk-On vs Risk-Off Attribution")
     st.write("Performance attribution segmented by market regime.")
     st.info("Data unavailable")
+    
+    st.divider()
+    
+    # Overlay Proof (Last 15 Days) Section
+    render_overlay_proof_section()
 
 
 def render_attribution_tab():
