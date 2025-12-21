@@ -601,14 +601,15 @@ GLOSSARY: Dict[str, str] = {
     "Sortino": "Risk-adjusted return using downside deviation only.",
     "Benchmark Snapshot / Drift": "A stable fingerprint of benchmark composition. Drift indicates composition changed in-session (governance signal for context stability).",
     "Coverage Score": "0–100 heuristic of data completeness + freshness (system-feedback indicator for governance).",
-    "Difficulty vs SPY": "Concentration/diversification proxy (no-predict architectural reference, not a forecast).",
+    "Difficulty vs SPY": "Concentration/diversification proxy. Benchmark difficulty indication only (no-predict architectural reference, not passive beta guidance or static asset allocation).",
     "Risk Reaction Score": "0–100 heuristic of risk posture from TE/MaxDD/CVaR.",
     "Analytics Scorecard": "Governance-native reliability grade for analytics outputs (not performance).",
     "Beta (vs Benchmark)": "Regression slope of Wave daily returns vs Benchmark daily returns.",
     "Beta Reliability Score": "0–100: beta-target match + linkage quality (R²) + sample size.",
     "Vector™ Truth Layer": (
         "Read-only governance referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
-        "attributes alpha to risk-on/off regimes, and scores durability/fragility. Provides context vs control transparency (no-predict, system-feedback only)."
+        "attributes alpha to timing, exposure scaling, volatility control, and regime management (not asset selection, static weights, or yield sources), "
+        "and scores durability/fragility. Provides context vs control transparency (no-predict, system-feedback only)."
     ),
     "Vector™ — Truth Referee": (
         "Independent, read-only layer that provides governance verdicts on causality, validates assumptions predictably, "
@@ -616,7 +617,8 @@ GLOSSARY: Dict[str, str] = {
     ),
     "Alpha Classification": (
         "Structural = regime/exposure-driven or benchmark linkage degraded; "
-        "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha. Governance-native context classification."
+        "Timing & Volatility Managed = dynamic positioning under stable linkage; Not Present = near-flat alpha. "
+        "Governance-native context classification. Does not attribute to asset selection or static weights."
     ),
     "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave's regime-aware design (predictable system-feedback).",
     "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only system-feedback; does not block the app (flexible onboarding).",
@@ -4027,7 +4029,7 @@ with tabs[4]:
         st.write(f"**Active Risk Band (TE):** {te_band} (TE {fmt_pct(metrics['te'])})")
         st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
         st.write(f"**Difficulty vs SPY (proxy):** {fmt_num(difficulty.get('difficulty_vs_spy'), 1)} (range ~ -25 to +25)")
-        st.caption("Difficulty is a concentration/diversification heuristic (not a promise).")
+        st.caption("Difficulty is a concentration/diversification heuristic for reference only (not passive beta guidance, static asset allocation, or a performance promise).")
         
         with st.expander("🔍 Technical IDs", expanded=False):
             st.caption(f"Benchmark ID: `{bm_id}` (governance tracking)")

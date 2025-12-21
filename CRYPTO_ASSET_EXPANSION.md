@@ -104,8 +104,10 @@ Stablecoin Infrastructure               1 asset
 
 ## Top 10 Crypto Assets by Weight
 
-1. **BTC** - Bitcoin (Store of Value)
-2. **ETH** - Ethereum (Smart Contract Platform L1)
+*Note: Asset weights indicate market cap-based composition for difficulty indication purposes only. These are NOT static asset allocation targets or passive beta guidance. Benchmarks serve as difficulty/complexity references for active management strategies.*
+
+1. **BTC** - Bitcoin (Store of Value) — Difficulty benchmark reference
+2. **ETH** - Ethereum (Smart Contract Platform L1) — Difficulty benchmark reference
 3. **BNB** - Binance Coin (Infrastructure)
 4. **XRP** - XRP (Payments)
 5. **SOL** - Solana (Smart Contract Platform L1)
@@ -138,7 +140,7 @@ The expanded universe enables:
 
 1. **Allocation Insights**: Compare allocation across traditional equities vs. crypto sectors
 2. **Regime Analysis**: Consistent cross-asset regime detection
-3. **Attribution**: Native crypto attribution alongside equity attribution
+3. **Attribution**: Attribution focuses on timing, exposure scaling, volatility control, and regime management (not asset selection, static weights, or yield sources)
 4. **Governance**: Full governance layer support for crypto waves
 5. **WaveScore**: Native WaveScore computation for crypto assets
 

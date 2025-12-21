@@ -291,7 +291,7 @@ def build_daily_wave_activity(ctx: Dict[str, Any]) -> Dict[str, Any]:
     elif regime == "risk-on" or (math.isfinite(vix) and vix <= 16):
         why.append("Macro conditions are risk-on (lower volatility), so alpha capture tends to be more opportunity-driven.")
     else:
-        why.append("Macro conditions are neutral/mixed, so results likely reflect idiosyncratic holdings and timing.")
+        why.append("Macro conditions are neutral/mixed, so results likely reflect timing, exposure scaling, volatility control, and regime management.")
 
     if gating_reason:
         why.append(f"Gating rationale: {gating_reason}")
@@ -460,7 +460,7 @@ def generate_decisions(ctx: Dict[str, Any]) -> Dict[str, List[str]]:
     if math.isfinite(a30) and abs(a30) >= 0.08:
         watch.append("Large 30D alpha — verify benchmark mix, missing days, and attribution assumptions.")
     if math.isfinite(a30) and math.isfinite(a60) and (a30 < 0 and a60 > 0):
-        watch.append("Short-term alpha weak but medium-term positive — potential drawdown or timing effects.")
+        watch.append("Short-term alpha weak but medium-term positive — potential drawdown or timing/exposure management effects.")
     if math.isfinite(a365) and a365 > 0 and math.isfinite(a30) and a30 < 0:
         watch.append("Long-term alpha positive but 30D weak — monitor for alpha decay vs temporary noise.")
 
