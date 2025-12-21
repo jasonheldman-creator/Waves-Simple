@@ -5050,6 +5050,821 @@ def render_board_pack_tab():
     st.caption("Board Pack report generation uses live data streams from the Institutional Console.")
 
 
+def render_ic_pack_tab():
+    """
+    Render the IC Pack (Investment Committee Pack) tab.
+    
+    This comprehensive executive report includes:
+    - Mission Control Summary Tiles
+    - WaveScore Details (leaderboard, alerts, biggest movers)
+    - Overlay Proof Table (VIX/Regime diagnostics)
+    - Alpha Proof Decomposition
+    - Vector Brief Narrative
+    - HTML Download capability
+    """
+    st.header("📊 IC Pack - Investment Committee Executive Report")
+    st.write("Comprehensive executive intelligence pack for investment committee review.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 1: MISSION CONTROL SUMMARY TILES
+    # ========================================================================
+    st.subheader("🎯 Mission Control Summary")
+    
+    try:
+        mc_data = get_mission_control_data()
+        
+        # First row: Primary metrics (5 columns)
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            regime_value = mc_data.get('market_regime', 'Data unavailable')
+            if 'Risk-On' in str(regime_value):
+                regime_display = f"📈 {regime_value}"
+            elif 'Risk-Off' in str(regime_value):
+                regime_display = f"📉 {regime_value}"
+            else:
+                regime_display = f"➖ {regime_value}"
+            
+            st.metric(
+                label="Market Regime",
+                value=regime_display,
+                help="Current market regime based on portfolio performance"
+            )
+        
+        with col2:
+            vix_value = mc_data.get('vix_gate_status', 'Data unavailable')
+            if 'GREEN' in str(vix_value):
+                vix_display = f"🟢 {vix_value}"
+            elif 'YELLOW' in str(vix_value):
+                vix_display = f"🟡 {vix_value}"
+            elif 'RED' in str(vix_value):
+                vix_display = f"🔴 {vix_value}"
+            else:
+                vix_display = str(vix_value)
+            
+            st.metric(
+                label="VIX Gate Status",
+                value=vix_display,
+                help="Volatility-based risk gate"
+            )
+        
+        with col3:
+            alpha_today_str = mc_data.get('alpha_today', 'Data unavailable')
+            alpha_30day_str = mc_data.get('alpha_30day', 'Data unavailable')
+            
+            st.markdown("**Alpha Captured**")
+            st.write(f"Latest: {alpha_today_str}")
+            st.write(f"30-Day: {alpha_30day_str}")
+        
+        with col4:
+            st.markdown("**WaveScore Leader**")
+            leader_name = mc_data.get('wavescore_leader', 'Data unavailable')
+            leader_score = mc_data.get('wavescore_leader_score', 'N/A')
+            st.write(f"{leader_name}")
+            st.write(f"Score: {leader_score}")
+        
+        with col5:
+            st.metric(
+                label="System Status",
+                value=mc_data.get('system_status', 'Data unavailable'),
+                help="Data freshness and system health"
+            )
+            if mc_data.get('data_age_days') is not None:
+                st.caption(f"Data age: {mc_data['data_age_days']} days")
+        
+        # Second row: Additional metrics
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            st.metric("Total Waves", mc_data.get('total_waves', 0))
+        
+        with col_b:
+            st.metric("Active Waves", mc_data.get('active_waves', 0))
+        
+        with col_c:
+            st.metric("Data Freshness", mc_data.get('data_freshness', 'unknown'))
+        
+        with col_d:
+            pass  # Reserved for future use
+    
+    except Exception as e:
+        st.warning(f"⚠️ Mission Control data unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2: WAVESCORE DETAILS
+    # ========================================================================
+    st.subheader("🏆 WaveScore Details")
+    
+    try:
+        waves = get_available_waves()
+        
+        if not waves:
+            st.info("📊 Data unavailable - No wave data found")
+        else:
+            # Build leaderboard
+            leaderboard_data = []
+            
+            for wave_name in waves:
+                wave_data = get_wave_data_filtered(wave_name, days=30)
+                if wave_data is not None and len(wave_data) > 0:
+                    metrics = calculate_wave_metrics(wave_data)
+                    
+                    leaderboard_data.append({
+                        'Wave': wave_name,
+                        'WaveScore': metrics.get('wavescore', 0),
+                        'Cumulative Alpha': metrics.get('cumulative_alpha', 'N/A'),
+                        'Volatility': metrics.get('volatility', 'N/A'),
+                        'Sharpe Ratio': metrics.get('sharpe_ratio', 'N/A')
+                    })
+            
+            if leaderboard_data:
+                leaderboard_df = pd.DataFrame(leaderboard_data)
+                leaderboard_df = leaderboard_df.sort_values('WaveScore', ascending=False)
+                
+                # Top scoring waves
+                st.markdown("**📈 Top Scoring Waves (Last 30 Days)**")
+                top_waves = leaderboard_df.head(5)
+                st.dataframe(top_waves, use_container_width=True, hide_index=True)
+                
+                # Biggest movers (highest absolute change in score)
+                st.markdown("**🔄 Biggest Movers**")
+                st.caption("Waves with highest WaveScore volatility indicate significant performance changes")
+                
+                # Calculate movers based on score variance
+                movers_data = []
+                for wave_name in waves[:10]:  # Limit to top 10 for performance
+                    wave_data = get_wave_data_filtered(wave_name, days=30)
+                    if wave_data is not None and len(wave_data) > 5:
+                        if 'alpha' in wave_data.columns:
+                            alpha_std = wave_data['alpha'].std()
+                            cumulative_alpha = wave_data['alpha'].sum()
+                            movers_data.append({
+                                'Wave': wave_name,
+                                'Alpha Volatility': f"{alpha_std * 100:.3f}%",
+                                'Cumulative Alpha': f"{cumulative_alpha * 100:.2f}%",
+                                'Movement Score': alpha_std * 1000
+                            })
+                
+                if movers_data:
+                    movers_df = pd.DataFrame(movers_data)
+                    movers_df = movers_df.sort_values('Movement Score', ascending=False).head(5)
+                    movers_df = movers_df.drop(columns=['Movement Score'])
+                    st.dataframe(movers_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Movement data unavailable")
+                
+                # Alerts section
+                st.markdown("**⚠️ WaveScore Alerts**")
+                low_score_waves = leaderboard_df[leaderboard_df['WaveScore'] < 40]
+                
+                if len(low_score_waves) > 0:
+                    st.warning(f"🔴 {len(low_score_waves)} wave(s) with low WaveScore (<40)")
+                    st.dataframe(low_score_waves, use_container_width=True, hide_index=True)
+                else:
+                    st.success("✅ No low-scoring waves detected")
+            else:
+                st.info("📊 Data unavailable - Could not calculate WaveScores")
+    
+    except Exception as e:
+        st.warning(f"⚠️ WaveScore details unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 3: OVERLAY PROOF TABLE
+    # ========================================================================
+    st.subheader("🔬 Overlay Proof Table")
+    st.caption("VIX/Regime overlay diagnostics showing exposure scaling activity")
+    
+    try:
+        if not VIX_DIAGNOSTICS_AVAILABLE:
+            st.warning("⚠️ VIX diagnostics module not available")
+        else:
+            # Selectors
+            col_sel1, col_sel2, col_sel3 = st.columns(3)
+            
+            with col_sel1:
+                waves = get_available_waves()
+                if waves and 'SPY Wave' in waves:
+                    default_wave = 'SPY Wave'
+                elif waves:
+                    default_wave = waves[0]
+                else:
+                    default_wave = 'SPY Wave'
+                
+                selected_wave = st.selectbox(
+                    "Wave",
+                    options=waves if waves else [default_wave],
+                    index=waves.index(default_wave) if waves and default_wave in waves else 0,
+                    key="ic_overlay_wave"
+                )
+            
+            with col_sel2:
+                selected_mode = st.selectbox(
+                    "Mode",
+                    options=["Standard", "Aggressive", "Conservative"],
+                    index=0,
+                    key="ic_overlay_mode"
+                )
+            
+            with col_sel3:
+                selected_days = st.selectbox(
+                    "Days",
+                    options=[15, 30, 60, 90],
+                    index=0,
+                    key="ic_overlay_days"
+                )
+            
+            # Fetch diagnostics
+            try:
+                diagnostics_df = get_wave_diagnostics(
+                    wave_name=selected_wave,
+                    mode=selected_mode,
+                    days=selected_days
+                )
+                
+                if diagnostics_df is None or len(diagnostics_df) == 0:
+                    st.info("📊 Data unavailable for selected parameters")
+                else:
+                    # Format and display the table
+                    display_df = diagnostics_df.copy()
+                    
+                    # Ensure required columns exist
+                    required_cols = ['Date', 'VIX', 'Regime', 'VIX_Exposure', 'Safe_Fraction', 
+                                   'Exposure', 'Wave_Return', 'Benchmark_Return']
+                    
+                    # Calculate Realized_Alpha if possible
+                    if 'Wave_Return' in display_df.columns and 'Benchmark_Return' in display_df.columns:
+                        display_df['Realized_Alpha'] = display_df['Wave_Return'] - display_df['Benchmark_Return']
+                    
+                    # Select columns for display (use available columns)
+                    display_cols = []
+                    for col in required_cols + ['Realized_Alpha']:
+                        if col in display_df.columns:
+                            display_cols.append(col)
+                    
+                    if display_cols:
+                        display_df = display_df[display_cols]
+                        
+                        # Format percentages
+                        pct_cols = ['VIX_Exposure', 'Safe_Fraction', 'Exposure', 'Wave_Return', 
+                                   'Benchmark_Return', 'Realized_Alpha']
+                        for col in pct_cols:
+                            if col in display_df.columns:
+                                display_df[col] = display_df[col].apply(
+                                    lambda x: f"{x * 100:.2f}%" if pd.notna(x) else "N/A"
+                                )
+                        
+                        # Format date
+                        if 'Date' in display_df.columns:
+                            display_df['Date'] = pd.to_datetime(display_df['Date']).dt.strftime('%Y-%m-%d')
+                        
+                        # Display table
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        
+                        # Summary statistics
+                        st.markdown("**Summary Statistics**")
+                        col_stat1, col_stat2, col_stat3 = st.columns(3)
+                        
+                        with col_stat1:
+                            if 'Realized_Alpha' in diagnostics_df.columns:
+                                avg_alpha = diagnostics_df['Realized_Alpha'].mean()
+                                st.metric("Avg Daily Alpha", f"{avg_alpha * 100:.3f}%")
+                        
+                        with col_stat2:
+                            if 'VIX_Exposure' in diagnostics_df.columns:
+                                avg_vix_exp = diagnostics_df['VIX_Exposure'].mean()
+                                st.metric("Avg VIX Exposure", f"{avg_vix_exp * 100:.1f}%")
+                        
+                        with col_stat3:
+                            if 'Safe_Fraction' in diagnostics_df.columns:
+                                avg_safe = diagnostics_df['Safe_Fraction'].mean()
+                                st.metric("Avg Safe Fraction", f"{avg_safe * 100:.1f}%")
+                    else:
+                        st.info("📊 Data unavailable - required columns missing")
+            
+            except Exception as diag_err:
+                st.info(f"📊 Data unavailable: {str(diag_err)}")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Overlay proof table unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 4: ALPHA PROOF DECOMPOSITION
+    # ========================================================================
+    st.subheader("🔍 Alpha Proof Decomposition")
+    st.caption("Breakdown of alpha sources from decision attribution")
+    
+    try:
+        if not ALPHA_ATTRIBUTION_AVAILABLE:
+            st.warning("⚠️ Alpha attribution module not available")
+        else:
+            # Wave selector for alpha decomposition
+            waves = get_available_waves()
+            if waves:
+                selected_alpha_wave = st.selectbox(
+                    "Select Wave for Alpha Decomposition",
+                    options=waves,
+                    index=waves.index('SPY Wave') if 'SPY Wave' in waves else 0,
+                    key="ic_alpha_wave"
+                )
+                
+                # Get wave data
+                wave_data = get_wave_data_filtered(selected_alpha_wave, days=30)
+                
+                if wave_data is not None and len(wave_data) > 0:
+                    try:
+                        # Use alpha attribution module
+                        attribution_result = compute_alpha_attribution_series(
+                            wave_name=selected_alpha_wave,
+                            wave_data=wave_data,
+                            days=30
+                        )
+                        
+                        if attribution_result is not None and hasattr(attribution_result, 'summary'):
+                            summary = attribution_result.summary
+                            
+                            # Display alpha components
+                            st.markdown("**Alpha Components (Last 30 Days)**")
+                            
+                            col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
+                            
+                            with col_alpha1:
+                                selection_val = getattr(summary, 'selection_alpha', None)
+                                if selection_val is not None:
+                                    st.metric("Selection Alpha", f"{selection_val * 100:.3f}%")
+                                else:
+                                    st.metric("Selection Alpha", "Data unavailable")
+                            
+                            with col_alpha2:
+                                overlay_val = getattr(summary, 'overlay_alpha', None)
+                                if overlay_val is not None:
+                                    st.metric("Overlay Alpha", f"{overlay_val * 100:.3f}%")
+                                else:
+                                    st.metric("Overlay Alpha", "Data unavailable")
+                            
+                            with col_alpha3:
+                                risk_off_val = getattr(summary, 'risk_off_alpha', None)
+                                if risk_off_val is not None:
+                                    st.metric("Risk-Off Alpha", f"{risk_off_val * 100:.3f}%")
+                                else:
+                                    st.metric("Risk-Off Alpha", "Data unavailable")
+                            
+                            with col_alpha4:
+                                residual_val = getattr(summary, 'residual_alpha', None)
+                                if residual_val is not None:
+                                    st.metric("Residual Alpha", f"{residual_val * 100:.3f}%")
+                                else:
+                                    st.metric("Residual Alpha", "Data unavailable")
+                            
+                            # Data completeness indicator
+                            completeness = getattr(summary, 'data_completeness', 0)
+                            st.progress(completeness, text=f"Data Completeness: {completeness * 100:.0f}%")
+                            
+                        else:
+                            # Fallback: Try to use DecisionAttributionEngine
+                            st.info("📊 Using alternative attribution calculation")
+                            
+                            engine = DecisionAttributionEngine()
+                            components = engine.compute_attribution(wave_data, selected_alpha_wave)
+                            
+                            if components:
+                                col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
+                                
+                                with col_alpha1:
+                                    if components.selection_available:
+                                        st.metric("Selection", f"{components.selection_alpha * 100:.3f}%")
+                                    else:
+                                        st.metric("Selection", "Data unavailable")
+                                
+                                with col_alpha2:
+                                    if components.overlay_available:
+                                        st.metric("Overlay", f"{components.overlay_alpha * 100:.3f}%")
+                                    else:
+                                        st.metric("Overlay", "Data unavailable")
+                                
+                                with col_alpha3:
+                                    if components.risk_off_available:
+                                        st.metric("Risk-Off", f"{components.risk_off_alpha * 100:.3f}%")
+                                    else:
+                                        st.metric("Risk-Off", "Data unavailable")
+                                
+                                with col_alpha4:
+                                    if components.residual_available:
+                                        st.metric("Residual", f"{components.residual_alpha * 100:.3f}%")
+                                    else:
+                                        st.metric("Residual", "Data unavailable")
+                                
+                                st.progress(components.data_completeness, 
+                                          text=f"Data Completeness: {components.data_completeness * 100:.0f}%")
+                            else:
+                                st.info("📊 Data unavailable for attribution calculation")
+                    
+                    except Exception as attr_err:
+                        st.info(f"📊 Data unavailable: {str(attr_err)}")
+                else:
+                    st.info("📊 Data unavailable for selected wave")
+            else:
+                st.info("📊 Data unavailable - No waves found")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Alpha decomposition unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 5: VECTOR BRIEF NARRATIVE
+    # ========================================================================
+    st.subheader("📝 Vector Brief - Executive Narrative")
+    st.caption("AI-generated summary of key metrics, drivers, and recommended actions")
+    
+    try:
+        # Generate narrative based on available data
+        narrative_sections = []
+        
+        # Section 1: Current State
+        try:
+            mc_data = get_mission_control_data()
+            regime = mc_data.get('market_regime', 'unknown')
+            vix_status = mc_data.get('vix_gate_status', 'unknown')
+            alpha_30day = mc_data.get('alpha_30day', 'unknown')
+            
+            if regime != 'unknown':
+                narrative_sections.append(
+                    f"**Current Market State:** The portfolio is operating in a {regime} environment "
+                    f"with VIX gate status at {vix_status}. "
+                    f"30-day alpha performance stands at {alpha_30day}."
+                )
+            else:
+                narrative_sections.append("**Current Market State:** Data unavailable for current market assessment.")
+        except:
+            narrative_sections.append("**Current Market State:** Data unavailable for current market assessment.")
+        
+        # Section 2: Performance Drivers
+        try:
+            waves = get_available_waves()
+            if waves:
+                top_performers = []
+                for wave in waves[:5]:  # Top 5 waves
+                    wave_data = get_wave_data_filtered(wave, days=30)
+                    if wave_data is not None and len(wave_data) > 0:
+                        metrics = calculate_wave_metrics(wave_data)
+                        wavescore = metrics.get('wavescore', 0)
+                        if wavescore > 60:
+                            top_performers.append((wave, wavescore))
+                
+                if top_performers:
+                    top_performers.sort(key=lambda x: x[1], reverse=True)
+                    top_wave = top_performers[0]
+                    narrative_sections.append(
+                        f"**Major Performance Drivers:** {top_wave[0]} leads with a WaveScore of {top_wave[1]:.1f}, "
+                        f"indicating strong relative performance. "
+                        f"{len(top_performers)} wave(s) currently scoring above 60."
+                    )
+                else:
+                    narrative_sections.append("**Major Performance Drivers:** No strong performers identified in current period.")
+            else:
+                narrative_sections.append("**Major Performance Drivers:** Data unavailable for performance analysis.")
+        except:
+            narrative_sections.append("**Major Performance Drivers:** Data unavailable for performance analysis.")
+        
+        # Section 3: Risk Assessment
+        try:
+            mc_data = get_mission_control_data()
+            vix_status = mc_data.get('vix_gate_status', 'unknown')
+            
+            if 'RED' in str(vix_status):
+                risk_level = "elevated"
+                risk_action = "Recommend maintaining defensive positioning and monitoring for regime shifts."
+            elif 'YELLOW' in str(vix_status):
+                risk_level = "moderate"
+                risk_action = "Continue normal operations with heightened awareness of volatility signals."
+            elif 'GREEN' in str(vix_status):
+                risk_level = "low"
+                risk_action = "Favorable environment for growth-oriented positioning."
+            else:
+                risk_level = "unknown"
+                risk_action = "Data unavailable for risk assessment."
+            
+            narrative_sections.append(
+                f"**Risk Assessment:** Current volatility regime indicates {risk_level} risk levels. "
+                f"{risk_action}"
+            )
+        except:
+            narrative_sections.append("**Risk Assessment:** Data unavailable for risk assessment.")
+        
+        # Section 4: Recommended Actions
+        try:
+            mc_data = get_mission_control_data()
+            system_status = mc_data.get('system_status', 'unknown')
+            data_age = mc_data.get('data_age_days', None)
+            
+            actions = []
+            
+            if data_age is not None and data_age > 3:
+                actions.append(f"Update data feeds (currently {data_age} days old)")
+            
+            if system_status == 'Stale':
+                actions.append("Refresh system data to ensure accurate reporting")
+            
+            # Check for low-scoring waves
+            waves = get_available_waves()
+            low_score_count = 0
+            if waves:
+                for wave in waves:
+                    wave_data = get_wave_data_filtered(wave, days=30)
+                    if wave_data is not None:
+                        metrics = calculate_wave_metrics(wave_data)
+                        if metrics.get('wavescore', 100) < 40:
+                            low_score_count += 1
+            
+            if low_score_count > 0:
+                actions.append(f"Review {low_score_count} underperforming wave(s)")
+            
+            if actions:
+                action_text = "; ".join(actions) + "."
+            else:
+                action_text = "No immediate actions required. Continue monitoring key metrics."
+            
+            narrative_sections.append(f"**Recommended Actions:** {action_text}")
+        except:
+            narrative_sections.append("**Recommended Actions:** Data unavailable for action recommendations.")
+        
+        # Display narrative
+        for section in narrative_sections:
+            st.markdown(section)
+            st.write("")
+        
+    except Exception as e:
+        st.warning(f"⚠️ Vector brief unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 6: HTML DOWNLOAD
+    # ========================================================================
+    st.subheader("📥 Download IC Pack Report")
+    
+    try:
+        col_dl1, col_dl2, col_dl3 = st.columns([1, 2, 1])
+        
+        with col_dl2:
+            if st.button("📥 Download IC Pack (HTML)", type="primary", use_container_width=True):
+                with st.spinner("Generating HTML report..."):
+                    try:
+                        html_content = generate_ic_pack_html()
+                        
+                        if html_content:
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"IC_Pack_{timestamp}.html"
+                            
+                            st.download_button(
+                                label="💾 Download HTML Report",
+                                data=html_content,
+                                file_name=filename,
+                                mime="text/html",
+                                use_container_width=True
+                            )
+                            
+                            st.success("✅ HTML report generated successfully!")
+                        else:
+                            st.error("❌ Report generation failed")
+                    
+                    except Exception as gen_err:
+                        st.error(f"❌ Report generation error: {str(gen_err)}")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Download functionality unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # Footer
+    st.markdown("---")
+    st.caption("IC Pack report powered by WAVES Intelligence™ - Real-time institutional analytics")
+
+
+def generate_ic_pack_html():
+    """
+    Generate HTML version of the IC Pack report for download.
+    
+    Returns:
+        HTML string containing the full IC Pack report
+    """
+    try:
+        # Start HTML document
+        html_parts = []
+        
+        html_parts.append("""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>IC Pack - Investment Committee Report</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 40px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 32px;
+        }
+        .timestamp {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 10px;
+        }
+        .section {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th {
+            background-color: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-top: 5px;
+        }
+        .narrative {
+            line-height: 1.8;
+            color: #555;
+        }
+        .footer {
+            text-align: center;
+            color: #999;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 IC Pack - Investment Committee Executive Report</h1>
+        <div class="timestamp">Generated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</div>
+    </div>
+""")
+        
+        # Mission Control Section
+        html_parts.append('<div class="section"><h2>🎯 Mission Control Summary</h2>')
+        
+        try:
+            mc_data = get_mission_control_data()
+            html_parts.append('<div class="metric-grid">')
+            
+            metrics = [
+                ('Market Regime', mc_data.get('market_regime', 'N/A')),
+                ('VIX Gate Status', mc_data.get('vix_gate_status', 'N/A')),
+                ('30-Day Alpha', mc_data.get('alpha_30day', 'N/A')),
+                ('WaveScore Leader', mc_data.get('wavescore_leader', 'N/A')),
+                ('System Status', mc_data.get('system_status', 'N/A')),
+                ('Total Waves', mc_data.get('total_waves', 0)),
+            ]
+            
+            for label, value in metrics:
+                html_parts.append(f'''
+                <div class="metric-card">
+                    <div class="metric-label">{label}</div>
+                    <div class="metric-value">{value}</div>
+                </div>
+                ''')
+            
+            html_parts.append('</div>')
+        except:
+            html_parts.append('<p>Data unavailable</p>')
+        
+        html_parts.append('</div>')
+        
+        # WaveScore Leaderboard
+        html_parts.append('<div class="section"><h2>🏆 WaveScore Leaderboard</h2>')
+        
+        try:
+            waves = get_available_waves()
+            if waves:
+                leaderboard_data = []
+                for wave in waves:
+                    wave_data = get_wave_data_filtered(wave, days=30)
+                    if wave_data is not None:
+                        metrics = calculate_wave_metrics(wave_data)
+                        leaderboard_data.append({
+                            'Wave': wave,
+                            'WaveScore': metrics.get('wavescore', 0),
+                            'Alpha': metrics.get('cumulative_alpha', 'N/A')
+                        })
+                
+                if leaderboard_data:
+                    leaderboard_data.sort(key=lambda x: x['WaveScore'], reverse=True)
+                    
+                    html_parts.append('<table><tr><th>Wave</th><th>WaveScore</th><th>Cumulative Alpha</th></tr>')
+                    for item in leaderboard_data[:10]:
+                        html_parts.append(f'''
+                        <tr>
+                            <td>{item['Wave']}</td>
+                            <td>{item['WaveScore']:.1f}</td>
+                            <td>{item['Alpha']}</td>
+                        </tr>
+                        ''')
+                    html_parts.append('</table>')
+                else:
+                    html_parts.append('<p>Data unavailable</p>')
+            else:
+                html_parts.append('<p>Data unavailable</p>')
+        except:
+            html_parts.append('<p>Data unavailable</p>')
+        
+        html_parts.append('</div>')
+        
+        # Vector Brief
+        html_parts.append('<div class="section"><h2>📝 Vector Brief - Executive Narrative</h2>')
+        html_parts.append('<div class="narrative">')
+        
+        try:
+            mc_data = get_mission_control_data()
+            regime = mc_data.get('market_regime', 'unknown')
+            alpha = mc_data.get('alpha_30day', 'unknown')
+            
+            html_parts.append(f'<p><strong>Current State:</strong> The portfolio is operating in a {regime} environment with 30-day alpha of {alpha}.</p>')
+            html_parts.append('<p><strong>Risk Assessment:</strong> Monitor key volatility indicators and maintain appropriate positioning based on current regime.</p>')
+            html_parts.append('<p><strong>Recommended Actions:</strong> Continue monitoring performance metrics and adjust exposure as market conditions evolve.</p>')
+        except:
+            html_parts.append('<p>Data unavailable for narrative generation.</p>')
+        
+        html_parts.append('</div></div>')
+        
+        # Footer
+        html_parts.append('''
+    <div class="footer">
+        <p>IC Pack Report - WAVES Intelligence™</p>
+        <p>Institutional-grade analytics for investment committees</p>
+    </div>
+</body>
+</html>
+''')
+        
+        return ''.join(html_parts)
+    
+    except Exception as e:
+        return f"<html><body><h1>Error generating report</h1><p>{str(e)}</p></body></html>"
+
+
 # ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
@@ -5068,7 +5883,7 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution", "Board Pack"])
+    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution", "Board Pack", "IC Pack"])
     
     with analytics_tabs[0]:
         render_executive_tab()
@@ -5090,6 +5905,9 @@ def main():
     
     with analytics_tabs[6]:
         render_board_pack_tab()
+    
+    with analytics_tabs[7]:
+        render_ic_pack_tab()
 
 
 # Run the application
