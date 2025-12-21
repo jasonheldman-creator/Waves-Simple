@@ -97,6 +97,44 @@ DEFAULT_TILT_STRENGTH = 0.80
 DEFAULT_EXTRA_SAFE_BOOST = 0.00
 
 # ------------------------------------------------------------
+# Strategy Configuration System
+# ------------------------------------------------------------
+
+@dataclass
+class StrategyConfig:
+    """Configuration for individual strategy contribution."""
+    enabled: bool = True
+    weight: float = 1.0  # Contribution weight (0.0 to 1.0+)
+    min_impact: float = 0.0  # Minimum allowed impact
+    max_impact: float = 1.0  # Maximum allowed impact
+
+@dataclass
+class StrategyContribution:
+    """Per-strategy contribution to final exposure decision."""
+    name: str
+    exposure_impact: float  # Multiplier effect on exposure (0.5 to 1.5)
+    safe_fraction_impact: float  # Additive contribution to safe fraction (0.0 to 1.0)
+    risk_state: str  # "risk-on", "risk-off", or "neutral"
+    enabled: bool = True
+    metadata: Dict[str, Any] = None  # Optional diagnostic data
+    
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+# Default strategy configurations (can be overridden per wave/mode)
+DEFAULT_STRATEGY_CONFIGS: Dict[str, StrategyConfig] = {
+    "momentum": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=2.0),
+    "trend_confirmation": StrategyConfig(enabled=True, weight=0.5, min_impact=0.0, max_impact=1.0),
+    "relative_strength": StrategyConfig(enabled=True, weight=0.3, min_impact=0.0, max_impact=1.0),
+    "volatility_targeting": StrategyConfig(enabled=True, weight=1.0, min_impact=0.7, max_impact=1.3),
+    "regime_detection": StrategyConfig(enabled=True, weight=1.0, min_impact=0.8, max_impact=1.1),
+    "vix_overlay": StrategyConfig(enabled=True, weight=1.0, min_impact=0.5, max_impact=1.3),
+    "smartsafe": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=0.95),
+    "mode_constraint": StrategyConfig(enabled=True, weight=1.0, min_impact=0.5, max_impact=1.5),
+}
+
+# ------------------------------------------------------------
 # Data structures
 # ------------------------------------------------------------
 
@@ -796,6 +834,269 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
     return float(np.clip(base, 0.0, 0.8))
 
 
+# ------------------------------------------------------------
+# Strategy-specific computation functions
+# ------------------------------------------------------------
+
+def _compute_trend_confirmation_strategy(
+    price_df: pd.DataFrame,
+    base_index_ticker: str,
+    dt: pd.Timestamp,
+    config: StrategyConfig
+) -> StrategyContribution:
+    """
+    Trend confirmation: validates regime with multiple timeframes (20D, 60D, 120D).
+    Returns exposure multiplier based on trend alignment.
+    """
+    if not config.enabled:
+        return StrategyContribution(
+            name="trend_confirmation",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            enabled=False
+        )
+    
+    if base_index_ticker not in price_df.columns:
+        return StrategyContribution(
+            name="trend_confirmation",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            metadata={"reason": "no_index_data"}
+        )
+    
+    idx_price = price_df[base_index_ticker]
+    
+    # Calculate multiple timeframe trends
+    ret_20d = idx_price / idx_price.shift(20) - 1.0 if len(idx_price) >= 20 else pd.Series()
+    ret_60d = idx_price / idx_price.shift(60) - 1.0 if len(idx_price) >= 60 else pd.Series()
+    ret_120d = idx_price / idx_price.shift(120) - 1.0 if len(idx_price) >= 120 else pd.Series()
+    
+    trend_scores = []
+    metadata = {}
+    
+    # 20D trend (short-term)
+    if dt in ret_20d.index and not np.isnan(ret_20d.loc[dt]):
+        r20 = float(ret_20d.loc[dt])
+        metadata["ret_20d"] = r20
+        if r20 > 0.02:
+            trend_scores.append(1.0)
+        elif r20 < -0.02:
+            trend_scores.append(-1.0)
+        else:
+            trend_scores.append(0.0)
+    
+    # 60D trend (medium-term)
+    if dt in ret_60d.index and not np.isnan(ret_60d.loc[dt]):
+        r60 = float(ret_60d.loc[dt])
+        metadata["ret_60d"] = r60
+        if r60 > 0.06:
+            trend_scores.append(1.0)
+        elif r60 < -0.04:
+            trend_scores.append(-1.0)
+        else:
+            trend_scores.append(0.0)
+    
+    # 120D trend (long-term)
+    if dt in ret_120d.index and not np.isnan(ret_120d.loc[dt]):
+        r120 = float(ret_120d.loc[dt])
+        metadata["ret_120d"] = r120
+        if r120 > 0.10:
+            trend_scores.append(1.0)
+        elif r120 < -0.08:
+            trend_scores.append(-1.0)
+        else:
+            trend_scores.append(0.0)
+    
+    if not trend_scores:
+        return StrategyContribution(
+            name="trend_confirmation",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            metadata={"reason": "insufficient_data"}
+        )
+    
+    # Average trend alignment
+    avg_trend = sum(trend_scores) / len(trend_scores)
+    metadata["avg_trend_score"] = avg_trend
+    metadata["trend_alignment"] = len([s for s in trend_scores if s == trend_scores[0]]) == len(trend_scores)
+    
+    # Exposure impact based on trend alignment
+    if avg_trend >= 0.7:  # Strong uptrend across timeframes
+        exposure_impact = 1.0 + (0.05 * config.weight)  # Slight boost
+        risk_state = "risk-on"
+        safe_impact = 0.0
+    elif avg_trend <= -0.7:  # Strong downtrend across timeframes
+        exposure_impact = 1.0 - (0.10 * config.weight)  # Reduce exposure
+        risk_state = "risk-off"
+        safe_impact = 0.05 * config.weight  # Add to safe
+    else:  # Mixed or neutral
+        exposure_impact = 1.0
+        risk_state = "neutral"
+        safe_impact = 0.0
+    
+    exposure_impact = float(np.clip(exposure_impact, config.min_impact, config.max_impact))
+    safe_impact = float(np.clip(safe_impact, 0.0, config.max_impact))
+    
+    return StrategyContribution(
+        name="trend_confirmation",
+        exposure_impact=exposure_impact,
+        safe_fraction_impact=safe_impact,
+        risk_state=risk_state,
+        metadata=metadata
+    )
+
+
+def _compute_relative_strength_strategy(
+    wave_weights: pd.Series,
+    bm_weights: pd.Series,
+    ret_df: pd.DataFrame,
+    dt: pd.Timestamp,
+    config: StrategyConfig
+) -> StrategyContribution:
+    """
+    Relative strength: compare wave holdings performance vs benchmark over 20D/60D.
+    Adjusts exposure based on relative outperformance.
+    """
+    if not config.enabled:
+        return StrategyContribution(
+            name="relative_strength",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            enabled=False
+        )
+    
+    metadata = {}
+    
+    # Calculate 20D cumulative returns for wave and benchmark
+    if len(ret_df) < 20:
+        return StrategyContribution(
+            name="relative_strength",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            metadata={"reason": "insufficient_history"}
+        )
+    
+    # Get last 20 days of returns up to dt
+    dt_idx = ret_df.index.get_loc(dt) if dt in ret_df.index else -1
+    if dt_idx < 20:
+        return StrategyContribution(
+            name="relative_strength",
+            exposure_impact=1.0,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            metadata={"reason": "insufficient_lookback"}
+        )
+    
+    ret_20d = ret_df.iloc[dt_idx-19:dt_idx+1]
+    
+    # Wave cumulative return
+    wave_weights_aligned = wave_weights.reindex(ret_20d.columns).fillna(0.0)
+    wave_ret_20d = ((ret_20d * wave_weights_aligned).sum(axis=1) + 1.0).prod() - 1.0
+    
+    # Benchmark cumulative return
+    bm_weights_aligned = bm_weights.reindex(ret_20d.columns).fillna(0.0)
+    bm_ret_20d = ((ret_20d * bm_weights_aligned).sum(axis=1) + 1.0).prod() - 1.0
+    
+    relative_strength = wave_ret_20d - bm_ret_20d
+    metadata["wave_ret_20d"] = float(wave_ret_20d)
+    metadata["bm_ret_20d"] = float(bm_ret_20d)
+    metadata["relative_strength_20d"] = float(relative_strength)
+    
+    # Exposure impact based on relative strength
+    if relative_strength > 0.03:  # Outperforming by 3%+
+        exposure_impact = 1.0 + (0.03 * config.weight)  # Slight increase
+        risk_state = "risk-on"
+        safe_impact = 0.0
+    elif relative_strength < -0.03:  # Underperforming by 3%+
+        exposure_impact = 1.0 - (0.03 * config.weight)  # Slight decrease
+        risk_state = "risk-off"
+        safe_impact = 0.02 * config.weight
+    else:  # Neutral performance
+        exposure_impact = 1.0
+        risk_state = "neutral"
+        safe_impact = 0.0
+    
+    exposure_impact = float(np.clip(exposure_impact, config.min_impact, config.max_impact))
+    safe_impact = float(np.clip(safe_impact, 0.0, config.max_impact))
+    
+    return StrategyContribution(
+        name="relative_strength",
+        exposure_impact=exposure_impact,
+        safe_fraction_impact=safe_impact,
+        risk_state=risk_state,
+        metadata=metadata
+    )
+
+
+def _aggregate_strategy_contributions(
+    contributions: List[StrategyContribution],
+    mode_base_exposure: float,
+    exp_min: float,
+    exp_max: float
+) -> Tuple[float, float, str, Dict[str, Any]]:
+    """
+    Aggregate all strategy contributions into final exposure and safe fraction.
+    
+    Returns:
+        - final_exposure_multiplier: combined exposure multiplier from all strategies
+        - final_safe_fraction: combined safe fraction contribution
+        - aggregated_risk_state: overall risk-on/off state
+        - attribution: per-strategy contribution breakdown
+    """
+    # Separate multiplicative (exposure) and additive (safe) contributions
+    exposure_multipliers = []
+    safe_fractions = []
+    risk_states = []
+    attribution = {}
+    
+    for contrib in contributions:
+        if not contrib.enabled:
+            continue
+        
+        exposure_multipliers.append(contrib.exposure_impact)
+        safe_fractions.append(contrib.safe_fraction_impact)
+        risk_states.append(contrib.risk_state)
+        
+        attribution[contrib.name] = {
+            "exposure_impact": contrib.exposure_impact,
+            "safe_impact": contrib.safe_fraction_impact,
+            "risk_state": contrib.risk_state,
+            "metadata": contrib.metadata
+        }
+    
+    # Combine exposure multipliers (multiplicative)
+    combined_exposure = np.prod(exposure_multipliers) if exposure_multipliers else 1.0
+    
+    # Combine safe fractions (additive, capped)
+    combined_safe = sum(safe_fractions) if safe_fractions else 0.0
+    combined_safe = float(np.clip(combined_safe, 0.0, 0.95))
+    
+    # Determine overall risk state (majority vote)
+    risk_on_count = sum(1 for s in risk_states if s == "risk-on")
+    risk_off_count = sum(1 for s in risk_states if s == "risk-off")
+    
+    if risk_off_count > risk_on_count:
+        aggregated_risk_state = "risk-off"
+    elif risk_on_count > risk_off_count:
+        aggregated_risk_state = "risk-on"
+    else:
+        aggregated_risk_state = "neutral"
+    
+    attribution["_summary"] = {
+        "combined_exposure_multiplier": float(combined_exposure),
+        "combined_safe_fraction": float(combined_safe),
+        "aggregated_risk_state": aggregated_risk_state,
+        "active_strategies": len([c for c in contributions if c.enabled])
+    }
+    
+    return float(combined_exposure), float(combined_safe), aggregated_risk_state, attribution
+
+
 def _compute_core(
     wave_name: str,
     mode: str = "Standard",
@@ -918,29 +1219,59 @@ def _compute_core(
     apy = CRYPTO_YIELD_OVERLAY_APY.get(wave_name, 0.0)
     daily_yield = apy / TRADING_DAYS_PER_YEAR if apy > 0 else 0.0
 
+    # Strategy configurations (can be overridden)
+    strategy_configs = ov.get("strategy_configs", DEFAULT_STRATEGY_CONFIGS.copy())
+    
     # Diagnostics series (optional)
     diag_rows = []
+    attribution_rows = []  # New: per-day strategy attribution
 
     for dt in ret_df.index:
         rets = ret_df.loc[dt]
 
+        # ===== Individual Strategy Computations =====
+        
+        # 1. Regime detection strategy
         regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
         regime_exposure = REGIME_EXPOSURE[regime]
         regime_gate = REGIME_GATING[mode][regime]
+        regime_risk_state = "risk-off" if regime in ("panic", "downtrend") else ("risk-on" if regime == "uptrend" else "neutral")
+        
+        regime_contrib = StrategyContribution(
+            name="regime_detection",
+            exposure_impact=regime_exposure,
+            safe_fraction_impact=regime_gate,
+            risk_state=regime_risk_state,
+            enabled=strategy_configs.get("regime_detection", DEFAULT_STRATEGY_CONFIGS["regime_detection"]).enabled,
+            metadata={"regime": regime}
+        )
 
+        # 2. VIX overlay strategy
         vix_level = float(vix_level_series.get(dt, np.nan))
         vix_exposure = _vix_exposure_factor(vix_level, mode)
         vix_gate = _vix_safe_fraction(vix_level, mode)
+        vix_risk_state = "risk-off" if vix_level >= 25 else ("risk-on" if vix_level < 18 else "neutral")
+        
+        vix_contrib = StrategyContribution(
+            name="vix_overlay",
+            exposure_impact=vix_exposure,
+            safe_fraction_impact=vix_gate,
+            risk_state=vix_risk_state,
+            enabled=strategy_configs.get("vix_overlay", DEFAULT_STRATEGY_CONFIGS["vix_overlay"]).enabled,
+            metadata={"vix_level": vix_level}
+        )
 
-        # Momentum tilt
+        # 3. Momentum strategy (weight tilting)
         mom_row = mom_60.loc[dt] if dt in mom_60.index else None
         if mom_row is not None:
             mom_series = mom_row.reindex(price_df.columns).fillna(0.0)
             mom_clipped = mom_series.clip(lower=-0.30, upper=0.30)
             tilt_factor = 1.0 + tilt_strength * mom_clipped
             effective_weights = wave_weights_aligned * tilt_factor
+            momentum_enabled = strategy_configs.get("momentum", DEFAULT_STRATEGY_CONFIGS["momentum"]).enabled
         else:
             effective_weights = wave_weights_aligned.copy()
+            momentum_enabled = False
 
         effective_weights = effective_weights.clip(lower=0.0)
 
@@ -950,10 +1281,21 @@ def _compute_core(
         else:
             risk_weights = wave_weights_aligned.copy()
 
+        # Note: Momentum affects weights, not exposure multiplier directly
+        # It's already applied to effective_weights above
+        momentum_contrib = StrategyContribution(
+            name="momentum",
+            exposure_impact=1.0,  # Already in weights
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            enabled=momentum_enabled,
+            metadata={"tilt_strength": tilt_strength}
+        )
+
         portfolio_risk_ret = float((rets * risk_weights).sum())
         safe_ret = float(safe_ret_series.loc[dt])
 
-        # 20D realized vol for vol-targeting
+        # 4. Volatility targeting strategy
         if len(wave_ret_list) >= 20:
             recent = np.array(wave_ret_list[-20:])
             recent_vol = recent.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
@@ -965,11 +1307,72 @@ def _compute_core(
             vol_adjust = float(np.clip(vol_adjust, 0.7, 1.3))
         else:
             vol_adjust = 1.0
+        
+        vol_contrib = StrategyContribution(
+            name="volatility_targeting",
+            exposure_impact=vol_adjust,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            enabled=strategy_configs.get("volatility_targeting", DEFAULT_STRATEGY_CONFIGS["volatility_targeting"]).enabled,
+            metadata={"recent_vol": recent_vol, "vol_target": vol_target}
+        )
 
-        raw_exposure = mode_base_exposure * regime_exposure * vol_adjust * vix_exposure
+        # 5. Trend confirmation strategy (new)
+        trend_config = strategy_configs.get("trend_confirmation", DEFAULT_STRATEGY_CONFIGS["trend_confirmation"])
+        trend_contrib = _compute_trend_confirmation_strategy(
+            price_df, base_index_ticker, dt, trend_config
+        )
+
+        # 6. Relative strength strategy (new)
+        rs_config = strategy_configs.get("relative_strength", DEFAULT_STRATEGY_CONFIGS["relative_strength"])
+        rs_contrib = _compute_relative_strength_strategy(
+            wave_weights_aligned, bm_weights_aligned, ret_df, dt, rs_config
+        )
+
+        # 7. SmartSafe strategy (combines regime + vix gating + extra boost)
+        smartsafe_gate = extra_safe_boost  # extra_safe_boost is the user-configurable part
+        smartsafe_contrib = StrategyContribution(
+            name="smartsafe",
+            exposure_impact=1.0,
+            safe_fraction_impact=smartsafe_gate,
+            risk_state="neutral",
+            enabled=strategy_configs.get("smartsafe", DEFAULT_STRATEGY_CONFIGS["smartsafe"]).enabled,
+            metadata={"extra_safe_boost": extra_safe_boost}
+        )
+
+        # 8. Mode constraint strategy
+        mode_contrib = StrategyContribution(
+            name="mode_constraint",
+            exposure_impact=mode_base_exposure,
+            safe_fraction_impact=0.0,
+            risk_state="neutral",
+            enabled=strategy_configs.get("mode_constraint", DEFAULT_STRATEGY_CONFIGS["mode_constraint"]).enabled,
+            metadata={"mode": mode, "base_exposure": mode_base_exposure}
+        )
+
+        # ===== Aggregate All Strategy Contributions =====
+        all_contributions = [
+            mode_contrib,
+            regime_contrib,
+            vix_contrib,
+            momentum_contrib,
+            vol_contrib,
+            trend_contrib,
+            rs_contrib,
+            smartsafe_contrib,
+        ]
+
+        # Aggregate strategies into final exposure and safe fraction
+        combined_exposure_mult, combined_safe_add, agg_risk_state, strategy_attribution = _aggregate_strategy_contributions(
+            all_contributions, mode_base_exposure, exp_min, exp_max
+        )
+
+        # Apply aggregated exposure (clipped to min/max)
+        raw_exposure = combined_exposure_mult
         exposure = float(np.clip(raw_exposure, exp_min, exp_max))
 
-        safe_fraction = regime_gate + vix_gate + extra_safe_boost
+        # Apply aggregated safe fraction (clipped to 0-95%)
+        safe_fraction = combined_safe_add
         safe_fraction = float(np.clip(safe_fraction, 0.0, 0.95))
         risk_fraction = 1.0 - safe_fraction
 
@@ -995,6 +1398,7 @@ def _compute_core(
         dates.append(dt)
 
         if shadow:
+            # Legacy diagnostics (backward compatible)
             diag_rows.append(
                 {
                     "Date": dt,
@@ -1006,8 +1410,15 @@ def _compute_core(
                     "vix_exposure": vix_exposure,
                     "vix_gate": vix_gate,
                     "regime_gate": regime_gate,
+                    "aggregated_risk_state": agg_risk_state,
                 }
             )
+            
+            # New: Strategy-level attribution
+            attribution_rows.append({
+                "Date": dt,
+                "strategy_attribution": strategy_attribution
+            })
 
     wave_ret_series = pd.Series(wave_ret_list, index=pd.Index(dates, name="Date"))
     bm_ret_series = bm_ret_series.reindex(wave_ret_series.index).fillna(0.0)
@@ -1023,6 +1434,10 @@ def _compute_core(
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
         out.attrs["diagnostics"] = diag_df
+        
+        # Add strategy attribution to attrs
+        if attribution_rows:
+            out.attrs["strategy_attribution"] = attribution_rows
 
     return out
 
@@ -1252,5 +1667,180 @@ def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 3
         }
     )
     return out
+
+
+def get_strategy_attribution(wave_name: str, mode: str = "Standard", days: int = 365) -> Dict[str, Any]:
+    """
+    Get per-strategy attribution showing how each strategy contributed to exposure and returns.
+    
+    This function provides diagnostic-level visibility into strategy impacts without changing
+    the UI. It shows:
+    - Per-strategy exposure impact (multiplier effect)
+    - Per-strategy safe fraction impact (additive contribution)
+    - Per-strategy risk state (risk-on/off/neutral)
+    - Which strategies were dormant vs. active
+    - Aggregated summary statistics
+    
+    Args:
+        wave_name: name of the Wave
+        mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: history window
+        
+    Returns:
+        Dictionary with:
+        - "summary": Overall statistics across all days
+        - "daily_attribution": List of per-day strategy contributions
+        - "strategy_stats": Per-strategy statistics over the period
+        
+    Example:
+        >>> attr = get_strategy_attribution("US MegaCap Core Wave", "Standard", 365)
+        >>> # Check which strategies were most impactful
+        >>> print(attr["summary"]["most_impactful_strategies"])
+        >>> # See which days had risk-off triggers
+        >>> risk_off_days = [d for d in attr["daily_attribution"] 
+        ...                  if d["aggregated_risk_state"] == "risk-off"]
+    """
+    # Run shadow simulation to get attribution data
+    result = simulate_history_nav(wave_name=wave_name, mode=mode, days=days, overrides={})
+    
+    if result.empty:
+        return {
+            "ok": False,
+            "message": "No data available for attribution",
+            "summary": {},
+            "daily_attribution": [],
+            "strategy_stats": {}
+        }
+    
+    # Extract attribution from attrs
+    attribution_rows = result.attrs.get("strategy_attribution", [])
+    
+    if not attribution_rows:
+        return {
+            "ok": False,
+            "message": "Strategy attribution not available (requires shadow simulation)",
+            "summary": {},
+            "daily_attribution": [],
+            "strategy_stats": {}
+        }
+    
+    # Process attribution data
+    strategy_impacts = {}
+    risk_state_counts = {"risk-on": 0, "risk-off": 0, "neutral": 0}
+    daily_summaries = []
+    
+    for row in attribution_rows:
+        dt = row["Date"]
+        attr = row["strategy_attribution"]
+        
+        # Extract summary
+        summary = attr.get("_summary", {})
+        agg_state = summary.get("aggregated_risk_state", "neutral")
+        risk_state_counts[agg_state] = risk_state_counts.get(agg_state, 0) + 1
+        
+        daily_summaries.append({
+            "date": str(dt),
+            "combined_exposure_multiplier": summary.get("combined_exposure_multiplier", 1.0),
+            "combined_safe_fraction": summary.get("combined_safe_fraction", 0.0),
+            "aggregated_risk_state": agg_state,
+            "active_strategies": summary.get("active_strategies", 0),
+            "strategies": {k: v for k, v in attr.items() if k != "_summary"}
+        })
+        
+        # Accumulate per-strategy statistics
+        for strat_name, strat_data in attr.items():
+            if strat_name == "_summary":
+                continue
+            
+            if strat_name not in strategy_impacts:
+                strategy_impacts[strat_name] = {
+                    "exposure_impacts": [],
+                    "safe_impacts": [],
+                    "risk_on_count": 0,
+                    "risk_off_count": 0,
+                    "neutral_count": 0,
+                    "enabled_count": 0,
+                    "dormant_count": 0
+                }
+            
+            exp_impact = strat_data.get("exposure_impact", 1.0)
+            safe_impact = strat_data.get("safe_impact", 0.0)
+            risk_state = strat_data.get("risk_state", "neutral")
+            
+            strategy_impacts[strat_name]["exposure_impacts"].append(exp_impact)
+            strategy_impacts[strat_name]["safe_impacts"].append(safe_impact)
+            
+            if risk_state == "risk-on":
+                strategy_impacts[strat_name]["risk_on_count"] += 1
+            elif risk_state == "risk-off":
+                strategy_impacts[strat_name]["risk_off_count"] += 1
+            else:
+                strategy_impacts[strat_name]["neutral_count"] += 1
+            
+            # Check if strategy was dormant (no meaningful impact)
+            if abs(exp_impact - 1.0) < 0.001 and abs(safe_impact) < 0.001:
+                strategy_impacts[strat_name]["dormant_count"] += 1
+            else:
+                strategy_impacts[strat_name]["enabled_count"] += 1
+    
+    # Compute per-strategy summary statistics
+    strategy_stats = {}
+    for strat_name, impacts in strategy_impacts.items():
+        exp_impacts = impacts["exposure_impacts"]
+        safe_impacts = impacts["safe_impacts"]
+        
+        strategy_stats[strat_name] = {
+            "avg_exposure_impact": float(np.mean(exp_impacts)) if exp_impacts else 1.0,
+            "max_exposure_impact": float(np.max(exp_impacts)) if exp_impacts else 1.0,
+            "min_exposure_impact": float(np.min(exp_impacts)) if exp_impacts else 1.0,
+            "avg_safe_impact": float(np.mean(safe_impacts)) if safe_impacts else 0.0,
+            "max_safe_impact": float(np.max(safe_impacts)) if safe_impacts else 0.0,
+            "risk_on_days": impacts["risk_on_count"],
+            "risk_off_days": impacts["risk_off_count"],
+            "neutral_days": impacts["neutral_count"],
+            "active_days": impacts["enabled_count"],
+            "dormant_days": impacts["dormant_count"],
+            "activity_rate": float(impacts["enabled_count"]) / len(exp_impacts) if exp_impacts else 0.0
+        }
+    
+    # Identify most impactful strategies
+    strategy_importance = []
+    for strat_name, stats in strategy_stats.items():
+        # Importance score: deviation from neutral (1.0 for exposure, 0.0 for safe)
+        exp_deviation = abs(stats["avg_exposure_impact"] - 1.0)
+        safe_contribution = stats["avg_safe_impact"]
+        importance = exp_deviation + safe_contribution
+        
+        strategy_importance.append((strat_name, importance, stats["activity_rate"]))
+    
+    strategy_importance.sort(key=lambda x: x[1], reverse=True)
+    
+    # Overall summary
+    total_days = len(attribution_rows)
+    summary = {
+        "wave_name": wave_name,
+        "mode": mode,
+        "days": days,
+        "total_trading_days": total_days,
+        "risk_on_days": risk_state_counts.get("risk-on", 0),
+        "risk_off_days": risk_state_counts.get("risk-off", 0),
+        "neutral_days": risk_state_counts.get("neutral", 0),
+        "risk_off_percentage": float(risk_state_counts.get("risk-off", 0)) / total_days if total_days > 0 else 0.0,
+        "most_impactful_strategies": [
+            {"name": name, "importance_score": float(score), "activity_rate": float(rate)}
+            for name, score, rate in strategy_importance[:5]
+        ],
+        "dormant_strategies": [
+            name for name, stats in strategy_stats.items()
+            if stats["activity_rate"] < 0.1  # Less than 10% active
+        ]
+    }
+    
+    return {
+        "ok": True,
+        "summary": summary,
+        "daily_attribution": daily_summaries,
+        "strategy_stats": strategy_stats
+    }
     
     
