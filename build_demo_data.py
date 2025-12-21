@@ -36,21 +36,6 @@ wave_tickers = {
         "NVDA", "AMD", "IBM", "MSFT", "GOOGL",
         "AMZN", "IONQ", "QUBT", "BRKS", "INTC",
     ],
-    "Bitcoin Alpha Wave": [
-        "BTC", "MSTR", "COIN", "MARA", "RIOT",
-    ],
-    "Ethereum & Smart Contract Alpha Wave": [
-        "ETH", "SOL", "AVAX", "NEAR", "COIN",
-    ],
-    "Crypto Momentum Rotation Wave": [
-        "BTC", "ETH", "SOL", "BNB", "XRP", "ADA",
-    ],
-    "Crypto Defensive / Risk-Control Wave": [
-        "BTC", "ETH",
-    ],
-    "Crypto Alpha Composite Wave": [
-        "BTC", "ETH", "SOL", "BNB", "ADA",
-    ],
     "Income Wave": [
         "TLT", "LQD", "HYG", "JNJ", "PG",
         "KO", "PEP", "XLU", "O", "VZ",
@@ -115,17 +100,7 @@ history_rows = []
 
 for wave in waves:
     # Slightly different profiles per wave (you can tweak these later)
-    if "Bitcoin Alpha" in wave or "Ethereum" in wave or "Crypto Momentum" in wave or "Crypto Alpha Composite" in wave:
-        port_mu = 0.0010   # moderate expected return for alpha crypto
-        port_sigma = 0.025  # higher vol for crypto alpha
-        bench_mu = 0.0008
-        bench_sigma = 0.022
-    elif "Crypto Defensive" in wave:
-        port_mu = 0.0005   # lower expected return for defensive
-        port_sigma = 0.015  # lower vol for defensive
-        bench_mu = 0.0008
-        bench_sigma = 0.022
-    elif "Income" in wave:
+    if "Income" in wave:
         port_mu = 0.0003
         port_sigma = 0.005
         bench_mu = 0.00025
