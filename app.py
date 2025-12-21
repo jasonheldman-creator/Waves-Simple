@@ -62,10 +62,11 @@ except Exception as e:
 # -------------------------------
 VECTOR_TRUTH_IMPORT_ERROR = None
 try:
-    from vector_truth import build_vector_truth_report, format_vector_truth_markdown
+    from vector_truth import build_vector_truth_report, format_vector_truth_markdown, render_vector_truth_alpha_attribution
 except Exception as e:
     build_vector_truth_report = None
     format_vector_truth_markdown = None
+    render_vector_truth_alpha_attribution = None
     VECTOR_TRUTH_IMPORT_ERROR = e
 
 
@@ -2169,7 +2170,13 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         regime_series=regime_series,
     )
 
+    # Render main Performance Decomposition and other sections
     st.markdown(format_vector_truth_markdown(report))
+    
+    # Render detailed Alpha Attribution in a collapsed expander
+    if render_vector_truth_alpha_attribution is not None:
+        with st.expander("VECTOR TRUTH — ALPHA ATTRIBUTION (STRICT) — Detailed Attribution", expanded=False):
+            st.markdown(render_vector_truth_alpha_attribution(report))
 
     with st.expander("Vector™ Truth Notes (Method)"):
         st.write(
@@ -2178,6 +2185,7 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
             "otherwise it defaults to capital-weighted alpha (no inflation). "
             "Risk-on/off regimes are labeled deterministically from benchmark daily return sign unless a richer regime feed exists."
         )
+
 
 
 # ============================================================

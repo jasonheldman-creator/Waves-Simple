@@ -464,6 +464,10 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
     """
     Returns a deterministic markdown block you can print in Streamlit.
     Handles N/A values appropriately and provides clear attribution context.
+    
+    NOTE: This function now returns markdown for PERFORMANCE DECOMPOSITION and other sections.
+    The detailed ALPHA ATTRIBUTION section should be rendered separately using 
+    render_vector_truth_alpha_attribution() within a Streamlit expander.
     """
     s = report.sources
     r = report.reconciliation
@@ -471,20 +475,29 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
     d = report.durability
 
     frag = "N/A" if d.fragility_score is None else f"{d.fragility_score:.2f}"
+    
+    # Calculate residual excess return for Performance Decomposition
+    residual_excess = None
+    if s.total_excess_return is not None:
+        # Residual = Total Excess - (Capital Preservation + Benchmark Construction)
+        known_structural = 0.0
+        if s.capital_preservation_effect is not None:
+            known_structural += s.capital_preservation_effect
+        if s.benchmark_construction_effect is not None:
+            known_structural += s.benchmark_construction_effect
+        residual_excess = s.total_excess_return - known_structural
 
     md = f"""
 ### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
 
-**VECTOR TRUTH — ALPHA SOURCES**
+**VECTOR TRUTH — PERFORMANCE DECOMPOSITION**
 - Total Excess Return: **{_pct(s.total_excess_return)}**
-- Security Selection Alpha: **{_pct(s.security_selection_alpha)}**
-- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
-- Capital Preservation Effect: **{_pct(s.capital_preservation_effect)}**
-- Benchmark Construction Effect: **{_pct(s.benchmark_construction_effect)}**
+- **Structural Effects (Non-Alpha):**
+  - Capital Preservation Effect (Overlay Contribution: VIX / Regime / SmartSafe): **{_pct(s.capital_preservation_effect)}**
+  - Benchmark Construction Offset: **{_pct(s.benchmark_construction_effect)}** *(offset component, not alpha)*
+- Residual Excess Return (Unattributed): **{_pct(residual_excess)}**
 
-**Vector Assessment:** {s.assessment}
-
-*Note: N/A values indicate insufficient data series for that component. This decomposition provides insight where sufficient resolution exists.*
+*This section clarifies that total returns include both structural overlays (capital preservation mechanisms) and benchmark composition effects, which are not pure alpha sources.*
 
 ---
 
@@ -516,4 +529,28 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 **Vector Verdict:** {d.verdict}
 """.strip()
 
+    return md
+
+
+def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
+    """
+    Returns markdown for the detailed ALPHA ATTRIBUTION (STRICT) section.
+    This should be rendered within a Streamlit expander (collapsed by default).
+    """
+    s = report.sources
+    
+    md = f"""
+**VECTOR TRUTH — ALPHA ATTRIBUTION (STRICT)**
+
+**Detailed Attribution Breakdown:**
+- Security Selection Alpha: **{_pct(s.security_selection_alpha)}**
+- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
+- Capital Preservation Effect: **{_pct(s.capital_preservation_effect)}**
+- Benchmark Construction Effect: **{_pct(s.benchmark_construction_effect)}**
+
+**Vector Assessment:** {s.assessment}
+
+*Note: N/A values indicate insufficient data series for that component. This decomposition provides insight where sufficient resolution exists.*
+""".strip()
+    
     return md
