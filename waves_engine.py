@@ -344,29 +344,112 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
         Holding("VTV", 0.40, "Vanguard Value ETF"),
     ],
 
-    "Multi-Cap Crypto Growth Wave": [
-        Holding("BTC-USD", 0.50, "Bitcoin"),
-        Holding("ETH-USD", 0.35, "Ethereum"),
-        Holding("SOL-USD", 0.15, "Solana"),
+    # ------------------------------------------------------------
+    # CRYPTO BENCHMARK COMPOSITES (GOVERNED, READ-ONLY)
+    # ------------------------------------------------------------
+    # Per requirements: Fixed, governed composites. Avoid dynamic optimization.
+    # Ensure transparency and reproducibility. Labeled as "Governed Composite."
+    # Snapshot-stable across attribution windows.
+    
+    # 1. Crypto Broad Market Benchmark (large + mid cap)
+    "Crypto Broad Market Benchmark": [
+        Holding("BTC-USD", 0.45, "Bitcoin"),
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("BNB-USD", 0.08, "Binance Coin"),
+        Holding("XRP-USD", 0.08, "XRP"),
+        Holding("SOL-USD", 0.05, "Solana"),
+        Holding("ADA-USD", 0.04, "Cardano"),
     ],
-    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
+    
+    # 2. Crypto Growth Benchmark (L1s, L2s, infrastructure, AI, gaming)
+    "Crypto Growth Benchmark": [
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("SOL-USD", 0.15, "Solana"),
+        Holding("AVAX-USD", 0.10, "Avalanche"),
+        Holding("DOT-USD", 0.10, "Polkadot"),
+        Holding("LINK-USD", 0.10, "Chainlink"),
+        Holding("MATIC-USD", 0.08, "Polygon"),
+        Holding("ATOM-USD", 0.07, "Cosmos"),
+        Holding("NEAR-USD", 0.05, "NEAR Protocol"),
+        Holding("APT-USD", 0.05, "Aptos"),
+    ],
+    
+    # 3. Crypto Income/Yield Benchmark (staking, fee-generating assets)
+    "Crypto Income Benchmark": [
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
+    ],
+    
+    # 4. Crypto Defensive Benchmark (BTC-like / settlement assets)
+    "Crypto Defensive Benchmark": [
+        Holding("BTC-USD", 0.85, "Bitcoin"),
+        Holding("BCH-USD", 0.10, "Bitcoin Cash"),
+        Holding("LTC-USD", 0.05, "Litecoin"),
+    ],
+    
+    # 5. Crypto DeFi Benchmark (DEXs, lending, derivatives infrastructure)
+    "Crypto DeFi Benchmark": [
+        Holding("UNI-USD", 0.25, "Uniswap"),
+        Holding("AAVE-USD", 0.25, "Aave"),
+        Holding("CAKE-USD", 0.15, "PancakeSwap"),
+        Holding("CRV-USD", 0.12, "Curve DAO"),
+        Holding("INJ-USD", 0.10, "Injective"),
+        Holding("SNX-USD", 0.08, "Synthetix"),
+        Holding("COMP-USD", 0.05, "Compound"),
+    ],
+    
+    # ------------------------------------------------------------
+    # CRYPTO WAVES (Allocate only from crypto instruments)
+    # ------------------------------------------------------------
+    
+    # Crypto Waves → Governed Crypto Benchmarks
+    # Per requirements: Reference crypto-specific benchmark composites
+    # Use existing exposure, regime, and risk-control logic (unaltered)
+    
+    "Multi-Cap Crypto Growth Wave": [
+        Holding("BTC-USD", 0.45, "Bitcoin"),
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("BNB-USD", 0.08, "Binance Coin"),
+        Holding("XRP-USD", 0.08, "XRP"),
+        Holding("SOL-USD", 0.05, "Solana"),
+        Holding("ADA-USD", 0.04, "Cardano"),
+    ],
+    
+    "Bitcoin Wave": [
+        Holding("BTC-USD", 0.85, "Bitcoin"),
+        Holding("BCH-USD", 0.10, "Bitcoin Cash"),
+        Holding("LTC-USD", 0.05, "Litecoin"),
+    ],
 
     "Crypto Stable Yield Wave": [
-        Holding("USDC-USD", 0.25, "USD Coin"),
-        Holding("USDT-USD", 0.25, "Tether"),
-        Holding("DAI-USD", 0.25, "Dai"),
-        Holding("USDP-USD", 0.25, "Pax Dollar"),
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
     ],
+    
     "Crypto Income & Yield Wave": [
-        Holding("USDC-USD", 0.25, "USD Coin"),
-        Holding("USDT-USD", 0.25, "Tether"),
-        Holding("DAI-USD", 0.25, "Dai"),
-        Holding("USDP-USD", 0.25, "Pax Dollar"),
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
     ],
+    
     "Crypto High-Yield Income Wave": [
-        Holding("BTC-USD", 0.40, "Bitcoin"),
-        Holding("ETH-USD", 0.40, "Ethereum"),
-        Holding("stETH-USD", 0.20, "Lido Staked Ether"),
+        Holding("ETH-USD", 0.35, "Ethereum"),
+        Holding("AAVE-USD", 0.20, "Aave"),
+        Holding("UNI-USD", 0.15, "Uniswap"),
+        Holding("LDO-USD", 0.10, "Lido DAO"),
+        Holding("stETH-USD", 0.10, "Lido Staked Ether"),
+        Holding("MKR-USD", 0.10, "Maker"),
     ],
 
     "SmartSafe Treasury Cash Wave": [
@@ -420,7 +503,13 @@ ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
     ETFBenchmarkCandidate("VBK", "Vanguard Small-Cap Growth ETF", {"Small", "Growth"}, "Small"),
     ETFBenchmarkCandidate("IWP", "iShares Russell Mid-Cap Growth ETF", {"Mid", "Growth"}, "Mid"),
     ETFBenchmarkCandidate("MDY", "SPDR S&P MidCap 400 ETF Trust", {"Mid"}, "Mid"),
+    
+    # Crypto benchmark candidates (governed composites)
+    ETFBenchmarkCandidate("BTC-USD", "Bitcoin", {"Crypto", "Defensive", "Settlement"}, "Crypto"),
+    ETFBenchmarkCandidate("ETH-USD", "Ethereum", {"Crypto", "Growth", "L1"}, "Crypto"),
     ETFBenchmarkCandidate("BITO", "ProShares Bitcoin Strategy ETF", {"Crypto"}, "Crypto"),
+    
+    # Safe assets
     ETFBenchmarkCandidate("BIL", "SPDR Bloomberg 1-3 Month T-Bill ETF", {"Safe"}, "Safe"),
     ETFBenchmarkCandidate("SGOV", "iShares 0-3 Month Treasury Bond ETF", {"Safe"}, "Safe"),
     ETFBenchmarkCandidate("SUB", "iShares Short-Term National Muni Bond ETF", {"Safe"}, "Safe"),
