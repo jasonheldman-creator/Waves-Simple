@@ -44,6 +44,15 @@ try:
 except ImportError:
     VIX_DIAGNOSTICS_AVAILABLE = False
 
+# Import waves engine for wave definitions (single source of truth)
+try:
+    from waves_engine import get_all_waves as engine_get_all_waves, WAVE_WEIGHTS
+    WAVES_ENGINE_AVAILABLE = True
+except ImportError:
+    WAVES_ENGINE_AVAILABLE = False
+    engine_get_all_waves = None
+    WAVE_WEIGHTS = {}
+
 # ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
@@ -734,52 +743,57 @@ def get_latest_data_timestamp():
     return "unknown"
 
 
+def get_all_wave_names():
+    """
+    Get all wave names from the waves engine (single source of truth).
+    
+    This function sources wave names directly from WAVE_WEIGHTS in waves_engine.py,
+    ensuring that the UI always reflects the current wave definitions in the engine.
+    
+    Returns:
+        sorted list of wave names from WAVE_WEIGHTS, or empty list if engine unavailable
+    """
+    try:
+        if WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
+            # Use the waves_engine.get_all_waves() function (sources from WAVE_WEIGHTS)
+            return engine_get_all_waves()
+        elif WAVE_WEIGHTS:
+            # Fallback: directly access WAVE_WEIGHTS if available
+            return sorted(list(WAVE_WEIGHTS.keys()))
+        else:
+            # No engine available, return empty list
+            return []
+    except Exception:
+        # On any error, return empty list
+        return []
+
+
 def get_available_waves():
     """
     Get list of available waves from wave history data with lineup filtering.
     
-    Applies Equity Lineup Reset v1 configuration:
-    - Excludes legacy crypto waves (Multi-Cap Crypto Growth, Bitcoin, etc.)
-    - Includes all equity waves (restored + 5 new waves)
-    - Includes Crypto Income Wave as sole crypto representation
-    - Includes Crypto Selection Engine (CSE) as virtual wave
+    Now sources from WAVE_WEIGHTS in waves_engine.py (single source of truth)
+    instead of hardcoded lists.
     
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
-        df = safe_load_wave_history()
+        # Get all waves from the engine (single source of truth)
+        engine_waves = get_all_wave_names()
         
-        # Get waves from data file
-        data_waves = set()
-        if df is not None and 'wave' in df.columns:
-            data_waves = set(df['wave'].dropna().unique())
+        if not engine_waves:
+            # Fallback: if engine unavailable, try loading from wave_history.csv
+            df = safe_load_wave_history()
+            if df is not None and 'wave' in df.columns:
+                return sorted(list(df['wave'].dropna().unique()))
+            return []
         
-        # Start with empty wave lineup
-        final_waves = set()
-        
-        # Step 1: Add waves from data that are NOT in exclusion list
-        for wave in data_waves:
-            if wave not in EXCLUDED_CRYPTO_WAVES:
-                final_waves.add(wave)
-        
-        # Step 2: Ensure all required equity waves are present (even if not in data yet)
-        # This allows for graceful display even when historical data is being regenerated
-        for equity_wave in INCLUDED_EQUITY_WAVES:
-            final_waves.add(equity_wave)
-        
-        # Step 3: Add the single Crypto Income Wave
-        final_waves.add(CRYPTO_INCOME_WAVE)
-        
-        # Step 4: Add Crypto Selection Engine (CSE) as a virtual wave
-        final_waves.add(CSE_WAVE_NAME)
-        
-        # Return sorted list
-        return sorted(list(final_waves))
+        # Return waves from engine
+        return engine_waves
         
     except Exception:
-        # Fallback: return at minimum the required waves
-        fallback_waves = list(INCLUDED_EQUITY_WAVES) + [CRYPTO_INCOME_WAVE, CSE_WAVE_NAME]
-        return sorted(fallback_waves)
+        # On any error, try to return waves from get_all_wave_names()
+        return get_all_wave_names()
 
 
 def get_cse_crypto_universe():
@@ -2592,6 +2606,34 @@ def render_sidebar_info():
     
     st.sidebar.title("Drawdown Monitor")
     st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
+    
+    # Debug Expander - Wave List Verification
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
+        try:
+            all_waves = get_all_wave_names()
+            
+            if all_waves:
+                st.write(f"**Total Waves Available:** {len(all_waves)}")
+                st.write("")
+                st.write("**First 25 Waves:**")
+                
+                # Display first 25 waves
+                display_waves = all_waves[:25]
+                for i, wave in enumerate(display_waves, 1):
+                    st.text(f"{i}. {wave}")
+                
+                if len(all_waves) > 25:
+                    st.write("")
+                    st.caption(f"... and {len(all_waves) - 25} more waves")
+                
+                st.write("")
+                st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
+            else:
+                st.warning("⚠️ No waves available from engine")
+                st.caption("Check waves_engine.py WAVE_WEIGHTS")
+        except Exception as e:
+            st.error(f"❌ Error loading waves: {str(e)}")
     
     # Build Information
     st.sidebar.markdown("---")
