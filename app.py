@@ -11,6 +11,9 @@ Modular structure:
 6. Reusable UI components
 7. Render functions for tabs and analytics
 8. Main entry point
+
+SNAPSHOT BACKUP: massive-ic-pack-v1 branch
+This is a rollback snapshot before IC Pack v1 implementation.
 """
 
 import streamlit as st
