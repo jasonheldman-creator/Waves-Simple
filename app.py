@@ -103,46 +103,5 @@ filtered = filtered.sort_values("CompositeScore", ascending=False).head(int(max_
 weights_raw = filtered["CompositeScore"].clip(lower=0.0001)
 weights = (weights_raw / weights_raw.sum()) * 100.0
 
-# cap each weight at 15% and renormalize
-cap = 15.0
-weights = weights.clip(upper=cap)
-weights = (weights / weights.sum()) * 100.0
-
-filtered["Weight (%)"] = weights.round(2)
-
-# Google links
-filtered["Google Quote"] = filtered["Ticker"].apply(lambda x: f"https://www.google.com/finance/quote/{x}:NYSE")
-
-# -----------------------------
-# Output
-# -----------------------------
-st.markdown("### ✅ Selected Holdings (Filtered + Ranked)")
-st.dataframe(
-    filtered[[
-        "Ticker","QoQ Revenue Growth (%)","QoQ Earnings Growth (%)","P/E Ratio",
-        "Operating Cash Flow ($M)","Volatility (60D, %)","CompositeScore","Weight (%)","Google Quote"
-    ]],
-    use_container_width=True
-)
-
-st.markdown("### Performance Snapshot (Mock)")
-perf = pd.DataFrame({
-    "Metric": ["30D Return", "60D Return", "365D Return", "Alpha (vs Russell 2000)"],
-    "Value": ["—", "—", "—", "—"]
-})
-st.table(perf)
-
-st.info(
-    "ℹ️ Performance values are intentionally set to dashes for now. "
-    "Next step is wiring this wave to real price series + benchmark (IWM/IJR) "
-    "and computing 30/60/365 returns + alpha."
-)
-
-st.markdown("---")
-st.subheader("Next Steps (we can do immediately)")
-st.markdown("
-1) **Plug into real tickers + real fundamentals** (later)  
-2) **Add benchmark (IWM/IJR blend)** + compute real 30/60/365 returns  
-3) **Alpha-Minus-Beta mode**: exposure scaling + beta discipline  
-4) Promote this Wave into production once it’s proven"
-)
+# cap each weight at 15%
+# cap and ship constraint
