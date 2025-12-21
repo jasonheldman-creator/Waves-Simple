@@ -1,12 +1,6 @@
 [server]
 fileWatcherType = "none"
-enableStaticServing = false
-runOnSave = false
-enableXsrfProtection = true
 
 [client]
 toolbarMode = "minimal"
 showErrorDetails = false
-
-[runner]
-fastReruns = false
