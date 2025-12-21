@@ -2770,11 +2770,6 @@ WAVE_PURPOSE: Dict[str, str] = {
     "Quantum Computing Wave": "Frontier innovation exposure for asymmetric upside potential. Governance emphasizes benchmark fit + risk regime clarity (no-predict, stable feedback).",
     "Future Power & Energy Wave": "Energy-transition exposure capturing multi-year structural themes. Governed drawdown and tracking error controls provide predictable system-feedback.",
     "Clean Transit-Infrastructure Wave": "Infrastructure/transition exposure. Durable positioning with risk-aware regime behavior and benchmark verification (architectural governance).",
-    "Bitcoin Alpha Wave": "BTC-focused alpha generation for capital appreciation only. Utilizes momentum, trend confirmation, volatility-adjusted exposure, and regime-aware scaling with risk-off de-allocation during adverse conditions.",
-    "Ethereum & Smart Contract Alpha Wave": "ETH-led alpha with exposure to smart-contract ecosystems for total return only. Employs ETH as primary signal with relative strength vs BTC, volatility targeting, and dynamic exposure scaling.",
-    "Crypto Momentum Rotation Wave": "Captures medium-term momentum across liquid crypto assets with total return focus. Features cross-asset momentum ranking with automatic rotation, capital-weighted allocation, and strict drawdown and volatility controls.",
-    "Crypto Defensive / Risk-Control Wave": "Preserves capital during risk-off regimes and suppresses volatility. Implements regime/volatility detection with partial or full de-risking when conditions deteriorate, focusing on capital preservation over returns.",
-    "Crypto Alpha Composite Wave": "Meta-allocator across the four alpha crypto Waves providing institutional-grade allocation solution. Uses dynamic allocation based on risk and confidence-weighted signals with greater exposure to stronger signals under better regimes.",
     "SmartSafe Money Market Wave": "Capital-preservation anchor. Designed for stability and liquidity; provides governance reference during risk-off regimes (architectural stability).",
     # Additional waves from config
     "AI & Cloud MegaCap Wave": "AI and cloud computing mega-cap exposure. Focuses on leading technology companies driving innovation in artificial intelligence and cloud infrastructure with governance-native benchmarking.",
