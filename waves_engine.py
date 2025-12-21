@@ -22,14 +22,26 @@ from typing import Dict, List, Set, Optional, Any, Tuple
 import numpy as np
 import pandas as pd
 
-try:
-    import yfinance as yf
-except ImportError:  # pragma: no cover
-    yf = None
+# yfinance is imported lazily to avoid filesystem operations during module import
+# This ensures fast startup and reduces filesystem pressure on Streamlit Cloud
+_yf = None  # Lazy-loaded yfinance module
 
 # ------------------------------------------------------------
 # Global config
 # ------------------------------------------------------------
+
+def _get_yfinance():
+    """Lazy-load yfinance only when needed for data download."""
+    global _yf
+    if _yf is None:
+        try:
+            import yfinance as yf
+            _yf = yf
+        except ImportError:  # pragma: no cover
+            _yf = False  # Mark as unavailable
+    if _yf is False:
+        raise RuntimeError("yfinance is not available in this environment.")
+    return _yf
 
 USE_FULL_WAVE_HISTORY: bool = False  # compatibility flag
 
@@ -607,8 +619,7 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 
 
 def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
-    if yf is None:
-        raise RuntimeError("yfinance is not available in this environment.")
+    yf = _get_yfinance()  # Lazy-load yfinance only when actually downloading data
     lookback_days = days + 260
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
@@ -685,15 +696,15 @@ def _get_ticker_meta(ticker: str) -> tuple[str, float]:
         return ("Safe", np.nan)
     if ticker in {"GLD", "IAU"}:
         return ("Gold", np.nan)
-    if yf is None:
-        return ("Unknown", np.nan)
+    # Only try to get yfinance data if not a known type
     try:
+        yf = _get_yfinance()
         info = yf.Ticker(ticker).info
+        sector = info.get("sector")
+        mcap = info.get("marketCap")
+        return (_map_sector_name(sector), float(mcap) if mcap is not None else np.nan)
     except Exception:
         return ("Unknown", np.nan)
-    sector = info.get("sector")
-    mcap = info.get("marketCap")
-    return (_map_sector_name(sector), float(mcap) if mcap is not None else np.nan)
 
 
 def _derive_wave_exposure(wave_name: str) -> tuple[Dict[str, float], str]:
