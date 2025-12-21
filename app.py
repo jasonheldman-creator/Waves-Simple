@@ -25,10 +25,43 @@ st.sidebar.write("Description of Drawdown Monitor...")
 st.title("Institutional Console Analytics")
 
 # Placeholder for analytics tabs and data flows
-analytics_tabs = st.tabs(["Overview", "Details", "Reports"])
+analytics_tabs = st.tabs(["Overview", "Details", "Reports", "Overlays"])
 with analytics_tabs[0]:
     st.write("Overview Content...")
 with analytics_tabs[1]:
     st.write("Details Content...")
 with analytics_tabs[2]:
     st.write("Reports Content...")
+with analytics_tabs[3]:
+    st.header("Analytics Overlays")
+    
+    # Capital-Weighted Alpha Section
+    st.subheader("Capital-Weighted Alpha")
+    try:
+        # Attempt to display capital-weighted alpha data
+        # This would typically use data from alpha_attribution or similar modules
+        st.write("Data unavailable")
+    except Exception as e:
+        st.write("Data unavailable")
+    
+    st.divider()
+    
+    # Exposure-Adjusted Alpha Section
+    st.subheader("Exposure-Adjusted Alpha")
+    try:
+        # Attempt to display exposure-adjusted alpha data
+        # This would typically use data from alpha_attribution or similar modules
+        st.write("Data unavailable")
+    except Exception as e:
+        st.write("Data unavailable")
+    
+    st.divider()
+    
+    # Risk-On vs Risk-Off Attribution Section
+    st.subheader("Risk-On vs Risk-Off Attribution")
+    try:
+        # Attempt to display risk-on vs risk-off attribution data
+        # This would typically use VIX regime data and attribution analysis
+        st.write("Data unavailable")
+    except Exception as e:
+        st.write("Data unavailable")
