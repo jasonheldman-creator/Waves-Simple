@@ -20,7 +20,11 @@ BENCHMARK_BY_WAVE = {
     "Small Cap Growth Wave": "IWM",
     "Small-Mid Cap Growth Wave": "IJH",
     "Quantum Computing Wave": "QQQ",
-    "Crypto Income Wave": "BTC-USD",  # example only
+    "Bitcoin Alpha Wave": "BTC-USD",
+    "Ethereum & Smart Contract Alpha Wave": "ETH-USD",
+    "Crypto Momentum Rotation Wave": "BTC-USD",
+    "Crypto Defensive / Risk-Control Wave": "BTC-USD",
+    "Crypto Alpha Composite Wave": "BTC-USD",
     "Future Power & Energy Wave": "XLE",
     "Clean Transit-Infrastructure Wave": "ICLN",
     "Income Wave": "AGG",
