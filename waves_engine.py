@@ -1031,11 +1031,21 @@ def _compute_core(
 # Baseline API (unchanged behavior)
 # ------------------------------------------------------------
 
-def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False) -> pd.DataFrame:
     """
     Baseline (official) engine output.
+    
+    Args:
+        wave_name: name of the Wave
+        mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: history window
+        include_diagnostics: if True, include per-day VIX/regime/exposure diagnostics in result.attrs["diagnostics"]
+        
+    Returns:
+        DataFrame with wave_nav, bm_nav, wave_ret, bm_ret columns.
+        If include_diagnostics=True, also includes diagnostics DataFrame in attrs["diagnostics"].
     """
-    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=False)
+    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics)
 
 
 def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
@@ -1114,6 +1124,60 @@ def _compute_total_return(nav: pd.Series) -> float:
     if start <= 0:
         return float("nan")
     return float(end / start - 1.0)
+
+
+def get_vix_regime_diagnostics(wave_name: str, mode: str = "Standard", days: int = 365) -> pd.DataFrame:
+    """
+    Get detailed VIX/regime overlay diagnostics showing exposure scaling per day.
+    
+    Returns DataFrame with columns:
+        - Date (index): trading date
+        - regime: regime state (panic/downtrend/neutral/uptrend)
+        - vix: VIX level (or crypto vol proxy)
+        - safe_fraction: portion allocated to safe assets (0..1)
+        - exposure: final exposure used in return calculation (0..1+)
+        - vol_adjust: volatility targeting adjustment factor
+        - vix_exposure: VIX-driven exposure adjustment factor
+        - vix_gate: VIX-driven safe allocation boost
+        - regime_gate: regime-driven safe allocation boost
+        
+    This function proves that VIX/regime overlay is actively affecting returns
+    by showing the exact exposure scaling applied each day.
+    
+    Example usage:
+        >>> diag = get_vix_regime_diagnostics("US MegaCap Core Wave", "Standard", 365)
+        >>> # Filter to high VIX periods
+        >>> stress_periods = diag[diag["vix"] >= 25]
+        >>> print(f"Avg exposure during stress: {stress_periods['exposure'].mean():.2%}")
+        >>> # Compare to low VIX periods
+        >>> calm_periods = diag[diag["vix"] < 20]
+        >>> print(f"Avg exposure during calm: {calm_periods['exposure'].mean():.2%}")
+    
+    Args:
+        wave_name: name of the Wave
+        mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: history window
+        
+    Returns:
+        DataFrame indexed by Date with diagnostic columns
+    """
+    result = _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=True)
+    
+    if result.empty:
+        return pd.DataFrame(columns=[
+            "regime", "vix", "safe_fraction", "exposure", 
+            "vol_adjust", "vix_exposure", "vix_gate", "regime_gate"
+        ])
+    
+    # Extract diagnostics from attrs
+    diag_df = result.attrs.get("diagnostics")
+    if diag_df is None or diag_df.empty:
+        return pd.DataFrame(columns=[
+            "regime", "vix", "safe_fraction", "exposure",
+            "vol_adjust", "vix_exposure", "vix_gate", "regime_gate"
+        ])
+    
+    return diag_df
 
 
 def get_latest_diagnostics(wave_name: str, mode: str = "Standard", days: int = 365) -> Dict[str, Any]:
