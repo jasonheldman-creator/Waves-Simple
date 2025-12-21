@@ -168,9 +168,9 @@ def compute_alpha_sources(
     Decomposes total excess into 4 buckets with conservative, explainable logic.
 
     Definitions:
-      • Security Selection Alpha ~ exposure-adjusted alpha (isolates strategy efficiency)
+      • Security Selection Alpha (Comparable-Exposure Contribution) ~ exposure-adjusted alpha (isolates strategy efficiency)
       • Exposure Management Alpha ~ (capital-weighted alpha - exposure-adjusted alpha)
-      • Capital Preservation Effect ~ portion of alpha earned specifically in Risk-Off
+      • Capital Preservation Effect (Overlay Contribution: VIX / Regime Controls) ~ portion of alpha earned specifically in Risk-Off
         (capped so it can't exceed total alpha magnitude)
       • Benchmark Construction Effect = remainder to reconcile to total excess
     """
@@ -432,10 +432,14 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
 ### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
 
 **VECTOR TRUTH — ALPHA SOURCES**
+
+*Total excess return is decomposed into selection, overlay-driven preservation, and benchmark effects. Only selection at comparable exposure is labeled alpha.*
+
 - Total Excess Return: **{_pct(s.total_excess_return)}**
-- Security Selection Alpha: **{_pct(s.security_selection_alpha)}**
-- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**
-- Capital Preservation Effect: **{_pct(s.capital_preservation_effect)}**
+- Security Selection Alpha (Comparable-Exposure Contribution): **{_pct(s.security_selection_alpha)}**
+- Exposure Management Alpha: **{_pct(s.exposure_management_alpha)}**  
+  *Credited only when excess return is earned at equivalent capital at risk.*
+- Capital Preservation Effect (Overlay Contribution: VIX / Regime Controls): **{_pct(s.capital_preservation_effect)}**
 - Benchmark Construction Effect: **{_pct(s.benchmark_construction_effect)}**
 
 **Vector Assessment:** {s.assessment}
