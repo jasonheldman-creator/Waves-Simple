@@ -739,6 +739,330 @@ def get_vix_risk_band(vix_value: float) -> Tuple[str, str, str]:
 
 
 # ============================================================
+# Volatility Utilization Index™ (VUI™)
+# ============================================================
+def get_vix_regime(vix_value: float) -> str:
+    """
+    Classify VIX value into volatility regime.
+    
+    Regimes:
+    - Calm: VIX < 15
+    - Elevated: 15 <= VIX < 25
+    - Stress: 25 <= VIX < 35
+    - Crisis: VIX >= 35
+    """
+    v = safe_float(vix_value)
+    
+    if not math.isfinite(v):
+        return "Unknown"
+    
+    if v < 15:
+        return "Calm"
+    elif v < 25:
+        return "Elevated"
+    elif v < 35:
+        return "Stress"
+    else:
+        return "Crisis"
+
+
+def compute_vui_score(
+    hist_sel: pd.DataFrame,
+    vix_history: Optional[pd.Series] = None,
+    window_days: int = 365
+) -> Dict[str, Any]:
+    """
+    Compute Volatility Utilization Index™ (VUI™) score.
+    
+    VUI is a 0-100 blended score based on:
+    1. Alpha captured in elevated or high VIX conditions
+    2. Downside drawdown avoided during elevated or high VIX periods
+    3. Recovery speed post-high VIX compared to benchmarks
+    
+    Returns:
+        Dict with VUI score, components, and metadata
+    """
+    result = {
+        "vui_score": float("nan"),
+        "alpha_component": float("nan"),
+        "protection_component": float("nan"),
+        "recovery_component": float("nan"),
+        "regime_breakdown": {},
+        "available": False,
+        "error": None,
+    }
+    
+    try:
+        # Validate inputs
+        if hist_sel is None or hist_sel.empty:
+            result["error"] = "No history data available"
+            return result
+        
+        if vix_history is None or vix_history.empty:
+            result["error"] = "No VIX history available"
+            return result
+        
+        # Align VIX history with wave history
+        wave_idx = pd.DatetimeIndex(hist_sel.index)
+        vix_aligned = vix_history.reindex(wave_idx).ffill().bfill()
+        
+        if vix_aligned.isna().all():
+            result["error"] = "VIX data alignment failed"
+            return result
+        
+        # Classify each day by VIX regime
+        regimes = vix_aligned.apply(get_vix_regime)
+        
+        # Extract returns
+        wave_ret = safe_series(hist_sel["wave_ret"]).astype(float).dropna()
+        bm_ret = safe_series(hist_sel["bm_ret"]).astype(float).dropna()
+        
+        if len(wave_ret) < 30 or len(bm_ret) < 30:
+            result["error"] = "Insufficient return history"
+            return result
+        
+        # Align all series
+        df = pd.DataFrame({
+            "wave_ret": wave_ret,
+            "bm_ret": bm_ret,
+            "regime": regimes
+        }).dropna()
+        
+        if len(df) < 30:
+            result["error"] = "Insufficient aligned data"
+            return result
+        
+        # Component 1: Alpha captured in elevated/high VIX conditions
+        # Focus on Elevated, Stress, and Crisis regimes
+        elevated_mask = df["regime"].isin(["Elevated", "Stress", "Crisis"])
+        
+        if elevated_mask.sum() > 0:
+            elevated_wave = (1 + df.loc[elevated_mask, "wave_ret"]).prod() - 1
+            elevated_bm = (1 + df.loc[elevated_mask, "bm_ret"]).prod() - 1
+            elevated_alpha = elevated_wave - elevated_bm
+            
+            # Normalize to 0-40 scale (40% weight)
+            # Positive alpha in high vol = good, cap at +20% for max score
+            alpha_component = float(np.clip((elevated_alpha / 0.20) * 40, 0, 40))
+        else:
+            alpha_component = 20.0  # Neutral if no elevated periods
+        
+        # Component 2: Downside protection during elevated/high VIX
+        # Measure relative drawdown avoidance
+        if elevated_mask.sum() > 0:
+            elevated_wave_dd = df.loc[elevated_mask, "wave_ret"].clip(upper=0).sum()
+            elevated_bm_dd = df.loc[elevated_mask, "bm_ret"].clip(upper=0).sum()
+            
+            # Protection score: how much less did we lose vs benchmark?
+            protection_diff = elevated_bm_dd - elevated_wave_dd  # positive if we lost less
+            
+            # Normalize to 0-30 scale (30% weight)
+            # If we avoided 10% more downside than benchmark = max score
+            protection_component = float(np.clip((protection_diff / 0.10) * 30, 0, 30))
+        else:
+            protection_component = 15.0  # Neutral if no elevated periods
+        
+        # Component 3: Recovery speed post-high VIX
+        # Find transitions from Stress/Crisis to Calm/Elevated
+        df["prev_regime"] = df["regime"].shift(1)
+        recovery_mask = (
+            df["prev_regime"].isin(["Stress", "Crisis"]) & 
+            df["regime"].isin(["Calm", "Elevated"])
+        )
+        
+        if recovery_mask.sum() > 5:
+            # Average 30-day return after high VIX episodes
+            recovery_returns_wave = []
+            recovery_returns_bm = []
+            
+            for idx in df[recovery_mask].index:
+                idx_pos = df.index.get_loc(idx)
+                end_pos = min(idx_pos + 30, len(df))
+                
+                if end_pos - idx_pos >= 10:  # At least 10 days
+                    wave_recovery = (1 + df.iloc[idx_pos:end_pos]["wave_ret"]).prod() - 1
+                    bm_recovery = (1 + df.iloc[idx_pos:end_pos]["bm_ret"]).prod() - 1
+                    recovery_returns_wave.append(wave_recovery)
+                    recovery_returns_bm.append(bm_recovery)
+            
+            if recovery_returns_wave and recovery_returns_bm:
+                avg_wave_recovery = float(np.mean(recovery_returns_wave))
+                avg_bm_recovery = float(np.mean(recovery_returns_bm))
+                recovery_alpha = avg_wave_recovery - avg_bm_recovery
+                
+                # Normalize to 0-30 scale (30% weight)
+                # +5% better recovery = max score
+                recovery_component = float(np.clip((recovery_alpha / 0.05) * 30, 0, 30))
+            else:
+                recovery_component = 15.0  # Neutral
+        else:
+            recovery_component = 15.0  # Neutral if too few recovery events
+        
+        # Combine components (40% + 30% + 30% = 100%)
+        vui_score = alpha_component + protection_component + recovery_component
+        vui_score = float(np.clip(vui_score, 0, 100))
+        
+        # Regime breakdown for transparency
+        regime_breakdown = {}
+        for regime in ["Calm", "Elevated", "Stress", "Crisis"]:
+            regime_mask = df["regime"] == regime
+            if regime_mask.sum() > 0:
+                regime_breakdown[regime] = {
+                    "days": int(regime_mask.sum()),
+                    "wave_ret": float((1 + df.loc[regime_mask, "wave_ret"]).prod() - 1),
+                    "bm_ret": float((1 + df.loc[regime_mask, "bm_ret"]).prod() - 1),
+                    "alpha": float((1 + df.loc[regime_mask, "wave_ret"]).prod() - 1 -
+                                 (1 + df.loc[regime_mask, "bm_ret"]).prod() + 1),
+                }
+        
+        result.update({
+            "vui_score": vui_score,
+            "alpha_component": alpha_component,
+            "protection_component": protection_component,
+            "recovery_component": recovery_component,
+            "regime_breakdown": regime_breakdown,
+            "available": True,
+        })
+        
+    except Exception as e:
+        result["error"] = f"VUI calculation error: {str(e)[:100]}"
+    
+    return result
+
+
+def get_vui_band(vui_score: float) -> Tuple[str, str, str]:
+    """
+    Returns (band_name, band_color, band_description) for VUI score.
+    
+    VUI Bands:
+    - Weaponized (>80): Outstanding volatility response optimization
+    - Adaptive (60-80): Good volatility utilization
+    - Neutral (40-60): Moderate volatility management
+    - Weak (<40): Poor volatility utilization
+    """
+    v = safe_float(vui_score)
+    
+    if not math.isfinite(v):
+        return ("N/A", "rgba(128, 128, 128, 0.15)", "VUI data unavailable")
+    
+    if v > 80:
+        return ("Weaponized", "rgba(46, 213, 115, 0.15)", "Outstanding volatility response optimization")
+    elif v >= 60:
+        return ("Adaptive", "rgba(52, 152, 219, 0.15)", "Good volatility utilization")
+    elif v >= 40:
+        return ("Neutral", "rgba(255, 204, 0, 0.15)", "Moderate volatility management")
+    else:
+        return ("Weak", "rgba(255, 140, 0, 0.15)", "Poor volatility utilization")
+
+
+def render_vui_meter(hist_sel: pd.DataFrame, vix_history: Optional[pd.Series] = None):
+    """
+    Render Volatility Utilization Index™ (VUI™) with detailed breakdown.
+    Designed to match existing dark theme styling and placed under VIX Risk Meter.
+    """
+    if not ENABLE_YFINANCE_CHIPS or yf is None:
+        return
+    
+    try:
+        # Compute VUI
+        vui_data = compute_vui_score(hist_sel, vix_history)
+        
+        st.markdown('<div class="waves-card">', unsafe_allow_html=True)
+        st.markdown("#### Volatility Utilization Index™ (VUI™)")
+        
+        if not vui_data.get("available"):
+            # Fallback display when VUI data is unavailable
+            st.markdown('<div class="waves-tile">', unsafe_allow_html=True)
+            st.markdown('<div class="waves-tile-label">VUI Score (0-100)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="waves-tile-value">—</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="waves-tile-sub">Data unavailable: {vui_data.get("error", "Unknown error")}</div>',
+                unsafe_allow_html=True
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.caption("VUI data temporarily unavailable. Requires VIX history and wave returns.")
+        else:
+            # Normal display with VUI value
+            vui_score = vui_data.get("vui_score", 0)
+            band_name, band_color, band_desc = get_vui_band(vui_score)
+            
+            # Create colored tile based on VUI band
+            st.markdown(
+                f"""
+<div class="waves-tile" style="background: {band_color}; border-color: {band_color.replace('0.15', '0.30')};">
+  <div class="waves-tile-label">Volatility Utilization Index™</div>
+  <div class="waves-tile-value">{vui_score:.1f}</div>
+  <div class="waves-tile-sub">
+    {band_name} · {band_desc}
+  </div>
+</div>
+""",
+                unsafe_allow_html=True
+            )
+            
+            # Component breakdown
+            st.caption("**VUI Components:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Alpha Capture (40%)",
+                    f"{vui_data.get('alpha_component', 0):.1f}/40"
+                )
+            with col2:
+                st.metric(
+                    "Downside Protection (30%)",
+                    f"{vui_data.get('protection_component', 0):.1f}/30"
+                )
+            with col3:
+                st.metric(
+                    "Recovery Speed (30%)",
+                    f"{vui_data.get('recovery_component', 0):.1f}/30"
+                )
+            
+            # Additional context
+            with st.expander("VUI™ Methodology & Regime Breakdown", expanded=False):
+                st.markdown("""
+**What is VUI™?**
+The Volatility Utilization Index™ evaluates how effectively the WAVES system utilizes market volatility to generate protected upside. Unlike raw VIX, VUI is a specialized metric that measures:
+
+1. **Alpha Captured (40%)**: Performance advantage during elevated/high VIX conditions
+2. **Downside Protection (30%)**: Drawdown avoidance vs benchmark in volatile periods
+3. **Recovery Speed (30%)**: Faster recovery post-crisis vs benchmarks
+
+**VUI Bands:**
+- **Weaponized (>80):** Outstanding response optimization — system thrives in volatility
+- **Adaptive (60-80):** Good volatility utilization — solid risk-adjusted performance
+- **Neutral (40-60):** Moderate management — basic volatility handling
+- **Weak (<40):** Poor utilization — underperforming in volatile conditions
+
+**Volatility Regimes (VIX-based):**
+- **Calm:** VIX < 15 (low volatility environment)
+- **Elevated:** 15 ≤ VIX < 25 (heightened uncertainty)
+- **Stress:** 25 ≤ VIX < 35 (significant market stress)
+- **Crisis:** VIX ≥ 35 (extreme volatility/panic)
+                """)
+                
+                # Show regime breakdown if available
+                regime_breakdown = vui_data.get("regime_breakdown", {})
+                if regime_breakdown:
+                    st.markdown("**Regime Performance Breakdown:**")
+                    for regime in ["Calm", "Elevated", "Stress", "Crisis"]:
+                        if regime in regime_breakdown:
+                            rb = regime_breakdown[regime]
+                            st.write(
+                                f"**{regime}:** {rb['days']} days · "
+                                f"Wave Return {fmt_pct(rb['wave_ret'])} · "
+                                f"Alpha {fmt_pct(rb['alpha'])}"
+                            )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    except Exception as e:
+        # Ultimate fallback: silent failure or minimal error display
+        st.caption(f"VUI™ temporarily unavailable: {str(e)[:80]}")
+
+
+# ============================================================
 # WAVES Ticker Tape™ Content Generator
 # ============================================================
 def generate_ticker_content(
@@ -3270,6 +3594,20 @@ try:
     else:
         # VIX Risk Meter™ - prominent display at top of Market Intel
         render_vix_risk_meter()
+        
+        # Volatility Utilization Index™ (VUI™) - placed right after VIX Risk Meter
+        # Fetch VIX history for VUI calculation
+        try:
+            vix_history_series = None
+            if "^VIX" in fetch_prices_daily(["^VIX"], days=days).columns:
+                vix_px = fetch_prices_daily(["^VIX"], days=days)
+                if not vix_px.empty and "^VIX" in vix_px.columns:
+                    vix_history_series = vix_px["^VIX"]
+            
+            # Render VUI with wave history and VIX history
+            render_vui_meter(hist_sel, vix_history_series)
+        except Exception as e:
+            st.caption(f"VUI™ rendering skipped: {str(e)[:80]}")
         
         st.markdown("---")
         st.markdown("#### Market Snapshot")
