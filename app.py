@@ -4451,6 +4451,439 @@ def render_attribution_tab():
             st.error(f"❌ Error computing all waves comparison: {str(e)}")
 
 
+def generate_board_pack_pdf():
+    """
+    Generate Board Pack PDF report using reportlab.
+    Returns PDF bytes or None if reportlab unavailable.
+    """
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib import colors
+        from io import BytesIO
+        
+        # Create PDF in memory
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72,
+                                topMargin=72, bottomMargin=18)
+        
+        # Container for the 'Flowable' objects
+        elements = []
+        
+        # Define styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#667eea'),
+            spaceAfter=30,
+            alignment=1  # Center
+        )
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#667eea'),
+            spaceAfter=12,
+            spaceBefore=12
+        )
+        
+        # Get build info
+        git_hash = get_git_commit_hash()
+        git_branch = get_git_branch_name()
+        deploy_timestamp = get_deploy_timestamp()
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # ==================== COVER PAGE ====================
+        elements.append(Spacer(1, 2*inch))
+        elements.append(Paragraph("WAVES Intelligence™", title_style))
+        elements.append(Spacer(1, 0.3*inch))
+        elements.append(Paragraph("Institutional Board Pack", styles['Heading2']))
+        elements.append(Spacer(1, 0.3*inch))
+        elements.append(Paragraph(f"Generated: {current_datetime}", styles['Normal']))
+        elements.append(Spacer(1, 0.5*inch))
+        
+        # Build Information
+        build_info = f"""
+        <b>Build Information:</b><br/>
+        Git Commit: {git_hash}<br/>
+        Git Branch: {git_branch}<br/>
+        Deployment: {deploy_timestamp}
+        """
+        elements.append(Paragraph(build_info, styles['Normal']))
+        elements.append(PageBreak())
+        
+        # ==================== EXECUTIVE SUMMARY ====================
+        elements.append(Paragraph("Executive Summary", heading_style))
+        
+        # Get Mission Control data
+        mc_data = get_mission_control_data()
+        
+        if mc_data:
+            exec_summary = f"""
+            <b>Mission Control Snapshot:</b><br/>
+            • Market Regime: {mc_data.get('market_regime', 'unknown')}<br/>
+            • VIX Gate Status: {mc_data.get('vix_gate_status', 'unknown')}<br/>
+            • 30-Day Alpha: {mc_data.get('alpha_30day', 'unknown')}<br/>
+            • WaveScore Leader: {mc_data.get('wavescore_leader', 'unknown')} 
+              (Score: {mc_data.get('wavescore_leader_score', 'N/A')})<br/>
+            • Total Waves: {mc_data.get('total_waves', 0)}<br/>
+            • Active Waves: {mc_data.get('active_waves', 0)}<br/>
+            • System Status: {mc_data.get('system_status', 'unknown')}<br/>
+            • Data Freshness: {mc_data.get('data_freshness', 'unknown')}
+            """
+            elements.append(Paragraph(exec_summary, styles['Normal']))
+        else:
+            elements.append(Paragraph("Executive summary data unavailable.", styles['Normal']))
+        
+        elements.append(Spacer(1, 0.3*inch))
+        
+        # Alerts
+        alerts = get_system_alerts()
+        if alerts and len(alerts) > 0:
+            elements.append(Paragraph("<b>System Alerts:</b>", styles['Normal']))
+            elements.append(Spacer(1, 0.1*inch))
+            for alert in alerts[:5]:  # Top 5 alerts
+                alert_text = f"• [{alert.get('severity', 'info').upper()}] {alert.get('message', '')}"
+                elements.append(Paragraph(alert_text, styles['Normal']))
+        else:
+            elements.append(Paragraph("<b>Alerts:</b> No alerts at this time.", styles['Normal']))
+        
+        elements.append(PageBreak())
+        
+        # ==================== PERFORMANCE TABLE ====================
+        elements.append(Paragraph("Performance Table", heading_style))
+        
+        waves = get_available_waves()
+        
+        # Build performance table for multiple time periods
+        perf_data = [['Wave', '30 Days', '60 Days', 'YTD']]
+        
+        if waves:
+            for wave_name in waves[:10]:  # Top 10 waves
+                wave_30d = get_wave_data_filtered(wave_name=wave_name, days=30)
+                wave_60d = get_wave_data_filtered(wave_name=wave_name, days=60)
+                wave_ytd = get_wave_data_filtered(wave_name=wave_name, days=252)  # Approx YTD
+                
+                metrics_30d = calculate_wave_metrics(wave_30d) if wave_30d is not None else {}
+                metrics_60d = calculate_wave_metrics(wave_60d) if wave_60d is not None else {}
+                metrics_ytd = calculate_wave_metrics(wave_ytd) if wave_ytd is not None else {}
+                
+                alpha_30d = metrics_30d.get('cumulative_alpha', 'N/A')
+                alpha_60d = metrics_60d.get('cumulative_alpha', 'N/A')
+                alpha_ytd = metrics_ytd.get('cumulative_alpha', 'N/A')
+                
+                alpha_30d_str = f"{alpha_30d*100:.2f}%" if isinstance(alpha_30d, (int, float)) else 'N/A'
+                alpha_60d_str = f"{alpha_60d*100:.2f}%" if isinstance(alpha_60d, (int, float)) else 'N/A'
+                alpha_ytd_str = f"{alpha_ytd*100:.2f}%" if isinstance(alpha_ytd, (int, float)) else 'N/A'
+                
+                perf_data.append([wave_name, alpha_30d_str, alpha_60d_str, alpha_ytd_str])
+        else:
+            perf_data.append(['No data', 'N/A', 'N/A', 'N/A'])
+        
+        perf_table = Table(perf_data, colWidths=[2.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        perf_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        elements.append(perf_table)
+        elements.append(PageBreak())
+        
+        # ==================== RISK ANALYSIS ====================
+        elements.append(Paragraph("Risk Analysis", heading_style))
+        
+        if waves:
+            sample_wave = waves[0]
+            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            
+            if wave_data is not None:
+                metrics = calculate_wave_metrics(wave_data)
+                
+                risk_text = f"""
+                <b>Sample Wave: {sample_wave}</b><br/>
+                • Volatility: {f"{metrics.get('volatility', 'N/A')*100:.2f}%" if isinstance(metrics.get('volatility'), (int, float)) else 'N/A'}<br/>
+                • Max Drawdown: {f"{metrics.get('max_drawdown', 'N/A')*100:.2f}%" if isinstance(metrics.get('max_drawdown'), (int, float)) else 'N/A'}<br/>
+                • Sharpe Ratio: {f"{metrics.get('sharpe_ratio', 'N/A'):.2f}" if isinstance(metrics.get('sharpe_ratio'), (int, float)) else 'N/A'}<br/>
+                • Win Rate: {f"{metrics.get('win_rate', 'N/A')*100:.2f}%" if isinstance(metrics.get('win_rate'), (int, float)) else 'N/A'}
+                """
+                elements.append(Paragraph(risk_text, styles['Normal']))
+                
+                # Correlation insights
+                if len(waves) > 1:
+                    wave2_name = waves[1]
+                    wave2_data = get_wave_data_filtered(wave_name=wave2_name, days=30)
+                    correlation = calculate_wave_correlation(wave_data, wave2_data)
+                    
+                    if correlation is not None:
+                        corr_text = f"""
+                        <br/><b>Correlation Insight:</b><br/>
+                        Correlation between {sample_wave} and {wave2_name}: {correlation:.3f}
+                        """
+                        elements.append(Paragraph(corr_text, styles['Normal']))
+            else:
+                elements.append(Paragraph("Risk analysis data unavailable.", styles['Normal']))
+        else:
+            elements.append(Paragraph("No waves available for risk analysis.", styles['Normal']))
+        
+        elements.append(PageBreak())
+        
+        # ==================== ALPHA PROOF SECTION ====================
+        elements.append(Paragraph("Alpha Proof - Components Breakdown", heading_style))
+        
+        if waves:
+            sample_wave = waves[0]
+            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            
+            if wave_data is not None:
+                alpha_components = calculate_alpha_components(wave_data, sample_wave)
+                
+                if alpha_components:
+                    alpha_text = f"""
+                    <b>Sample Wave: {sample_wave}</b><br/>
+                    • Total Alpha: {alpha_components.get('total_alpha', 0)*100:.2f}%<br/>
+                    • Selection Alpha: {alpha_components.get('selection_alpha', 0)*100:.2f}%<br/>
+                    • Overlay Alpha: {alpha_components.get('overlay_alpha', 0)*100:.2f}%<br/>
+                    • Risk-Off Alpha (Cash): {alpha_components.get('cash_contribution', 0)*100:.2f}%<br/>
+                    <br/>
+                    Wave Return: {alpha_components.get('wave_return', 0)*100:.2f}%<br/>
+                    Benchmark Return: {alpha_components.get('benchmark_return', 0)*100:.2f}%
+                    """
+                    elements.append(Paragraph(alpha_text, styles['Normal']))
+                else:
+                    elements.append(Paragraph("Alpha components unavailable.", styles['Normal']))
+            else:
+                elements.append(Paragraph("Wave data unavailable for alpha proof.", styles['Normal']))
+        else:
+            elements.append(Paragraph("No waves available for alpha proof.", styles['Normal']))
+        
+        elements.append(PageBreak())
+        
+        # ==================== TOP MOVERS ====================
+        elements.append(Paragraph("Top Movers - Biggest WaveScore Changes", heading_style))
+        
+        # Get leaderboard data
+        leaderboard_data = []
+        if waves:
+            for wave_name in waves:
+                wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                if wave_data is not None and len(wave_data) > 0:
+                    wavescore = calculate_wavescore(wave_data)
+                    leaderboard_data.append({
+                        'wave': wave_name,
+                        'wavescore': wavescore
+                    })
+            
+            # Sort by wavescore
+            leaderboard_data.sort(key=lambda x: x['wavescore'] if isinstance(x['wavescore'], (int, float)) else 0, reverse=True)
+        
+        if leaderboard_data and len(leaderboard_data) >= 3:
+            movers_text = "<b>Top Performers:</b><br/>"
+            for i, item in enumerate(leaderboard_data[:5], 1):
+                movers_text += f"{i}. {item['wave']} - WaveScore: {item['wavescore']:.1f}<br/>"
+            elements.append(Paragraph(movers_text, styles['Normal']))
+        else:
+            elements.append(Paragraph("Insufficient data for movers analysis.", styles['Normal']))
+        
+        elements.append(PageBreak())
+        
+        # ==================== APPENDIX ====================
+        elements.append(Paragraph("Appendix - System Metadata", heading_style))
+        
+        appendix_text = f"""
+        <b>Data Timestamps:</b><br/>
+        • Latest Data: {mc_data.get('data_freshness', 'unknown')}<br/>
+        • Data Age: {mc_data.get('data_age_days', 'N/A')} days<br/>
+        • Report Generated: {current_datetime}<br/>
+        <br/>
+        <b>System Information:</b><br/>
+        • Total Waves Tracked: {mc_data.get('total_waves', 0)}<br/>
+        • Active Waves: {mc_data.get('active_waves', 0)}<br/>
+        • System Status: {mc_data.get('system_status', 'unknown')}<br/>
+        <br/>
+        <b>Version Control:</b><br/>
+        • Git Commit Hash: {git_hash}<br/>
+        • Git Branch: {git_branch}<br/>
+        • Deployment Timestamp: {deploy_timestamp}
+        """
+        elements.append(Paragraph(appendix_text, styles['Normal']))
+        
+        # Build PDF
+        doc.build(elements)
+        
+        # Get PDF bytes
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+        
+        return pdf_bytes
+        
+    except ImportError:
+        return None
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+        return None
+
+
+def render_board_pack_tab():
+    """
+    Render the Board Pack tab with PDF download functionality.
+    Uses reportlab for PDF generation with graceful error handling.
+    """
+    st.header("📊 Board Pack")
+    st.write("Download a comprehensive PDF report including all key metrics, performance data, and analytics.")
+    
+    st.divider()
+    
+    # Introduction
+    st.markdown("""
+    ### Institutional Board Pack Report
+    
+    The Board Pack includes:
+    
+    1. **Cover Page** - Title, current date/time, and build information
+    2. **Executive Summary** - Mission Control metrics, WaveScore leader, and alerts
+    3. **Performance Table** - Key portfolio metrics for 30 days, 60 days, and Year-To-Date
+    4. **Risk Analysis** - Volatility, max drawdown, and correlation insights
+    5. **Alpha Proof** - Selection Alpha, Overlay Alpha, and Risk-Off Alpha breakdown
+    6. **Top Movers** - Biggest WaveScore changes during the period
+    7. **Appendix** - Data timestamps and system metadata
+    """)
+    
+    st.divider()
+    
+    # Check if reportlab is available
+    try:
+        import reportlab
+        reportlab_available = True
+    except ImportError:
+        reportlab_available = False
+    
+    if not reportlab_available:
+        st.error("❌ Download not available.")
+        st.warning("The `reportlab` library is required for PDF generation but is not installed.")
+        st.info("Please install reportlab to enable PDF downloads: `pip install reportlab`")
+        return
+    
+    # Download button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        if st.button("📥 Download PDF Report", type="primary", use_container_width=True):
+            with st.spinner("Generating Board Pack PDF..."):
+                try:
+                    pdf_bytes = generate_board_pack_pdf()
+                    
+                    if pdf_bytes is None:
+                        st.error("❌ Report generation unavailable.")
+                        st.warning("Unable to generate PDF report. Please check system configuration.")
+                    else:
+                        # Generate filename
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"WAVES_Board_Pack_{timestamp}.pdf"
+                        
+                        # Provide download
+                        st.download_button(
+                            label="💾 Download PDF",
+                            data=pdf_bytes,
+                            file_name=filename,
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        
+                        st.success("✅ PDF generated successfully! Click 'Download PDF' above to save.")
+                        
+                except Exception as e:
+                    st.error("❌ Report generation unavailable.")
+                    st.warning(f"An error occurred while generating the report: {str(e)}")
+                    st.info("The application continues to function normally. Other tabs remain accessible.")
+    
+    st.divider()
+    
+    # Preview section
+    st.subheader("📋 Report Preview")
+    st.write("The PDF report will contain the following sections based on current data:")
+    
+    # Show preview of what will be in the report
+    with st.expander("🎯 Mission Control Snapshot", expanded=False):
+        mc_data = get_mission_control_data()
+        if mc_data:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Market Regime", mc_data.get('market_regime', 'unknown'))
+                st.metric("30-Day Alpha", mc_data.get('alpha_30day', 'unknown'))
+                st.metric("Total Waves", mc_data.get('total_waves', 0))
+            with col_b:
+                st.metric("VIX Gate Status", mc_data.get('vix_gate_status', 'unknown'))
+                st.metric("WaveScore Leader", mc_data.get('wavescore_leader', 'unknown'))
+                st.metric("System Status", mc_data.get('system_status', 'unknown'))
+        else:
+            st.info("Data unavailable")
+    
+    with st.expander("🏆 WaveScore Leaderboard", expanded=False):
+        waves = get_available_waves()
+        if waves:
+            leaderboard_data = []
+            for wave_name in waves[:5]:  # Top 5
+                wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                if wave_data is not None and len(wave_data) > 0:
+                    wavescore = calculate_wavescore(wave_data)
+                    leaderboard_data.append({
+                        'Wave': wave_name,
+                        'WaveScore': f"{wavescore:.1f}"
+                    })
+            
+            if leaderboard_data:
+                st.dataframe(pd.DataFrame(leaderboard_data), use_container_width=True, hide_index=True)
+            else:
+                st.info("No leaderboard data available")
+        else:
+            st.info("No waves available")
+    
+    with st.expander("📊 Performance Metrics", expanded=False):
+        waves = get_available_waves()
+        if waves:
+            sample_wave = waves[0]
+            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            if wave_data is not None:
+                metrics = calculate_wave_metrics(wave_data)
+                col_c, col_d = st.columns(2)
+                with col_c:
+                    volatility = metrics.get('volatility', 'N/A')
+                    vol_str = f"{volatility*100:.2f}%" if isinstance(volatility, (int, float)) else 'N/A'
+                    st.metric("Volatility (30d)", vol_str)
+                    
+                    sharpe = metrics.get('sharpe_ratio', 'N/A')
+                    sharpe_str = f"{sharpe:.2f}" if isinstance(sharpe, (int, float)) else 'N/A'
+                    st.metric("Sharpe Ratio", sharpe_str)
+                with col_d:
+                    drawdown = metrics.get('max_drawdown', 'N/A')
+                    dd_str = f"{drawdown*100:.2f}%" if isinstance(drawdown, (int, float)) else 'N/A'
+                    st.metric("Max Drawdown", dd_str)
+                    
+                    win_rate = metrics.get('win_rate', 'N/A')
+                    wr_str = f"{win_rate*100:.2f}%" if isinstance(win_rate, (int, float)) else 'N/A'
+                    st.metric("Win Rate", wr_str)
+            else:
+                st.info("Metrics data unavailable")
+        else:
+            st.info("No waves available")
+    
+    st.divider()
+    
+    # Footer
+    st.markdown("---")
+    st.caption("Board Pack report generation uses live data streams from the Institutional Console.")
+
+
 # ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
@@ -4469,7 +4902,7 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution"])
+    analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution", "Board Pack"])
     
     with analytics_tabs[0]:
         render_executive_tab()
@@ -4488,6 +4921,9 @@ def main():
     
     with analytics_tabs[5]:
         render_attribution_tab()
+    
+    with analytics_tabs[6]:
+        render_board_pack_tab()
 
 
 # Run the application
