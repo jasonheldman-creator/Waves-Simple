@@ -2748,7 +2748,9 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, bm_dis
         st.markdown(f"**Alpha Classification:** {v.get('classification', '—')}")
     with col2:
         st.markdown(f"**Benchmark:** {bm_display}")
-        st.caption(f"Internal ID: {bm_id}")
+        with st.expander("🔍 Benchmark ID (Technical)", expanded=False):
+            st.caption(f"Internal ID: `{bm_id}`")
+            st.caption("Used for governance drift detection and audit tracking")
     st.markdown("</div>", unsafe_allow_html=True)
     
     # === 3. Why this verdict? ===
@@ -3109,7 +3111,6 @@ with tabs[0]:
         st.markdown("#### Summary Metrics")
         st.write(f"**Confidence:** {conf_level}")
         st.write(f"**Benchmark:** {bm_display}")
-        st.caption(f"Internal ID: {bm_id}")
         st.write(f"**Coverage Score:** {fmt_num(cov.get('completeness_score'),1)}/100")
         st.write(f"**Data Age:** {fmt_int(cov.get('age_days'))} days")
         st.write(f"**Analytics WaveScore:** {fmt_num(sel_score.get('AnalyticsScore'),1)}/100")
@@ -3118,6 +3119,9 @@ with tabs[0]:
         st.write(f"**60D Alpha:** {fmt_pct(metrics['a60'])}")
         st.write(f"**Tracking Error:** {fmt_pct(metrics['te'])} ({te_band})")
         st.write(f"**Max Drawdown:** {fmt_pct(metrics['mdd'])}")
+        
+        with st.expander("🔍 Technical IDs", expanded=False):
+            st.caption(f"Benchmark ID: `{bm_id}`")
 
 
 # ============================================================
@@ -3131,7 +3135,7 @@ with tabs[1]:
     c1, c2 = st.columns(2, gap="medium")
     with c1:
         tile("Confidence", conf_level, conf_reason)
-        tile("Benchmark", bm_display, f"Internal ID: {bm_id}")
+        tile("Benchmark", bm_display, f"Status: {bm_drift.capitalize()}")
         tile("30D Alpha", fmt_pct(metrics["a30"]), f"30D Return {fmt_pct(metrics['r30'])}")
     with c2:
         tile("Analytics WaveScore", f"{fmt_num(sel_score.get('AnalyticsScore'),1)}/100", f"{sel_score.get('Grade', 'N/A')} {sel_score.get('Flags','')}")
@@ -3153,9 +3157,12 @@ with tabs[1]:
     st.markdown("#### Trust + Governance (Detailed)")
     st.write(f"**Confidence:** {conf_level} — {conf_reason}")
     st.write(f"**Benchmark Snapshot:** {bm_display}")
-    st.caption(f"Internal ID: {bm_id} · Drift: {bm_drift}")
+    st.write(f"**Drift Status:** {bm_drift.capitalize()}")
     st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
     st.caption("Beta derivation: regression slope of Wave daily returns vs Benchmark daily returns, with R² measuring fit quality (architectural governance metric).")
+    
+    with st.expander("🔍 Technical IDs", expanded=False):
+        st.caption(f"Benchmark ID: `{bm_id}` (used for governance drift detection)")
     st.markdown("</div>", unsafe_allow_html=True)
     
     # Vector Referee (moved from IC Summary)
@@ -3376,12 +3383,14 @@ with tabs[4]:
         st.markdown('<div class="waves-card">', unsafe_allow_html=True)
         st.markdown("#### Inspector Summary")
         st.write(f"**Snapshot:** {bm_display}")
-        st.caption(f"Internal ID: {bm_id}")
-        st.write(f"**Drift Status:** {bm_drift}")
+        st.write(f"**Drift Status:** {bm_drift.capitalize()}")
         st.write(f"**Active Risk Band (TE):** {te_band} (TE {fmt_pct(metrics['te'])})")
         st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} tgt {fmt_num(beta_target,2)}")
         st.write(f"**Difficulty vs SPY (proxy):** {fmt_num(difficulty.get('difficulty_vs_spy'), 1)} (range ~ -25 to +25)")
         st.caption("Difficulty is a concentration/diversification heuristic (not a promise).")
+        
+        with st.expander("🔍 Technical IDs", expanded=False):
+            st.caption(f"Benchmark ID: `{bm_id}` (governance tracking)")
         st.markdown("</div>", unsafe_allow_html=True)
 
         if bm_rows_now is not None and not bm_rows_now.empty:
