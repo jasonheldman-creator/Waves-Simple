@@ -2331,7 +2331,7 @@ def _vector_referee_verdict_block(
     st.markdown("#### Assumptions Tested by Vector")
     checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
     for label, passes, note in checks:
-        icon = "✅" if passes else "❌"
+        icon = "✓" if passes else "◆"
         st.write(f"{icon} **{label}** — {note}")
 
     st.markdown("#### What Vector Would Flag if This Were Failing")
@@ -2553,13 +2553,13 @@ def build_final_verdict(
         amber_triggers += 1
 
     if red_triggers >= 2:
-        verdict = "RED — Not governance-ready"
+        verdict = "REVIEW REQUIRED — Stabilization recommended"
         action = "Stabilize benchmark + resolve data integrity issues; architectural refinement required before presenting as governance-ready."
     elif red_triggers == 1 or amber_triggers >= 2:
-        verdict = "AMBER — Demo with caveats"
-        action = "Proceed with disclosure of warnings; use Referee + Truth Layer for context vs control transparency."
+        verdict = "ADVISORY — Proceed with disclosure"
+        action = "Proceed with disclosure of advisories; use Referee + Truth Layer for context vs control transparency."
     else:
-        verdict = "GREEN — Governance-ready (stable)"
+        verdict = "STABLE — Governance-ready"
         action = "Proceed; use comparator + snapshot for positioning (predictable governance framework)."
 
     return {
@@ -2582,7 +2582,7 @@ def extract_verdict_drivers(v: Dict[str, Any], metrics: Dict[str, Any], cov: Dic
     """
     drivers = []
     
-    # Check RED triggers (most important)
+    # Check review-required triggers (most important)
     if v.get("red_triggers", 0) >= 2:
         if str(bm_drift).lower().strip() != "stable":
             drivers.append("Benchmark drift detected — requires freeze for governance stability")
@@ -2602,7 +2602,7 @@ def extract_verdict_drivers(v: Dict[str, Any], metrics: Dict[str, Any], cov: Dic
         if math.isfinite(beta_score) and beta_score < 65:
             drivers.append(f"Low beta reliability ({fmt_num(beta_score,1)}/100) questions benchmark fit")
     
-    # Check AMBER triggers
+    # Check advisory triggers
     elif v.get("amber_triggers", 0) >= 2 or v.get("red_triggers", 0) == 1:
         cov_score = safe_float(cov.get("completeness_score"))
         if math.isfinite(cov_score) and 75 <= cov_score < 85:
@@ -2619,7 +2619,7 @@ def extract_verdict_drivers(v: Dict[str, Any], metrics: Dict[str, Any], cov: Dic
         if math.isfinite(beta_score) and 65 <= beta_score < 75:
             drivers.append(f"Moderate beta reliability ({fmt_num(beta_score,1)}/100) — verify benchmark fit")
     
-    # GREEN - highlight strengths
+    # STABLE - highlight strengths
     else:
         cov_score = safe_float(cov.get("completeness_score"))
         if math.isfinite(cov_score) and cov_score >= 85:
@@ -2649,7 +2649,7 @@ def extract_action_checklist(v: Dict[str, Any], metrics: Dict[str, Any], cov: Di
     
     verdict_str = str(v.get("verdict", "")).upper()
     
-    if "RED" in verdict_str:
+    if "REVIEW REQUIRED" in verdict_str:
         # Critical actions first
         if str(bm_drift).lower().strip() != "stable":
             actions.append("Freeze benchmark composition immediately")
@@ -2668,18 +2668,18 @@ def extract_action_checklist(v: Dict[str, Any], metrics: Dict[str, Any], cov: Di
         
         actions.append("Flag outputs as NOT governance-ready in any client reports")
         
-    elif "AMBER" in verdict_str:
+    elif "ADVISORY" in verdict_str:
         # Caution actions
-        actions.append("Disclose limitations and warnings in any client presentations")
+        actions.append("Disclose limitations and advisories in any client presentations")
         
         if str(bm_drift).lower().strip() != "stable":
             actions.append("Freeze benchmark for consistency checks")
         
         actions.append("Use Vector Referee and Truth Layer to validate analytics")
         actions.append("Monitor data freshness and coverage metrics")
-        actions.append("Prepare to escalate to RED if conditions worsen")
+        actions.append("Prepare to escalate to Review Required status if conditions worsen")
         
-    else:  # GREEN
+    else:  # STABLE
         # Positive governance actions
         actions.append("Proceed with confidence — governance checks passed")
         actions.append("Use Comparator to position wave relative to alternatives")
@@ -2713,21 +2713,21 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, bm_dis
     # === 1. Executive Verdict Badge ===
     verdict_str = str(v.get("verdict", "—"))
     verdict_color = "green"
-    verdict_short = "GREEN"
+    verdict_short = "STABLE"
     verdict_subtitle = "Governance-ready"
     
-    if "RED" in verdict_str.upper():
+    if "REVIEW REQUIRED" in verdict_str.upper():
         verdict_color = "red"
-        verdict_short = "RED"
-        verdict_subtitle = "Not governance-ready"
-    elif "AMBER" in verdict_str.upper():
+        verdict_short = "REVIEW REQUIRED"
+        verdict_subtitle = "Stabilization recommended"
+    elif "ADVISORY" in verdict_str.upper():
         verdict_color = "amber"
-        verdict_short = "AMBER"
-        verdict_subtitle = "Demo with caveats"
+        verdict_short = "ADVISORY"
+        verdict_subtitle = "Proceed with disclosure"
     else:
         verdict_color = "green"
-        verdict_short = "GREEN"
-        verdict_subtitle = "Governance-ready (stable)"
+        verdict_short = "STABLE"
+        verdict_subtitle = "Governance-ready"
     
     st.markdown(
         f"""
@@ -2815,7 +2815,7 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, bm_dis
     
     # === 6. Data Integrity / Assumptions (Collapsible) ===
     with st.expander("📊 Data Integrity & Assumptions", expanded=False):
-        st.caption("Governance assumptions tested on every refresh. These are rule-based validations, not opinions.")
+        st.caption("Governance assumptions tested on every refresh. These are rule-based architectural validations, not opinions.")
         
         # Get current timestamp and environment
         now = datetime.now()
@@ -2841,7 +2841,7 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, bm_dis
         # Assumptions checklist
         checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
         for label, passes, note in checks:
-            st.write(f"{'✅' if passes else '❌'} **{label}** — {note}")
+            st.write(f"{'✓' if passes else '◆'} **{label}** — {note}")
         
         # Coverage details
         st.markdown("---")
@@ -2864,7 +2864,7 @@ def render_assumptions_panel(bm_drift: str, beta_score: float):
         st.caption("Deterministic governance checks. These are *not* opinions; they’re rule-based assumptions validation.")
         checks = _assumption_checklist(bm_drift=bm_drift, beta_score=beta_score)
         for label, passes, note in checks:
-            st.write(f"{'✅' if passes else '❌'} **{label}** — {note}")
+            st.write(f"{'✓' if passes else '◆'} **{label}** — {note}")
         render_definitions(["Assumptions Tested"], title="Definitions (Assumptions)")
 
 
@@ -2880,25 +2880,25 @@ def render_gating_warnings(g: Dict[str, List[str]]):
 
     if crits:
         st.markdown('<div class="vector-crit">', unsafe_allow_html=True)
-        st.markdown("**Gating Warnings — Critical (Vector™):**")
+        st.markdown("**Architectural Flags — Governance Oversight (Vector™):**")
         for w in crits[:6]:
             st.write("• " + w)
         st.markdown("</div>", unsafe_allow_html=True)
 
     if warns:
         st.markdown('<div class="vector-warn">', unsafe_allow_html=True)
-        st.markdown("**Gating Warnings — Caution (Vector™):**")
+        st.markdown("**Advisory Signals — Context Awareness (Vector™):**")
         for w in warns[:6]:
             st.write("• " + w)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with st.expander("What are gating warnings?"):
+    with st.expander("What are architectural flags and advisory signals?"):
         st.write(
-            "These are governance checks providing stable system-feedback (flexible onboarding). They do not block the app. "
-            "They indicate whether analytics are governance-ready, and what architectural elements need stabilization "
-            "(benchmark drift, stale data, missing days, short history, benchmark fit). Context vs control via predictable signals."
+            "These are governance-native oversight checks providing stable system-feedback (flexible onboarding). They do not block the app. "
+            "They indicate whether analytics are governance-ready, and what architectural elements merit attention "
+            "(benchmark stability, data freshness, coverage completeness, history depth, benchmark alignment). Context-aware guidance via predictable signals."
         )
-        render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
+        render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Governance Signals)")
 
 
 # ============================================================
