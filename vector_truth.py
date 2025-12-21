@@ -112,6 +112,8 @@ class VectorTruthReport:
     reconciliation: VectorAlphaReconciliation
     regime: VectorRegimeAttribution
     durability: VectorDurabilityScan
+    benchmark_snapshot_id: Optional[str] = None
+    benchmark_drift_status: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -389,6 +391,8 @@ def build_vector_truth_report(
     overlay_contribution: Optional[float] = None,
     vix_contribution: Optional[float] = None,
     smartsafe_contribution: Optional[float] = None,
+    benchmark_snapshot_id: Optional[str] = None,
+    benchmark_drift_status: Optional[str] = None,
 ) -> VectorTruthReport:
     """
     Main entry point.
@@ -458,6 +462,8 @@ def build_vector_truth_report(
         reconciliation=recon,
         regime=regime,
         durability=durability,
+        benchmark_snapshot_id=benchmark_snapshot_id,
+        benchmark_drift_status=benchmark_drift_status,
     )
 
 
@@ -492,10 +498,27 @@ def format_vector_truth_markdown(report: VectorTruthReport) -> str:
             known_structural += s.benchmark_construction_effect
         residual_excess = s.total_excess_return - known_structural
 
+    # Governance banner and non-reported metrics are intentional trust signals.
+    # Do not remove without architectural review.
+    
+    # Extract benchmark info from report or use defaults
+    snapshot_id = report.benchmark_snapshot_id if report.benchmark_snapshot_id else "N/A"
+    drift_status = report.benchmark_drift_status if report.benchmark_drift_status else "Stable"
+    
     md = f"""
 ### Vector™ Truth Layer — {report.wave_name} ({report.timeframe_label})
 
+> **Governance Notice:**  
+> Vector™ Truth provides governance-grade attribution and reliability signals.  
+> It does not predict future performance or isolate single-factor causality.
+
 **VECTOR TRUTH — EXCESS RETURN DECOMPOSITION**
+
+**Benchmark Snapshot Context:**
+- **Benchmark:** Governed Composite (fixed)
+- **Snapshot ID:** {snapshot_id}
+- **Window:** 365D
+- **Drift Status:** {drift_status.capitalize()}
 
 **A. Total Excess Return:**
 - **{_pct(s.total_excess_return)}**
@@ -562,6 +585,11 @@ def render_vector_truth_alpha_attribution(report: VectorTruthReport) -> str:
 **Vector Assessment:** {s.assessment}
 
 *Note: N/A values indicate insufficient data series for that component. This decomposition provides insight where sufficient resolution exists.*
+
+---
+
+**Pure Selection Alpha (Net of Exposure Path): Not Reported**  
+*Requires assumptions this system explicitly does not make.*
 """.strip()
     
     return md
