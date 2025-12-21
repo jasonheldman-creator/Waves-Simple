@@ -1,14 +1,16 @@
 """
-Institutional Console v2 - Massive Rebuild
-Clean refactor with Executive Layer
+Institutional Console v2 - Executive Layer v2
+Full implementation with advanced analytics and visualization
 
 Modular structure:
 1. Configuration and styling
 2. Utility functions  
 3. Safe data-loading helpers
-4. Reusable UI components
-5. Render functions for tabs and analytics
-6. Main entry point
+4. Data processing and calculation functions
+5. Visualization components
+6. Reusable UI components
+7. Render functions for tabs and analytics
+8. Main entry point
 """
 
 import streamlit as st
@@ -17,12 +19,15 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 # ============================================================================
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
 
-st.set_page_config(page_title="Institutional Console", layout="wide")
+st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
 
 # ============================================================================
@@ -70,6 +75,12 @@ def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
     Returns a score between 0 and 100.
+    
+    WaveScore formula:
+    - Base score: 50
+    - Add points for cumulative alpha (1000x multiplier)
+    - Adjust for consistency (reduce score for high volatility)
+    - Clamp to 0-100 range
     """
     try:
         if wave_data is None or len(wave_data) == 0:
@@ -81,9 +92,18 @@ def calculate_wavescore(wave_data):
         # Calculate cumulative alpha
         cumulative_alpha = wave_data['alpha'].sum()
         
+        # Base score calculation
+        base_score = (cumulative_alpha * 1000) + 50
+        
+        # Consistency adjustment: penalize high volatility
+        alpha_std = wave_data['alpha'].std()
+        if alpha_std > 0:
+            # Reduce score if volatility is high relative to returns
+            consistency_penalty = min(10, alpha_std * 200)
+            base_score -= consistency_penalty
+        
         # Normalize to 0-100 range
-        # Using heuristic: alpha * 1000 + 50, clamped to 0-100
-        wavescore = min(100, max(0, (cumulative_alpha * 1000) + 50))
+        wavescore = min(100, max(0, base_score))
         
         return wavescore
     except Exception:
@@ -331,13 +351,352 @@ def get_wave_data_filtered(wave_name=None, days=30):
 
 
 # ============================================================================
-# SECTION 4: DATA PROCESSING FUNCTIONS
+# SECTION 4: VISUALIZATION FUNCTIONS
+# ============================================================================
+
+def create_wavescore_bar_chart(leaderboard_df):
+    """
+    Create a horizontal bar chart for WaveScore leaderboard.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if leaderboard_df is None or len(leaderboard_df) == 0:
+            return None
+        
+        # Create horizontal bar chart
+        fig = go.Figure()
+        
+        # Add bars with color gradient based on score
+        fig.add_trace(go.Bar(
+            y=leaderboard_df['Wave'],
+            x=leaderboard_df['WaveScore'],
+            orientation='h',
+            marker=dict(
+                color=leaderboard_df['WaveScore'],
+                colorscale='RdYlGn',
+                showscale=True,
+                colorbar=dict(title="WaveScore")
+            ),
+            text=leaderboard_df['WaveScore'].apply(lambda x: f"{x:.1f}"),
+            textposition='auto',
+            hovertemplate='<b>%{y}</b><br>WaveScore: %{x:.1f}<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title="Top Performers by WaveScore",
+            xaxis_title="WaveScore",
+            yaxis_title="Wave",
+            height=400,
+            showlegend=False,
+            yaxis={'categoryorder': 'total ascending'}
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_movers_chart(movers_df):
+    """
+    Create a waterfall chart showing biggest WaveScore movers.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if movers_df is None or len(movers_df) == 0:
+            return None
+        
+        # Create bar chart with color coding for positive/negative changes
+        fig = go.Figure()
+        
+        colors = ['green' if x > 0 else 'red' for x in movers_df['Change']]
+        
+        fig.add_trace(go.Bar(
+            x=movers_df['Wave'],
+            y=movers_df['Change'],
+            marker_color=colors,
+            text=movers_df['Change'].apply(lambda x: f"{x:+.1f}"),
+            textposition='outside',
+            hovertemplate='<b>%{x}</b><br>Change: %{y:+.1f}<br>Previous: %{customdata[0]:.1f}<br>Current: %{customdata[1]:.1f}<extra></extra>',
+            customdata=movers_df[['Previous', 'Current']].values
+        ))
+        
+        fig.update_layout(
+            title="Biggest WaveScore Movers (Month-over-Month)",
+            xaxis_title="Wave",
+            yaxis_title="WaveScore Change",
+            height=400,
+            showlegend=False
+        )
+        
+        fig.update_xaxes(tickangle=-45)
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_wave_performance_chart(wave_data, wave_name):
+    """
+    Create a multi-panel chart showing wave performance over time.
+    Includes cumulative returns, alpha, and drawdown.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave_data is None or len(wave_data) == 0:
+            return None
+        
+        if 'date' not in wave_data.columns:
+            return None
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=(
+                'Cumulative Returns',
+                'Daily Alpha',
+                'Drawdown'
+            ),
+            vertical_spacing=0.1,
+            row_heights=[0.4, 0.3, 0.3]
+        )
+        
+        # Calculate metrics
+        if 'portfolio_return' in wave_data.columns:
+            cumulative_returns = (1 + wave_data['portfolio_return']).cumprod() - 1
+            
+            # Panel 1: Cumulative returns
+            fig.add_trace(
+                go.Scatter(
+                    x=wave_data['date'],
+                    y=cumulative_returns * 100,
+                    mode='lines',
+                    name='Portfolio',
+                    line=dict(color='blue', width=2),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2f}%<extra></extra>'
+                ),
+                row=1, col=1
+            )
+            
+            if 'benchmark_return' in wave_data.columns:
+                cumulative_benchmark = (1 + wave_data['benchmark_return']).cumprod() - 1
+                fig.add_trace(
+                    go.Scatter(
+                        x=wave_data['date'],
+                        y=cumulative_benchmark * 100,
+                        mode='lines',
+                        name='Benchmark',
+                        line=dict(color='gray', width=2, dash='dash'),
+                        hovertemplate='%{x|%Y-%m-%d}<br>Return: %{y:.2f}%<extra></extra>'
+                    ),
+                    row=1, col=1
+                )
+        
+        # Panel 2: Daily alpha
+        if 'alpha' in wave_data.columns or ('portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns):
+            if 'alpha' not in wave_data.columns:
+                wave_data = wave_data.copy()
+                wave_data['alpha'] = wave_data['portfolio_return'] - wave_data['benchmark_return']
+            
+            colors = ['green' if x > 0 else 'red' for x in wave_data['alpha']]
+            
+            fig.add_trace(
+                go.Bar(
+                    x=wave_data['date'],
+                    y=wave_data['alpha'] * 100,
+                    name='Alpha',
+                    marker_color=colors,
+                    hovertemplate='%{x|%Y-%m-%d}<br>Alpha: %{y:.3f}%<extra></extra>'
+                ),
+                row=2, col=1
+            )
+        
+        # Panel 3: Drawdown
+        if 'portfolio_return' in wave_data.columns:
+            cumulative_returns = (1 + wave_data['portfolio_return']).cumprod()
+            running_max = cumulative_returns.cummax()
+            drawdown = (cumulative_returns - running_max) / running_max
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=wave_data['date'],
+                    y=drawdown * 100,
+                    mode='lines',
+                    name='Drawdown',
+                    fill='tozeroy',
+                    line=dict(color='red', width=2),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Drawdown: %{y:.2f}%<extra></extra>'
+                ),
+                row=3, col=1
+            )
+        
+        # Update layout
+        fig.update_yaxes(title_text="Cumulative Return (%)", row=1, col=1)
+        fig.update_yaxes(title_text="Alpha (%)", row=2, col=1)
+        fig.update_yaxes(title_text="Drawdown (%)", row=3, col=1)
+        fig.update_xaxes(title_text="Date", row=3, col=1)
+        
+        fig.update_layout(
+            title=f"Performance Analysis: {wave_name}",
+            height=800,
+            showlegend=True,
+            hovermode='x unified'
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_comparison_radar_chart(wave1_metrics, wave2_metrics):
+    """
+    Create a radar chart comparing two waves across multiple dimensions.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave1_metrics is None or wave2_metrics is None:
+            return None
+        
+        # Define metrics for comparison (normalized to 0-100 scale)
+        categories = []
+        wave1_values = []
+        wave2_values = []
+        
+        # WaveScore (already 0-100)
+        if wave1_metrics['wavescore'] != 'N/A' and wave2_metrics['wavescore'] != 'N/A':
+            categories.append('WaveScore')
+            wave1_values.append(wave1_metrics['wavescore'])
+            wave2_values.append(wave2_metrics['wavescore'])
+        
+        # Sharpe Ratio (normalize: assume range -2 to 4, map to 0-100)
+        if wave1_metrics['sharpe_ratio'] != 'N/A' and wave2_metrics['sharpe_ratio'] != 'N/A':
+            categories.append('Sharpe Ratio')
+            wave1_values.append(min(100, max(0, (wave1_metrics['sharpe_ratio'] + 2) * 100 / 6)))
+            wave2_values.append(min(100, max(0, (wave2_metrics['sharpe_ratio'] + 2) * 100 / 6)))
+        
+        # Win Rate (already percentage, scale to 0-100)
+        if wave1_metrics['win_rate'] != 'N/A' and wave2_metrics['win_rate'] != 'N/A':
+            categories.append('Win Rate')
+            wave1_values.append(wave1_metrics['win_rate'] * 100)
+            wave2_values.append(wave2_metrics['win_rate'] * 100)
+        
+        # Returns (normalize to 0-100, assuming -20% to +20% range)
+        if wave1_metrics['cumulative_return'] != 'N/A' and wave2_metrics['cumulative_return'] != 'N/A':
+            categories.append('Returns')
+            wave1_values.append(min(100, max(0, (wave1_metrics['cumulative_return'] + 0.2) * 100 / 0.4)))
+            wave2_values.append(min(100, max(0, (wave2_metrics['cumulative_return'] + 0.2) * 100 / 0.4)))
+        
+        # Risk Control (inverse of max drawdown, normalize)
+        if wave1_metrics['max_drawdown'] != 'N/A' and wave2_metrics['max_drawdown'] != 'N/A':
+            categories.append('Risk Control')
+            # Less negative drawdown is better, convert to 0-100 scale
+            wave1_values.append(min(100, max(0, (1 + wave1_metrics['max_drawdown']) * 100)))
+            wave2_values.append(min(100, max(0, (1 + wave2_metrics['max_drawdown']) * 100)))
+        
+        if len(categories) == 0:
+            return None
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=wave1_values,
+            theta=categories,
+            fill='toself',
+            name=wave1_metrics['name'],
+            line=dict(color='blue')
+        ))
+        
+        fig.add_trace(go.Scatterpolar(
+            r=wave2_values,
+            theta=categories,
+            fill='toself',
+            name=wave2_metrics['name'],
+            line=dict(color='red')
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100]
+                )
+            ),
+            title="Multi-Dimensional Comparison",
+            height=500,
+            showlegend=True
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+def create_correlation_heatmap(wave1_data, wave2_data, wave1_name, wave2_name):
+    """
+    Create a correlation matrix heatmap for two waves.
+    Returns a Plotly figure or None if data unavailable.
+    """
+    try:
+        if wave1_data is None or wave2_data is None:
+            return None
+        
+        if 'date' not in wave1_data.columns or 'date' not in wave2_data.columns:
+            return None
+        
+        if 'portfolio_return' not in wave1_data.columns or 'portfolio_return' not in wave2_data.columns:
+            return None
+        
+        # Merge data on date
+        wave1_returns = wave1_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': wave1_name})
+        wave2_returns = wave2_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': wave2_name})
+        
+        merged = pd.merge(wave1_returns, wave2_returns, on='date', how='inner')
+        
+        if len(merged) < 2:
+            return None
+        
+        # Calculate correlation matrix
+        corr_matrix = merged[[wave1_name, wave2_name]].corr()
+        
+        # Create heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=corr_matrix.values,
+            x=corr_matrix.columns,
+            y=corr_matrix.index,
+            colorscale='RdBu',
+            zmid=0,
+            zmin=-1,
+            zmax=1,
+            text=corr_matrix.values,
+            texttemplate='%{text:.3f}',
+            textfont={"size": 16},
+            colorbar=dict(title="Correlation")
+        ))
+        
+        fig.update_layout(
+            title="Return Correlation Matrix",
+            height=400,
+            width=500
+        )
+        
+        return fig
+        
+    except Exception:
+        return None
+
+
+# ============================================================================
+# SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
 
 def get_mission_control_data():
     """
     Retrieve Mission Control metrics from available data.
     Returns dict with all metrics, using 'unknown' for unavailable data.
+    Enhanced with additional system health indicators.
     """
     mc_data = {
         'market_regime': 'unknown',
@@ -347,13 +706,17 @@ def get_mission_control_data():
         'wavescore_leader': 'unknown',
         'wavescore_leader_score': 'unknown',
         'data_freshness': 'unknown',
-        'data_age_days': None
+        'data_age_days': None,
+        'total_waves': 0,
+        'active_waves': 0,
+        'system_status': 'unknown'
     }
     
     try:
         df = safe_load_wave_history()
         
         if df is None:
+            mc_data['system_status'] = 'Data Unavailable'
             return mc_data
         
         # Get latest date and data freshness
@@ -364,21 +727,55 @@ def get_mission_control_data():
         age_days = (datetime.now() - latest_date).days
         mc_data['data_age_days'] = age_days
         
+        # Count waves
+        if 'wave' in df.columns:
+            mc_data['total_waves'] = df['wave'].nunique()
+            
+            # Count active waves (with recent data)
+            recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
+            mc_data['active_waves'] = recent_data['wave'].nunique()
+        
+        # System status based on data age
+        if age_days <= 1:
+            mc_data['system_status'] = 'Excellent'
+        elif age_days <= 3:
+            mc_data['system_status'] = 'Good'
+        elif age_days <= 7:
+            mc_data['system_status'] = 'Fair'
+        else:
+            mc_data['system_status'] = 'Stale'
+        
         # Calculate Market Regime based on recent returns
         recent_days = 5
         recent_data = df[df['date'] >= (latest_date - timedelta(days=recent_days))]
         
         if 'portfolio_return' in df.columns and len(recent_data) > 0:
             avg_return = recent_data['portfolio_return'].mean()
-            if avg_return > 0.005:  # > 0.5% average
-                mc_data['market_regime'] = 'Risk-On'
-            elif avg_return < -0.005:  # < -0.5% average
-                mc_data['market_regime'] = 'Risk-Off'
+            volatility = recent_data['portfolio_return'].std()
+            
+            # Enhanced regime detection
+            if avg_return > 0.005:
+                if volatility < 0.015:
+                    mc_data['market_regime'] = 'Risk-On (Stable)'
+                else:
+                    mc_data['market_regime'] = 'Risk-On (Volatile)'
+            elif avg_return < -0.005:
+                if volatility > 0.02:
+                    mc_data['market_regime'] = 'Risk-Off (Volatile)'
+                else:
+                    mc_data['market_regime'] = 'Risk-Off (Stable)'
             else:
                 mc_data['market_regime'] = 'Neutral'
         
-        # VIX Gate Status - gracefully unavailable for now
-        mc_data['vix_gate_status'] = 'Unknown'
+        # VIX Gate Status estimation (based on volatility)
+        if 'portfolio_return' in df.columns and len(recent_data) > 0:
+            recent_vol = recent_data['portfolio_return'].std() * np.sqrt(252) * 100
+            if recent_vol < 15:
+                mc_data['vix_gate_status'] = 'GREEN (Low Vol)'
+            elif recent_vol < 25:
+                mc_data['vix_gate_status'] = 'YELLOW (Med Vol)'
+            else:
+                mc_data['vix_gate_status'] = 'RED (High Vol)'
         
         # Calculate Alpha metrics
         if 'portfolio_return' in df.columns and 'benchmark_return' in df.columns:
@@ -390,11 +787,11 @@ def get_mission_control_data():
                 alpha_today = today_data['alpha'].mean()
                 mc_data['alpha_today'] = f"{alpha_today*100:.2f}%"
             
-            # 30-day average alpha
+            # 30-day cumulative alpha
             days_30_ago = latest_date - timedelta(days=30)
             last_30_days = df[df['date'] >= days_30_ago]
             if len(last_30_days) > 0:
-                alpha_30day = last_30_days['alpha'].mean()
+                alpha_30day = last_30_days['alpha'].sum()
                 mc_data['alpha_30day'] = f"{alpha_30day*100:.2f}%"
         
         # WaveScore Leader
@@ -776,66 +1173,139 @@ def get_wave_comparison_data(wave1_name, wave2_name):
 
 
 # ============================================================================
-# SECTION 5: REUSABLE UI COMPONENTS
+# SECTION 6: REUSABLE UI COMPONENTS
 # ============================================================================
 
 def render_mission_control():
-    """Render the Mission Control summary strip at the top of the page."""
-    st.markdown("### 🎯 Mission Control")
+    """
+    Render the Mission Control summary strip at the top of the page.
+    Enhanced with additional system metrics and visual indicators.
+    """
+    st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
     mc_data = get_mission_control_data()
     
-    # Create 5 columns for the 5 tiles
+    # Top row: Primary metrics (5 columns)
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
+        regime_value = mc_data['market_regime']
+        # Add emoji indicators
+        if 'Risk-On' in regime_value:
+            regime_display = f"📈 {regime_value}"
+        elif 'Risk-Off' in regime_value:
+            regime_display = f"📉 {regime_value}"
+        else:
+            regime_display = f"➖ {regime_value}"
+        
         st.metric(
             label="Market Regime",
-            value=mc_data['market_regime'],
-            help="Current market regime based on recent portfolio performance"
+            value=regime_display,
+            help="Current market regime based on recent portfolio performance and volatility"
         )
     
     with col2:
+        vix_value = mc_data['vix_gate_status']
+        # Add color indicators
+        if 'GREEN' in vix_value:
+            vix_display = f"🟢 {vix_value}"
+        elif 'YELLOW' in vix_value:
+            vix_display = f"🟡 {vix_value}"
+        elif 'RED' in vix_value:
+            vix_display = f"🔴 {vix_value}"
+        else:
+            vix_display = vix_value
+        
         st.metric(
             label="VIX Gate Status",
-            value=mc_data['vix_gate_status'],
-            help="VIX-based gating status for risk management"
+            value=vix_display,
+            help="Volatility-based risk gate (Green=Low, Yellow=Medium, Red=High)"
         )
     
     with col3:
         st.markdown("**Alpha Captured**")
-        st.write(f"Today: {mc_data['alpha_today']}")
-        st.write(f"30-Day Avg: {mc_data['alpha_30day']}")
+        alpha_today_str = mc_data['alpha_today']
+        alpha_30day_str = mc_data['alpha_30day']
+        
+        # Add color coding if possible
+        try:
+            if alpha_today_str != 'unknown' and '%' in alpha_today_str:
+                alpha_today_val = float(alpha_today_str.replace('%', ''))
+                if alpha_today_val > 0:
+                    alpha_today_str = f"🟢 {alpha_today_str}"
+                elif alpha_today_val < 0:
+                    alpha_today_str = f"🔴 {alpha_today_str}"
+        except:
+            pass
+        
+        st.write(f"Latest: {alpha_today_str}")
+        st.write(f"30-Day: {alpha_30day_str}")
     
     with col4:
         st.markdown("**WaveScore Leader**")
         if mc_data['wavescore_leader'] != 'unknown':
             # Truncate long wave names
             wave_name_display = mc_data['wavescore_leader']
-            if len(wave_name_display) > 25:
-                wave_name_display = wave_name_display[:25] + "..."
-            st.write(wave_name_display)
+            if len(wave_name_display) > 20:
+                wave_name_display = wave_name_display[:20] + "..."
+            st.write(f"🏆 {wave_name_display}")
             st.write(f"Score: {mc_data['wavescore_leader_score']}")
         else:
-            st.write("Unknown")
+            st.write("No data")
     
     with col5:
-        freshness_label = "System Health"
+        system_status = mc_data['system_status']
         freshness_value = mc_data['data_freshness']
         
-        # Add indicator based on data age
-        if mc_data['data_age_days'] is not None:
-            if mc_data['data_age_days'] <= 2:
-                freshness_value = f"✅ {freshness_value}"
-            elif mc_data['data_age_days'] <= 7:
-                freshness_value = f"⚠️ {freshness_value}"
-            else:
-                freshness_value = f"❌ {freshness_value}"
+        # Add status indicator
+        if system_status == 'Excellent':
+            status_display = f"✅ {system_status}"
+        elif system_status == 'Good':
+            status_display = f"🟢 {system_status}"
+        elif system_status == 'Fair':
+            status_display = f"🟡 {system_status}"
+        else:
+            status_display = f"🔴 {system_status}"
         
         st.metric(
-            label=freshness_label,
-            value=freshness_value,
-            help="Last data update timestamp"
+            label="System Health",
+            value=status_display,
+            help=f"Data freshness: {freshness_value}"
+        )
+        st.caption(f"Data: {freshness_value}")
+    
+    # Bottom row: Secondary metrics (3 columns)
+    st.markdown("---")
+    
+    sec_col1, sec_col2, sec_col3 = st.columns(3)
+    
+    with sec_col1:
+        st.metric(
+            label="Total Waves",
+            value=mc_data.get('total_waves', 0),
+            help="Total number of waves in the system"
+        )
+    
+    with sec_col2:
+        st.metric(
+            label="Active Waves",
+            value=mc_data.get('active_waves', 0),
+            help="Waves with data in the last 7 days"
+        )
+    
+    with sec_col3:
+        data_age = mc_data.get('data_age_days')
+        if data_age is not None:
+            age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
+            if data_age == 0:
+                age_display = "Today"
+        else:
+            age_display = "Unknown"
+        
+        st.metric(
+            label="Data Age",
+            value=age_display,
+            help="Time since last data update"
         )
     
     st.divider()
@@ -873,74 +1343,166 @@ def render_sidebar_info():
 
 
 # ============================================================================
-# SECTION 6: TAB RENDER FUNCTIONS
+# SECTION 7: TAB RENDER FUNCTIONS
 # ============================================================================
 
 def render_executive_tab():
-    """Render the Executive tab with Leaderboard, Movers, and Alerts."""
-    st.header("📊 Executive Dashboard")
+    """
+    Render the Executive tab with enhanced visualizations.
+    Includes: Leaderboard, Movers, Alerts, and Performance Charts.
+    """
+    st.header("📊 Executive Dashboard - Command Center")
+    
+    # WaveScore Command Center Section
+    st.markdown("### 🎯 WaveScore Command Center")
     
     # Create two columns for Leaderboard and Movers
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🏆 WaveScore Leaderboard")
-        st.write("Top 10 Waves by 30-day performance")
+        st.markdown("#### 🏆 Top Performers")
         
         leaderboard = get_wavescore_leaderboard()
         if leaderboard is not None and len(leaderboard) > 0:
-            # Format the WaveScore column
-            leaderboard_display = leaderboard.copy()
-            leaderboard_display['WaveScore'] = leaderboard_display['WaveScore'].apply(lambda x: f"{x:.1f}")
-            st.dataframe(leaderboard_display, use_container_width=True, hide_index=True)
+            # Show interactive chart
+            chart = create_wavescore_bar_chart(leaderboard)
+            if chart is not None:
+                st.plotly_chart(chart, use_container_width=True)
+            
+            # Also show data table
+            with st.expander("View Data Table"):
+                leaderboard_display = leaderboard.copy()
+                leaderboard_display['WaveScore'] = leaderboard_display['WaveScore'].apply(lambda x: f"{x:.1f}")
+                st.dataframe(leaderboard_display, use_container_width=True, hide_index=True)
         else:
             st.info("Data unavailable")
     
     with col2:
-        st.subheader("📈 Biggest Movers")
-        st.write("Month-over-Month WaveScore changes")
+        st.markdown("#### 📈 Biggest Movers")
         
         movers = get_biggest_movers()
         if movers is not None and len(movers) > 0:
-            # Format the display
-            movers_display = movers.copy()
-            movers_display['Previous'] = movers_display['Previous'].apply(lambda x: f"{x:.1f}")
-            movers_display['Current'] = movers_display['Current'].apply(lambda x: f"{x:.1f}")
-            movers_display['Change'] = movers_display['Change'].apply(
-                lambda x: f"{'↑' if x > 0 else '↓'} {abs(x):.1f}"
-            )
-            st.dataframe(movers_display, use_container_width=True, hide_index=True)
+            # Show interactive chart
+            chart = create_movers_chart(movers)
+            if chart is not None:
+                st.plotly_chart(chart, use_container_width=True)
+            
+            # Also show data table
+            with st.expander("View Data Table"):
+                movers_display = movers.copy()
+                movers_display['Previous'] = movers_display['Previous'].apply(lambda x: f"{x:.1f}")
+                movers_display['Current'] = movers_display['Current'].apply(lambda x: f"{x:.1f}")
+                movers_display['Change'] = movers_display['Change'].apply(
+                    lambda x: f"{'↑' if x > 0 else '↓'} {abs(x):.1f}"
+                )
+                st.dataframe(movers_display, use_container_width=True, hide_index=True)
         else:
             st.info("Data unavailable")
     
     st.divider()
     
-    # Alerts section
-    st.subheader("🚨 System Alerts")
+    # Performance Deep Dive Section
+    st.markdown("### 📊 Performance Deep Dive")
+    st.write("Select a wave to view detailed performance charts")
+    
+    try:
+        waves = get_available_waves()
+        
+        if len(waves) > 0:
+            selected_wave = st.selectbox(
+                "Select Wave for Analysis",
+                options=waves,
+                help="Choose a wave to view detailed performance metrics and charts"
+            )
+            
+            if selected_wave:
+                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+                
+                if wave_data is not None:
+                    # Calculate and display key metrics in columns
+                    metrics = calculate_wave_metrics(wave_data)
+                    
+                    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                    
+                    with metric_col1:
+                        cum_ret = metrics.get('cumulative_return', 'N/A')
+                        if cum_ret != 'N/A':
+                            st.metric("30-Day Return", f"{cum_ret*100:.2f}%")
+                        else:
+                            st.metric("30-Day Return", "N/A")
+                    
+                    with metric_col2:
+                        cum_alpha = metrics.get('cumulative_alpha', 'N/A')
+                        if cum_alpha != 'N/A':
+                            st.metric("Cumulative Alpha", f"{cum_alpha*100:.2f}%")
+                        else:
+                            st.metric("Cumulative Alpha", "N/A")
+                    
+                    with metric_col3:
+                        wavescore = metrics.get('wavescore', 'N/A')
+                        if wavescore != 'N/A':
+                            st.metric("WaveScore", f"{wavescore:.1f}")
+                        else:
+                            st.metric("WaveScore", "N/A")
+                    
+                    with metric_col4:
+                        sharpe = metrics.get('sharpe_ratio', 'N/A')
+                        if sharpe != 'N/A':
+                            st.metric("Sharpe Ratio", f"{sharpe:.2f}")
+                        else:
+                            st.metric("Sharpe Ratio", "N/A")
+                    
+                    # Display performance chart
+                    chart = create_wave_performance_chart(wave_data, selected_wave)
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info("Unable to generate performance chart")
+                else:
+                    st.warning(f"No data available for {selected_wave}")
+        else:
+            st.warning("No waves available for analysis")
+    
+    except Exception as e:
+        st.error(f"Error in performance deep dive: {str(e)}")
+    
+    st.divider()
+    
+    # System Alerts Section
+    st.markdown("### 🚨 System Alerts & Risk Signals")
     
     alerts = get_system_alerts()
     
     if alerts:
-        for alert in alerts:
-            severity = alert.get('severity', 'info')
-            message = alert.get('message', '')
-            
-            if severity == 'error':
-                st.error(f"❌ {message}")
-            elif severity == 'warning':
-                st.warning(f"⚠️ {message}")
-            elif severity == 'success':
-                st.success(f"✅ {message}")
-            else:
-                st.info(f"ℹ️ {message}")
+        # Group alerts by severity
+        errors = [a for a in alerts if a.get('severity') == 'error']
+        warnings = [a for a in alerts if a.get('severity') == 'warning']
+        successes = [a for a in alerts if a.get('severity') == 'success']
+        infos = [a for a in alerts if a.get('severity') == 'info']
+        
+        # Display in order of importance
+        for alert in errors:
+            st.error(f"❌ {alert.get('message', '')}")
+        
+        for alert in warnings:
+            st.warning(f"⚠️ {alert.get('message', '')}")
+        
+        for alert in successes:
+            st.success(f"✅ {alert.get('message', '')}")
+        
+        for alert in infos:
+            st.info(f"ℹ️ {alert.get('message', '')}")
     else:
         st.info("No alerts at this time")
 
 
 def render_vector_explain_panel():
-    """Render the Vector Explain panel for generating Wave narratives."""
-    st.subheader("📝 Vector Explain")
-    st.write("Generate an institutional narrative for a selected Wave")
+    """
+    Render the Vector Explain panel for generating Wave narratives.
+    Enhanced with performance visualization.
+    """
+    st.subheader("📝 Vector Explain - Narrative Generator")
+    st.write("Generate comprehensive institutional narratives with performance visualizations")
     
     try:
         waves = get_available_waves()
@@ -953,38 +1515,353 @@ def render_vector_explain_panel():
         selected_wave = st.selectbox(
             "Select Wave",
             options=waves,
+            key="narrative_wave_selector",
             help="Choose a wave to generate an institutional narrative"
         )
         
-        if st.button("Generate Narrative", type="primary"):
-            with st.spinner("Generating narrative..."):
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
-                narrative = generate_wave_narrative(selected_wave, wave_data)
-                
-                # Store in session state
-                st.session_state['current_narrative'] = narrative
+        # Time period selector
+        time_period = st.selectbox(
+            "Analysis Period",
+            options=[30, 60, 90],
+            format_func=lambda x: f"{x} days",
+            help="Select the time period for analysis"
+        )
         
-        # Display narrative if available
+        if st.button("Generate Narrative", type="primary"):
+            with st.spinner("Generating comprehensive narrative and analysis..."):
+                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
+                
+                if wave_data is not None:
+                    # Generate narrative
+                    narrative = generate_wave_narrative(selected_wave, wave_data)
+                    
+                    # Store in session state
+                    st.session_state['current_narrative'] = narrative
+                    st.session_state['current_narrative_wave'] = selected_wave
+                    st.session_state['current_narrative_data'] = wave_data
+                else:
+                    st.error(f"Unable to load data for {selected_wave}")
+                    return
+        
+        # Display narrative and visualization if available
         if 'current_narrative' in st.session_state:
             st.divider()
+            
+            # Display performance chart first
+            if 'current_narrative_data' in st.session_state and 'current_narrative_wave' in st.session_state:
+                chart = create_wave_performance_chart(
+                    st.session_state['current_narrative_data'],
+                    st.session_state['current_narrative_wave']
+                )
+                if chart is not None:
+                    st.plotly_chart(chart, use_container_width=True)
+            
+            st.divider()
+            
+            # Display narrative
             st.markdown(st.session_state['current_narrative'])
             
-            # Copy Summary button
+            # Export options
             st.divider()
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if st.button("📋 Copy Summary to Clipboard", use_container_width=True):
+            st.markdown("### 📤 Export Options")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📋 View as Text", use_container_width=True):
                     st.code(st.session_state['current_narrative'], language=None)
-                    st.success("Summary displayed above - use your browser to copy the text")
+                    st.success("Narrative displayed above - use your browser to copy")
+            
+            with col2:
+                # Download button
+                st.download_button(
+                    label="💾 Download Narrative",
+                    data=st.session_state['current_narrative'],
+                    file_name=f"wave_narrative_{st.session_state.get('current_narrative_wave', 'wave')}_{datetime.now().strftime('%Y%m%d')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
     
     except Exception as e:
         st.error(f"Error rendering Vector Explain panel: {str(e)}")
 
 
 def render_compare_waves_panel():
-    """Render the Compare Waves panel for head-to-head wave comparison."""
-    st.subheader("⚖️ Compare Waves")
-    st.write("Select two waves for head-to-head performance comparison")
+    """
+    Render the Compare Waves panel for head-to-head wave comparison.
+    Enhanced with radar chart and correlation visualization.
+    """
+    st.subheader("⚖️ Compare Waves - Head-to-Head Analysis")
+    st.write("Select two waves for comprehensive side-by-side performance comparison")
+    
+    try:
+        waves = get_available_waves()
+        
+        if len(waves) < 2:
+            st.warning("At least two waves required for comparison")
+            return
+        
+        # Wave selectors
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            wave1 = st.selectbox(
+                "Wave 1",
+                options=waves,
+                key="compare_wave1",
+                help="Select first wave for comparison"
+            )
+        
+        with col2:
+            # Filter out wave1 from wave2 options
+            wave2_options = [w for w in waves if w != wave1]
+            wave2 = st.selectbox(
+                "Wave 2",
+                options=wave2_options,
+                key="compare_wave2",
+                help="Select second wave for comparison"
+            )
+        
+        if st.button("🔍 Compare Waves", type="primary"):
+            with st.spinner("Generating comprehensive comparison analysis..."):
+                comparison_data = get_wave_comparison_data(wave1, wave2)
+                
+                if comparison_data is None:
+                    st.error("Unable to generate comparison - data unavailable")
+                    return
+                
+                # Store comparison data and raw wave data
+                st.session_state['comparison_data'] = comparison_data
+                st.session_state['comparison_wave1_data'] = get_wave_data_filtered(wave_name=wave1, days=30)
+                st.session_state['comparison_wave2_data'] = get_wave_data_filtered(wave_name=wave2, days=30)
+                st.session_state['comparison_wave1_name'] = wave1
+                st.session_state['comparison_wave2_name'] = wave2
+        
+        # Display comparison if available
+        if 'comparison_data' in st.session_state:
+            comp = st.session_state['comparison_data']
+            wave1_metrics = comp['wave1']
+            wave2_metrics = comp['wave2']
+            correlation = comp.get('correlation')
+            
+            st.divider()
+            
+            # Visual Comparison Section
+            st.markdown("### 📊 Visual Comparison")
+            
+            viz_col1, viz_col2 = st.columns(2)
+            
+            with viz_col1:
+                # Radar chart
+                radar_chart = create_comparison_radar_chart(wave1_metrics, wave2_metrics)
+                if radar_chart is not None:
+                    st.plotly_chart(radar_chart, use_container_width=True)
+                else:
+                    st.info("Radar chart unavailable")
+            
+            with viz_col2:
+                # Correlation heatmap
+                if 'comparison_wave1_data' in st.session_state and 'comparison_wave2_data' in st.session_state:
+                    heatmap = create_correlation_heatmap(
+                        st.session_state['comparison_wave1_data'],
+                        st.session_state['comparison_wave2_data'],
+                        st.session_state.get('comparison_wave1_name', 'Wave 1'),
+                        st.session_state.get('comparison_wave2_name', 'Wave 2')
+                    )
+                    if heatmap is not None:
+                        st.plotly_chart(heatmap, use_container_width=True)
+                    else:
+                        st.info("Correlation matrix unavailable")
+            
+            st.divider()
+            
+            # Metrics Table
+            st.markdown("### 📋 Detailed Metrics Comparison (30-Day)")
+            
+            # Helper function to format metric
+            def format_metric(value, metric_type='percent'):
+                if value == 'N/A':
+                    return 'N/A'
+                if metric_type == 'percent':
+                    return f"{value*100:.2f}%"
+                elif metric_type == 'score':
+                    return f"{value:.1f}"
+                elif metric_type == 'ratio':
+                    return f"{value:.2f}"
+                else:
+                    return f"{value:.4f}"
+            
+            # Build comparison table
+            comparison_rows = [
+                {
+                    'Metric': 'Cumulative Return',
+                    wave1_metrics['name']: format_metric(wave1_metrics['cumulative_return']),
+                    wave2_metrics['name']: format_metric(wave2_metrics['cumulative_return']),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('cumulative_return', 0) > wave2_metrics.get('cumulative_return', 0) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'Cumulative Alpha',
+                    wave1_metrics['name']: format_metric(wave1_metrics['cumulative_alpha']),
+                    wave2_metrics['name']: format_metric(wave2_metrics['cumulative_alpha']),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('cumulative_alpha', 0) > wave2_metrics.get('cumulative_alpha', 0) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'Volatility',
+                    wave1_metrics['name']: format_metric(wave1_metrics['volatility']),
+                    wave2_metrics['name']: format_metric(wave2_metrics['volatility']),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('volatility', float('inf')) < wave2_metrics.get('volatility', float('inf')) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'Max Drawdown',
+                    wave1_metrics['name']: format_metric(wave1_metrics['max_drawdown']),
+                    wave2_metrics['name']: format_metric(wave2_metrics['max_drawdown']),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('max_drawdown', float('-inf')) > wave2_metrics.get('max_drawdown', float('-inf')) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'WaveScore',
+                    wave1_metrics['name']: format_metric(wave1_metrics['wavescore'], 'score'),
+                    wave2_metrics['name']: format_metric(wave2_metrics['wavescore'], 'score'),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('wavescore', 0) > wave2_metrics.get('wavescore', 0) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'Sharpe Ratio',
+                    wave1_metrics['name']: format_metric(wave1_metrics['sharpe_ratio'], 'ratio'),
+                    wave2_metrics['name']: format_metric(wave2_metrics['sharpe_ratio'], 'ratio'),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('sharpe_ratio', float('-inf')) > wave2_metrics.get('sharpe_ratio', float('-inf')) else wave2_metrics['name']
+                },
+                {
+                    'Metric': 'Win Rate',
+                    wave1_metrics['name']: format_metric(wave1_metrics['win_rate']),
+                    wave2_metrics['name']: format_metric(wave2_metrics['win_rate']),
+                    'Winner': wave1_metrics['name'] if wave1_metrics.get('win_rate', 0) > wave2_metrics.get('win_rate', 0) else wave2_metrics['name']
+                }
+            ]
+            
+            # Display table
+            comparison_df = pd.DataFrame(comparison_rows)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            # Summary Analysis
+            st.markdown("### 🏆 Winner Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### Overall Winner")
+                winner, notes = determine_winner(wave1_metrics, wave2_metrics)
+                
+                if winner:
+                    if winner == "TIE":
+                        st.success(f"**{winner}**")
+                    else:
+                        st.success(f"🏆 **{winner}**")
+                    st.write(notes)
+                else:
+                    st.info(notes)
+            
+            with col2:
+                st.markdown("#### Correlation Analysis")
+                if correlation is not None and correlation != 'N/A':
+                    st.metric(
+                        label="Return Correlation",
+                        value=f"{correlation:.3f}",
+                        help="Correlation between daily returns (-1 to 1)"
+                    )
+                    
+                    # Add interpretation
+                    if abs(correlation) > 0.7:
+                        corr_note = "Strong correlation"
+                    elif abs(correlation) > 0.3:
+                        corr_note = "Moderate correlation"
+                    else:
+                        corr_note = "Weak correlation"
+                    
+                    if correlation > 0:
+                        corr_note += " (positive)"
+                        corr_interpretation = "Waves tend to move together"
+                    elif correlation < 0:
+                        corr_note += " (negative)"
+                        corr_interpretation = "Waves tend to move in opposite directions"
+                    else:
+                        corr_interpretation = "No clear relationship"
+                    
+                    st.info(corr_note)
+                    st.write(corr_interpretation)
+                else:
+                    st.info("Correlation data unavailable")
+            
+            # Additional insights
+            st.divider()
+            st.markdown("### 📝 Key Insights")
+            
+            insights = []
+            
+            # Performance insight
+            if wave1_metrics.get('cumulative_return', 0) != 'N/A' and wave2_metrics.get('cumulative_return', 0) != 'N/A':
+                ret_diff = abs(wave1_metrics['cumulative_return'] - wave2_metrics['cumulative_return'])
+                if ret_diff > 0.10:  # 10% difference
+                    insights.append(f"⚠️ **Significant return divergence**: {ret_diff*100:.1f}% difference in cumulative returns")
+            
+            # Risk insight
+            if wave1_metrics.get('max_drawdown', 0) != 'N/A' and wave2_metrics.get('max_drawdown', 0) != 'N/A':
+                dd_diff = abs(wave1_metrics['max_drawdown'] - wave2_metrics['max_drawdown'])
+                if dd_diff > 0.05:  # 5% difference in drawdown
+                    insights.append(f"⚠️ **Risk profile differs**: {dd_diff*100:.1f}% difference in max drawdown")
+            
+            # Diversification insight
+            if correlation is not None and abs(correlation) < 0.3:
+                insights.append(f"✅ **Good diversification potential**: Low correlation ({correlation:.2f}) suggests complementary performance")
+            elif correlation is not None and abs(correlation) > 0.8:
+                insights.append(f"ℹ️ **High correlation**: Waves move similarly ({correlation:.2f}), limited diversification benefit")
+            
+            if insights:
+                for insight in insights:
+                    st.markdown(insight)
+            else:
+                st.write("No significant insights detected")
+            
+            # Export comparison
+            st.divider()
+            st.markdown("### 📤 Export Comparison")
+            
+            # Create export text
+            export_text = f"""# Wave Comparison Report
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Waves Compared
+- Wave 1: {wave1_metrics['name']}
+- Wave 2: {wave2_metrics['name']}
+
+## Performance Metrics (30-Day)
+
+| Metric | {wave1_metrics['name']} | {wave2_metrics['name']} |
+|--------|----------|----------|
+| Cumulative Return | {format_metric(wave1_metrics['cumulative_return'])} | {format_metric(wave2_metrics['cumulative_return'])} |
+| Cumulative Alpha | {format_metric(wave1_metrics['cumulative_alpha'])} | {format_metric(wave2_metrics['cumulative_alpha'])} |
+| WaveScore | {format_metric(wave1_metrics['wavescore'], 'score')} | {format_metric(wave2_metrics['wavescore'], 'score')} |
+| Sharpe Ratio | {format_metric(wave1_metrics['sharpe_ratio'], 'ratio')} | {format_metric(wave2_metrics['sharpe_ratio'], 'ratio')} |
+| Volatility | {format_metric(wave1_metrics['volatility'])} | {format_metric(wave2_metrics['volatility'])} |
+| Max Drawdown | {format_metric(wave1_metrics['max_drawdown'])} | {format_metric(wave2_metrics['max_drawdown'])} |
+| Win Rate | {format_metric(wave1_metrics['win_rate'])} | {format_metric(wave2_metrics['win_rate'])} |
+
+## Winner
+{winner}: {notes}
+
+## Correlation
+Return Correlation: {correlation if correlation is not None else 'N/A'}
+"""
+            
+            st.download_button(
+                label="💾 Download Comparison Report",
+                data=export_text,
+                file_name=f"wave_comparison_{datetime.now().strftime('%Y%m%d')}.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
+    
+    except Exception as e:
+        st.error(f"Error rendering Compare Waves panel: {str(e)}")
     
     try:
         waves = get_available_waves()
@@ -1198,13 +2075,13 @@ def render_overlays_tab():
 
 
 # ============================================================================
-# SECTION 7: MAIN APPLICATION ENTRY POINT
+# SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
 def main():
     """
-    Main application entry point.
-    Orchestrates the entire Institutional Console UI.
+    Main application entry point - Executive Layer v2.
+    Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # Render Mission Control at the top
     render_mission_control()
@@ -1213,7 +2090,7 @@ def main():
     render_sidebar_info()
     
     # Main analytics tabs
-    st.title("Institutional Console Analytics")
+    st.title("Institutional Console - Executive Layer v2")
     
     analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays"])
     
