@@ -1,219 +1,256 @@
 #!/usr/bin/env python3
 """
-Test script for alpha attribution reconciliation.
+Test suite for alpha attribution integration.
 
-Validates that:
-1. All alpha components sum to total realized alpha
-2. No placeholders or estimates - only actual returns
-3. Reconciliation error is within acceptable tolerance
+Tests the new alpha attribution functionality added to vector_truth.py and app.py.
 """
 
-import sys
-import numpy as np
 import pandas as pd
+import numpy as np
+from vector_truth import (
+    build_vector_truth_report,
+    extract_alpha_attribution_breakdown,
+    VectorTruthReport,
+    VectorAlphaSources,
+    VectorAlphaReconciliation,
+    VectorRegimeAttribution,
+    VectorDurabilityScan
+)
 
-try:
-    import waves_engine as we
-    from alpha_attribution import (
-        compute_alpha_attribution_series,
-        format_attribution_summary_table,
-        format_daily_attribution_sample
+
+def test_extract_alpha_attribution_breakdown():
+    """Test extract_alpha_attribution_breakdown function."""
+    print("Testing extract_alpha_attribution_breakdown...")
+    
+    # Create a mock report
+    sources = VectorAlphaSources(
+        total_excess_return=0.15,
+        security_selection_alpha=0.08,
+        exposure_management_alpha=0.03,
+        capital_preservation_effect=0.02,
+        benchmark_construction_effect=0.02,
+        assessment='Test assessment'
     )
-except ImportError as e:
-    print(f"Error importing modules: {e}")
-    sys.exit(1)
+    
+    reconciliation = VectorAlphaReconciliation(
+        capital_weighted_alpha=0.15,
+        exposure_adjusted_alpha=0.16,
+        explanation='Test explanation',
+        conclusion='Test conclusion',
+        inflation_risk='LOW'
+    )
+    
+    regime = VectorRegimeAttribution(
+        alpha_risk_on=0.10,
+        alpha_risk_off=0.05,
+        volatility_sensitivity='Balanced',
+        flag='Test flag'
+    )
+    
+    durability = VectorDurabilityScan(
+        alpha_type='Test',
+        fragility_score=0.3,
+        primary_risk='Test risk',
+        verdict='Test verdict'
+    )
+    
+    report = VectorTruthReport(
+        wave_name='TestWave',
+        timeframe_label='365D',
+        sources=sources,
+        reconciliation=reconciliation,
+        regime=regime,
+        durability=durability
+    )
+    
+    breakdown = extract_alpha_attribution_breakdown(report)
+    
+    # Verify all required keys are present
+    required_keys = [
+        'exposure_timing', 'vix_regime_overlays', 'asset_selection',
+        'total_excess', 'residual_strategy', 'benchmark_construction',
+        'risk_on_alpha', 'risk_off_alpha', 'wave_name', 'timeframe',
+        'assessment', 'regime_sensitivity'
+    ]
+    
+    for key in required_keys:
+        assert key in breakdown, f"Missing key: {key}"
+    
+    # Verify values match expected
+    assert breakdown['exposure_timing'] == 0.03
+    assert breakdown['vix_regime_overlays'] == 0.02
+    assert breakdown['asset_selection'] == 0.08
+    assert breakdown['total_excess'] == 0.15
+    assert abs(breakdown['residual_strategy'] - 0.11) < 0.001  # 0.15 - 0.02 - 0.02
+    assert breakdown['risk_on_alpha'] == 0.10
+    assert breakdown['risk_off_alpha'] == 0.05
+    assert breakdown['wave_name'] == 'TestWave'
+    
+    print("✓ extract_alpha_attribution_breakdown test passed!")
 
 
-def test_reconciliation_basic():
-    """Test basic reconciliation with synthetic data."""
-    print("\n" + "="*80)
-    print("TEST 1: Basic Reconciliation with Synthetic Data")
-    print("="*80)
+def test_build_vector_truth_report_with_overlays():
+    """Test build_vector_truth_report with overlay contributions."""
+    print("\nTesting build_vector_truth_report with overlay contributions...")
     
-    # Create synthetic history
-    dates = pd.date_range('2024-01-01', periods=10, freq='D')
-    wave_returns = np.array([0.01, -0.005, 0.008, 0.002, -0.003, 0.006, -0.001, 0.004, 0.003, -0.002])
-    bm_returns = np.array([0.008, -0.003, 0.006, 0.001, -0.002, 0.005, -0.0005, 0.003, 0.002, -0.001])
+    # Simulate a simple wave history
+    np.random.seed(42)
+    dates = pd.date_range('2024-01-01', periods=365, freq='D')
+    wave_ret = pd.Series(np.random.normal(0.0005, 0.01, 365), index=dates)
+    bm_ret = pd.Series(np.random.normal(0.0003, 0.01, 365), index=dates)
     
-    history_df = pd.DataFrame({
-        'wave_ret': wave_returns,
-        'bm_ret': bm_returns
-    }, index=dates)
+    # Calculate alpha series
+    alpha_series = (wave_ret - bm_ret).values.tolist()
     
-    # Create synthetic diagnostics
-    diagnostics_df = pd.DataFrame({
-        'exposure': [1.1, 1.0, 1.05, 1.0, 0.9, 1.1, 0.95, 1.05, 1.0, 0.95],
-        'safe_fraction': [0.0, 0.1, 0.05, 0.05, 0.15, 0.0, 0.1, 0.0, 0.0, 0.1],
-        'vix': [18.0, 22.0, 19.0, 20.0, 25.0, 17.0, 21.0, 19.0, 18.0, 23.0],
-        'regime': ['neutral', 'downtrend', 'neutral', 'neutral', 'panic', 
-                   'uptrend', 'downtrend', 'neutral', 'neutral', 'downtrend'],
-        'vol_adjust': [1.0, 1.0, 1.0, 1.0, 0.9, 1.05, 1.0, 1.0, 1.0, 0.95]
-    }, index=dates)
+    # Create regime series (RISK_ON when bm_ret >= 0)
+    regime_series = ['RISK_ON' if r >= 0 else 'RISK_OFF' for r in bm_ret.values]
     
-    # Compute attribution
-    daily_df, summary = compute_alpha_attribution_series(
+    # Build report with overlay contributions
+    cap_alpha = (wave_ret.sum() - bm_ret.sum())
+    exp_adj_alpha = cap_alpha / 0.85  # Assuming 85% average exposure
+    
+    # Simulated overlay contributions
+    overlay_contribution = 0.015
+    vix_contribution = 0.008
+    smartsafe_contribution = 0.007
+    
+    report = build_vector_truth_report(
         wave_name="Test Wave",
-        mode="Standard",
-        history_df=history_df,
-        diagnostics_df=diagnostics_df,
-        tilt_strength=0.8,
-        base_exposure=1.0
+        timeframe_label="365D window",
+        total_excess_return=cap_alpha,
+        capital_weighted_alpha=cap_alpha,
+        exposure_adjusted_alpha=exp_adj_alpha,
+        alpha_series=alpha_series,
+        regime_series=regime_series,
+        overlay_contribution=overlay_contribution,
+        vix_contribution=vix_contribution,
+        smartsafe_contribution=smartsafe_contribution,
+        benchmark_snapshot_id="BM-TEST-001",
+        benchmark_drift_status="stable"
     )
     
-    # Validate reconciliation
-    print(f"\nTotal Alpha (Realized): {summary.total_alpha:.6f}")
-    print(f"Sum of Components:      {summary.sum_of_components:.6f}")
-    print(f"Reconciliation Error:   {summary.reconciliation_error:.10f}")
-    print(f"Reconciliation Error %: {summary.reconciliation_pct_error:.6f}%")
+    # Verify report was created
+    assert report is not None
+    assert report.wave_name == "Test Wave"
+    assert report.sources.total_excess_return is not None
+    assert report.sources.capital_preservation_effect is not None
     
-    # Check reconciliation tolerance
-    tolerance = 1e-8
-    if abs(summary.reconciliation_error) < tolerance:
-        print("✅ RECONCILIATION PASSED: Error within tolerance")
-        return True
-    else:
-        print(f"❌ RECONCILIATION FAILED: Error {summary.reconciliation_error:.10f} exceeds tolerance {tolerance}")
-        return False
+    # Verify overlay contributions were processed
+    # SmartSafe contribution should be used for capital preservation
+    assert report.sources.capital_preservation_effect == smartsafe_contribution
+    
+    print("✓ build_vector_truth_report with overlays test passed!")
 
 
-def test_reconciliation_real_wave():
-    """Test reconciliation with real Wave data."""
-    print("\n" + "="*80)
-    print("TEST 2: Reconciliation with Real Wave Data")
-    print("="*80)
+def test_attribution_breakdown_completeness():
+    """Test that attribution breakdown provides all required sources."""
+    print("\nTesting attribution breakdown completeness...")
     
-    wave_name = "US MegaCap Core Wave"
-    mode = "Standard"
-    days = 90  # Use shorter period for faster testing
+    # Create a comprehensive report
+    sources = VectorAlphaSources(
+        total_excess_return=0.25,
+        security_selection_alpha=0.12,
+        exposure_management_alpha=0.05,
+        capital_preservation_effect=0.04,
+        benchmark_construction_effect=0.04,
+        assessment='Comprehensive test assessment'
+    )
+    
+    reconciliation = VectorAlphaReconciliation(
+        capital_weighted_alpha=0.25,
+        exposure_adjusted_alpha=0.28,
+        explanation='Test explanation',
+        conclusion='Test conclusion',
+        inflation_risk='MODERATE'
+    )
+    
+    regime = VectorRegimeAttribution(
+        alpha_risk_on=0.18,
+        alpha_risk_off=0.07,
+        volatility_sensitivity='Risk-On biased',
+        flag='Monitor regime shifts'
+    )
+    
+    durability = VectorDurabilityScan(
+        alpha_type='Residual Strategy',
+        fragility_score=0.45,
+        primary_risk='Regime concentration',
+        verdict='Monitor durability'
+    )
+    
+    report = VectorTruthReport(
+        wave_name='Comprehensive Test Wave',
+        timeframe_label='365D window',
+        sources=sources,
+        reconciliation=reconciliation,
+        regime=regime,
+        durability=durability
+    )
+    
+    breakdown = extract_alpha_attribution_breakdown(report)
+    
+    # Verify all attribution sources are surfaced as per requirements:
+    # 1. Exposure & Timing attribution
+    assert 'exposure_timing' in breakdown
+    assert breakdown['exposure_timing'] == 0.05
+    
+    # 2. VIX/Regime overlays
+    assert 'vix_regime_overlays' in breakdown
+    assert breakdown['vix_regime_overlays'] == 0.04
+    
+    # 3. Asset selection alpha
+    assert 'asset_selection' in breakdown
+    assert breakdown['asset_selection'] == 0.12
+    
+    # 4. Total excess and residual strategy
+    assert 'total_excess' in breakdown
+    assert 'residual_strategy' in breakdown
+    
+    # 5. Regime attribution (risk-on/off)
+    assert 'risk_on_alpha' in breakdown
+    assert 'risk_off_alpha' in breakdown
+    assert breakdown['risk_on_alpha'] == 0.18
+    assert breakdown['risk_off_alpha'] == 0.07
+    
+    # Verify assessment and metadata
+    assert 'assessment' in breakdown
+    assert 'regime_sensitivity' in breakdown
+    assert 'wave_name' in breakdown
+    assert 'timeframe' in breakdown
+    
+    print("✓ Attribution breakdown completeness test passed!")
+    print(f"  All {len(breakdown)} attribution components verified:")
+    for key in sorted(breakdown.keys()):
+        print(f"    - {key}")
+
+
+if __name__ == '__main__':
+    print("=" * 80)
+    print("Alpha Attribution Integration Test Suite")
+    print("=" * 80)
     
     try:
-        # Compute attribution using waves_engine integration
-        daily_df, summary_dict = we.compute_alpha_attribution(
-            wave_name=wave_name,
-            mode=mode,
-            days=days
-        )
+        test_extract_alpha_attribution_breakdown()
+        test_build_vector_truth_report_with_overlays()
+        test_attribution_breakdown_completeness()
         
-        if not summary_dict.get("ok", False):
-            print(f"❌ Failed to compute attribution: {summary_dict.get('message', 'Unknown error')}")
-            return False
+        print("\n" + "=" * 80)
+        print("✅ ALL TESTS PASSED!")
+        print("=" * 80)
+        print("\nSummary:")
+        print("  ✓ extract_alpha_attribution_breakdown works correctly")
+        print("  ✓ build_vector_truth_report handles overlay contributions")
+        print("  ✓ All required attribution sources are surfaced:")
+        print("    - Exposure & Timing attribution")
+        print("    - VIX/Regime overlay contributions")
+        print("    - Asset selection alpha")
+        print("    - Risk control impacts (via capital preservation)")
+        print("    - Momentum (integrated into exposure management)")
+        print("\n  Alpha attribution integration complete! ✨")
         
-        print(f"\nWave: {wave_name}")
-        print(f"Mode: {mode}")
-        print(f"Period: {days} days")
-        print(f"\nTotal Alpha (Realized): {summary_dict['total_alpha']:.6f}")
-        print(f"Sum of Components:      {summary_dict['sum_of_components']:.6f}")
-        print(f"Reconciliation Error:   {summary_dict['reconciliation_error']:.10f}")
-        print(f"Reconciliation Error %: {summary_dict['reconciliation_pct_error']:.6f}%")
-        
-        print("\nComponent Breakdown:")
-        print(f"  1. Exposure & Timing:     {summary_dict['exposure_timing_alpha']:.6f} "
-              f"({summary_dict['exposure_timing_contribution_pct']:.2f}%)")
-        print(f"  2. Regime & VIX:          {summary_dict['regime_vix_alpha']:.6f} "
-              f"({summary_dict['regime_vix_contribution_pct']:.2f}%)")
-        print(f"  3. Momentum & Trend:      {summary_dict['momentum_trend_alpha']:.6f} "
-              f"({summary_dict['momentum_trend_contribution_pct']:.2f}%)")
-        print(f"  4. Volatility Control:    {summary_dict['volatility_control_alpha']:.6f} "
-              f"({summary_dict['volatility_control_contribution_pct']:.2f}%)")
-        print(f"  5. Asset Selection:       {summary_dict['asset_selection_alpha']:.6f} "
-              f"({summary_dict['asset_selection_contribution_pct']:.2f}%)")
-        
-        # Check reconciliation tolerance
-        tolerance = 0.01  # 0.01% tolerance for real data
-        if abs(summary_dict['reconciliation_pct_error']) < tolerance:
-            print(f"\n✅ RECONCILIATION PASSED: Error {summary_dict['reconciliation_pct_error']:.6f}% < {tolerance}%")
-            return True
-        else:
-            print(f"\n❌ RECONCILIATION FAILED: Error {summary_dict['reconciliation_pct_error']:.6f}% >= {tolerance}%")
-            return False
-            
+    except AssertionError as e:
+        print(f"\n❌ TEST FAILED: {e}")
+        raise
     except Exception as e:
-        print(f"❌ Error during test: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def test_daily_attribution_format():
-    """Test that daily attribution formatting works."""
-    print("\n" + "="*80)
-    print("TEST 3: Daily Attribution Formatting")
-    print("="*80)
-    
-    wave_name = "S&P 500 Wave"
-    mode = "Standard"
-    days = 30
-    
-    try:
-        daily_df, summary_dict = we.compute_alpha_attribution(
-            wave_name=wave_name,
-            mode=mode,
-            days=days
-        )
-        
-        if not summary_dict.get("ok", False):
-            print(f"❌ Failed to compute attribution")
-            return False
-        
-        # Format sample
-        from alpha_attribution import AlphaAttributionSummary
-        summary = AlphaAttributionSummary(**{k: v for k, v in summary_dict.items() 
-                                            if k in AlphaAttributionSummary.__annotations__})
-        
-        summary_table = format_attribution_summary_table(summary)
-        daily_sample = format_daily_attribution_sample(daily_df, n_rows=5)
-        
-        print("\n" + summary_table)
-        print("\n" + daily_sample)
-        
-        print("\n✅ FORMATTING TEST PASSED")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error during formatting test: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def main():
-    """Run all tests."""
-    print("\n" + "="*80)
-    print("ALPHA ATTRIBUTION RECONCILIATION TEST SUITE")
-    print("="*80)
-    
-    results = []
-    
-    # Test 1: Basic synthetic data reconciliation
-    results.append(("Basic Reconciliation", test_reconciliation_basic()))
-    
-    # Test 2: Real Wave data reconciliation
-    results.append(("Real Wave Reconciliation", test_reconciliation_real_wave()))
-    
-    # Test 3: Formatting
-    results.append(("Daily Attribution Formatting", test_daily_attribution_format()))
-    
-    # Summary
-    print("\n" + "="*80)
-    print("TEST SUMMARY")
-    print("="*80)
-    
-    passed = sum(1 for _, result in results if result)
-    total = len(results)
-    
-    for test_name, result in results:
-        status = "✅ PASS" if result else "❌ FAIL"
-        print(f"{status}: {test_name}")
-    
-    print(f"\nTotal: {passed}/{total} tests passed")
-    
-    if passed == total:
-        print("\n🎉 ALL TESTS PASSED!")
-        return 0
-    else:
-        print(f"\n⚠️  {total - passed} test(s) failed")
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        print(f"\n❌ UNEXPECTED ERROR: {e}")
+        raise

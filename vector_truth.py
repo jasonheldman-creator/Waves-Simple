@@ -810,92 +810,61 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
     return md
 
 
-# ---------------------------
-# Alpha Attribution Integration (New)
-# ---------------------------
-
-def render_alpha_attribution_table(
-    wave_name: str,
-    mode: str = "Standard",
-    days: int = 365,
-    n_rows: int = 10
-) -> str:
+def extract_alpha_attribution_breakdown(report: VectorTruthReport) -> Dict[str, Any]:
     """
-    Render complete alpha attribution table with 5-component decomposition.
+    Extract alpha attribution sources from VectorTruthReport for diagnostics display.
     
-    This provides the precise, reconciled alpha attribution as specified in requirements:
-    1. Exposure & Timing Alpha
-    2. Regime & VIX Overlay Alpha
-    3. Momentum & Trend Alpha
-    4. Volatility & Risk Control Alpha
-    5. Asset Selection Alpha (Residual)
-    
-    All components reconcile to total realized alpha (Wave Return - Benchmark Return).
+    Returns a structured dictionary with all attribution components for UI consumption.
+    This is the canonical reference for alpha truth-attribution per the requirements.
     
     Args:
-        wave_name: Name of the Wave
-        mode: Operating mode
-        days: Analysis window in days
-        n_rows: Number of rows to display in sample table
-        
+        report: VectorTruthReport containing full attribution analysis
+    
     Returns:
-        Markdown-formatted attribution table and summary
+        Dict with attribution breakdown by source:
+        - exposure_timing: exposure management alpha (timing & exposure scaling)
+        - vix_regime_overlays: capital preservation effect (VIX/regime/SmartSafe)
+        - momentum: included in exposure management (not separately reported)
+        - risk_control: included in capital preservation effect
+        - asset_selection: security selection alpha (exposure-adjusted)
+        - total_excess: total excess return
+        - residual_strategy: post-structural residual return
+        - risk_on_alpha: alpha earned in risk-on regimes
+        - risk_off_alpha: alpha earned in risk-off regimes
     """
-    try:
-        # Import alpha attribution module
-        try:
-            from alpha_attribution import format_attribution_summary_table, format_daily_attribution_sample
-        except ImportError:
-            return "**Alpha Attribution:** Module not available. Ensure alpha_attribution.py is in the module path."
+    s = report.sources
+    g = report.regime
+    
+    # Calculate residual excess return (post-structural)
+    residual_excess = None
+    if s.total_excess_return is not None:
+        known_structural = 0.0
+        if s.capital_preservation_effect is not None:
+            known_structural += s.capital_preservation_effect
+        if s.benchmark_construction_effect is not None:
+            known_structural += s.benchmark_construction_effect
+        residual_excess = s.total_excess_return - known_structural
+    
+    breakdown = {
+        # Primary attribution sources (as specified in requirements)
+        "exposure_timing": s.exposure_management_alpha,
+        "vix_regime_overlays": s.capital_preservation_effect,
+        "asset_selection": s.security_selection_alpha,
         
-        # Import waves engine
-        try:
-            import waves_engine as we
-        except ImportError:
-            return "**Alpha Attribution:** waves_engine module not available."
+        # Additional context for diagnostics
+        "total_excess": s.total_excess_return,
+        "residual_strategy": residual_excess,
+        "benchmark_construction": s.benchmark_construction_effect,
         
-        # Compute attribution
-        daily_df, summary_dict = we.compute_alpha_attribution(
-            wave_name=wave_name,
-            mode=mode,
-            days=days
-        )
+        # Regime attribution
+        "risk_on_alpha": g.alpha_risk_on,
+        "risk_off_alpha": g.alpha_risk_off,
         
-        if not summary_dict.get("ok", False):
-            return f"**Alpha Attribution:** {summary_dict.get('message', 'Failed to compute attribution')}"
-        
-        # Convert dict back to summary object for formatting
-        from alpha_attribution import AlphaAttributionSummary
-        summary = AlphaAttributionSummary(**{k: v for k, v in summary_dict.items() 
-                                            if k in AlphaAttributionSummary.__annotations__})
-        
-        # Format outputs
-        summary_table = format_attribution_summary_table(summary)
-        daily_sample = format_daily_attribution_sample(daily_df, n_rows=n_rows)
-        
-        # Combine into single markdown output
-        md = f"""
-{summary_table}
-
----
-
-{daily_sample}
-
----
-
-**Reconciliation Guarantee:**
-- Each component is computed from actual realized returns (no placeholders or estimates)
-- Sum of all 5 components = Total Realized Alpha = Wave Return - Benchmark Return
-- Reconciliation error is monitored and must be < 0.01% for valid attribution
-
-**Data Source:**
-- Same comprehensive return series used in WaveScore, full-period metrics, and institutional performance statistics
-- Diagnostics include VIX levels, regime states, exposure percentages, and safe asset allocations
-- All values traced back to actual trading day returns
-""".strip()
-        
-        return md
-        
-    except Exception as e:
-        import traceback
-        return f"**Alpha Attribution Error:** {str(e)}\n\n```\n{traceback.format_exc()}\n```"
+        # Metadata
+        "wave_name": report.wave_name,
+        "timeframe": report.timeframe_label,
+        "assessment": s.assessment,
+        "regime_sensitivity": g.volatility_sensitivity,
+    }
+    
+    return breakdown
