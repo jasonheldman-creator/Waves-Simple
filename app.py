@@ -14,7 +14,6 @@ from typing import Dict, Any, List, Optional
 import waves_engine as we
 import vector_truth as vt
 import decision_engine as de
-import alpha_attribution as aa
 
 # Page configuration
 st.set_page_config(
@@ -232,8 +231,11 @@ with tabs[0]:
             else:
                 st.info("Benchmark data unavailable")
                 
-        except Exception as e:
+        except (KeyError, ValueError, RuntimeError) as e:
             st.error(f"Error loading overview data: {str(e)}")
+            st.exception(e)
+        except Exception as e:
+            st.error(f"Unexpected error loading overview: {str(e)}")
             st.exception(e)
 
 # ============================================================
@@ -547,7 +549,9 @@ with tabs[4]:
                             st.json(summary)
                         else:
                             st.info("Strategy attribution not available")
-                    except:
+                    except (AttributeError, KeyError, RuntimeError) as e:
+                        st.info(f"Strategy attribution not available: {str(e)}")
+                    except Exception:
                         st.info("Strategy attribution feature not available in this version")
                 
             else:
