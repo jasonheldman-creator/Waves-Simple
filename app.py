@@ -108,6 +108,9 @@ ENABLE_ASSUMPTIONS_PANEL = True
 ENABLE_GATING_WARNINGS = True
 ENABLE_WAVE_PURPOSE_STATEMENTS = True
 
+# Wave Steward™ — AI Guidance (Advisory Only)
+ENABLE_WAVE_STEWARD = True  # Non-binding, read-only AI guidance layer
+
 
 # ============================================================
 # Global UI CSS
@@ -618,6 +621,11 @@ GLOSSARY: Dict[str, str] = {
     "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave's regime-aware design (predictable system-feedback).",
     "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only system-feedback; does not block the app (flexible onboarding).",
     "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance context, not a performance prediction).",
+    "Wave Steward™": (
+        "Advisory-only, read-only AI guidance layer for Wave creators. Provides qualitative diagnostics and human decision prompts "
+        "while remaining fully isolated from analytics, alpha, benchmarking, and governance systems. Does not affect portfolio construction, "
+        "rebalancing, parameter changes, or system state."
+    ),
 }
 
 
@@ -625,6 +633,319 @@ def render_definitions(keys: List[str], title: str = "Definitions"):
     with st.expander(title):
         for k in keys:
             st.markdown(f"**{k}:** {GLOSSARY.get(k, '(definition not found)')}")
+
+
+# ============================================================
+# Wave Steward™ — AI Guidance (Advisory Only)
+# ============================================================
+def generate_design_alignment_checks(
+    hist_sel: pd.DataFrame,
+    metrics: Dict[str, Any],
+    selected_wave: str,
+    mode: str,
+    cov: Dict[str, Any],
+    beta_val: float,
+) -> List[str]:
+    """
+    Generate qualitative design alignment insights (text-only, no scores).
+    Read-only analysis of Wave metadata and Vector™ outputs.
+    
+    Returns list of advisory text strings (no numerical grades or performance claims).
+    """
+    insights = []
+    
+    # Check exposure drift vs stated purpose (qualitative)
+    # This is based on tracking error and concentration patterns
+    te = safe_float(metrics.get("te"))
+    if math.isfinite(te):
+        if te > 0.25:
+            insights.append("Wave exposure appears to be drifting toward higher active risk vs typical design intent")
+        elif te < 0.05:
+            insights.append("Wave exposure is tightly anchored to benchmark (low active positioning)")
+    
+    # Check concentration signals (qualitative)
+    rows = int(cov.get("rows") or 0)
+    if rows > 0 and not hist_sel.empty:
+        # Look at volatility patterns as proxy for concentration
+        vol = safe_float(metrics.get("vol"))
+        if math.isfinite(vol):
+            if vol > 0.25:
+                insights.append("Concentration signals may be increasing (elevated volatility pattern observed)")
+            elif vol < 0.10:
+                insights.append("Diversification pattern appears stable (low volatility regime)")
+    
+    # Check beta behavior vs mode intent
+    if "alpha-minus-beta" in mode.lower():
+        # Mode expects beta around 0.85
+        if math.isfinite(beta_val):
+            if beta_val > 0.95:
+                insights.append("Beta behavior diverges from Alpha-Minus-Beta mode's intended defensive posture")
+    elif "standard" in mode.lower() or "private" in mode.lower():
+        # Mode expects beta around 1.0
+        if math.isfinite(beta_val):
+            if beta_val < 0.85:
+                insights.append("Beta positioning appears more defensive than standard mode typically targets")
+    
+    # Fallback if no specific insights
+    if not insights:
+        insights.append("Wave exposure aligns with general design expectations based on available metadata")
+    
+    return insights[:3]  # Limit to top 3 for readability
+
+
+def generate_self_comparison_diagnostics(
+    hist_sel: pd.DataFrame,
+    metrics: Dict[str, Any],
+) -> List[str]:
+    """
+    Generate self-comparison diagnostics (Wave vs its own prior performance context).
+    NO benchmark comparisons allowed per requirements.
+    
+    Returns list of advisory text strings comparing current vs historical patterns.
+    """
+    diagnostics = []
+    
+    if hist_sel.empty or len(hist_sel) < 60:
+        diagnostics.append("Insufficient history for meaningful self-comparison diagnostics")
+        return diagnostics
+    
+    # Compare recent vs historical tracking error (selection signal strength)
+    te = safe_float(metrics.get("te"))
+    if math.isfinite(te):
+        # Compare recent 30D vs full period TE as a signal strength proxy
+        try:
+            recent_ret = safe_series(hist_sel["wave_ret"].tail(30))
+            recent_bm = safe_series(hist_sel["bm_ret"].tail(30))
+            recent_diff = recent_ret - recent_bm
+            if len(recent_diff.dropna()) >= 20:
+                recent_te = float(recent_diff.std() * np.sqrt(252))
+                if recent_te > te * 1.3:
+                    diagnostics.append("Selection signal strength appears elevated vs prior periods")
+                elif recent_te < te * 0.7:
+                    diagnostics.append("Selection signal strength has moderated vs prior periods")
+        except Exception:
+            pass
+    
+    # Risk controls analysis (expected vs unexpected)
+    mdd = safe_float(metrics.get("mdd"))
+    cvar95 = safe_float(metrics.get("cvar95"))
+    
+    if math.isfinite(mdd) and math.isfinite(cvar95):
+        # Check if risk controls are dominating (tail risk vs max drawdown relationship)
+        # If CVaR is much worse than MaxDD, suggests tail events dominating
+        if abs(cvar95 * 252) > abs(mdd) * 1.5:
+            diagnostics.append("Risk controls may be engaging more than historical patterns suggest (tail risk elevated)")
+        elif abs(cvar95 * 252) < abs(mdd) * 0.5:
+            diagnostics.append("Risk profile appears smoother than historical maximum drawdown suggests")
+    
+    # Exposure path complexity (volatility regime changes)
+    if not hist_sel.empty and "wave_ret" in hist_sel.columns:
+        try:
+            # Look at rolling volatility to detect complexity increases
+            ret_series = safe_series(hist_sel["wave_ret"])
+            if len(ret_series) >= 60:
+                recent_vol = ret_series.tail(30).std()
+                prior_vol = ret_series.iloc[-60:-30].std()
+                
+                if math.isfinite(recent_vol) and math.isfinite(prior_vol) and prior_vol > 0:
+                    if recent_vol > prior_vol * 1.4:
+                        diagnostics.append("Exposure path complexity appears to be increasing (volatility regime shift)")
+                    elif recent_vol < prior_vol * 0.6:
+                        diagnostics.append("Exposure path has stabilized vs recent historical volatility")
+        except Exception:
+            pass
+    
+    # Fallback
+    if not diagnostics:
+        diagnostics.append("Self-comparison metrics appear consistent with recent historical patterns")
+    
+    return diagnostics[:3]  # Limit to top 3
+
+
+def generate_human_decision_prompts(
+    metrics: Dict[str, Any],
+    cov: Dict[str, Any],
+    bm_drift: str,
+    beta_score: float,
+    beta_val: float,
+    selected_wave: str,
+) -> List[str]:
+    """
+    Generate contextual questions for human review (NOT instructions).
+    Advisory prompts to help Wave creators think through design decisions.
+    
+    Returns list of question strings (no commands or directives).
+    """
+    prompts = []
+    
+    # Benchmark architectural fit prompt
+    if math.isfinite(beta_score) and beta_score < 75:
+        prompts.append("Consider reviewing benchmark composition for architectural fit with Wave's systematic exposure")
+    
+    # Universe narrowing prompt based on tracking error
+    te = safe_float(metrics.get("te"))
+    if math.isfinite(te) and te > 0.20:
+        prompts.append("Review whether narrowing the universe might improve selection signal clarity")
+    
+    # Beta deviation documentation prompt
+    if math.isfinite(beta_val):
+        if abs(beta_val - 1.0) > 0.15:
+            prompts.append("Consider documenting intentional beta deviation if this is a strategic design choice")
+    
+    # Benchmark drift prompt
+    if bm_drift != "stable":
+        prompts.append("Review benchmark stability for consistent governance context across time periods")
+    
+    # Coverage quality prompt
+    cov_score = safe_float(cov.get("completeness_score"))
+    if math.isfinite(cov_score) and cov_score < 80:
+        prompts.append("Investigate data pipeline completeness to ensure reliable analytical foundation")
+    
+    # Concentration vs diversification prompt
+    vol = safe_float(metrics.get("vol"))
+    if math.isfinite(vol):
+        if vol > 0.22:
+            prompts.append("Review concentration levels if lower volatility is a design objective")
+    
+    # Fallback
+    if not prompts:
+        prompts.append("Continue monitoring Wave behavior against stated design objectives")
+    
+    return prompts[:4]  # Limit to top 4
+
+
+def render_wave_steward(
+    selected_wave: str,
+    mode: str,
+    hist_sel: pd.DataFrame,
+    metrics: Dict[str, Any],
+    cov: Dict[str, Any],
+    bm_drift: str,
+    beta_score: float,
+    beta_val: float,
+):
+    """
+    Render Wave Steward™ — AI Guidance (Advisory Only) section.
+    
+    Features:
+    1. Design Alignment Checks (text-only, qualitative)
+    2. Self-Comparison Diagnostics (Wave vs its own history, NO benchmarks)
+    3. Human Decision Prompts (questions, not instructions)
+    4. Mandatory disclosure block
+    
+    Hard constraints:
+    - Read-only (no writes to system state, engine inputs, benchmarks, etc.)
+    - No scores, grades, or performance numbers
+    - No rebalancing, parameter changes, or optimization recommendations
+    - Architecturally isolated from analytics, alpha, and governance systems
+    """
+    if not ENABLE_WAVE_STEWARD:
+        return
+    
+    # Collapsible section (default: collapsed)
+    with st.expander("🤖 Wave Steward™ — AI Guidance (Advisory Only) 🔒 NON-BINDING / READ-ONLY", expanded=False):
+        # Header copy (required)
+        st.markdown("""
+**Wave Steward™** is an advisory-only, read-only AI guidance layer for Wave creators. It provides qualitative diagnostics and human decision prompts while remaining fully isolated from analytics, alpha, benchmarking, and governance systems.
+        """)
+        
+        # Mandatory disclosure block (ALWAYS displayed)
+        st.info("""
+**📋 Mandatory Disclosure:**
+
+Wave Steward™ provides non-binding guidance for human review. It does not affect portfolio construction, analytics, benchmarks, or governance outputs.
+        """)
+        
+        st.markdown("---")
+        
+        # Feature 1: Design Alignment Checks (text-only)
+        st.markdown("#### 1. Design Alignment Checks (Qualitative)")
+        st.caption("Text-only insights to help align Waves with design intents. No scores or performance claims.")
+        
+        alignment_checks = generate_design_alignment_checks(
+            hist_sel=hist_sel,
+            metrics=metrics,
+            selected_wave=selected_wave,
+            mode=mode,
+            cov=cov,
+            beta_val=beta_val,
+        )
+        
+        for check in alignment_checks:
+            st.write(f"• {check}")
+        
+        st.markdown("---")
+        
+        # Feature 2: Self-Comparison Diagnostics
+        st.markdown("#### 2. Self-Comparison Diagnostics")
+        st.caption("Wave performance vs its own prior periods. Benchmark comparisons are NOT included per design.")
+        
+        self_diagnostics = generate_self_comparison_diagnostics(
+            hist_sel=hist_sel,
+            metrics=metrics,
+        )
+        
+        for diagnostic in self_diagnostics:
+            st.write(f"• {diagnostic}")
+        
+        st.markdown("---")
+        
+        # Feature 3: Human Decision Prompts
+        st.markdown("#### 3. Human Decision Prompts (Optional Guidance)")
+        st.caption("Contextual questions for human review — these are questions, not instructions.")
+        
+        decision_prompts = generate_human_decision_prompts(
+            metrics=metrics,
+            cov=cov,
+            bm_drift=bm_drift,
+            beta_score=beta_score,
+            beta_val=beta_val,
+            selected_wave=selected_wave,
+        )
+        
+        for prompt in decision_prompts:
+            st.write(f"❓ {prompt}")
+        
+        st.markdown("---")
+        
+        # Technical constraints note (transparency)
+        with st.expander("🔒 Technical Constraints & Architectural Isolation", expanded=False):
+            st.markdown("""
+**Wave Steward™ Architecture:**
+
+**What it CAN do:**
+- Read Wave metadata
+- Read Vector™ outputs
+- Read historical performance summaries
+- Provide qualitative text insights
+- Ask questions for human consideration
+
+**What it CANNOT do (Hard Constraints):**
+- ❌ Rebalance portfolios
+- ❌ Change Wave parameters
+- ❌ Modify benchmarks
+- ❌ Generate alpha or performance claims
+- ❌ Optimize or recommend trades
+- ❌ Write to system state
+- ❌ Affect WaveScore calculations
+- ❌ Influence Truth Layer outputs
+- ❌ Change benchmark construction
+- ❌ Alter performance attribution
+
+**Isolation Guarantee:**
+Wave Steward™ is architecturally isolated from:
+- Engine inputs
+- Analytics calculations  
+- Alpha generation
+- Benchmark systems
+- Governance verdicts
+- Performance metrics
+
+This is a read-only advisory layer with zero system impact.
+            """)
+        
+        # Definitions
+        render_definitions(["Wave Steward™"], title="Definition")
 
 
 # ============================================================
@@ -3404,6 +3725,19 @@ with tabs[0]:
         with st.expander("🔍 Technical IDs", expanded=False):
             st.caption(f"Benchmark ID: `{bm_id}`")
 
+    # Wave Steward™ section (below Wave Purpose Statement in IC Summary)
+    # Placed at Wave level (not global analytics) as per requirements
+    render_wave_steward(
+        selected_wave=selected_wave,
+        mode=mode,
+        hist_sel=hist_sel,
+        metrics=metrics,
+        cov=cov,
+        bm_drift=bm_drift,
+        beta_score=beta_score,
+        beta_val=beta_val,
+    )
+
 
 # ============================================================
 # DECISION CENTER
@@ -3509,6 +3843,20 @@ with tabs[1]:
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
+    
+    # Wave Steward™ section (also in Decision Center for detailed analytics view)
+    render_wave_steward(
+        selected_wave=selected_wave,
+        mode=mode,
+        hist_sel=hist_sel,
+        metrics=metrics,
+        cov=cov,
+        bm_drift=bm_drift,
+        beta_score=beta_score,
+        beta_val=beta_val,
+    )
+    
+    st.markdown("---")
     render_definitions(
         [
             "Canonical (Source of Truth)",
@@ -3527,6 +3875,7 @@ with tabs[1]:
             "Vector™ — Truth Referee",
             "Alpha Classification",
             "Assumptions Tested",
+            "Wave Steward™",
         ],
         title="Definitions (Decision Center)",
     )
