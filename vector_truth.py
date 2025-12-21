@@ -798,7 +798,6 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
 - **Regime Coverage:** {regime_coverage}
   - *Balanced if >20% mix of risk-on/off days; Skewed otherwise*
 - **Alpha Inflation Risk:** {inflation_risk}
-- **Alpha Inflation Risk:** {inflation_risk}
 
 **Context:** Analysis window: {window} days
 
@@ -809,3 +808,63 @@ def render_alpha_reliability_panel(reliability_metrics: Dict[str, Any]) -> str:
 """.strip()
     
     return md
+
+
+def extract_alpha_attribution_breakdown(report: VectorTruthReport) -> Dict[str, Any]:
+    """
+    Extract alpha attribution sources from VectorTruthReport for diagnostics display.
+    
+    Returns a structured dictionary with all attribution components for UI consumption.
+    This is the canonical reference for alpha truth-attribution per the requirements.
+    
+    Args:
+        report: VectorTruthReport containing full attribution analysis
+    
+    Returns:
+        Dict with attribution breakdown by source:
+        - exposure_timing: exposure management alpha (timing & exposure scaling)
+        - vix_regime_overlays: capital preservation effect (VIX/regime/SmartSafe)
+        - momentum: included in exposure management (not separately reported)
+        - risk_control: included in capital preservation effect
+        - asset_selection: security selection alpha (exposure-adjusted)
+        - total_excess: total excess return
+        - residual_strategy: post-structural residual return
+        - risk_on_alpha: alpha earned in risk-on regimes
+        - risk_off_alpha: alpha earned in risk-off regimes
+    """
+    s = report.sources
+    g = report.regime
+    
+    # Calculate residual excess return (post-structural)
+    residual_excess = None
+    if s.total_excess_return is not None:
+        known_structural = 0.0
+        if s.capital_preservation_effect is not None:
+            known_structural += s.capital_preservation_effect
+        if s.benchmark_construction_effect is not None:
+            known_structural += s.benchmark_construction_effect
+        residual_excess = s.total_excess_return - known_structural
+    
+    breakdown = {
+        # Primary attribution sources (as specified in requirements)
+        "exposure_timing": s.exposure_management_alpha,
+        "vix_regime_overlays": s.capital_preservation_effect,
+        "asset_selection": s.security_selection_alpha,
+        
+        # Additional context for diagnostics
+        "total_excess": s.total_excess_return,
+        "residual_strategy": residual_excess,
+        "benchmark_construction": s.benchmark_construction_effect,
+        
+        # Regime attribution
+        "risk_on_alpha": g.alpha_risk_on,
+        "risk_off_alpha": g.alpha_risk_off,
+        
+        # Metadata
+        "wave_name": report.wave_name,
+        "timeframe": report.timeframe_label,
+        "assessment": s.assessment,
+        "regime_sensitivity": g.volatility_sensitivity,
+    }
+    
+    return breakdown
