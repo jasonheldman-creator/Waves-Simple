@@ -3583,16 +3583,17 @@ with tabs[7]:
         "This console is designed to never crash from missing optional modules."
     )
 # ============================================================
-# OPTIONAL: MARKET INTEL FOOTER (boot-safe)
+# OPTIONAL: MARKET INTELLIGENCE™ FOOTER (boot-safe)
 # ============================================================
 try:
     st.markdown("---")
-    st.markdown("### Market Intel (Optional)")
+    st.markdown("## Market Intelligence™")
+    st.markdown("Real-time volatility context for portfolio decision-making")
 
     if not ENABLE_YFINANCE_CHIPS or yf is None:
-        st.caption("Market Intel disabled (yfinance missing or flag off).")
+        st.caption("Market Intelligence™ disabled (yfinance missing or flag off).")
     else:
-        # VIX Risk Meter™ - prominent display at top of Market Intel
+        # VIX Risk Meter™ - prominent display at top of Market Intelligence™
         render_vix_risk_meter()
         
         # Volatility Utilization Index™ (VUI™) - placed right after VIX Risk Meter
@@ -3616,7 +3617,7 @@ try:
         px = fetch_prices_daily(tickers, days=220)
 
         if px is None or px.empty:
-            st.caption("No Market Intel data returned.")
+            st.caption("No Market Intelligence™ data returned.")
         else:
             # Normalize to 100 for quick compare
             norm = px / px.iloc[0] * 100.0
@@ -3639,7 +3640,7 @@ try:
                     mini["30D"] = mini["30D"].apply(fmt_pct)
                     st.dataframe(mini, use_container_width=True, hide_index=True)
 except Exception as _e:
-    st.error(f"Market Intel footer failed (non-fatal): {_e}")
+    st.error(f"Market Intelligence™ footer failed (non-fatal): {_e}")
 
 
 # ============================================================
