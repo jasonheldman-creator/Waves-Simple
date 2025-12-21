@@ -553,6 +553,369 @@ def get_wave_data_for_narrative(wave_name):
         return None
 
 
+def get_wave_comparison_data(wave1_name, wave2_name):
+    """
+    Retrieve comparison data for two waves.
+    Returns a dictionary with comparison metrics or None if unavailable.
+    """
+    try:
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if not os.path.exists(wave_history_path):
+            return None
+        
+        df = pd.read_csv(wave_history_path)
+        
+        if 'date' not in df.columns or 'wave' not in df.columns or len(df) == 0:
+            return None
+        
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # Filter for both waves
+        wave1_df = df[df['wave'] == wave1_name].copy()
+        wave2_df = df[df['wave'] == wave2_name].copy()
+        
+        if len(wave1_df) == 0 or len(wave2_df) == 0:
+            return None
+        
+        # Get last 30 days for both waves
+        latest_date = df['date'].max()
+        days_30_ago = latest_date - timedelta(days=30)
+        
+        wave1_30d = wave1_df[wave1_df['date'] >= days_30_ago].copy()
+        wave2_30d = wave2_df[wave2_df['date'] >= days_30_ago].copy()
+        
+        if len(wave1_30d) == 0 or len(wave2_30d) == 0:
+            return None
+        
+        # Calculate metrics for Wave 1
+        wave1_metrics = calculate_wave_metrics(wave1_30d)
+        wave1_metrics['name'] = wave1_name
+        
+        # Calculate metrics for Wave 2
+        wave2_metrics = calculate_wave_metrics(wave2_30d)
+        wave2_metrics['name'] = wave2_name
+        
+        # Calculate correlation if we have overlapping dates
+        correlation = calculate_wave_correlation(wave1_30d, wave2_30d)
+        
+        return {
+            'wave1': wave1_metrics,
+            'wave2': wave2_metrics,
+            'correlation': correlation
+        }
+        
+    except Exception as e:
+        return None
+
+
+def calculate_wave_metrics(wave_data):
+    """
+    Calculate comprehensive metrics for a wave.
+    Returns a dictionary with all calculated metrics.
+    """
+    metrics = {
+        'cumulative_return': 'N/A',
+        'cumulative_alpha': 'N/A',
+        'volatility': 'N/A',
+        'max_drawdown': 'N/A',
+        'wavescore': 'N/A',
+        'sharpe_ratio': 'N/A',
+        'win_rate': 'N/A'
+    }
+    
+    try:
+        if len(wave_data) == 0:
+            return metrics
+        
+        # Calculate alpha
+        if 'portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns:
+            wave_data['alpha'] = wave_data['portfolio_return'] - wave_data['benchmark_return']
+            
+            # Cumulative return
+            cumulative_return = wave_data['portfolio_return'].sum()
+            metrics['cumulative_return'] = cumulative_return
+            
+            # Cumulative alpha
+            cumulative_alpha = wave_data['alpha'].sum()
+            metrics['cumulative_alpha'] = cumulative_alpha
+            
+            # Volatility
+            volatility = wave_data['portfolio_return'].std()
+            metrics['volatility'] = volatility
+            
+            # WaveScore
+            wavescore = calculate_wavescore(wave_data)
+            metrics['wavescore'] = wavescore
+            
+            # Sharpe ratio
+            avg_return = wave_data['portfolio_return'].mean()
+            if volatility > 0:
+                sharpe = (avg_return / volatility) * np.sqrt(252)
+                metrics['sharpe_ratio'] = sharpe
+            
+            # Win rate
+            positive_days = len(wave_data[wave_data['alpha'] > 0])
+            total_days = len(wave_data)
+            if total_days > 0:
+                metrics['win_rate'] = positive_days / total_days
+            
+            # Max drawdown
+            cumulative_returns = (1 + wave_data['portfolio_return']).cumprod()
+            running_max = cumulative_returns.cummax()
+            drawdown = (cumulative_returns - running_max) / running_max
+            metrics['max_drawdown'] = drawdown.min()
+    
+    except Exception:
+        pass
+    
+    return metrics
+
+
+def calculate_wave_correlation(wave1_data, wave2_data):
+    """
+    Calculate correlation between two waves based on their returns.
+    Returns correlation coefficient or None if unavailable.
+    """
+    try:
+        if len(wave1_data) == 0 or len(wave2_data) == 0:
+            return None
+        
+        if 'date' not in wave1_data.columns or 'date' not in wave2_data.columns:
+            return None
+        
+        if 'portfolio_return' not in wave1_data.columns or 'portfolio_return' not in wave2_data.columns:
+            return None
+        
+        # Merge on date to get overlapping periods
+        wave1_returns = wave1_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': 'return1'})
+        wave2_returns = wave2_data[['date', 'portfolio_return']].rename(columns={'portfolio_return': 'return2'})
+        
+        merged = pd.merge(wave1_returns, wave2_returns, on='date', how='inner')
+        
+        if len(merged) < 2:
+            return None
+        
+        correlation = merged['return1'].corr(merged['return2'])
+        
+        return correlation
+        
+    except Exception:
+        return None
+
+
+def determine_winner(wave1_metrics, wave2_metrics):
+    """
+    Determine which wave is the winner based on WaveScore.
+    Returns a tuple: (winner_name, notes)
+    """
+    try:
+        wave1_score = wave1_metrics.get('wavescore', 0)
+        wave2_score = wave2_metrics.get('wavescore', 0)
+        
+        if wave1_score == 'N/A' or wave2_score == 'N/A':
+            return None, "Insufficient data to determine winner"
+        
+        if wave1_score > wave2_score:
+            winner = wave1_metrics['name']
+            margin = wave1_score - wave2_score
+            notes = f"{winner} leads by {margin:.1f} WaveScore points"
+        elif wave2_score > wave1_score:
+            winner = wave2_metrics['name']
+            margin = wave2_score - wave1_score
+            notes = f"{winner} leads by {margin:.1f} WaveScore points"
+        else:
+            winner = "TIE"
+            notes = "Both waves have identical WaveScore"
+        
+        return winner, notes
+        
+    except Exception:
+        return None, "Error determining winner"
+
+
+def render_compare_waves_panel():
+    """Render the Compare Waves panel for head-to-head wave comparison."""
+    st.subheader("⚖️ Compare Waves")
+    st.write("Select two waves for head-to-head performance comparison")
+    
+    try:
+        # Get list of available waves
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if not os.path.exists(wave_history_path):
+            st.warning("Wave history data not available")
+            return
+        
+        df = pd.read_csv(wave_history_path)
+        
+        if 'wave' not in df.columns or len(df) == 0:
+            st.warning("No wave data available")
+            return
+        
+        waves = sorted(df['wave'].unique())
+        
+        if len(waves) < 2:
+            st.warning("At least two waves required for comparison")
+            return
+        
+        # Wave selectors
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            wave1 = st.selectbox(
+                "Wave 1",
+                options=waves,
+                key="compare_wave1",
+                help="Select first wave for comparison"
+            )
+        
+        with col2:
+            # Filter out wave1 from wave2 options
+            wave2_options = [w for w in waves if w != wave1]
+            wave2 = st.selectbox(
+                "Wave 2",
+                options=wave2_options,
+                key="compare_wave2",
+                help="Select second wave for comparison"
+            )
+        
+        if st.button("Compare Waves", type="primary"):
+            with st.spinner("Generating comparison..."):
+                comparison_data = get_wave_comparison_data(wave1, wave2)
+                
+                if comparison_data is None:
+                    st.error("Unable to generate comparison - data unavailable")
+                    return
+                
+                # Store in session state
+                st.session_state['comparison_data'] = comparison_data
+        
+        # Display comparison if available
+        if 'comparison_data' in st.session_state:
+            comp = st.session_state['comparison_data']
+            wave1_metrics = comp['wave1']
+            wave2_metrics = comp['wave2']
+            correlation = comp.get('correlation')
+            
+            st.divider()
+            st.markdown("### 📊 Head-to-Head Comparison (30-Day)")
+            
+            # Create comparison table
+            comparison_rows = []
+            
+            # Helper function to format metric
+            def format_metric(value, metric_type='percent'):
+                if value == 'N/A':
+                    return 'N/A'
+                if metric_type == 'percent':
+                    return f"{value*100:.2f}%"
+                elif metric_type == 'score':
+                    return f"{value:.1f}"
+                elif metric_type == 'ratio':
+                    return f"{value:.2f}"
+                else:
+                    return f"{value:.4f}"
+            
+            # Build comparison table
+            comparison_rows.append({
+                'Metric': 'Cumulative Return',
+                wave1_metrics['name']: format_metric(wave1_metrics['cumulative_return']),
+                wave2_metrics['name']: format_metric(wave2_metrics['cumulative_return'])
+            })
+            
+            comparison_rows.append({
+                'Metric': 'Cumulative Alpha',
+                wave1_metrics['name']: format_metric(wave1_metrics['cumulative_alpha']),
+                wave2_metrics['name']: format_metric(wave2_metrics['cumulative_alpha'])
+            })
+            
+            comparison_rows.append({
+                'Metric': 'Volatility',
+                wave1_metrics['name']: format_metric(wave1_metrics['volatility']),
+                wave2_metrics['name']: format_metric(wave2_metrics['volatility'])
+            })
+            
+            comparison_rows.append({
+                'Metric': 'Max Drawdown',
+                wave1_metrics['name']: format_metric(wave1_metrics['max_drawdown']),
+                wave2_metrics['name']: format_metric(wave2_metrics['max_drawdown'])
+            })
+            
+            comparison_rows.append({
+                'Metric': 'WaveScore',
+                wave1_metrics['name']: format_metric(wave1_metrics['wavescore'], 'score'),
+                wave2_metrics['name']: format_metric(wave2_metrics['wavescore'], 'score')
+            })
+            
+            comparison_rows.append({
+                'Metric': 'Sharpe Ratio',
+                wave1_metrics['name']: format_metric(wave1_metrics['sharpe_ratio'], 'ratio'),
+                wave2_metrics['name']: format_metric(wave2_metrics['sharpe_ratio'], 'ratio')
+            })
+            
+            comparison_rows.append({
+                'Metric': 'Win Rate',
+                wave1_metrics['name']: format_metric(wave1_metrics['win_rate']),
+                wave2_metrics['name']: format_metric(wave2_metrics['win_rate'])
+            })
+            
+            # Display table
+            comparison_df = pd.DataFrame(comparison_rows)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            
+            # Correlation
+            st.divider()
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### 🔗 Correlation")
+                if correlation is not None and correlation != 'N/A':
+                    st.metric(
+                        label="Return Correlation",
+                        value=f"{correlation:.3f}",
+                        help="Correlation between daily returns (-1 to 1)"
+                    )
+                    
+                    # Add interpretation
+                    if abs(correlation) > 0.7:
+                        corr_note = "Strong correlation"
+                    elif abs(correlation) > 0.3:
+                        corr_note = "Moderate correlation"
+                    else:
+                        corr_note = "Weak correlation"
+                    
+                    if correlation > 0:
+                        corr_note += " (positive)"
+                    elif correlation < 0:
+                        corr_note += " (negative)"
+                    
+                    st.info(corr_note)
+                else:
+                    st.info("Correlation data unavailable")
+            
+            with col2:
+                st.markdown("### 🏆 Winner")
+                winner, notes = determine_winner(wave1_metrics, wave2_metrics)
+                
+                if winner:
+                    if winner == "TIE":
+                        st.success(f"**{winner}**")
+                    else:
+                        st.success(f"**{winner}**")
+                    st.write(notes)
+                else:
+                    st.info(notes)
+            
+            # Additional notes
+            st.divider()
+            st.markdown("### 📝 Notes")
+            st.write("- All metrics calculated over the most recent 30-day period")
+            st.write("- WaveScore is the primary performance indicator (0-100 scale)")
+            st.write("- Correlation measures return co-movement (diversification benefit when low)")
+            
+    except Exception as e:
+        st.error(f"Error rendering Compare Waves panel: {str(e)}")
+
+
 def render_vector_explain_panel():
     """Render the Vector Explain panel for generating Wave narratives."""
     st.subheader("📝 Vector Explain")
@@ -703,7 +1066,15 @@ with analytics_tabs[0]:
     render_executive_section()
 with analytics_tabs[1]:
     st.header("Overview")
-    render_vector_explain_panel()
+    
+    # Create sub-tabs for Vector Explain and Compare Waves
+    overview_subtabs = st.tabs(["Vector Explain", "Compare Waves"])
+    
+    with overview_subtabs[0]:
+        render_vector_explain_panel()
+    
+    with overview_subtabs[1]:
+        render_compare_waves_panel()
 with analytics_tabs[2]:
     st.write("Details Content...")
 with analytics_tabs[3]:
