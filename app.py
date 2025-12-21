@@ -412,6 +412,51 @@ st.set_page_config(page_title="Institutional Console - Executive Layer v2", layo
 
 
 # ============================================================================
+# WAVE LINEUP CONFIGURATION - Equity Lineup Reset v1
+# ============================================================================
+
+# Legacy Crypto Waves to exclude (removed per requirement)
+EXCLUDED_CRYPTO_WAVES = {
+    "Multi-Cap Crypto Growth Wave",
+    "Bitcoin Wave", 
+    "Crypto Stable Yield Wave",
+    "Crypto High-Yield Income Wave"
+}
+
+# All Equity Waves that should be included in the lineup
+# Includes restored waves + 5 new waves (per requirement)
+INCLUDED_EQUITY_WAVES = {
+    # Core Index Waves
+    "S&P 500 Wave",
+    "Growth Wave",
+    "Small Cap Growth Wave", 
+    "Small-Mid Cap Growth Wave",
+    
+    # Thematic/Sector Waves (restored + new)
+    "Future Power & Energy Wave",
+    "Quantum Computing Wave",
+    "Clean Transit-Infrastructure Wave",
+    
+    # Income & Fixed Income Waves (restored)
+    "Income Wave",
+    
+    # New Equity Waves (5 new thematic waves per requirement)
+    "US MegaCap Core Wave",
+    "AI & Cloud MegaCap Wave",
+    "Next-Gen Compute & Semis Wave",
+    "US Small-Cap Disruptors Wave",
+    "Demas Fund Wave"
+}
+
+# Single Crypto Wave (sole crypto representation)
+CRYPTO_INCOME_WAVE = "Crypto Income Wave"
+
+# Crypto Selection Engine (CSE) - Top 1-200 cryptos
+# Represented as a virtual wave for analytics and selection
+CSE_WAVE_NAME = "Crypto Selection Engine (CSE Top 200)"
+
+
+# ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
 # ============================================================================
 
@@ -673,28 +718,197 @@ def get_latest_data_timestamp():
 
 def get_available_waves():
     """
-    Get list of available waves from wave history data.
+    Get list of available waves from wave history data with lineup filtering.
+    
+    Applies Equity Lineup Reset v1 configuration:
+    - Excludes legacy crypto waves (Multi-Cap Crypto Growth, Bitcoin, etc.)
+    - Includes all equity waves (restored + 5 new waves)
+    - Includes Crypto Income Wave as sole crypto representation
+    - Includes Crypto Selection Engine (CSE) as virtual wave
+    
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
         df = safe_load_wave_history()
         
-        if df is None:
+        # Get waves from data file
+        data_waves = set()
+        if df is not None and 'wave' in df.columns:
+            data_waves = set(df['wave'].dropna().unique())
+        
+        # Start with empty wave lineup
+        final_waves = set()
+        
+        # Step 1: Add waves from data that are NOT in exclusion list
+        for wave in data_waves:
+            if wave not in EXCLUDED_CRYPTO_WAVES:
+                final_waves.add(wave)
+        
+        # Step 2: Ensure all required equity waves are present (even if not in data yet)
+        # This allows for graceful display even when historical data is being regenerated
+        for equity_wave in INCLUDED_EQUITY_WAVES:
+            final_waves.add(equity_wave)
+        
+        # Step 3: Add the single Crypto Income Wave
+        final_waves.add(CRYPTO_INCOME_WAVE)
+        
+        # Step 4: Add Crypto Selection Engine (CSE) as a virtual wave
+        final_waves.add(CSE_WAVE_NAME)
+        
+        # Return sorted list
+        return sorted(list(final_waves))
+        
+    except Exception:
+        # Fallback: return at minimum the required waves
+        fallback_waves = list(INCLUDED_EQUITY_WAVES) + [CRYPTO_INCOME_WAVE, CSE_WAVE_NAME]
+        return sorted(fallback_waves)
+
+
+def get_cse_crypto_universe():
+    """
+    Get the Crypto Selection Engine (CSE) universe of top 1-200 cryptocurrencies.
+    
+    Uses Master_Stock_Sheet.csv to identify crypto assets based on sector classification.
+    Returns list of crypto tickers ranked by market cap, up to 200.
+    
+    Returns:
+        List of crypto ticker symbols or empty list if unavailable
+    """
+    try:
+        master_sheet_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+        
+        if not os.path.exists(master_sheet_path):
             return []
         
-        if 'wave' not in df.columns:
+        df = pd.read_csv(master_sheet_path)
+        
+        if df is None or len(df) == 0:
             return []
         
-        waves = df['wave'].dropna().unique()
-        return sorted(waves.tolist())
+        # Identify crypto sectors
+        crypto_sectors = [
+            'Store of Value / Settlement',
+            'Smart Contract Platforms (Layer 1)',
+            'Scaling Solutions (Layer 2)',
+            'Decentralized Finance (DeFi)',
+            'Infrastructure',
+            'AI / Compute / Data',
+            'Gaming / Metaverse',
+            'Payments / Remittance',
+            'Yield/Staking',
+            'Stablecoin Infrastructure'
+        ]
+        
+        # Filter for crypto assets
+        if 'Sector' in df.columns:
+            crypto_df = df[df['Sector'].isin(crypto_sectors)].copy()
+        else:
+            return []
+        
+        # Sort by market value if available
+        if 'MarketValue' in crypto_df.columns:
+            crypto_df = crypto_df.sort_values('MarketValue', ascending=False)
+        
+        # Get top 200 (or fewer if less than 200 available)
+        top_cryptos = crypto_df.head(200)
+        
+        # Return ticker list
+        if 'Ticker' in top_cryptos.columns:
+            return top_cryptos['Ticker'].dropna().tolist()
+        
+        return []
         
     except Exception:
         return []
 
 
+def get_cse_wave_data(days=30):
+    """
+    Generate synthetic wave data for Crypto Selection Engine (CSE).
+    
+    CSE represents a market-cap weighted portfolio of top 1-200 cryptocurrencies.
+    This function creates a placeholder/summary representation for CSE.
+    
+    Args:
+        days: Number of days of data to generate
+    
+    Returns:
+        DataFrame with CSE wave data or None if unavailable
+    """
+    try:
+        cse_cryptos = get_cse_crypto_universe()
+        
+        if len(cse_cryptos) == 0:
+            # Return placeholder data indicating CSE is available but data is building
+            return None
+        
+        # For now, return None to indicate "Data unavailable" gracefully
+        # Future enhancement: compute actual CSE portfolio performance
+        # from price data and market cap weights
+        return None
+        
+    except Exception:
+        return None
+
+
+def get_crypto_income_wave_data(days=30):
+    """
+    Get data for Crypto Income Wave (sole crypto wave representation).
+    
+    Falls back to "Crypto Income & Yield Wave" from wave_history.csv if available.
+    
+    Args:
+        days: Number of days of data
+        
+    Returns:
+        DataFrame with crypto income wave data or None if unavailable
+    """
+    try:
+        df = safe_load_wave_history()
+        
+        if df is None or 'wave' not in df.columns:
+            return None
+        
+        # Try exact match first
+        crypto_data = df[df['wave'] == CRYPTO_INCOME_WAVE].copy()
+        
+        # Fall back to alternative names
+        if len(crypto_data) == 0:
+            alternative_names = ["Crypto Income & Yield Wave", "Crypto Income Wave"]
+            for alt_name in alternative_names:
+                crypto_data = df[df['wave'] == alt_name].copy()
+                if len(crypto_data) > 0:
+                    # Rename to standard name
+                    crypto_data['wave'] = CRYPTO_INCOME_WAVE
+                    break
+        
+        if len(crypto_data) == 0:
+            return None
+        
+        # Apply date filtering
+        if days is not None and days > 0:
+            latest_date = crypto_data['date'].max()
+            cutoff_date = latest_date - timedelta(days=days)
+            crypto_data = crypto_data[crypto_data['date'] >= cutoff_date].copy()
+        
+        if len(crypto_data) == 0:
+            return None
+        
+        return crypto_data
+        
+    except Exception:
+        return None
+
+
 def get_wave_data_filtered(wave_name=None, days=30):
     """
     Get wave data filtered by wave name and/or date range.
+    
+    Handles special cases:
+    - Crypto Income Wave: maps to underlying crypto income data
+    - CSE (Crypto Selection Engine): returns synthetic/computed data
+    - Excluded legacy crypto waves: returns None
+    
     Returns DataFrame or None if unavailable.
     
     Args:
@@ -702,6 +916,19 @@ def get_wave_data_filtered(wave_name=None, days=30):
         days: Number of days to include (from latest date)
     """
     try:
+        # Special case: CSE (Crypto Selection Engine)
+        if wave_name == CSE_WAVE_NAME:
+            return get_cse_wave_data(days=days)
+        
+        # Special case: Crypto Income Wave
+        if wave_name == CRYPTO_INCOME_WAVE:
+            return get_crypto_income_wave_data(days=days)
+        
+        # Exclude legacy crypto waves
+        if wave_name in EXCLUDED_CRYPTO_WAVES:
+            return None
+        
+        # Load standard wave data
         df = safe_load_wave_history()
         
         if df is None:
