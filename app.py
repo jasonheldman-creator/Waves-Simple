@@ -11,16 +11,16 @@
 #         + NEW: VECTOR GOVERNANCE LAYER (Status Bar + Final Verdict Box + Assumptions Panel
 #                + Gating Warnings + Wave Purpose Statements)
 #
-# Boot-safety rules:
+# Architectural refinement principles (system-feedback, governance, stability):
 #   • ONE canonical dataset per selected Wave+Mode: hist_sel (source-of-truth)
-#   • Guarded optional imports (yfinance / plotly)
-#   • Guarded vector_truth import (app still boots if missing)
-#   • Every major section wrapped so the app still boots if a panel fails
-#   • Diagnostics tab always available (engine import errors, empty history, etc.)
+#   • Guarded optional imports (yfinance / plotly) for flexible onboarding
+#   • Guarded vector_truth import (app boots predictably regardless of dependencies)
+#   • Every major section wrapped so the app boots predictably if a panel fails
+#   • Diagnostics tab always available (stable feedback loop for engine import errors, empty history, etc.)
 #
-# Canonical rule:
+# Canonical governance rule (context vs control):
 #   hist_sel = _standardize_history(compute_wave_history(selected_wave, mode, days))
-#   Every metric shown uses hist_sel (no duplicate math / no crisscross).
+#   Every metric shown uses hist_sel (no duplicate math / no crisscross). This provides governance via architectural constraint.
 
 from __future__ import annotations
 
@@ -568,8 +568,8 @@ def beta_band(score: float) -> str:
 # ============================================================
 GLOSSARY: Dict[str, str] = {
     "Canonical (Source of Truth)": (
-        "Governance rule: ALL metrics come from one standardized history object for the selected Wave+Mode "
-        "(hist_sel = wave_nav, bm_nav, wave_ret, bm_ret). Every panel reuses it. No duplicate math = no crisscross."
+        "Architectural governance constraint: ALL metrics derive from one standardized history object for the selected Wave+Mode "
+        "(hist_sel = wave_nav, bm_nav, wave_ret, bm_ret). Every panel reuses it predictably. Context vs control: no duplicate math = no crisscross."
     ),
     "Return": "Wave return over the window (not annualized unless stated).",
     "Alpha": "Wave return minus Benchmark return over the same window.",
@@ -587,28 +587,28 @@ GLOSSARY: Dict[str, str] = {
     "CVaR 95% (daily)": "Average loss of the worst ~5% of days (tail risk).",
     "Sharpe": "Risk-adjusted return using total volatility (0% rf here).",
     "Sortino": "Risk-adjusted return using downside deviation only.",
-    "Benchmark Snapshot / Drift": "A fingerprint of benchmark composition. Drift means it changed in-session.",
-    "Coverage Score": "0–100 heuristic of data completeness + freshness.",
-    "Difficulty vs SPY": "Concentration/diversification proxy (not a promise).",
+    "Benchmark Snapshot / Drift": "A stable fingerprint of benchmark composition. Drift indicates composition changed in-session (governance signal for context stability).",
+    "Coverage Score": "0–100 heuristic of data completeness + freshness (system-feedback indicator for governance).",
+    "Difficulty vs SPY": "Concentration/diversification proxy (no-predict architectural reference, not a forecast).",
     "Risk Reaction Score": "0–100 heuristic of risk posture from TE/MaxDD/CVaR.",
     "Analytics Scorecard": "Governance-native reliability grade for analytics outputs (not performance).",
     "Beta (vs Benchmark)": "Regression slope of Wave daily returns vs Benchmark daily returns.",
     "Beta Reliability Score": "0–100: beta-target match + linkage quality (R²) + sample size.",
     "Vector™ Truth Layer": (
-        "Read-only truth referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
-        "attributes alpha to risk-on/off regimes, and scores durability/fragility."
+        "Read-only governance referee: decomposes alpha sources, reconciles capital-weighted vs exposure-adjusted alpha, "
+        "attributes alpha to risk-on/off regimes, and scores durability/fragility. Provides context vs control transparency (no-predict, system-feedback only)."
     ),
     "Vector™ — Truth Referee": (
-        "Independent, read-only layer that rules on causality, validates assumptions, "
-        "and flags when benchmark-based explanations fail to explain observed outcomes."
+        "Independent, read-only layer that provides governance verdicts on causality, validates assumptions predictably, "
+        "and flags when benchmark-based explanations fail to explain observed outcomes (architectural validation, not forecasting)."
     ),
     "Alpha Classification": (
         "Structural = regime/exposure-driven or benchmark linkage degraded; "
-        "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha."
+        "Incidental = selection/tilt under stable linkage; Not Present = near-flat alpha. Governance-native context classification."
     ),
-    "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave’s regime-aware design.",
-    "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only; does not block the app.",
-    "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance).",
+    "Assumptions Tested": "Explicit checklist of which standard investment assumptions hold vs break under the wave's regime-aware design (predictable system-feedback).",
+    "Gating Warnings": "Governance warnings when data/benchmark/fit integrity fails thresholds. Read-only system-feedback; does not block the app (flexible onboarding).",
+    "Wave Purpose Statement": "Plain-English definition of what the Wave is intended to do (positioning + governance context, not a performance prediction).",
 }
 
 
@@ -1676,12 +1676,12 @@ def confidence_from_integrity(cov: Dict[str, Any], bm_drift: str) -> Tuple[str, 
             issues.append("limited history")
 
         if not issues:
-            return ("High", "Fresh + complete history and stable benchmark snapshot.")
+            return ("High", "Fresh + complete history and stable benchmark snapshot (predictable governance context).")
         if drift or (math.isfinite(score) and score < 75) or (math.isfinite(age) and age >= 7) or rows < 60:
-            return ("Low", "Potential trust issues: " + ", ".join(issues) + ".")
-        return ("Medium", "Some caution flags: " + ", ".join(issues) + ".")
+            return ("Low", "Governance issues detected: " + ", ".join(issues) + " (architectural stability requirements not met).")
+        return ("Medium", "Caution flags present: " + ", ".join(issues) + " (governance attention recommended).")
     except Exception:
-        return ("Medium", "Confidence heuristic unavailable (non-fatal).")
+        return ("Medium", "Confidence heuristic unavailable (non-fatal; flexible system-feedback).")
 
 
 # ============================================================
@@ -1814,7 +1814,7 @@ def risk_reaction_score(te: float, mdd: float, cvar95: float) -> float:
 
 
 # ============================================================
-# Deterministic AI Explanation Layer (rules-based)
+# Deterministic AI Explanation Layer (rules-based, governance-native)
 # ============================================================
 def ai_explain_narrative(
     cov: Dict[str, Any],
@@ -1844,23 +1844,23 @@ def ai_explain_narrative(
     rows = int(cov.get("rows") or 0)
 
     if str(bm_drift).lower().strip() != "stable":
-        out["What changed recently"].append("Benchmark snapshot drift detected in-session (composition changed).")
+        out["What changed recently"].append("Benchmark snapshot drift detected in-session (composition changed; governance stability signal).")
     if math.isfinite(age) and age >= 3:
         out["What changed recently"].append(f"History freshness: last datapoint is {int(age)} day(s) old.")
     if rows < 90:
-        out["What changed recently"].append("Limited history window may reduce stability of risk metrics.")
+        out["What changed recently"].append("Limited history window may reduce stability of risk metrics (architectural context limitation).")
     if not out["What changed recently"]:
-        out["What changed recently"].append("No major governance changes detected (stable benchmark + fresh coverage).")
+        out["What changed recently"].append("No major governance changes detected (stable benchmark + fresh coverage; predictable context).")
 
     if math.isfinite(a30):
         if a30 > 0.02:
-            out["Why the alpha looks like this"].append("Positive 30D alpha: wave has recently outperformed its benchmark mix.")
+            out["Why the alpha looks like this"].append("Positive 30D alpha: wave has recently outperformed its benchmark mix (favorable context).")
         elif a30 < -0.02:
-            out["Why the alpha looks like this"].append("Negative 30D alpha: recent underperformance versus benchmark mix.")
+            out["Why the alpha looks like this"].append("Negative 30D alpha: recent underperformance versus benchmark mix (context vs control signal).")
         else:
-            out["Why the alpha looks like this"].append("30D alpha near flat: wave and benchmark moving similarly.")
+            out["Why the alpha looks like this"].append("30D alpha near flat: wave and benchmark moving similarly (stable linkage context).")
     if math.isfinite(te):
-        out["Why the alpha looks like this"].append(f"Active risk (TE {fmt_pct(te)}) is {te_risk_band(te)}; alpha magnitude often scales with active risk.")
+        out["Why the alpha looks like this"].append(f"Active risk (TE {fmt_pct(te)}) is {te_risk_band(te)}; alpha magnitude often scales with active risk (architectural governance relationship).")
 
     driver_bits = []
     if math.isfinite(te):
@@ -1881,15 +1881,15 @@ def ai_explain_narrative(
         )
 
     if math.isfinite(cov_score) and cov_score < 85:
-        out["What to verify"].append("Coverage score < 85: inspect missing business days + pipeline consistency.")
+        out["What to verify"].append("Coverage score < 85: inspect missing business days + pipeline consistency (governance hygiene).")
     if str(bm_drift).lower().strip() != "stable":
-        out["What to verify"].append("Benchmark drift: freeze benchmark mix for demos/governance.")
+        out["What to verify"].append("Benchmark drift: stabilize benchmark mix for governance (architectural stability requirement).")
     if math.isfinite(a30) and abs(a30) >= 0.08:
-        out["What to verify"].append("Large alpha: confirm benchmark weights + verify no gaps/rollovers in history.")
+        out["What to verify"].append("Large alpha: confirm benchmark weights + verify no gaps/rollovers in history (context validation).")
     if math.isfinite(beta_score) and beta_score < 75:
-        out["What to verify"].append("Beta reliability low: benchmark may not match systematic exposure (review mix).")
+        out["What to verify"].append("Beta reliability low: benchmark may not match systematic exposure (verify architectural fit).")
     if not out["What to verify"]:
-        out["What to verify"].append("No critical verification flags triggered.")
+        out["What to verify"].append("No critical verification flags triggered (stable governance context).")
 
     return out
 
@@ -2175,14 +2175,14 @@ def _primary_alpha_source(mode: str, cap_alpha: float, exp_adj_alpha: float, bet
     if not math.isfinite(a):
         return "Unknown"
     if abs(a) < 0.005:
-        return "No dominant alpha source detected (near-flat)."
+        return "No dominant alpha source detected (near-flat; predictable system-feedback)."
     if math.isfinite(ea) and math.isfinite(a) and (ea > a * 1.20):
-        return "Adaptive Exposure Control (SmartSafe / VIX / risk gating)"
+        return "Adaptive Exposure Control (SmartSafe / VIX / risk gating) — governance-native architectural mechanism"
     if math.isfinite(bs) and bs < 75:
-        return "Regime/Exposure effects (benchmark linkage degraded by design)"
+        return "Regime/Exposure effects (benchmark linkage degraded by design; architectural governance choice)"
     if "alpha-minus-beta" in str(mode).lower():
-        return "Beta-managed alpha (alpha-minus-beta discipline)"
-    return "Selection/tilt vs benchmark mix (within stable linkage)"
+        return "Beta-managed alpha (alpha-minus-beta discipline; stable governance framework)"
+    return "Selection/tilt vs benchmark mix (within stable linkage; predictable context)"
 
 
 def _assumption_checklist(bm_drift: str, beta_score: float) -> List[Tuple[str, bool, str]]:
@@ -2190,12 +2190,12 @@ def _assumption_checklist(bm_drift: str, beta_score: float) -> List[Tuple[str, b
     bs = safe_float(beta_score)
 
     out: List[Tuple[str, bool, str]] = []
-    out.append(("Fully-invested benchmark assumption", False, "Wave may use exposure control / cash sweeps; benchmark may be fully invested."))
-    out.append(("Stable beta assumption", math.isfinite(bs) and bs >= 80, "Beta reliability indicates linkage quality; low score often means mismatch (expected or needs review)."))
-    out.append(("Linear risk-return assumption", False, "Regime gating + nonlinear exposure breaks linear assumptions (by design)."))
-    out.append(("Regime-aware exposure control", True, "System is explicitly designed to vary exposure across regimes."))
-    out.append(("Capital preservation priority", True, "Risk controls (TE/MaxDD/CVaR) are first-class governance signals."))
-    out.append(("Benchmark-anchored governance", drift_ok, "Benchmark snapshot stability is required for clean comparisons (drift = governance flag)."))
+    out.append(("Fully-invested benchmark assumption", False, "Wave may use exposure control / cash sweeps; benchmark may be fully invested (architectural governance flexibility)."))
+    out.append(("Stable beta assumption", math.isfinite(bs) and bs >= 80, "Beta reliability indicates linkage quality; low score often means mismatch (expected or needs review; context vs control)."))
+    out.append(("Linear risk-return assumption", False, "Regime gating + nonlinear exposure breaks linear assumptions (by design; governance-native approach)."))
+    out.append(("Regime-aware exposure control", True, "System is explicitly designed to vary exposure across regimes (predictable architectural mechanism)."))
+    out.append(("Capital preservation priority", True, "Risk controls (TE/MaxDD/CVaR) are first-class governance signals (stable system-feedback)."))
+    out.append(("Benchmark-anchored governance", drift_ok, "Benchmark snapshot stability is required for clean comparisons (drift = governance flag; architectural constraint)."))
     return out
 
 
@@ -2211,23 +2211,23 @@ def _vector_failure_flags(metrics: Dict[str, Any], cov: Dict[str, Any], bm_drift
     bs = safe_float(beta_score)
 
     if math.isfinite(a365) and a365 < -0.02:
-        flags.append("Persistent negative alpha (365D) vs benchmark.")
+        flags.append("Persistent negative alpha (365D) vs benchmark (governance signal for review).")
     if math.isfinite(a30) and a30 < -0.04:
-        flags.append("Short-term underperformance (30D) needs review.")
+        flags.append("Short-term underperformance (30D) requires context review (system-feedback).")
     if str(bm_drift).lower().strip() != "stable":
-        flags.append("Benchmark drift detected — freeze benchmark mix for governance / demos.")
+        flags.append("Benchmark drift detected — stabilize benchmark mix for governance (architectural stability constraint).")
     if math.isfinite(bs) and bs < 65:
-        flags.append("Very low beta reliability — benchmark may not explain systematic exposure.")
+        flags.append("Very low beta reliability — benchmark may not explain systematic exposure (verify architectural fit).")
     if math.isfinite(te) and te >= 0.22:
-        flags.append("High active risk (TE) — confirm exposure caps / SmartSafe posture.")
+        flags.append("High active risk (TE) — review exposure caps and SmartSafe governance posture.")
     if math.isfinite(mdd) and mdd <= -0.25:
-        flags.append("Deep drawdown — resilience review needed.")
+        flags.append("Deep drawdown observed — resilience review recommended (governance context).")
     if math.isfinite(cvar95) and cvar95 <= -0.03:
-        flags.append("Tail risk elevated (CVaR) — stress review needed.")
+        flags.append("Tail risk elevated (CVaR) — stress review recommended (predictable system-feedback).")
     if math.isfinite(cov_score) and cov_score < 85:
-        flags.append("Coverage score < 85 — history integrity check recommended.")
+        flags.append("Coverage score < 85 — history integrity check recommended (stable governance requirement).")
     if math.isfinite(age) and age >= 5:
-        flags.append("Data staleness (>=5 days) — pipeline freshness check recommended.")
+        flags.append("Data staleness (≥5 days) — pipeline freshness check recommended (governance hygiene).")
     return flags
 
 
@@ -2272,11 +2272,11 @@ def _vector_referee_verdict_block(
         assumption_status = "Violated (Expected)"
 
     st.markdown("### Vector™ — Truth Referee")
-    st.caption("Independent attribution + assumption-validation layer (read-only, deterministic).")
+    st.caption("Independent attribution + assumption-validation layer (read-only, deterministic system-feedback for governance).")
 
     t1, t2, t3 = st.columns(3, gap="medium")
     with t1:
-        tile("Alpha Classification", classification, "Structural = regime/exposure-driven; Incidental = selection/tilt w/ stable linkage")
+        tile("Alpha Classification", classification, "Structural = regime/exposure-driven; Incidental = selection/tilt w/ stable linkage (governance-native context)")
     with t2:
         tile("Benchmark Assumption", assumption_status, f"BM drift: {bm_drift} · Beta Reliability: {beta_grade}")
     with t3:
@@ -2307,8 +2307,8 @@ def _vector_referee_verdict_block(
         for f in ff[:6]:
             st.write("• " + f)
 
-    st.caption("Vector does not optimize performance. It validates causality and flags when benchmark assumptions fail.")
-    st.caption("**Role of Waves:** Reference implementations used to expose platform behavior under live market regimes.")
+    st.caption("Vector provides governance feedback (no-predict architectural validation). It validates causality and flags when benchmark assumptions fail (stable system-feedback).")
+    st.caption("**Role of Waves:** Reference implementations exposing platform behavior under live market regimes (context vs control via architectural constraint).")
 
 
 # ============================================================
@@ -2344,16 +2344,16 @@ def safe_panel(title: str, fn):
 # 5️⃣ Wave Purpose Statements (edit anytime; safe + non-math)
 WAVE_PURPOSE: Dict[str, str] = {
     # Put your top “hero” waves here first; anything missing falls back safely.
-    "S&P 500 Wave": "Core U.S. large-cap baseline wave designed for broad market participation with governance-native benchmarking.",
-    "US Growth Wave": "Growth-tilted U.S. equity wave designed to capture upside leadership while measuring discipline versus a custom growth benchmark.",
-    "Small Cap Growth Wave": "Small-cap growth wave designed to target higher upside with tighter risk controls and transparent benchmark-relative attribution.",
-    "Small to Mid Cap Growth Wave": "SMID growth wave designed to balance upside capture and drawdown control, with benchmark fidelity checks.",
-    "AI & Automation Wave": "Innovation wave designed to capture AI/automation leadership while using governance to prevent benchmark illusion.",
-    "Quantum Computing Wave": "Frontier innovation wave designed for asymmetric upside; governance emphasizes benchmark fit + risk regime clarity.",
-    "Future Power & Energy Wave": "Energy-transition wave designed to capture multi-year structural themes while controlling drawdowns and tracking error.",
-    "Clean Transit-Infrastructure Wave": "Infrastructure/transition wave designed for durable exposure with risk-aware regime behavior and benchmark verification.",
-    "Crypto Income Wave": "Crypto yield/income wave designed to maximize risk-adjusted income signals with explicit regime-aware transparency.",
-    "SmartSafe Money Market Wave": "Capital-preservation wave designed for stability and liquidity; used as a governance anchor during risk-off regimes.",
+    "S&P 500 Wave": "Core U.S. large-cap baseline. Provides broad market participation with governance-native benchmarking. Stable architectural reference (no-predict, context vs control).",
+    "US Growth Wave": "Growth-tilted U.S. equity exposure. Measures disciplined upside capture relative to a custom growth benchmark. System-feedback via predictable analytics.",
+    "Small Cap Growth Wave": "Small-cap growth exposure. Targets flexible upside with governed risk controls and transparent benchmark-relative attribution (architectural stability).",
+    "Small to Mid Cap Growth Wave": "SMID growth exposure. Balances upside capture and drawdown governance, with benchmark fidelity as a stability constraint.",
+    "AI & Automation Wave": "Innovation exposure focused on AI/automation leadership. Governance prevents benchmark illusion; provides architectural context vs control.",
+    "Quantum Computing Wave": "Frontier innovation exposure for asymmetric upside potential. Governance emphasizes benchmark fit + risk regime clarity (no-predict, stable feedback).",
+    "Future Power & Energy Wave": "Energy-transition exposure capturing multi-year structural themes. Governed drawdown and tracking error controls provide predictable system-feedback.",
+    "Clean Transit-Infrastructure Wave": "Infrastructure/transition exposure. Durable positioning with risk-aware regime behavior and benchmark verification (architectural governance).",
+    "Crypto Income Wave": "Crypto yield/income exposure. Maximizes risk-adjusted income signals with explicit regime-aware transparency (flexible, predictable governance).",
+    "SmartSafe Money Market Wave": "Capital-preservation anchor. Designed for stability and liquidity; provides governance reference during risk-off regimes (architectural stability).",
 }
 
 def wave_purpose_statement(wave_name: str) -> str:
@@ -2382,39 +2382,39 @@ def build_gating_warnings(
     bs = safe_float(beta_score)
 
     if selected_wave == "(none)" or not selected_wave:
-        crits.append("No wave selected — governance cannot evaluate.")
+        crits.append("No wave selected — governance evaluation requires context.")
         return {"warn": warns, "crit": crits}
 
     if str(bm_drift).lower().strip() != "stable":
-        crits.append("Benchmark drift detected — freeze benchmark mix for demo/governance comparisons.")
+        crits.append("Benchmark drift detected — stabilize benchmark mix for governance (architectural stability requirement).")
 
     if math.isfinite(cov_score) and cov_score < 75:
-        crits.append(f"Coverage score is low ({fmt_num(cov_score,1)}) — analytics reliability is compromised.")
+        crits.append(f"Coverage score is low ({fmt_num(cov_score,1)}) — analytics reliability requires attention (governance signal).")
     elif math.isfinite(cov_score) and cov_score < 85:
-        warns.append(f"Coverage score < 85 ({fmt_num(cov_score,1)}) — treat risk/alpha outputs with caution.")
+        warns.append(f"Coverage score < 85 ({fmt_num(cov_score,1)}) — treat risk/alpha outputs with caution (system-feedback).")
 
     if math.isfinite(age) and age >= 7:
-        crits.append(f"Data is stale ({fmt_int(age)} days old) — refresh pipeline before relying on results.")
+        crits.append(f"Data is stale ({fmt_int(age)} days old) — refresh pipeline for stable governance (predictable system-feedback).")
     elif math.isfinite(age) and age >= 5:
-        warns.append(f"Data is getting stale ({fmt_int(age)} days old) — freshness check recommended.")
+        warns.append(f"Data is aging ({fmt_int(age)} days old) — freshness check recommended (governance hygiene).")
 
     if rows < 60:
-        crits.append("History window is too short (<60 points) — stability of risk metrics is weak.")
+        crits.append("History window is too short (<60 points) — stability of risk metrics is weak (architectural constraint).")
     elif rows < 90:
-        warns.append("Limited history (<90 points) — risk metrics may be noisy.")
+        warns.append("Limited history (<90 points) — risk metrics may be noisy (context limitation).")
 
     if math.isfinite(miss_pct) and miss_pct >= 0.08:
-        crits.append(f"Missing business days is high ({fmt_num(miss_pct*100,1)}%) — verify data integrity.")
+        crits.append(f"Missing business days is high ({fmt_num(miss_pct*100,1)}%) — verify data integrity (governance requirement).")
     elif math.isfinite(miss_pct) and miss_pct >= 0.05:
-        warns.append(f"Missing business days ≥5% ({fmt_num(miss_pct*100,1)}%) — verify history continuity.")
+        warns.append(f"Missing business days ≥5% ({fmt_num(miss_pct*100,1)}%) — verify history continuity (stable system-feedback).")
 
     if math.isfinite(bs) and bs < 65:
-        crits.append(f"Very low beta reliability ({fmt_num(bs,1)}/100) — benchmark may not explain systematic exposure.")
+        crits.append(f"Very low beta reliability ({fmt_num(bs,1)}/100) — benchmark may not explain systematic exposure (architectural fit issue).")
     elif math.isfinite(bs) and bs < 75:
-        warns.append(f"Beta reliability <75 ({fmt_num(bs,1)}/100) — benchmark fit likely weak (expected or needs review).")
+        warns.append(f"Beta reliability <75 ({fmt_num(bs,1)}/100) — benchmark fit likely weak (expected or needs review; context vs control).")
 
     if beta_n < 30:
-        warns.append("Insufficient sample for beta reliability (<30 points).")
+        warns.append("Insufficient sample for beta reliability (<30 points; predictable statistical limitation).")
 
     return {"warn": warns, "crit": crits}
 
@@ -2519,13 +2519,13 @@ def build_final_verdict(
 
     if red_triggers >= 2:
         verdict = "RED — Not governance-ready"
-        action = "Freeze benchmark + fix data integrity; do not present as final results."
+        action = "Stabilize benchmark + resolve data integrity issues; architectural refinement required before presenting as governance-ready."
     elif red_triggers == 1 or amber_triggers >= 2:
         verdict = "AMBER — Demo with caveats"
-        action = "Proceed, but disclose warnings; use Referee + Truth Layer to explain."
+        action = "Proceed with disclosure of warnings; use Referee + Truth Layer for context vs control transparency."
     else:
-        verdict = "GREEN — Governance-ready"
-        action = "Proceed; use comparator + snapshot for positioning."
+        verdict = "GREEN — Governance-ready (stable)"
+        action = "Proceed; use comparator + snapshot for positioning (predictable governance framework)."
 
     return {
         "verdict": verdict,
@@ -2692,7 +2692,7 @@ def render_final_verdict_box(v: Dict[str, Any], bm_id: str, bm_name: str, beta_g
     else:
         verdict_color = "green"
         verdict_short = "GREEN"
-        verdict_subtitle = "Governance-ready"
+        verdict_subtitle = "Governance-ready (stable)"
     
     st.markdown(
         f"""
@@ -2859,9 +2859,9 @@ def render_gating_warnings(g: Dict[str, List[str]]):
 
     with st.expander("What are gating warnings?"):
         st.write(
-            "These warnings are governance checks. They do not block the app. "
-            "They tell you whether the analytics are demo-ready, and what needs to be stabilized "
-            "(benchmark drift, stale data, missing days, short history, benchmark fit)."
+            "These are governance checks providing stable system-feedback (flexible onboarding). They do not block the app. "
+            "They indicate whether analytics are governance-ready, and what architectural elements need stabilization "
+            "(benchmark drift, stale data, missing days, short history, benchmark fit). Context vs control via predictable signals."
         )
         render_definitions(["Gating Warnings", "Benchmark Snapshot / Drift", "Coverage Score", "Beta Reliability Score"], title="Definitions (Gating)")
 
@@ -2871,7 +2871,7 @@ def render_gating_warnings(g: Dict[str, List[str]]):
 # ============================================================
 all_waves = get_all_waves_safe()
 if not all_waves:
-    st.warning("No waves found. Ensure engine is available or CSVs are present (wave_config.csv / wave_weights.csv / list.csv).")
+    st.warning("No waves found. Ensure engine is available or CSVs are present (flexible onboarding: wave_config.csv / wave_weights.csv / list.csv).")
 
 st.sidebar.markdown("## Controls")
 mode = st.sidebar.selectbox("Mode", ["Standard", "Alpha-Minus-Beta", "Private Logic"], index=0)
@@ -2976,7 +2976,7 @@ tabs = st.tabs(tab_names)
 # ============================================================
 with tabs[0]:
     st.markdown("### Executive IC One-Pager")
-    st.caption("Executive summary with Vector™ Final Verdict. For detailed analytics, assumptions, and derivations, see Decision Center.")
+    st.caption("Executive summary with Vector™ Final Verdict. For detailed analytics, assumptions, and derivations, see Decision Center (stable architectural separation).")
 
     # 2️⃣ Final Verdict Box (DOMINANT ELEMENT - placed FIRST in IC)
     if VECTOR_GOVERNANCE_ENABLED and ENABLE_FINAL_VERDICT_BOX:
@@ -3003,13 +3003,13 @@ with tabs[0]:
         if purpose:
             st.markdown("**Wave Purpose Statement (Vector™):**")
             st.write(purpose)
-            st.caption("Purpose is positioning + governance; it does not affect analytics math.")
+            st.caption("Purpose is positioning + governance context; it does not affect analytics calculations (no-predict architectural constraint).")
         else:
             st.caption("Purpose statement disabled or not set.")
 
         st.write(
-            "A governance-native portfolio wave with a benchmark-anchored analytics stack. "
-            "Designed to eliminate crisscross metrics and provide decision-ready outputs fast."
+            "Governance-native portfolio exposure with benchmark-anchored analytics. "
+            "Designed to eliminate crisscross metrics and provide decision-ready outputs (context vs control via architectural constraint)."
         )
         st.markdown("**Governance Status (Conclusions)**")
         st.write(f"**Confidence:** {conf_level}")
@@ -3026,33 +3026,33 @@ with tabs[0]:
         wins, risks, actions = [], [], []
 
         if conf_level == "High":
-            wins.append("Fresh + complete coverage supports institutional trust.")
+            wins.append("Fresh + complete coverage supports governance confidence (stable system-feedback).")
         if bm_drift == "stable":
-            wins.append("Benchmark snapshot is stable (governance green).")
+            wins.append("Benchmark snapshot is stable (governance-ready architectural context).")
         if math.isfinite(beta_score) and beta_score >= 80:
-            wins.append("Benchmark systematic exposure match (beta reliability is strong).")
+            wins.append("Benchmark systematic exposure match is strong (predictable beta linkage).")
         if math.isfinite(metrics["a30"]) and metrics["a30"] > 0:
-            wins.append("Positive 30D alpha versus benchmark mix.")
+            wins.append("Positive 30D alpha versus benchmark (favorable context within governance framework).")
 
         if conf_level != "High":
-            risks.append("Data trust flags present (coverage/age/rows).")
+            risks.append("Data governance flags present (coverage/age/rows require attention).")
         if bm_drift != "stable":
-            risks.append("Benchmark drift detected (composition changed in-session).")
+            risks.append("Benchmark drift detected (composition changed in-session; affects context stability).")
         if math.isfinite(beta_score) and beta_score < 75:
-            risks.append("Beta reliability low (benchmark may not match systematic exposure).")
+            risks.append("Beta reliability requires review (benchmark may not match systematic exposure; verify architectural fit).")
         if math.isfinite(metrics["mdd"]) and metrics["mdd"] <= -0.25:
-            risks.append("Deep drawdown regime risk is elevated.")
+            risks.append("Deep drawdown regime observed (elevated risk context).")
 
         if bm_drift != "stable":
-            actions.append("Freeze benchmark mix for demos/governance, then re-run.")
+            actions.append("Stabilize benchmark mix for governance (freeze composition, then re-run for consistent context).")
         if math.isfinite(beta_score) and beta_score < 75:
-            actions.append("Review benchmark mix: adjust exposures to match wave beta target (or justify intentional mismatch).")
+            actions.append("Review benchmark mix: verify exposures match wave beta target or document intentional architectural mismatch.")
         if math.isfinite(metrics["te"]) and metrics["te"] >= 0.20:
-            actions.append("Confirm exposure caps / SmartSafe posture for high active risk.")
+            actions.append("Review exposure caps and SmartSafe governance posture for elevated active risk context.")
         if conf_level != "High":
-            actions.append("Inspect history pipeline for missing days or stale writes.")
+            actions.append("Inspect history pipeline for missing days or stale writes (ensure stable system-feedback).")
         if not actions:
-            actions.append("Proceed: governance is stable; use comparator and alpha snapshot for positioning.")
+            actions.append("Proceed: governance is stable; use comparator and alpha snapshot for positioning (predictable context).")
 
         st.markdown("**Key Wins**")
         for w in (wins[:4] if wins else ["(none)"]):
@@ -3087,7 +3087,7 @@ with tabs[0]:
 # ============================================================
 with tabs[1]:
     st.markdown("### Decision Center")
-    st.caption("Detailed analytics, assumptions, derivations, and decision metrics. This is where all analytical depth lives.")
+    st.caption("Detailed analytics, assumptions, derivations, and decision metrics. Architectural depth with stable system-feedback (context vs control).")
 
     st.markdown("#### Decision Tiles")
     c1, c2 = st.columns(2, gap="medium")
@@ -3108,7 +3108,7 @@ with tabs[1]:
     
     st.markdown("---")
     st.markdown("### Detailed Analytics & Derivations")
-    st.caption("All analytical assumptions, formulas, and detailed explanations live here.")
+    st.caption("All analytical assumptions, formulas, and detailed explanations (predictable governance framework, no-predict architectural refinement).")
     
     # Detailed Trust + Governance (moved from IC Summary)
     st.markdown('<div class="waves-card">', unsafe_allow_html=True)
@@ -3116,7 +3116,7 @@ with tabs[1]:
     st.write(f"**Confidence:** {conf_level} — {conf_reason}")
     st.write(f"**Benchmark Snapshot:** {bm_id} · Drift: {bm_drift}")
     st.write(f"**Beta Reliability:** {beta_grade} · β {fmt_num(beta_val,2)} vs target {fmt_num(beta_target,2)} · R² {fmt_num(beta_r2,2)} · n {beta_n}")
-    st.caption("Beta derivation: regression slope of Wave daily returns vs Benchmark daily returns, with R² measuring fit quality.")
+    st.caption("Beta derivation: regression slope of Wave daily returns vs Benchmark daily returns, with R² measuring fit quality (architectural governance metric).")
     st.markdown("</div>", unsafe_allow_html=True)
     
     # Vector Referee (moved from IC Summary)
@@ -3155,11 +3155,11 @@ with tabs[1]:
     ac_sel = _alpha_capture_series(hist_sel, selected_wave, mode)
     ac60 = _compound_from_daily(ac_sel.tail(min(60, len(ac_sel)))) if len(ac_sel) >= 2 else float("nan")
     st.write(f"**Capital-Weighted Alpha (60D):** {fmt_pct(attrib60.get('cap_alpha'))}")
-    st.caption("Capital-weighted alpha: investor-experience alpha (Wave return − Benchmark return) over the window.")
+    st.caption("Capital-weighted alpha: investor-experience alpha (Wave return − Benchmark return) over the window (context vs control metric).")
     st.write(f"**Exposure-Adjusted Alpha (60D):** {fmt_pct(attrib60.get('exp_adj_alpha'))}")
-    st.caption("Exposure-adjusted alpha: capital-weighted alpha divided by average exposure over the window (if exposure known).")
+    st.caption("Exposure-adjusted alpha: capital-weighted alpha divided by average exposure over the window if exposure known (architectural refinement).")
     st.write(f"**Alpha Capture (60D, exposure-normalized if available):** {fmt_pct(ac60)}")
-    st.caption("Alpha capture: daily (Wave return − Benchmark return) optionally normalized by exposure, compounded over window.")
+    st.caption("Alpha capture: daily (Wave return − Benchmark return) optionally normalized by exposure, compounded over window (predictable system-feedback).")
     st.write(
         f"**Risk-On Alpha (60D):** {fmt_pct(attrib60.get('risk_on_alpha'))} "
         f"({fmt_pct(attrib60.get('risk_on_share'),2)} share)"
@@ -3168,7 +3168,7 @@ with tabs[1]:
         f"**Risk-Off Alpha (60D):** {fmt_pct(attrib60.get('risk_off_alpha'))} "
         f"({fmt_pct(attrib60.get('risk_off_share'),2)} share)"
     )
-    st.caption("Risk-On vs Risk-Off: Alpha split by benchmark regime (Risk-Off when bm_ret < 0, else Risk-On).")
+    st.caption("Risk-On vs Risk-Off: Alpha split by benchmark regime (Risk-Off when bm_ret < 0, else Risk-On). Governance-native context classification.")
     render_definitions(
         ["Capital-Weighted Alpha", "Exposure-Adjusted Alpha", "Risk-On vs Risk-Off Attribution", "Alpha Capture"],
         title="Definitions (Alpha Enhancements)",
@@ -3522,33 +3522,33 @@ with tabs[7]:
     st.markdown("#### Engine status")
     if we is None:
         st.error(f"waves_engine import failed: {ENGINE_IMPORT_ERROR}")
-        st.write("Fallback mode will attempt to load wave_history.csv / config CSVs.")
+        st.write("Fallback mode will attempt to load wave_history.csv / config CSVs (flexible onboarding provides graceful degradation).")
     else:
-        st.success("waves_engine imported successfully.")
+        st.success("waves_engine imported successfully (stable system-feedback).")
 
     st.markdown("---")
     st.markdown("#### Vector Truth status")
     if build_vector_truth_report is None or format_vector_truth_markdown is None:
-        st.warning("Vector Truth import failed or is unavailable.")
+        st.warning("Vector Truth import failed or is unavailable (flexible onboarding allows graceful degradation).")
         if VECTOR_TRUTH_IMPORT_ERROR is not None:
             st.code(str(VECTOR_TRUTH_IMPORT_ERROR))
     else:
-        st.success("Vector Truth imported successfully.")
+        st.success("Vector Truth imported successfully (governance-native system-feedback active).")
 
     st.markdown("---")
     st.markdown("#### Vector Referee status")
     if ENABLE_VECTOR_REFEREE:
-        st.success("Vector Referee is active (deterministic rules running).")
-        st.caption("Referee uses canonical hist_sel + benchmark drift + beta reliability + risk signals. Read-only.")
+        st.success("Vector Referee is active (deterministic governance rules providing stable system-feedback).")
+        st.caption("Referee uses canonical hist_sel + benchmark drift + beta reliability + risk signals. Read-only (no-predict architectural constraint).")
     else:
-        st.info("Vector Referee disabled.")
+        st.info("Vector Referee disabled (flexible configuration).")
 
     st.markdown("---")
     st.markdown("#### Vector Governance Layer status")
     if VECTOR_GOVERNANCE_ENABLED:
-        st.success("Vector Governance Layer is active (Status Bar + Verdict + Assumptions + Gating + Purpose).")
+        st.success("Vector Governance Layer is active (Status Bar + Verdict + Assumptions + Gating + Purpose providing predictable governance framework).")
     else:
-        st.info("Vector Governance Layer disabled.")
+        st.info("Vector Governance Layer disabled (flexible configuration).")
 
     st.markdown("---")
     st.markdown("#### Canonical history checks")
@@ -3580,7 +3580,7 @@ with tabs[7]:
     st.markdown("#### Notes")
     st.caption(
         "If you see benchmark drift or low coverage warnings, stabilize the benchmark mix and refresh the history pipeline. "
-        "This console is designed to never crash from missing optional modules."
+        "This console provides stable system-feedback via flexible onboarding (predictably boots regardless of missing optional modules)."
     )
 # ============================================================
 # OPTIONAL: MARKET INTELLIGENCE™ FOOTER (boot-safe)
@@ -3588,10 +3588,10 @@ with tabs[7]:
 try:
     st.markdown("---")
     st.markdown("## Market Intelligence™")
-    st.markdown("Real-time volatility context for portfolio decision-making")
+    st.markdown("Real-time volatility context for portfolio decision-making (governance-native system-feedback)")
 
     if not ENABLE_YFINANCE_CHIPS or yf is None:
-        st.caption("Market Intelligence™ disabled (yfinance missing or flag off).")
+        st.caption("Market Intelligence™ disabled (yfinance missing or flag off; flexible onboarding allows graceful degradation).")
     else:
         # VIX Risk Meter™ - prominent display at top of Market Intelligence™
         render_vix_risk_meter()
@@ -3650,7 +3650,7 @@ try:
     st.markdown("---")
     st.caption(
         f"WAVES Intelligence™ Institutional Console · Vector OS Edition · "
-        f"Canonical Cohesion Lock ACTIVE · Build: vNEXT · Render: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+        f"Canonical Cohesion Lock ACTIVE (Governance-Native Architecture) · Build: vNEXT · Render: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
     )
 except Exception:
     pass

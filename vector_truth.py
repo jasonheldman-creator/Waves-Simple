@@ -1,17 +1,17 @@
 # vector_truth.py — WAVES Intelligence™
-# Vector™ Truth Layer v1 (Read-only, deterministic, IC-ready)
+# Vector™ Truth Layer v1 (Read-only, deterministic, governance-ready)
 #
 # Purpose:
-#   Produce "Truth outputs" tied to the new alpha framework:
-#     • Alpha Source Decomposition (Truth View)
-#     • Capital-Weighted vs Exposure-Adjusted Reconciliation
-#     • Risk-On vs Risk-Off Attribution
-#     • Durability & Fragility Scan
+#   Provide governance-native "Truth outputs" tied to the alpha framework:
+#     • Alpha Source Decomposition (Truth View - architectural transparency)
+#     • Capital-Weighted vs Exposure-Adjusted Reconciliation (context vs control)
+#     • Risk-On vs Risk-Off Attribution (regime-aware governance)
+#     • Durability & Fragility Scan (predictable system-feedback)
 #
-# Design rules:
-#   • No optimization, no portfolio actions, no forecasting.
-#   • Deterministic wording templates (no creative drift).
-#   • Works with partial inputs (graceful fallbacks).
+# Architectural refinement principles:
+#   • No optimization, no portfolio actions, no forecasting (no-predict constraint).
+#   • Deterministic wording templates (stable, predictable outputs).
+#   • Works with partial inputs (flexible onboarding, graceful fallbacks).
 
 from __future__ import annotations
 
