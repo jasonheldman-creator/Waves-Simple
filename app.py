@@ -37,31 +37,16 @@ with analytics_tabs[3]:
     
     # Capital-Weighted Alpha Section
     st.subheader("Capital-Weighted Alpha")
-    try:
-        # Attempt to display capital-weighted alpha data
-        # This would typically use data from alpha_attribution or similar modules
-        st.write("Data unavailable")
-    except:
-        st.write("Data unavailable")
+    st.write("Data unavailable")
     
     st.divider()
     
     # Exposure-Adjusted Alpha Section
     st.subheader("Exposure-Adjusted Alpha")
-    try:
-        # Attempt to display exposure-adjusted alpha data
-        # This would typically use data from alpha_attribution or similar modules
-        st.write("Data unavailable")
-    except:
-        st.write("Data unavailable")
+    st.write("Data unavailable")
     
     st.divider()
     
     # Risk-On vs Risk-Off Attribution Section
     st.subheader("Risk-On vs Risk-Off Attribution")
-    try:
-        # Attempt to display risk-on vs risk-off attribution data
-        # This would typically use VIX regime data and attribution analysis
-        st.write("Data unavailable")
-    except:
-        st.write("Data unavailable")
+    st.write("Data unavailable")
