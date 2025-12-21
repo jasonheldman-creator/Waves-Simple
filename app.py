@@ -67,7 +67,8 @@ try:
         format_vector_truth_markdown, 
         render_vector_truth_alpha_attribution,
         compute_alpha_reliability_metrics,
-        render_alpha_reliability_panel
+        render_alpha_reliability_panel,
+        extract_alpha_attribution_breakdown
     )
 except Exception as e:
     build_vector_truth_report = None
@@ -75,6 +76,7 @@ except Exception as e:
     render_vector_truth_alpha_attribution = None
     compute_alpha_reliability_metrics = None
     render_alpha_reliability_panel = None
+    extract_alpha_attribution_breakdown = None
     VECTOR_TRUTH_IMPORT_ERROR = e
 
 
@@ -2455,6 +2457,219 @@ def _risk_on_off_attrib(hist: pd.DataFrame, wave_name: str, mode: str, window: i
     return out
 
 
+def _compute_overlay_contributions(
+    hist_sel: pd.DataFrame, 
+    selected_wave: str, 
+    mode: str
+) -> Dict[str, Optional[float]]:
+    """
+    Compute overlay contribution estimates for VIX/Regime/SmartSafe controls.
+    
+    Returns dict with:
+        - overlay_contribution: combined overlay effect (if exposure varies)
+        - vix_contribution: VIX-specific effect (estimated from regime behavior)
+        - smartsafe_contribution: SmartSafe gating effect (from exposure reduction)
+    """
+    contributions = {
+        "overlay_contribution": None,
+        "vix_contribution": None,
+        "smartsafe_contribution": None,
+    }
+    
+    try:
+        if hist_sel is None or hist_sel.empty or len(hist_sel) < 30:
+            return contributions
+        
+        # Get exposure series
+        exp_series = _try_get_exposure_series(selected_wave, mode, pd.DatetimeIndex(hist_sel.index))
+        
+        if exp_series is None or len(exp_series) < 30:
+            # No exposure variation means no overlay contribution
+            return contributions
+        
+        exp_numeric = pd.to_numeric(exp_series, errors="coerce").dropna()
+        if len(exp_numeric) < 30:
+            return contributions
+        
+        # Check if exposure varies significantly (indicates overlay activity)
+        exp_var = exp_numeric.std()
+        if exp_var < 0.05:
+            # Minimal exposure variation - no significant overlay
+            return contributions
+        
+        # Compute SmartSafe contribution (capital preservation from exposure reduction)
+        # This is the alpha captured by reducing exposure during drawdowns
+        wave_ret = pd.to_numeric(hist_sel["wave_ret"], errors="coerce").dropna()
+        bm_ret = pd.to_numeric(hist_sel["bm_ret"], errors="coerce").dropna()
+        
+        # Align all series
+        common_idx = exp_numeric.index.intersection(wave_ret.index).intersection(bm_ret.index)
+        if len(common_idx) < 30:
+            return contributions
+        
+        exp_aligned = exp_numeric.reindex(common_idx)
+        wave_ret_aligned = wave_ret.reindex(common_idx)
+        bm_ret_aligned = bm_ret.reindex(common_idx)
+        
+        # SmartSafe contribution: benefit from exposure reduction during negative benchmark periods
+        # When bm_ret < 0 and exposure < 1.0, we avoid some downside
+        negative_bm_mask = bm_ret_aligned < 0
+        if negative_bm_mask.sum() > 5:
+            # Calculate how much downside we avoided
+            exposure_reduction = 1.0 - exp_aligned[negative_bm_mask]
+            downside_avoided = exposure_reduction * bm_ret_aligned[negative_bm_mask].abs()
+            smartsafe_contrib = downside_avoided.sum()
+            
+            if math.isfinite(smartsafe_contrib) and smartsafe_contrib > 0:
+                contributions["smartsafe_contribution"] = smartsafe_contrib
+        
+        # VIX contribution: estimate from regime-based behavior
+        # When exposure drops during risk-off periods, that's VIX/regime response
+        reg_series = _build_regime_series_from_benchmark(hist_sel)
+        if reg_series is not None and len(reg_series) > 30:
+            reg_aligned = reg_series.reindex(common_idx)
+            risk_off_mask = reg_aligned == "RISK_OFF"
+            
+            if risk_off_mask.sum() > 5:
+                # Average exposure in risk-off vs risk-on
+                risk_off_exp = exp_aligned[risk_off_mask].mean()
+                risk_on_exp = exp_aligned[~risk_off_mask].mean()
+                
+                if math.isfinite(risk_off_exp) and math.isfinite(risk_on_exp):
+                    exp_diff = risk_on_exp - risk_off_exp
+                    
+                    if exp_diff > 0.1:  # Significant exposure reduction in risk-off
+                        # Estimate VIX contribution from avoided risk-off downside
+                        risk_off_bm_ret = bm_ret_aligned[risk_off_mask]
+                        if len(risk_off_bm_ret) > 0:
+                            avg_risk_off_loss = risk_off_bm_ret.mean()
+                            if math.isfinite(avg_risk_off_loss) and avg_risk_off_loss < 0:
+                                vix_contrib = exp_diff * abs(avg_risk_off_loss) * risk_off_mask.sum()
+                                if math.isfinite(vix_contrib):
+                                    contributions["vix_contribution"] = vix_contrib
+        
+        # Overall overlay contribution (combined effect)
+        if contributions["smartsafe_contribution"] is not None or contributions["vix_contribution"] is not None:
+            overlay_total = 0.0
+            if contributions["smartsafe_contribution"] is not None:
+                overlay_total += contributions["smartsafe_contribution"]
+            if contributions["vix_contribution"] is not None:
+                overlay_total += contributions["vix_contribution"]
+            
+            if overlay_total > 0:
+                contributions["overlay_contribution"] = overlay_total
+    
+    except Exception:
+        # Graceful fallback
+        pass
+    
+    return contributions
+
+
+def render_alpha_attribution_diagnostic_panel(
+    report: Any,
+    selected_wave: str,
+    attribution_confidence: Optional[str] = None
+):
+    """
+    Render diagnostics-level alpha attribution breakdown per Wave.
+    
+    Displays:
+    - Exposure & Timing attribution
+    - VIX/Regime overlay contributions
+    - Momentum (included in exposure management, not separately reported)
+    - Risk control impacts (included in capital preservation)
+    - Asset selection alpha
+    
+    This is the canonical alpha truth-attribution diagnostic interface.
+    No visual polish required - functional diagnostics only.
+    """
+    if extract_alpha_attribution_breakdown is None:
+        st.caption("Alpha attribution breakdown unavailable (import issue)")
+        return
+    
+    st.markdown("### 🔍 Alpha Attribution Diagnostic Breakdown")
+    st.caption(f"**Wave:** {selected_wave} • **Confidence:** {attribution_confidence or 'N/A'}")
+    st.caption("Canonical alpha truth-attribution per Vector™ Truth Layer. Read-only diagnostics.")
+    
+    # Extract attribution breakdown
+    breakdown = extract_alpha_attribution_breakdown(report)
+    
+    # Display in structured format
+    st.markdown("#### Attribution by Source")
+    
+    # Create diagnostic table
+    attribution_data = []
+    
+    # 1. Exposure & Timing
+    attribution_data.append({
+        "Source": "Exposure & Timing",
+        "Value": fmt_pct(breakdown["exposure_timing"]),
+        "Description": "Timing & exposure scaling effects (dynamic positioning)"
+    })
+    
+    # 2. VIX/Regime Overlays (Capital Preservation)
+    attribution_data.append({
+        "Source": "VIX/Regime Overlays",
+        "Value": fmt_pct(breakdown["vix_regime_overlays"]),
+        "Description": "Capital preservation via VIX/Regime/SmartSafe controls (non-alpha structural)"
+    })
+    
+    # 3. Asset Selection
+    attribution_data.append({
+        "Source": "Asset Selection Alpha",
+        "Value": fmt_pct(breakdown["asset_selection"]),
+        "Description": "Exposure-adjusted security selection (post-scaling)"
+    })
+    
+    # 4. Total Excess
+    attribution_data.append({
+        "Source": "Total Excess Return",
+        "Value": fmt_pct(breakdown["total_excess"]),
+        "Description": "Total outperformance vs benchmark"
+    })
+    
+    # 5. Residual Strategy Return
+    attribution_data.append({
+        "Source": "Residual Strategy Return",
+        "Value": fmt_pct(breakdown["residual_strategy"]),
+        "Description": "Post-structural alpha (timing + exposure + volatility control + regime mgmt)"
+    })
+    
+    # Display table
+    df = pd.DataFrame(attribution_data)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # Regime-based attribution
+    st.markdown("#### Regime Attribution")
+    regime_data = [
+        {
+            "Regime": "Risk-On",
+            "Alpha": fmt_pct(breakdown["risk_on_alpha"]),
+            "Context": "Alpha earned in growth/trend environments"
+        },
+        {
+            "Regime": "Risk-Off",
+            "Alpha": fmt_pct(breakdown["risk_off_alpha"]),
+            "Context": "Alpha earned in stress/volatility environments"
+        }
+    ]
+    df_regime = pd.DataFrame(regime_data)
+    st.dataframe(df_regime, use_container_width=True, hide_index=True)
+    
+    # Assessment and sensitivity
+    st.markdown("#### Attribution Assessment")
+    st.write(f"**Assessment:** {breakdown['assessment']}")
+    st.write(f"**Regime Sensitivity:** {breakdown['regime_sensitivity']}")
+    
+    # Notes
+    st.caption(
+        "**Note:** Momentum and Risk Control are integrated into Exposure & Timing and VIX/Regime Overlays respectively. "
+        "Attribution follows architectural principles: structural effects offset by design, residual reflects combined strategy decisions. "
+        "N/A indicates insufficient data for that component."
+    )
+
+
 # ============================================================
 # Vector™ Truth Panel (existing module; boot-safe)
 # ============================================================
@@ -2499,6 +2714,9 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
     except Exception:
         bm_id = None
         bm_drift = "stable"
+    
+    # Compute overlay contributions for alpha attribution
+    overlay_contribs = _compute_overlay_contributions(hist_sel, selected_wave, mode)
 
     report = build_vector_truth_report(
         wave_name=str(selected_wave),
@@ -2508,6 +2726,9 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
         exposure_adjusted_alpha=exp_adj_alpha,
         alpha_series=alpha_series,
         regime_series=regime_series,
+        overlay_contribution=overlay_contribs.get("overlay_contribution"),
+        vix_contribution=overlay_contribs.get("vix_contribution"),
+        smartsafe_contribution=overlay_contribs.get("smartsafe_contribution"),
         benchmark_snapshot_id=bm_id,
         benchmark_drift_status=bm_drift,
     )
@@ -2546,6 +2767,11 @@ def _vector_truth_panel(selected_wave: str, mode: str, hist_sel: pd.DataFrame, m
     if reliability_metrics is not None:
         st.markdown("---")
         st.markdown(render_alpha_reliability_panel(reliability_metrics))
+    
+    # Render Alpha Attribution Diagnostic Breakdown (NEW)
+    # This surfaces the alpha attribution outputs as canonical truth
+    st.markdown("---")
+    render_alpha_attribution_diagnostic_panel(report, selected_wave, attribution_confidence)
     
     # Render detailed Alpha Attribution in a collapsed expander
     # Only show if Attribution Confidence is High
