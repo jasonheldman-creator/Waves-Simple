@@ -419,6 +419,9 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
+# Cache keys for wave universe management
+WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
+
 
 # ============================================================================
 # WAVE LINEUP CONFIGURATION - Equity Lineup Reset v1
@@ -1373,6 +1376,396 @@ def calculate_portfolio_metrics(wave_names, weights, days):
         
     except Exception:
         return None
+
+
+# ============================================================================
+# WAVE UNIVERSE TRUTH LAYER - Diagnostics and Freshness
+# ============================================================================
+
+def compute_wave_universe_diagnostics():
+    """
+    Compute comprehensive Wave Universe diagnostics.
+    
+    Returns:
+        Dictionary with diagnostic metrics including:
+        - universe_count: Total waves in canonical registry
+        - active_count: Waves with recent data (last 7 days)
+        - history_unique_count: Unique waves in wave_history.csv
+        - missing_waves: Waves in registry but no data
+        - orphan_waves: Waves in data but not in registry
+        - duplicate_waves: Duplicates removed during deduplication
+        - data_freshness: Per-wave freshness information
+    """
+    diagnostics = {
+        'universe_count': 0,
+        'active_count': 0,
+        'history_unique_count': 0,
+        'missing_waves': [],
+        'orphan_waves': [],
+        'duplicate_waves': [],
+        'data_freshness': []
+    }
+    
+    try:
+        # Get canonical universe
+        # Note: force_reload=False is intentional - diagnostics should use cached universe
+        # to show current state. Use operator controls to force reload if needed.
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        
+        registry_waves = set(universe.get("waves", []))
+        duplicate_waves = universe.get("removed_duplicates", [])
+        
+        diagnostics['universe_count'] = len(registry_waves)
+        diagnostics['duplicate_waves'] = duplicate_waves
+        
+        # Get wave history data
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        if wave_history is not None and 'wave' in wave_history.columns:
+            # Get unique waves in history
+            history_waves = set(wave_history['wave'].unique())
+            diagnostics['history_unique_count'] = len(history_waves)
+            
+            # Calculate missing waves (in registry but no data)
+            missing_waves = registry_waves - history_waves
+            diagnostics['missing_waves'] = sorted(list(missing_waves))
+            
+            # Calculate orphan waves (in data but not in registry)
+            orphan_waves = history_waves - registry_waves
+            diagnostics['orphan_waves'] = sorted(list(orphan_waves))
+            
+            # Calculate active waves (recent data in last 7 days)
+            if 'date' in wave_history.columns:
+                latest_date = wave_history['date'].max()
+                cutoff_date = latest_date - timedelta(days=7)
+                recent_data = wave_history[wave_history['date'] >= cutoff_date]
+                active_waves = set(recent_data['wave'].unique())
+                diagnostics['active_count'] = len(active_waves & registry_waves)
+                
+                # Compute data freshness per wave
+                data_freshness = []
+                for wave in sorted(registry_waves):
+                    wave_data = wave_history[wave_history['wave'] == wave]
+                    
+                    if len(wave_data) == 0:
+                        # No data for this wave
+                        data_freshness.append({
+                            'wave': wave,
+                            'latest_date': None,
+                            'days_old': None,
+                            'staleness': 'unavailable'
+                        })
+                    else:
+                        latest_wave_date = wave_data['date'].max()
+                        days_old = (latest_date - latest_wave_date).days
+                        
+                        # Determine staleness badge
+                        if days_old == 0:
+                            staleness = 'fresh'
+                        elif days_old <= 3:
+                            staleness = 'recent'
+                        elif days_old <= 7:
+                            staleness = 'stale'
+                        else:
+                            staleness = 'old'
+                        
+                        data_freshness.append({
+                            'wave': wave,
+                            'latest_date': latest_wave_date.strftime('%Y-%m-%d') if pd.notna(latest_wave_date) else 'N/A',
+                            'days_old': days_old,
+                            'staleness': staleness
+                        })
+                
+                diagnostics['data_freshness'] = data_freshness
+        
+        return diagnostics
+        
+    except Exception as e:
+        # Return diagnostics with error indicator
+        diagnostics['error'] = str(e)
+        return diagnostics
+
+
+def render_wave_universe_truth_panel():
+    """
+    Render the Wave Universe Truth Panel - Executive diagnostic view.
+    
+    Displays:
+    1. Metrics Panel: Universe, Active, HistoryUnique counts
+    2. Diagnostics: Missing, Orphan, Duplicate waves
+    3. Data Freshness Table with staleness badges
+    4. Operator Controls: Force reload, clear cache, download CSV
+    """
+    st.markdown("### 🔬 Wave Universe Truth Panel")
+    st.caption("Executive diagnostics and operator controls for the Wave Universe registry")
+    
+    # Compute diagnostics
+    with st.spinner("Computing Wave Universe diagnostics..."):
+        diagnostics = compute_wave_universe_diagnostics()
+    
+    # ========================================================================
+    # SECTION 1: METRICS PANEL
+    # ========================================================================
+    st.markdown("#### 📊 Universe Metrics")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="Universe Count",
+            value=diagnostics.get('universe_count', 0),
+            help="Total waves in canonical Wave Universe registry"
+        )
+    
+    with col2:
+        st.metric(
+            label="Active Waves",
+            value=diagnostics.get('active_count', 0),
+            help="Waves with data in last 7 days"
+        )
+    
+    with col3:
+        st.metric(
+            label="History Unique",
+            value=diagnostics.get('history_unique_count', 0),
+            help="Unique waves in wave_history.csv"
+        )
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2: DIAGNOSTICS
+    # ========================================================================
+    st.markdown("#### 🔍 Diagnostics")
+    
+    diag_col1, diag_col2, diag_col3 = st.columns(3)
+    
+    with diag_col1:
+        missing_count = len(diagnostics.get('missing_waves', []))
+        st.metric(
+            label="Missing Waves",
+            value=missing_count,
+            help="Waves in registry but no data available"
+        )
+        if missing_count > 0:
+            with st.expander("View Missing Waves"):
+                for wave in diagnostics['missing_waves']:
+                    st.text(f"• {wave}")
+    
+    with diag_col2:
+        orphan_count = len(diagnostics.get('orphan_waves', []))
+        st.metric(
+            label="Orphan Waves",
+            value=orphan_count,
+            help="Waves in data but not in registry"
+        )
+        if orphan_count > 0:
+            with st.expander("View Orphan Waves"):
+                for wave in diagnostics['orphan_waves']:
+                    st.text(f"• {wave}")
+    
+    with diag_col3:
+        duplicate_count = len(diagnostics.get('duplicate_waves', []))
+        st.metric(
+            label="Duplicate Waves",
+            value=duplicate_count,
+            help="Duplicates removed during deduplication"
+        )
+        if duplicate_count > 0:
+            with st.expander("View Duplicates Removed"):
+                for wave in diagnostics['duplicate_waves']:
+                    st.text(f"• {wave}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 3: DATA FRESHNESS TABLE
+    # ========================================================================
+    st.markdown("#### 📅 Data Freshness")
+    
+    data_freshness = diagnostics.get('data_freshness', [])
+    
+    if len(data_freshness) == 0:
+        st.info("📊 Data unavailable - No freshness information available")
+    else:
+        # Create DataFrame for display
+        freshness_df = pd.DataFrame(data_freshness)
+        
+        # Add staleness badge with emoji
+        def format_staleness(staleness):
+            if staleness == 'fresh':
+                return "🟢 Fresh"
+            elif staleness == 'recent':
+                return "🟡 Recent"
+            elif staleness == 'stale':
+                return "🟠 Stale"
+            elif staleness == 'old':
+                return "🔴 Old"
+            else:
+                return "⚪ Unavailable"
+        
+        freshness_df['Staleness Badge'] = freshness_df['staleness'].apply(format_staleness)
+        
+        # Format days_old
+        def format_days_old(days):
+            if days is None:
+                return "N/A"
+            elif days == 0:
+                return "Today"
+            elif days == 1:
+                return "1 day"
+            else:
+                return f"{days} days"
+        
+        freshness_df['Age'] = freshness_df['days_old'].apply(format_days_old)
+        
+        # Prepare display DataFrame
+        display_df = freshness_df[['wave', 'latest_date', 'Age', 'Staleness Badge']].copy()
+        display_df.columns = ['Wave', 'Latest Date', 'Age', 'Status']
+        
+        # Display with pagination
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            height=400
+        )
+        
+        # Summary statistics
+        st.caption(f"Showing {len(display_df)} waves • Fresh: 🟢 (today) • Recent: 🟡 (1-3 days) • Stale: 🟠 (4-7 days) • Old: 🔴 (>7 days)")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 4: OPERATOR CONTROLS
+    # ========================================================================
+    st.markdown("#### ⚡ Operator Controls")
+    
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns(3)
+    
+    with ctrl_col1:
+        if st.button(
+            "🔄 Force Reload Universe",
+            use_container_width=True,
+            type="primary",
+            help="Reload the Wave Universe from source"
+        ):
+            try:
+                # Increment wave universe version
+                if "wave_universe_version" not in st.session_state:
+                    st.session_state.wave_universe_version = 1
+                st.session_state.wave_universe_version += 1
+                
+                # Clear wave universe cache using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Set force reload flag
+                st.session_state["force_reload_universe"] = True
+                
+                st.success("✅ Universe reload queued - refreshing...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Reload failed: {str(e)}")
+    
+    with ctrl_col2:
+        if st.button(
+            "🧹 Clear Cache + Recompute",
+            use_container_width=True,
+            help="Clear all caches and force recomputation"
+        ):
+            try:
+                # Clear all Streamlit caches
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                
+                # Clear session state caches using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Increment wave universe version
+                if "wave_universe_version" not in st.session_state:
+                    st.session_state.wave_universe_version = 1
+                st.session_state.wave_universe_version += 1
+                
+                st.success("✅ Cache cleared - recomputing...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Cache clear failed: {str(e)}")
+    
+    with ctrl_col3:
+        # Prepare diagnostics CSV
+        try:
+            # Build comprehensive diagnostics CSV
+            csv_rows = []
+            
+            # Header
+            csv_rows.append("Wave Universe Diagnostics Report")
+            csv_rows.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            csv_rows.append("")
+            
+            # Metrics
+            csv_rows.append("METRICS")
+            csv_rows.append(f"Universe Count,{diagnostics.get('universe_count', 0)}")
+            csv_rows.append(f"Active Waves,{diagnostics.get('active_count', 0)}")
+            csv_rows.append(f"History Unique,{diagnostics.get('history_unique_count', 0)}")
+            csv_rows.append(f"Missing Waves,{len(diagnostics.get('missing_waves', []))}")
+            csv_rows.append(f"Orphan Waves,{len(diagnostics.get('orphan_waves', []))}")
+            csv_rows.append(f"Duplicate Waves,{len(diagnostics.get('duplicate_waves', []))}")
+            csv_rows.append("")
+            
+            # Missing Waves
+            if diagnostics.get('missing_waves'):
+                csv_rows.append("MISSING WAVES (in registry but no data)")
+                for wave in diagnostics['missing_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Orphan Waves
+            if diagnostics.get('orphan_waves'):
+                csv_rows.append("ORPHAN WAVES (in data but not in registry)")
+                for wave in diagnostics['orphan_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Duplicate Waves
+            if diagnostics.get('duplicate_waves'):
+                csv_rows.append("DUPLICATE WAVES (removed during deduplication)")
+                for wave in diagnostics['duplicate_waves']:
+                    csv_rows.append(f"{wave}")
+                csv_rows.append("")
+            
+            # Data Freshness
+            if diagnostics.get('data_freshness'):
+                csv_rows.append("DATA FRESHNESS")
+                csv_rows.append("Wave,Latest Date,Days Old,Staleness")
+                for item in diagnostics['data_freshness']:
+                    wave = item['wave']
+                    latest_date = item['latest_date'] if item['latest_date'] else 'N/A'
+                    days_old = item['days_old'] if item['days_old'] is not None else 'N/A'
+                    staleness = item['staleness']
+                    csv_rows.append(f"{wave},{latest_date},{days_old},{staleness}")
+            
+            csv_content = "\n".join(csv_rows)
+            
+            st.download_button(
+                label="📥 Download Diagnostics CSV",
+                data=csv_content,
+                file_name=f"wave_universe_diagnostics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                help="Download comprehensive diagnostics as CSV"
+            )
+        except Exception as e:
+            st.button(
+                "📥 Download Diagnostics CSV",
+                disabled=True,
+                use_container_width=True,
+                help=f"Download unavailable: {str(e)}"
+            )
 
 
 # ============================================================================
@@ -2833,9 +3226,8 @@ def render_sidebar_info():
                 st.session_state.wave_universe_version = 1
             st.session_state.wave_universe_version += 1
             
-            # Clear wave universe cache from session state
-            cache_keys = ["wave_universe", "waves_list", "universe_cache"]
-            for key in cache_keys:
+            # Clear wave universe cache from session state using constant
+            for key in WAVE_UNIVERSE_CACHE_KEYS:
                 if key in st.session_state:
                     del st.session_state[key]
             
@@ -2850,6 +3242,14 @@ def render_sidebar_info():
             st.rerun()
         except Exception as e:
             st.sidebar.warning(f"Force reload unavailable: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Wave Universe Truth Panel (Collapsible)
+    # ========================================================================
+    with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
+        render_wave_universe_truth_panel()
     
     st.sidebar.markdown("---")
     
