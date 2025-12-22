@@ -439,6 +439,299 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 
 
 # ============================================================================
+# ALPHA TRUTH LAYER™ - Trust Signal Evaluation
+# ============================================================================
+
+@dataclass
+class TrustSignal:
+    """
+    Alpha Truth Layer™ Trust Signal.
+    
+    Evaluates a Wave and Period with a confidence score, status, and board-ready reasons.
+    """
+    status: str  # "GREEN" | "YELLOW" | "RED"
+    score: int  # 0-100
+    reasons: List[str]  # 2-6 board-ready bullets
+    as_of: str  # Timestamp string
+    inputs: Dict[str, Any]  # Raw signals used for computation
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for display."""
+        return {
+            'status': self.status,
+            'score': self.score,
+            'reasons': self.reasons,
+            'as_of': self.as_of,
+            'inputs': self.inputs
+        }
+
+
+def compute_trust_signal(wave_name: str, period_days: int = 30) -> TrustSignal:
+    """
+    Compute Alpha Truth Layer™ trust signal for a Wave and Period.
+    
+    Scoring Formula:
+    - Start at 100
+    - Subtract penalties for:
+      * Data staleness (-25/24h, -45/72h)
+      * Attribution completeness (<60%: -30, <30%: -55)
+      * Overlay observability (-15 if missing)
+      * Single alpha component (-20)
+      * High-severity warnings (-15 each, cap -45)
+      * Contract breaches (force RED, score ≤ 35)
+    
+    Status Mapping:
+    - GREEN: score ≥ 80
+    - YELLOW: score 55-79
+    - RED: score < 55
+    
+    Args:
+        wave_name: Name of the wave to evaluate
+        period_days: Lookback period in days
+        
+    Returns:
+        TrustSignal with status, score, reasons, timestamp, and inputs
+    """
+    try:
+        # Initialize score and tracking
+        score = 100
+        reasons = []
+        inputs = {}
+        warnings = []
+        
+        # Timestamp
+        as_of = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # ====================================================================
+        # 1. DATA AVAILABILITY & STALENESS CHECK
+        # ====================================================================
+        wave_data = get_wave_data_filtered(wave_name=wave_name, days=period_days)
+        
+        if wave_data is None or len(wave_data) == 0:
+            # Insufficient data - return low-confidence signal
+            return TrustSignal(
+                status="RED",
+                score=25,
+                reasons=[
+                    "❌ No historical data available for evaluation",
+                    "⚠️ Cannot assess trust without performance data",
+                    "🔍 Recommendation: Verify data sources and wave configuration"
+                ],
+                as_of=as_of,
+                inputs={'data_available': False, 'wave_name': wave_name, 'period_days': period_days}
+            )
+        
+        inputs['data_rows'] = len(wave_data)
+        inputs['wave_name'] = wave_name
+        inputs['period_days'] = period_days
+        
+        # Check data freshness
+        if 'date' in wave_data.columns:
+            latest_date = wave_data['date'].max()
+            data_age_hours = (datetime.now() - latest_date).total_seconds() / 3600
+            inputs['data_age_hours'] = data_age_hours
+            
+            if data_age_hours > 72:  # 72 hours
+                penalty = 45
+                score -= penalty
+                reasons.append(f"📅 Data stale (>72h old): -{penalty} points")
+                warnings.append("stale_data_72h")
+            elif data_age_hours > 24:  # 24 hours
+                penalty = 25
+                score -= penalty
+                reasons.append(f"📅 Data moderately stale (>24h old): -{penalty} points")
+                warnings.append("stale_data_24h")
+            else:
+                reasons.append("✅ Data freshness verified (<24h)")
+        else:
+            # No date column - assume stale
+            penalty = 30
+            score -= penalty
+            reasons.append(f"⚠️ Cannot verify data freshness: -{penalty} points")
+            warnings.append("missing_date")
+        
+        # ====================================================================
+        # 2. ATTRIBUTION COMPLETENESS CHECK
+        # ====================================================================
+        attribution_completeness = 0.0
+        attribution_available = False
+        
+        try:
+            # Try to get attribution data
+            if ALPHA_ATTRIBUTION_AVAILABLE:
+                attribution_result = compute_alpha_attribution_series(
+                    wave_name=wave_name,
+                    wave_data=wave_data,
+                    days=period_days
+                )
+                
+                if attribution_result and hasattr(attribution_result, 'summary'):
+                    summary = attribution_result.summary
+                    # Calculate completeness based on available components
+                    components_available = 0
+                    total_components = 4
+                    
+                    if hasattr(summary, 'selection_alpha') and summary.selection_alpha is not None:
+                        components_available += 1
+                    if hasattr(summary, 'overlay_alpha') and summary.overlay_alpha is not None:
+                        components_available += 1
+                    if hasattr(summary, 'risk_off_alpha') and summary.risk_off_alpha is not None:
+                        components_available += 1
+                    if hasattr(summary, 'residual_alpha') and summary.residual_alpha is not None:
+                        components_available += 1
+                    
+                    attribution_completeness = components_available / total_components
+                    attribution_available = True
+                    inputs['attribution_completeness'] = attribution_completeness
+                    
+            else:
+                # Fallback: Use DecisionAttributionEngine
+                engine = get_attribution_engine()
+                components = engine.compute_attribution(wave_data, wave_name)
+                
+                if components:
+                    attribution_completeness = components.data_completeness
+                    attribution_available = True
+                    inputs['attribution_completeness'] = attribution_completeness
+        
+        except Exception as attr_err:
+            inputs['attribution_error'] = str(attr_err)
+            warnings.append("attribution_failed")
+        
+        # Apply attribution completeness penalties
+        if attribution_available:
+            if attribution_completeness < 0.30:  # <30%
+                penalty = 55
+                score -= penalty
+                reasons.append(f"⚠️ Very low attribution completeness ({attribution_completeness*100:.0f}%): -{penalty} points")
+                warnings.append("attribution_very_low")
+            elif attribution_completeness < 0.60:  # <60%
+                penalty = 30
+                score -= penalty
+                reasons.append(f"⚠️ Low attribution completeness ({attribution_completeness*100:.0f}%): -{penalty} points")
+                warnings.append("attribution_low")
+            else:
+                reasons.append(f"✅ Attribution completeness acceptable ({attribution_completeness*100:.0f}%)")
+        else:
+            # Attribution unavailable - single component observation
+            penalty = 20
+            score -= penalty
+            reasons.append(f"⚠️ Single alpha component observation only: -{penalty} points")
+            warnings.append("single_component")
+        
+        # ====================================================================
+        # 3. OVERLAY OBSERVABILITY CHECK
+        # ====================================================================
+        overlay_available = False
+        
+        if VIX_DIAGNOSTICS_AVAILABLE:
+            try:
+                diagnostics_df = get_wave_diagnostics(
+                    wave_name=wave_name,
+                    mode="Standard",
+                    days=period_days
+                )
+                
+                if diagnostics_df is not None and len(diagnostics_df) > 0:
+                    overlay_available = True
+                    inputs['overlay_observations'] = len(diagnostics_df)
+                    reasons.append("✅ VIX overlay diagnostics available")
+                else:
+                    overlay_available = False
+            except Exception:
+                overlay_available = False
+        
+        if not overlay_available:
+            penalty = 15
+            score -= penalty
+            reasons.append(f"⚠️ Overlay observability missing: -{penalty} points")
+            warnings.append("missing_overlay")
+        
+        # ====================================================================
+        # 4. HIGH-SEVERITY WARNINGS CHECK
+        # ====================================================================
+        high_severity_warnings = [w for w in warnings if w in ['missing_date', 'attribution_failed', 'stale_data_72h']]
+        
+        if high_severity_warnings:
+            # Cap at 3 warnings max (-45 total)
+            warning_count = min(len(high_severity_warnings), 3)
+            penalty = warning_count * 15
+            score -= penalty
+            reasons.append(f"⚠️ {warning_count} high-severity warning(s): -{penalty} points")
+            inputs['high_severity_warnings'] = high_severity_warnings
+        
+        # ====================================================================
+        # 5. CONTRACT BREACH CHECK
+        # ====================================================================
+        contract_breached = False
+        
+        if ALPHA_CONTRACTS_AVAILABLE:
+            try:
+                contract = get_contract(wave_name)
+                if contract:
+                    evaluation = evaluate_contract(wave_data, contract)
+                    if evaluation and hasattr(evaluation, 'status'):
+                        if evaluation.status == ContractStatus.BREACHED:
+                            contract_breached = True
+                            score = min(score, 35)  # Force score ≤ 35
+                            reasons.append("🔴 CRITICAL: Alpha contract breached")
+                            warnings.append("contract_breach")
+                            inputs['contract_status'] = 'BREACHED'
+                        else:
+                            reasons.append(f"✅ Alpha contract status: {evaluation.status.value}")
+                            inputs['contract_status'] = evaluation.status.value
+            except Exception:
+                pass
+        
+        # ====================================================================
+        # 6. CLAMP SCORE AND DETERMINE STATUS
+        # ====================================================================
+        score = max(0, min(100, score))
+        inputs['final_score'] = score
+        inputs['warnings'] = warnings
+        
+        # Determine status based on score
+        if score >= 80:
+            status = "GREEN"
+        elif score >= 55:
+            status = "YELLOW"
+        else:
+            status = "RED"
+        
+        # Override status if contract breached
+        if contract_breached:
+            status = "RED"
+        
+        # Ensure 2-6 reasons
+        if len(reasons) < 2:
+            reasons.append("ℹ️ Evaluation complete with limited data points")
+        if len(reasons) > 6:
+            reasons = reasons[:6]
+        
+        return TrustSignal(
+            status=status,
+            score=score,
+            reasons=reasons,
+            as_of=as_of,
+            inputs=inputs
+        )
+    
+    except Exception as e:
+        # Graceful error handling - return valid TrustSignal with error info
+        return TrustSignal(
+            status="RED",
+            score=0,
+            reasons=[
+                "❌ Trust signal computation failed",
+                f"⚠️ Error: {str(e)}",
+                "🔍 Recommendation: Check system configuration"
+            ],
+            as_of=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            inputs={'error': str(e), 'wave_name': wave_name, 'period_days': period_days}
+        )
+
+
+# ============================================================================
 # SECTION 1: CONFIGURATION AND STYLING
 # ============================================================================
 
@@ -4230,6 +4523,163 @@ def render_executive_tab():
     
     # Portfolio Constructor Section
     render_portfolio_constructor_section()
+    
+    st.divider()
+    
+    # Alpha Truth Layer™ Section - NEW
+    st.markdown("### 🔍 Alpha Truth Layer™")
+    st.write("Evaluative trust signal per Wave based on confidence score, status, and board-ready reasons")
+    
+    try:
+        # Initialize session state for truth audit if not exists
+        if "truth_audit" not in st.session_state:
+            st.session_state["truth_audit"] = []
+        
+        # Wave and period selectors
+        col_truth1, col_truth2, col_truth3 = st.columns(3)
+        
+        with col_truth1:
+            waves_truth = get_available_waves()
+            if waves_truth and len(waves_truth) > 0:
+                selected_wave_truth = st.selectbox(
+                    "Select Wave",
+                    options=waves_truth,
+                    help="Choose a wave for Alpha Truth evaluation",
+                    key="alpha_truth_wave_selector"
+                )
+            else:
+                selected_wave_truth = None
+                st.warning("No waves available")
+        
+        with col_truth2:
+            selected_period_truth = st.selectbox(
+                "Period (Days)",
+                options=[15, 30, 60, 90],
+                index=1,  # Default to 30 days
+                help="Select lookback period for evaluation",
+                key="alpha_truth_period_selector"
+            )
+        
+        with col_truth3:
+            compute_button = st.button(
+                "🔍 Compute Alpha Truth",
+                type="primary",
+                use_container_width=True,
+                help="Evaluate trust signal for selected wave and period"
+            )
+        
+        # Compute and display trust signal
+        if compute_button and selected_wave_truth:
+            with st.spinner(f"Computing Alpha Truth for {selected_wave_truth}..."):
+                try:
+                    # Compute trust signal
+                    trust_signal = compute_trust_signal(
+                        wave_name=selected_wave_truth,
+                        period_days=selected_period_truth
+                    )
+                    
+                    # Display results
+                    st.markdown("#### Trust Signal Results")
+                    
+                    # Status badge row
+                    status_col1, status_col2, status_col3 = st.columns([1, 2, 1])
+                    
+                    with status_col1:
+                        # Status badge
+                        if trust_signal.status == "GREEN":
+                            st.success(f"🟢 **{trust_signal.status}**")
+                        elif trust_signal.status == "YELLOW":
+                            st.warning(f"🟡 **{trust_signal.status}**")
+                        else:  # RED
+                            st.error(f"🔴 **{trust_signal.status}**")
+                    
+                    with status_col2:
+                        # Trust score
+                        st.metric(
+                            label="Trust Score",
+                            value=f"{trust_signal.score}/100",
+                            help="Confidence score based on data quality, completeness, and observability"
+                        )
+                    
+                    with status_col3:
+                        # Timestamp
+                        st.caption(f"**As of:** {trust_signal.as_of}")
+                    
+                    st.divider()
+                    
+                    # Reasons (2-6 bullets)
+                    st.markdown("**Evaluation Reasons:**")
+                    for reason in trust_signal.reasons:
+                        st.markdown(f"- {reason}")
+                    
+                    st.divider()
+                    
+                    # Inputs expander (audit clarity)
+                    with st.expander("🔍 View Audit Inputs (Raw Signals)"):
+                        st.json(trust_signal.inputs)
+                    
+                    # Update audit trail
+                    audit_entry = {
+                        'timestamp': trust_signal.as_of,
+                        'wave': selected_wave_truth,
+                        'period': selected_period_truth,
+                        'status': trust_signal.status,
+                        'score': trust_signal.score,
+                        'reasons': trust_signal.reasons,
+                        'data_flags': {
+                            'data_rows': trust_signal.inputs.get('data_rows', 0),
+                            'data_age_hours': trust_signal.inputs.get('data_age_hours', 'unknown'),
+                            'attribution_completeness': trust_signal.inputs.get('attribution_completeness', 'unknown'),
+                            'warnings': trust_signal.inputs.get('warnings', [])
+                        }
+                    }
+                    
+                    # Try to append to Decision Ledger if available
+                    if DECISION_LEDGER_AVAILABLE:
+                        try:
+                            ledger_entry = {
+                                'timestamp': trust_signal.as_of,
+                                'decision_type': 'Alpha Truth Evaluation',
+                                'wave': selected_wave_truth,
+                                'period': selected_period_truth,
+                                'status': trust_signal.status,
+                                'score': trust_signal.score,
+                                'details': {
+                                    'reasons': trust_signal.reasons,
+                                    'inputs': trust_signal.inputs
+                                }
+                            }
+                            append_decision_snapshot(ledger_entry)
+                        except Exception:
+                            pass  # Graceful fallback
+                    
+                    # Always append to session state audit
+                    st.session_state["truth_audit"].append(audit_entry)
+                    
+                    st.success("✅ Alpha Truth evaluation complete!")
+                
+                except Exception as eval_err:
+                    st.error(f"❌ Error computing Alpha Truth: {str(eval_err)}")
+                    st.info("📋 The application continues to function. Please verify wave data availability.")
+        
+        # Display audit trail if available
+        if len(st.session_state.get("truth_audit", [])) > 0:
+            with st.expander("📜 Alpha Truth Audit Trail"):
+                st.markdown("**Recent Evaluations:**")
+                
+                # Display recent evaluations (last 10)
+                recent_audits = st.session_state["truth_audit"][-10:]
+                
+                for i, audit in enumerate(reversed(recent_audits), 1):
+                    st.markdown(f"**{i}. {audit['wave']}** ({audit['period']} days)")
+                    st.markdown(f"   - Status: {audit['status']} | Score: {audit['score']}/100")
+                    st.markdown(f"   - Timestamp: {audit['timestamp']}")
+                    st.markdown(f"   - Data Rows: {audit['data_flags'].get('data_rows', 'N/A')}")
+                    st.divider()
+    
+    except Exception as e:
+        st.error(f"❌ Error in Alpha Truth Layer: {str(e)}")
+        st.info("📋 The application continues to function. Feature may be temporarily unavailable.")
     
     st.divider()
     
