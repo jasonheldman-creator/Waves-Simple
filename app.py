@@ -3321,7 +3321,7 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
         
         # Data table
         st.markdown("#### 📋 Component Details")
@@ -4472,7 +4472,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True)
+                st.plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -4490,7 +4490,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_movers_chart(movers)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True)
+                st.plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -4560,7 +4560,7 @@ def render_executive_tab():
                     # Display performance chart
                     chart = create_wave_performance_chart(wave_data, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True)
+                        st.plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
                     else:
                         st.info("Unable to generate performance chart")
                 else:
@@ -4863,7 +4863,7 @@ def render_alpha_proof_section():
                     # Create waterfall chart
                     chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True)
+                        st.plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
                     
                     # Show detailed table
                     with st.expander("View Detailed Breakdown"):
@@ -5291,7 +5291,8 @@ def render_portfolio_constructor_section():
                             selected_waves
                         )
                         if corr_chart is not None:
-                            st.plotly_chart(corr_chart, use_container_width=True)
+                            waves_key = "_".join(sorted(selected_waves))[:50]  # Limit key length
+                            st.plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
                     
                     # Show weights breakdown
                     with st.expander("View Portfolio Composition"):
@@ -5356,6 +5357,7 @@ def render_vector_explain_panel():
                     st.session_state['current_narrative'] = narrative
                     st.session_state['current_narrative_wave'] = selected_wave
                     st.session_state['current_narrative_data'] = wave_data
+                    st.session_state['current_narrative_timeframe'] = time_period
                 else:
                     st.error(f"Unable to load data for {selected_wave}")
                     return
@@ -5396,7 +5398,9 @@ def render_vector_explain_panel():
                     st.session_state['current_narrative_wave']
                 )
                 if chart is not None:
-                    st.plotly_chart(chart, use_container_width=True)
+                    selected_wave_id = st.session_state['current_narrative_wave']
+                    timeframe = st.session_state.get('current_narrative_timeframe', 30)
+                    st.plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
             
             st.divider()
             
@@ -5496,7 +5500,9 @@ def render_compare_waves_panel():
                 # Radar chart
                 radar_chart = create_comparison_radar_chart(wave1_metrics, wave2_metrics)
                 if radar_chart is not None:
-                    st.plotly_chart(radar_chart, use_container_width=True)
+                    wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
+                    wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
+                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -5510,7 +5516,9 @@ def render_compare_waves_panel():
                         st.session_state.get('comparison_wave2_name', 'Wave 2')
                     )
                     if heatmap is not None:
-                        st.plotly_chart(heatmap, use_container_width=True)
+                        wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
+                        wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
+                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
                     else:
                         st.info("Correlation matrix unavailable")
             
@@ -5721,10 +5729,105 @@ def render_overview_tab():
 
 
 def render_details_tab():
-    """Render the Details tab."""
+    """Render the Details tab with proper diagnostics."""
     st.header("Details")
     st.write("Detailed analytics and metrics for individual waves.")
-    st.info("Data unavailable")
+    
+    # Load wave history - same unified DataFrame as used in Executive tab
+    df = safe_load_wave_history()
+    
+    # Check if data is loaded
+    if df is None:
+        st.info("History not loaded")
+        return
+    
+    # Get available waves
+    waves = get_available_waves()
+    
+    if len(waves) == 0:
+        st.warning("No waves available")
+        return
+    
+    # Wave selector - canonical selected_wave_id
+    selected_wave_id = st.selectbox(
+        "Select Wave for Details",
+        options=waves,
+        key="details_wave_selector",
+        help="Choose a wave to view detailed analytics"
+    )
+    
+    if selected_wave_id:
+        # Filter data for the selected wave
+        if 'wave' in df.columns:
+            wave_df = df[df['wave'] == selected_wave_id].copy()
+        else:
+            st.error("Missing column: 'wave'")
+            return
+        
+        # Check if filtered data has rows
+        if len(wave_df) == 0:
+            st.warning(f"No rows for wave_id={selected_wave_id}")
+            return
+        
+        # Check for required columns
+        required_columns = ['date', 'portfolio_return', 'benchmark_return']
+        missing_columns = [col for col in required_columns if col not in wave_df.columns]
+        
+        if missing_columns:
+            st.error(f"Missing columns: {', '.join(missing_columns)}")
+            return
+        
+        # Display wave details
+        st.success(f"Showing details for: **{selected_wave_id}**")
+        
+        # Show basic metrics
+        st.subheader("📊 Wave Metrics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Records", len(wave_df))
+        
+        with col2:
+            if 'date' in wave_df.columns:
+                latest_date = wave_df['date'].max()
+                st.metric("Latest Date", str(latest_date)[:10])
+            else:
+                st.metric("Latest Date", "N/A")
+        
+        with col3:
+            if 'portfolio_return' in wave_df.columns:
+                total_return = wave_df['portfolio_return'].sum()
+                st.metric("Total Return", f"{total_return*100:.2f}%")
+            else:
+                st.metric("Total Return", "N/A")
+        
+        with col4:
+            if 'portfolio_return' in wave_df.columns and 'benchmark_return' in wave_df.columns:
+                total_alpha = (wave_df['portfolio_return'] - wave_df['benchmark_return']).sum()
+                st.metric("Total Alpha", f"{total_alpha*100:.2f}%")
+            else:
+                st.metric("Total Alpha", "N/A")
+        
+        st.divider()
+        
+        # Show data table
+        st.subheader("📋 Recent History (Last 30 Days)")
+        
+        display_cols = ['date', 'portfolio_return', 'benchmark_return']
+        if 'exposure' in wave_df.columns:
+            display_cols.append('exposure')
+        if 'vix' in wave_df.columns:
+            display_cols.append('vix')
+        
+        available_display_cols = [col for col in display_cols if col in wave_df.columns]
+        
+        if available_display_cols:
+            recent_data = wave_df.sort_values('date', ascending=False).head(30)[available_display_cols]
+            st.dataframe(recent_data, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No displayable columns available")
+
 
 
 def generate_board_pack_html():
@@ -6408,7 +6511,38 @@ def render_overlays_tab():
     # Capital-Weighted Alpha Section
     st.subheader("Capital-Weighted Alpha")
     st.write("Alpha attribution weighted by capital allocation across portfolio.")
-    st.info("Data unavailable")
+    
+    # Load wave history data
+    df = safe_load_wave_history()
+    
+    # Always render the section, never blank
+    if df is None or len(df) == 0:
+        st.info("History not loaded - cannot compute capital-weighted alpha")
+    else:
+        # Compute capital-weighted alpha with fallback logic
+        capital_alpha = compute_capital_weighted_alpha(df)
+        
+        if capital_alpha['data_available']:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if capital_alpha['capital_weighted_alpha'] is not None:
+                    st.metric(
+                        "Portfolio Alpha",
+                        f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
+                        help="Capital-weighted or equal-weighted alpha"
+                    )
+                else:
+                    st.metric("Portfolio Alpha", "N/A")
+            
+            with col2:
+                method_label = capital_alpha['weighting_method']
+                if method_label == 'equal-weight':
+                    st.info("ℹ️ Equal-weight fallback — no capital inputs found")
+                else:
+                    st.success(f"✅ Using {method_label} weighting")
+        else:
+            st.info("Required columns not available (portfolio_return, benchmark_return)")
     
     st.divider()
     
@@ -6655,7 +6789,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(waterfall_fig, use_container_width=True)
+        st.plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
         
         st.divider()
         
@@ -6692,7 +6826,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(ts_fig, use_container_width=True)
+        st.plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
         
         st.divider()
         
