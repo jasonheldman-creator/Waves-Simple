@@ -6707,12 +6707,37 @@ def render_attribution_tab():
     # Load wave history data
     wave_df = safe_load_wave_history()
     
+    # Check if dataframe is missing or empty
     if wave_df is None or wave_df.empty:
-        st.error("❌ Wave history data is not available. Cannot compute attribution.")
+        st.info("ℹ️ No attribution data available yet.")
+        return
+    
+    # Determine which column to use for wave names
+    # wave_history.csv may have 'wave', 'display_name', or 'wave_id'
+    wave_column = None
+    if 'wave' in wave_df.columns:
+        wave_column = 'wave'
+    elif 'display_name' in wave_df.columns:
+        wave_column = 'display_name'
+    elif 'wave_id' in wave_df.columns:
+        wave_column = 'wave_id'
+    else:
+        st.error("⚠️ Attribution data missing required column: wave identifier (expected 'wave', 'display_name', or 'wave_id')")
+        return
+    
+    # Check for other required columns
+    required_columns = ['date', 'portfolio_return', 'benchmark_return']
+    missing_columns = [col for col in required_columns if col not in wave_df.columns]
+    if missing_columns:
+        st.error(f"⚠️ Attribution data missing required columns: {', '.join(missing_columns)}")
         return
     
     # Get available waves
-    available_waves = sorted(wave_df['wave'].unique().tolist())
+    try:
+        available_waves = sorted(wave_df[wave_column].unique().tolist())
+    except Exception as e:
+        st.error(f"⚠️ Error reading wave names: {str(e)}")
+        return
     
     if not available_waves:
         st.error("❌ No waves found in history data.")
@@ -6755,8 +6780,14 @@ def render_attribution_tab():
     
     # Compute attribution for selected wave
     try:
-        # Filter data for selected wave
-        wave_data = wave_df[wave_df['wave'] == selected_wave].copy()
+        # Filter data for selected wave using the determined wave column
+        wave_data = wave_df[wave_df[wave_column] == selected_wave].copy()
+        
+        # Check if date column still exists (defensive check)
+        if 'date' not in wave_data.columns:
+            st.error("⚠️ Date column missing in wave data")
+            return
+        
         wave_data = wave_data.sort_values('date')
         
         # Take last N days
@@ -6764,6 +6795,14 @@ def render_attribution_tab():
         
         if len(wave_data) == 0:
             st.warning(f"⚠️ No data available for {selected_wave} in the selected timeframe.")
+            return
+        
+        # Check if required columns exist before creating history_df
+        if 'portfolio_return' not in wave_data.columns:
+            st.error("⚠️ Attribution data missing required column: portfolio_return")
+            return
+        if 'benchmark_return' not in wave_data.columns:
+            st.error("⚠️ Attribution data missing required column: benchmark_return")
             return
         
         # Prepare history DataFrame for attribution
@@ -6998,12 +7037,21 @@ def render_attribution_tab():
             with st.spinner("Computing attribution for all waves..."):
                 for wave_name in available_waves:
                     try:
-                        # Filter data for this wave
-                        wave_data = wave_df[wave_df['wave'] == wave_name].copy()
+                        # Filter data for this wave using the determined wave column
+                        wave_data = wave_df[wave_df[wave_column] == wave_name].copy()
+                        
+                        # Check if date column exists
+                        if 'date' not in wave_data.columns:
+                            continue
+                        
                         wave_data = wave_data.sort_values('date')
                         wave_data = wave_data.tail(days)
                         
                         if len(wave_data) == 0:
+                            continue
+                        
+                        # Check if required columns exist
+                        if 'portfolio_return' not in wave_data.columns or 'benchmark_return' not in wave_data.columns:
                             continue
                         
                         # Prepare history DataFrame
@@ -8441,7 +8489,7 @@ def render_bottom_ticker():
             
             /* Add padding to Streamlit's main container to prevent content from being hidden */
             body {{
-                padding-bottom: 60px;
+                padding-bottom: 70px;
             }}
         </style>
     </head>
@@ -8600,7 +8648,12 @@ def main():
     # ========================================================================
     # Bottom Scrolling Ticker (Rendered Last)
     # ========================================================================
-    render_bottom_ticker()
+    try:
+        render_bottom_ticker()
+    except Exception as e:
+        # Display warning in sidebar if ticker fails to render
+        st.sidebar.warning(f"⚠️ Ticker failed to render: {str(e)}")
+
 
 
 # Run the application
