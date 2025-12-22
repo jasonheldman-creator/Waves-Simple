@@ -1537,6 +1537,7 @@ def get_crypto_income_wave_data(days=30):
     Get data for Crypto Income Wave (sole crypto wave representation).
     
     Falls back to "Crypto Income & Yield Wave" from wave_history.csv if available.
+    Now uses wave_id/display_name for filtering.
     
     Args:
         days: Number of days of data
@@ -1547,20 +1548,30 @@ def get_crypto_income_wave_data(days=30):
     try:
         df = safe_load_wave_history()
         
-        if df is None or 'wave' not in df.columns:
+        if df is None:
+            return None
+        
+        # Determine which column to use for filtering
+        if 'display_name' in df.columns:
+            wave_col = 'display_name'
+        elif 'wave' in df.columns:
+            wave_col = 'wave'
+        else:
             return None
         
         # Try exact match first
-        crypto_data = df[df['wave'] == CRYPTO_INCOME_WAVE].copy()
+        crypto_data = df[df[wave_col] == CRYPTO_INCOME_WAVE].copy()
         
         # Fall back to alternative names
         if len(crypto_data) == 0:
             alternative_names = ["Crypto Income & Yield Wave", "Crypto Income Wave"]
             for alt_name in alternative_names:
-                crypto_data = df[df['wave'] == alt_name].copy()
+                crypto_data = df[df[wave_col] == alt_name].copy()
                 if len(crypto_data) > 0:
-                    # Rename to standard name
-                    crypto_data['wave'] = CRYPTO_INCOME_WAVE
+                    # Rename to standard name if using legacy format
+                    if wave_col == 'wave':
+                        crypto_data['wave'] = CRYPTO_INCOME_WAVE
+                    # For new format, display_name is already set correctly
                     break
         
         if len(crypto_data) == 0:
@@ -2060,7 +2071,11 @@ def render_data_diagnostic_card(wave_name, days=30):
             with col1:
                 st.metric("Total Rows Loaded", f"{len(df):,}")
             with col2:
-                if 'wave' in df.columns:
+                # Check for wave identifiers in both formats
+                if 'display_name' in df.columns:
+                    unique_waves = df['display_name'].nunique()
+                    st.metric("Unique Waves", unique_waves)
+                elif 'wave' in df.columns:
                     unique_waves = df['wave'].nunique()
                     st.metric("Unique Waves", unique_waves)
             
@@ -2076,9 +2091,15 @@ def render_data_diagnostic_card(wave_name, days=30):
                     st.metric("Latest Date", max_date.strftime("%Y-%m-%d") if pd.notna(max_date) else "N/A")
             
             # Top 25 wave names
-            if 'wave' in df.columns:
+            wave_col = None
+            if 'display_name' in df.columns:
+                wave_col = 'display_name'
+            elif 'wave' in df.columns:
+                wave_col = 'wave'
+            
+            if wave_col:
                 st.markdown("**🌊 Top 25 Unique Wave Names Found in History**")
-                unique_waves = sorted(df['wave'].unique().tolist())
+                unique_waves = sorted(df[wave_col].unique().tolist())
                 top_25 = unique_waves[:25]
                 
                 # Display in 3 columns
@@ -2093,11 +2114,11 @@ def render_data_diagnostic_card(wave_name, days=30):
             
             # Check if selected wave exists (with normalization)
             st.markdown("**🔎 Selected Wave Lookup**")
-            if 'wave' in df.columns:
+            if wave_col:
                 normalized_selection = wave_name.strip().replace('  ', ' ').lower()
                 
                 # Check exact match
-                exact_match = wave_name in df['wave'].values
+                exact_match = wave_name in df[wave_col].values
                 
                 # Check normalized match
                 if 'normalized_wave' in df.columns:
@@ -2143,13 +2164,17 @@ def render_data_diagnostic_card(wave_name, days=30):
                 st.text(f"Latest Date: {latest_date.strftime('%Y-%m-%d')}")
                 
                 # Check if wave has data in this period
-                if 'wave' in df.columns:
+                if wave_col:
                     period_df = df[df['date'] >= cutoff_date]
-                    if normalized_selection in period_df.get('normalized_wave', pd.Series()).values:
+                    # Try normalized_wave_id or normalized_wave for matching
+                    if 'normalized_wave_id' in period_df.columns and normalized_selection in period_df['normalized_wave_id'].values:
+                        wave_rows_in_period = len(period_df[period_df['normalized_wave_id'] == normalized_selection])
+                        st.info(f"ℹ️ Wave exists in full history but has only {wave_rows_in_period} row(s) in this period")
+                    elif normalized_selection in period_df.get('normalized_wave', pd.Series()).values:
                         wave_rows_in_period = len(period_df[period_df['normalized_wave'] == normalized_selection])
                         st.info(f"ℹ️ Wave exists in full history but has only {wave_rows_in_period} row(s) in this period")
-                    elif wave_name in period_df['wave'].values:
-                        wave_rows_in_period = len(period_df[period_df['wave'] == wave_name])
+                    elif wave_name in period_df[wave_col].values:
+                        wave_rows_in_period = len(period_df[period_df[wave_col] == wave_name])
                         st.info(f"ℹ️ Wave exists in full history but has only {wave_rows_in_period} row(s) in this period")
     
     except Exception as e:
@@ -2318,51 +2343,59 @@ def compute_wave_universe_diagnostics():
         # Get wave history data
         wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
         
-        if wave_history is not None and 'wave' in wave_history.columns:
-            # Get unique waves in history
-            history_waves = set(wave_history['wave'].unique())
-            diagnostics['history_unique_count'] = len(history_waves)
+        if wave_history is not None:
+            # Determine which column to use for wave identification
+            wave_col = None
+            if 'display_name' in wave_history.columns:
+                wave_col = 'display_name'
+            elif 'wave' in wave_history.columns:
+                wave_col = 'wave'
             
-            # Calculate missing waves (in registry but no data)
-            missing_waves = registry_waves - history_waves
-            diagnostics['missing_waves'] = sorted(list(missing_waves))
-            
-            # Calculate orphan waves (in data but not in registry)
-            orphan_waves = history_waves - registry_waves
-            diagnostics['orphan_waves'] = sorted(list(orphan_waves))
-            
-            # Calculate active waves (recent data in last 7 days)
-            if 'date' in wave_history.columns:
-                latest_date = wave_history['date'].max()
-                cutoff_date = latest_date - timedelta(days=7)
-                recent_data = wave_history[wave_history['date'] >= cutoff_date]
-                active_waves = set(recent_data['wave'].unique())
-                diagnostics['active_count'] = len(active_waves & registry_waves)
+            if wave_col:
+                # Get unique waves in history
+                history_waves = set(wave_history[wave_col].unique())
+                diagnostics['history_unique_count'] = len(history_waves)
                 
-                # Compute data freshness per wave
-                data_freshness = []
-                for wave in sorted(registry_waves):
-                    wave_data = wave_history[wave_history['wave'] == wave]
+                # Calculate missing waves (in registry but no data)
+                missing_waves = registry_waves - history_waves
+                diagnostics['missing_waves'] = sorted(list(missing_waves))
+                
+                # Calculate orphan waves (in data but not in registry)
+                orphan_waves = history_waves - registry_waves
+                diagnostics['orphan_waves'] = sorted(list(orphan_waves))
+                
+                # Calculate active waves (recent data in last 7 days)
+                if 'date' in wave_history.columns:
+                    latest_date = wave_history['date'].max()
+                    cutoff_date = latest_date - timedelta(days=7)
+                    recent_data = wave_history[wave_history['date'] >= cutoff_date]
+                    active_waves = set(recent_data[wave_col].unique())
+                    diagnostics['active_count'] = len(active_waves & registry_waves)
                     
-                    if len(wave_data) == 0:
-                        # No data for this wave
-                        data_freshness.append({
-                            'wave': wave,
-                            'latest_date': None,
-                            'days_old': None,
-                            'staleness': 'unavailable'
-                        })
-                    else:
-                        latest_wave_date = wave_data['date'].max()
-                        days_old = (latest_date - latest_wave_date).days
+                    # Compute data freshness per wave
+                    data_freshness = []
+                    for wave in sorted(registry_waves):
+                        wave_data = wave_history[wave_history[wave_col] == wave]
                         
-                        # Determine staleness badge
-                        if days_old == 0:
-                            staleness = 'fresh'
-                        elif days_old <= 3:
-                            staleness = 'recent'
-                        elif days_old <= 7:
-                            staleness = 'stale'
+                        if len(wave_data) == 0:
+                            # No data for this wave
+                            data_freshness.append({
+                                'wave': wave,
+                                'latest_date': None,
+                                'days_old': None,
+                                'staleness': 'unavailable'
+                            })
+                        else:
+                            latest_wave_date = wave_data['date'].max()
+                            days_old = (latest_date - latest_wave_date).days
+                            
+                            # Determine staleness badge
+                            if days_old == 0:
+                                staleness = 'fresh'
+                            elif days_old <= 3:
+                                staleness = 'recent'
+                            elif days_old <= 7:
+                                staleness = 'stale'
                         else:
                             staleness = 'old'
                         
@@ -3143,13 +3176,19 @@ def get_mission_control_data():
             mc_data['universe_count'] = len(canonical_waves)
             
             # Count unique waves in historical data
-            if 'wave' in df.columns:
-                history_waves_unique = df['wave'].nunique()
+            wave_col = None
+            if 'display_name' in df.columns:
+                wave_col = 'display_name'
+            elif 'wave' in df.columns:
+                wave_col = 'wave'
+            
+            if wave_col:
+                history_waves_unique = df[wave_col].nunique()
                 mc_data['history_unique_count'] = history_waves_unique
                 
                 # Count active waves: intersection of canonical universe with waves in recent history
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                recent_waves = set(recent_data['wave'].unique())
+                recent_waves = set(recent_data[wave_col].unique())
                 canonical_waves_set = set(canonical_waves)
                 active_waves_set = recent_waves.intersection(canonical_waves_set)
                 mc_data['active_waves'] = len(active_waves_set)
@@ -3159,14 +3198,20 @@ def get_mission_control_data():
                 mc_data['history_unique_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
-            if 'wave' in df.columns:
-                mc_data['total_waves'] = df['wave'].nunique()
+            wave_col = None
+            if 'display_name' in df.columns:
+                wave_col = 'display_name'
+            elif 'wave' in df.columns:
+                wave_col = 'wave'
+            
+            if wave_col:
+                mc_data['total_waves'] = df[wave_col].nunique()
                 mc_data['universe_count'] = mc_data['total_waves']
                 mc_data['history_unique_count'] = mc_data['total_waves']
                 
                 # Count active waves (with recent data)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                mc_data['active_waves'] = recent_data['wave'].nunique()
+                mc_data['active_waves'] = recent_data[wave_col].nunique()
         
         # System status based on data age
         if age_days <= 1:
@@ -3228,11 +3273,17 @@ def get_mission_control_data():
                 mc_data['alpha_30day'] = f"{alpha_30day*100:.2f}%"
         
         # WaveScore Leader
-        if 'wave' in df.columns and 'alpha' in df.columns:
+        wave_col = None
+        if 'display_name' in df.columns:
+            wave_col = 'display_name'
+        elif 'wave' in df.columns:
+            wave_col = 'wave'
+        
+        if wave_col and 'alpha' in df.columns:
             days_30_ago = latest_date - timedelta(days=30)
             last_30_days = df[df['date'] >= days_30_ago]
             
-            wave_performance = last_30_days.groupby('wave')['alpha'].sum().sort_values(ascending=False)
+            wave_performance = last_30_days.groupby(wave_col)['alpha'].sum().sort_values(ascending=False)
             
             if len(wave_performance) > 0:
                 top_wave = wave_performance.index[0]
@@ -3260,7 +3311,14 @@ def get_wavescore_leaderboard():
         if df is None:
             return None
         
-        if 'wave' not in df.columns:
+        # Determine which column to use for wave identification
+        wave_col = None
+        if 'display_name' in df.columns:
+            wave_col = 'display_name'
+        elif 'wave' in df.columns:
+            wave_col = 'wave'
+        
+        if not wave_col:
             return None
         
         # Calculate alpha
@@ -3271,8 +3329,8 @@ def get_wavescore_leaderboard():
         
         # Calculate WaveScore for each wave
         wave_scores = []
-        for wave in df['wave'].unique():
-            wave_data = df[df['wave'] == wave]
+        for wave in df[wave_col].unique():
+            wave_data = df[df[wave_col] == wave]
             score = calculate_wavescore(wave_data)
             wave_scores.append({'Wave': wave, 'WaveScore': score})
         
@@ -3302,7 +3360,14 @@ def get_biggest_movers():
         if df is None:
             return None
         
-        if 'wave' not in df.columns or 'date' not in df.columns:
+        # Determine which column to use for wave identification
+        wave_col = None
+        if 'display_name' in df.columns:
+            wave_col = 'display_name'
+        elif 'wave' in df.columns:
+            wave_col = 'wave'
+        
+        if not wave_col or 'date' not in df.columns:
             return None
         
         # Calculate alpha
@@ -3326,11 +3391,11 @@ def get_biggest_movers():
         
         # Calculate WaveScores for both periods
         movers = []
-        waves = set(current_period['wave'].unique()) & set(previous_period['wave'].unique())
+        waves = set(current_period[wave_col].unique()) & set(previous_period[wave_col].unique())
         
         for wave in waves:
-            current_data = current_period[current_period['wave'] == wave]
-            previous_data = previous_period[previous_period['wave'] == wave]
+            current_data = current_period[current_period[wave_col] == wave]
+            previous_data = previous_period[previous_period[wave_col] == wave]
             
             current_score = calculate_wavescore(current_data)
             previous_score = calculate_wavescore(previous_data)
@@ -6994,8 +7059,8 @@ def render_attribution_tab():
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
         return
     
-    # Get available waves
-    available_waves = sorted(wave_df['wave'].unique().tolist())
+    # Get available waves using display_name column
+    available_waves = sorted(wave_df['display_name'].unique().tolist())
     
     if not available_waves:
         st.error("❌ No waves found in history data.")
@@ -7038,8 +7103,8 @@ def render_attribution_tab():
     
     # Compute attribution for selected wave
     try:
-        # Filter data for selected wave
-        wave_data = wave_df[wave_df['wave'] == selected_wave].copy()
+        # Filter data for selected wave using display_name
+        wave_data = wave_df[wave_df['display_name'] == selected_wave].copy()
         wave_data = wave_data.sort_values('date')
         
         # Take last N days
@@ -7281,8 +7346,8 @@ def render_attribution_tab():
             with st.spinner("Computing attribution for all waves..."):
                 for wave_name in available_waves:
                     try:
-                        # Filter data for this wave
-                        wave_data = wave_df[wave_df['wave'] == wave_name].copy()
+                        # Filter data for this wave using display_name
+                        wave_data = wave_df[wave_df['display_name'] == wave_name].copy()
                         wave_data = wave_data.sort_values('date')
                         wave_data = wave_data.tail(days)
                         
