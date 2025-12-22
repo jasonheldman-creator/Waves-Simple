@@ -505,7 +505,7 @@ def compute_trust_signal(wave_name: str, period_days: int = 30) -> TrustSignal:
         # ====================================================================
         # 1. DATA AVAILABILITY & STALENESS CHECK
         # ====================================================================
-        wave_data = get_wave_data_filtered(wave_name=wave_name, days=period_days)
+        wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=period_days)
         
         if wave_data is None or len(wave_data) == 0:
             # Insufficient data - return low-confidence signal
@@ -2114,7 +2114,7 @@ def calculate_portfolio_metrics(wave_names, weights, days):
         # Load data for all waves
         wave_data_dict = {}
         for wave_name in wave_names:
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=days)
+            wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=days)
             if wave_data is not None and len(wave_data) > 0:
                 wave_data_dict[wave_name] = wave_data
         
@@ -8646,7 +8646,7 @@ def render_ic_pack_tab():
             if waves:
                 top_performers = []
                 for wave in waves[:5]:  # Top 5 waves
-                    wave_data = get_wave_data_filtered(wave, days=30)
+                    wave_data, _ = get_wave_history(wave_name=wave, mode="Standard", days=30)
                     if wave_data is not None and len(wave_data) > 0:
                         metrics = calculate_wave_metrics(wave_data)
                         wavescore = metrics.get('wavescore', 0)
@@ -8712,7 +8712,7 @@ def render_ic_pack_tab():
             low_score_count = 0
             if waves:
                 for wave in waves:
-                    wave_data = get_wave_data_filtered(wave, days=30)
+                    wave_data, _ = get_wave_history(wave_name=wave, mode="Standard", days=30)
                     if wave_data is not None:
                         metrics = calculate_wave_metrics(wave_data)
                         if metrics.get('wavescore', 100) < 40:
@@ -8935,7 +8935,7 @@ def generate_ic_pack_html():
             if waves:
                 leaderboard_data = []
                 for wave in waves:
-                    wave_data = get_wave_data_filtered(wave, days=30)
+                    wave_data, _ = get_wave_history(wave_name=wave, mode="Standard", days=30)
                     if wave_data is not None:
                         metrics = calculate_wave_metrics(wave_data)
                         leaderboard_data.append({
