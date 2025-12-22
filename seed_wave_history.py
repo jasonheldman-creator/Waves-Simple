@@ -191,7 +191,7 @@ def seed_wave_data(
     dates = generate_business_days(start_date, n_days)
     
     # Generate synthetic returns (use hash of wave_id as seed for consistency)
-    seed = hash(wave_id) % (2**31)
+    seed = abs(hash(wave_id)) % (2**31)  # Ensure positive seed value
     portfolio_returns, benchmark_returns = generate_synthetic_returns(n_days, seed)
     
     # Create DataFrame

@@ -133,10 +133,6 @@ def test_performance_metrics():
     print("=" * 70)
     
     try:
-        # Import app functions
-        import sys
-        sys.path.insert(0, '.')
-        
         df = pd.read_csv('wave_history.csv')
         synthetic_waves = df[df['is_synthetic']]['wave_id'].unique()
         

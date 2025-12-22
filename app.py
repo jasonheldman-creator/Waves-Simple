@@ -1361,6 +1361,9 @@ def check_synthetic_data_status(wave_data: pd.DataFrame = None, wave_name: str =
                 'synthetic_waves': []
             }
         
+        # Create a copy to avoid modifying the original
+        wave_data = wave_data.copy()
+        
         # Ensure is_synthetic column exists
         if 'is_synthetic' not in wave_data.columns:
             wave_data['is_synthetic'] = False
