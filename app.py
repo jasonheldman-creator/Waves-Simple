@@ -2396,15 +2396,15 @@ def compute_wave_universe_diagnostics():
                                 staleness = 'recent'
                             elif days_old <= 7:
                                 staleness = 'stale'
-                        else:
-                            staleness = 'old'
-                        
-                        data_freshness.append({
-                            'wave': wave,
-                            'latest_date': latest_wave_date.strftime('%Y-%m-%d') if pd.notna(latest_wave_date) else 'N/A',
-                            'days_old': days_old,
-                            'staleness': staleness
-                        })
+                            else:
+                                staleness = 'old'
+                            
+                            data_freshness.append({
+                                'wave': wave,
+                                'latest_date': latest_wave_date.strftime('%Y-%m-%d') if pd.notna(latest_wave_date) else 'N/A',
+                                'days_old': days_old,
+                                'staleness': staleness
+                            })
                 
                 diagnostics['data_freshness'] = data_freshness
         
