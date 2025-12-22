@@ -738,6 +738,50 @@ def compute_trust_signal(wave_name: str, period_days: int = 30) -> TrustSignal:
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
+# ============================================================================
+# DEBUG BANNER - TICKER VISIBILITY DEBUGGING
+# ============================================================================
+st.error("🔴 WAVES TICKER DEBUG — IF YOU SEE THIS, THE APP IS RUNNING UPDATED CODE — AAPL MSFT NVDA SPY QQQ")
+
+# ============================================================================
+# TOP-OF-PAGE TICKER TEST
+# ============================================================================
+ticker_html = """
+<div style="
+    width: 100%;
+    height: 120px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow: hidden;
+    position: relative;
+">
+    <div style="
+        white-space: nowrap;
+        animation: scroll-left 20s linear infinite;
+    ">
+        AAPL • MSFT • NVDA • SPY • QQQ • AAPL • MSFT • NVDA • SPY • QQQ • AAPL • MSFT • NVDA • SPY • QQQ
+    </div>
+</div>
+<style>
+@keyframes scroll-left {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+}
+</style>
+"""
+components.html(ticker_html, height=120)
+
+# ============================================================================
+# TEMPORARY HALT FOR DEBUG ISOLATION
+# ============================================================================
+st.stop()
+
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
 
@@ -6707,15 +6751,39 @@ def render_attribution_tab():
     # Load wave history data
     wave_df = safe_load_wave_history()
     
+    # Defensive guard: Check for None or empty data
     if wave_df is None or wave_df.empty:
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
+        st.info("Please ensure wave_history.csv exists and contains valid data.")
         return
     
-    # Get available waves
-    available_waves = sorted(wave_df['wave'].unique().tolist())
+    # Defensive guard: Determine which column to use for wave identification
+    # Priority: wave_id > display_name > name
+    wave_column = None
+    if 'wave_id' in wave_df.columns:
+        wave_column = 'wave_id'
+    elif 'display_name' in wave_df.columns:
+        wave_column = 'display_name'
+    elif 'name' in wave_df.columns:
+        wave_column = 'name'
+    elif 'wave' in wave_df.columns:
+        wave_column = 'wave'
+    else:
+        st.error("❌ No valid wave identifier column found in data.")
+        st.warning("Expected one of: 'wave_id', 'display_name', 'name', or 'wave'")
+        st.info("Please check your wave_history.csv file structure.")
+        return
+    
+    # Get available waves using the identified column
+    try:
+        available_waves = sorted(wave_df[wave_column].unique().tolist())
+    except Exception as e:
+        st.error(f"❌ Error extracting wave names: {str(e)}")
+        return
     
     if not available_waves:
         st.error("❌ No waves found in history data.")
+        st.info(f"The '{wave_column}' column exists but contains no data.")
         return
     
     # Configuration controls
@@ -6755,8 +6823,8 @@ def render_attribution_tab():
     
     # Compute attribution for selected wave
     try:
-        # Filter data for selected wave
-        wave_data = wave_df[wave_df['wave'] == selected_wave].copy()
+        # Filter data for selected wave using the identified wave column
+        wave_data = wave_df[wave_df[wave_column] == selected_wave].copy()
         wave_data = wave_data.sort_values('date')
         
         # Take last N days
@@ -6998,8 +7066,8 @@ def render_attribution_tab():
             with st.spinner("Computing attribution for all waves..."):
                 for wave_name in available_waves:
                     try:
-                        # Filter data for this wave
-                        wave_data = wave_df[wave_df['wave'] == wave_name].copy()
+                        # Filter data for this wave using the identified wave column
+                        wave_data = wave_df[wave_df[wave_column] == wave_name].copy()
                         wave_data = wave_data.sort_values('date')
                         wave_data = wave_data.tail(days)
                         
