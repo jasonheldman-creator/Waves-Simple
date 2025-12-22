@@ -4138,6 +4138,30 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Bottom Ticker Control
+    # ========================================================================
+    st.sidebar.markdown("### 📊 Bottom Ticker Control")
+    
+    # Toggle switch for bottom ticker
+    show_ticker = st.sidebar.checkbox(
+        "Enable Bottom Ticker",
+        value=st.session_state.get("show_bottom_ticker", False),
+        key="bottom_ticker_toggle",
+        help="Show a scrolling ticker at the bottom of the screen with wave metrics"
+    )
+    
+    # Update session state
+    st.session_state.show_bottom_ticker = show_ticker
+    
+    # Show status
+    if show_ticker:
+        st.sidebar.success("🟢 Bottom ticker is ON")
+    else:
+        st.sidebar.info("🔴 Bottom ticker is OFF")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Wave Universe Truth Panel (Collapsible)
     # ========================================================================
     with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
@@ -8333,6 +8357,92 @@ def generate_ic_pack_html():
 
 
 # ============================================================================
+# SECTION 7B: BOTTOM SCROLLING TICKER
+# ============================================================================
+
+def render_bottom_ticker():
+    """
+    Renders a fixed scrolling ticker at the bottom of the viewport.
+    Only displays if st.session_state["show_bottom_ticker"] is True.
+    """
+    # Check if ticker should be shown
+    if not st.session_state.get("show_bottom_ticker", False):
+        return
+    
+    # Get sample data for the ticker
+    try:
+        waves = get_available_waves()
+        if not waves:
+            ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
+        else:
+            # Build ticker content from wave data
+            ticker_items = []
+            for wave in waves[:10]:  # Limit to first 10 waves for performance
+                wave_data = get_wave_data_filtered(wave, days=7)
+                if wave_data is not None:
+                    metrics = calculate_wave_metrics(wave_data)
+                    wavescore = metrics.get('wavescore', 0)
+                    alpha = metrics.get('cumulative_alpha', 0)
+                    ticker_items.append(f"{wave}: WaveScore {wavescore:.1f} | Alpha {alpha:.2%}")
+            
+            if ticker_items:
+                ticker_content = " • ".join(ticker_items)
+            else:
+                ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
+    except Exception:
+        ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
+    
+    # Render the ticker with CSS animation
+    ticker_html = f"""
+    <style>
+        /* Add bottom padding to body to prevent ticker from covering content */
+        .main .block-container {{
+            padding-bottom: 80px !important;
+        }}
+        
+        /* Fixed ticker at bottom */
+        .bottom-ticker {{
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 0;
+            z-index: 999;
+            overflow: hidden;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }}
+        
+        /* Scrolling animation */
+        .ticker-content {{
+            display: inline-block;
+            white-space: nowrap;
+            animation: scroll-left 60s linear infinite;
+            padding-left: 100%;
+            font-size: 14px;
+            font-weight: 500;
+        }}
+        
+        @keyframes scroll-left {{
+            0% {{
+                transform: translateX(0);
+            }}
+            100% {{
+                transform: translateX(-100%);
+            }}
+        }}
+    </style>
+    <div class="bottom-ticker">
+        <div class="ticker-content">{ticker_content}</div>
+    </div>
+    """
+    
+    st.markdown(ticker_html, unsafe_allow_html=True)
+
+
+# ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
@@ -8356,6 +8466,10 @@ def main():
     # Initialize auto_refresh_enabled if not present (default: OFF)
     if "auto_refresh_enabled" not in st.session_state:
         st.session_state.auto_refresh_enabled = False
+    
+    # Initialize show_bottom_ticker if not present (default: OFF)
+    if "show_bottom_ticker" not in st.session_state:
+        st.session_state.show_bottom_ticker = False
     
     # ========================================================================
     # Auto-Refresh Logic (15-second interval)
@@ -8446,6 +8560,11 @@ def main():
     
     with analytics_tabs[7]:
         render_ic_pack_tab()
+    
+    # ========================================================================
+    # Bottom Scrolling Ticker (Rendered Last)
+    # ========================================================================
+    render_bottom_ticker()
 
 
 # Run the application
