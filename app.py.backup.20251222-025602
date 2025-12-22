@@ -54,30 +54,6 @@ except ImportError:
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
 
-# Import decision ledger and alpha contracts modules
-try:
-    from decision_ledger import (
-        append_decision_snapshot,
-        read_ledger,
-        get_ledger_stats,
-        validate_ledger_entry
-    )
-    DECISION_LEDGER_AVAILABLE = True
-except ImportError:
-    DECISION_LEDGER_AVAILABLE = False
-
-try:
-    from alpha_contracts import (
-        get_contract,
-        evaluate_contract,
-        format_contract_summary,
-        get_contract_status_color,
-        ContractStatus
-    )
-    ALPHA_CONTRACTS_AVAILABLE = True
-except ImportError:
-    ALPHA_CONTRACTS_AVAILABLE = False
-
 # ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
@@ -3078,187 +3054,6 @@ def get_wave_comparison_data(wave1_name, wave2_name):
 # SECTION 6: REUSABLE UI COMPONENTS
 # ============================================================================
 
-def render_decision_ledger_section():
-    """
-    Render the Decision Ledger + Alpha Contracts governance section.
-    Allows users to compute metrics, log decisions, and evaluate contracts.
-    """
-    st.markdown("### 📊 Decision Ledger + Alpha Contracts")
-    st.caption("Governance layer for tracking Wave performance and contract compliance")
-    
-    # Check if modules are available
-    if not DECISION_LEDGER_AVAILABLE or not ALPHA_CONTRACTS_AVAILABLE:
-        st.warning("⚠️ Decision Ledger and/or Alpha Contracts modules not available")
-        return
-    
-    try:
-        # Get available waves
-        waves = get_available_waves()
-        
-        if len(waves) == 0:
-            st.warning("No waves available for analysis")
-            return
-        
-        # Configuration controls
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            selected_wave = st.selectbox(
-                "Select Wave",
-                options=waves,
-                key="decision_ledger_wave_selector",
-                help="Choose a wave to compute and log decision snapshot"
-            )
-        
-        with col2:
-            period_days = st.selectbox(
-                "Analysis Period",
-                options=[7, 14, 30, 60, 90],
-                index=2,  # Default to 30 days
-                format_func=lambda x: f"{x} days",
-                key="decision_ledger_period",
-                help="Select the lookback period for metrics"
-            )
-        
-        st.divider()
-        
-        # Compute & Log button
-        if st.button(
-            "🎯 Compute & Log Decision Snapshot",
-            key="compute_log_decision",
-            use_container_width=True,
-            type="primary"
-        ):
-            with st.spinner(f"Computing metrics for {selected_wave}..."):
-                try:
-                    # Get wave data
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=period_days)
-                    
-                    if wave_data is None or len(wave_data) == 0:
-                        st.error(f"❌ No data available for {selected_wave}")
-                    else:
-                        # Calculate metrics
-                        metrics = calculate_wave_metrics(wave_data)
-                        
-                        # Add additional metrics for ledger
-                        if 'vix' in wave_data.columns:
-                            metrics['vix'] = wave_data['vix'].iloc[-1] if len(wave_data) > 0 else None
-                        
-                        if 'exposure' in wave_data.columns:
-                            metrics['exposure'] = wave_data['exposure'].iloc[-1] if len(wave_data) > 0 else None
-                        
-                        # Validate and collect warnings
-                        warnings = validate_ledger_entry(metrics)
-                        
-                        # Append to ledger
-                        success = append_decision_snapshot(
-                            wave_name=selected_wave,
-                            mode="Standard",  # Could be configurable
-                            period=period_days,
-                            metrics=metrics,
-                            warnings=warnings
-                        )
-                        
-                        if success:
-                            st.success(f"✅ Decision snapshot logged for {selected_wave}")
-                            if warnings:
-                                st.warning(f"⚠️ Warnings: {'; '.join(warnings)}")
-                        else:
-                            st.error("❌ Failed to log decision snapshot")
-                
-                except Exception as e:
-                    st.error(f"❌ Error computing metrics: {str(e)}")
-        
-        st.divider()
-        
-        # Contract Evaluation Tile
-        st.markdown("#### 📋 Alpha Contract Status")
-        
-        try:
-            # Get wave data for contract evaluation
-            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=period_days)
-            
-            if wave_data is not None and len(wave_data) > 0:
-                # Calculate metrics
-                metrics = calculate_wave_metrics(wave_data)
-                
-                # Add additional metrics
-                if 'exposure' in wave_data.columns:
-                    metrics['exposure'] = wave_data['exposure'].iloc[-1] if len(wave_data) > 0 else None
-                
-                # Evaluate contract
-                status, reasons = evaluate_contract(selected_wave, metrics)
-                
-                # Display status with color coding
-                status_color = get_contract_status_color(status)
-                st.markdown(f"**Status:** {status_color}")
-                
-                # Display reasons
-                st.markdown("**Details:**")
-                for reason in reasons:
-                    st.write(f"• {reason}")
-                
-                # Show contract details in expander
-                contract = get_contract(selected_wave)
-                if contract:
-                    with st.expander("📄 View Contract Details"):
-                        st.markdown(format_contract_summary(contract))
-            else:
-                st.info(f"ℹ️ No data available for {selected_wave} contract evaluation")
-        
-        except Exception as e:
-            st.warning(f"⚠️ Contract evaluation unavailable: {str(e)}")
-        
-        st.divider()
-        
-        # Display Ledger History
-        st.markdown("#### 📜 Recent Ledger Entries")
-        
-        try:
-            # Read ledger filtered by selected wave
-            ledger_df = read_ledger(wave_name=selected_wave, limit=25)
-            
-            if ledger_df is not None and len(ledger_df) > 0:
-                # Format for display
-                display_df = ledger_df.copy()
-                
-                # Format numeric columns
-                numeric_cols = ['vix', 'exposure', 'selection_alpha', 'overlay_alpha', 
-                               'risk_off_alpha', 'total_alpha', 'cumulative_return', 
-                               'sharpe_ratio', 'max_drawdown', 'volatility']
-                
-                for col in numeric_cols:
-                    if col in display_df.columns:
-                        display_df[col] = pd.to_numeric(display_df[col], errors='coerce')
-                        display_df[col] = display_df[col].apply(
-                            lambda x: f"{x:.4f}" if pd.notna(x) else "N/A"
-                        )
-                
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-                # Download button
-                csv = ledger_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Ledger (CSV)",
-                    data=csv,
-                    file_name=f"decision_ledger_{selected_wave}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            else:
-                st.info(f"ℹ️ No ledger entries found for {selected_wave}")
-            
-            # Show ledger stats
-            stats = get_ledger_stats()
-            if stats['total_entries'] > 0:
-                st.caption(f"Total entries: {stats['total_entries']} | Waves tracked: {stats['waves_tracked']}")
-        
-        except Exception as e:
-            st.warning(f"⚠️ Unable to load ledger: {str(e)}")
-    
-    except Exception as e:
-        st.error(f"❌ Error in Decision Ledger section: {str(e)}")
-
-
 def render_audit_trail_panel():
     """
     Render the Immutable Audit Trail Panel.
@@ -3777,11 +3572,6 @@ def render_sidebar_info():
                 st.session_state.wave_universe_version = 1
             st.session_state.wave_universe_version += 1
             
-            # Increment reload token
-            if "reload_token" not in st.session_state:
-                st.session_state.reload_token = 0
-            st.session_state.reload_token += 1
-            
             # Show success message
             st.sidebar.success("✅ Cache cleared successfully!")
             
@@ -3789,10 +3579,6 @@ def render_sidebar_info():
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
-    
-    # Display reload token if it exists
-    if "reload_token" in st.session_state and st.session_state.reload_token > 0:
-        st.sidebar.caption(f"🔄 Reload token: {st.session_state.reload_token}")
     
     st.sidebar.markdown("---")
     
@@ -4261,11 +4047,6 @@ def render_executive_tab():
     except Exception as e:
         st.error(f"❌ Error in decision attribution: {str(e)}")
         st.info("📋 The application continues to function. Data may be unavailable.")
-    
-    st.divider()
-    
-    # Decision Ledger + Alpha Contracts Section - NEW
-    render_decision_ledger_section()
     
     st.divider()
     
