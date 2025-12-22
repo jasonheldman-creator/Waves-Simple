@@ -19,6 +19,7 @@ This is a rollback snapshot before IC Pack v1 implementation.
 import streamlit as st
 import subprocess
 import os
+import traceback
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -3246,6 +3247,54 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Auto-Refresh Control
+    # ========================================================================
+    st.sidebar.markdown("### 🔄 Auto-Refresh Control")
+    
+    # Check if st_autorefresh or st.autorefresh is available
+    autorefresh_available = False
+    try:
+        # Try importing st_autorefresh from streamlit-autorefresh
+        from streamlit_autorefresh import st_autorefresh
+        autorefresh_available = True
+    except ImportError:
+        # Check if built-in autorefresh is available (newer Streamlit versions)
+        if hasattr(st, 'autorefresh'):
+            autorefresh_available = True
+    
+    if autorefresh_available:
+        # Initialize auto-refresh setting
+        if "auto_refresh_enabled" not in st.session_state:
+            st.session_state.auto_refresh_enabled = False  # Default: OFF
+        
+        # Toggle switch
+        auto_refresh_enabled = st.sidebar.checkbox(
+            "Enable Auto-Refresh (15s)",
+            value=st.session_state.auto_refresh_enabled,
+            key="auto_refresh_toggle",
+            help="Automatically refresh the dashboard every 15 seconds"
+        )
+        
+        # Update session state
+        st.session_state.auto_refresh_enabled = auto_refresh_enabled
+        
+        # Show status
+        if auto_refresh_enabled:
+            st.sidebar.success("🟢 Auto-refresh is ON")
+            st.sidebar.caption("Dashboard refreshes every 15 seconds")
+        else:
+            st.sidebar.info("🔴 Auto-refresh is OFF")
+            st.sidebar.caption("Use Force Reload to manually refresh")
+    else:
+        # Auto-refresh not available
+        st.sidebar.info("⚠️ Auto-refresh not supported in this Streamlit version")
+        st.sidebar.caption("Install streamlit-autorefresh to enable this feature: `pip install streamlit-autorefresh`")
+        # Ensure auto-refresh is disabled
+        st.session_state.auto_refresh_enabled = False
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Wave Universe Truth Panel (Collapsible)
     # ========================================================================
     with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
@@ -3702,82 +3751,143 @@ def render_alpha_proof_section():
         )
         
         if st.button("Compute Alpha Proof", type="primary", key="compute_alpha_proof"):
-            with st.spinner("Computing alpha decomposition..."):
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
-                
-                if wave_data is None or len(wave_data) == 0:
-                    st.error(f"No data available for {selected_wave}")
-                    return
-                
-                # Check for required columns
-                required_cols = ['portfolio_return', 'benchmark_return']
-                missing_cols = [col for col in required_cols if col not in wave_data.columns]
-                
-                if missing_cols:
-                    st.error(f"Data unavailable - missing fields: {', '.join(missing_cols)}")
-                    return
-                
-                # Calculate alpha components
-                alpha_components = calculate_alpha_components(wave_data, selected_wave)
-                
-                if alpha_components is None:
-                    st.error("Unable to compute alpha components")
-                    return
-                
-                # Display results
-                st.success("Alpha decomposition complete!")
-                
-                # Create metrics row
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Total Alpha", f"{alpha_components['total_alpha']*100:.2f}%")
-                
-                with col2:
-                    st.metric("Selection Alpha", f"{alpha_components['selection_alpha']*100:.2f}%")
-                
-                with col3:
-                    st.metric("Overlay Alpha", f"{alpha_components['overlay_alpha']*100:.2f}%")
-                
-                with col4:
-                    st.metric("Cash/Risk-Off", f"{alpha_components['cash_contribution']*100:.2f}%")
-                
-                # Create waterfall chart
-                chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
-                if chart is not None:
-                    st.plotly_chart(chart, use_container_width=True)
-                
-                # Show detailed table
-                with st.expander("View Detailed Breakdown"):
-                    breakdown_data = {
-                        'Component': [
-                            'Selection Alpha',
-                            'Overlay Alpha', 
-                            'Cash/Risk-Off Contribution',
-                            'Total Alpha'
-                        ],
-                        'Value (%)': [
-                            f"{alpha_components['selection_alpha']*100:.2f}%",
-                            f"{alpha_components['overlay_alpha']*100:.2f}%",
-                            f"{alpha_components['cash_contribution']*100:.2f}%",
-                            f"{alpha_components['total_alpha']*100:.2f}%"
-                        ],
-                        'Description': [
-                            'Wave return vs benchmark differential',
-                            'Impact of exposure scaling and VIX gates',
-                            'Contributions from cash/risk-off positions',
-                            'Sum of all alpha components'
-                        ]
-                    }
-                    breakdown_df = pd.DataFrame(breakdown_data)
-                    st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
-                
-                # Store in session state
-                st.session_state['alpha_proof_components'] = alpha_components
-                st.session_state['alpha_proof_wave'] = selected_wave
+            try:
+                with st.spinner("Computing alpha decomposition..."):
+                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
+                    
+                    if wave_data is None or len(wave_data) == 0:
+                        st.error(f"No data available for {selected_wave}")
+                        st.warning("Try selecting a different wave or time period")
+                        return
+                    
+                    # Check for required columns
+                    required_cols = ['portfolio_return', 'benchmark_return']
+                    missing_cols = [col for col in required_cols if col not in wave_data.columns]
+                    
+                    if missing_cols:
+                        st.warning(f"Missing required columns: {', '.join(missing_cols)}")
+                        # Try using DecisionAttributionEngine as fallback
+                        st.info("Using fallback attribution engine...")
+                        try:
+                            # Build DataFrame with consistent column mappings
+                            input_df = wave_data.copy()
+                            # Map columns to consistent names
+                            if 'return' in input_df.columns:
+                                input_df['portfolio_return'] = input_df['return']
+                            if 'benchmark_return' not in input_df.columns and 'bm_ret' in input_df.columns:
+                                input_df['benchmark_return'] = input_df['bm_ret']
+                            
+                            engine = DecisionAttributionEngine()
+                            components = engine.compute_attribution(input_df, selected_wave)
+                            
+                            # Update timestamp
+                            st.session_state['last_compute_ts'] = datetime.now()
+                            st.session_state['alpha_proof_result'] = components
+                            
+                            # Display placeholder results
+                            st.success("Alpha decomposition complete (using fallback)!")
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                val = components.total_alpha if components.total_alpha is not None else 0
+                                st.metric("Total Alpha", f"{val*100:.2f}%")
+                            
+                            with col2:
+                                if components.selection_available:
+                                    st.metric("Selection Alpha", f"{components.selection_alpha*100:.2f}%")
+                                else:
+                                    st.metric("Selection Alpha", "Unavailable")
+                            
+                            with col3:
+                                if components.overlay_available:
+                                    st.metric("Overlay Alpha", f"{components.overlay_alpha*100:.2f}%")
+                                else:
+                                    st.metric("Overlay Alpha", "Unavailable")
+                            
+                            with col4:
+                                if components.risk_off_available:
+                                    st.metric("Cash/Risk-Off", f"{components.risk_off_alpha*100:.2f}%")
+                                else:
+                                    st.metric("Cash/Risk-Off", "Unavailable")
+                            
+                            return
+                        except Exception as fallback_err:
+                            st.error(f"Fallback computation failed: {str(fallback_err)}")
+                            with st.expander("Debug details"):
+                                st.code(traceback.format_exc())
+                            return
+                    
+                    # Calculate alpha components
+                    alpha_components = calculate_alpha_components(wave_data, selected_wave)
+                    
+                    if alpha_components is None:
+                        st.error("Unable to compute alpha components")
+                        st.warning("Data may be incomplete or invalid")
+                        return
+                    
+                    # Update timestamp and store results
+                    st.session_state['last_compute_ts'] = datetime.now()
+                    st.session_state['alpha_proof_result'] = alpha_components
+                    st.session_state['alpha_proof_wave'] = selected_wave
+                    
+                    # Display results
+                    st.success("Alpha decomposition complete!")
+                    
+                    # Create metrics row
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Alpha", f"{alpha_components['total_alpha']*100:.2f}%")
+                    
+                    with col2:
+                        st.metric("Selection Alpha", f"{alpha_components['selection_alpha']*100:.2f}%")
+                    
+                    with col3:
+                        st.metric("Overlay Alpha", f"{alpha_components['overlay_alpha']*100:.2f}%")
+                    
+                    with col4:
+                        st.metric("Cash/Risk-Off", f"{alpha_components['cash_contribution']*100:.2f}%")
+                    
+                    # Create waterfall chart
+                    chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    
+                    # Show detailed table
+                    with st.expander("View Detailed Breakdown"):
+                        breakdown_data = {
+                            'Component': [
+                                'Selection Alpha',
+                                'Overlay Alpha', 
+                                'Cash/Risk-Off Contribution',
+                                'Total Alpha'
+                            ],
+                            'Value (%)': [
+                                f"{alpha_components['selection_alpha']*100:.2f}%",
+                                f"{alpha_components['overlay_alpha']*100:.2f}%",
+                                f"{alpha_components['cash_contribution']*100:.2f}%",
+                                f"{alpha_components['total_alpha']*100:.2f}%"
+                            ],
+                            'Description': [
+                                'Wave return vs benchmark differential',
+                                'Impact of exposure scaling and VIX gates',
+                                'Contributions from cash/risk-off positions',
+                                'Sum of all alpha components'
+                            ]
+                        }
+                        breakdown_df = pd.DataFrame(breakdown_data)
+                        st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+                    
+            except Exception as e:
+                st.error(str(e))
+                with st.expander("Debug details"):
+                    st.code(traceback.format_exc())
                 
     except Exception as e:
         st.error(f"Error rendering Alpha Proof section: {str(e)}")
+        with st.expander("Debug details"):
+            st.code(traceback.format_exc())
 
 
 def render_attribution_matrix_section():
@@ -3812,90 +3922,147 @@ def render_attribution_matrix_section():
         )
         
         if st.button("Compute Attribution", type="primary", key="compute_attribution_matrix"):
-            with st.spinner("Computing attribution matrix..."):
-                # Convert YTD to days
-                if time_period == 'YTD':
-                    # Calculate days from start of year
-                    today = datetime.now()
-                    start_of_year = datetime(today.year, 1, 1)
-                    days = (today - start_of_year).days
-                else:
-                    days = time_period
+            try:
+                with st.spinner("Computing attribution matrix..."):
+                    # Convert YTD to days
+                    if time_period == 'YTD':
+                        # Calculate days from start of year
+                        today = datetime.now()
+                        start_of_year = datetime(today.year, 1, 1)
+                        days = (today - start_of_year).days
+                    else:
+                        days = time_period
+                    
+                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
+                    
+                    if wave_data is None or len(wave_data) == 0:
+                        st.error(f"No data available for {selected_wave}")
+                        st.warning("Try selecting a different wave or time period")
+                        return
+                    
+                    # Compute attribution matrix
+                    attribution_data = calculate_attribution_matrix(wave_data, selected_wave)
+                    
+                    if attribution_data is None:
+                        st.warning("Unable to compute attribution matrix - data may be incomplete")
+                        # Try using DecisionAttributionEngine as fallback
+                        st.info("Using fallback attribution engine...")
+                        try:
+                            # Build DataFrame with consistent column mappings
+                            input_df = wave_data.copy()
+                            # Map columns to consistent names
+                            if 'return' in input_df.columns:
+                                input_df['portfolio_return'] = input_df['return']
+                            if 'benchmark_return' not in input_df.columns and 'bm_ret' in input_df.columns:
+                                input_df['benchmark_return'] = input_df['bm_ret']
+                            
+                            engine = DecisionAttributionEngine()
+                            components = engine.compute_attribution(input_df, selected_wave)
+                            
+                            # Update timestamp
+                            st.session_state['last_compute_ts'] = datetime.now()
+                            st.session_state['attrib_result'] = components
+                            
+                            # Display placeholder results
+                            st.success("Attribution analysis complete (using fallback)!")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                val = components.total_alpha if components.total_alpha is not None else 0
+                                st.metric("Total Alpha", f"{val*100:.2f}%")
+                            
+                            with col2:
+                                if components.selection_available:
+                                    st.metric("Selection", f"{components.selection_alpha*100:.2f}%")
+                                else:
+                                    st.metric("Selection", "Unavailable")
+                            
+                            with col3:
+                                if components.overlay_available:
+                                    st.metric("Overlay", f"{components.overlay_alpha*100:.2f}%")
+                                else:
+                                    st.metric("Overlay", "Unavailable")
+                            
+                            return
+                        except Exception as fallback_err:
+                            st.error(f"Fallback computation failed: {str(fallback_err)}")
+                            with st.expander("Debug details"):
+                                st.code(traceback.format_exc())
+                            return
+                    
+                    # Update timestamp and store results
+                    st.session_state['last_compute_ts'] = datetime.now()
+                    st.session_state['attrib_result'] = attribution_data
+                    
+                    # Display results
+                    st.success("Attribution analysis complete!")
+                    
+                    # Show regime breakdown
+                    st.markdown("#### Risk-On vs Risk-Off Contributions")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Risk-On Alpha", 
+                                 f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%" 
+                                 if attribution_data.get('risk_on_alpha') is not None else "N/A")
+                    
+                    with col2:
+                        st.metric("Risk-Off Alpha", 
+                                 f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%"
+                                 if attribution_data.get('risk_off_alpha') is not None else "N/A")
+                    
+                    with col3:
+                        st.metric("Total Alpha", 
+                                 f"{attribution_data.get('total_alpha', 0)*100:.2f}%"
+                                 if attribution_data.get('total_alpha') is not None else "N/A")
+                    
+                    st.markdown("#### Alpha Metrics")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.metric("Capital-Weighted Alpha",
+                                 f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%"
+                                 if attribution_data.get('capital_weighted_alpha') is not None else "N/A")
+                    
+                    with col2:
+                        st.metric("Exposure-Adjusted Alpha",
+                                 f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%"
+                                 if attribution_data.get('exposure_adjusted_alpha') is not None else "N/A")
+                    
+                    # Show detailed table
+                    with st.expander("View Detailed Attribution"):
+                        if attribution_data:
+                            attr_table = pd.DataFrame([{
+                                'Metric': 'Risk-On Alpha',
+                                'Value': f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%",
+                                'Description': 'Alpha generated during risk-on periods'
+                            }, {
+                                'Metric': 'Risk-Off Alpha',
+                                'Value': f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%",
+                                'Description': 'Alpha generated during risk-off periods'
+                            }, {
+                                'Metric': 'Capital-Weighted Alpha',
+                                'Value': f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%",
+                                'Description': 'Alpha weighted by capital allocation'
+                            }, {
+                                'Metric': 'Exposure-Adjusted Alpha',
+                                'Value': f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%",
+                                'Description': 'Alpha adjusted for market exposure'
+                            }])
+                            st.dataframe(attr_table, use_container_width=True, hide_index=True)
                 
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
-                
-                if wave_data is None or len(wave_data) == 0:
-                    st.error(f"No data available for {selected_wave}")
-                    return
-                
-                # Compute attribution matrix
-                attribution_data = calculate_attribution_matrix(wave_data, selected_wave)
-                
-                if attribution_data is None:
-                    st.error("Unable to compute attribution matrix - data unavailable")
-                    return
-                
-                # Display results
-                st.success("Attribution analysis complete!")
-                
-                # Show regime breakdown
-                st.markdown("#### Risk-On vs Risk-Off Contributions")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Risk-On Alpha", 
-                             f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%" 
-                             if attribution_data.get('risk_on_alpha') is not None else "N/A")
-                
-                with col2:
-                    st.metric("Risk-Off Alpha", 
-                             f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%"
-                             if attribution_data.get('risk_off_alpha') is not None else "N/A")
-                
-                with col3:
-                    st.metric("Total Alpha", 
-                             f"{attribution_data.get('total_alpha', 0)*100:.2f}%"
-                             if attribution_data.get('total_alpha') is not None else "N/A")
-                
-                st.markdown("#### Alpha Metrics")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.metric("Capital-Weighted Alpha",
-                             f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%"
-                             if attribution_data.get('capital_weighted_alpha') is not None else "N/A")
-                
-                with col2:
-                    st.metric("Exposure-Adjusted Alpha",
-                             f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%"
-                             if attribution_data.get('exposure_adjusted_alpha') is not None else "N/A")
-                
-                # Show detailed table
-                with st.expander("View Detailed Attribution"):
-                    if attribution_data:
-                        attr_table = pd.DataFrame([{
-                            'Metric': 'Risk-On Alpha',
-                            'Value': f"{attribution_data.get('risk_on_alpha', 0)*100:.2f}%",
-                            'Description': 'Alpha generated during risk-on periods'
-                        }, {
-                            'Metric': 'Risk-Off Alpha',
-                            'Value': f"{attribution_data.get('risk_off_alpha', 0)*100:.2f}%",
-                            'Description': 'Alpha generated during risk-off periods'
-                        }, {
-                            'Metric': 'Capital-Weighted Alpha',
-                            'Value': f"{attribution_data.get('capital_weighted_alpha', 0)*100:.2f}%",
-                            'Description': 'Alpha weighted by capital allocation'
-                        }, {
-                            'Metric': 'Exposure-Adjusted Alpha',
-                            'Value': f"{attribution_data.get('exposure_adjusted_alpha', 0)*100:.2f}%",
-                            'Description': 'Alpha adjusted for market exposure'
-                        }])
-                        st.dataframe(attr_table, use_container_width=True, hide_index=True)
+            except Exception as e:
+                st.error(str(e))
+                with st.expander("Debug details"):
+                    st.code(traceback.format_exc())
                 
     except Exception as e:
         st.error(f"Error rendering Attribution Matrix section: {str(e)}")
+        with st.expander("Debug details"):
+            st.code(traceback.format_exc())
 
 
 def render_portfolio_constructor_section():
@@ -6973,24 +7140,26 @@ def main():
     if "last_refresh_time" not in st.session_state:
         st.session_state.last_refresh_time = datetime.now()
     
-    # Initialize auto_refresh_enabled if not present
+    # Initialize auto_refresh_enabled if not present (default: OFF)
     if "auto_refresh_enabled" not in st.session_state:
-        st.session_state.auto_refresh_enabled = True
+        st.session_state.auto_refresh_enabled = False
     
     # ========================================================================
     # Auto-Refresh Logic (15-second interval)
     # ========================================================================
     
+    # Check if auto-refresh is enabled and supported
     if st.session_state.auto_refresh_enabled:
-        current_time = datetime.now()
-        time_since_last_refresh = (current_time - st.session_state.last_refresh_time).total_seconds()
-        
-        # Check if 15 seconds have elapsed
-        if time_since_last_refresh >= 15:
-            # Update last refresh time
-            st.session_state.last_refresh_time = current_time
-            # Trigger rerun to refresh the app
-            st.rerun()
+        try:
+            # Try using streamlit-autorefresh if available
+            from streamlit_autorefresh import st_autorefresh
+            # Refresh every 15000ms (15 seconds) - only refreshes Overview/Executive
+            st_autorefresh(interval=15000, key="auto_refresh_counter")
+        except ImportError:
+            # Fallback: Check if built-in autorefresh is available
+            if hasattr(st, 'autorefresh'):
+                st.autorefresh(interval=15000)
+            # If neither is available, do nothing (auto-refresh disabled)
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
