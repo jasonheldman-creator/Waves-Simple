@@ -3349,10 +3349,278 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
         st.info("📋 The application continues to function. Check audit trail for details.")
 
 
+def compute_alpha_source_breakdown(df):
+    """
+    Compute alpha source breakdown from wave history data.
+    
+    Returns dict with:
+        - total_alpha: realized_wave_return - benchmark_return
+        - selection_alpha: raw_wave_return - static_basket_return (if available)
+        - overlay_alpha: realized_wave_return - raw_wave_return (if available)
+        - residual: total_alpha - (selection_alpha + overlay_alpha)
+        - data_available: bool indicating if breakdown is possible
+    """
+    result = {
+        'total_alpha': None,
+        'selection_alpha': None,
+        'overlay_alpha': None,
+        'residual': None,
+        'data_available': False
+    }
+    
+    try:
+        if df is None or len(df) == 0:
+            return result
+        
+        # Check for required columns
+        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+            return result
+        
+        # Compute total_alpha
+        df_copy = df.copy()
+        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
+        total_alpha = df_copy['total_alpha'].sum()
+        result['total_alpha'] = total_alpha
+        
+        # Try to compute selection_alpha if static_basket_return exists
+        if 'static_basket_return' in df_copy.columns:
+            # selection_alpha = raw_wave_return - static_basket_return
+            # If we don't have raw_wave_return, we can't compute this
+            if 'raw_wave_return' in df_copy.columns:
+                df_copy['selection_alpha'] = df_copy['raw_wave_return'] - df_copy['static_basket_return']
+                result['selection_alpha'] = df_copy['selection_alpha'].sum()
+        
+        # Try to compute overlay_alpha if raw_wave_return exists
+        if 'raw_wave_return' in df_copy.columns:
+            # overlay_alpha = realized_wave_return - raw_wave_return
+            # realized_wave_return is portfolio_return
+            df_copy['overlay_alpha'] = df_copy['portfolio_return'] - df_copy['raw_wave_return']
+            result['overlay_alpha'] = df_copy['overlay_alpha'].sum()
+        
+        # Compute residual if both components are available
+        if result['selection_alpha'] is not None and result['overlay_alpha'] is not None:
+            result['residual'] = total_alpha - (result['selection_alpha'] + result['overlay_alpha'])
+            result['data_available'] = True
+        else:
+            # Partial data - mark as available if we have at least total_alpha
+            result['data_available'] = True
+        
+    except Exception:
+        pass
+    
+    return result
+
+
+def compute_exposure_adjusted_alpha(df, days=30):
+    """
+    Compute exposure-adjusted alpha if exposure series exists.
+    
+    Returns dict with:
+        - exposure_adj_alpha_latest: latest exposure-adjusted alpha value
+        - exposure_adj_alpha_30day: 30-day exposure-adjusted alpha data
+        - data_available: bool
+    """
+    result = {
+        'exposure_adj_alpha_latest': None,
+        'exposure_adj_alpha_30day': None,
+        'data_available': False
+    }
+    
+    try:
+        if df is None or len(df) == 0:
+            return result
+        
+        # Check for required columns
+        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+            return result
+        
+        # Compute total_alpha
+        df_copy = df.copy()
+        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
+        
+        # Check if exposure column exists
+        if 'exposure' not in df_copy.columns:
+            return result
+        
+        # Compute exposure-adjusted alpha
+        df_copy['exposure_adj_alpha'] = df_copy['total_alpha'] / df_copy['exposure'].apply(lambda x: max(x, 0.05))
+        
+        # Get latest value
+        if len(df_copy) > 0:
+            latest_date = df_copy['date'].max()
+            latest_data = df_copy[df_copy['date'] == latest_date]
+            if len(latest_data) > 0:
+                result['exposure_adj_alpha_latest'] = latest_data['exposure_adj_alpha'].iloc[0]
+        
+        # Get last N days
+        if len(df_copy) > 0:
+            latest_date = df_copy['date'].max()
+            days_ago = latest_date - timedelta(days=days)
+            last_n_days = df_copy[df_copy['date'] >= days_ago]
+            if len(last_n_days) > 0:
+                result['exposure_adj_alpha_30day'] = last_n_days['exposure_adj_alpha'].sum()
+        
+        result['data_available'] = True
+        
+    except Exception:
+        pass
+    
+    return result
+
+
+def compute_capital_weighted_alpha(df):
+    """
+    Compute capital-weighted alpha at portfolio level.
+    
+    Returns dict with:
+        - capital_weighted_alpha: weighted alpha value
+        - weighting_method: 'capital' or 'equal-weight'
+        - data_available: bool
+    """
+    result = {
+        'capital_weighted_alpha': None,
+        'weighting_method': 'equal-weight',
+        'data_available': False
+    }
+    
+    try:
+        if df is None or len(df) == 0:
+            return result
+        
+        # Check for required columns
+        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+            return result
+        
+        df_copy = df.copy()
+        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
+        
+        # Check if capital/AUM weight columns exist
+        has_capital_weights = 'capital_weight' in df_copy.columns or 'aum_weight' in df_copy.columns
+        
+        if has_capital_weights:
+            weight_col = 'capital_weight' if 'capital_weight' in df_copy.columns else 'aum_weight'
+            # Compute weighted alpha
+            df_copy['weighted_alpha'] = df_copy['total_alpha'] * df_copy[weight_col]
+            result['capital_weighted_alpha'] = df_copy['weighted_alpha'].sum()
+            result['weighting_method'] = 'capital'
+        else:
+            # Fallback to equal weighting
+            # Group by wave if available
+            if 'wave' in df_copy.columns:
+                wave_alphas = df_copy.groupby('wave')['total_alpha'].sum()
+                result['capital_weighted_alpha'] = wave_alphas.mean()
+            else:
+                result['capital_weighted_alpha'] = df_copy['total_alpha'].mean()
+            result['weighting_method'] = 'equal-weight'
+        
+        result['data_available'] = True
+        
+    except Exception:
+        pass
+    
+    return result
+
+
+def compute_risk_regime_attribution(df, days_list=[30, 60, 90]):
+    """
+    Compute Risk-On vs Risk-Off attribution using VIX gate/regime labels.
+    
+    Returns dict with results for each time period:
+        - risk_on_avg_alpha: average alpha on Risk-On days
+        - risk_off_avg_alpha: average alpha on Risk-Off days
+        - risk_on_contribution_pct: % of total alpha from Risk-On days
+        - risk_off_contribution_pct: % of total alpha from Risk-Off days
+    """
+    result = {}
+    
+    try:
+        if df is None or len(df) == 0:
+            return result
+        
+        # Check for required columns
+        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+            return result
+        
+        df_copy = df.copy()
+        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
+        
+        # Determine regime column (could be vix_gate, regime, or we need to infer)
+        regime_col = None
+        if 'vix_gate_status' in df_copy.columns:
+            regime_col = 'vix_gate_status'
+        elif 'vix_gate' in df_copy.columns:
+            regime_col = 'vix_gate'
+        elif 'regime' in df_copy.columns:
+            regime_col = 'regime'
+        
+        if regime_col is None:
+            # Try to infer from volatility
+            if 'portfolio_return' in df_copy.columns:
+                # Compute rolling volatility
+                df_copy['rolling_vol'] = df_copy['portfolio_return'].rolling(window=5).std() * np.sqrt(252) * 100
+                # Define Risk-On as low vol (< 15%), Risk-Off as others
+                df_copy['is_risk_on'] = df_copy['rolling_vol'] < 15
+            else:
+                return result
+        else:
+            # Map regime values to Risk-On/Risk-Off
+            # Risk-On: GREEN, Low Vol, uptrend
+            # Risk-Off: RED, YELLOW, High Vol, Med Vol, panic, downtrend
+            df_copy['is_risk_on'] = df_copy[regime_col].astype(str).str.contains('GREEN|Low|uptrend', case=False, na=False)
+        
+        # Compute attribution for each time period
+        latest_date = df_copy['date'].max()
+        
+        for days in days_list:
+            days_ago = latest_date - timedelta(days=days)
+            period_df = df_copy[df_copy['date'] >= days_ago]
+            
+            if len(period_df) == 0:
+                continue
+            
+            risk_on_df = period_df[period_df['is_risk_on'] == True]
+            risk_off_df = period_df[period_df['is_risk_on'] == False]
+            
+            period_result = {
+                'risk_on_avg_alpha': None,
+                'risk_off_avg_alpha': None,
+                'risk_on_contribution_pct': None,
+                'risk_off_contribution_pct': None,
+                'risk_on_days': len(risk_on_df),
+                'risk_off_days': len(risk_off_df)
+            }
+            
+            if len(risk_on_df) > 0:
+                period_result['risk_on_avg_alpha'] = risk_on_df['total_alpha'].mean()
+                risk_on_total = risk_on_df['total_alpha'].sum()
+            else:
+                risk_on_total = 0
+            
+            if len(risk_off_df) > 0:
+                period_result['risk_off_avg_alpha'] = risk_off_df['total_alpha'].mean()
+                risk_off_total = risk_off_df['total_alpha'].sum()
+            else:
+                risk_off_total = 0
+            
+            # Compute contribution percentages
+            total_alpha_period = period_df['total_alpha'].sum()
+            if abs(total_alpha_period) > 0.0001:
+                period_result['risk_on_contribution_pct'] = (risk_on_total / total_alpha_period) * 100
+                period_result['risk_off_contribution_pct'] = (risk_off_total / total_alpha_period) * 100
+            
+            result[f'{days}day'] = period_result
+        
+    except Exception:
+        pass
+    
+    return result
+
+
 def render_mission_control():
     """
     Render the Mission Control summary strip at the top of the page.
     Enhanced with additional system metrics and visual indicators.
+    Enhanced with Alpha Attribution + Diagnostics features (Exec Layer v2).
     """
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
@@ -3516,6 +3784,290 @@ def render_mission_control():
             help="Wave universe version for cache invalidation"
         )
         st.caption(f"Last refresh: {last_refresh_time.strftime('%H:%M:%S')}")
+    
+    # ========================================================================
+    # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
+    # ========================================================================
+    
+    st.markdown("---")
+    st.markdown("#### 📊 Alpha Attribution & Analytics")
+    
+    # Load wave history data for analytics
+    try:
+        df = safe_load_wave_history()
+        
+        if df is not None and len(df) > 0:
+            # ================================================================
+            # 1. Alpha Source Breakdown Panel
+            # ================================================================
+            st.markdown("##### 🔍 Alpha Source Breakdown")
+            
+            alpha_breakdown = compute_alpha_source_breakdown(df)
+            
+            if alpha_breakdown['data_available']:
+                # Display as table and KPI tiles
+                col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
+                
+                with col_table:
+                    # Create breakdown table
+                    breakdown_data = []
+                    if alpha_breakdown['total_alpha'] is not None:
+                        breakdown_data.append(['Total Alpha', f"{alpha_breakdown['total_alpha']*100:.4f}%"])
+                    if alpha_breakdown['selection_alpha'] is not None:
+                        breakdown_data.append(['Selection Alpha', f"{alpha_breakdown['selection_alpha']*100:.4f}%"])
+                    if alpha_breakdown['overlay_alpha'] is not None:
+                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', f"{alpha_breakdown['overlay_alpha']*100:.4f}%"])
+                    if alpha_breakdown['residual'] is not None:
+                        breakdown_data.append(['Residual', f"{alpha_breakdown['residual']*100:.4f}%"])
+                    
+                    if breakdown_data:
+                        breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
+                        st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
+                
+                # KPI tiles
+                with col_kpi1:
+                    if alpha_breakdown['selection_alpha'] is not None:
+                        st.metric(
+                            "Selection α",
+                            f"{alpha_breakdown['selection_alpha']*100:.3f}%",
+                            help="Asset selection contribution"
+                        )
+                    else:
+                        st.metric("Selection α", "N/A", help="Data not available")
+                
+                with col_kpi2:
+                    if alpha_breakdown['overlay_alpha'] is not None:
+                        st.metric(
+                            "Overlay α",
+                            f"{alpha_breakdown['overlay_alpha']*100:.3f}%",
+                            help="VIX/SafeSmart overlay effect"
+                        )
+                    else:
+                        st.metric("Overlay α", "N/A", help="Data not available")
+                
+                with col_kpi3:
+                    if alpha_breakdown['residual'] is not None:
+                        residual_val = alpha_breakdown['residual']
+                        st.metric(
+                            "Residual",
+                            f"{residual_val*100:.3f}%",
+                            help="Unexplained alpha component"
+                        )
+                        
+                        # Warning banner if residual exceeds threshold
+                        if abs(residual_val) > 0.01:  # 1% threshold
+                            st.warning(f"⚠️ Large residual detected ({residual_val*100:.2f}%) - possible data mismatch")
+                    else:
+                        st.metric("Residual", "N/A", help="Data not available")
+            else:
+                st.info("📋 Alpha breakdown data not available. Required: portfolio_return, benchmark_return, and optionally raw_wave_return, static_basket_return.")
+            
+            # ================================================================
+            # 2. Exposure-Adjusted Alpha
+            # ================================================================
+            st.markdown("##### 📈 Exposure-Adjusted Alpha")
+            
+            exposure_alpha = compute_exposure_adjusted_alpha(df, days=30)
+            
+            if exposure_alpha['data_available']:
+                exp_col1, exp_col2 = st.columns(2)
+                
+                with exp_col1:
+                    if exposure_alpha['exposure_adj_alpha_latest'] is not None:
+                        st.metric(
+                            "Latest Exposure-Adj α",
+                            f"{exposure_alpha['exposure_adj_alpha_latest']*100:.4f}%",
+                            help="Alpha adjusted for exposure level (latest)"
+                        )
+                    else:
+                        st.metric("Latest Exposure-Adj α", "N/A")
+                
+                with exp_col2:
+                    if exposure_alpha['exposure_adj_alpha_30day'] is not None:
+                        st.metric(
+                            "30-Day Exposure-Adj α",
+                            f"{exposure_alpha['exposure_adj_alpha_30day']*100:.4f}%",
+                            help="Cumulative 30-day exposure-adjusted alpha"
+                        )
+                    else:
+                        st.metric("30-Day Exposure-Adj α", "N/A")
+            else:
+                st.info("📋 Exposure-adjusted alpha not available. Required: exposure series in data.")
+            
+            # ================================================================
+            # 3. Capital-Weighted Alpha (Portfolio-level)
+            # ================================================================
+            st.markdown("##### 💼 Capital-Weighted Alpha (Portfolio)")
+            
+            capital_alpha = compute_capital_weighted_alpha(df)
+            
+            if capital_alpha['data_available']:
+                cap_col1, cap_col2 = st.columns(2)
+                
+                with cap_col1:
+                    if capital_alpha['capital_weighted_alpha'] is not None:
+                        st.metric(
+                            "Portfolio Alpha",
+                            f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
+                            help="Capital-weighted or equal-weighted alpha"
+                        )
+                
+                with cap_col2:
+                    method_label = capital_alpha['weighting_method']
+                    if method_label == 'equal-weight':
+                        st.info("ℹ️ Equal-weight (no capital inputs found)")
+                    else:
+                        st.success(f"✅ Using {method_label} weighting")
+            else:
+                st.info("📋 Capital-weighted alpha not available. Required: portfolio returns.")
+            
+            # ================================================================
+            # 4. Risk-On vs Risk-Off Attribution
+            # ================================================================
+            st.markdown("##### 🎯 Risk-On vs Risk-Off Attribution")
+            
+            risk_attrib = compute_risk_regime_attribution(df, days_list=[30, 60, 90])
+            
+            if risk_attrib:
+                # Create tabs for different time periods
+                period_tabs = st.tabs(["30 Days", "60 Days", "90 Days"])
+                
+                for idx, days in enumerate([30, 60, 90]):
+                    with period_tabs[idx]:
+                        period_key = f'{days}day'
+                        if period_key in risk_attrib:
+                            period_data = risk_attrib[period_key]
+                            
+                            risk_col1, risk_col2, risk_col3, risk_col4 = st.columns(4)
+                            
+                            with risk_col1:
+                                if period_data['risk_on_avg_alpha'] is not None:
+                                    st.metric(
+                                        "Risk-On Avg α",
+                                        f"{period_data['risk_on_avg_alpha']*100:.4f}%",
+                                        help=f"Average alpha on Risk-On days ({period_data['risk_on_days']} days)"
+                                    )
+                                else:
+                                    st.metric("Risk-On Avg α", "N/A")
+                            
+                            with risk_col2:
+                                if period_data['risk_off_avg_alpha'] is not None:
+                                    st.metric(
+                                        "Risk-Off Avg α",
+                                        f"{period_data['risk_off_avg_alpha']*100:.4f}%",
+                                        help=f"Average alpha on Risk-Off days ({period_data['risk_off_days']} days)"
+                                    )
+                                else:
+                                    st.metric("Risk-Off Avg α", "N/A")
+                            
+                            with risk_col3:
+                                if period_data['risk_on_contribution_pct'] is not None:
+                                    st.metric(
+                                        "Risk-On %",
+                                        f"{period_data['risk_on_contribution_pct']:.1f}%",
+                                        help="% of total alpha from Risk-On days"
+                                    )
+                                else:
+                                    st.metric("Risk-On %", "N/A")
+                            
+                            with risk_col4:
+                                if period_data['risk_off_contribution_pct'] is not None:
+                                    st.metric(
+                                        "Risk-Off %",
+                                        f"{period_data['risk_off_contribution_pct']:.1f}%",
+                                        help="% of total alpha from Risk-Off days"
+                                    )
+                                else:
+                                    st.metric("Risk-Off %", "N/A")
+                        else:
+                            st.info(f"No data available for {days}-day period")
+            else:
+                st.info("📋 Risk regime attribution not available. Required: portfolio and benchmark returns.")
+            
+            # ================================================================
+            # 5. 'Show Your Work' Expander (Diagnostics Table)
+            # ================================================================
+            st.markdown("##### 🔬 Diagnostics & Validation")
+            
+            with st.expander("📊 Show Your Work - Per-Day Diagnostics", expanded=False):
+                st.markdown("**Per-day diagnostic data showing VIX, Regime, Exposure, and Returns**")
+                
+                # Try to use get_wave_diagnostics if available
+                if VIX_DIAGNOSTICS_AVAILABLE:
+                    # Get first wave from data to show diagnostics
+                    if 'wave' in df.columns:
+                        waves = df['wave'].unique()
+                        if len(waves) > 0:
+                            selected_wave = st.selectbox(
+                                "Select Wave for Diagnostics",
+                                waves,
+                                key="diagnostics_wave_selector"
+                            )
+                            
+                            try:
+                                diag_df = get_wave_diagnostics(
+                                    wave_name=selected_wave,
+                                    mode="Standard",
+                                    days=90
+                                )
+                                
+                                if diag_df is not None and not diag_df.empty:
+                                    # Display diagnostic table
+                                    st.dataframe(
+                                        diag_df,
+                                        use_container_width=True,
+                                        height=400
+                                    )
+                                    
+                                    # Download button
+                                    csv = diag_df.to_csv(index=True)
+                                    st.download_button(
+                                        label="📥 Download Diagnostics CSV",
+                                        data=csv,
+                                        file_name=f"diagnostics_{selected_wave}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                        mime="text/csv"
+                                    )
+                                else:
+                                    st.warning("No diagnostic data available for selected wave")
+                            except Exception as e:
+                                st.error(f"Error loading diagnostics: {str(e)}")
+                        else:
+                            st.info("No waves found in data")
+                    else:
+                        st.info("Wave column not found in data")
+                else:
+                    # Fallback: create basic diagnostics from available data
+                    st.info("VIX diagnostics module not available. Showing basic per-day data:")
+                    
+                    # Create basic diagnostic view
+                    diag_cols = ['date']
+                    if 'wave' in df.columns:
+                        diag_cols.append('wave')
+                    if 'portfolio_return' in df.columns:
+                        diag_cols.append('portfolio_return')
+                    if 'benchmark_return' in df.columns:
+                        diag_cols.append('benchmark_return')
+                    
+                    # Add alpha column
+                    if 'portfolio_return' in df.columns and 'benchmark_return' in df.columns:
+                        df_diag = df[diag_cols].copy()
+                        df_diag['alpha'] = df['portfolio_return'] - df['benchmark_return']
+                    else:
+                        df_diag = df[diag_cols].copy()
+                    
+                    # Show last 90 days
+                    latest_date = df_diag['date'].max()
+                    days_ago = latest_date - timedelta(days=90)
+                    df_diag = df_diag[df_diag['date'] >= days_ago]
+                    
+                    st.dataframe(df_diag, use_container_width=True, height=400)
+        
+        else:
+            st.info("📋 No wave history data available for analytics. Please load wave history data to view attribution and diagnostics.")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Error loading analytics features: {str(e)}")
+        st.info("📋 The application continues to function. Core features remain available.")
     
     st.divider()
 
