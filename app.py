@@ -6048,13 +6048,17 @@ def render_compare_waves_panel():
             # Visual Comparison Section
             st.markdown("### 📊 Visual Comparison")
             
+            # Extract wave names for consistent key generation
+            wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
+            wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
+            
             viz_col1, viz_col2 = st.columns(2)
             
             with viz_col1:
                 # Radar chart
                 radar_chart = create_comparison_radar_chart(wave1_metrics, wave2_metrics)
                 if radar_chart is not None:
-                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{st.session_state.get('comparison_wave1_name', 'wave1')}_{st.session_state.get('comparison_wave2_name', 'wave2')}")
+                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -6068,7 +6072,7 @@ def render_compare_waves_panel():
                         st.session_state.get('comparison_wave2_name', 'Wave 2')
                     )
                     if heatmap is not None:
-                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{st.session_state.get('comparison_wave1_name', 'wave1')}_{st.session_state.get('comparison_wave2_name', 'wave2')}")
+                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
                     else:
                         st.info("Correlation matrix unavailable")
             
