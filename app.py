@@ -419,6 +419,9 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
+# Cache keys for wave universe management
+WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
+
 
 # ============================================================================
 # WAVE LINEUP CONFIGURATION - Equity Lineup Reset v1
@@ -1405,6 +1408,8 @@ def compute_wave_universe_diagnostics():
     
     try:
         # Get canonical universe
+        # Note: force_reload=False is intentional - diagnostics should use cached universe
+        # to show current state. Use operator controls to force reload if needed.
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
         universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
         
@@ -1652,9 +1657,8 @@ def render_wave_universe_truth_panel():
                     st.session_state.wave_universe_version = 1
                 st.session_state.wave_universe_version += 1
                 
-                # Clear wave universe cache
-                cache_keys = ["wave_universe", "waves_list", "universe_cache"]
-                for key in cache_keys:
+                # Clear wave universe cache using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
                     if key in st.session_state:
                         del st.session_state[key]
                 
@@ -1677,9 +1681,8 @@ def render_wave_universe_truth_panel():
                 st.cache_data.clear()
                 st.cache_resource.clear()
                 
-                # Clear session state caches
-                cache_keys = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
-                for key in cache_keys:
+                # Clear session state caches using constant
+                for key in WAVE_UNIVERSE_CACHE_KEYS:
                     if key in st.session_state:
                         del st.session_state[key]
                 
@@ -3223,9 +3226,8 @@ def render_sidebar_info():
                 st.session_state.wave_universe_version = 1
             st.session_state.wave_universe_version += 1
             
-            # Clear wave universe cache from session state
-            cache_keys = ["wave_universe", "waves_list", "universe_cache"]
-            for key in cache_keys:
+            # Clear wave universe cache from session state using constant
+            for key in WAVE_UNIVERSE_CACHE_KEYS:
                 if key in st.session_state:
                     del st.session_state[key]
             
