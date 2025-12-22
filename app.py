@@ -4139,26 +4139,26 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
-    # Bottom Ticker Control
+    # Ticker Control
     # ========================================================================
-    st.sidebar.markdown("### 📊 Bottom Ticker Control")
+    st.sidebar.markdown("### 📊 Ticker Control")
     
-    # Toggle switch for bottom ticker
+    # Toggle switch for ticker
     show_ticker = st.sidebar.checkbox(
-        "Enable Bottom Ticker",
-        value=st.session_state.get("show_bottom_ticker", False),
-        key="bottom_ticker_toggle",
-        help="Show a scrolling ticker at the bottom of the screen with wave metrics"
+        "Show ticker",
+        value=st.session_state.get("show_ticker", False),
+        key="ticker_toggle",
+        help="Show a scrolling ticker at the top of the screen with market updates"
     )
     
     # Update session state
-    st.session_state.show_bottom_ticker = show_ticker
+    st.session_state.show_ticker = show_ticker
     
     # Show status
     if show_ticker:
-        st.sidebar.success("🟢 Bottom ticker is ON")
+        st.sidebar.success("🟢 Ticker is ON")
     else:
-        st.sidebar.info("🔴 Bottom ticker is OFF")
+        st.sidebar.info("🔴 Ticker is OFF")
     
     st.sidebar.markdown("---")
     
@@ -6713,34 +6713,34 @@ def render_attribution_tab():
         return
     
     # Determine which column to use for wave names
-    # wave_history.csv may have 'wave', 'display_name', or 'wave_id'
+    # Prefer wave_id > display_name > name (as per requirements)
     wave_column = None
-    if 'wave' in wave_df.columns:
-        wave_column = 'wave'
+    if 'wave_id' in wave_df.columns:
+        wave_column = 'wave_id'
     elif 'display_name' in wave_df.columns:
         wave_column = 'display_name'
-    elif 'wave_id' in wave_df.columns:
-        wave_column = 'wave_id'
+    elif 'name' in wave_df.columns:
+        wave_column = 'name'
     else:
-        st.error("⚠️ Attribution data missing required column: wave identifier (expected 'wave', 'display_name', or 'wave_id')")
+        st.warning("⚠️ No data available yet - wave identifier column not found")
         return
     
     # Check for other required columns
     required_columns = ['date', 'portfolio_return', 'benchmark_return']
     missing_columns = [col for col in required_columns if col not in wave_df.columns]
     if missing_columns:
-        st.error(f"⚠️ Attribution data missing required columns: {', '.join(missing_columns)}")
+        st.warning("⚠️ No data available yet - required data columns missing")
         return
     
     # Get available waves
     try:
         available_waves = sorted(wave_df[wave_column].unique().tolist())
     except Exception as e:
-        st.error(f"⚠️ Error reading wave names: {str(e)}")
+        st.warning("⚠️ No data available yet")
         return
     
     if not available_waves:
-        st.error("❌ No waves found in history data.")
+        st.warning("⚠️ No data available yet")
         return
     
     # Configuration controls
@@ -8406,43 +8406,23 @@ def generate_ic_pack_html():
 
 
 # ============================================================================
-# SECTION 7B: BOTTOM SCROLLING TICKER
+# SECTION 7B: TOP SCROLLING TICKER
 # ============================================================================
 
-def render_bottom_ticker():
+def render_top_ticker():
     """
-    Renders a fixed scrolling ticker at the bottom of the viewport.
-    Only displays if st.session_state["show_bottom_ticker"] is True.
+    Renders a fixed scrolling ticker at the top of the viewport.
+    Only displays if st.session_state["show_ticker"] is True.
     
     Uses Streamlit's HTML component to inject the ticker directly into the root DOM,
     bypassing Streamlit's sandboxing and enabling proper position: fixed behavior.
     """
     # Check if ticker should be shown
-    if not st.session_state.get("show_bottom_ticker", False):
+    if not st.session_state.get("show_ticker", False):
         return
     
-    # Get sample data for the ticker
-    try:
-        waves = get_available_waves()
-        if not waves:
-            ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
-        else:
-            # Build ticker content from wave data
-            ticker_items = []
-            for wave in waves[:10]:  # Limit to first 10 waves for performance
-                wave_data = get_wave_data_filtered(wave, days=7)
-                if wave_data is not None:
-                    metrics = calculate_wave_metrics(wave_data)
-                    wavescore = metrics.get('wavescore', 0)
-                    alpha = metrics.get('cumulative_alpha', 0)
-                    ticker_items.append(f"{wave}: WaveScore {wavescore:.1f} | Alpha {alpha:.2%}")
-            
-            if ticker_items:
-                ticker_content = " • ".join(ticker_items)
-            else:
-                ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
-    except Exception:
-        ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
+    # Use placeholder data for ticker content as specified
+    ticker_content = "WAVES — AAPL • MSFT • NVDA • AMZN • GOOGL • META • TSLA — FED: FOMC (placeholder) — EARNINGS (placeholder)"
     
     # Escape content for safe injection into JavaScript
     ticker_content_escaped = ticker_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r")
@@ -8453,18 +8433,18 @@ def render_bottom_ticker():
     <html>
     <head>
         <style>
-            /* Fixed ticker at bottom of viewport */
-            .bottom-ticker {{
+            /* Fixed ticker at top of viewport */
+            .top-ticker {{
                 position: fixed;
-                bottom: 0;
+                top: 0;
                 left: 0;
                 width: 100%;
                 background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
                 color: white;
                 padding: 12px 0;
-                z-index: 9999;
+                z-index: 99999;
                 overflow: hidden;
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             }}
             
@@ -8486,11 +8466,6 @@ def render_bottom_ticker():
                     transform: translateX(-100%);
                 }}
             }}
-            
-            /* Add padding to Streamlit's main container to prevent content from being hidden */
-            body {{
-                padding-bottom: 70px;
-            }}
         </style>
     </head>
     <body>
@@ -8498,23 +8473,23 @@ def render_bottom_ticker():
             // Inject ticker into document body to bypass Streamlit sandboxing
             (function() {{
                 // Remove any existing ticker to prevent duplicates
-                var existingTicker = document.getElementById('waves-bottom-ticker');
+                var existingTicker = document.getElementById('waves-top-ticker');
                 if (existingTicker) {{
                     existingTicker.remove();
                 }}
                 
                 // Create ticker element
                 var tickerDiv = document.createElement('div');
-                tickerDiv.id = 'waves-bottom-ticker';
-                tickerDiv.className = 'bottom-ticker';
+                tickerDiv.id = 'waves-top-ticker';
+                tickerDiv.className = 'top-ticker';
                 tickerDiv.innerHTML = '<div class="ticker-content">{ticker_content_escaped}</div>';
                 
                 // Append to body
                 document.body.appendChild(tickerDiv);
                 
-                // Add padding to Streamlit's main container
+                // Add padding to Streamlit's main container to prevent overlap
                 var style = document.createElement('style');
-                style.innerHTML = '.main .block-container {{ padding-bottom: 80px !important; }}';
+                style.innerHTML = '.main .block-container {{ padding-top: 60px !important; }}';
                 document.head.appendChild(style);
             }})();
         </script>
@@ -8551,9 +8526,9 @@ def main():
     if "auto_refresh_enabled" not in st.session_state:
         st.session_state.auto_refresh_enabled = False
     
-    # Initialize show_bottom_ticker if not present (default: OFF)
-    if "show_bottom_ticker" not in st.session_state:
-        st.session_state.show_bottom_ticker = False
+    # Initialize show_ticker if not present (default: OFF)
+    if "show_ticker" not in st.session_state:
+        st.session_state.show_ticker = False
     
     # ========================================================================
     # Auto-Refresh Logic (15-second interval)
@@ -8588,6 +8563,15 @@ def main():
     else:
         # Normal initialization - use cached universe
         get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+    
+    # ========================================================================
+    # Top Scrolling Ticker (Rendered Early in Lifecycle)
+    # ========================================================================
+    try:
+        render_top_ticker()
+    except Exception as e:
+        # Display warning in sidebar if ticker fails to render
+        st.sidebar.warning(f"⚠️ Ticker failed to render: {str(e)}")
     
     # Display duplicate cleanup feedback in sidebar
     try:
@@ -8644,16 +8628,6 @@ def main():
     
     with analytics_tabs[7]:
         render_ic_pack_tab()
-    
-    # ========================================================================
-    # Bottom Scrolling Ticker (Rendered Last)
-    # ========================================================================
-    try:
-        render_bottom_ticker()
-    except Exception as e:
-        # Display warning in sidebar if ticker fails to render
-        st.sidebar.warning(f"⚠️ Ticker failed to render: {str(e)}")
-
 
 
 # Run the application
