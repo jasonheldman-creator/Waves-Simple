@@ -482,6 +482,139 @@ CRYPTO_INCOME_WAVE = "Crypto Income Wave"
 # Represented as a virtual wave for analytics and selection
 CSE_WAVE_NAME = "Crypto Selection Engine (CSE Top 200)"
 
+# ============================================================================
+# INDEX REFERENCE WAVES - Russell 3000 Integration
+# ============================================================================
+
+# Index reference waves with fallback mappings for attributes
+# Russell 3000 Wave is an index reference wave tracked via IWV ETF
+INDEX_REFERENCE_WAVES = {
+    "Russell 3000 Wave": {
+        "ticker": "IWV",
+        "benchmark": "IWV",
+        "description": "iShares Russell 3000 ETF - Broad US equity market"
+    }
+}
+
+
+# ============================================================================
+# WAVE UNIVERSE LOADER - Deduplication and Dynamic Reload
+# ============================================================================
+
+def normalize_wave_name(name: str) -> str:
+    """
+    Clean wave names by trimming whitespace and casefolding.
+    
+    Args:
+        name: Wave name to normalize
+        
+    Returns:
+        Normalized wave name (trimmed and lowercased)
+    """
+    if not isinstance(name, str):
+        return ""
+    return name.strip().casefold()
+
+
+def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Deduplicate wave names while preserving original order.
+    
+    Removes duplicates based on normalized names (case-insensitive, trimmed).
+    
+    Args:
+        names: List of wave names (may contain duplicates)
+        
+    Returns:
+        Tuple of (deduplicated_names, removed_duplicates)
+        - deduplicated_names: List of unique wave names in original order
+        - removed_duplicates: List of duplicate names that were removed
+    """
+    if not names:
+        return [], []
+    
+    seen_normalized = set()
+    deduplicated = []
+    removed = []
+    
+    for name in names:
+        normalized = normalize_wave_name(name)
+        if normalized and normalized not in seen_normalized:
+            seen_normalized.add(normalized)
+            deduplicated.append(name)
+        elif normalized:
+            removed.append(name)
+    
+    return deduplicated, removed
+
+
+def get_wave_universe(force_reload: bool = False) -> dict:
+    """
+    Fetch, deduplicate, and return wave universe data.
+    
+    Uses wave list from waves_engine or falls back to static list.
+    Caches result in session state for performance.
+    
+    Args:
+        force_reload: If True, bypass cache and rebuild universe
+        
+    Returns:
+        Dictionary with:
+        - waves: Deduplicated list of wave names
+        - removed_duplicates: List of removed duplicates
+        - source: Data source ("engine", "fallback")
+        - timestamp: Current timestamp for tracking
+    """
+    from datetime import datetime
+    
+    # Check cache unless force reload
+    if not force_reload and "wave_universe" in st.session_state:
+        return st.session_state["wave_universe"]
+    
+    # Build wave universe
+    wave_list = []
+    source = "fallback"
+    
+    try:
+        # Try to get waves from engine (single source of truth)
+        if WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
+            wave_list = engine_get_all_waves()
+            source = "engine"
+        elif WAVE_WEIGHTS:
+            # Fallback: directly access WAVE_WEIGHTS
+            wave_list = sorted(list(WAVE_WEIGHTS.keys()))
+            source = "engine"
+    except Exception:
+        pass
+    
+    # If engine unavailable, use fallback static list
+    if not wave_list:
+        # Fallback: combine INCLUDED_EQUITY_WAVES with other known waves
+        wave_list = list(INCLUDED_EQUITY_WAVES)
+        wave_list.append(CRYPTO_INCOME_WAVE)
+        wave_list.append(CSE_WAVE_NAME)
+        source = "fallback"
+    
+    # Add Russell 3000 Wave if not already present
+    if "Russell 3000 Wave" not in wave_list:
+        wave_list.append("Russell 3000 Wave")
+    
+    # Deduplicate
+    deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
+    
+    # Build universe dictionary
+    universe = {
+        "waves": deduplicated_waves,
+        "removed_duplicates": removed_duplicates,
+        "source": source,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Cache in session state
+    st.session_state["wave_universe"] = universe
+    
+    return universe
+
 
 # ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
@@ -770,29 +903,18 @@ def get_all_wave_names():
 
 def get_available_waves():
     """
-    Get list of available waves from wave history data with lineup filtering.
+    Get list of available waves using the Wave Universe Loader.
     
-    Now sources from WAVE_WEIGHTS in waves_engine.py (single source of truth)
-    instead of hardcoded lists.
+    Sources from get_wave_universe() which provides deduplication and caching.
     
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
-        # Get all waves from the engine (single source of truth)
-        engine_waves = get_all_wave_names()
-        
-        if not engine_waves:
-            # Fallback: if engine unavailable, try loading from wave_history.csv
-            df = safe_load_wave_history()
-            if df is not None and 'wave' in df.columns:
-                return sorted(list(df['wave'].dropna().unique()))
-            return []
-        
-        # Return waves from engine
-        return engine_waves
-        
+        # Use Wave Universe Loader (with deduplication and caching)
+        universe = get_wave_universe(force_reload=False)
+        return universe.get("waves", [])
     except Exception:
-        # On any error, try to return waves from get_all_wave_names()
+        # Fallback: try get_all_wave_names() directly
         return get_all_wave_names()
 
 
@@ -936,6 +1058,12 @@ def get_wave_data_filtered(wave_name=None, days=30):
         days: Number of days to include (from latest date)
     """
     try:
+        # Special case: Russell 3000 Wave (index reference wave)
+        if wave_name == "Russell 3000 Wave":
+            # Return None to gracefully display "Data unavailable"
+            # This wave is tracked but may not have historical data yet
+            return None
+        
         # Special case: CSE (Crypto Selection Engine)
         if wave_name == CSE_WAVE_NAME:
             return get_cse_wave_data(days=days)
@@ -2690,6 +2818,39 @@ def render_sidebar_info():
                 del st.session_state[key]
             
             st.success("Session state reset.")
+        
+        # Force Reload Wave Universe Button
+        if st.button(
+            "Force Reload Wave Universe",
+            disabled=not ops_confirmation,
+            key="force_reload_universe_button",
+            use_container_width=True
+        ):
+            try:
+                # Clear wave universe cache from session state
+                cache_keys = ["wave_universe", "waves_list", "universe_cache"]
+                for key in cache_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Clear Streamlit caches
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+                
+                try:
+                    st.cache_resource.clear()
+                except Exception:
+                    pass
+                
+                # Set force reload flag
+                st.session_state["force_reload_universe"] = True
+                
+                st.success("Wave universe cache cleared. Reloading...")
+                st.rerun()
+            except Exception as e:
+                st.warning(f"Force reload unavailable: {str(e)}")
         
         # Hard Rerun App Button
         if st.button(
@@ -6198,6 +6359,42 @@ def main():
     Main application entry point - Executive Layer v2.
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
+    # ========================================================================
+    # Wave Universe Initialization and Force Reload Handling
+    # ========================================================================
+    
+    # Check for force reload flag and rebuild universe if needed
+    force_reload = st.session_state.get("force_reload_universe", False)
+    if force_reload:
+        # Rebuild wave universe
+        get_wave_universe(force_reload=True)
+        # Reset the flag
+        st.session_state["force_reload_universe"] = False
+    else:
+        # Normal initialization - use cached universe
+        get_wave_universe(force_reload=False)
+    
+    # Display duplicate cleanup feedback in sidebar
+    try:
+        universe = st.session_state.get("wave_universe", {})
+        removed_duplicates = universe.get("removed_duplicates", [])
+        
+        if removed_duplicates:
+            # Show info message with duplicate count
+            st.sidebar.info(f"ℹ️ Removed {len(removed_duplicates)} duplicate wave(s) from universe")
+            
+            # Optionally show list of removed duplicates in expander
+            with st.sidebar.expander("View Removed Duplicates"):
+                st.write("**Duplicates removed during deduplication:**")
+                for dup in removed_duplicates:
+                    st.text(f"• {dup}")
+    except Exception:
+        pass
+    
+    # ========================================================================
+    # Main Application UI
+    # ========================================================================
+    
     # Render Mission Control at the top
     render_mission_control()
     

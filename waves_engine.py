@@ -160,6 +160,11 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
     "S&P 500 Wave": [
         Holding("SPY", 1.00, "SPDR S&P 500 ETF"),
     ],
+    
+    # Russell 3000 Wave - Broad US equity market index reference
+    "Russell 3000 Wave": [
+        Holding("IWV", 1.00, "iShares Russell 3000 ETF"),
+    ],
 
     # Core US equity Waves
     "US MegaCap Core Wave": [
@@ -404,6 +409,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 
 BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
     "S&P 500 Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
+    "Russell 3000 Wave": [Holding("IWV", 1.0, "iShares Russell 3000 ETF")],
 
     "US MegaCap Core Wave": [Holding("SPY", 1.0, "SPDR S&P 500 ETF")],
     "AI & Cloud MegaCap Wave": [
