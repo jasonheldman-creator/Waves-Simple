@@ -738,6 +738,111 @@ def compute_trust_signal(wave_name: str, period_days: int = 30) -> TrustSignal:
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
+# ============================================================================
+# TICKER RENDERING - Early execution to prevent crash impact
+# ============================================================================
+
+def render_top_ticker():
+    """
+    Renders a fixed scrolling ticker at the top of the viewport.
+    Only displays if st.session_state["show_ticker"] is True.
+    
+    Uses Streamlit's components.v1.html to render the ticker,
+    ensuring proper attachment and positioning.
+    """
+    # Check if ticker should be shown
+    if not st.session_state.get("show_ticker", True):  # Default: ON for testing
+        return
+    
+    try:
+        # Build ticker content with test message
+        ticker_content = "WAVES TICKER TEST — AAPL MSFT NVDA — " * 5
+        
+        # Try to get real wave data
+        try:
+            waves = get_available_waves()
+            if waves and len(waves) > 0:
+                ticker_items = []
+                for wave in waves[:8]:  # Limit to first 8 waves for performance
+                    ticker_items.append(wave)
+                
+                if ticker_items:
+                    ticker_content = " • ".join(ticker_items) + " • " + ticker_content
+        except:
+            # Fallback to test message only
+            pass
+        
+        # Escape content for safe injection into HTML
+        ticker_content_escaped = ticker_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r")
+        
+        # Render the ticker using components.html for proper DOM injection
+        ticker_html = f"""
+        <style>
+            /* Fixed ticker at top of viewport */
+            .top-ticker {{
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 10px 0;
+                z-index: 9999;
+                overflow: hidden;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }}
+            
+            /* Scrolling animation */
+            .ticker-content {{
+                display: inline-block;
+                white-space: nowrap;
+                animation: scroll-left 45s linear infinite;
+                padding-left: 100%;
+                font-size: 15px;
+                font-weight: 600;
+                letter-spacing: 0.5px;
+            }}
+            
+            @keyframes scroll-left {{
+                0% {{
+                    transform: translateX(0);
+                }}
+                100% {{
+                    transform: translateX(-100%);
+                }}
+            }}
+        </style>
+        <div class="top-ticker">
+            <div class="ticker-content">{ticker_content_escaped}</div>
+        </div>
+        <script>
+            // Add top padding to main content to prevent overlap
+            (function() {{
+                var style = document.createElement('style');
+                style.innerHTML = '.main .block-container {{ padding-top: 60px !important; }}';
+                document.head.appendChild(style);
+            }})();
+        </script>
+        """
+        
+        # Use components.html with height=0 to avoid taking up space in the layout
+        components.html(ticker_html, height=0)
+        
+    except Exception as e:
+        # Non-fatal: Display warning in sidebar if ticker fails
+        try:
+            st.sidebar.warning("⚠️ Ticker failed to render")
+        except:
+            pass  # Ignore if sidebar not available yet
+
+
+# Render ticker early - immediately after page config
+try:
+    render_top_ticker()
+except:
+    pass  # Silent fail - ticker is non-critical
+
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
 
@@ -6686,62 +6791,69 @@ def render_overlays_tab():
 
 def render_attribution_tab():
     """Render the Attribution tab with alpha decomposition."""
-    st.header("🎯 Alpha Attribution Analysis")
-    
-    st.markdown("""
-    **Precise, reconciled decomposition of Wave alpha into actionable components:**
-    
-    1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
-    2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
-    3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
-    4️⃣ **Residual Alpha** — Unexplained deviation and other factors
-    
-    **Reconciliation:** All components sum to total realized Wave alpha.
-    """)
-    
-    # Check if attribution module is available
-    if not ALPHA_ATTRIBUTION_AVAILABLE:
-        st.warning("⚠️ Alpha attribution module not available. Please ensure alpha_attribution.py is properly installed.")
-        return
-    
-    # Load wave history data
-    wave_df = safe_load_wave_history()
-    
-    # Check if dataframe is missing or empty
-    if wave_df is None or wave_df.empty:
-        st.info("ℹ️ No attribution data available yet.")
-        return
-    
-    # Determine which column to use for wave names
-    # wave_history.csv may have 'wave', 'display_name', or 'wave_id'
-    wave_column = None
-    if 'wave' in wave_df.columns:
-        wave_column = 'wave'
-    elif 'display_name' in wave_df.columns:
-        wave_column = 'display_name'
-    elif 'wave_id' in wave_df.columns:
-        wave_column = 'wave_id'
-    else:
-        st.error("⚠️ Attribution data missing required column: wave identifier (expected 'wave', 'display_name', or 'wave_id')")
-        return
-    
-    # Check for other required columns
-    required_columns = ['date', 'portfolio_return', 'benchmark_return']
-    missing_columns = [col for col in required_columns if col not in wave_df.columns]
-    if missing_columns:
-        st.error(f"⚠️ Attribution data missing required columns: {', '.join(missing_columns)}")
-        return
-    
-    # Get available waves
     try:
-        available_waves = sorted(wave_df[wave_column].unique().tolist())
-    except Exception as e:
-        st.error(f"⚠️ Error reading wave names: {str(e)}")
-        return
-    
-    if not available_waves:
-        st.error("❌ No waves found in history data.")
-        return
+        st.header("🎯 Alpha Attribution Analysis")
+        
+        st.markdown("""
+        **Precise, reconciled decomposition of Wave alpha into actionable components:**
+        
+        1️⃣ **Stock Selection Alpha** — Wave return vs benchmark return differential  
+        2️⃣ **Overlay Alpha** — VIX gating, exposure scaling, and SmartSafe features  
+        3️⃣ **Beta/Exposure Drift** — Target vs realized exposure impact  
+        4️⃣ **Residual Alpha** — Unexplained deviation and other factors
+        
+        **Reconciliation:** All components sum to total realized Wave alpha.
+        """)
+        
+        # Check if attribution module is available
+        if not ALPHA_ATTRIBUTION_AVAILABLE:
+            st.warning("⚠️ Alpha attribution module not available. Please ensure alpha_attribution.py is properly installed.")
+            return
+        
+        # Load wave history data
+        wave_df = safe_load_wave_history()
+        
+        # Defensive guard: Check if dataframe is None or empty
+        if wave_df is None:
+            st.info("ℹ️ No attribution data yet")
+            return
+        
+        if wave_df.empty:
+            st.info("ℹ️ No attribution data yet")
+            return
+        
+        # Determine which column to use for wave names
+        # Prefer: wave_id > display_name > name > wave
+        wave_column = None
+        if 'wave_id' in wave_df.columns:
+            wave_column = 'wave_id'
+        elif 'display_name' in wave_df.columns:
+            wave_column = 'display_name'
+        elif 'name' in wave_df.columns:
+            wave_column = 'name'
+        elif 'wave' in wave_df.columns:
+            wave_column = 'wave'
+        else:
+            st.warning("⚠️ Attribution unavailable: missing wave identifier column.")
+            return
+        
+        # Check for other required columns
+        required_columns = ['date', 'portfolio_return', 'benchmark_return']
+        missing_columns = [col for col in required_columns if col not in wave_df.columns]
+        if missing_columns:
+            st.warning(f"⚠️ Attribution data incomplete: missing {', '.join(missing_columns)}")
+            return
+        
+        # Get available waves
+        try:
+            available_waves = sorted(wave_df[wave_column].unique().tolist())
+        except Exception as e:
+            st.warning(f"⚠️ Error reading wave names: {str(e)}")
+            return
+        
+        if not available_waves:
+            st.warning("⚠️ No waves found in attribution data")
+            return
     
     # Configuration controls
     col1, col2, col3 = st.columns(3)
@@ -7110,6 +7222,9 @@ def render_attribution_tab():
                 
         except Exception as e:
             st.error(f"❌ Error computing all waves comparison: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"Attribution error: {e}")
 
 
 def generate_board_pack_pdf():
