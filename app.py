@@ -777,11 +777,6 @@ ticker_html = """
 """
 components.html(ticker_html, height=120)
 
-# ============================================================================
-# TEMPORARY HALT FOR DEBUG ISOLATION
-# ============================================================================
-st.stop()
-
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
 
