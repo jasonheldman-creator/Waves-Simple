@@ -622,6 +622,104 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     return universe
 
 
+def get_wave_universe():
+    """
+    Centralized Wave Universe Function - Single Source of Truth.
+    
+    This function serves as the canonical source for all wave lists and counts
+    throughout the application. It ensures:
+    - Deduplication of wave names
+    - "Russell 3000 Wave" is included exactly once
+    - Consistent wave lists across all tabs and views
+    
+    Returns:
+        list: Deduplicated, sorted list of all wave names
+    """
+    try:
+        # Get wave universe version from session state
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # Use canonical wave universe (which already deduplicates and ensures Russell 3000 Wave)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        
+        # Extract waves list
+        waves = universe.get("waves", [])
+        
+        # Return deduplicated, sorted list
+        return sorted(set(waves))
+    except Exception:
+        # Fallback: return empty list
+        return []
+
+
+def validate_wave_data(wave_name: str, mode: str, days: int, df=None) -> tuple[bool, list[str]]:
+    """
+    Validate wave data availability and quality.
+    
+    This function checks if wave data is available and suitable for display.
+    It returns detailed reasons when data is unavailable to provide user clarity.
+    
+    Args:
+        wave_name: Name of the wave to validate
+        mode: Mode/strategy being used (e.g., "Standard", "Aggressive")
+        days: Number of days of data required
+        df: Optional pre-loaded DataFrame to validate (if None, will load)
+        
+    Returns:
+        tuple: (ok: bool, reasons: list[str])
+            - ok: True if data is valid and available, False otherwise
+            - reasons: List of validation failure reasons (empty if ok=True)
+    """
+    reasons = []
+    
+    try:
+        # Load wave data if not provided
+        if df is None:
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            df = get_wave_data_filtered(wave_name=wave_name, days=days, _wave_universe_version=wave_universe_version)
+        
+        # Check if data exists
+        if df is None:
+            reasons.append(f"No historical data available for '{wave_name}'")
+            return (False, reasons)
+        
+        # Check if data is empty
+        if len(df) == 0:
+            reasons.append(f"Historical data for '{wave_name}' is empty")
+            return (False, reasons)
+        
+        # Check minimum data points
+        if len(df) < 5:
+            reasons.append(f"Insufficient data points: {len(df)} rows (minimum 5 required)")
+        
+        # Check date range coverage
+        if 'date' in df.columns:
+            data_days = (df['date'].max() - df['date'].min()).days
+            if data_days < days * 0.5:  # At least 50% coverage
+                reasons.append(f"Data coverage insufficient: {data_days} days available, {days} days requested")
+        
+        # Check required columns
+        required_columns = ['date']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            reasons.append(f"Missing required columns: {', '.join(missing_columns)}")
+        
+        # Check for portfolio_return or benchmark_return for alpha calculations
+        if 'portfolio_return' not in df.columns and 'benchmark_return' not in df.columns:
+            reasons.append("Missing return data (portfolio_return or benchmark_return)")
+        
+        # If we have reasons, validation failed
+        if reasons:
+            return (False, reasons)
+        
+        # All checks passed
+        return (True, [])
+        
+    except Exception as e:
+        reasons.append(f"Validation error: {str(e)}")
+        return (False, reasons)
+
+
 # ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
 # ============================================================================
@@ -927,9 +1025,10 @@ def get_all_wave_names():
 
 def get_available_waves(_wave_universe_version=1):
     """
-    Get list of available waves using the Canonical Wave Universe.
+    Get list of available waves using the centralized Wave Universe (Data Backbone V1).
     
-    Sources from get_canonical_wave_universe() which provides deduplication and caching.
+    This function is the primary interface for getting wave lists in dropdowns and UI.
+    Sources from get_wave_universe() which provides deduplication and caching.
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
@@ -937,25 +1036,20 @@ def get_available_waves(_wave_universe_version=1):
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
-        # Use Canonical Wave Universe (with deduplication and caching)
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-        waves = universe.get("waves", [])
-        
-        # Apply additional deduplication safety: sorted(set(...))
-        return sorted(set(waves))
+        # Use centralized Wave Universe function (Data Backbone V1)
+        waves = get_wave_universe()
+        return waves  # Already sorted and deduplicated
     except Exception:
-        # Fallback: try get_all_wave_names() directly
-        try:
-            waves = get_all_wave_names()
-            return sorted(set(waves))
-        except Exception:
-            return []
+        # Fallback to empty list
+        return []
 
 
 def get_wave_universe_all(_wave_universe_version=1):
     """
-    Get the entire deduplicated wave universe (all waves regardless of data availability).
+    Get the entire deduplicated wave universe (Data Backbone V1).
+    
+    This is an alias for get_wave_universe() to maintain backward compatibility.
+    All waves are returned regardless of data availability.
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
@@ -963,7 +1057,7 @@ def get_wave_universe_all(_wave_universe_version=1):
     Returns:
         Sorted list of all wave names
     """
-    return get_available_waves(_wave_universe_version=_wave_universe_version)
+    return get_wave_universe()
 
 
 def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
@@ -2426,10 +2520,10 @@ def get_mission_control_data():
         
         if df is None:
             mc_data['system_status'] = 'Data Unavailable'
-            # Still get canonical universe count even if no history
+            # Still get wave universe count even if no history (Data Backbone V1)
             try:
-                universe = get_canonical_wave_universe(force_reload=False)
-                mc_data['total_waves'] = len(universe.get('waves', []))
+                canonical_waves = get_wave_universe()
+                mc_data['total_waves'] = len(canonical_waves)
                 mc_data['universe_count'] = mc_data['total_waves']
             except Exception:
                 pass
@@ -2443,11 +2537,10 @@ def get_mission_control_data():
         age_days = (datetime.now() - latest_date).days
         mc_data['data_age_days'] = age_days
         
-        # Count waves using canonical wave universe
+        # Count waves using centralized wave universe (Data Backbone V1)
         try:
-            # Get canonical wave universe (deduplicated, single source of truth)
-            universe = get_canonical_wave_universe(force_reload=False)
-            canonical_waves = universe.get('waves', [])
+            # Get wave universe - single source of truth for all wave lists and counts
+            canonical_waves = get_wave_universe()
             mc_data['total_waves'] = len(canonical_waves)
             mc_data['universe_count'] = len(canonical_waves)
             
