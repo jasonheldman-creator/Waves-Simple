@@ -978,6 +978,16 @@ def safe_load_wave_history(_wave_universe_version=1):
         if len(df) == 0:
             return None
         
+        # Create 'wave' column if it doesn't exist
+        # This handles the case where CSV has 'display_name' or 'wave_id' instead
+        if 'wave' not in df.columns:
+            if 'display_name' in df.columns:
+                # Use display_name as the wave column (user-friendly names)
+                df['wave'] = df['display_name']
+            elif 'wave_id' in df.columns:
+                # Fallback to wave_id if display_name doesn't exist
+                df['wave'] = df['wave_id']
+        
         # Normalize wave names if wave column exists
         if 'wave' in df.columns:
             # Strip whitespace and collapse multiple spaces
@@ -5895,7 +5905,11 @@ def render_attribution_tab():
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
         return
     
-    # Get available waves
+    # Check for 'wave' column and get available waves
+    if 'wave' not in wave_df.columns:
+        st.error("❌ Wave column is missing from wave history data. The data format may be incorrect.")
+        return
+    
     available_waves = sorted(wave_df['wave'].unique().tolist())
     
     if not available_waves:
