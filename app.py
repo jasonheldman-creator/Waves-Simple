@@ -4266,7 +4266,7 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"decision_attribution_components_{wave_name}")
         
         # Data table
         st.markdown("#### 📋 Component Details")
@@ -4845,7 +4845,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True)
+                st.plotly_chart(chart, use_container_width=True, key="executive_wavescore_leaderboard")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -4863,7 +4863,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_movers_chart(movers)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True)
+                st.plotly_chart(chart, use_container_width=True, key="executive_biggest_movers")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -4938,7 +4938,7 @@ def render_executive_tab():
                     # Display performance chart
                     chart = create_wave_performance_chart(wave_data, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True)
+                        st.plotly_chart(chart, use_container_width=True, key=f"executive_performance_deepdive_{selected_wave}")
                     else:
                         st.info("Unable to generate performance chart")
                 else:
@@ -5412,7 +5412,7 @@ def render_alpha_proof_section():
                     # Create waterfall chart
                     chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True)
+                        st.plotly_chart(chart, use_container_width=True, key=f"alpha_waterfall_{selected_wave}")
                     
                     # Show detailed table
                     with st.expander("View Detailed Breakdown"):
@@ -5843,7 +5843,7 @@ def render_portfolio_constructor_section():
                             selected_waves
                         )
                         if corr_chart is not None:
-                            st.plotly_chart(corr_chart, use_container_width=True)
+                            st.plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_correlations_{'_'.join(sorted(selected_waves))}")
                     
                     # Show weights breakdown
                     with st.expander("View Portfolio Composition"):
@@ -5952,7 +5952,7 @@ def render_vector_explain_panel():
                     st.session_state['current_narrative_wave']
                 )
                 if chart is not None:
-                    st.plotly_chart(chart, use_container_width=True)
+                    st.plotly_chart(chart, use_container_width=True, key=f"vector_explain_{st.session_state['current_narrative_wave']}")
             
             st.divider()
             
@@ -6054,7 +6054,7 @@ def render_compare_waves_panel():
                 # Radar chart
                 radar_chart = create_comparison_radar_chart(wave1_metrics, wave2_metrics)
                 if radar_chart is not None:
-                    st.plotly_chart(radar_chart, use_container_width=True)
+                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{st.session_state.get('comparison_wave1_name', 'wave1')}_{st.session_state.get('comparison_wave2_name', 'wave2')}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -6068,7 +6068,7 @@ def render_compare_waves_panel():
                         st.session_state.get('comparison_wave2_name', 'Wave 2')
                     )
                     if heatmap is not None:
-                        st.plotly_chart(heatmap, use_container_width=True)
+                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{st.session_state.get('comparison_wave1_name', 'wave1')}_{st.session_state.get('comparison_wave2_name', 'wave2')}")
                     else:
                         st.info("Correlation matrix unavailable")
             
@@ -7382,7 +7382,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(waterfall_fig, use_container_width=True)
+        st.plotly_chart(waterfall_fig, use_container_width=True, key=f"attribution_waterfall_{selected_wave}")
         
         st.divider()
         
@@ -7419,7 +7419,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(ts_fig, use_container_width=True)
+        st.plotly_chart(ts_fig, use_container_width=True, key=f"attribution_timeseries_{selected_wave}")
         
         st.divider()
         
