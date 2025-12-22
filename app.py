@@ -548,7 +548,8 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
     return deduplicated, removed
 
 
-def get_canonical_wave_universe(force_reload: bool = False) -> dict:
+@st.cache_data(ttl=15)
+def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1) -> dict:
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
@@ -557,6 +558,7 @@ def get_canonical_wave_universe(force_reload: bool = False) -> dict:
     
     Args:
         force_reload: If True, bypass cache and rebuild universe
+        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
         
     Returns:
         Dictionary with:
@@ -829,10 +831,14 @@ def determine_winner(wave1_metrics, wave2_metrics):
 # SECTION 3: SAFE DATA-LOADING HELPERS
 # ============================================================================
 
-def safe_load_wave_history():
+@st.cache_data(ttl=15)
+def safe_load_wave_history(_wave_universe_version=1):
     """
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
+    
+    Args:
+        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
     """
     try:
         wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
@@ -901,21 +907,32 @@ def get_all_wave_names():
         return []
 
 
-def get_available_waves():
+def get_available_waves(_wave_universe_version=1):
     """
     Get list of available waves using the Canonical Wave Universe.
     
     Sources from get_canonical_wave_universe() which provides deduplication and caching.
     
+    Args:
+        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
+    
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
         # Use Canonical Wave Universe (with deduplication and caching)
-        universe = get_canonical_wave_universe(force_reload=False)
-        return universe.get("waves", [])
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        waves = universe.get("waves", [])
+        
+        # Apply additional deduplication safety: sorted(set(...))
+        return sorted(set(waves))
     except Exception:
         # Fallback: try get_all_wave_names() directly
-        return get_all_wave_names()
+        try:
+            waves = get_all_wave_names()
+            return sorted(set(waves))
+        except Exception:
+            return []
 
 
 def get_cse_crypto_universe():
@@ -1042,7 +1059,7 @@ def get_crypto_income_wave_data(days=30):
         return None
 
 
-def get_wave_data_filtered(wave_name=None, days=30):
+def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
     """
     Get wave data filtered by wave name and/or date range.
     
@@ -1056,8 +1073,12 @@ def get_wave_data_filtered(wave_name=None, days=30):
     Args:
         wave_name: Name of wave to filter (None for all waves)
         days: Number of days to include (from latest date)
+        _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
     """
     try:
+        # Get wave_universe_version from session state
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
         # Special case: Russell 3000 Wave (index reference wave)
         if wave_name == "Russell 3000 Wave":
             # Return None to gracefully display "Data unavailable"
@@ -1077,7 +1098,7 @@ def get_wave_data_filtered(wave_name=None, days=30):
             return None
         
         # Load standard wave data
-        df = safe_load_wave_history()
+        df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
         
         if df is None:
             return None
@@ -2719,10 +2740,10 @@ def render_mission_control():
         )
         st.caption(f"Data: {freshness_value}")
     
-    # Bottom row: Secondary metrics (3 columns)
+    # Bottom row: Secondary metrics + Auto-Refresh Indicators (5 columns)
     st.markdown("---")
     
-    sec_col1, sec_col2, sec_col3 = st.columns(3)
+    sec_col1, sec_col2, sec_col3, sec_col4, sec_col5 = st.columns(5)
     
     with sec_col1:
         st.metric(
@@ -2763,11 +2784,79 @@ def render_mission_control():
             help="Time since last data update"
         )
     
+    with sec_col4:
+        # Auto-Refresh Status Indicator
+        auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", True)
+        if auto_refresh_enabled:
+            refresh_display = "🟢 ON (15s)"
+        else:
+            refresh_display = "🔴 OFF"
+        
+        st.metric(
+            label="Auto-Refresh",
+            value=refresh_display,
+            help="App automatically refreshes every 15 seconds"
+        )
+    
+    with sec_col5:
+        # Wave Universe Version & Last Refresh Time
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        last_refresh_time = st.session_state.get("last_refresh_time", datetime.now())
+        
+        st.metric(
+            label="Wave Universe",
+            value=f"v{wave_universe_version}",
+            help="Wave universe version for cache invalidation"
+        )
+        st.caption(f"Last refresh: {last_refresh_time.strftime('%H:%M:%S')}")
+    
     st.divider()
 
 
 def render_sidebar_info():
     """Render sidebar information including build info and menu."""
+    
+    # ========================================================================
+    # Force Reload Wave Universe Button (Top-Right of Sidebar)
+    # ========================================================================
+    st.sidebar.markdown("### ⚡ Quick Actions")
+    
+    if st.sidebar.button(
+        "🔄 Force Reload Wave Universe",
+        key="force_reload_universe_top_button",
+        use_container_width=True,
+        type="primary"
+    ):
+        try:
+            # Increment wave universe version
+            if "wave_universe_version" not in st.session_state:
+                st.session_state.wave_universe_version = 1
+            st.session_state.wave_universe_version += 1
+            
+            # Clear wave universe cache from session state
+            cache_keys = ["wave_universe", "waves_list", "universe_cache"]
+            for key in cache_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            # Clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            # Set force reload flag
+            st.session_state["force_reload_universe"] = True
+            
+            # Trigger immediate rerun
+            st.rerun()
+        except Exception as e:
+            st.sidebar.warning(f"Force reload unavailable: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Sidebar Information
+    # ========================================================================
+    
     st.sidebar.title("Risk Lab")
     st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
     
@@ -2872,6 +2961,11 @@ def render_sidebar_info():
             use_container_width=True
         ):
             try:
+                # Increment wave universe version
+                if "wave_universe_version" not in st.session_state:
+                    st.session_state.wave_universe_version = 1
+                st.session_state.wave_universe_version += 1
+                
                 # Clear wave universe cache from session state
                 cache_keys = ["wave_universe", "waves_list", "universe_cache"]
                 for key in cache_keys:
@@ -6468,19 +6562,52 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # Session State Initialization
+    # ========================================================================
+    
+    # Initialize wave_universe_version if not present
+    if "wave_universe_version" not in st.session_state:
+        st.session_state.wave_universe_version = 1
+    
+    # Initialize last_refresh_time if not present
+    if "last_refresh_time" not in st.session_state:
+        st.session_state.last_refresh_time = datetime.now()
+    
+    # Initialize auto_refresh_enabled if not present
+    if "auto_refresh_enabled" not in st.session_state:
+        st.session_state.auto_refresh_enabled = True
+    
+    # ========================================================================
+    # Auto-Refresh Logic (15-second interval)
+    # ========================================================================
+    
+    if st.session_state.auto_refresh_enabled:
+        current_time = datetime.now()
+        time_since_last_refresh = (current_time - st.session_state.last_refresh_time).total_seconds()
+        
+        # Check if 15 seconds have elapsed
+        if time_since_last_refresh >= 15:
+            # Update last refresh time
+            st.session_state.last_refresh_time = current_time
+            # Trigger rerun to refresh the app
+            st.rerun()
+    
+    # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
     # ========================================================================
     
     # Check for force reload flag and rebuild universe if needed
     force_reload = st.session_state.get("force_reload_universe", False)
+    wave_universe_version = st.session_state.get("wave_universe_version", 1)
+    
     if force_reload:
         # Rebuild wave universe
-        get_canonical_wave_universe(force_reload=True)
+        get_canonical_wave_universe(force_reload=True, _wave_universe_version=wave_universe_version)
         # Reset the flag
         st.session_state["force_reload_universe"] = False
     else:
         # Normal initialization - use cached universe
-        get_canonical_wave_universe(force_reload=False)
+        get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
     
     # Display duplicate cleanup feedback in sidebar
     try:
