@@ -1798,7 +1798,9 @@ def get_mission_control_data():
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
-        'system_status': 'unknown'
+        'system_status': 'unknown',
+        'universe_count': 0,
+        'history_unique_count': 0
     }
     
     try:
@@ -1806,6 +1808,13 @@ def get_mission_control_data():
         
         if df is None:
             mc_data['system_status'] = 'Data Unavailable'
+            # Still get canonical universe count even if no history
+            try:
+                universe = get_canonical_wave_universe(force_reload=False)
+                mc_data['total_waves'] = len(universe.get('waves', []))
+                mc_data['universe_count'] = mc_data['total_waves']
+            except Exception:
+                pass
             return mc_data
         
         # Get latest date and data freshness
@@ -1816,13 +1825,39 @@ def get_mission_control_data():
         age_days = (datetime.now() - latest_date).days
         mc_data['data_age_days'] = age_days
         
-        # Count waves
-        if 'wave' in df.columns:
-            mc_data['total_waves'] = df['wave'].nunique()
+        # Count waves using canonical wave universe
+        try:
+            # Get canonical wave universe (deduplicated, single source of truth)
+            universe = get_canonical_wave_universe(force_reload=False)
+            canonical_waves = universe.get('waves', [])
+            mc_data['total_waves'] = len(canonical_waves)
+            mc_data['universe_count'] = len(canonical_waves)
             
-            # Count active waves (with recent data)
-            recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-            mc_data['active_waves'] = recent_data['wave'].nunique()
+            # Count unique waves in historical data
+            if 'wave' in df.columns:
+                history_waves_unique = df['wave'].nunique()
+                mc_data['history_unique_count'] = history_waves_unique
+                
+                # Count active waves: intersection of canonical universe with waves in recent history
+                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
+                recent_waves = set(recent_data['wave'].unique())
+                canonical_waves_set = set(canonical_waves)
+                active_waves_set = recent_waves.intersection(canonical_waves_set)
+                mc_data['active_waves'] = len(active_waves_set)
+            else:
+                # No wave column in history
+                mc_data['active_waves'] = 0
+                mc_data['history_unique_count'] = 0
+        except Exception:
+            # Fallback to old method if canonical universe fails
+            if 'wave' in df.columns:
+                mc_data['total_waves'] = df['wave'].nunique()
+                mc_data['universe_count'] = mc_data['total_waves']
+                mc_data['history_unique_count'] = mc_data['total_waves']
+                
+                # Count active waves (with recent data)
+                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
+                mc_data['active_waves'] = recent_data['wave'].nunique()
         
         # System status based on data age
         if age_days <= 1:
@@ -2693,15 +2728,25 @@ def render_mission_control():
         st.metric(
             label="Total Waves",
             value=mc_data.get('total_waves', 0),
-            help="Total number of waves in the system"
+            help="Total number of waves in the canonical universe"
         )
+        # Debugging caption
+        universe_count = mc_data.get('universe_count', 0)
+        active_count = mc_data.get('active_waves', 0)
+        history_unique = mc_data.get('history_unique_count', 0)
+        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col2:
         st.metric(
             label="Active Waves",
             value=mc_data.get('active_waves', 0),
-            help="Waves with data in the last 7 days"
+            help="Waves present in both canonical universe and recent history (last 7 days)"
         )
+        # Debugging caption
+        universe_count = mc_data.get('universe_count', 0)
+        active_count = mc_data.get('active_waves', 0)
+        history_unique = mc_data.get('history_unique_count', 0)
+        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col3:
         data_age = mc_data.get('data_age_days')
