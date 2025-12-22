@@ -17,6 +17,7 @@ This is a rollback snapshot before IC Pack v1 implementation.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import subprocess
 import os
 import traceback
@@ -8364,6 +8365,9 @@ def render_bottom_ticker():
     """
     Renders a fixed scrolling ticker at the bottom of the viewport.
     Only displays if st.session_state["show_bottom_ticker"] is True.
+    
+    Uses Streamlit's HTML component to inject the ticker directly into the root DOM,
+    bypassing Streamlit's sandboxing and enabling proper position: fixed behavior.
     """
     # Check if ticker should be shown
     if not st.session_state.get("show_bottom_ticker", False):
@@ -8392,54 +8396,86 @@ def render_bottom_ticker():
     except Exception:
         ticker_content = "WAVES Intelligence™ | Market Analytics Platform"
     
-    # Render the ticker with CSS animation
+    # Escape content for safe injection into JavaScript
+    ticker_content_escaped = ticker_content.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r")
+    
+    # Render the ticker using components.html for proper DOM injection
     ticker_html = f"""
-    <style>
-        /* Add bottom padding to body to prevent ticker from covering content */
-        .main .block-container {{
-            padding-bottom: 80px !important;
-        }}
-        
-        /* Fixed ticker at bottom */
-        .bottom-ticker {{
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 12px 0;
-            z-index: 999;
-            overflow: hidden;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        }}
-        
-        /* Scrolling animation */
-        .ticker-content {{
-            display: inline-block;
-            white-space: nowrap;
-            animation: scroll-left 60s linear infinite;
-            padding-left: 100%;
-            font-size: 14px;
-            font-weight: 500;
-        }}
-        
-        @keyframes scroll-left {{
-            0% {{
-                transform: translateX(0);
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            /* Fixed ticker at bottom of viewport */
+            .bottom-ticker {{
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 0;
+                z-index: 9999;
+                overflow: hidden;
+                box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             }}
-            100% {{
-                transform: translateX(-100%);
+            
+            /* Scrolling animation */
+            .ticker-content {{
+                display: inline-block;
+                white-space: nowrap;
+                animation: scroll-left 60s linear infinite;
+                padding-left: 100%;
+                font-size: 14px;
+                font-weight: 500;
             }}
-        }}
-    </style>
-    <div class="bottom-ticker">
-        <div class="ticker-content">{ticker_content}</div>
-    </div>
+            
+            @keyframes scroll-left {{
+                0% {{
+                    transform: translateX(0);
+                }}
+                100% {{
+                    transform: translateX(-100%);
+                }}
+            }}
+            
+            /* Add padding to Streamlit's main container to prevent content from being hidden */
+            body {{
+                padding-bottom: 60px;
+            }}
+        </style>
+    </head>
+    <body>
+        <script>
+            // Inject ticker into document body to bypass Streamlit sandboxing
+            (function() {{
+                // Remove any existing ticker to prevent duplicates
+                var existingTicker = document.getElementById('waves-bottom-ticker');
+                if (existingTicker) {{
+                    existingTicker.remove();
+                }}
+                
+                // Create ticker element
+                var tickerDiv = document.createElement('div');
+                tickerDiv.id = 'waves-bottom-ticker';
+                tickerDiv.className = 'bottom-ticker';
+                tickerDiv.innerHTML = '<div class="ticker-content">{ticker_content_escaped}</div>';
+                
+                // Append to body
+                document.body.appendChild(tickerDiv);
+                
+                // Add padding to Streamlit's main container
+                var style = document.createElement('style');
+                style.innerHTML = '.main .block-container {{ padding-bottom: 80px !important; }}';
+                document.head.appendChild(style);
+            }})();
+        </script>
+    </body>
+    </html>
     """
     
-    st.markdown(ticker_html, unsafe_allow_html=True)
+    # Use components.html with height=0 to avoid taking up space in the Streamlit layout
+    components.html(ticker_html, height=0)
 
 
 # ============================================================================
