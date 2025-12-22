@@ -54,6 +54,13 @@ except ImportError:
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
 
+# V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
+try:
+    from helpers.ticker_rail import render_bottom_ticker_v3
+    TICKER_V3_AVAILABLE = True
+except ImportError:
+    TICKER_V3_AVAILABLE = False
+
 # ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
@@ -7655,8 +7662,23 @@ def get_fed_decision_info():
 def render_bottom_ticker_bar():
     """
     Render the bottom ticker bar with scrolling animation.
+    V3 ADD-ON: Bottom Ticker (Institutional Rail) - Uses V3 module when available.
     Displays portfolio tickers, earnings dates, and Fed information.
     """
+    # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Use V3 implementation if available
+    if TICKER_V3_AVAILABLE:
+        try:
+            render_bottom_ticker_v3(
+                max_tickers=60,
+                top_n_per_wave=5,
+                sample_size=15
+            )
+            return
+        except Exception:
+            # Fall back to legacy implementation if V3 fails
+            pass
+    
+    # Legacy ticker implementation (fallback)
     try:
         # Get ticker data
         tickers = get_portfolio_tickers()

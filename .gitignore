@@ -47,6 +47,9 @@ logs/
 # Streamlit
 .streamlit/
 
+# V3 ADD-ON: Bottom Ticker (Institutional Rail) - Cache file
+data/events_cache.json
+
 # Data files (optional - uncomment if needed)
 # *.csv
 # *.xlsx
