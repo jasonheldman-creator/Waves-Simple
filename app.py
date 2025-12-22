@@ -1612,6 +1612,154 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
         return None
 
 
+# ============================================================================
+# CENTRALIZED WAVE HISTORY LOADER - Single Source of Truth
+# ============================================================================
+
+def get_wave_history(wave_name: str, mode: str = "Standard", days: int = 30) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Centralized Wave History Loader - Single Source of Truth for all analytics.
+    
+    This function computes wave history on demand for any selected wave, with:
+    - Caching in st.session_state for efficient reusability
+    - Detailed error messages when history cannot be computed
+    - Consistent data handling across all tools
+    
+    All analytics tools (Alpha Proof, Attribution Matrix, Performance Deep Dive,
+    Vector Explain, Decision Ledger, Compare Waves, Board Pack) should use this
+    function instead of directly calling get_wave_data_filtered.
+    
+    Args:
+        wave_name: Name of the wave to load history for
+        mode: Operating mode (e.g., "Standard", "Aggressive", "Conservative")
+        days: Number of days of history to load
+        
+    Returns:
+        tuple: (wave_data: pd.DataFrame or None, errors: list[str])
+            - wave_data: DataFrame with wave history, or None if unavailable
+            - errors: List of error messages explaining why data is unavailable (empty if success)
+    
+    Examples:
+        >>> wave_data, errors = get_wave_history("S&P 500 Wave", "Standard", 30)
+        >>> if wave_data is not None:
+        >>>     # Process wave data
+        >>>     pass
+        >>> else:
+        >>>     # Display error messages
+        >>>     for error in errors:
+        >>>         st.error(error)
+    """
+    errors = []
+    
+    try:
+        # Build cache key
+        cache_key = f"wave_history_{wave_name}_{mode}_{days}"
+        
+        # Check session state cache first
+        if cache_key in st.session_state:
+            cached_data = st.session_state[cache_key]
+            # Validate cached data is still fresh (within 60 seconds)
+            if 'timestamp' in cached_data:
+                cache_age = (datetime.now() - cached_data['timestamp']).total_seconds()
+                if cache_age < 60:
+                    # Return cached data
+                    return cached_data.get('data'), cached_data.get('errors', [])
+        
+        # Load wave data using existing function
+        wave_data = get_wave_data_filtered(wave_name=wave_name, days=days)
+        
+        # Validate data availability
+        if wave_data is None:
+            errors.append(f"❌ No historical data available for '{wave_name}'")
+            errors.append(f"ℹ️ The wave may be newly added or data may not be loaded yet")
+            errors.append(f"ℹ️ Check wave_history.csv for '{wave_name}' entries")
+            
+            # Cache the error state
+            st.session_state[cache_key] = {
+                'data': None,
+                'errors': errors,
+                'timestamp': datetime.now()
+            }
+            
+            return None, errors
+        
+        # Validate data is not empty
+        if len(wave_data) == 0:
+            errors.append(f"❌ Historical data for '{wave_name}' is empty")
+            errors.append(f"ℹ️ Requested {days} days but no data points were found")
+            
+            # Cache the error state
+            st.session_state[cache_key] = {
+                'data': None,
+                'errors': errors,
+                'timestamp': datetime.now()
+            }
+            
+            return None, errors
+        
+        # Validate minimum data points
+        if len(wave_data) < 5:
+            errors.append(f"⚠️ Insufficient data points: {len(wave_data)} rows (minimum 5 required)")
+            errors.append(f"ℹ️ Results may be unreliable with limited data")
+        
+        # Validate required columns
+        required_columns = ['date']
+        missing_columns = [col for col in required_columns if col not in wave_data.columns]
+        if missing_columns:
+            errors.append(f"❌ Missing required columns: {', '.join(missing_columns)}")
+            
+            # Cache the error state
+            st.session_state[cache_key] = {
+                'data': None,
+                'errors': errors,
+                'timestamp': datetime.now()
+            }
+            
+            return None, errors
+        
+        # Check for return data
+        has_return_data = False
+        if 'portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns:
+            has_return_data = True
+        elif 'return' in wave_data.columns:
+            has_return_data = True
+        
+        if not has_return_data:
+            errors.append(f"⚠️ Missing return data (portfolio_return or benchmark_return)")
+            errors.append(f"ℹ️ Some analytics may not be available")
+        
+        # Check date range coverage
+        if 'date' in wave_data.columns:
+            data_days = (wave_data['date'].max() - wave_data['date'].min()).days
+            if data_days < days * 0.5:  # At least 50% coverage
+                errors.append(f"⚠️ Data coverage incomplete: {data_days} days available, {days} days requested")
+                errors.append(f"ℹ️ Results may not reflect full period")
+        
+        # Success - cache the result
+        st.session_state[cache_key] = {
+            'data': wave_data.copy(),
+            'errors': errors,  # May contain warnings
+            'timestamp': datetime.now()
+        }
+        
+        return wave_data, errors
+        
+    except Exception as e:
+        errors.append(f"❌ Error loading wave history: {str(e)}")
+        errors.append(f"ℹ️ Technical error occurred during data loading")
+        errors.append(f"ℹ️ Please contact support if this issue persists")
+        
+        # Cache the error state
+        cache_key = f"wave_history_{wave_name}_{mode}_{days}"
+        st.session_state[cache_key] = {
+            'data': None,
+            'errors': errors,
+            'timestamp': datetime.now()
+        }
+        
+        return None, errors
+
+
 def calculate_alpha_components(wave_data, wave_name):
     """
     Calculate alpha decomposition components.
@@ -3340,8 +3488,9 @@ def get_wave_comparison_data(wave1_name, wave2_name):
     Returns a dictionary with comparison metrics or None if unavailable.
     """
     try:
-        wave1_data = get_wave_data_filtered(wave_name=wave1_name, days=30)
-        wave2_data = get_wave_data_filtered(wave_name=wave2_name, days=30)
+        # Use centralized wave history loader
+        wave1_data, errors1 = get_wave_history(wave_name=wave1_name, mode="Standard", days=30)
+        wave2_data, errors2 = get_wave_history(wave_name=wave2_name, mode="Standard", days=30)
         
         if wave1_data is None or wave2_data is None:
             return None
@@ -3424,11 +3573,14 @@ def render_decision_ledger_section():
         ):
             with st.spinner(f"Computing metrics for {selected_wave}..."):
                 try:
-                    # Get wave data
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=period_days)
+                    # Use centralized wave history loader
+                    wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=period_days)
                     
                     if wave_data is None or len(wave_data) == 0:
-                        st.error(f"❌ No data available for {selected_wave}")
+                        # Display detailed error messages
+                        st.error(f"**❌ Cannot compute metrics for {selected_wave}**")
+                        for error in errors:
+                            st.warning(error)
                     else:
                         # Calculate metrics
                         metrics = calculate_wave_metrics(wave_data)
@@ -3468,8 +3620,8 @@ def render_decision_ledger_section():
         st.markdown("#### 📋 Alpha Contract Status")
         
         try:
-            # Get wave data for contract evaluation
-            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=period_days)
+            # Use centralized wave history loader
+            wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=period_days)
             
             if wave_data is not None and len(wave_data) > 0:
                 # Calculate metrics
@@ -4426,11 +4578,13 @@ def render_executive_tab():
             selected_wave = st.selectbox(
                 "Select Wave for Analysis",
                 options=waves,
+                key="performance_deep_dive_wave_selector",
                 help="Choose a wave to view detailed performance metrics and charts"
             )
             
             if selected_wave:
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+                # Use centralized wave history loader
+                wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=30)
                 
                 if wave_data is not None:
                     # Calculate and display key metrics in columns
@@ -4473,7 +4627,10 @@ def render_executive_tab():
                     else:
                         st.info("Unable to generate performance chart")
                 else:
-                    st.warning(f"No data available for {selected_wave}")
+                    # Display detailed error messages
+                    st.error(f"**Cannot display Performance Deep Dive for {selected_wave}**")
+                    for error in errors:
+                        st.warning(error)
         else:
             st.warning("No waves available for analysis")
     
@@ -4699,12 +4856,15 @@ def render_executive_tab():
             )
             
             if selected_wave_attr:
-                wave_data_attr = get_wave_data_filtered(wave_name=selected_wave_attr, days=30)
+                # Use centralized wave history loader
+                wave_data_attr, errors = get_wave_history(wave_name=selected_wave_attr, mode="Standard", days=30)
                 
                 if wave_data_attr is not None and len(wave_data_attr) > 0:
                     render_decision_attribution_panel(selected_wave_attr, wave_data_attr)
                 else:
-                    st.warning(f"⚠️ No data available for {selected_wave_attr}")
+                    st.error(f"**⚠️ Cannot display attribution for {selected_wave_attr}**")
+                    for error in errors:
+                        st.warning(error)
         else:
             st.warning("⚠️ No waves available for attribution analysis")
     
@@ -4784,11 +4944,14 @@ def render_alpha_proof_section():
         if st.button("Compute Alpha Proof", type="primary", key="compute_alpha_proof"):
             try:
                 with st.spinner("Computing alpha decomposition..."):
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
+                    # Use centralized wave history loader
+                    wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=time_period)
                     
                     if wave_data is None or len(wave_data) == 0:
-                        # Display diagnostic card instead of generic error
-                        render_data_diagnostic_card(selected_wave, days=time_period)
+                        # Display detailed error messages from centralized loader
+                        st.error("**Cannot compute Alpha Proof - Data unavailable**")
+                        for error in errors:
+                            st.warning(error)
                         
                         # Try fallback using diagnostics if available
                         if VIX_DIAGNOSTICS_AVAILABLE:
@@ -5049,11 +5212,14 @@ def render_attribution_matrix_section():
                     else:
                         days = time_period
                     
-                    wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
+                    # Use centralized wave history loader
+                    wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=days)
                     
                     if wave_data is None or len(wave_data) == 0:
-                        # Display diagnostic card instead of generic error
-                        render_data_diagnostic_card(selected_wave, days=days)
+                        # Display detailed error messages from centralized loader
+                        st.error("**Cannot compute attribution - Data unavailable**")
+                        for error in errors:
+                            st.warning(error)
                         
                         # Try fallback using diagnostics if available
                         if VIX_DIAGNOSTICS_AVAILABLE:
@@ -5415,9 +5581,10 @@ def render_vector_explain_panel():
             help="Select the time period for analysis"
         )
         
-        if st.button("Generate Narrative", type="primary"):
+        if st.button("Generate Narrative", type="primary", key="vector_explain_generate"):
             with st.spinner("Generating comprehensive narrative and analysis..."):
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=time_period)
+                # Use centralized wave history loader
+                wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=time_period)
                 
                 if wave_data is not None:
                     # Generate narrative
@@ -5428,7 +5595,10 @@ def render_vector_explain_panel():
                     st.session_state['current_narrative_wave'] = selected_wave
                     st.session_state['current_narrative_data'] = wave_data
                 else:
-                    st.error(f"Unable to load data for {selected_wave}")
+                    # Display detailed error messages
+                    st.error(f"**Unable to generate narrative for {selected_wave}**")
+                    for error in errors:
+                        st.warning(error)
                     return
         
         # Display narrative and visualization if available
@@ -5534,7 +5704,7 @@ def render_compare_waves_panel():
                 help="Select second wave for comparison"
             )
         
-        if st.button("🔍 Compare Waves", type="primary"):
+        if st.button("🔍 Compare Waves", type="primary", key="compare_waves_button_unique"):
             with st.spinner("Generating comprehensive comparison analysis..."):
                 comparison_data = get_wave_comparison_data(wave1, wave2)
                 
@@ -5542,10 +5712,12 @@ def render_compare_waves_panel():
                     st.error("Unable to generate comparison - data unavailable")
                     return
                 
-                # Store comparison data and raw wave data
+                # Store comparison data and raw wave data using centralized loader
                 st.session_state['comparison_data'] = comparison_data
-                st.session_state['comparison_wave1_data'] = get_wave_data_filtered(wave_name=wave1, days=30)
-                st.session_state['comparison_wave2_data'] = get_wave_data_filtered(wave_name=wave2, days=30)
+                wave1_data, _ = get_wave_history(wave_name=wave1, mode="Standard", days=30)
+                wave2_data, _ = get_wave_history(wave_name=wave2, mode="Standard", days=30)
+                st.session_state['comparison_wave1_data'] = wave1_data
+                st.session_state['comparison_wave2_data'] = wave2_data
                 st.session_state['comparison_wave1_name'] = wave1
                 st.session_state['comparison_wave2_name'] = wave2
         
@@ -5976,7 +6148,8 @@ def generate_board_pack_html():
     leaderboard_data = []
     if waves:
         for wave_name in waves:
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
             if wave_data is not None and len(wave_data) > 0:
                 wavescore = calculate_wavescore(wave_data)
                 metrics = calculate_wave_metrics(wave_data)
@@ -6267,7 +6440,8 @@ def generate_board_pack_html():
     if waves and len(waves) > 0:
         # Get alpha components for first wave as example
         sample_wave = waves[0]
-        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        # Use centralized wave history loader
+        wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
         
         if wave_data is not None and len(wave_data) > 0:
             alpha_components = calculate_alpha_components(wave_data, sample_wave)
@@ -6311,7 +6485,8 @@ def generate_board_pack_html():
     
     if waves and len(waves) > 0:
         sample_wave = waves[0]
-        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        # Use centralized wave history loader
+        wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
         
         if wave_data is not None and len(wave_data) > 0:
             attribution_data = calculate_attribution_matrix(wave_data, sample_wave)
@@ -7152,9 +7327,10 @@ def generate_board_pack_pdf():
         
         if waves:
             for wave_name in waves[:10]:  # Top 10 waves
-                wave_30d = get_wave_data_filtered(wave_name=wave_name, days=30)
-                wave_60d = get_wave_data_filtered(wave_name=wave_name, days=60)
-                wave_ytd = get_wave_data_filtered(wave_name=wave_name, days=252)  # Approx YTD
+                # Use centralized wave history loader
+                wave_30d, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
+                wave_60d, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=60)
+                wave_ytd, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=252)  # Approx YTD
                 
                 metrics_30d = calculate_wave_metrics(wave_30d) if wave_30d is not None else {}
                 metrics_60d = calculate_wave_metrics(wave_60d) if wave_60d is not None else {}
@@ -7192,7 +7368,8 @@ def generate_board_pack_pdf():
         
         if waves:
             sample_wave = waves[0]
-            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
             
             if wave_data is not None:
                 metrics = calculate_wave_metrics(wave_data)
@@ -7209,7 +7386,8 @@ def generate_board_pack_pdf():
                 # Correlation insights
                 if len(waves) > 1:
                     wave2_name = waves[1]
-                    wave2_data = get_wave_data_filtered(wave_name=wave2_name, days=30)
+                    # Use centralized wave history loader
+                    wave2_data, _ = get_wave_history(wave_name=wave2_name, mode="Standard", days=30)
                     correlation = calculate_wave_correlation(wave_data, wave2_data)
                     
                     if correlation is not None:
@@ -7230,7 +7408,8 @@ def generate_board_pack_pdf():
         
         if waves:
             sample_wave = waves[0]
-            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
             
             if wave_data is not None:
                 alpha_components = calculate_alpha_components(wave_data, sample_wave)
@@ -7261,7 +7440,8 @@ def generate_board_pack_pdf():
         
         if waves:
             sample_wave = waves[0]
-            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
             
             if wave_data is not None and len(wave_data) > 0:
                 # Generate narrative
@@ -7301,7 +7481,8 @@ def generate_board_pack_pdf():
         leaderboard_data = []
         if waves:
             for wave_name in waves:
-                wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                # Use centralized wave history loader
+                wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
                 if wave_data is not None and len(wave_data) > 0:
                     wavescore = calculate_wavescore(wave_data)
                     leaderboard_data.append({
@@ -7415,7 +7596,8 @@ def render_board_pack_tab():
     # Alpha Proof
     alpha_available = False
     if waves_available:
-        sample_wave_data = get_wave_data_filtered(wave_name=waves[0], days=30)
+        # Use centralized wave history loader
+        sample_wave_data, _ = get_wave_history(wave_name=waves[0], mode="Standard", days=30)
         alpha_available = sample_wave_data is not None
     preview_data.append({
         'Section': 'Alpha Proof Decomposition',
@@ -7551,7 +7733,8 @@ def render_compare_tab():
     wave_scores = []
     for wave_name in waves:
         try:
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
             if wave_data is not None and len(wave_data) > 0:
                 wavescore = calculate_wavescore(wave_data)
                 wave_scores.append((wave_name, wavescore))
@@ -7577,6 +7760,7 @@ def render_compare_tab():
             "Select Waves to Compare (2-6 waves)",
             options=waves,
             default=default_waves,
+            key="compare_waves_multiselect_unique",
             help="Select between 2 and 6 waves for side-by-side comparison. Defaults to top 4 by WaveScore."
         )
     
@@ -7592,6 +7776,7 @@ def render_compare_tab():
             "Period",
             options=list(period_options.keys()),
             index=1,  # Default to 30D
+            key="compare_waves_period_unique",
             help="Select the lookback period for comparison metrics"
         )
         
@@ -7618,11 +7803,11 @@ def render_compare_tab():
     
     for wave_name in selected_waves:
         try:
-            # Get wave data for selected period
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=period_days)
+            # Use centralized wave history loader
+            wave_data, errors = get_wave_history(wave_name=wave_name, mode="Standard", days=period_days)
             
             if wave_data is None or len(wave_data) == 0:
-                # Handle missing data gracefully
+                # Handle missing data gracefully with detailed error info
                 row = {
                     'Wave': wave_name,
                     'Return': 'Unavailable',
@@ -7638,7 +7823,8 @@ def render_compare_tab():
                     'Data Age': 'Unavailable'
                 }
                 comparison_data.append(row)
-                raw_data_dict[wave_name] = "No data available"
+                # Store error messages for auditability
+                raw_data_dict[wave_name] = f"Data unavailable: {'; '.join(errors)}"
                 continue
             
             # Store raw data for auditability
@@ -8043,7 +8229,8 @@ def render_ic_pack_tab():
             leaderboard_data = []
             
             for wave_name in waves:
-                wave_data = get_wave_data_filtered(wave_name, days=30)
+                # Use centralized wave history loader
+                wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
                 if wave_data is not None and len(wave_data) > 0:
                     metrics = calculate_wave_metrics(wave_data)
                     
@@ -8071,7 +8258,8 @@ def render_ic_pack_tab():
                 # Calculate movers based on score variance
                 movers_data = []
                 for wave_name in waves[:10]:  # Limit to top 10 for performance
-                    wave_data = get_wave_data_filtered(wave_name, days=30)
+                    # Use centralized wave history loader
+                    wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
                     if wave_data is not None and len(wave_data) > 5:
                         if 'alpha' in wave_data.columns:
                             alpha_std = wave_data['alpha'].std()
@@ -8249,8 +8437,8 @@ def render_ic_pack_tab():
                     key="ic_alpha_wave"
                 )
                 
-                # Get wave data
-                wave_data = get_wave_data_filtered(selected_alpha_wave, days=30)
+                # Use centralized wave history loader
+                wave_data, errors = get_wave_history(wave_name=selected_alpha_wave, mode="Standard", days=30)
                 
                 if wave_data is not None and len(wave_data) > 0:
                     try:
