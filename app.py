@@ -3631,6 +3631,35 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Bottom Ticker Bar Control
+    # ========================================================================
+    st.sidebar.markdown("### 📊 Bottom Ticker Bar")
+    
+    # Initialize ticker setting if not present
+    if "show_bottom_ticker" not in st.session_state:
+        st.session_state.show_bottom_ticker = True  # Default: ON
+    
+    # Checkbox control
+    show_ticker = st.sidebar.checkbox(
+        "Show bottom ticker",
+        value=st.session_state.show_bottom_ticker,
+        key="show_ticker_toggle",
+        help="Display scrolling ticker bar at the bottom with portfolio info, earnings dates, and Fed data"
+    )
+    
+    # Update session state
+    st.session_state.show_bottom_ticker = show_ticker
+    
+    # Show status
+    if show_ticker:
+        st.sidebar.success("🟢 Ticker bar is visible")
+        st.sidebar.caption("Displays portfolio tickers, earnings, and Fed data")
+    else:
+        st.sidebar.info("🔴 Ticker bar is hidden")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Wave Universe Truth Panel (Collapsible)
     # ========================================================================
     with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
@@ -7506,6 +7535,224 @@ def generate_ic_pack_html():
 
 
 # ============================================================================
+# SECTION 7.5: BOTTOM TICKER BAR FUNCTIONALITY
+# ============================================================================
+
+@st.cache_data(ttl=300)
+def get_portfolio_tickers():
+    """
+    Get portfolio tickers from Master_Stock_Sheet.csv.
+    Returns top tickers by weight or empty list if unavailable.
+    """
+    try:
+        master_sheet_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+        
+        if not os.path.exists(master_sheet_path):
+            return []
+        
+        df = pd.read_csv(master_sheet_path)
+        
+        if df is None or len(df) == 0:
+            return []
+        
+        # Get top tickers by weight
+        if 'Ticker' in df.columns and 'Weight' in df.columns:
+            # Sort by weight and get top 10
+            df = df.sort_values('Weight', ascending=False)
+            tickers = df.head(10)['Ticker'].dropna().tolist()
+            return tickers
+        elif 'Ticker' in df.columns:
+            # Just get first 10 tickers
+            tickers = df.head(10)['Ticker'].dropna().tolist()
+            return tickers
+        
+        return []
+        
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=3600)
+def get_next_earnings_date(ticker):
+    """
+    Get next earnings date for a ticker using yfinance (free API).
+    Returns formatted date string or None if unavailable.
+    """
+    try:
+        import yfinance as yf
+        
+        stock = yf.Ticker(ticker)
+        calendar = stock.calendar
+        
+        if calendar is not None and not calendar.empty:
+            # Get earnings date
+            if 'Earnings Date' in calendar.index:
+                earnings_date = calendar.loc['Earnings Date']
+                if pd.notna(earnings_date) and hasattr(earnings_date, 'strftime'):
+                    return earnings_date.strftime('%Y-%m-%d')
+                elif isinstance(earnings_date, str):
+                    return earnings_date
+        
+        return None
+        
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=86400)
+def get_fed_decision_info():
+    """
+    Get next Federal Reserve decision date and current rate.
+    Uses hardcoded schedule for 2024-2025 (no paid API required).
+    Returns dict with 'next_date' and 'current_rate' or None values if unavailable.
+    """
+    try:
+        # Federal Reserve FOMC meeting dates for 2024-2025
+        # Source: federalreserve.gov (publicly available schedule)
+        fomc_dates = [
+            datetime(2024, 12, 17),
+            datetime(2024, 12, 18),
+            datetime(2025, 1, 28),
+            datetime(2025, 1, 29),
+            datetime(2025, 3, 18),
+            datetime(2025, 3, 19),
+            datetime(2025, 5, 6),
+            datetime(2025, 5, 7),
+            datetime(2025, 6, 17),
+            datetime(2025, 6, 18),
+            datetime(2025, 7, 29),
+            datetime(2025, 7, 30),
+            datetime(2025, 9, 16),
+            datetime(2025, 9, 17),
+            datetime(2025, 10, 28),
+            datetime(2025, 10, 29),
+            datetime(2025, 12, 9),
+            datetime(2025, 12, 10),
+        ]
+        
+        # Find next FOMC date after today
+        now = datetime.now()
+        next_date = None
+        
+        for date in fomc_dates:
+            if date > now:
+                next_date = date
+                break
+        
+        # Current Federal Funds Rate (as of Dec 2024)
+        # This is a static value - could be updated manually or via API
+        current_rate = "4.25-4.50%"
+        
+        return {
+            'next_date': next_date.strftime('%Y-%m-%d') if next_date else None,
+            'current_rate': current_rate
+        }
+        
+    except Exception:
+        return {'next_date': None, 'current_rate': None}
+
+
+def render_bottom_ticker_bar():
+    """
+    Render the bottom ticker bar with scrolling animation.
+    Displays portfolio tickers, earnings dates, and Fed information.
+    """
+    try:
+        # Get ticker data
+        tickers = get_portfolio_tickers()
+        fed_info = get_fed_decision_info()
+        
+        # Build ticker text content
+        ticker_items = []
+        
+        # Add portfolio tickers with earnings dates
+        if tickers:
+            for ticker in tickers[:5]:  # Limit to top 5 for performance
+                earnings_date = get_next_earnings_date(ticker)
+                if earnings_date:
+                    ticker_items.append(f"{ticker}: Next Earnings {earnings_date}")
+                else:
+                    ticker_items.append(f"{ticker}: EARNINGS N/A")
+        else:
+            ticker_items.append("PORTFOLIO: N/A")
+        
+        # Add Fed information
+        if fed_info and fed_info.get('next_date'):
+            ticker_items.append(f"FED MEETING: {fed_info['next_date']}")
+        else:
+            ticker_items.append("FED MEETING: N/A")
+        
+        if fed_info and fed_info.get('current_rate'):
+            ticker_items.append(f"FED FUNDS RATE: {fed_info['current_rate']}")
+        else:
+            ticker_items.append("FED FUNDS RATE: N/A")
+        
+        # Create ticker text
+        ticker_text = " • ".join(ticker_items)
+        
+        # Duplicate ticker text for seamless loop
+        ticker_text_full = f"{ticker_text} • {ticker_text} • {ticker_text}"
+        
+        # Render HTML ticker bar
+        ticker_html = f"""
+        <style>
+            @keyframes scroll-left {{
+                0% {{
+                    transform: translateX(0);
+                }}
+                100% {{
+                    transform: translateX(-33.333%);
+                }}
+            }}
+            
+            .ticker-bar {{
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
+                color: white;
+                padding: 12px 0;
+                z-index: 9999;
+                overflow: hidden;
+                box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            
+            .ticker-content {{
+                display: inline-block;
+                white-space: nowrap;
+                animation: scroll-left 60s linear infinite;
+                padding-left: 100%;
+            }}
+            
+            .ticker-content:hover {{
+                animation-play-state: paused;
+            }}
+            
+            /* Add padding to main content to prevent overlap */
+            .main .block-container {{
+                padding-bottom: 60px !important;
+            }}
+        </style>
+        
+        <div class="ticker-bar">
+            <div class="ticker-content">
+                {ticker_text_full}
+            </div>
+        </div>
+        """
+        
+        st.markdown(ticker_html, unsafe_allow_html=True)
+        
+    except Exception as e:
+        # Fail silently - don't disrupt the app if ticker bar fails
+        pass
+
+
+# ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
@@ -7529,6 +7776,10 @@ def main():
     # Initialize auto_refresh_enabled if not present (default: OFF)
     if "auto_refresh_enabled" not in st.session_state:
         st.session_state.auto_refresh_enabled = False
+    
+    # Initialize show_bottom_ticker if not present (default: ON)
+    if "show_bottom_ticker" not in st.session_state:
+        st.session_state.show_bottom_ticker = True
     
     # ========================================================================
     # Auto-Refresh Logic (15-second interval)
@@ -7619,6 +7870,14 @@ def main():
     
     with analytics_tabs[7]:
         render_ic_pack_tab()
+    
+    # ========================================================================
+    # Bottom Ticker Bar Rendering
+    # ========================================================================
+    
+    # Render bottom ticker bar if enabled
+    if st.session_state.get("show_bottom_ticker", True):
+        render_bottom_ticker_bar()
 
 
 # Run the application
