@@ -72,7 +72,22 @@ except ImportError:
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
+def metric_alpha_predecomp(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
+    """
+    UI-only helper to render alpha metrics safely.
+    No math changes. Presentation only.
+    """
+    try:
+        display = f"{value:.2%}" if value is not None else "Pending"
+    except Exception:
+        display = "Pending"
 
+    st.metric(
+        label,
+        display,
+        help="Cumulative benchmark-relative alpha shown prior to full attribution decomposition."
+    )
+    st.caption("Benchmark-relative · Capital-weighted · Since inception")
 @dataclass
 class DecisionAttributionComponents:
     """
