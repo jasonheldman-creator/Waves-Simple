@@ -1616,6 +1616,47 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
 # CENTRALIZED WAVE HISTORY LOADER - Single Source of Truth
 # ============================================================================
 
+def explain_no_data(wave_name: str, mode: str, days: int, err: Optional[Exception] = None) -> str:
+    """
+    Generate a clear explanation for why wave data is unavailable.
+    
+    Args:
+        wave_name: Name of the wave
+        mode: Operating mode
+        days: Number of days requested
+        err: Optional exception that caused the failure
+        
+    Returns:
+        String explanation suitable for display to users
+    """
+    explanation_parts = []
+    
+    explanation_parts.append(f"**Data Unavailable for '{wave_name}'**")
+    explanation_parts.append("")
+    explanation_parts.append(f"**Parameters:** Mode={mode}, Days={days}")
+    explanation_parts.append("")
+    
+    # Add specific reasons
+    explanation_parts.append("**Possible Reasons:**")
+    explanation_parts.append("• Wave data may not be loaded in wave_history.csv")
+    explanation_parts.append("• Wave may be newly added and historical data is being built")
+    explanation_parts.append("• Insufficient data points available for the requested period")
+    explanation_parts.append("• Data source connectivity issues")
+    
+    if err is not None:
+        explanation_parts.append("")
+        explanation_parts.append(f"**Technical Error:** {str(err)}")
+    
+    explanation_parts.append("")
+    explanation_parts.append("**Recommendations:**")
+    explanation_parts.append("• Verify wave name spelling and capitalization")
+    explanation_parts.append("• Try a shorter lookback period")
+    explanation_parts.append("• Use 'Force Reload Wave Universe' button to refresh data")
+    explanation_parts.append("• Check wave_history.csv for data availability")
+    
+    return "\n".join(explanation_parts)
+
+
 def get_wave_history(wave_name: str, mode: str = "Standard", days: int = 30) -> tuple[pd.DataFrame, list[str]]:
     """
     Centralized Wave History Loader - Single Source of Truth for all analytics.
@@ -1734,6 +1775,37 @@ def get_wave_history(wave_name: str, mode: str = "Standard", days: int = 30) -> 
             if data_days < days * 0.5:  # At least 50% coverage
                 errors.append(f"⚠️ Data coverage incomplete: {data_days} days available, {days} days requested")
                 errors.append(f"ℹ️ Results may not reflect full period")
+        
+        # Check for optional but recommended columns
+        # Expected columns: date, nav, return, bm_nav, benchmark_return, alpha, 
+        #                   exposure, safe_fraction/cash_pct, vix, regime
+        missing_optional_cols = []
+        
+        if 'nav' not in wave_data.columns:
+            missing_optional_cols.append('nav')
+        
+        if 'alpha' not in wave_data.columns:
+            missing_optional_cols.append('alpha')
+        
+        if 'exposure' not in wave_data.columns:
+            missing_optional_cols.append('exposure')
+        
+        if 'safe_pct' not in wave_data.columns and 'cash_pct' not in wave_data.columns and 'safe_fraction' not in wave_data.columns:
+            missing_optional_cols.append('safe_fraction/cash_pct')
+        
+        if 'vix' not in wave_data.columns:
+            missing_optional_cols.append('vix')
+        
+        if 'regime' not in wave_data.columns:
+            missing_optional_cols.append('regime')
+        
+        if 'bm_nav' not in wave_data.columns and 'benchmark_nav' not in wave_data.columns:
+            missing_optional_cols.append('bm_nav/benchmark_nav')
+        
+        # Log missing optional columns as warnings (not errors)
+        if missing_optional_cols:
+            errors.append(f"ℹ️ Missing optional columns: {', '.join(missing_optional_cols)}")
+            errors.append(f"ℹ️ Some advanced analytics may be limited")
         
         # Success - cache the result
         st.session_state[cache_key] = {
@@ -5962,7 +6034,7 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
             wave1 = st.selectbox(
                 "Wave 1",
                 options=waves,
-                key="compare_wave1",
+                key="compare_wave1_alt",
                 help="Select first wave for comparison"
             )
         
@@ -5972,11 +6044,11 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
             wave2 = st.selectbox(
                 "Wave 2",
                 options=wave2_options,
-                key="compare_wave2",
+                key="compare_wave2_alt",
                 help="Select second wave for comparison"
             )
         
-        if st.button("Compare Waves", type="primary"):
+        if st.button("Compare Waves", type="primary", key="compare_waves_button_alt"):
             with st.spinner("Generating comparison..."):
                 comparison_data = get_wave_comparison_data(wave1, wave2)
                 
