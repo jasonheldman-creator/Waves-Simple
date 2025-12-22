@@ -548,9 +548,9 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
     return deduplicated, removed
 
 
-def get_wave_universe(force_reload: bool = False) -> dict:
+def get_canonical_wave_universe(force_reload: bool = False) -> dict:
     """
-    Fetch, deduplicate, and return wave universe data.
+    Fetch, deduplicate, and return canonical wave universe data.
     
     Uses wave list from waves_engine or falls back to static list.
     Caches result in session state for performance.
@@ -903,15 +903,15 @@ def get_all_wave_names():
 
 def get_available_waves():
     """
-    Get list of available waves using the Wave Universe Loader.
+    Get list of available waves using the Canonical Wave Universe.
     
-    Sources from get_wave_universe() which provides deduplication and caching.
+    Sources from get_canonical_wave_universe() which provides deduplication and caching.
     
     Returns sorted list of wave names or empty list if unavailable.
     """
     try:
-        # Use Wave Universe Loader (with deduplication and caching)
-        universe = get_wave_universe(force_reload=False)
+        # Use Canonical Wave Universe (with deduplication and caching)
+        universe = get_canonical_wave_universe(force_reload=False)
         return universe.get("waves", [])
     except Exception:
         # Fallback: try get_all_wave_names() directly
@@ -2860,6 +2860,69 @@ def render_sidebar_info():
             use_container_width=True
         ):
             st.rerun()
+        
+        # Force Reload + Clear Cache + Rerun Button (Enhanced)
+        if st.button(
+            "Force Reload + Clear Cache + Rerun",
+            disabled=not ops_confirmation,
+            key="force_reload_clear_rerun_button",
+            use_container_width=True,
+            type="primary"
+        ):
+            try:
+                # Clear wave-related session cache keys
+                cache_keys = ["wave_universe", "waves_list", "universe_cache", "force_reload_universe"]
+                for key in cache_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # Clear Streamlit caches
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+                
+                try:
+                    st.cache_resource.clear()
+                except Exception:
+                    pass
+                
+                # Trigger canonical wave universe reload with force_reload=True
+                get_canonical_wave_universe(force_reload=True)
+                
+                st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
+                st.rerun()
+            except Exception as e:
+                st.warning(f"⚠️ Force reload failed: {str(e)}")
+    
+    # Debug Display - Wave Universe Info
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Wave Universe Debug Info"):
+        try:
+            universe = st.session_state.get("wave_universe", {})
+            if universe:
+                waves = universe.get("waves", [])
+                removed_duplicates = universe.get("removed_duplicates", [])
+                source = universe.get("source", "unknown")
+                timestamp = universe.get("timestamp", "N/A")
+                
+                st.write(f"**Total Waves:** {len(waves)}")
+                st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
+                st.write(f"**Source:** {source}")
+                st.write(f"**Last Updated:** {timestamp}")
+                
+                # Show first 10 waves for verification
+                if waves:
+                    st.write("**First 10 Waves:**")
+                    preview_waves = waves[:10]
+                    for i, wave in enumerate(preview_waves, 1):
+                        st.text(f"{i}. {wave}")
+                else:
+                    st.warning("No waves loaded")
+            else:
+                st.info("Wave universe not yet initialized")
+        except Exception as e:
+            st.error(f"Debug display error: {str(e)}")
 
 
 # ============================================================================
@@ -6367,12 +6430,12 @@ def main():
     force_reload = st.session_state.get("force_reload_universe", False)
     if force_reload:
         # Rebuild wave universe
-        get_wave_universe(force_reload=True)
+        get_canonical_wave_universe(force_reload=True)
         # Reset the flag
         st.session_state["force_reload_universe"] = False
     else:
         # Normal initialization - use cached universe
-        get_wave_universe(force_reload=False)
+        get_canonical_wave_universe(force_reload=False)
     
     # Display duplicate cleanup feedback in sidebar
     try:
