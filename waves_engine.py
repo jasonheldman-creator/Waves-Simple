@@ -442,6 +442,16 @@ WAVE_ID_REGISTRY: Dict[str, str] = {
 # Reverse mapping: display_name -> wave_id
 DISPLAY_NAME_TO_WAVE_ID: Dict[str, str] = {v: k for k, v in WAVE_ID_REGISTRY.items()}
 
+# Add legacy/alias mappings for backward compatibility with wave_history.csv
+# These map old display names to their corresponding wave_ids
+LEGACY_DISPLAY_NAME_ALIASES: Dict[str, str] = {
+    "Growth Wave": "small_to_mid_cap_growth_wave",  # Historical alias
+    "Small-Mid Cap Growth Wave": "small_to_mid_cap_growth_wave",  # Hyphenated variant
+}
+
+# Merge legacy aliases into DISPLAY_NAME_TO_WAVE_ID
+DISPLAY_NAME_TO_WAVE_ID.update(LEGACY_DISPLAY_NAME_ALIASES)
+
 # For backward compatibility, also map WAVE_WEIGHTS keys to wave_ids
 WAVE_WEIGHTS_TO_WAVE_ID: Dict[str, str] = DISPLAY_NAME_TO_WAVE_ID.copy()
 
