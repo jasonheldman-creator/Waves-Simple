@@ -739,6 +739,42 @@ def compute_trust_signal(wave_name: str, period_days: int = 30) -> TrustSignal:
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
 # ============================================================================
+# DEBUG BANNER - Always renders to verify updated code execution
+# ============================================================================
+
+# Error message banner
+st.error("TICKER DEBUG: if you see this, the app is running the new code")
+
+# Markdown debug banner
+st.markdown("## ✅ TICKER DEBUG 002 — AAPL MSFT NVDA SPY")
+
+# Colored HTML debug banner
+debug_banner_html = """
+<div style="
+    background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 50%, #FFA500 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 24px;
+    font-weight: bold;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    margin: 10px 0;
+">
+    🚀 DEBUG BANNER ACTIVE — APP RUNNING UPDATED CODE 🚀
+    <br>
+    <span style="font-size: 18px; margin-top: 10px; display: block;">
+        AAPL • MSFT • NVDA • SPY — TICKER DEBUG 002
+    </span>
+</div>
+"""
+components.html(debug_banner_html, height=140)
+
+# Stop execution to ensure debug banner is visible and app doesn't crash further down
+st.stop()
+
+# ============================================================================
 # TICKER RENDERING - Early execution to prevent crash impact
 # ============================================================================
 
