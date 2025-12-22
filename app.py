@@ -1568,10 +1568,10 @@ def get_crypto_income_wave_data(days=30):
             for alt_name in alternative_names:
                 crypto_data = df[df[wave_col] == alt_name].copy()
                 if len(crypto_data) > 0:
-                    # Rename to standard name if using legacy format
+                    # For new format, display_name is preserved as-is
+                    # For legacy format, rename to standard name
                     if wave_col == 'wave':
                         crypto_data['wave'] = CRYPTO_INCOME_WAVE
-                    # For new format, display_name is already set correctly
                     break
         
         if len(crypto_data) == 0:
@@ -7059,8 +7059,17 @@ def render_attribution_tab():
         st.error("❌ Wave history data is not available. Cannot compute attribution.")
         return
     
-    # Get available waves using display_name column
-    available_waves = sorted(wave_df['display_name'].unique().tolist())
+    # Determine which column to use for wave identification
+    if 'display_name' in wave_df.columns:
+        wave_col = 'display_name'
+    elif 'wave' in wave_df.columns:
+        wave_col = 'wave'
+    else:
+        st.error("❌ Wave history data is missing wave identifier column.")
+        return
+    
+    # Get available waves
+    available_waves = sorted(wave_df[wave_col].unique().tolist())
     
     if not available_waves:
         st.error("❌ No waves found in history data.")
@@ -7103,8 +7112,8 @@ def render_attribution_tab():
     
     # Compute attribution for selected wave
     try:
-        # Filter data for selected wave using display_name
-        wave_data = wave_df[wave_df['display_name'] == selected_wave].copy()
+        # Filter data for selected wave
+        wave_data = wave_df[wave_df[wave_col] == selected_wave].copy()
         wave_data = wave_data.sort_values('date')
         
         # Take last N days
@@ -7346,8 +7355,8 @@ def render_attribution_tab():
             with st.spinner("Computing attribution for all waves..."):
                 for wave_name in available_waves:
                     try:
-                        # Filter data for this wave using display_name
-                        wave_data = wave_df[wave_df['display_name'] == wave_name].copy()
+                        # Filter data for this wave
+                        wave_data = wave_df[wave_df[wave_col] == wave_name].copy()
                         wave_data = wave_data.sort_values('date')
                         wave_data = wave_data.tail(days)
                         
