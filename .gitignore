@@ -50,3 +50,6 @@ logs/
 # Data files (optional - uncomment if needed)
 # *.csv
 # *.xlsx
+
+# Pip artifacts
+=*
