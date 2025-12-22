@@ -6494,6 +6494,44 @@ def generate_board_pack_pdf():
         
         elements.append(PageBreak())
         
+        # ==================== WAVE ANALYSIS - VECTOR EXPLAIN ====================
+        elements.append(Paragraph("Wave Analysis - Vector Explain Narrative", heading_style))
+        
+        if waves:
+            sample_wave = waves[0]
+            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            
+            if wave_data is not None and len(wave_data) > 0:
+                # Generate narrative
+                narrative = generate_wave_narrative(sample_wave, wave_data)
+                
+                if narrative:
+                    # Convert markdown narrative to PDF-friendly format
+                    narrative_lines = narrative.split('\n')
+                    for line in narrative_lines:
+                        if line.strip():
+                            # Handle headers
+                            if line.startswith('# '):
+                                elements.append(Paragraph(line.replace('# ', ''), heading_style))
+                            elif line.startswith('## '):
+                                elements.append(Paragraph(line.replace('## ', ''), styles['Heading3']))
+                            elif line.startswith('**') and line.endswith('**'):
+                                # Bold text
+                                elements.append(Paragraph(line, styles['Normal']))
+                            else:
+                                # Regular text
+                                elements.append(Paragraph(line, styles['Normal']))
+                        else:
+                            elements.append(Spacer(1, 0.1*inch))
+                else:
+                    elements.append(Paragraph("Vector Explain narrative unavailable.", styles['Normal']))
+            else:
+                elements.append(Paragraph("Insufficient wave data for narrative generation.", styles['Normal']))
+        else:
+            elements.append(Paragraph("No waves available for narrative analysis.", styles['Normal']))
+        
+        elements.append(PageBreak())
+        
         # ==================== TOP MOVERS ====================
         elements.append(Paragraph("Top Movers - Biggest WaveScore Changes", heading_style))
         
@@ -6561,11 +6599,11 @@ def generate_board_pack_pdf():
 
 def render_board_pack_tab():
     """
-    Render the Board Pack tab with PDF download functionality.
+    Render the Board Pack (PDF) tab with PDF download functionality.
     Uses reportlab for PDF generation with graceful error handling.
     """
-    st.header("📊 Board Pack")
-    st.write("Download a comprehensive PDF report including all key metrics, performance data, and analytics.")
+    st.header("📊 Board Pack (PDF)")
+    st.write("Generate a comprehensive PDF report including all key metrics, performance data, and analytics.")
     
     st.divider()
     
@@ -6580,9 +6618,73 @@ def render_board_pack_tab():
     3. **Performance Table** - Key portfolio metrics for 30 days, 60 days, and Year-To-Date
     4. **Risk Analysis** - Volatility, max drawdown, and correlation insights
     5. **Alpha Proof** - Selection Alpha, Overlay Alpha, and Risk-Off Alpha breakdown
-    6. **Top Movers** - Biggest WaveScore changes during the period
-    7. **Appendix** - Data timestamps and system metadata
+    6. **Wave Analysis** - WaveScore, top holdings, and Vector Explain narrative
+    7. **Top Movers** - Biggest WaveScore changes during the period
+    8. **Appendix** - Data timestamps and system metadata
     """)
+    
+    st.divider()
+    
+    # Preview Data On-Screen (before generation)
+    st.subheader("📋 Report Preview - Metrics to Include")
+    st.write("The following metrics and sections will be included in the PDF:")
+    
+    # Build preview table showing availability of data
+    preview_data = []
+    
+    # Mission Control data
+    mc_data = get_mission_control_data()
+    mc_available = mc_data is not None and mc_data.get('market_regime') is not None
+    preview_data.append({
+        'Section': 'Mission Control',
+        'Metrics': 'Market Regime, VIX Gate Status, 30-Day Alpha, WaveScore Leader',
+        'Status': '✅ Available' if mc_available else '⚠️ Unavailable'
+    })
+    
+    # Wave data
+    waves = get_available_waves()
+    waves_available = waves is not None and len(waves) > 0
+    preview_data.append({
+        'Section': 'Wave Performance',
+        'Metrics': '30/60/YTD Returns, Volatility, Sharpe Ratio',
+        'Status': '✅ Available' if waves_available else '⚠️ Unavailable'
+    })
+    
+    # Alpha Proof
+    alpha_available = False
+    if waves_available:
+        sample_wave_data = get_wave_data_filtered(wave_name=waves[0], days=30)
+        alpha_available = sample_wave_data is not None
+    preview_data.append({
+        'Section': 'Alpha Proof Decomposition',
+        'Metrics': 'Selection Alpha, Overlay Alpha, Risk-Off Alpha',
+        'Status': '✅ Available' if alpha_available else '⚠️ Unavailable'
+    })
+    
+    # Risk Metrics
+    preview_data.append({
+        'Section': 'Risk Metrics',
+        'Metrics': 'Max Drawdown, Win Rate, Correlation Analysis',
+        'Status': '✅ Available' if alpha_available else '⚠️ Unavailable'
+    })
+    
+    # WaveScore & Top Holdings
+    preview_data.append({
+        'Section': 'WaveScore & Leaderboard',
+        'Metrics': 'Top 10 Waves by WaveScore, Performance Rankings',
+        'Status': '✅ Available' if waves_available else '⚠️ Unavailable'
+    })
+    
+    # Vector Explain
+    preview_data.append({
+        'Section': 'Vector Explain Narrative',
+        'Metrics': 'Institutional narrative, performance drivers, insights',
+        'Status': '✅ Available' if alpha_available else '⚠️ Unavailable'
+    })
+    
+    # Display preview table
+    preview_df = pd.DataFrame(preview_data)
+    st.dataframe(preview_df, use_container_width=True, hide_index=True)
     
     st.divider()
     
@@ -6594,16 +6696,17 @@ def render_board_pack_tab():
         reportlab_available = False
     
     if not reportlab_available:
-        st.error("❌ Download not available.")
+        st.error("❌ PDF Generation not available.")
         st.warning("The `reportlab` library is required for PDF generation but is not installed.")
         st.info("Please install reportlab to enable PDF downloads: `pip install reportlab`")
+        st.info("The app will continue to function normally. Other tabs remain accessible.")
         return
     
-    # Download button
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Control buttons
+    col1, col2 = st.columns(2)
     
-    with col2:
-        if st.button("📥 Download PDF Report", type="primary", use_container_width=True):
+    with col1:
+        if st.button("📥 Generate Board Pack", type="primary", use_container_width=True):
             with st.spinner("Generating Board Pack PDF..."):
                 try:
                     pdf_bytes = generate_board_pack_pdf()
@@ -6632,82 +6735,24 @@ def render_board_pack_tab():
                     st.warning(f"An error occurred while generating the report: {str(e)}")
                     st.info("The application continues to function normally. Other tabs remain accessible.")
     
-    st.divider()
-    
-    # Preview section
-    st.subheader("📋 Report Preview")
-    st.write("The PDF report will contain the following sections based on current data:")
-    
-    # Show preview of what will be in the report
-    with st.expander("🎯 Mission Control Snapshot", expanded=False):
-        mc_data = get_mission_control_data()
-        if mc_data:
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("Market Regime", mc_data.get('market_regime', 'unknown'))
-                st.metric("30-Day Alpha", mc_data.get('alpha_30day', 'unknown'))
-                st.metric("Total Waves", mc_data.get('total_waves', 0))
-            with col_b:
-                st.metric("VIX Gate Status", mc_data.get('vix_gate_status', 'unknown'))
-                st.metric("WaveScore Leader", mc_data.get('wavescore_leader', 'unknown'))
-                st.metric("System Status", mc_data.get('system_status', 'unknown'))
-        else:
-            st.info("Data unavailable")
-    
-    with st.expander("🏆 WaveScore Leaderboard", expanded=False):
-        waves = get_available_waves()
-        if waves:
-            leaderboard_data = []
-            for wave_name in waves[:5]:  # Top 5
-                wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
-                if wave_data is not None and len(wave_data) > 0:
-                    wavescore = calculate_wavescore(wave_data)
-                    leaderboard_data.append({
-                        'Wave': wave_name,
-                        'WaveScore': f"{wavescore:.1f}"
-                    })
+    with col2:
+        if st.button("🔄 Force Reload Data", use_container_width=True):
+            # Clear cache
+            st.cache_data.clear()
+            st.cache_resource.clear()
             
-            if leaderboard_data:
-                st.dataframe(pd.DataFrame(leaderboard_data), use_container_width=True, hide_index=True)
-            else:
-                st.info("No leaderboard data available")
-        else:
-            st.info("No waves available")
-    
-    with st.expander("📊 Performance Metrics", expanded=False):
-        waves = get_available_waves()
-        if waves:
-            sample_wave = waves[0]
-            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
-            if wave_data is not None:
-                metrics = calculate_wave_metrics(wave_data)
-                col_c, col_d = st.columns(2)
-                with col_c:
-                    volatility = metrics.get('volatility', 'N/A')
-                    vol_str = f"{volatility*100:.2f}%" if isinstance(volatility, (int, float)) else 'N/A'
-                    st.metric("Volatility (30d)", vol_str)
-                    
-                    sharpe = metrics.get('sharpe_ratio', 'N/A')
-                    sharpe_str = f"{sharpe:.2f}" if isinstance(sharpe, (int, float)) else 'N/A'
-                    st.metric("Sharpe Ratio", sharpe_str)
-                with col_d:
-                    drawdown = metrics.get('max_drawdown', 'N/A')
-                    dd_str = f"{drawdown*100:.2f}%" if isinstance(drawdown, (int, float)) else 'N/A'
-                    st.metric("Max Drawdown", dd_str)
-                    
-                    win_rate = metrics.get('win_rate', 'N/A')
-                    wr_str = f"{win_rate*100:.2f}%" if isinstance(win_rate, (int, float)) else 'N/A'
-                    st.metric("Win Rate", wr_str)
-            else:
-                st.info("Metrics data unavailable")
-        else:
-            st.info("No waves available")
-    
-    st.divider()
+            # Remove wave-related session keys
+            keys_to_remove = [key for key in st.session_state.keys() if 'wave' in key.lower()]
+            for key in keys_to_remove:
+                del st.session_state[key]
+            
+            st.success("✅ Cache cleared and data reloaded!")
+            st.info("Please click 'Generate Board Pack' again to create PDF with fresh data.")
+            st.rerun()
     
     # Footer
     st.markdown("---")
-    st.caption("Board Pack report generation uses live data streams from the Institutional Console.")
+    st.caption("Board Pack PDF generation uses live data from the Institutional Console. All sections gracefully handle unavailable data.")
 
 
 def render_ic_pack_tab():
