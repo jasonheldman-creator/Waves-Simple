@@ -88,6 +88,25 @@ def metric_alpha_predecomp(value, *, label="Cumulative Alpha (Pre-Decomposition)
         help="Cumulative benchmark-relative alpha shown prior to full attribution decomposition."
     )
     st.caption("Benchmark-relative · Capital-weighted · Since inception")
+
+def _fmt_pct_or_status(v, status):
+    """
+    Centralized helper for formatting alpha values in percentage terms or displaying a status.
+    
+    Args:
+        v: Numeric value (in decimal form, e.g., 0.01 = 1%)
+        status: Status label to display if v is None (e.g., "Pending", "Derived", "Reserved")
+    
+    Returns:
+        Formatted string with percentage or status label
+    """
+    try:
+        if v is None:
+            return status
+        return f"{v:+.2%}" if abs(v) <= 5 else f"{v:+.2f}%"
+    except Exception:
+        return status
+
 @dataclass
 class DecisionAttributionComponents:
     """
@@ -3834,53 +3853,61 @@ def render_mission_control():
                     # Create breakdown table
                     breakdown_data = []
                     if alpha_breakdown['total_alpha'] is not None:
-                        breakdown_data.append(['Total Alpha', f"{alpha_breakdown['total_alpha']*100:.4f}%"])
+                        breakdown_data.append(['Cumulative Alpha (Pre-Decomposition)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')])
                     if alpha_breakdown['selection_alpha'] is not None:
-                        breakdown_data.append(['Selection Alpha', f"{alpha_breakdown['selection_alpha']*100:.4f}%"])
+                        breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending')])
+                    else:
+                        breakdown_data.append(['Selection Alpha', 'Pending'])
                     if alpha_breakdown['overlay_alpha'] is not None:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', f"{alpha_breakdown['overlay_alpha']*100:.4f}%"])
+                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived')])
+                    else:
+                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', 'Derived'])
                     if alpha_breakdown['residual'] is not None:
-                        breakdown_data.append(['Residual', f"{alpha_breakdown['residual']*100:.4f}%"])
+                        breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'Reserved')])
+                    else:
+                        breakdown_data.append(['Residual', 'Reserved'])
                     
                     if breakdown_data:
                         breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
                         st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
                 
+                # Display Cumulative Alpha (Pre-Decomposition) headline with caption
+                st.markdown("**Cumulative Alpha (Pre-Decomposition)**")
+                if alpha_breakdown['total_alpha'] is not None:
+                    st.markdown(f"**{_fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')}**")
+                else:
+                    st.markdown("**Pending**")
+                st.caption("Benchmark-relative · Capital-weighted · Since inception")
+                
                 # KPI tiles
                 with col_kpi1:
-                    if alpha_breakdown['selection_alpha'] is not None:
-                        st.metric(
-                            "Selection α",
-                            f"{alpha_breakdown['selection_alpha']*100:.3f}%",
-                            help="Asset selection contribution"
-                        )
-                    else:
-                        st.metric("Selection α", "N/A", help="Data not available")
+                    st.metric(
+                        "Selection α",
+                        _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending'),
+                        help="Security-selection attribution activates once sufficient realized trade history is available."
+                    )
                 
                 with col_kpi2:
-                    if alpha_breakdown['overlay_alpha'] is not None:
-                        st.metric(
-                            "Overlay α",
-                            f"{alpha_breakdown['overlay_alpha']*100:.3f}%",
-                            help="VIX/SafeSmart overlay effect"
-                        )
-                    else:
-                        st.metric("Overlay α", "N/A", help="Data not available")
+                    st.metric(
+                        "Overlay α",
+                        _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived'),
+                        help="Overlay alpha reflects exposure decisions driven by volatility and regime controls."
+                    )
                 
                 with col_kpi3:
-                    if alpha_breakdown['residual'] is not None:
-                        residual_val = alpha_breakdown['residual']
-                        st.metric(
-                            "Residual",
-                            f"{residual_val*100:.3f}%",
-                            help="Unexplained alpha component"
-                        )
-                        
-                        # Warning banner if residual exceeds threshold
-                        if abs(residual_val) > 0.01:  # 1% threshold
-                            st.warning(f"⚠️ Large residual detected ({residual_val*100:.2f}%) - possible data mismatch")
-                    else:
-                        st.metric("Residual", "N/A", help="Data not available")
+                    residual_val = alpha_breakdown['residual']
+                    st.metric(
+                        "Residual",
+                        _fmt_pct_or_status(residual_val, 'Reserved'),
+                        help="Residual captures unexplained variance after full attribution is enabled."
+                    )
+                    
+                    # Warning banner if residual exceeds threshold
+                    if residual_val is not None and abs(residual_val) > 0.01:  # 1% threshold
+                        st.warning(f"⚠️ Large residual detected ({residual_val*100:.2f}%) - possible data mismatch")
+                
+                # Governance footer
+                st.markdown("*Attribution reflects live portfolio behavior under adaptive exposure controls.*")
             else:
                 st.info("📋 Alpha breakdown data not available. Required: portfolio_return, benchmark_return, and optionally raw_wave_return, static_basket_return.")
             
@@ -3895,24 +3922,20 @@ def render_mission_control():
                 exp_col1, exp_col2 = st.columns(2)
                 
                 with exp_col1:
-                    if exposure_alpha['exposure_adj_alpha_latest'] is not None:
-                        st.metric(
-                            "Latest Exposure-Adj α",
-                            f"{exposure_alpha['exposure_adj_alpha_latest']*100:.4f}%",
-                            help="Alpha adjusted for exposure level (latest) or unadjusted"
-                        )
-                    else:
-                        st.metric("Latest Exposure-Adj α", "N/A")
+                    st.metric(
+                        "Latest Exposure-Adj α",
+                        _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_latest'], 'Pending'),
+                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                    )
                 
                 with exp_col2:
-                    if exposure_alpha['exposure_adj_alpha_30day'] is not None:
-                        st.metric(
-                            "30-Day Exposure-Adj α",
-                            f"{exposure_alpha['exposure_adj_alpha_30day']*100:.4f}%",
-                            help="Cumulative 30-day exposure-adjusted or unadjusted alpha"
-                        )
-                    else:
-                        st.metric("30-Day Exposure-Adj α", "N/A")
+                    st.metric(
+                        "30-Day Exposure-Adj α",
+                        _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_30day'], 'Pending'),
+                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                    )
+                
+                st.caption("Normalized for dynamic exposure and volatility regime.")
                 
                 # Show fallback message
                 if exposure_alpha['is_fallback']:
