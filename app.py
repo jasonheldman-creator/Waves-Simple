@@ -1334,6 +1334,117 @@ def safe_load_wave_history(_wave_universe_version=1):
         return None
 
 
+def check_synthetic_data_status(wave_data: pd.DataFrame = None, wave_name: str = None) -> dict:
+    """
+    Check if wave data contains synthetic entries.
+    
+    Args:
+        wave_data: DataFrame of wave data (if None, loads full wave_history)
+        wave_name: Specific wave to check (if None, checks all waves)
+        
+    Returns:
+        Dict with:
+            - has_synthetic: bool
+            - synthetic_count: int
+            - total_count: int
+            - synthetic_waves: list of wave names with synthetic data
+    """
+    try:
+        if wave_data is None:
+            wave_data = safe_load_wave_history()
+            
+        if wave_data is None or len(wave_data) == 0:
+            return {
+                'has_synthetic': False,
+                'synthetic_count': 0,
+                'total_count': 0,
+                'synthetic_waves': []
+            }
+        
+        # Create a copy to avoid modifying the original
+        wave_data = wave_data.copy()
+        
+        # Ensure is_synthetic column exists
+        if 'is_synthetic' not in wave_data.columns:
+            wave_data['is_synthetic'] = False
+        
+        # Filter to specific wave if requested
+        if wave_name:
+            from waves_engine import get_wave_id_from_display_name
+            wave_id = get_wave_id_from_display_name(wave_name)
+            if wave_id:
+                wave_data = wave_data[wave_data['wave_id'] == wave_id]
+        
+        synthetic_count = wave_data['is_synthetic'].sum()
+        total_count = len(wave_data)
+        
+        # Get list of waves with synthetic data
+        synthetic_waves = []
+        if 'display_name' in wave_data.columns:
+            synthetic_waves = wave_data[wave_data['is_synthetic']]['display_name'].unique().tolist()
+        
+        return {
+            'has_synthetic': synthetic_count > 0,
+            'synthetic_count': int(synthetic_count),
+            'total_count': total_count,
+            'synthetic_waves': sorted(synthetic_waves)
+        }
+        
+    except Exception as e:
+        return {
+            'has_synthetic': False,
+            'synthetic_count': 0,
+            'total_count': 0,
+            'synthetic_waves': [],
+            'error': str(e)
+        }
+
+
+def render_synthetic_data_banner(wave_name: str = None):
+    """
+    Render an informational banner when synthetic data is in use.
+    
+    Args:
+        wave_name: Optional specific wave name to check. If None, checks all data.
+    """
+    try:
+        status = check_synthetic_data_status(wave_name=wave_name)
+        
+        if not status['has_synthetic']:
+            return
+        
+        # Calculate percentage
+        pct = (status['synthetic_count'] / status['total_count'] * 100) if status['total_count'] > 0 else 0
+        
+        if wave_name:
+            # Single wave banner
+            st.info(
+                f"📊 **Synthetic Data Notice**: This wave is using synthetic placeholder data "
+                f"({status['synthetic_count']} of {status['total_count']} records, {pct:.1f}%). "
+                f"This data will be automatically replaced as real market data is ingested over time.",
+                icon="ℹ️"
+            )
+        else:
+            # Multiple waves banner
+            n_waves = len(status['synthetic_waves'])
+            if n_waves > 0:
+                st.info(
+                    f"📊 **Synthetic Data Notice**: {n_waves} wave(s) are using synthetic placeholder data "
+                    f"({status['synthetic_count']:,} of {status['total_count']:,} total records, {pct:.1f}%). "
+                    f"This data will be automatically replaced as real market data is ingested over time.",
+                    icon="ℹ️"
+                )
+                
+                # Show expandable list of affected waves
+                with st.expander(f"View {n_waves} waves with synthetic data"):
+                    for wave in status['synthetic_waves']:
+                        st.write(f"• {wave}")
+    
+    except Exception:
+        # Silently ignore errors in banner rendering
+        pass
+
+
 def get_latest_data_timestamp():
     """Get the latest available 'as of' data timestamp from wave_history.csv."""
     try:
@@ -3726,6 +3837,9 @@ def render_decision_ledger_section():
     st.markdown("### 📊 Decision Ledger + Alpha Contracts")
     st.caption("Governance layer for tracking Wave performance and contract compliance")
     
+    # Show synthetic data banner if applicable
+    render_synthetic_data_banner()
+    
     # Check if modules are available
     if not DECISION_LEDGER_AVAILABLE or not ALPHA_CONTRACTS_AVAILABLE:
         st.warning("⚠️ Decision Ledger and/or Alpha Contracts modules not available")
@@ -4768,6 +4882,9 @@ def render_executive_tab():
     # Performance Deep Dive Section
     st.markdown("### 📊 Performance Deep Dive")
     st.write("Select a wave to view detailed performance charts")
+    
+    # Show synthetic data banner if applicable
+    render_synthetic_data_banner()
     
     try:
         waves = get_available_waves()
@@ -7036,6 +7153,9 @@ def render_attribution_tab():
     """Render the Attribution tab with alpha decomposition."""
     st.header("🎯 Alpha Attribution Analysis")
     
+    # Show synthetic data banner if applicable
+    render_synthetic_data_banner()
+    
     st.markdown("""
     **Precise, reconciled decomposition of Wave alpha into actionable components:**
     
@@ -7753,6 +7873,10 @@ def render_board_pack_tab():
     Uses reportlab for PDF generation with graceful error handling.
     """
     st.header("📊 Board Pack (PDF)")
+    
+    # Show synthetic data banner if applicable
+    render_synthetic_data_banner()
+    
     st.write("Generate a comprehensive PDF report including all key metrics, performance data, and analytics.")
     
     st.divider()
