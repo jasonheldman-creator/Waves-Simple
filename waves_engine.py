@@ -404,6 +404,58 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 }
 
 # ------------------------------------------------------------
+# Wave ID Mapping - Canonical Identifiers
+# ------------------------------------------------------------
+# Each wave has a unique, immutable wave_id in snake_case format.
+# This serves as the canonical identifier throughout the system.
+# display_name is used only for UI presentation.
+
+WAVE_ID_REGISTRY: Dict[str, str] = {
+    # wave_id -> display_name mapping
+    "sp500_wave": "S&P 500 Wave",
+    "russell_3000_wave": "Russell 3000 Wave",
+    "us_megacap_core_wave": "US MegaCap Core Wave",
+    "ai_cloud_megacap_wave": "AI & Cloud MegaCap Wave",
+    "next_gen_compute_semis_wave": "Next-Gen Compute & Semis Wave",
+    "future_energy_ev_wave": "Future Energy & EV Wave",
+    "ev_infrastructure_wave": "EV & Infrastructure Wave",
+    "us_small_cap_disruptors_wave": "US Small-Cap Disruptors Wave",
+    "us_mid_small_growth_semis_wave": "US Mid/Small Growth & Semis Wave",
+    "small_cap_growth_wave": "Small Cap Growth Wave",
+    "small_to_mid_cap_growth_wave": "Small to Mid Cap Growth Wave",
+    "future_power_energy_wave": "Future Power & Energy Wave",
+    "quantum_computing_wave": "Quantum Computing Wave",
+    "clean_transit_infrastructure_wave": "Clean Transit-Infrastructure Wave",
+    "income_wave": "Income Wave",
+    "demas_fund_wave": "Demas Fund Wave",
+    "multi_cap_crypto_growth_wave": "Multi-Cap Crypto Growth Wave",
+    "bitcoin_wave": "Bitcoin Wave",
+    "crypto_income_wave": "Crypto Income Wave",
+    "smartsafe_treasury_cash_wave": "SmartSafe Treasury Cash Wave",
+    "smartsafe_tax_free_money_market_wave": "SmartSafe Tax-Free Money Market Wave",
+    "gold_wave": "Gold Wave",
+    "infinity_multi_asset_growth_wave": "Infinity Multi-Asset Growth Wave",
+    "vector_treasury_ladder_wave": "Vector Treasury Ladder Wave",
+    "vector_muni_ladder_wave": "Vector Muni Ladder Wave",
+}
+
+# Reverse mapping: display_name -> wave_id
+DISPLAY_NAME_TO_WAVE_ID: Dict[str, str] = {v: k for k, v in WAVE_ID_REGISTRY.items()}
+
+# Add legacy/alias mappings for backward compatibility with wave_history.csv
+# These map old display names to their corresponding wave_ids
+LEGACY_DISPLAY_NAME_ALIASES: Dict[str, str] = {
+    "Growth Wave": "small_to_mid_cap_growth_wave",  # Historical alias
+    "Small-Mid Cap Growth Wave": "small_to_mid_cap_growth_wave",  # Hyphenated variant
+}
+
+# Merge legacy aliases into DISPLAY_NAME_TO_WAVE_ID
+DISPLAY_NAME_TO_WAVE_ID.update(LEGACY_DISPLAY_NAME_ALIASES)
+
+# For backward compatibility, also map WAVE_WEIGHTS keys to wave_ids
+WAVE_WEIGHTS_TO_WAVE_ID: Dict[str, str] = DISPLAY_NAME_TO_WAVE_ID.copy()
+
+# ------------------------------------------------------------
 # Static benchmarks (fallback / overrides)
 # ------------------------------------------------------------
 
@@ -634,7 +686,73 @@ ETF_CANDIDATES: List[ETFBenchmarkCandidate] = [
 # ------------------------------------------------------------
 
 def get_all_waves() -> list[str]:
+    """Get all wave display names (for backward compatibility)."""
     return sorted(WAVE_WEIGHTS.keys())
+
+
+def get_all_wave_ids() -> list[str]:
+    """Get all canonical wave_ids."""
+    return sorted(WAVE_ID_REGISTRY.keys())
+
+
+def get_wave_id_from_display_name(display_name: str) -> Optional[str]:
+    """
+    Convert display_name to wave_id.
+    
+    Args:
+        display_name: Human-readable wave name (e.g., "S&P 500 Wave")
+        
+    Returns:
+        wave_id (e.g., "sp500_wave") or None if not found
+    """
+    return DISPLAY_NAME_TO_WAVE_ID.get(display_name)
+
+
+def get_display_name_from_wave_id(wave_id: str) -> Optional[str]:
+    """
+    Convert wave_id to display_name.
+    
+    Args:
+        wave_id: Canonical wave identifier (e.g., "sp500_wave")
+        
+    Returns:
+        display_name (e.g., "S&P 500 Wave") or None if not found
+    """
+    return WAVE_ID_REGISTRY.get(wave_id)
+
+
+def validate_wave_id_registry() -> List[str]:
+    """
+    Validate wave_id registry for duplicates and missing mappings.
+    
+    Returns:
+        List of warning messages (empty if all valid)
+    """
+    warnings = []
+    
+    # Check for duplicate wave_ids
+    wave_ids = list(WAVE_ID_REGISTRY.keys())
+    if len(wave_ids) != len(set(wave_ids)):
+        duplicates = [wid for wid in wave_ids if wave_ids.count(wid) > 1]
+        warnings.append(f"Duplicate wave_ids found: {set(duplicates)}")
+    
+    # Check for duplicate display_names
+    display_names = list(WAVE_ID_REGISTRY.values())
+    if len(display_names) != len(set(display_names)):
+        duplicates = [dn for dn in display_names if display_names.count(dn) > 1]
+        warnings.append(f"Duplicate display_names found: {set(duplicates)}")
+    
+    # Check that all WAVE_WEIGHTS keys have a wave_id mapping
+    for wave_name in WAVE_WEIGHTS.keys():
+        if wave_name not in DISPLAY_NAME_TO_WAVE_ID:
+            warnings.append(f"Wave '{wave_name}' in WAVE_WEIGHTS has no wave_id mapping")
+    
+    # Check that all wave_ids have corresponding WAVE_WEIGHTS entries
+    for wave_id, display_name in WAVE_ID_REGISTRY.items():
+        if display_name not in WAVE_WEIGHTS:
+            warnings.append(f"wave_id '{wave_id}' -> '{display_name}' has no WAVE_WEIGHTS entry")
+    
+    return warnings
 
 
 def get_modes() -> list[str]:
@@ -1913,5 +2031,25 @@ def get_strategy_attribution(wave_name: str, mode: str = "Standard", days: int =
         "daily_attribution": daily_summaries,
         "strategy_stats": strategy_stats
     }
-    
+
+
+# ------------------------------------------------------------
+# Module Initialization - Validate Wave ID Registry
+# ------------------------------------------------------------
+
+def _log_wave_id_warnings():
+    """Log warnings for wave_id registry validation at module import."""
+    warnings = validate_wave_id_registry()
+    if warnings:
+        import sys
+        print("⚠️  WAVE_ID_REGISTRY Validation Warnings:", file=sys.stderr)
+        for warning in warnings:
+            print(f"  - {warning}", file=sys.stderr)
+    else:
+        # Silent success - no warnings to log
+        pass
+
+# Run validation on import
+_log_wave_id_warnings()
+
     

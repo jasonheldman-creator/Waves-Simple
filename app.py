@@ -1256,10 +1256,8 @@ def safe_load_wave_history(_wave_universe_version=1):
     Safely load wave history data with comprehensive error handling.
     Returns DataFrame or None if unavailable.
     
-    Applies wave name normalization:
-    - Strips leading/trailing whitespace
-    - Collapses multiple spaces to single space
-    - Creates normalized_wave column for matching
+    Now uses wave_id as the primary identifier with display_name for UI.
+    Applies backward compatibility for legacy 'wave' column.
     
     Args:
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
@@ -1288,14 +1286,47 @@ def safe_load_wave_history(_wave_universe_version=1):
         if len(df) == 0:
             return None
         
-        # Normalize wave names if wave column exists
-        if 'wave' in df.columns:
-            # Strip whitespace and collapse multiple spaces
+        # Handle wave_id column (new format)
+        if 'wave_id' in df.columns:
+            # New format with wave_id - ensure it's clean
+            df['wave_id'] = df['wave_id'].str.strip()
+            
+            # If display_name exists, use it; otherwise keep wave_id as display
+            if 'display_name' in df.columns:
+                df['display_name'] = df['display_name'].str.strip()
+                df['display_name'] = df['display_name'].str.replace(r'\s+', ' ', regex=True)
+            else:
+                # Fallback: create display_name from wave_id
+                from waves_engine import get_display_name_from_wave_id
+                df['display_name'] = df['wave_id'].apply(
+                    lambda wid: get_display_name_from_wave_id(wid) or wid
+                )
+        
+        # Handle legacy 'wave' column (old format) - for backward compatibility
+        elif 'wave' in df.columns:
+            # Old format - create wave_id from display_name
+            from waves_engine import get_wave_id_from_display_name
+            
+            # Normalize wave names
             df['wave'] = df['wave'].str.strip()
             df['wave'] = df['wave'].str.replace(r'\s+', ' ', regex=True)
             
-            # Create normalized_wave column for case-insensitive matching
-            df['normalized_wave'] = df['wave'].str.lower().str.strip()
+            # Create wave_id column
+            df['wave_id'] = df['wave'].apply(get_wave_id_from_display_name)
+            
+            # Keep wave as display_name
+            df['display_name'] = df['wave']
+            
+            # Drop rows where wave_id couldn't be resolved
+            df = df.dropna(subset=['wave_id'])
+        
+        else:
+            # No wave identifier column found
+            return None
+        
+        # Create normalized_wave_id for matching (lowercase, stripped)
+        if 'wave_id' in df.columns:
+            df['normalized_wave_id'] = df['wave_id'].str.lower().str.strip()
         
         return df
         
@@ -1386,13 +1417,18 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
     
     Returns:
-        Sorted list of wave names that have data in the specified period
+        Sorted list of wave display names that have data in the specified period
     """
     try:
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
         df = safe_load_wave_history(_wave_universe_version=wave_universe_version)
         
-        if df is None or 'wave' not in df.columns:
+        if df is None:
+            return []
+        
+        # Check for wave_id column (new format) or wave column (legacy)
+        wave_col = 'wave_id' if 'wave_id' in df.columns else 'wave'
+        if wave_col not in df.columns:
             return []
         
         # Filter to period
@@ -1402,8 +1438,20 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
             df = df[df['date'] >= cutoff_date]
         
         # Get unique waves with data
-        waves_with_data = sorted(df['wave'].unique().tolist())
-        return waves_with_data
+        if wave_col == 'wave_id':
+            # New format - use wave_id internally but return display_names
+            wave_ids_with_data = df['wave_id'].unique().tolist()
+            # Convert wave_ids to display_names for UI
+            from waves_engine import get_display_name_from_wave_id
+            waves_with_data = [
+                get_display_name_from_wave_id(wid) or wid 
+                for wid in wave_ids_with_data
+            ]
+        else:
+            # Legacy format - use wave column directly
+            waves_with_data = df['wave'].unique().tolist()
+        
+        return sorted(waves_with_data)
         
     except Exception:
         return []
@@ -1542,12 +1590,12 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
     - CSE (Crypto Selection Engine): returns synthetic/computed data
     - Excluded legacy crypto waves: returns None
     
-    Uses normalized wave names for matching (case-insensitive, trimmed, collapsed spaces).
+    Now uses wave_id internally for filtering while accepting display_name as input.
     
     Returns DataFrame or None if unavailable.
     
     Args:
-        wave_name: Name of wave to filter (None for all waves)
+        wave_name: Display name of wave to filter (None for all waves)
         days: Number of days to include (from latest date)
         _wave_universe_version: Version counter for cache invalidation (prefixed with _ to ignore in hash)
     """
@@ -1581,18 +1629,31 @@ def get_wave_data_filtered(wave_name=None, days=30, _wave_universe_version=1):
         
         # Filter by wave if specified
         if wave_name is not None:
-            if 'wave' not in df.columns:
-                return None
+            # Convert display_name to wave_id for filtering
+            from waves_engine import get_wave_id_from_display_name
+            wave_id = get_wave_id_from_display_name(wave_name)
             
-            # Normalize the selected wave name for matching
-            normalized_selection = wave_name.strip().replace('  ', ' ').lower()
+            if wave_id is None:
+                # Fallback for waves not in registry - try direct match
+                wave_id = wave_name
             
-            # Filter using normalized_wave column if available
-            if 'normalized_wave' in df.columns:
-                df = df[df['normalized_wave'] == normalized_selection].copy()
+            # Check which column to use for filtering
+            if 'wave_id' in df.columns:
+                # New format - filter by wave_id
+                df = df[df['wave_id'] == wave_id].copy()
+            elif 'wave' in df.columns:
+                # Legacy format - filter by wave (display_name)
+                # Normalize the selected wave name for matching
+                normalized_selection = wave_name.strip().replace('  ', ' ').lower()
+                
+                # Filter using normalized_wave column if available
+                if 'normalized_wave' in df.columns:
+                    df = df[df['normalized_wave'] == normalized_selection].copy()
+                else:
+                    # Fallback: exact match on wave column
+                    df = df[df['wave'] == wave_name].copy()
             else:
-                # Fallback: exact match on wave column
-                df = df[df['wave'] == wave_name].copy()
+                return None
         
         if len(df) == 0:
             return None
