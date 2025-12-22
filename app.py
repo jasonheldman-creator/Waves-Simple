@@ -3414,16 +3414,19 @@ def compute_alpha_source_breakdown(df):
 def compute_exposure_adjusted_alpha(df, days=30):
     """
     Compute exposure-adjusted alpha if exposure series exists.
+    Falls back to unadjusted alpha if no exposure series is available.
     
     Returns dict with:
         - exposure_adj_alpha_latest: latest exposure-adjusted alpha value
         - exposure_adj_alpha_30day: 30-day exposure-adjusted alpha data
         - data_available: bool
+        - is_fallback: bool - True if using unadjusted alpha
     """
     result = {
         'exposure_adj_alpha_latest': None,
         'exposure_adj_alpha_30day': None,
-        'data_available': False
+        'data_available': False,
+        'is_fallback': False
     }
     
     try:
@@ -3439,11 +3442,15 @@ def compute_exposure_adjusted_alpha(df, days=30):
         df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
         
         # Check if exposure column exists
-        if 'exposure' not in df_copy.columns:
-            return result
+        has_exposure = 'exposure' in df_copy.columns
         
-        # Compute exposure-adjusted alpha
-        df_copy['exposure_adj_alpha'] = df_copy['total_alpha'] / df_copy['exposure'].apply(lambda x: max(x, 0.05))
+        if has_exposure:
+            # Compute exposure-adjusted alpha
+            df_copy['exposure_adj_alpha'] = df_copy['total_alpha'] / df_copy['exposure'].apply(lambda x: max(x, 0.05))
+        else:
+            # Fallback: use unadjusted alpha
+            df_copy['exposure_adj_alpha'] = df_copy['total_alpha']
+            result['is_fallback'] = True
         
         # Get latest value
         if len(df_copy) > 0:
@@ -3877,7 +3884,7 @@ def render_mission_control():
                         st.metric(
                             "Latest Exposure-Adj α",
                             f"{exposure_alpha['exposure_adj_alpha_latest']*100:.4f}%",
-                            help="Alpha adjusted for exposure level (latest)"
+                            help="Alpha adjusted for exposure level (latest) or unadjusted"
                         )
                     else:
                         st.metric("Latest Exposure-Adj α", "N/A")
@@ -3887,12 +3894,18 @@ def render_mission_control():
                         st.metric(
                             "30-Day Exposure-Adj α",
                             f"{exposure_alpha['exposure_adj_alpha_30day']*100:.4f}%",
-                            help="Cumulative 30-day exposure-adjusted alpha"
+                            help="Cumulative 30-day exposure-adjusted or unadjusted alpha"
                         )
                     else:
                         st.metric("30-Day Exposure-Adj α", "N/A")
+                
+                # Show fallback message
+                if exposure_alpha['is_fallback']:
+                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                else:
+                    st.success("✅ Using exposure-adjusted alpha")
             else:
-                st.info("📋 Exposure-adjusted alpha not available. Required: exposure series in data.")
+                st.info("📋 Exposure-adjusted alpha not available. Required: portfolio_return, benchmark_return.")
             
             # ================================================================
             # 3. Capital-Weighted Alpha (Portfolio-level)
@@ -6549,7 +6562,34 @@ def render_overlays_tab():
     # Exposure-Adjusted Alpha Section
     st.subheader("Exposure-Adjusted Alpha")
     st.write("Alpha metrics adjusted for market exposure and beta.")
-    st.info("Data unavailable")
+    
+    # Load wave history data
+    if df is None or len(df) == 0:
+        st.info("History not loaded - cannot compute exposure-adjusted alpha")
+    else:
+        # Compute exposure-adjusted alpha with fallback logic
+        exposure_alpha = compute_exposure_adjusted_alpha(df, days=30)
+        
+        if exposure_alpha['data_available']:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if exposure_alpha['exposure_adj_alpha_30day'] is not None:
+                    st.metric(
+                        "30-Day Exposure-Adjusted Alpha",
+                        f"{exposure_alpha['exposure_adj_alpha_30day']*100:.4f}%",
+                        help="Cumulative 30-day exposure-adjusted or unadjusted alpha"
+                    )
+                else:
+                    st.metric("30-Day Exposure-Adjusted Alpha", "N/A")
+            
+            with col2:
+                if exposure_alpha['is_fallback']:
+                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                else:
+                    st.success("✅ Using exposure-adjusted alpha")
+        else:
+            st.info("Required columns not available (portfolio_return, benchmark_return)")
     
     st.divider()
     
