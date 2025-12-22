@@ -4578,11 +4578,13 @@ def render_executive_tab():
             selected_wave = st.selectbox(
                 "Select Wave for Analysis",
                 options=waves,
+                key="performance_deep_dive_wave_selector",
                 help="Choose a wave to view detailed performance metrics and charts"
             )
             
             if selected_wave:
-                wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+                # Use centralized wave history loader
+                wave_data, errors = get_wave_history(wave_name=selected_wave, mode="Standard", days=30)
                 
                 if wave_data is not None:
                     # Calculate and display key metrics in columns
@@ -4625,7 +4627,10 @@ def render_executive_tab():
                     else:
                         st.info("Unable to generate performance chart")
                 else:
-                    st.warning(f"No data available for {selected_wave}")
+                    # Display detailed error messages
+                    st.error(f"**Cannot display Performance Deep Dive for {selected_wave}**")
+                    for error in errors:
+                        st.warning(error)
         else:
             st.warning("No waves available for analysis")
     
@@ -4851,12 +4856,15 @@ def render_executive_tab():
             )
             
             if selected_wave_attr:
-                wave_data_attr = get_wave_data_filtered(wave_name=selected_wave_attr, days=30)
+                # Use centralized wave history loader
+                wave_data_attr, errors = get_wave_history(wave_name=selected_wave_attr, mode="Standard", days=30)
                 
                 if wave_data_attr is not None and len(wave_data_attr) > 0:
                     render_decision_attribution_panel(selected_wave_attr, wave_data_attr)
                 else:
-                    st.warning(f"⚠️ No data available for {selected_wave_attr}")
+                    st.error(f"**⚠️ Cannot display attribution for {selected_wave_attr}**")
+                    for error in errors:
+                        st.warning(error)
         else:
             st.warning("⚠️ No waves available for attribution analysis")
     
@@ -5696,7 +5704,7 @@ def render_compare_waves_panel():
                 help="Select second wave for comparison"
             )
         
-        if st.button("🔍 Compare Waves", type="primary"):
+        if st.button("🔍 Compare Waves", type="primary", key="compare_waves_button_unique"):
             with st.spinner("Generating comprehensive comparison analysis..."):
                 comparison_data = get_wave_comparison_data(wave1, wave2)
                 
@@ -5704,10 +5712,12 @@ def render_compare_waves_panel():
                     st.error("Unable to generate comparison - data unavailable")
                     return
                 
-                # Store comparison data and raw wave data
+                # Store comparison data and raw wave data using centralized loader
                 st.session_state['comparison_data'] = comparison_data
-                st.session_state['comparison_wave1_data'] = get_wave_data_filtered(wave_name=wave1, days=30)
-                st.session_state['comparison_wave2_data'] = get_wave_data_filtered(wave_name=wave2, days=30)
+                wave1_data, _ = get_wave_history(wave_name=wave1, mode="Standard", days=30)
+                wave2_data, _ = get_wave_history(wave_name=wave2, mode="Standard", days=30)
+                st.session_state['comparison_wave1_data'] = wave1_data
+                st.session_state['comparison_wave2_data'] = wave2_data
                 st.session_state['comparison_wave1_name'] = wave1
                 st.session_state['comparison_wave2_name'] = wave2
         
@@ -6138,7 +6148,8 @@ def generate_board_pack_html():
     leaderboard_data = []
     if waves:
         for wave_name in waves:
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
             if wave_data is not None and len(wave_data) > 0:
                 wavescore = calculate_wavescore(wave_data)
                 metrics = calculate_wave_metrics(wave_data)
@@ -6429,7 +6440,8 @@ def generate_board_pack_html():
     if waves and len(waves) > 0:
         # Get alpha components for first wave as example
         sample_wave = waves[0]
-        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        # Use centralized wave history loader
+        wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
         
         if wave_data is not None and len(wave_data) > 0:
             alpha_components = calculate_alpha_components(wave_data, sample_wave)
@@ -6473,7 +6485,8 @@ def generate_board_pack_html():
     
     if waves and len(waves) > 0:
         sample_wave = waves[0]
-        wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+        # Use centralized wave history loader
+        wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
         
         if wave_data is not None and len(wave_data) > 0:
             attribution_data = calculate_attribution_matrix(wave_data, sample_wave)
@@ -7427,7 +7440,8 @@ def generate_board_pack_pdf():
         
         if waves:
             sample_wave = waves[0]
-            wave_data = get_wave_data_filtered(wave_name=sample_wave, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=sample_wave, mode="Standard", days=30)
             
             if wave_data is not None and len(wave_data) > 0:
                 # Generate narrative
@@ -7467,7 +7481,8 @@ def generate_board_pack_pdf():
         leaderboard_data = []
         if waves:
             for wave_name in waves:
-                wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                # Use centralized wave history loader
+                wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
                 if wave_data is not None and len(wave_data) > 0:
                     wavescore = calculate_wavescore(wave_data)
                     leaderboard_data.append({
@@ -7581,7 +7596,8 @@ def render_board_pack_tab():
     # Alpha Proof
     alpha_available = False
     if waves_available:
-        sample_wave_data = get_wave_data_filtered(wave_name=waves[0], days=30)
+        # Use centralized wave history loader
+        sample_wave_data, _ = get_wave_history(wave_name=waves[0], mode="Standard", days=30)
         alpha_available = sample_wave_data is not None
     preview_data.append({
         'Section': 'Alpha Proof Decomposition',
@@ -7717,7 +7733,8 @@ def render_compare_tab():
     wave_scores = []
     for wave_name in waves:
         try:
-            wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+            # Use centralized wave history loader
+            wave_data, _ = get_wave_history(wave_name=wave_name, mode="Standard", days=30)
             if wave_data is not None and len(wave_data) > 0:
                 wavescore = calculate_wavescore(wave_data)
                 wave_scores.append((wave_name, wavescore))
