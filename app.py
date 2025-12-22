@@ -9064,6 +9064,52 @@ def generate_ic_pack_html():
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
+def check_and_seed_wave_history():
+    """
+    Check if wave_history.csv is missing or empty and seed it if needed.
+    This ensures the app has data to display on first run or after data loss.
+    """
+    wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+    needs_seeding = False
+    
+    # Check if file exists and has data
+    if not os.path.exists(wave_history_path):
+        needs_seeding = True
+    else:
+        try:
+            df = pd.read_csv(wave_history_path)
+            if df.empty or len(df) < 10:  # Less than 10 rows is considered empty
+                needs_seeding = True
+        except Exception:
+            needs_seeding = True
+    
+    # Seed if needed
+    if needs_seeding:
+        try:
+            # Import and run seeding
+            import subprocess
+            script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'seed_wave_history.py')
+            
+            if os.path.exists(script_path):
+                # Run seeding script with default parameters
+                result = subprocess.run(
+                    [sys.executable, script_path, '--days', '60', '--mode', 'Standard'],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0:
+                    # Store seeding info in session state
+                    if "seeding_performed" not in st.session_state:
+                        st.session_state.seeding_performed = True
+                        st.session_state.seeding_log = result.stdout
+                else:
+                    st.error(f"❌ Failed to seed wave history: {result.stderr}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not auto-seed wave history: {e}")
+
+
 def main():
     """
     Main application entry point - Executive Layer v2.
@@ -9084,6 +9130,15 @@ def main():
     # Initialize auto_refresh_enabled if not present (default: OFF)
     if "auto_refresh_enabled" not in st.session_state:
         st.session_state.auto_refresh_enabled = False
+    
+    # ========================================================================
+    # Wave History Seeding (Bootstrap)
+    # ========================================================================
+    
+    # Check and seed wave history if needed (only once per session)
+    if "seeding_checked" not in st.session_state:
+        check_and_seed_wave_history()
+        st.session_state.seeding_checked = True
     
     # ========================================================================
     # Auto-Refresh Logic (15-second interval)
@@ -9148,6 +9203,19 @@ def main():
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
+    
+    # Display synthetic data banner if applicable
+    if st.session_state.get("seeding_performed", False):
+        st.info("ℹ️ **Synthetic bootstrap history in use — placeholders until live ingestion.**")
+    else:
+        # Check if current data is synthetic
+        try:
+            df = safe_load_wave_history()
+            if df is not None and 'is_synthetic' in df.columns:
+                if df['is_synthetic'].any():
+                    st.info("ℹ️ **Synthetic bootstrap history in use — placeholders until live ingestion.**")
+        except Exception:
+            pass
     
     analytics_tabs = st.tabs(["Executive", "Overview", "Details", "Reports", "Overlays", "Attribution", "Compare", "Board Pack", "IC Pack"])
     
