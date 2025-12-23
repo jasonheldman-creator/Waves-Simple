@@ -9,6 +9,8 @@ interface HeroProps {
   secondaryCtaLink?: string;
 }
 
+const HIGHLIGHT_WORDS = ["WAVES", "Intelligence", "Platform", "Security", "Architecture"];
+
 export default function Hero({
   title,
   subtitle,
@@ -28,8 +30,7 @@ export default function Hero({
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
             {title.split(" ").map((word, i) => {
               // Highlight certain keywords with gradient
-              const highlightWords = ["WAVES", "Intelligence", "Platform", "Security", "Architecture"];
-              if (highlightWords.some((hw) => word.includes(hw))) {
+              if (HIGHLIGHT_WORDS.some((hw) => word.includes(hw))) {
                 return (
                   <span
                     key={i}

@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("Error processing contact form:", error);
+  } catch {
+    console.error("Error processing contact form");
     return NextResponse.json(
       { error: "An error occurred processing your request" },
       { status: 500 }
