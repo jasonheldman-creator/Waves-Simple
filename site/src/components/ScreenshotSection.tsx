@@ -11,6 +11,19 @@ interface ScreenshotSectionProps {
 }
 
 export default function ScreenshotSection({ screenshot, reverse = false }: ScreenshotSectionProps) {
+  // Map old paths to new SVG paths - using exact matching for robustness
+  const getImagePath = (path: string): string => {
+    const pathMap: Record<string, string> = {
+      '/public/screens/product-screenshot1.png': '/screens/portfolio-dashboard.svg',
+      '/public/screens/product-screenshot2.png': '/screens/attribution-analysis.svg',
+      '/public/screens/product-screenshot3.png': '/screens/governance-console.svg',
+    };
+    
+    return pathMap[path] || path;
+  };
+
+  const imagePath = getImagePath(screenshot.imagePath);
+
   return (
     <section className="bg-gradient-to-b from-gray-900 to-black py-16 sm:py-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -18,13 +31,12 @@ export default function ScreenshotSection({ screenshot, reverse = false }: Scree
           {/* Screenshot */}
           <div className={`${reverse ? 'lg:order-2' : ''}`}>
             <div className="relative rounded-lg border border-cyan-500/20 bg-gray-900/50 p-2 shadow-lg shadow-cyan-500/10">
-              {/* TODO: Replace with actual screenshot */}
-              <div className="relative aspect-video w-full bg-gray-800 rounded flex items-center justify-center">
-                <div className="text-center text-gray-500">
-                  <div className="text-4xl mb-2">📊</div>
-                  <p className="text-sm">TODO: Add screenshot</p>
-                  <p className="text-xs mt-1">{screenshot.imagePath}</p>
-                </div>
+              <div className="relative aspect-video w-full bg-gray-800 rounded overflow-hidden">
+                <img 
+                  src={imagePath} 
+                  alt={screenshot.alt} 
+                  className="w-full h-full object-contain"
+                />
               </div>
             </div>
           </div>

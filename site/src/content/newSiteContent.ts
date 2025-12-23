@@ -1,9 +1,9 @@
 export const siteContent = {
   home: {
     hero: {
-      title: "Decision Infrastructure for Modern Asset Management",
+      title: "Governance-Native Decision Infrastructure",
       subtitle:
-        "WAVES Intelligence™ delivers the decision infrastructure. WAVES™ portfolios demonstrate its effectiveness under live conditions. One integrated system—platform transparency and real-world proof.",
+        "WAVES Intelligence™ is institutional decision infrastructure built for transparency, benchmark integrity, and governance-first operations. WAVES™ portfolios operate as live proof—demonstrating disciplined, risk-aware execution under real market conditions. One system: infrastructure credibility and portfolio performance validation.",
       ctaText: "Request Institutional Demo",
       ctaLink: "/demo",
       secondaryCtaText: "View Platform Screens",
@@ -12,97 +12,97 @@ export const siteContent = {
     proofStrip: [
       {
         icon: "📊",
-        title: "Platform Intelligence",
-        description: "WAVES Intelligence™ provides complete transparency into portfolio construction, exposures, and decision rationale.",
+        title: "Decision Infrastructure Platform",
+        description: "Complete transparency into portfolio construction logic, multi-dimensional exposures, and decision rationale—governance-native architecture at every layer.",
       },
       {
         icon: "🎯",
-        title: "Live Demonstration",
-        description: "WAVES™ portfolios operate under live conditions, proving the platform's disciplined decision-making.",
+        title: "Portfolios as Proof Engine",
+        description: "WAVES™ portfolios demonstrate platform effectiveness through disciplined, benchmark-aware execution under live market conditions—not backtests, real proof.",
       },
       {
         icon: "🔍",
-        title: "Exposure Clarity",
-        description: "Platform delivers real-time visibility into portfolio exposures and risk concentrations.",
+        title: "Institutional Exposure Analytics",
+        description: "Real-time multi-factor visibility across sectors, styles, and risk dimensions—integrated risk overlays ensure governance controls remain operational.",
       },
       {
         icon: "⚖️",
-        title: "Governance Integration",
-        description: "Complete audit trails across both platform infrastructure and live portfolio operations.",
+        title: "Governance by Design",
+        description: "Audit trails, compliance frameworks, and benchmark integrity controls built into infrastructure—not compliance add-ons, foundational governance.",
       },
       {
         icon: "📈",
-        title: "Attribution Precision",
-        description: "Platform-powered analytics demonstrate what WAVES™ portfolio decisions produce.",
+        title: "Benchmark-Disciplined Attribution",
+        description: "Factor-level decomposition reveals what systematic decisions produce—platform analytics demonstrate portfolio outcomes with institutional precision.",
       },
       {
         icon: "🔒",
-        title: "Unified System",
-        description: "Integrated approach—license the platform infrastructure, engage with live portfolio mandates, or both.",
+        title: "Modular Engagement Options",
+        description: "License decision infrastructure, access WAVES™ portfolios as live mandates, or integrate both—flexible institutional adoption pathways.",
       },
     ],
     howItWorks: {
       title: "How It Works",
-      subtitle: "Integrated decision infrastructure with live portfolio proof",
+      subtitle: "Governance-native infrastructure validated through live portfolio execution",
       steps: [
         {
           number: 1,
-          title: "Platform Foundation",
+          title: "Infrastructure Foundation",
           description:
-            "WAVES Intelligence™ provides the decision infrastructure—ingesting data, normalizing across sources, and delivering transparency into portfolio construction and governance.",
+            "WAVES Intelligence™ provides institutional decision infrastructure—ingesting data across sources, normalizing for systematic consistency, delivering complete transparency into portfolio construction, exposures, and governance. Benchmark-disciplined architecture ensures institutional integrity at every layer.",
           icon: "📥",
         },
         {
           number: 2,
-          title: "Live Demonstration",
+          title: "Live Portfolio Validation",
           description:
-            "WAVES™ portfolios operate as real-life proof of the platform's effectiveness. Disciplined, risk-aware decision-making demonstrated under live market conditions.",
+            "WAVES™ portfolios operate as proof engine—demonstrating platform effectiveness through disciplined execution under real market conditions. Not theoretical models or backtested simulations—live validation of risk-aware, governance-first decision-making infrastructure.",
           icon: "⚙️",
         },
         {
           number: 3,
-          title: "Institutional Engagement",
+          title: "Institutional Deployment",
           description:
-            "Institutions can license WAVES Intelligence™ as decision infrastructure, engage with WAVES™ portfolios as live mandates, or pursue both in an integrated approach.",
+            "Institutions engage through flexible pathways: license WAVES Intelligence™ as decision infrastructure for internal operations, access WAVES™ portfolios as externally-managed mandates, or integrate both for comprehensive institutional deployment—modular architecture supports diverse engagement models.",
           icon: "📊",
         },
       ],
     },
     audience: {
       title: "Built for Institutional Decision-Makers",
-      subtitle: "Platform infrastructure and live portfolio proof, integrated for institutional needs",
+      subtitle: "Decision infrastructure and portfolio proof—unified for institutional governance and operational excellence",
       columns: [
         {
           title: "CIO / Investment Committee",
           description:
-            "WAVES Intelligence™ provides oversight infrastructure. WAVES™ portfolios demonstrate disciplined decision-making under live conditions. Full transparency across both.",
+            "WAVES Intelligence™ delivers oversight infrastructure for institutional decision-making. WAVES™ portfolios demonstrate governance-disciplined execution under live conditions. Complete transparency across platform operations and portfolio construction—institutional accountability at every level.",
           icon: "👔",
           benefits: [
-            "Platform-powered exposure and attribution analytics",
-            "WAVES™ portfolios as live proof of risk-aware decisions",
-            "Governance frameworks spanning infrastructure and mandates",
+            "Multi-dimensional exposure analytics and factor attribution at institutional precision",
+            "WAVES™ portfolios as live validation of benchmark-aware, risk-disciplined decisions",
+            "Governance frameworks spanning infrastructure operations and portfolio mandates",
           ],
         },
         {
           title: "Risk / Oversight",
           description:
-            "Platform delivers continuous exposure monitoring and audit trails. WAVES™ portfolios operate within those controls, proving institutional governance in action.",
+            "Platform provides continuous exposure monitoring, real-time compliance validation, and complete audit trails. WAVES™ portfolios operate within institutional controls—proving governance frameworks function under live market conditions, not theoretical models.",
           icon: "🛡️",
           benefits: [
-            "Real-time platform risk monitoring",
-            "WAVES™ portfolio compliance demonstration",
-            "Integrated audit documentation",
+            "Real-time platform risk monitoring with multi-factor exposure decomposition",
+            "WAVES™ portfolio compliance demonstration through systematic governance controls",
+            "Integrated audit documentation spanning infrastructure and mandate operations",
           ],
         },
         {
-          title: "Engagement Options",
+          title: "Flexible Institutional Adoption",
           description:
-            "License the decision infrastructure, engage WAVES™ portfolios as live mandates, or integrate both offerings for comprehensive institutional solutions.",
+            "Modular engagement pathways: license decision infrastructure for internal deployment, access WAVES™ portfolios as externally-managed mandates, or integrate both for comprehensive institutional solutions. Architecture supports acquisition, partnership, and bespoke deployment models.",
           icon: "🔧",
           benefits: [
-            "Platform-as-infrastructure licensing",
-            "WAVES™ live mandate access",
-            "Unified, integrated deployment",
+            "Platform-as-infrastructure licensing for internal institutional operations",
+            "WAVES™ mandate access—outsourced execution with full governance transparency",
+            "Unified deployment options supporting acquisition and integration scenarios",
           ],
         },
       ],
@@ -112,7 +112,7 @@ export const siteContent = {
     hero: {
       title: "Platform Screens",
       subtitle:
-        "WAVES Intelligence™ delivers comprehensive portfolio analytics and governance. WAVES™ portfolios leverage this infrastructure in live operation.",
+        "WAVES Intelligence™ delivers institutional-grade portfolio analytics, governance infrastructure, and decision transparency. WAVES™ portfolios leverage this infrastructure to demonstrate disciplined execution under live market conditions.",
     },
     screenshots: [
       {
@@ -120,9 +120,9 @@ export const siteContent = {
         alt: "Portfolio Dashboard",
         title: "Portfolio Dashboard",
         bullets: [
-          "Real-time positions and exposures across all strategies—the same analytics powering WAVES™ portfolios",
-          "Multi-dimensional views demonstrating platform transparency and decision infrastructure",
-          "Integrated risk overlays showing how WAVES™ portfolios operate within governance frameworks",
+          "Real-time positions and multi-dimensional exposures across all strategies—institutional visibility powering WAVES™ portfolio operations and available for licensing",
+          "Governance-native analytics with customizable views demonstrating platform transparency and benchmark-disciplined decision infrastructure at every layer",
+          "Integrated risk overlays showing how WAVES™ portfolios operate within institutional governance frameworks—compliance by design, not compliance add-ons",
         ],
       },
       {
@@ -130,9 +130,9 @@ export const siteContent = {
         alt: "Attribution Analysis",
         title: "Attribution Analysis",
         bullets: [
-          "Factor-level decomposition explaining portfolio returns—WAVES Intelligence™ reveals how decisions perform",
-          "Benchmark comparison showing what WAVES™ portfolios produce through disciplined execution",
-          "Time-series attribution demonstrating platform-driven performance insights under live conditions",
+          "Factor-level return decomposition revealing portfolio performance drivers—WAVES Intelligence™ demonstrates what systematic decisions produce with institutional precision",
+          "Benchmark comparison analytics showing what WAVES™ portfolios deliver through governance-disciplined execution—active return attribution at factor granularity",
+          "Time-series performance insights demonstrating platform-driven attribution under live market conditions—not backtested theory, validated proof of decision infrastructure",
         ],
       },
       {
@@ -140,9 +140,9 @@ export const siteContent = {
         alt: "Governance Console",
         title: "Governance Console",
         bullets: [
-          "Complete audit trails across platform infrastructure and WAVES™ portfolio operations",
-          "Policy compliance monitoring demonstrating institutional governance in action",
-          "Board-ready documentation integrating platform analytics and live mandate performance",
+          "Complete audit trails spanning platform infrastructure and WAVES™ portfolio operations—institutional accountability from data ingestion through execution",
+          "Real-time policy compliance monitoring demonstrating governance frameworks function under live conditions—systematic integrity verification at every decision point",
+          "Board-ready documentation integrating platform analytics and mandate performance—unified reporting for oversight committees and regulatory compliance requirements",
         ],
       },
     ],
@@ -151,64 +151,64 @@ export const siteContent = {
     hero: {
       title: "Why WAVES Intelligence™",
       subtitle:
-        "One system, two proofs—decision infrastructure and live portfolio performance working together.",
+        "Governance-native infrastructure validated through live portfolio execution—decision transparency and performance proof unified in one institutional system.",
     },
     reasons: [
       {
-        title: "Platform + Portfolios = Integrated System",
+        title: "Infrastructure + Proof = Institutional Credibility",
         description:
-          "WAVES Intelligence™ explains how decisions are made. WAVES™ portfolios demonstrate what those decisions produce. Together, they provide both infrastructure transparency and live proof of disciplined execution.",
+          "WAVES Intelligence™ reveals decision logic through complete transparency. WAVES™ portfolios demonstrate what that infrastructure produces under live market conditions. Together: infrastructure credibility and execution validation—not theory, operational proof at institutional scale.",
         icon: "🎯",
       },
       {
-        title: "Decision Infrastructure",
+        title: "Governance-Native Architecture",
         description:
-          "The platform delivers complete transparency into portfolio construction, exposure analysis, attribution, and governance. Institutions can license this infrastructure for their own decision-making.",
+          "Platform delivers benchmark integrity controls, multi-factor exposure analytics, systematic attribution, and audit trails—governance built into every layer, not compliance add-ons. Institutions license this infrastructure for internal decision-making with full operational transparency.",
         icon: "⚖️",
       },
       {
-        title: "Live Portfolio Proof",
+        title: "Portfolios as Proof Engine",
         description:
-          "WAVES™ portfolios operate under real market conditions, demonstrating the platform's effectiveness. Not speculative products—live proofs of risk-aware, disciplined decision-making.",
+          "WAVES™ portfolios operate under real market conditions—demonstrating platform effectiveness through disciplined, benchmark-aware execution. Not speculative products or backtested models—live proof of risk-aware, governance-first institutional decision infrastructure.",
         icon: "🔍",
       },
       {
-        title: "Flexible Engagement",
+        title: "Modular Institutional Engagement",
         description:
-          "Institutions can engage with WAVES Intelligence™ as licensed infrastructure, WAVES™ portfolios as live mandates, or both in a deeply integrated approach tailored to institutional needs.",
+          "Flexible adoption pathways: license WAVES Intelligence™ as decision infrastructure, access WAVES™ portfolios as externally-managed mandates, or integrate both for comprehensive deployment. Architecture supports acquisition scenarios, partnership models, and bespoke institutional requirements.",
         icon: "⚙️",
       },
       {
-        title: "Governance-First Architecture",
+        title: "Benchmark Integrity by Design",
         description:
-          "Platform and portfolios share the same institutional governance frameworks—audit trails, benchmark integrity controls, and regulatory compliance built into every layer.",
+          "Platform and portfolios share systematic governance frameworks—benchmark alignment verification, risk limit controls, and regulatory compliance embedded at infrastructure level. No black-box models—transparent decision-making with institutional accountability throughout.",
         icon: "📈",
       },
       {
-        title: "Unified Transparency",
+        title: "Complete Operational Transparency",
         description:
-          "Complete visibility across both platform infrastructure and WAVES™ portfolio operations. No black boxes—understand exactly how the system works and what it delivers.",
+          "End-to-end visibility spanning platform infrastructure and WAVES™ portfolio operations. Audit trails from data ingestion through execution. Understand exactly how decisions are made, what they produce, and why outcomes occur—institutional oversight at every decision point.",
         icon: "🔧",
       },
     ],
     differentiators: {
-      title: "How We're Different",
-      subtitle: "Integrated infrastructure and live proof—not a robo-advisor, not a backtesting tool, not a stock-picker.",
+      title: "How WAVES™ Are Different",
+      subtitle: "Decision infrastructure with portfolio validation—not advisory tools, not backtesting platforms, not stock-picking services.",
       points: [
         {
-          title: "Platform and Portfolios Unified",
+          title: "Infrastructure + Portfolios Unified",
           description:
-            "WAVES Intelligence™ provides the decision infrastructure. WAVES™ portfolios demonstrate its effectiveness. Both reinforce each other in an integrated system.",
+            "WAVES Intelligence™ provides governance-native decision infrastructure. WAVES™ portfolios demonstrate effectiveness through live execution. Both reinforce institutional credibility—infrastructure transparency validated by portfolio performance proof.",
         },
         {
-          title: "Governance-Focused",
+          title: "Governance-First, Not Compliance Add-Ons",
           description:
-            "Audit trails, compliance controls, and institutional oversight frameworks across both platform operations and live portfolio mandates.",
+            "Benchmark integrity controls, audit trails, and compliance frameworks embedded at infrastructure level—spanning platform operations and portfolio mandates. Governance by design drives institutional accountability, not retrofitted compliance tooling.",
         },
         {
-          title: "Infrastructure, Not Advice",
+          title: "Decision Infrastructure, Not Investment Advice",
           description:
-            "We provide decision transparency and governance tooling—not investment advice or performance guarantees. WAVES™ portfolios are proofs of disciplined execution, not speculative products.",
+            "We provide transparency, governance frameworks, and analytical infrastructure—not investment recommendations or performance guarantees. WAVES™ portfolios are institutional proof points demonstrating disciplined execution, not speculative financial products.",
         },
       ],
     },
@@ -217,12 +217,136 @@ export const siteContent = {
     hero: {
       title: "Request Institutional Demo",
       subtitle:
-        "Experience the integrated system—WAVES Intelligence™ decision infrastructure and WAVES™ portfolios operating together under live conditions.",
+        "Experience governance-native decision infrastructure—WAVES Intelligence™ platform capabilities and WAVES™ portfolio execution demonstrated through comprehensive institutional walkthrough.",
     },
     form: {
       title: "Schedule a Demo",
       subtitle:
-        "Our team will provide a comprehensive walkthrough of the platform's decision infrastructure and demonstrate how WAVES™ portfolios leverage that infrastructure in live operation.",
+        "Our team will provide institutional-grade platform walkthrough demonstrating decision infrastructure, governance frameworks, and analytics capabilities—plus live WAVES™ portfolio operations showing platform effectiveness under real market conditions.",
     },
+  },
+  institutionalCare: {
+    title: "Why Institutions Care",
+    subtitle: "Oppositional clarity: what WAVES Intelligence™ delivers versus market alternatives",
+    points: [
+      {
+        oppose: "Black-Box Models",
+        position: "Complete Transparency",
+        description:
+          "Many platforms obscure decision logic behind proprietary algorithms. WAVES Intelligence™ delivers complete visibility into portfolio construction, factor exposures, and decision rationale—institutional accountability requires transparency, not opacity.",
+      },
+      {
+        oppose: "Compliance Add-Ons",
+        position: "Governance by Design",
+        description:
+          "Traditional systems retrofit compliance tools onto existing infrastructure. WAVES™ embeds governance at foundational level—benchmark integrity controls, audit trails, and risk limits built into architecture, not bolted on afterward.",
+      },
+      {
+        oppose: "Backtested Simulations",
+        position: "Live Portfolio Proof",
+        description:
+          "Most platforms showcase historical backtests optimized for past data. WAVES™ portfolios operate under real market conditions—demonstrating platform effectiveness through disciplined execution, not curve-fitted theoretical models.",
+      },
+      {
+        oppose: "Feature Marketing",
+        position: "Outcome Focus",
+        description:
+          "Software vendors emphasize feature lists and UI capabilities. WAVES Intelligence™ prioritizes institutional outcomes—governance assurance, benchmark discipline, risk awareness, and decision accountability at operational scale.",
+      },
+      {
+        oppose: "Vendor Lock-In",
+        position: "Modular Architecture",
+        description:
+          "Proprietary platforms create dependency through closed ecosystems. WAVES™ provides modular engagement—license infrastructure, access portfolios, or integrate both. Architecture supports acquisition scenarios and partnership models.",
+      },
+      {
+        oppose: "Performance Guarantees",
+        position: "Infrastructure Credibility",
+        description:
+          "Sales-driven platforms promise returns and alpha generation. WAVES Intelligence™ provides decision infrastructure and transparency—institutions control deployment, we demonstrate systematic discipline through WAVES™ portfolio operations.",
+      },
+    ],
+  },
+  wavesDistinction: {
+    title: "How WAVES™ Are Different",
+    subtitle: "Portfolios as proof points—live validation of institutional decision infrastructure",
+    intro:
+      "WAVES™ portfolios are not financial products marketed for returns—they are operational proof demonstrating platform effectiveness under live market conditions. Every portfolio validates decision infrastructure credibility through disciplined, benchmark-aware execution.",
+    distinctions: [
+      {
+        title: "Proof Engine, Not Product Line",
+        description:
+          "WAVES™ portfolios demonstrate what governance-native infrastructure produces. Each strategy operates as validation: Growth wave proves systematic construction logic, Value wave demonstrates benchmark discipline, Defensive wave shows risk-aware positioning. Together, they validate platform credibility at institutional scale.",
+      },
+      {
+        title: "Live Conditions, Not Backtests",
+        description:
+          "Portfolio operations occur under real market conditions—transaction costs, liquidity constraints, regulatory requirements, and governance controls fully operational. Not theoretical simulations optimized for historical data—actual proof of decision infrastructure functioning under institutional requirements.",
+      },
+      {
+        title: "Governance Validation Through Execution",
+        description:
+          "WAVES™ portfolios operate within same governance frameworks available to licensing institutions—risk limits, compliance monitoring, audit trails, benchmark integrity controls. Live operations prove these frameworks function systematically, not just theoretically.",
+      },
+      {
+        title: "Systematic Discipline Over Discretionary Calls",
+        description:
+          "Every portfolio decision follows platform-defined logic—no override authority, no discretionary adjustments, no after-the-fact rationalization. Systematic execution demonstrates infrastructure consistency: what the platform specifies is what portfolios execute.",
+      },
+      {
+        title: "Benchmark Awareness Throughout",
+        description:
+          "Each WAVES™ portfolio maintains systematic relationship with benchmark—tracking error controls, sector deviation limits, factor exposure boundaries. Platform ensures benchmark discipline remains operational under live conditions, demonstrating institutional risk management at portfolio level.",
+      },
+      {
+        title: "Attribution as Infrastructure Proof",
+        description:
+          "Factor-level attribution reveals what portfolio decisions produce—not marketing claims, measurable outcomes. Platform analytics demonstrate security selection contribution, sector allocation impact, style factor influence—proving decision infrastructure delivers institutional-grade transparency.",
+      },
+    ],
+  },
+  acquisitionIntegration: {
+    title: "Built for Acquisition & Integration",
+    subtitle: "Modular architecture designed for institutional adoption, partnership, and M&A scenarios",
+    intro:
+      "WAVES Intelligence™ architecture anticipates institutional acquisition, partnership models, and bespoke deployment requirements. System design supports flexible engagement—from licensing to full integration.",
+    capabilities: [
+      {
+        title: "Licensing & White-Label Deployment",
+        description:
+          "Platform infrastructure available for licensing—institutions deploy decision infrastructure internally under their brand. Complete access to analytics, governance frameworks, and attribution systems. White-label configuration supports institutional branding requirements.",
+        icon: "🏢",
+      },
+      {
+        title: "API-First Architecture",
+        description:
+          "RESTful APIs expose core platform capabilities—portfolio construction logic, exposure analytics, attribution computation, governance monitoring. Institutions integrate WAVES™ infrastructure into existing technology ecosystems without forced migration to proprietary systems.",
+        icon: "🔌",
+      },
+      {
+        title: "Data Sovereignty & Control",
+        description:
+          "Architecture supports on-premise deployment or private cloud hosting—institutions maintain complete data sovereignty. No forced data sharing, no vendor access requirements. Platform operates within institutional security perimeters and compliance boundaries.",
+        icon: "🔒",
+      },
+      {
+        title: "Modular Component Adoption",
+        description:
+          "Institutions adopt specific platform components—attribution engine only, governance console separately, exposure analytics independently. No forced full-platform adoption. Modular design supports phased deployment and selective capability integration.",
+        icon: "🧩",
+      },
+      {
+        title: "Partnership & Co-Development Models",
+        description:
+          "Architecture accommodates partnership arrangements—joint ventures, revenue sharing agreements, co-branded offerings. Platform design supports collaborative deployment where institutions and WAVES™ share infrastructure operations and commercial outcomes.",
+        icon: "🤝",
+      },
+      {
+        title: "Acquisition-Ready Structure",
+        description:
+          "Clean code architecture, documented APIs, modular component design, and operational independence support M&A scenarios. Institutional acquirers integrate platform capabilities without legacy technical debt or proprietary vendor dependencies.",
+        icon: "📋",
+      },
+    ],
   },
 };

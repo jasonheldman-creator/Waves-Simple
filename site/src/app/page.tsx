@@ -2,6 +2,9 @@ import Hero from "@/components/Hero";
 import ProofStrip from "@/components/ProofStrip";
 import HowItWorks from "@/components/HowItWorks";
 import Audience from "@/components/Audience";
+import InstitutionalCare from "@/components/InstitutionalCare";
+import WavesDistinction from "@/components/WavesDistinction";
+import AcquisitionIntegration from "@/components/AcquisitionIntegration";
 import { siteContent } from "@/content/newSiteContent";
 
 export default function Home() {
@@ -28,6 +31,26 @@ export default function Home() {
         title={siteContent.home.audience.title}
         subtitle={siteContent.home.audience.subtitle}
         columns={siteContent.home.audience.columns}
+      />
+      
+      <InstitutionalCare
+        title={siteContent.institutionalCare.title}
+        subtitle={siteContent.institutionalCare.subtitle}
+        points={siteContent.institutionalCare.points}
+      />
+      
+      <WavesDistinction
+        title={siteContent.wavesDistinction.title}
+        subtitle={siteContent.wavesDistinction.subtitle}
+        intro={siteContent.wavesDistinction.intro}
+        distinctions={siteContent.wavesDistinction.distinctions}
+      />
+      
+      <AcquisitionIntegration
+        title={siteContent.acquisitionIntegration.title}
+        subtitle={siteContent.acquisitionIntegration.subtitle}
+        intro={siteContent.acquisitionIntegration.intro}
+        capabilities={siteContent.acquisitionIntegration.capabilities}
       />
     </main>
   );
