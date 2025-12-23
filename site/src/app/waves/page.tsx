@@ -27,7 +27,7 @@ export default function WavesPage() {
           </p>
         </div>
       </section>
-      <WaveCards count={15} />
+      <WaveCards />
       <CallToAction
         title={siteContent.cta.default.title}
         description={siteContent.cta.default.description}
