@@ -225,4 +225,128 @@ export const siteContent = {
         "Our team will provide institutional-grade platform walkthrough demonstrating decision infrastructure, governance frameworks, and analytics capabilities—plus live WAVES™ portfolio operations showing platform effectiveness under real market conditions.",
     },
   },
+  institutionalCare: {
+    title: "Why Institutions Care",
+    subtitle: "Oppositional clarity: what WAVES Intelligence™ delivers versus market alternatives",
+    points: [
+      {
+        oppose: "Black-Box Models",
+        position: "Complete Transparency",
+        description:
+          "Many platforms obscure decision logic behind proprietary algorithms. WAVES Intelligence™ delivers complete visibility into portfolio construction, factor exposures, and decision rationale—institutional accountability requires transparency, not opacity.",
+      },
+      {
+        oppose: "Compliance Add-Ons",
+        position: "Governance by Design",
+        description:
+          "Traditional systems retrofit compliance tools onto existing infrastructure. WAVES™ embeds governance at foundational level—benchmark integrity controls, audit trails, and risk limits built into architecture, not bolted on afterward.",
+      },
+      {
+        oppose: "Backtested Simulations",
+        position: "Live Portfolio Proof",
+        description:
+          "Most platforms showcase historical backtests optimized for past data. WAVES™ portfolios operate under real market conditions—demonstrating platform effectiveness through disciplined execution, not curve-fitted theoretical models.",
+      },
+      {
+        oppose: "Feature Marketing",
+        position: "Outcome Focus",
+        description:
+          "Software vendors emphasize feature lists and UI capabilities. WAVES Intelligence™ prioritizes institutional outcomes—governance assurance, benchmark discipline, risk awareness, and decision accountability at operational scale.",
+      },
+      {
+        oppose: "Vendor Lock-In",
+        position: "Modular Architecture",
+        description:
+          "Proprietary platforms create dependency through closed ecosystems. WAVES™ provides modular engagement—license infrastructure, access portfolios, or integrate both. Architecture supports acquisition scenarios and partnership models.",
+      },
+      {
+        oppose: "Performance Guarantees",
+        position: "Infrastructure Credibility",
+        description:
+          "Sales-driven platforms promise returns and alpha generation. WAVES Intelligence™ provides decision infrastructure and transparency—institutions control deployment, we demonstrate systematic discipline through WAVES™ portfolio operations.",
+      },
+    ],
+  },
+  wavesDistinction: {
+    title: "How WAVES™ Are Different",
+    subtitle: "Portfolios as proof points—live validation of institutional decision infrastructure",
+    intro:
+      "WAVES™ portfolios are not financial products marketed for returns—they are operational proof demonstrating platform effectiveness under live market conditions. Every portfolio validates decision infrastructure credibility through disciplined, benchmark-aware execution.",
+    distinctions: [
+      {
+        title: "Proof Engine, Not Product Line",
+        description:
+          "WAVES™ portfolios demonstrate what governance-native infrastructure produces. Each strategy operates as validation: Growth wave proves systematic construction logic, Value wave demonstrates benchmark discipline, Defensive wave shows risk-aware positioning. Together, they validate platform credibility at institutional scale.",
+      },
+      {
+        title: "Live Conditions, Not Backtests",
+        description:
+          "Portfolio operations occur under real market conditions—transaction costs, liquidity constraints, regulatory requirements, and governance controls fully operational. Not theoretical simulations optimized for historical data—actual proof of decision infrastructure functioning under institutional requirements.",
+      },
+      {
+        title: "Governance Validation Through Execution",
+        description:
+          "WAVES™ portfolios operate within same governance frameworks available to licensing institutions—risk limits, compliance monitoring, audit trails, benchmark integrity controls. Live operations prove these frameworks function systematically, not just theoretically.",
+      },
+      {
+        title: "Systematic Discipline Over Discretionary Calls",
+        description:
+          "Every portfolio decision follows platform-defined logic—no override authority, no discretionary adjustments, no after-the-fact rationalization. Systematic execution demonstrates infrastructure consistency: what the platform specifies is what portfolios execute.",
+      },
+      {
+        title: "Benchmark Awareness Throughout",
+        description:
+          "Each WAVES™ portfolio maintains systematic relationship with benchmark—tracking error controls, sector deviation limits, factor exposure boundaries. Platform ensures benchmark discipline remains operational under live conditions, demonstrating institutional risk management at portfolio level.",
+      },
+      {
+        title: "Attribution as Infrastructure Proof",
+        description:
+          "Factor-level attribution reveals what portfolio decisions produce—not marketing claims, measurable outcomes. Platform analytics demonstrate security selection contribution, sector allocation impact, style factor influence—proving decision infrastructure delivers institutional-grade transparency.",
+      },
+    ],
+  },
+  acquisitionIntegration: {
+    title: "Built for Acquisition & Integration",
+    subtitle: "Modular architecture designed for institutional adoption, partnership, and M&A scenarios",
+    intro:
+      "WAVES Intelligence™ architecture anticipates institutional acquisition, partnership models, and bespoke deployment requirements. System design supports flexible engagement—from licensing to full integration.",
+    capabilities: [
+      {
+        title: "Licensing & White-Label Deployment",
+        description:
+          "Platform infrastructure available for licensing—institutions deploy decision infrastructure internally under their brand. Complete access to analytics, governance frameworks, and attribution systems. White-label configuration supports institutional branding requirements.",
+        icon: "🏢",
+      },
+      {
+        title: "API-First Architecture",
+        description:
+          "RESTful APIs expose core platform capabilities—portfolio construction logic, exposure analytics, attribution computation, governance monitoring. Institutions integrate WAVES™ infrastructure into existing technology ecosystems without forced migration to proprietary systems.",
+        icon: "🔌",
+      },
+      {
+        title: "Data Sovereignty & Control",
+        description:
+          "Architecture supports on-premise deployment or private cloud hosting—institutions maintain complete data sovereignty. No forced data sharing, no vendor access requirements. Platform operates within institutional security perimeters and compliance boundaries.",
+        icon: "🔒",
+      },
+      {
+        title: "Modular Component Adoption",
+        description:
+          "Institutions adopt specific platform components—attribution engine only, governance console separately, exposure analytics independently. No forced full-platform adoption. Modular design supports phased deployment and selective capability integration.",
+        icon: "🧩",
+      },
+      {
+        title: "Partnership & Co-Development Models",
+        description:
+          "Architecture accommodates partnership arrangements—joint ventures, revenue sharing agreements, co-branded offerings. Platform design supports collaborative deployment where institutions and WAVES™ share infrastructure operations and commercial outcomes.",
+        icon: "🤝",
+      },
+      {
+        title: "Acquisition-Ready Structure",
+        description:
+          "Clean code architecture, documented APIs, modular component design, and operational independence support M&A scenarios. Institutional acquirers integrate platform capabilities without legacy technical debt or proprietary vendor dependencies.",
+        icon: "📋",
+      },
+    ],
+  },
 };
