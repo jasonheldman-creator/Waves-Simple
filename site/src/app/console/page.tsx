@@ -93,21 +93,24 @@ export default function ConsolePage() {
 
               <div className="mt-8 p-4 rounded-lg bg-gray-800/50 border border-gray-700">
                 <p className="text-sm text-gray-400">
-                  For institutional access and onboarding, contact: <span className="text-cyan-400 font-semibold">jasonheldman-creator</span>
+                  {siteContent.console.accessRequest.description}
+                </p>
+                <p className="text-sm text-gray-400 mt-2">
+                  Contact: <span className="text-cyan-400 font-semibold">{siteContent.console.accessRequest.contact}</span>
                 </p>
               </div>
               <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:justify-center">
                 <Link
-                  href="/"
+                  href="/contact"
                   className="rounded-md bg-gradient-to-r from-cyan-500 to-green-500 px-8 py-3 text-base font-semibold text-black transition-all hover:from-cyan-400 hover:to-green-400"
                 >
-                  Return Home
+                  Request Access
                 </Link>
                 <Link
-                  href="/contact"
+                  href="/architecture"
                   className="rounded-md border border-cyan-500 px-8 py-3 text-base font-semibold text-cyan-400 transition-all hover:bg-cyan-500/10"
                 >
-                  Contact Team
+                  Review Architecture
                 </Link>
               </div>
             </div>
