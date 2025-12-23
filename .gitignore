@@ -53,3 +53,4 @@ data/events_cache.json
 # Data files (optional - uncomment if needed)
 # *.csv
 # *.xlsx
+.archived_rollbacks/

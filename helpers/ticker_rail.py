@@ -317,12 +317,25 @@ def render_bottom_ticker_v3(
         # Generate HTML
         ticker_html = render_ticker_rail_html(ticker_items)
         
-        # Render to Streamlit
-        st.markdown(ticker_html, unsafe_allow_html=True)
+        # Render to Streamlit using st.html() for safe rendering
+        try:
+            st.html(ticker_html)
+        except (AttributeError, TypeError) as st_html_error:
+            # Fallback to components.html if st.html not available
+            try:
+                import streamlit.components.v1 as components
+                components.html(ticker_html, height=60, scrolling=False)
+            except (ImportError, TypeError, ValueError) as comp_error:
+                # Log error and use minimal fallback
+                import logging
+                logging.warning(f"Ticker rail HTML rendering failed: st.html={st_html_error}, components={comp_error}")
         
-    except Exception as e:
-        # Fail silently - don't disrupt the app if ticker bar fails
-        # Optionally log error for debugging
+    except Exception as ticker_error:
+        # Fail gracefully - don't disrupt the app if ticker bar fails
+        import logging
+        logging.warning(f"Ticker rail generation failed: {ticker_error}")
+        
+        # Optionally show minimal fallback ticker
         try:
             # Minimal fallback ticker
             fallback_html = """
@@ -345,6 +358,10 @@ def render_bottom_ticker_v3(
                 WAVES INSTITUTIONAL CONSOLE • ONLINE
             </div>
             """
-            st.markdown(fallback_html, unsafe_allow_html=True)
+            try:
+                st.html(fallback_html)
+            except (AttributeError, TypeError) as fallback_error:
+                # Final fallback: do nothing rather than crash
+                logging.debug(f"Could not render fallback ticker bar: {fallback_error}")
         except Exception:
             pass  # Ultimate fail-safe: do nothing
