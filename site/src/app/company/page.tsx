@@ -5,7 +5,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Company - WAVES Intelligence",
-  description: "Building the future of institutional portfolio analytics and decision intelligence.",
+  description:
+    "Building the future of institutional portfolio analytics and decision intelligence.",
 };
 
 export default function CompanyPage() {

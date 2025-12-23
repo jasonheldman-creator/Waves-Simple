@@ -57,22 +57,26 @@ export const siteContent = {
     features: [
       {
         title: "Wave Registry",
-        description: "Centralized repository of investment strategies with canonical identifiers, metadata taxonomy, and complete strategy documentation for institutional governance.",
+        description:
+          "Centralized repository of investment strategies with canonical identifiers, metadata taxonomy, and complete strategy documentation for institutional governance.",
         icon: "🌊",
       },
       {
         title: "Performance Analytics",
-        description: "Rigorous performance measurement with multi-period attribution, factor decomposition, and risk-adjusted return analysis across strategies and time horizons.",
+        description:
+          "Rigorous performance measurement with multi-period attribution, factor decomposition, and risk-adjusted return analysis across strategies and time horizons.",
         icon: "📈",
       },
       {
         title: "Mission Control",
-        description: "Real-time market regime identification and portfolio positioning analytics enabling dynamic capital allocation and tactical adjustments.",
+        description:
+          "Real-time market regime identification and portfolio positioning analytics enabling dynamic capital allocation and tactical adjustments.",
         icon: "🎛️",
       },
       {
         title: "Board Pack Generator",
-        description: "Automated institutional reporting with customizable templates, performance summaries, and governance documentation for investment committees.",
+        description:
+          "Automated institutional reporting with customizable templates, performance summaries, and governance documentation for investment committees.",
         icon: "📋",
       },
     ],
@@ -112,32 +116,38 @@ export const siteContent = {
     features: [
       {
         title: "End-to-End Encryption",
-        description: "All portfolio data encrypted in transit using TLS 1.3 and at rest using AES-256 encryption, with hardware security module (HSM) key management.",
+        description:
+          "All portfolio data encrypted in transit using TLS 1.3 and at rest using AES-256 encryption, with hardware security module (HSM) key management.",
         icon: "🔐",
       },
       {
         title: "Access Controls",
-        description: "Granular role-based access control (RBAC), mandatory multi-factor authentication (MFA), and session management for institutional user hierarchies.",
+        description:
+          "Granular role-based access control (RBAC), mandatory multi-factor authentication (MFA), and session management for institutional user hierarchies.",
         icon: "🔑",
       },
       {
         title: "Audit Trails",
-        description: "Comprehensive immutable logging of all system activities, user actions, and data access events for compliance verification and forensic analysis.",
+        description:
+          "Comprehensive immutable logging of all system activities, user actions, and data access events for compliance verification and forensic analysis.",
         icon: "📝",
       },
       {
         title: "Compliance",
-        description: "SOC 2 Type II certified operations, GDPR compliance, and support for institutional regulatory frameworks including SEC, FINRA, and fiduciary standards.",
+        description:
+          "SOC 2 Type II certified operations, GDPR compliance, and support for institutional regulatory frameworks including SEC, FINRA, and fiduciary standards.",
         icon: "✅",
       },
       {
         title: "Data Sovereignty",
-        description: "Geographic data residency options, jurisdiction-specific compliance controls, and privacy frameworks aligned with institutional requirements.",
+        description:
+          "Geographic data residency options, jurisdiction-specific compliance controls, and privacy frameworks aligned with institutional requirements.",
         icon: "🌍",
       },
       {
         title: "Regular Audits",
-        description: "Independent third-party security audits, penetration testing programs, and vulnerability assessments conducted on a continuous basis.",
+        description:
+          "Independent third-party security audits, penetration testing programs, and vulnerability assessments conducted on a continuous basis.",
         icon: "🛡️",
       },
     ],
@@ -153,22 +163,26 @@ export const siteContent = {
     values: [
       {
         title: "Rigor",
-        description: "Maintaining disciplined quantitative methods, comprehensive data validation, and institutional-grade analytical frameworks across all platform capabilities.",
+        description:
+          "Maintaining disciplined quantitative methods, comprehensive data validation, and institutional-grade analytical frameworks across all platform capabilities.",
       },
       {
         title: "Transparency",
-        description: "Ensuring complete visibility into methodology, performance attribution, and system operations through comprehensive documentation and audit trails.",
+        description:
+          "Ensuring complete visibility into methodology, performance attribution, and system operations through comprehensive documentation and audit trails.",
       },
       {
         title: "Precision",
-        description: "Delivering institutional-quality data accuracy, low-latency analytics, and consistent performance measurement across all portfolio dimensions.",
+        description:
+          "Delivering institutional-quality data accuracy, low-latency analytics, and consistent performance measurement across all portfolio dimensions.",
       },
     ],
   },
   press: {
     hero: {
       title: "Press & Media",
-      subtitle: "Announcements, institutional updates, and media resources from WAVES Intelligence.",
+      subtitle:
+        "Announcements, institutional updates, and media resources from WAVES Intelligence.",
     },
     description:
       "For press inquiries, media resources, institutional announcements, or interview requests, please contact our communications team through the channels below.",
@@ -176,7 +190,8 @@ export const siteContent = {
   contact: {
     hero: {
       title: "Contact Us",
-      subtitle: "Connect with our institutional team to discuss portfolio analytics, platform capabilities, and partnership opportunities.",
+      subtitle:
+        "Connect with our institutional team to discuss portfolio analytics, platform capabilities, and partnership opportunities.",
     },
     description:
       "Whether you represent an institutional investor, asset manager, or investment office seeking advanced portfolio analytics and decision intelligence, our team is available to discuss how WAVES Intelligence can support your requirements.",

@@ -25,9 +25,7 @@ export default function FeatureGrid({ features, columns = 3 }: FeatureGridProps)
               key={index}
               className="group rounded-lg border border-gray-800 bg-gray-900/50 p-6 transition-all hover:border-cyan-500/50 hover:bg-gray-900"
             >
-              {feature.icon && (
-                <div className="mb-4 text-4xl">{feature.icon}</div>
-              )}
+              {feature.icon && <div className="mb-4 text-4xl">{feature.icon}</div>}
               <h3 className="text-xl font-semibold text-white group-hover:text-cyan-400">
                 {feature.title}
               </h3>

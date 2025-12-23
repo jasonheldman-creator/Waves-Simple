@@ -12,16 +12,19 @@ This is the official marketing website for WAVES Intelligence, built with Next.j
 ### Local Development
 
 1. **Navigate to the site directory:**
+
    ```bash
    cd site
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Run the development server:**
+
    ```bash
    npm run dev
    ```
@@ -72,6 +75,7 @@ site/
 ## 🎨 Features
 
 ### Pages
+
 - **Home (/)**: Hero section, features grid, and call-to-action
 - **/platform**: Platform overview with features and screenshots
 - **/console**: Console access information
@@ -83,6 +87,7 @@ site/
 - **/contact**: Contact form with validation
 
 ### Components
+
 - **Navbar**: Sticky navigation with mobile menu and "Launch Console" CTA
 - **Footer**: Site-wide footer with links and information
 - **Hero**: Customizable hero sections with gradient backgrounds
@@ -94,6 +99,7 @@ site/
 - **ContactForm**: Validated contact form with API integration
 
 ### Design System
+
 - **Theme**: Dark institutional design with charcoal/black background
 - **Accents**: Cyan (#00ffff) and green (#00ff88) neon highlights
 - **Typography**: Premium, legible fonts (Geist Sans & Geist Mono)
@@ -127,9 +133,11 @@ npm run format:check
 ### API Routes
 
 #### POST /api/contact
+
 Contact form submission endpoint.
 
 **Request Body:**
+
 ```json
 {
   "name": "string",
@@ -140,6 +148,7 @@ Contact form submission endpoint.
 ```
 
 **Validation:**
+
 - All fields are required
 - Email must be valid format
 - Name: 2-100 characters
@@ -147,6 +156,7 @@ Contact form submission endpoint.
 - Message: 10-5000 characters
 
 **Response:**
+
 - Success: `{ "success": true, "message": "..." }`
 - Error: `{ "error": "error message" }`
 
@@ -177,18 +187,22 @@ No environment variables are required for basic operation. If you add external s
 ## 🌐 DNS Configuration
 
 ### Marketing Site
+
 Point your domain to the Next.js site:
 
 **Domain:** `wavesintelligence.com`
 **DNS Settings:**
+
 - Type: `A` or `CNAME`
 - Value: Your Vercel deployment URL
 
 ### Console Subdomain
+
 Point the console subdomain to your existing Streamlit app:
 
 **Domain:** `console.wavesintelligence.com`
 **DNS Settings:**
+
 - Type: `CNAME`
 - Value: Your Streamlit hosting URL
 
@@ -208,6 +222,7 @@ console.wavesintelligence.com  CNAME  your-streamlit-app.streamlit.app
 ## 📝 Content Management
 
 All site copy is managed in `src/content/siteContent.ts`. Edit this file to update:
+
 - Page titles and descriptions
 - Hero section content
 - Feature lists
@@ -217,6 +232,7 @@ All site copy is managed in `src/content/siteContent.ts`. Edit this file to upda
 ## 🎯 SEO Optimization
 
 Each page includes:
+
 - Custom title and description meta tags
 - Open Graph tags for social sharing
 - Semantic HTML structure
@@ -250,6 +266,7 @@ Each page includes:
 ## 📞 Support
 
 For questions or issues:
+
 - Technical: Review this README
 - Content: Edit `src/content/siteContent.ts`
 - Components: Check `src/components/`

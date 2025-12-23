@@ -6,7 +6,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Investment Waves - WAVES Intelligence",
-  description: "Strategic investment themes designed to capture alpha across different market conditions.",
+  description:
+    "Strategic investment themes designed to capture alpha across different market conditions.",
 };
 
 export default function WavesPage() {
@@ -22,9 +23,7 @@ export default function WavesPage() {
       />
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-lg text-gray-300">
-            {siteContent.waves.description}
-          </p>
+          <p className="text-lg text-gray-300">{siteContent.waves.description}</p>
         </div>
       </section>
       <WaveCards count={15} />

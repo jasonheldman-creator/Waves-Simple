@@ -12,11 +12,7 @@ export default function ArchitectureDiagram() {
         </div>
 
         <div className="mx-auto max-w-4xl">
-          <svg
-            viewBox="0 0 800 600"
-            className="w-full h-auto"
-            xmlns="http://www.w3.org/2000/svg"
-          >
+          <svg viewBox="0 0 800 600" className="w-full h-auto" xmlns="http://www.w3.org/2000/svg">
             {/* Background */}
             <rect width="800" height="600" fill="#0a0a0a" />
 
@@ -32,7 +28,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="400" y="90" textAnchor="middle" fill="#00ffff" fontSize="18" fontWeight="bold">
+              <text
+                x="400"
+                y="90"
+                textAnchor="middle"
+                fill="#00ffff"
+                fontSize="18"
+                fontWeight="bold"
+              >
                 Data Layer
               </text>
               <text x="400" y="115" textAnchor="middle" fill="#ededed" fontSize="14">
@@ -52,7 +55,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="160" y="240" textAnchor="middle" fill="#00ff88" fontSize="16" fontWeight="bold">
+              <text
+                x="160"
+                y="240"
+                textAnchor="middle"
+                fill="#00ff88"
+                fontSize="16"
+                fontWeight="bold"
+              >
                 Analytics Engine
               </text>
               <text x="160" y="265" textAnchor="middle" fill="#ededed" fontSize="12">
@@ -77,7 +87,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="400" y="240" textAnchor="middle" fill="#00ff88" fontSize="16" fontWeight="bold">
+              <text
+                x="400"
+                y="240"
+                textAnchor="middle"
+                fill="#00ff88"
+                fontSize="16"
+                fontWeight="bold"
+              >
                 Decision Engine
               </text>
               <text x="400" y="265" textAnchor="middle" fill="#ededed" fontSize="12">
@@ -102,7 +119,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="640" y="240" textAnchor="middle" fill="#00ff88" fontSize="16" fontWeight="bold">
+              <text
+                x="640"
+                y="240"
+                textAnchor="middle"
+                fill="#00ff88"
+                fontSize="16"
+                fontWeight="bold"
+              >
                 Reporting Layer
               </text>
               <text x="640" y="265" textAnchor="middle" fill="#ededed" fontSize="12">
@@ -128,7 +152,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="400" y="410" textAnchor="middle" fill="#00ffff" fontSize="18" fontWeight="bold">
+              <text
+                x="400"
+                y="410"
+                textAnchor="middle"
+                fill="#00ffff"
+                fontSize="18"
+                fontWeight="bold"
+              >
                 Presentation Layer
               </text>
               <text x="400" y="435" textAnchor="middle" fill="#ededed" fontSize="14">
@@ -148,7 +179,14 @@ export default function ArchitectureDiagram() {
                 strokeWidth="2"
                 rx="8"
               />
-              <text x="400" y="555" textAnchor="middle" fill="#ff6b6b" fontSize="16" fontWeight="bold">
+              <text
+                x="400"
+                y="555"
+                textAnchor="middle"
+                fill="#ff6b6b"
+                fontSize="16"
+                fontWeight="bold"
+              >
                 Security & Compliance Layer
               </text>
             </g>

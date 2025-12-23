@@ -6,7 +6,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Architecture - WAVES Intelligence",
-  description: "Enterprise-grade infrastructure designed for institutional performance, security, and scalability.",
+  description:
+    "Enterprise-grade infrastructure designed for institutional performance, security, and scalability.",
 };
 
 export default function ArchitecturePage() {
@@ -22,9 +23,7 @@ export default function ArchitecturePage() {
       />
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-lg text-gray-300">
-            {siteContent.architecture.description}
-          </p>
+          <p className="text-lg text-gray-300">{siteContent.architecture.description}</p>
         </div>
       </section>
       <ArchitectureDiagram />

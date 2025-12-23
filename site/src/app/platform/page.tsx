@@ -7,7 +7,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Platform - WAVES Intelligence",
-  description: "A comprehensive suite of tools designed for institutional portfolio management and analytics.",
+  description:
+    "A comprehensive suite of tools designed for institutional portfolio management and analytics.",
 };
 
 export default function PlatformPage() {
