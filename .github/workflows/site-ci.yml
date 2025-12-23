@@ -1,0 +1,41 @@
+name: Site CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [20]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: site/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./site
+        run: npm ci
+      
+      - name: Build site
+        working-directory: ./site
+        run: npm run build
+      
+      - name: Run linter
+        working-directory: ./site
+        run: npm run lint
+        continue-on-error: false

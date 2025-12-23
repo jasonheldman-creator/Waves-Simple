@@ -1,6 +1,17 @@
 # Waves-Simple
 WAVES Intelligence™ - Institutional Console v2
 
+## Live Site
+
+**Production URL:** Set in Vercel dashboard after deployment (see [DEPLOYMENT.md](DEPLOYMENT.md))
+
+**Preview URLs:** Automatically generated for each pull request
+- Preview URLs appear in GitHub PR checks under "Vercel – site"
+- Click "Details" on the Vercel check to visit the preview deployment
+- The Vercel bot also comments on PRs with direct deployment links
+
+For deployment setup and configuration, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Overview
 
 WAVES Intelligence™ provides advanced portfolio analytics, alpha attribution, and decision-making tools for institutional investors. The system tracks multiple investment "waves" with comprehensive performance metrics, risk analysis, and automated reporting.
