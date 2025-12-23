@@ -53,3 +53,12 @@ data/events_cache.json
 # Data files (optional - uncomment if needed)
 # *.csv
 # *.xlsx
+
+# Next.js (site folder)
+site/node_modules/
+site/.next/
+site/out/
+site/build/
+site/.vercel/
+site/*.tsbuildinfo
+site/next-env.d.ts
