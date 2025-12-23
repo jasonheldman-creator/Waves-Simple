@@ -5133,214 +5133,6 @@ def render_sidebar_info():
 # ============================================================================
 
 
-def render_wave_profile_tab():
-    """
-    Render the Wave Profile tab - First tab showing selected wave details.
-    Displays: Selected wave title, summary panel with metrics, and top 10 holdings.
-    """
-    # Wave and Mode selectors at the top
-    st.markdown("### 🎯 Select Wave & Mode")
-    
-    col_wave, col_mode = st.columns(2)
-    
-    with col_wave:
-        # Get available waves
-        available_waves = get_available_waves()
-        
-        # Get current selected wave from session state
-        current_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
-        
-        # Ensure current wave is in the list
-        if current_wave not in available_waves:
-            if len(available_waves) > 0:
-                current_wave = available_waves[0]
-            else:
-                current_wave = "S&P 500 Wave"
-        
-        # Wave selector
-        selected_wave = st.selectbox(
-            "Select Wave",
-            options=available_waves if len(available_waves) > 0 else ["S&P 500 Wave"],
-            index=available_waves.index(current_wave) if current_wave in available_waves else 0,
-            key="wave_profile_wave_selector",
-            help="Choose a wave to view detailed profile and holdings"
-        )
-        
-        # Update session state
-        st.session_state.selected_wave = selected_wave
-    
-    with col_mode:
-        # Mode selector
-        mode_options = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
-        current_mode = st.session_state.get("mode", "Standard")
-        
-        mode = st.selectbox(
-            "Select Mode",
-            options=mode_options,
-            index=mode_options.index(current_mode) if current_mode in mode_options else 0,
-            key="wave_profile_mode_selector",
-            help="Choose the mode for wave operation"
-        )
-        
-        # Update session state
-        st.session_state.mode = mode
-    
-    st.markdown("---")
-    
-    # Title with selected wave name
-    st.markdown(f"# 📌 Selected Wave — {selected_wave}")
-    st.markdown("---")
-    
-    # Summary Panel Section
-    st.markdown("### 📊 Wave Summary")
-    
-    try:
-        # Get wave data for metrics calculation
-        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
-        
-        if wave_data is not None and len(wave_data) > 0:
-            # Calculate metrics
-            metrics = calculate_wave_metrics(wave_data)
-            
-            # Get VIX diagnostics if available
-            vix_diagnostics = None
-            if VIX_DIAGNOSTICS_AVAILABLE:
-                try:
-                    vix_diagnostics = get_wave_diagnostics(selected_wave)
-                except Exception:
-                    pass
-            
-            # Display summary panel in columns
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.markdown("#### 🎯 Performance Metrics")
-                
-                # WaveScore
-                wavescore = metrics.get('wavescore', 'N/A')
-                if wavescore != 'N/A':
-                    st.metric("WaveScore", f"{wavescore:.1f}")
-                else:
-                    st.metric("WaveScore", "N/A")
-                
-                # Cumulative Alpha
-                cum_alpha = metrics.get('cumulative_alpha', 'N/A')
-                if cum_alpha != 'N/A':
-                    st.metric("Cumulative Alpha (30D)", f"{cum_alpha*100:.2f}%")
-                else:
-                    st.metric("Cumulative Alpha (30D)", "N/A")
-                
-                # Sharpe Ratio
-                sharpe = metrics.get('sharpe_ratio', 'N/A')
-                if sharpe != 'N/A':
-                    st.metric("Sharpe Ratio", f"{sharpe:.2f}")
-                else:
-                    st.metric("Sharpe Ratio", "N/A")
-            
-            with col2:
-                st.markdown("#### ⚙️ Risk Metrics")
-                
-                # Volatility
-                volatility = metrics.get('volatility', 'N/A')
-                if volatility != 'N/A':
-                    st.metric("Volatility (Daily)", f"{volatility*100:.2f}%")
-                else:
-                    st.metric("Volatility (Daily)", "N/A")
-                
-                # Max Drawdown
-                max_dd = metrics.get('max_drawdown', 'N/A')
-                if max_dd != 'N/A':
-                    st.metric("Max Drawdown", f"{max_dd*100:.2f}%")
-                else:
-                    st.metric("Max Drawdown", "N/A")
-                
-                # Win Rate
-                win_rate = metrics.get('win_rate', 'N/A')
-                if win_rate != 'N/A':
-                    st.metric("Win Rate", f"{win_rate*100:.1f}%")
-                else:
-                    st.metric("Win Rate", "N/A")
-            
-            with col3:
-                st.markdown("#### 🌊 Wave Configuration")
-                
-                # Mode
-                st.metric("Mode", mode)
-                
-                # VIX State (if available)
-                if vix_diagnostics:
-                    vix_state = vix_diagnostics.get('vix_state', 'Unknown')
-                    st.metric("VIX State", vix_state)
-                    
-                    # Exposure info
-                    exposure = vix_diagnostics.get('exposure', 'N/A')
-                    if exposure != 'N/A':
-                        st.metric("Exposure", f"{exposure:.1%}")
-                    else:
-                        st.metric("Exposure", "N/A")
-                    
-                    # Cash allocation
-                    cash = vix_diagnostics.get('cash_allocation', 'N/A')
-                    if cash != 'N/A':
-                        st.metric("Cash Allocation", f"{cash:.1%}")
-                    else:
-                        st.metric("Cash Allocation", "N/A")
-                else:
-                    st.info("VIX diagnostics unavailable")
-        else:
-            st.info("Wave data unavailable for the selected wave. Metrics cannot be calculated.")
-    
-    except Exception as e:
-        st.warning(f"Unable to load wave metrics: {str(e)}")
-        st.info("Data unavailable")
-    
-    st.markdown("---")
-    
-    # Top 10 Holdings Section
-    st.markdown("### 📋 Top 10 Holdings (clickable)")
-    
-    try:
-        # Get holdings from WAVE_WEIGHTS
-        if WAVES_ENGINE_AVAILABLE and selected_wave in WAVE_WEIGHTS:
-            holdings = WAVE_WEIGHTS[selected_wave]
-            
-            if holdings and len(holdings) > 0:
-                # Sort by weight descending and take top 10
-                sorted_holdings = sorted(holdings, key=lambda h: h.weight, reverse=True)[:10]
-                
-                # Display holdings as a formatted list with clickable links
-                st.markdown("**Click on any ticker to view on Yahoo Finance:**")
-                
-                holdings_data = []
-                for idx, holding in enumerate(sorted_holdings, 1):
-                    ticker = holding.ticker
-                    weight = holding.weight
-                    name = holding.name if holding.name else ticker
-                    
-                    # Create Yahoo Finance link
-                    yahoo_link = f"https://finance.yahoo.com/quote/{ticker}"
-                    
-                    holdings_data.append({
-                        "Rank": idx,
-                        "Ticker": f"[{ticker}]({yahoo_link})",
-                        "Name": name,
-                        "Weight": f"{weight*100:.2f}%"
-                    })
-                
-                # Display as a dataframe with clickable links
-                holdings_df = pd.DataFrame(holdings_data)
-                st.markdown(holdings_df.to_markdown(index=False), unsafe_allow_html=True)
-                
-            else:
-                st.info("No holdings data available for this wave.")
-        else:
-            st.info("Holdings data unavailable. Wave not found in engine.")
-    
-    except Exception as e:
-        st.warning(f"Unable to load holdings: {str(e)}")
-        st.info("Data unavailable")
-
-
 def render_wave_intelligence_center_tab():
     """
     Render the Wave Intelligence Center tab - Identity and Explanation Layer for the selected Wave.
@@ -5971,27 +5763,27 @@ def render_wave_profile_tab():
         
         wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
         
-        # Create styled hero card
+        # Create styled hero card with mobile-responsive CSS
         hero_card_html = f"""
-        <div style="
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-            border: 3px solid #00d9ff;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-        ">
-            <h1 style="
+        <style>
+            .wave-profile-hero {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+                border: 3px solid #00d9ff;
+                border-radius: 15px;
+                padding: 30px;
+                margin-bottom: 20px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            }}
+            
+            .wave-profile-title {{
                 color: #ffffff;
                 font-size: 36px;
                 font-weight: bold;
                 margin: 0 0 10px 0;
                 text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-            ">
-                🌊 {selected_wave}
-            </h1>
+            }}
             
-            <div style="
+            .wave-profile-mode-pill {{
                 display: inline-block;
                 background: {'#00ff88' if mode == 'Standard' else '#ffd700' if mode == 'Aggressive' else '#ff6b6b'};
                 color: #1a1a2e;
@@ -6000,16 +5792,53 @@ def render_wave_profile_tab():
                 font-weight: bold;
                 font-size: 16px;
                 margin-bottom: 15px;
-            ">
-                MODE: {mode}
-            </div>
+            }}
             
-            <p style="
+            .wave-profile-description {{
                 color: #ffffff;
                 font-size: 16px;
                 line-height: 1.6;
                 margin: 15px 0 0 0;
-            ">
+            }}
+            
+            /* Mobile responsiveness */
+            @media only screen and (max-width: 768px) {{
+                .wave-profile-hero {{
+                    padding: 20px 15px;
+                    margin-bottom: 15px;
+                    border-radius: 12px;
+                    border-width: 2px;
+                }}
+                
+                .wave-profile-title {{
+                    font-size: 24px;
+                    margin: 0 0 8px 0;
+                }}
+                
+                .wave-profile-mode-pill {{
+                    padding: 6px 16px;
+                    font-size: 14px;
+                    margin-bottom: 12px;
+                }}
+                
+                .wave-profile-description {{
+                    font-size: 14px;
+                    line-height: 1.5;
+                    margin: 12px 0 0 0;
+                }}
+            }}
+        </style>
+        
+        <div class="wave-profile-hero">
+            <h1 class="wave-profile-title">
+                🌊 {selected_wave}
+            </h1>
+            
+            <div class="wave-profile-mode-pill">
+                MODE: {mode}
+            </div>
+            
+            <p class="wave-profile-description">
                 {wave_description}
             </p>
         </div>
