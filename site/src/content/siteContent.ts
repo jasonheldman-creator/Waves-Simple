@@ -149,6 +149,37 @@ export const siteContent = {
       subtitle:
         "Decision infrastructure for institutional portfolio oversight. Comprehensive performance attribution, risk overlays, and evidence-based investment decision-making with benchmark integrity at every layer.",
     },
+    platformPreview: {
+      title: "Platform Preview",
+      subtitle: "Institutional-grade decision infrastructure in action",
+      description: "Experience how WAVES Intelligence transforms portfolio oversight through real-time analytics, comprehensive attribution, and governance-ready frameworks. Our platform delivers the transparency and control institutional investors require.",
+      capabilities: [
+        {
+          title: "Real-Time Portfolio Dashboard",
+          description: "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. Multi-dimensional views across strategies, risk factors, and market regimes.",
+          icon: "📊",
+          features: ["Position-level granularity", "Multi-strategy aggregation", "Risk overlay visualization"],
+        },
+        {
+          title: "Attribution & Analytics Engine",
+          description: "Comprehensive performance decomposition with multi-factor attribution, benchmark validation, and return source analysis. Complete transparency into alpha generation and risk-adjusted returns.",
+          icon: "📈",
+          features: ["Factor decomposition", "Benchmark integrity controls", "Risk-adjusted metrics"],
+        },
+        {
+          title: "Governance & Audit Framework",
+          description: "Immutable decision trails, compliance monitoring, and regulatory reporting infrastructure. Board-ready documentation with complete transparency for fiduciary oversight.",
+          icon: "📋",
+          features: ["Audit trail logging", "Compliance validation", "Board reporting"],
+        },
+        {
+          title: "Risk Management Console",
+          description: "Continuous exposure monitoring with multi-layer risk overlays, stress testing, and scenario analysis. Real-time breach detection and automated alerting for institutional risk frameworks.",
+          icon: "🛡️",
+          features: ["Exposure monitoring", "Stress testing", "Automated alerts"],
+        },
+      ],
+    },
     differentiation: {
       title: "How WAVES Is Different",
       subtitle: "Purpose-built decision infrastructure distinct from consumer tools and generic dashboards",
@@ -425,6 +456,139 @@ export const siteContent = {
     },
     description:
       "Whether you represent an institutional investor, asset manager, or investment office seeking advanced portfolio analytics and decision intelligence, our team is available to discuss how WAVES Intelligence can support your requirements.",
+  },
+  governance: {
+    hero: {
+      title: "Governance & Oversight",
+      subtitle:
+        "Institutional-grade governance frameworks engineered for fiduciary oversight, regulatory compliance, and complete operational transparency.",
+    },
+    description:
+      "WAVES Intelligence provides comprehensive governance infrastructure designed for institutional investment environments. Our platform delivers the auditability, benchmark integrity, data lineage, and risk oversight capabilities required for fiduciary-level portfolio management and regulatory compliance.",
+    pillars: {
+      title: "Governance Pillars",
+      subtitle: "Four foundational capabilities ensuring institutional compliance and operational excellence",
+      items: [
+        {
+          title: "Auditability",
+          description:
+            "Comprehensive audit trail infrastructure capturing every portfolio decision, system action, and data modification with immutable logging for regulatory examination and forensic analysis.",
+          icon: "📝",
+          capabilities: [
+            "Immutable decision logging with cryptographic integrity verification",
+            "Complete user action audit trails including timestamps and context",
+            "Tamper-proof event recording for regulatory examination",
+            "Forensic analysis capabilities with full historical reconstruction",
+            "Automated compliance reporting and regulatory submission support",
+            "Role-based audit access with granular permission controls",
+          ],
+        },
+        {
+          title: "Benchmark Integrity",
+          description:
+            "Continuous validation and reconciliation frameworks ensuring accuracy, consistency, and institutional standards across all performance benchmarks and analytics calculations.",
+          icon: "🎯",
+          capabilities: [
+            "Real-time benchmark validation against authoritative data sources",
+            "Automated reconciliation detecting and flagging data discrepancies",
+            "Multi-layer integrity checks across calculation pipelines",
+            "Performance attribution accuracy monitoring and validation",
+            "Benchmark construction transparency with complete methodology documentation",
+            "Historical integrity verification and restatement tracking",
+          ],
+        },
+        {
+          title: "Data Lineage",
+          description:
+            "Complete traceability from raw market data through analytics processing to portfolio decisions, providing full transparency into calculation methodologies and data transformations.",
+          icon: "🔗",
+          capabilities: [
+            "End-to-end data flow visualization from source to decision",
+            "Transformation tracking with complete calculation documentation",
+            "Source validation and data quality verification at ingestion",
+            "Version control for data schemas and processing logic",
+            "Impact analysis for upstream data changes",
+            "Regulatory transparency with full lineage disclosure",
+          ],
+        },
+        {
+          title: "Risk Oversight",
+          description:
+            "Multi-layer risk management infrastructure with real-time exposure monitoring, limit enforcement, and comprehensive governance controls for institutional risk frameworks.",
+          icon: "🛡️",
+          capabilities: [
+            "Real-time exposure monitoring across all risk dimensions",
+            "Automated limit breach detection and escalation workflows",
+            "Multi-tier approval requirements for risk policy changes",
+            "Stress testing and scenario analysis frameworks",
+            "Concentration risk monitoring and reporting",
+            "Board-level risk dashboard with executive summaries",
+          ],
+        },
+      ],
+    },
+    compliance: {
+      title: "Regulatory Compliance Framework",
+      subtitle: "Built-in support for institutional regulatory requirements and fiduciary standards",
+      frameworks: [
+        {
+          title: "SEC & FINRA Compliance",
+          description: "Comprehensive support for securities regulations including Form ADV disclosure requirements, custody rule compliance, and investment adviser recordkeeping standards.",
+          icon: "⚖️",
+        },
+        {
+          title: "Fiduciary Standards",
+          description: "Institutional frameworks supporting ERISA fiduciary responsibilities, prudent investor rules, and investment committee governance documentation requirements.",
+          icon: "👔",
+        },
+        {
+          title: "Data Privacy & Protection",
+          description: "GDPR compliance infrastructure with data sovereignty controls, privacy frameworks, and consent management aligned with institutional requirements.",
+          icon: "🔐",
+        },
+        {
+          title: "SOC 2 Type II Certification",
+          description: "Independent validation of security controls, availability guarantees, processing integrity, confidentiality measures, and privacy protections.",
+          icon: "✅",
+        },
+      ],
+    },
+    controls: {
+      title: "Governance Controls & Workflows",
+      subtitle: "Automated enforcement and oversight mechanisms for institutional governance requirements",
+      features: [
+        {
+          title: "Approval Workflows",
+          description: "Hierarchical approval chains for portfolio decisions, risk policy changes, and strategic allocations with delegation controls and escalation procedures.",
+          icon: "✍️",
+        },
+        {
+          title: "Policy Enforcement",
+          description: "Automated validation of investment policies, mandate compliance, and regulatory constraints with real-time breach prevention and alerting.",
+          icon: "🚨",
+        },
+        {
+          title: "Access Governance",
+          description: "Role-based permissions with mandatory multi-factor authentication, session management, and privileged access monitoring for institutional security.",
+          icon: "🔑",
+        },
+        {
+          title: "Change Management",
+          description: "Controlled deployment procedures, configuration versioning, and rollback capabilities with complete change history and impact analysis.",
+          icon: "🔄",
+        },
+        {
+          title: "Documentation Standards",
+          description: "Automated generation of investment committee materials, board presentations, and regulatory reports with version control and approval tracking.",
+          icon: "📚",
+        },
+        {
+          title: "Incident Response",
+          description: "Structured procedures for security incidents, data breaches, and operational failures with automated escalation and regulatory notification protocols.",
+          icon: "🚑",
+        },
+      ],
+    },
   },
   cta: {
     default: {
