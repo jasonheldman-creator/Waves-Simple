@@ -4168,6 +4168,23 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
+    # Safe Mode Toggle
+    # ========================================================================
+    st.sidebar.markdown("### 🛡️ Safe Mode")
+    
+    safe_mode = st.sidebar.checkbox(
+        "Enable Safe Mode",
+        value=st.session_state.get("safe_mode_enabled", False),
+        key="safe_mode_checkbox",
+        help="Switch to minimal fallback UI with only stable, core features"
+    )
+    
+    # Update session state
+    st.session_state["safe_mode_enabled"] = safe_mode
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Force Reload Wave Universe Button (Top-Right of Sidebar)
     # ========================================================================
     st.sidebar.markdown("### ⚡ Quick Actions")
@@ -9274,4 +9291,52 @@ def main():
 
 # Run the application
 if __name__ == "__main__":
-    main()
+    # Check for safe mode before running main app
+    # Initialize safe_mode_enabled if not present
+    if "safe_mode_enabled" not in st.session_state:
+        st.session_state.safe_mode_enabled = False
+    
+    # If safe mode is manually enabled, run fallback directly
+    if st.session_state.get("safe_mode_enabled", False):
+        import app_fallback
+        app_fallback.run()
+    else:
+        # Wrap main execution in try-except for automatic fallback on error
+        try:
+            main()
+        except Exception as e:
+            # Display prominent error banner
+            st.markdown("""
+                <div style="
+                    background-color: #ff4444;
+                    color: white;
+                    padding: 30px;
+                    border-radius: 10px;
+                    margin: 20px 0;
+                    border: 3px solid #cc0000;
+                    box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
+                ">
+                    <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
+                        ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
+                    </h1>
+                    <p style="font-size: 18px; margin-top: 15px;">
+                        The application encountered an error and has automatically switched to safe fallback mode.
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Display error details in an expander
+            with st.expander("🔍 View Error Details", expanded=False):
+                st.error(f"**Error Message:** {str(e)}")
+                st.code(traceback.format_exc(), language="python")
+            
+            st.markdown("---")
+            
+            # Load and execute fallback UI
+            try:
+                import app_fallback
+                app_fallback.run()
+            except Exception as fallback_error:
+                # If even the fallback fails, show minimal error message
+                st.error("Critical Error: Both main application and fallback system failed.")
+                st.code(f"Fallback Error: {str(fallback_error)}\n\n{traceback.format_exc()}", language="python")
