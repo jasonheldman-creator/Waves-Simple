@@ -12,8 +12,8 @@ export default function ConsolePage() {
   return (
     <main className="min-h-screen bg-black">
       <Hero
-        title="WAVES Institutional Console"
-        subtitle="Console deployment in progress"
+        title={siteContent.console.hero.title}
+        subtitle={siteContent.console.hero.subtitle}
       />
       <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
