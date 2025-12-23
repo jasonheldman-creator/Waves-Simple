@@ -79,11 +79,11 @@ export const siteContent = {
   },
   console: {
     hero: {
-      title: "WAVES Console",
-      subtitle: "Access the institutional-grade analytics platform powering sophisticated investment decisions.",
+      title: "WAVES Institutional Console",
+      subtitle: "Console deployment in progress",
     },
     description:
-      "The WAVES Console provides real-time access to portfolio analytics, alpha attribution, and decision intelligence tools. Sign in to access your institutional dashboard.",
+      "The WAVES Console provides real-time access to portfolio analytics, alpha attribution, and decision intelligence tools. The institutional dashboard is currently being deployed.",
   },
   waves: {
     hero: {
