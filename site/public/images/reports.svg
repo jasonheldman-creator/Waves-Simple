@@ -1,0 +1,96 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background with grid -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="neonGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#00ff88;stop-opacity:0.8" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#0a0a0a"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.3"/>
+  
+  <!-- Overlay gradient -->
+  <rect width="1920" height="1080" fill="url(#neonGradient)" opacity="0.05"/>
+  
+  <!-- Reports mockup elements -->
+  <!-- Header bar -->
+  <rect x="60" y="60" width="1800" height="80" fill="#1a1a1a" stroke="#00ffff" stroke-width="2" rx="8"/>
+  <text x="100" y="115" font-family="Arial, sans-serif" font-size="36" fill="#00ffff" font-weight="bold">WAVES Intelligence</text>
+  <text x="1700" y="115" font-family="Arial, sans-serif" font-size="24" fill="#00ff88">Q4 2024 Report</text>
+  
+  <!-- Report document -->
+  <rect x="160" y="200" width="1600" height="800" fill="#0f0f0f" stroke="#00ff88" stroke-width="2" rx="8"/>
+  
+  <!-- Report header -->
+  <rect x="200" y="240" width="1520" height="120" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="960" y="295" font-family="Arial, sans-serif" font-size="42" fill="#00ffff" text-anchor="middle" font-weight="bold">Portfolio Performance Report</text>
+  <text x="960" y="335" font-family="Arial, sans-serif" font-size="20" fill="#00ff88" text-anchor="middle">Institutional Analytics • Confidential</text>
+  
+  <!-- Key metrics section -->
+  <rect x="200" y="400" width="740" height="280" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="570" y="440" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Key Performance Indicators</text>
+  
+  <text x="240" y="500" font-family="Arial, sans-serif" font-size="18" fill="#00ff88">Total Return:</text>
+  <text x="700" y="500" font-family="Arial, sans-serif" font-size="18" fill="#00ffff" text-anchor="end" font-weight="bold">+32.4%</text>
+  
+  <text x="240" y="540" font-family="Arial, sans-serif" font-size="18" fill="#00ff88">Sharpe Ratio:</text>
+  <text x="700" y="540" font-family="Arial, sans-serif" font-size="18" fill="#00ffff" text-anchor="end" font-weight="bold">2.18</text>
+  
+  <text x="240" y="580" font-family="Arial, sans-serif" font-size="18" fill="#00ff88">Alpha Generation:</text>
+  <text x="700" y="580" font-family="Arial, sans-serif" font-size="18" fill="#00ffff" text-anchor="end" font-weight="bold">+9.7%</text>
+  
+  <text x="240" y="620" font-family="Arial, sans-serif" font-size="18" fill="#00ff88">Information Ratio:</text>
+  <text x="700" y="620" font-family="Arial, sans-serif" font-size="18" fill="#00ffff" text-anchor="end" font-weight="bold">1.92</text>
+  
+  <text x="240" y="660" font-family="Arial, sans-serif" font-size="18" fill="#00ff88">AUM:</text>
+  <text x="700" y="660" font-family="Arial, sans-serif" font-size="18" fill="#00ffff" text-anchor="end" font-weight="bold">$2.4M</text>
+  
+  <!-- Performance chart -->
+  <rect x="980" y="400" width="740" height="280" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="1350" y="440" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Cumulative Returns</text>
+  
+  <!-- Simulated line chart -->
+  <polyline points="1020,620 1080,610 1140,590 1200,580 1260,570 1320,555 1380,540 1440,530 1500,520 1560,510 1620,500 1680,490" 
+            fill="none" stroke="url(#neonGradient)" stroke-width="4"/>
+  
+  <!-- Data table section -->
+  <rect x="200" y="720" width="1520" height="240" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="960" y="760" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Wave Breakdown</text>
+  
+  <!-- Table headers -->
+  <text x="240" y="810" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Wave</text>
+  <text x="600" y="810" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Return</text>
+  <text x="900" y="810" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Alpha</text>
+  <text x="1200" y="810" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Weight</text>
+  <text x="1500" y="810" font-family="Arial, sans-serif" font-size="16" fill="#00ff88" font-weight="bold">Status</text>
+  
+  <!-- Table rows -->
+  <rect x="220" y="820" width="1480" height="1" fill="#00ffff" opacity="0.3"/>
+  <text x="240" y="855" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">Growth Wave</text>
+  <text x="600" y="855" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+28.3%</text>
+  <text x="900" y="855" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+7.2%</text>
+  <text x="1200" y="855" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">45%</text>
+  <text x="1500" y="855" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Active</text>
+  
+  <rect x="220" y="870" width="1480" height="1" fill="#00ffff" opacity="0.2"/>
+  <text x="240" y="905" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">Value Wave</text>
+  <text x="600" y="905" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+18.7%</text>
+  <text x="900" y="905" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+4.1%</text>
+  <text x="1200" y="905" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">35%</text>
+  <text x="1500" y="905" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Active</text>
+  
+  <rect x="220" y="920" width="1480" height="1" fill="#00ffff" opacity="0.2"/>
+  <text x="240" y="955" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">Momentum Wave</text>
+  <text x="600" y="955" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+22.1%</text>
+  <text x="900" y="955" font-family="Arial, sans-serif" font-size="16" fill="#00ffff">+5.8%</text>
+  <text x="1200" y="955" font-family="Arial, sans-serif" font-size="16" fill="#ffffff">20%</text>
+  <text x="1500" y="955" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Active</text>
+  
+  <!-- Title overlay -->
+  <text x="960" y="580" font-family="Arial, sans-serif" font-size="72" fill="#00ffff" text-anchor="middle" font-weight="bold" opacity="0.12">REPORTS</text>
+</svg>

@@ -1,14 +1,19 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useEffect } from "react";
 import Hero from "@/components/Hero";
 import { siteContent } from "@/content/siteContent";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "Console - WAVES Intelligence",
-  description: "Access the institutional-grade analytics platform powering sophisticated investment decisions.",
-};
-
 export default function ConsolePage() {
+  useEffect(() => {
+    // Check if NEXT_PUBLIC_CONSOLE_URL is defined and redirect
+    const consoleUrl = process.env.NEXT_PUBLIC_CONSOLE_URL;
+    if (consoleUrl) {
+      window.location.href = consoleUrl;
+    }
+  }, []);
+
   return (
     <main className="min-h-screen bg-black">
       <Hero

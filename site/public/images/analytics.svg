@@ -1,0 +1,65 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background with grid -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="neonGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#00ff88;stop-opacity:0.8" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#0a0a0a"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.3"/>
+  
+  <!-- Overlay gradient -->
+  <rect width="1920" height="1080" fill="url(#neonGradient)" opacity="0.05"/>
+  
+  <!-- Analytics mockup elements -->
+  <!-- Header bar -->
+  <rect x="60" y="60" width="1800" height="80" fill="#1a1a1a" stroke="#00ffff" stroke-width="2" rx="8"/>
+  <text x="100" y="115" font-family="Arial, sans-serif" font-size="36" fill="#00ffff" font-weight="bold">WAVES Intelligence</text>
+  
+  <!-- Main content -->
+  <rect x="60" y="160" width="1800" height="860" fill="#0f0f0f" stroke="#00ff88" stroke-width="2" rx="8"/>
+  
+  <!-- Large chart area -->
+  <rect x="100" y="200" width="1720" height="500" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="960" y="250" font-family="Arial, sans-serif" font-size="28" fill="#00ffff" text-anchor="middle">Alpha Attribution Analysis</text>
+  
+  <!-- Bar chart simulation -->
+  <rect x="200" y="350" width="80" height="250" fill="#00ffff" opacity="0.6" rx="4"/>
+  <rect x="350" y="280" width="80" height="320" fill="#00ff88" opacity="0.6" rx="4"/>
+  <rect x="500" y="400" width="80" height="200" fill="#00ffff" opacity="0.6" rx="4"/>
+  <rect x="650" y="320" width="80" height="280" fill="#00ff88" opacity="0.6" rx="4"/>
+  <rect x="800" y="380" width="80" height="220" fill="#00ffff" opacity="0.6" rx="4"/>
+  <rect x="950" y="300" width="80" height="300" fill="#00ff88" opacity="0.6" rx="4"/>
+  <rect x="1100" y="360" width="80" height="240" fill="#00ffff" opacity="0.6" rx="4"/>
+  <rect x="1250" y="330" width="80" height="270" fill="#00ff88" opacity="0.6" rx="4"/>
+  <rect x="1400" y="410" width="80" height="190" fill="#00ffff" opacity="0.6" rx="4"/>
+  <rect x="1550" y="290" width="80" height="310" fill="#00ff88" opacity="0.6" rx="4"/>
+  
+  <!-- Metrics panels -->
+  <rect x="100" y="740" width="540" height="240" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="370" y="780" font-family="Arial, sans-serif" font-size="20" fill="#00ffff" text-anchor="middle">Risk Metrics</text>
+  <text x="200" y="840" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Volatility: 12.4%</text>
+  <text x="200" y="880" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Max Drawdown: -8.2%</text>
+  <text x="200" y="920" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Beta: 0.89</text>
+  
+  <rect x="680" y="740" width="540" height="240" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="950" y="780" font-family="Arial, sans-serif" font-size="20" fill="#00ffff" text-anchor="middle">Performance</text>
+  <text x="780" y="840" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">YTD Return: +24.6%</text>
+  <text x="780" y="880" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Alpha: +8.3%</text>
+  <text x="780" y="920" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">IR: 1.82</text>
+  
+  <rect x="1260" y="740" width="560" height="240" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="1540" y="780" font-family="Arial, sans-serif" font-size="20" fill="#00ffff" text-anchor="middle">Attribution</text>
+  <text x="1360" y="840" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Selection: +5.2%</text>
+  <text x="1360" y="880" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Allocation: +3.1%</text>
+  <text x="1360" y="920" font-family="Arial, sans-serif" font-size="16" fill="#00ff88">Interaction: +0.3%</text>
+  
+  <!-- Title overlay -->
+  <text x="960" y="450" font-family="Arial, sans-serif" font-size="72" fill="#00ffff" text-anchor="middle" font-weight="bold" opacity="0.15">ANALYTICS</text>
+</svg>
