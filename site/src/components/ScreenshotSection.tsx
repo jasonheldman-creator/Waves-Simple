@@ -11,12 +11,15 @@ interface ScreenshotSectionProps {
 }
 
 export default function ScreenshotSection({ screenshot, reverse = false }: ScreenshotSectionProps) {
-  // Map old paths to new SVG paths
+  // Map old paths to new SVG paths - using exact matching for robustness
   const getImagePath = (path: string): string => {
-    if (path.includes('product-screenshot1')) return '/screens/portfolio-dashboard.svg';
-    if (path.includes('product-screenshot2')) return '/screens/attribution-analysis.svg';
-    if (path.includes('product-screenshot3')) return '/screens/governance-console.svg';
-    return path;
+    const pathMap: Record<string, string> = {
+      '/public/screens/product-screenshot1.png': '/screens/portfolio-dashboard.svg',
+      '/public/screens/product-screenshot2.png': '/screens/attribution-analysis.svg',
+      '/public/screens/product-screenshot3.png': '/screens/governance-console.svg',
+    };
+    
+    return pathMap[path] || path;
   };
 
   const imagePath = getImagePath(screenshot.imagePath);
