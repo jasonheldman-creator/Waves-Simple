@@ -1,4 +1,17 @@
 {
   "buildCommand": "npm run build",
-  "rootDirectory": "site"
+  "rootDirectory": "site",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "wavesintelligence.app"
+        }
+      ],
+      "destination": "https://www.wavesintelligence.app/:path*",
+      "permanent": true
+    }
+  ]
 }
