@@ -317,8 +317,17 @@ def render_bottom_ticker_v3(
         # Generate HTML
         ticker_html = render_ticker_rail_html(ticker_items)
         
-        # Render to Streamlit
-        st.markdown(ticker_html, unsafe_allow_html=True)
+        # Render to Streamlit using st.html() for safe rendering
+        try:
+            st.html(ticker_html)
+        except Exception:
+            # Fallback to components.html if st.html not available
+            try:
+                import streamlit.components.v1 as components
+                components.html(ticker_html, height=60, scrolling=False)
+            except Exception:
+                # If all fails, use minimal fallback
+                pass
         
     except Exception as e:
         # Fail silently - don't disrupt the app if ticker bar fails
@@ -345,6 +354,9 @@ def render_bottom_ticker_v3(
                 WAVES INSTITUTIONAL CONSOLE • ONLINE
             </div>
             """
-            st.markdown(fallback_html, unsafe_allow_html=True)
+            try:
+                st.html(fallback_html)
+            except Exception:
+                pass  # Ultimate fail-safe: do nothing
         except Exception:
             pass  # Ultimate fail-safe: do nothing
