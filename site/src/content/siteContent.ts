@@ -4,10 +4,44 @@ export const siteContent = {
       title: "WAVES Intelligence",
       subtitle:
         "Decision infrastructure platform for modern asset management. Institutional-grade portfolio analytics with risk overlays, benchmark integrity controls, and complete audit trails for sophisticated investors and fiduciaries.",
-      ctaText: "Launch Console",
+      ctaText: "Request Access",
       ctaLink: "/console",
-      secondaryCtaText: "Explore Platform",
-      secondaryCtaLink: "/platform",
+      secondaryCtaText: "Review Architecture",
+      secondaryCtaLink: "/architecture",
+    },
+    operationalProof: {
+      title: "Operational Credibility",
+      subtitle: "Platform capabilities demonstrated through illustrative analytics and data flows",
+      examples: [
+        {
+          title: "Multi-Factor Attribution Analysis",
+          description: "Example performance decomposition showing return attribution across market factors, sector tilts, and strategy-specific alpha with benchmark integrity validation.",
+          icon: "📊",
+          metric: "Attribution Precision",
+          value: "Factor-level clarity",
+        },
+        {
+          title: "Real-Time Risk Exposure Dashboard",
+          description: "Illustrative view of portfolio exposures across sectors, factors, and risk dimensions with continuous monitoring and overlay analysis.",
+          icon: "🎯",
+          metric: "Exposure Monitoring",
+          value: "Position-level granularity",
+        },
+        {
+          title: "Decision Audit Trail",
+          description: "Example audit log showing immutable records of portfolio decisions, rebalances, and governance approvals with complete traceability.",
+          icon: "📋",
+          metric: "Audit Completeness",
+          value: "100% traceability",
+        },
+        {
+          title: "Benchmark Integrity Validation",
+          description: "Illustrative validation workflow showing continuous benchmark reconciliation, data quality checks, and integrity controls across analytics.",
+          icon: "✅",
+          metric: "Data Quality",
+          value: "Institutional-grade accuracy",
+        },
+      ],
     },
     institutionalTrust: {
       title: "Institutional Trust Signals",
@@ -37,6 +71,36 @@ export const siteContent = {
           title: "Regulated Environment Readiness",
           description: "Compliance frameworks supporting SEC, FINRA, GDPR, and institutional regulatory requirements with built-in controls and documentation standards.",
           icon: "✅",
+        },
+      ],
+    },
+    buyerPersonas: {
+      title: "Built for Institutional Decision-Makers",
+      subtitle: "Addressing the specific needs of key stakeholders across the investment organization",
+      roles: [
+        {
+          title: "Chief Investment Officers",
+          description: "Strategic oversight with comprehensive portfolio analytics, risk budget management, and fiduciary governance frameworks. Complete transparency into allocation decisions and performance attribution.",
+          icon: "👔",
+          needs: ["Strategic asset allocation oversight", "Risk budget visibility", "Fiduciary compliance"],
+        },
+        {
+          title: "Portfolio Managers",
+          description: "Tactical execution support with real-time analytics, benchmark integrity validation, and position-level decision intelligence. Data-driven capital deployment with complete audit trails.",
+          icon: "📊",
+          needs: ["Real-time analytics", "Position-level insights", "Performance attribution"],
+        },
+        {
+          title: "Risk & Compliance Officers",
+          description: "Continuous exposure monitoring, regulatory reporting, and comprehensive audit documentation. Stress testing, scenario analysis, and policy enforcement with institutional-grade controls.",
+          icon: "🛡️",
+          needs: ["Risk monitoring", "Compliance reporting", "Audit trails"],
+        },
+        {
+          title: "Corporate Development Teams",
+          description: "Integration-ready infrastructure for M&A evaluation, technology due diligence, and enterprise deployment. API access, data lineage transparency, and scalable architecture documentation.",
+          icon: "🏢",
+          needs: ["Integration assessment", "Technical due diligence", "Scalability validation"],
         },
       ],
     },
@@ -147,6 +211,11 @@ export const siteContent = {
     },
     description:
       "The WAVES Console serves as the decision infrastructure platform for modern asset management. Delivering real-time portfolio analytics with risk overlays, comprehensive alpha attribution with benchmark integrity controls, and institutional-grade decision intelligence. Built for fiduciary oversight, the platform provides complete transparency into strategy performance, position-level exposures with audit trails, and governance-ready compliance frameworks. Access controls, encrypted data transmission, and regulatory compliance protocols ensure your portfolio data remains secure while enabling informed, evidence-based capital allocation decisions.",
+    accessRequest: {
+      title: "Request Institutional Access",
+      description: "Connect with our team to discuss platform capabilities, deployment options, and institutional onboarding. We provide comprehensive technical due diligence materials and integration support for enterprise evaluation.",
+      contact: "jasonheldman-creator",
+    },
     intendedUsers: {
       title: "Intended Users",
       subtitle: "Built for institutional decision-makers and oversight professionals",
@@ -213,6 +282,36 @@ export const siteContent = {
       title: "System Architecture",
       subtitle:
         "Enterprise-grade decision infrastructure with risk overlays, benchmark integrity controls, and complete audit trails engineered for institutional performance requirements, data security, and operational resilience.",
+    },
+    architectureAsTrust: {
+      title: "Architecture as Trust",
+      subtitle: "Transparency, governance, and auditability built into every system layer",
+      principles: [
+        {
+          title: "Data Flow Clarity",
+          description: "Complete visibility into data pipelines from market sources through analytics to portfolio decisions. Each transformation documented, validated, and traceable with full lineage transparency.",
+          icon: "🔗",
+          details: ["Source validation", "Transformation logging", "End-to-end traceability"],
+        },
+        {
+          title: "Governance Checkpoints",
+          description: "Mandatory approval workflows, policy enforcement gates, and compliance validations at critical decision points. Hierarchical controls ensuring fiduciary oversight.",
+          icon: "⚖️",
+          details: ["Approval workflows", "Policy enforcement", "Compliance gates"],
+        },
+        {
+          title: "Auditability by Design",
+          description: "Immutable audit trails capturing every system action, user decision, and data modification. Tamper-proof logging for regulatory examination and forensic analysis.",
+          icon: "📝",
+          details: ["Immutable logging", "Event capture", "Forensic readiness"],
+        },
+        {
+          title: "Risk Control Layers",
+          description: "Multi-tier risk management with exposure limits, concentration controls, and real-time breach monitoring. Automated alerts and circuit breakers for institutional risk frameworks.",
+          icon: "🛡️",
+          details: ["Exposure limits", "Automated alerts", "Risk containment"],
+        },
+      ],
     },
     differentiation: {
       title: "How WAVES Is Different",
@@ -332,9 +431,18 @@ export const siteContent = {
       title: "Ready to Get Started?",
       description:
         "Join institutional investors leveraging WAVES Intelligence as their decision infrastructure platform. Rigorous portfolio analytics with risk overlays, comprehensive performance attribution with benchmark integrity, and evidence-based decision support with complete audit trails.",
-      primaryButtonText: "Launch Console",
+      primaryButtonText: "Request Access",
       primaryButtonLink: "/console",
-      secondaryButtonText: "Contact Team",
+      secondaryButtonText: "Discuss Integration",
+      secondaryButtonLink: "/contact",
+    },
+    architecture: {
+      title: "Ready to Review Our Architecture?",
+      description:
+        "Connect with our engineering team to explore infrastructure design, integration pathways, and technical due diligence materials for institutional evaluation.",
+      primaryButtonText: "Review Architecture",
+      primaryButtonLink: "/architecture",
+      secondaryButtonText: "Discuss Integration",
       secondaryButtonLink: "/contact",
     },
   },
