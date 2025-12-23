@@ -17,18 +17,24 @@ The Next.js marketing site is located in the `/site` directory of this repositor
 2. **Import Project**
    - Click "Add New..." → "Project"
    - Select this repository: `jasonheldman-creator/Waves-Simple`
-   - Vercel will automatically detect the `vercel.json` configuration
 
 3. **Configure Project Settings**
-   - **Root Directory**: `site` (auto-configured from vercel.json)
-   - **Build Command**: `npm run build` (auto-configured from vercel.json)
-   - **Output Directory**: `.next` (Next.js default)
-   - **Install Command**: `npm ci` (default)
-   - **Framework Preset**: Next.js (auto-detected)
+   
+   **CRITICAL:** During import or in Project Settings → General, configure:
+   
+   - **Framework Preset**: `Next.js` (should auto-detect)
+   - **Root Directory**: `site` ⚠️ **REQUIRED** - The Next.js app is in the `/site` subdirectory
+   - **Build Command**: Leave empty (uses default: `npm run build`)
+   - **Output Directory**: Leave empty (uses default: `.next`)
+   - **Install Command**: Leave empty (uses default: `npm install`)
+   - **Node.js Version**: 20.x (recommended)
+
+   **Note:** The `vercel.json` file handles domain redirects only. Build configuration must be set in the Vercel dashboard project settings.
 
 4. **Deploy**
    - Click "Deploy"
    - Wait for the initial deployment to complete
+   - Verify the build succeeds and the site is accessible
 
 ## Deployment Types
 
@@ -169,15 +175,17 @@ To trigger a manual deployment:
 ## Build Configuration
 
 The build is configured via:
-- `vercel.json` - Vercel-specific settings
+- **Vercel Dashboard**: Project Settings → General (Root Directory, Build Command, Framework Preset)
+- `vercel.json` - Domain redirect rules only
 - `site/package.json` - Build scripts and dependencies
 - `site/next.config.ts` - Next.js configuration
 
 ### vercel.json
+
+The `vercel.json` file in the repository root contains **only** domain redirect configuration:
+
 ```json
 {
-  "buildCommand": "npm run build",
-  "rootDirectory": "site",
   "redirects": [
     {
       "source": "/:path*",
@@ -195,8 +203,19 @@ The build is configured via:
 ```
 
 This configuration:
-- Sets the build command and root directory
-- Redirects all traffic from non-www to www domain (301 permanent redirect)
+- Redirects all traffic from non-www (`wavesintelligence.app`) to www (`www.wavesintelligence.app`) domain with HTTP 301 permanent redirect
+- Preserves all URL paths during redirect
+- Works for all routes (e.g., `/product`, `/platform`, etc.)
+
+**Important:** Build settings (`buildCommand`, `rootDirectory`) are deprecated in `vercel.json` and must be configured in the Vercel Dashboard project settings instead.
+
+### Vercel Dashboard Settings
+
+Configure in Project Settings → General:
+- **Root Directory**: `site` ⚠️ **CRITICAL** - Must be set manually
+- **Build Command**: (leave empty, uses default `npm run build`)
+- **Output Directory**: (leave empty, uses default `.next`)
+- **Framework Preset**: Next.js (should auto-detect)
 
 ### Build Scripts
 ```json
@@ -239,9 +258,25 @@ The CI workflow ensures that the build succeeds before merging, preventing broke
    - Scroll to "Build Logs" section
 
 2. **Common Issues:**
-   - Missing dependencies: Run `npm ci` locally to verify
-   - TypeScript errors: Run `npm run build` locally
-   - Linting errors: Run `npm run lint` locally
+   
+   **"Error: No framework detected"** or **"No package.json found"**
+   - **Cause**: Root Directory is not set to `site`
+   - **Solution**: 
+     - Go to Vercel Dashboard → Project → Settings → General
+     - Set "Root Directory" to `site`
+     - Redeploy
+   
+   **"Missing dependencies" or "Module not found"**
+   - **Cause**: Dependencies not installed correctly
+   - **Solution**: Run `npm ci` locally in `/site` to verify package-lock.json is valid
+   
+   **TypeScript errors**
+   - **Cause**: Type errors in code
+   - **Solution**: Run `npm run build` locally in `/site` to identify errors
+   
+   **Linting errors**
+   - **Cause**: ESLint violations
+   - **Solution**: Run `npm run lint` locally in `/site` and fix issues
 
 3. **Test Locally:**
    ```bash
@@ -249,6 +284,27 @@ The CI workflow ensures that the build succeeds before merging, preventing broke
    npm ci
    npm run build
    ```
+
+### Framework Not Detected
+
+**Symptom:** Vercel cannot detect Next.js framework or builds fail with "No framework detected"
+
+**Solution:**
+1. Verify Root Directory is set to `site` in Vercel Dashboard → Settings → General
+2. Ensure Framework Preset is set to "Next.js" (should auto-detect)
+3. Verify `site/package.json` exists and has `next` as a dependency
+4. Redeploy after making changes
+
+### Redirect Not Working
+
+**Symptom:** `wavesintelligence.app` does not redirect to `www.wavesintelligence.app`
+
+**Solution:**
+1. Verify both domains are added in Vercel Dashboard → Settings → Domains
+2. Ensure `vercel.json` redirect configuration is in the repository root
+3. Check that latest deployment includes the redirect configuration
+4. Wait for DNS propagation (5-60 minutes after adding domains)
+5. Test redirect: `curl -I https://wavesintelligence.app` (should return 301)
 
 ### Preview Deployment Not Showing
 
@@ -261,6 +317,7 @@ The CI workflow ensures that the build succeeds before merging, preventing broke
 - Check that the `main` branch builds successfully locally
 - Review Vercel build logs for specific errors
 - Verify all environment variables are set (if needed)
+- Ensure Root Directory is set to `site` in project settings
 
 ## Monitoring
 
