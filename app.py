@@ -10854,7 +10854,7 @@ if __name__ == "__main__":
             main()
         except Exception as e:
             # Display prominent error banner
-            st.markdown("""
+            error_banner_html = """
                 <div style="
                     background-color: #ff4444;
                     color: white;
@@ -10871,7 +10871,9 @@ if __name__ == "__main__":
                         The application encountered an error and has automatically switched to safe fallback mode.
                     </p>
                 </div>
-            """, unsafe_allow_html=True)
+            """
+            # Render error banner using safe HTML rendering
+            render_html_block(error_banner_html, height=200)
             
             # Display error details in an expander
             with st.expander("🔍 View Error Details", expanded=False):
