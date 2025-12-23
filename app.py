@@ -62,6 +62,13 @@ except ImportError:
     TICKER_V3_AVAILABLE = False
 
 # ============================================================================
+# WAVE PROFILE UI TOGGLE - Feature Flag
+# ============================================================================
+# Toggle constant to enable/disable the new Wave Profile tab and banner
+# Set to False to instantly revert to the original UI layout
+ENABLE_WAVE_PROFILE = True
+
+# ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
 # ============================================================================
@@ -466,13 +473,265 @@ WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wa
 
 
 # ============================================================================
-# WAVE PROFILE BANNER - Header Display
+# WAVE PROFILE BANNER - Enhanced Header Display with Quick Stats
 # ============================================================================
 
-def render_selected_wave_banner(selected_wave: str, mode: str):
+def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     """
-    Render a bold, high-visibility header banner at the top of the page.
-    Shows the currently selected wave name and mode.
+    Render an enhanced pinned banner at the top of the page with quick stats.
+    
+    Shows:
+    - Wave title with neon border/glow effect
+    - Colored pill for Mode
+    - Quick stats tiles: Wave NAV, Returns (1D/30D/60D/365D), Alpha Captured, Beta, VIX regime, Exposure %, Cash %
+    
+    Args:
+        selected_wave: The name of the currently selected wave
+        mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
+    """
+    try:
+        # Get wave data for metrics
+        wave_data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        wave_data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
+        wave_data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        
+        # Calculate metrics
+        nav_str = "N/A"
+        ret_1d_str = "N/A"
+        ret_30d_str = "N/A"
+        ret_60d_str = "N/A"
+        ret_365d_str = "N/A"
+        alpha_1d_str = "N/A"
+        alpha_30d_str = "N/A"
+        alpha_60d_str = "N/A"
+        alpha_365d_str = "N/A"
+        beta_str = "N/A"
+        vix_regime_str = "N/A"
+        exposure_str = "N/A"
+        cash_str = "N/A"
+        
+        # Calculate from 30-day data
+        if wave_data_30d is not None and len(wave_data_30d) > 0:
+            # 1D return (latest day)
+            if 'portfolio_return' in wave_data_30d.columns:
+                latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                ret_1d_str = f"{latest_return*100:.2f}%"
+                
+                # 30D return
+                ret_30d = wave_data_30d['portfolio_return'].sum()
+                ret_30d_str = f"{ret_30d*100:.2f}%"
+            
+            # Alpha calculations
+            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                # 1D alpha
+                latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                alpha_1d_str = f"{latest_alpha*100:.2f}%"
+                
+                # 30D alpha
+                alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
+                alpha_30d_str = f"{alpha_30d*100:.2f}%"
+            
+            # Exposure and cash
+            if 'exposure' in wave_data_30d.columns:
+                avg_exposure = wave_data_30d['exposure'].mean()
+                exposure_str = f"{avg_exposure*100:.1f}%"
+                cash_str = f"{(1-avg_exposure)*100:.1f}%"
+            
+            # VIX regime
+            if 'vix' in wave_data_30d.columns:
+                latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                if latest_vix < 15:
+                    vix_regime_str = "Low"
+                elif latest_vix < 20:
+                    vix_regime_str = "Normal"
+                elif latest_vix < 30:
+                    vix_regime_str = "Elevated"
+                else:
+                    vix_regime_str = "High"
+            
+            # Beta calculation (simplified)
+            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                try:
+                    port_returns = wave_data_30d['portfolio_return']
+                    bench_returns = wave_data_30d['benchmark_return']
+                    covariance = np.cov(port_returns, bench_returns)[0][1]
+                    variance = np.var(bench_returns)
+                    if variance > 0:
+                        beta = covariance / variance
+                        beta_str = f"{beta:.2f}"
+                except:
+                    pass
+        
+        # 60D return
+        if wave_data_60d is not None and len(wave_data_60d) > 0:
+            if 'portfolio_return' in wave_data_60d.columns:
+                ret_60d = wave_data_60d['portfolio_return'].sum()
+                ret_60d_str = f"{ret_60d*100:.2f}%"
+            
+            if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
+                alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
+                alpha_60d_str = f"{alpha_60d*100:.2f}%"
+        
+        # 365D return
+        if wave_data_365d is not None and len(wave_data_365d) > 0:
+            if 'portfolio_return' in wave_data_365d.columns:
+                ret_365d = wave_data_365d['portfolio_return'].sum()
+                ret_365d_str = f"{ret_365d*100:.2f}%"
+            
+            if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
+                alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
+                alpha_365d_str = f"{alpha_365d*100:.2f}%"
+        
+        # Mode color pill
+        mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
+        
+        # Enhanced banner with stats
+        banner_html = f"""
+        <style>
+            @keyframes glow {{
+                0%, 100% {{ box-shadow: 0 0 10px rgba(0, 217, 255, 0.5), 0 0 20px rgba(0, 217, 255, 0.3); }}
+                50% {{ box-shadow: 0 0 20px rgba(0, 217, 255, 0.8), 0 0 30px rgba(0, 217, 255, 0.5); }}
+            }}
+            
+            .wave-banner {{
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+                border: 3px solid #00d9ff;
+                border-radius: 12px;
+                padding: 20px 30px;
+                margin-bottom: 25px;
+                animation: glow 3s infinite;
+            }}
+            
+            .wave-title {{
+                color: #ffffff;
+                font-size: 32px;
+                font-weight: bold;
+                margin: 0 0 15px 0;
+                text-align: center;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+            }}
+            
+            .mode-pill {{
+                display: inline-block;
+                background: {mode_color};
+                color: #1a1a2e;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-weight: bold;
+                font-size: 14px;
+                margin-left: 10px;
+            }}
+            
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+                gap: 10px;
+                margin-top: 15px;
+            }}
+            
+            .stat-tile {{
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(0, 217, 255, 0.3);
+                border-radius: 8px;
+                padding: 8px;
+                text-align: center;
+            }}
+            
+            .stat-label {{
+                color: #00d9ff;
+                font-size: 10px;
+                text-transform: uppercase;
+                margin-bottom: 3px;
+            }}
+            
+            .stat-value {{
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+        </style>
+        
+        <div class="wave-banner">
+            <div class="wave-title">
+                <span style="color: #00d9ff;">🌊</span> {selected_wave}
+                <span class="mode-pill">{mode}</span>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-tile">
+                    <div class="stat-label">1D Return</div>
+                    <div class="stat-value">{ret_1d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">30D Return</div>
+                    <div class="stat-value">{ret_30d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">60D Return</div>
+                    <div class="stat-value">{ret_60d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">365D Return</div>
+                    <div class="stat-value">{ret_365d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Alpha 1D</div>
+                    <div class="stat-value">{alpha_1d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Alpha 30D</div>
+                    <div class="stat-value">{alpha_30d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Alpha 60D</div>
+                    <div class="stat-value">{alpha_60d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Alpha 365D</div>
+                    <div class="stat-value">{alpha_365d_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Beta</div>
+                    <div class="stat-value">{beta_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">VIX Regime</div>
+                    <div class="stat-value">{vix_regime_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Exposure</div>
+                    <div class="stat-value">{exposure_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Cash</div>
+                    <div class="stat-value">{cash_str}</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Safari compatibility: Add bottom padding -->
+        <style>
+            /* Mobile Safari bottom padding fix */
+            @media only screen and (max-width: 768px) {{
+                .main .block-container {{
+                    padding-bottom: 120px !important;
+                }}
+            }}
+        </style>
+        """
+        
+        st.markdown(banner_html, unsafe_allow_html=True)
+        
+    except Exception as e:
+        # Fallback to simple banner if enhanced version fails
+        st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
+        render_selected_wave_banner_simple(selected_wave, mode)
+
+
+def render_selected_wave_banner_simple(selected_wave: str, mode: str):
+    """
+    Simple fallback banner - original implementation.
     
     Args:
         selected_wave: The name of the currently selected wave
@@ -5522,6 +5781,234 @@ def render_wave_intelligence_center_tab():
     st.caption("All data gracefully handles unavailability with clear fallback messaging")
 
 
+# ============================================================================
+# WAVE PROFILE TAB - New First Tab (Before Console)
+# ============================================================================
+
+def render_wave_profile_tab():
+    """
+    Render the Wave Profile tab - New first tab with enhanced styling.
+    
+    This tab displays:
+    1. Hero card with Wave information (styled, not raw HTML)
+    2. Mode indicator
+    3. Top 10 Holdings (clickable)
+    4. Performance metrics
+    
+    Wrapped in try/except with fallback to original layout if errors occur.
+    """
+    try:
+        if not ENABLE_WAVE_PROFILE:
+            # Feature flag disabled - show info message
+            st.info("Wave Profile tab is currently disabled. Enable by setting ENABLE_WAVE_PROFILE = True")
+            return
+        
+        st.header("🌊 Wave Profile")
+        st.write("Comprehensive overview of the selected Wave with styled hero card and holdings")
+        
+        # Get selected wave and mode from session state
+        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+        mode = st.session_state.get("mode", "Standard")
+        
+        st.divider()
+        
+        # ====================================================================
+        # SECTION 1: HERO CARD - Styled Wave Information
+        # ====================================================================
+        
+        # Wave description mapping
+        wave_descriptions = {
+            "S&P 500 Wave": "Tracks the flagship S&P 500 index, representing large-cap U.S. equities with institutional-grade risk overlay.",
+            "Growth Wave": "Focuses on technology and innovation leaders through QQQ exposure with adaptive beta targeting.",
+            "Small Cap Growth Wave": "Captures small-cap growth opportunities via IWM with volatility-adjusted exposure scaling.",
+            "Small-Mid Cap Growth Wave": "Targets mid-cap growth companies through IJH with balanced risk management.",
+            "Future Power & Energy Wave": "Invests in energy sector transformation through XLE exposure with environmental focus.",
+            "Quantum Computing Wave": "Private logic strategy focused on quantum computing and advanced technology themes.",
+            "Clean Transit-Infrastructure Wave": "Clean energy and infrastructure exposure through ICLN with ESG alignment.",
+            "Income Wave": "Conservative income generation through AGG bond exposure with capital preservation focus.",
+            "US MegaCap Core Wave": "Concentrated exposure to the largest U.S. companies with quality and stability focus.",
+            "AI & Cloud MegaCap Wave": "AI and cloud computing leaders among mega-cap technology companies.",
+            "Next-Gen Compute & Semis Wave": "Semiconductor and next-generation computing hardware exposure.",
+            "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive business models.",
+            "Demas Fund Wave": "Custom thematic portfolio with specialized sector allocation.",
+            "Crypto Income Wave": "Cryptocurrency income and yield generation strategy.",
+            "Russell 3000 Wave": "Broad U.S. equity market exposure tracking the Russell 3000 index via IWV."
+        }
+        
+        wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
+        
+        # Create styled hero card
+        hero_card_html = f"""
+        <div style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            border: 3px solid #00d9ff;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        ">
+            <h1 style="
+                color: #ffffff;
+                font-size: 36px;
+                font-weight: bold;
+                margin: 0 0 10px 0;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            ">
+                🌊 {selected_wave}
+            </h1>
+            
+            <div style="
+                display: inline-block;
+                background: {'#00ff88' if mode == 'Standard' else '#ffd700' if mode == 'Aggressive' else '#ff6b6b'};
+                color: #1a1a2e;
+                padding: 8px 20px;
+                border-radius: 25px;
+                font-weight: bold;
+                font-size: 16px;
+                margin-bottom: 15px;
+            ">
+                MODE: {mode}
+            </div>
+            
+            <p style="
+                color: #ffffff;
+                font-size: 16px;
+                line-height: 1.6;
+                margin: 15px 0 0 0;
+            ">
+                {wave_description}
+            </p>
+        </div>
+        """
+        
+        # Render hero card using st.markdown with unsafe_allow_html=True
+        st.markdown(hero_card_html, unsafe_allow_html=True)
+        
+        # Optional: Debug HTML source in expander
+        with st.expander("🔍 Debug / HTML Source", expanded=False):
+            st.code(hero_card_html, language="html")
+        
+        # Add spacing between hero card and Top 10 Holdings
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ====================================================================
+        # SECTION 2: TOP 10 HOLDINGS - Clickable
+        # ====================================================================
+        
+        st.markdown("### 📋 Top 10 Holdings")
+        
+        try:
+            # Get holdings from WAVE_WEIGHTS
+            if WAVES_ENGINE_AVAILABLE and selected_wave in WAVE_WEIGHTS:
+                holdings = WAVE_WEIGHTS[selected_wave]
+                
+                if holdings and len(holdings) > 0:
+                    # Sort by weight descending and take top 10
+                    sorted_holdings = sorted(holdings, key=lambda h: h.weight, reverse=True)[:10]
+                    
+                    # Display holdings as a formatted table with clickable links
+                    st.markdown("**Click on any ticker to view on Yahoo Finance:**")
+                    
+                    holdings_data = []
+                    for idx, holding in enumerate(sorted_holdings, 1):
+                        ticker = holding.ticker
+                        weight = holding.weight
+                        name = holding.name if holding.name else ticker
+                        
+                        # Create Yahoo Finance link
+                        yahoo_link = f"https://finance.yahoo.com/quote/{ticker}"
+                        
+                        holdings_data.append({
+                            "Rank": idx,
+                            "Ticker": f"[{ticker}]({yahoo_link})",
+                            "Name": name,
+                            "Weight": f"{weight*100:.2f}%"
+                        })
+                    
+                    # Display as a dataframe with clickable links
+                    holdings_df = pd.DataFrame(holdings_data)
+                    st.markdown(holdings_df.to_markdown(index=False), unsafe_allow_html=True)
+                    
+                else:
+                    st.info("📊 No holdings data available for this wave.")
+            else:
+                st.info("📊 Holdings data unavailable. Wave not found in engine.")
+        
+        except Exception as holdings_err:
+            st.warning(f"⚠️ Unable to load holdings: {str(holdings_err)}")
+            st.info("📊 Data unavailable")
+        
+        # Add spacing
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ====================================================================
+        # SECTION 3: PERFORMANCE METRICS
+        # ====================================================================
+        
+        st.markdown("### 📊 Performance Metrics")
+        
+        try:
+            # Get wave data for metrics calculation
+            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+            
+            if wave_data is not None and len(wave_data) > 0:
+                # Calculate metrics
+                metrics = calculate_wave_metrics(wave_data)
+                
+                # Display metrics in columns
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    wavescore = metrics.get('wavescore', 'N/A')
+                    if wavescore != 'N/A':
+                        st.metric("WaveScore", f"{wavescore:.1f}")
+                    else:
+                        st.metric("WaveScore", "N/A")
+                
+                with col2:
+                    cum_alpha = metrics.get('cumulative_alpha', 'N/A')
+                    if cum_alpha != 'N/A':
+                        st.metric("Cumulative Alpha (30D)", f"{cum_alpha*100:.2f}%")
+                    else:
+                        st.metric("Cumulative Alpha (30D)", "N/A")
+                
+                with col3:
+                    sharpe = metrics.get('sharpe_ratio', 'N/A')
+                    if sharpe != 'N/A':
+                        st.metric("Sharpe Ratio", f"{sharpe:.2f}")
+                    else:
+                        st.metric("Sharpe Ratio", "N/A")
+                
+                with col4:
+                    volatility = metrics.get('volatility', 'N/A')
+                    if volatility != 'N/A':
+                        st.metric("Volatility (Daily)", f"{volatility*100:.2f}%")
+                    else:
+                        st.metric("Volatility (Daily)", "N/A")
+            else:
+                st.info("📊 Wave data unavailable for the selected wave. Metrics cannot be calculated.")
+        
+        except Exception as metrics_err:
+            st.warning(f"⚠️ Unable to load wave metrics: {str(metrics_err)}")
+            st.info("📊 Data unavailable")
+        
+        # Footer
+        st.markdown("---")
+        st.caption("Wave Profile - Enhanced visualization with styled hero card and clickable holdings")
+    
+    except Exception as e:
+        # Fallback: Display error and revert to original Console tab layout
+        st.error("⚠️ Wave Profile tab encountered an error. Falling back to original layout.")
+        st.warning(f"Error details: {str(e)}")
+        
+        # Display simplified version
+        st.header("🌊 Wave Profile (Fallback Mode)")
+        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+        mode = st.session_state.get("mode", "Standard")
+        st.info(f"Selected Wave: {selected_wave} | Mode: {mode}")
+        st.info("The enhanced Wave Profile is temporarily unavailable. Please check the Console tab.")
+
+
 def render_executive_tab():
     """
     Render the Executive tab with enhanced visualizations.
@@ -9532,8 +10019,8 @@ def render_bottom_ticker_bar():
                 width: 100%;
                 background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
                 color: white;
-                padding: 12px 0;
-                z-index: 9999;
+                padding: 10px 0;
+                z-index: 999;
                 overflow: hidden;
                 box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
                 font-family: 'Courier New', monospace;
@@ -9555,6 +10042,17 @@ def render_bottom_ticker_bar():
             /* Add padding to main content to prevent overlap */
             .main .block-container {{
                 padding-bottom: 60px !important;
+            }}
+            
+            /* Mobile Safari compatibility: Extra bottom padding */
+            @media only screen and (max-width: 768px) {{
+                .main .block-container {{
+                    padding-bottom: 100px !important;
+                }}
+                .ticker-bar {{
+                    padding: 8px 0;
+                    z-index: 998;
+                }}
             }}
         </style>
         
@@ -9665,10 +10163,17 @@ def main():
     # ========================================================================
     
     # Render selected wave banner at the very top (above all tabs)
-    render_selected_wave_banner(
-        selected_wave=st.session_state.selected_wave,
-        mode=st.session_state.mode
-    )
+    # Use enhanced banner if ENABLE_WAVE_PROFILE is True, otherwise use simple banner
+    if ENABLE_WAVE_PROFILE:
+        render_selected_wave_banner_enhanced(
+            selected_wave=st.session_state.selected_wave,
+            mode=st.session_state.mode
+        )
+    else:
+        render_selected_wave_banner_simple(
+            selected_wave=st.session_state.selected_wave,
+            mode=st.session_state.mode
+        )
     
     # Render Mission Control at the top
     render_mission_control()
@@ -9679,54 +10184,109 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    # Updated tab list with Wave Intelligence Center as first tab
-    analytics_tabs = st.tabs([
-        "Wave Intelligence Center",  # NEW: First tab - comprehensive Wave overview
-        "Console",                    # Previously Executive (second tab)
-        "Overview",                   # Previously third (Market Intel equivalent)
-        "Details",                    # Factor Decomp equivalent
-        "Reports",                    # Risk Lab equivalent
-        "Overlays",                   # Correlation equivalent
-        "Attribution",                # Rolling Diagnostics equivalent
-        "Board Pack",                 # Mode Proof equivalent
-        "IC Pack"
-    ])
-    
-    # Wave Intelligence Center tab (NEW - first tab)
-    with analytics_tabs[0]:
-        render_wave_intelligence_center_tab()
-    
-    # Console tab (previously Executive, now second)
-    with analytics_tabs[1]:
-        render_executive_tab()
-    
-    # Overview tab (previously second, now third)
-    with analytics_tabs[2]:
-        render_overview_tab()
-    
-    # Details tab (previously third, now fourth)
-    with analytics_tabs[3]:
-        render_details_tab()
-    
-    # Reports tab (previously fourth, now fifth)
-    with analytics_tabs[4]:
-        render_reports_tab()
-    
-    # Overlays tab (previously fifth, now sixth)
-    with analytics_tabs[5]:
-        render_overlays_tab()
-    
-    # Attribution tab (previously sixth, now seventh)
-    with analytics_tabs[6]:
-        render_attribution_tab()
-    
-    # Board Pack tab (previously seventh, now eighth)
-    with analytics_tabs[7]:
-        render_board_pack_tab()
-    
-    # IC Pack tab (previously eighth, now ninth)
-    with analytics_tabs[8]:
-        render_ic_pack_tab()
+    # Updated tab list - Add "Wave" tab as first tab if ENABLE_WAVE_PROFILE is True
+    if ENABLE_WAVE_PROFILE:
+        analytics_tabs = st.tabs([
+            "Wave",                       # NEW: First tab - Wave Profile with hero card
+            "Console",                    # Previously first (Executive)
+            "Wave Intelligence Center",   # Previously first
+            "Overview",                   # Market Intel equivalent
+            "Details",                    # Factor Decomp equivalent
+            "Reports",                    # Risk Lab equivalent
+            "Overlays",                   # Correlation equivalent
+            "Attribution",                # Rolling Diagnostics equivalent
+            "Board Pack",                 # Mode Proof equivalent
+            "IC Pack"
+        ])
+        
+        # Wave Profile tab (NEW - first tab)
+        with analytics_tabs[0]:
+            render_wave_profile_tab()
+        
+        # Console tab (second)
+        with analytics_tabs[1]:
+            render_executive_tab()
+        
+        # Wave Intelligence Center tab (third)
+        with analytics_tabs[2]:
+            render_wave_intelligence_center_tab()
+        
+        # Overview tab (fourth)
+        with analytics_tabs[3]:
+            render_overview_tab()
+        
+        # Details tab (fifth)
+        with analytics_tabs[4]:
+            render_details_tab()
+        
+        # Reports tab (sixth)
+        with analytics_tabs[5]:
+            render_reports_tab()
+        
+        # Overlays tab (seventh)
+        with analytics_tabs[6]:
+            render_overlays_tab()
+        
+        # Attribution tab (eighth)
+        with analytics_tabs[7]:
+            render_attribution_tab()
+        
+        # Board Pack tab (ninth)
+        with analytics_tabs[8]:
+            render_board_pack_tab()
+        
+        # IC Pack tab (tenth)
+        with analytics_tabs[9]:
+            render_ic_pack_tab()
+    else:
+        # Original tab layout (when ENABLE_WAVE_PROFILE is False)
+        analytics_tabs = st.tabs([
+            "Wave Intelligence Center",  # First tab - comprehensive Wave overview
+            "Console",                    # Previously Executive (second tab)
+            "Overview",                   # Previously third (Market Intel equivalent)
+            "Details",                    # Factor Decomp equivalent
+            "Reports",                    # Risk Lab equivalent
+            "Overlays",                   # Correlation equivalent
+            "Attribution",                # Rolling Diagnostics equivalent
+            "Board Pack",                 # Mode Proof equivalent
+            "IC Pack"
+        ])
+        
+        # Wave Intelligence Center tab (first tab)
+        with analytics_tabs[0]:
+            render_wave_intelligence_center_tab()
+        
+        # Console tab (second)
+        with analytics_tabs[1]:
+            render_executive_tab()
+        
+        # Overview tab (third)
+        with analytics_tabs[2]:
+            render_overview_tab()
+        
+        # Details tab (fourth)
+        with analytics_tabs[3]:
+            render_details_tab()
+        
+        # Reports tab (fifth)
+        with analytics_tabs[4]:
+            render_reports_tab()
+        
+        # Overlays tab (sixth)
+        with analytics_tabs[5]:
+            render_overlays_tab()
+        
+        # Attribution tab (seventh)
+        with analytics_tabs[6]:
+            render_attribution_tab()
+        
+        # Board Pack tab (eighth)
+        with analytics_tabs[7]:
+            render_board_pack_tab()
+        
+        # IC Pack tab (ninth)
+        with analytics_tabs[8]:
+            render_ic_pack_tab()
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
