@@ -1382,16 +1382,16 @@ def render_html_block(html_content: str, height: int = None, key: str = None):
     try:
         # Try st.html first (modern, direct HTML rendering)
         st.html(html_content)
-    except (AttributeError, TypeError) as e:
+    except (AttributeError, TypeError) as st_html_error:
         # Fallback to st.components.v1.html with iframe if st.html not available
         try:
             import streamlit.components.v1 as components
             components.html(html_content, height=height or 400, scrolling=False)
-        except (ImportError, TypeError, ValueError) as comp_err:
+        except (ImportError, TypeError, ValueError) as comp_error:
             # Ultimate fallback: show error message
             import logging
-            logging.error(f"Failed to render HTML content: st.html error={e}, components error={comp_err}")
-            st.error(f"⚠️ Unable to render HTML content: {str(comp_err)}")
+            logging.error(f"Failed to render HTML content: st.html error={st_html_error}, components error={comp_error}")
+            st.error(f"⚠️ Unable to render HTML content: {str(comp_error)}")
             st.info("Please refresh the page or contact support if the issue persists.")
 
 

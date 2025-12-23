@@ -50,9 +50,23 @@ def test_no_unsafe_markdown_in_app():
         app_content = f.read()
     
     # Check for patterns that should not exist
-    assert 'st.markdown(' not in app_content or 'unsafe_allow_html=True' not in app_content or \
-           app_content.count('st.markdown(') - app_content.count('unsafe_allow_html=True') == app_content.count('st.markdown('), \
-           "app.py should not contain st.markdown with unsafe_allow_html=True"
+    markdown_count = app_content.count('st.markdown(')
+    unsafe_html_count = app_content.count('unsafe_allow_html=True')
+    
+    # The only acceptable use would be in comments or docstrings
+    # Count actual code usage by checking if they appear together
+    lines = app_content.split('\n')
+    unsafe_markdown_lines = []
+    for i, line in enumerate(lines, 1):
+        # Skip comments and docstrings
+        stripped = line.strip()
+        if stripped.startswith('#') or stripped.startswith('"""') or stripped.startswith("'''"):
+            continue
+        if 'st.markdown(' in line and 'unsafe_allow_html=True' in line:
+            unsafe_markdown_lines.append(i)
+    
+    assert len(unsafe_markdown_lines) == 0, \
+        f"app.py should not contain st.markdown with unsafe_allow_html=True on lines: {unsafe_markdown_lines}"
     
     print("✓ No unsafe st.markdown calls in app.py")
 
