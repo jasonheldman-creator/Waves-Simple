@@ -5074,6 +5074,454 @@ def render_wave_profile_tab():
         st.info("Data unavailable")
 
 
+def render_wave_intelligence_center_tab():
+    """
+    Render the Wave Intelligence Center tab - Identity and Explanation Layer for the selected Wave.
+    
+    This tab serves as a comprehensive overview of what the Wave is, what it does,
+    and why it matters. Designed to be narrative-focused and non-technical.
+    
+    Components:
+    1. Wave Identity Card - Name, icon, mode, description
+    2. What This Wave Is Doing - Theme, environments, risk management
+    3. Top Holdings & Exposure Summary - Top 10 holdings, allocations, sector tilt
+    4. Why This Wave Matters Right Now - Market context, signals, opportunities
+    """
+    st.header("🌊 Wave Intelligence Center")
+    st.write("Comprehensive identity and explanation layer for the currently selected Wave")
+    
+    # Get selected wave from session state
+    selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+    mode = st.session_state.get("mode", "Standard")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 1: Wave Identity Card
+    # ========================================================================
+    st.markdown("### 🎯 Wave Identity Card")
+    
+    # Create a styled identity card
+    wave_emoji_map = {
+        "S&P 500 Wave": "📈",
+        "Growth Wave": "🚀",
+        "Small Cap Growth Wave": "🌱",
+        "Small-Mid Cap Growth Wave": "🌿",
+        "Future Power & Energy Wave": "⚡",
+        "Quantum Computing Wave": "⚛️",
+        "Clean Transit-Infrastructure Wave": "🚄",
+        "Income Wave": "💰",
+        "US MegaCap Core Wave": "🏛️",
+        "AI & Cloud MegaCap Wave": "☁️",
+        "Next-Gen Compute & Semis Wave": "💻",
+        "US Small-Cap Disruptors Wave": "💥",
+        "Demas Fund Wave": "🎯",
+        "Crypto Income Wave": "₿",
+        "Russell 3000 Wave": "📊"
+    }
+    
+    wave_icon = wave_emoji_map.get(selected_wave, "🌊")
+    
+    # Wave description mapping
+    wave_descriptions = {
+        "S&P 500 Wave": "Tracks the flagship S&P 500 index, representing large-cap U.S. equities with institutional-grade risk overlay.",
+        "Growth Wave": "Focuses on technology and innovation leaders through QQQ exposure with adaptive beta targeting.",
+        "Small Cap Growth Wave": "Captures small-cap growth opportunities via IWM with volatility-adjusted exposure scaling.",
+        "Small-Mid Cap Growth Wave": "Targets mid-cap growth companies through IJH with balanced risk management.",
+        "Future Power & Energy Wave": "Invests in energy sector transformation through XLE exposure with environmental focus.",
+        "Quantum Computing Wave": "Private logic strategy focused on quantum computing and advanced technology themes.",
+        "Clean Transit-Infrastructure Wave": "Clean energy and infrastructure exposure through ICLN with ESG alignment.",
+        "Income Wave": "Conservative income generation through AGG bond exposure with capital preservation focus.",
+        "US MegaCap Core Wave": "Concentrated exposure to the largest U.S. companies with quality and stability focus.",
+        "AI & Cloud MegaCap Wave": "AI and cloud computing leaders among mega-cap technology companies.",
+        "Next-Gen Compute & Semis Wave": "Semiconductor and next-generation computing hardware exposure.",
+        "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive business models.",
+        "Demas Fund Wave": "Custom thematic portfolio with specialized sector allocation.",
+        "Crypto Income Wave": "Cryptocurrency income and yield generation strategy.",
+        "Russell 3000 Wave": "Broad U.S. equity market exposure tracking the Russell 3000 index via IWV."
+    }
+    
+    wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
+    
+    # Styled identity card with gradient background
+    identity_card_html = f"""
+    <div style="
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        border: 3px solid #00d9ff;
+        border-radius: 15px;
+        padding: 30px;
+        margin: 20px 0;
+        box-shadow: 0 6px 12px rgba(0, 217, 255, 0.4);
+        color: white;
+    ">
+        <div style="text-align: center;">
+            <div style="font-size: 80px; margin-bottom: 10px;">{wave_icon}</div>
+            <h2 style="
+                color: #00d9ff;
+                font-size: 36px;
+                font-weight: bold;
+                margin: 10px 0;
+                text-transform: uppercase;
+                letter-spacing: 3px;
+            ">{selected_wave}</h2>
+            <div style="
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 8px;
+                padding: 12px 24px;
+                margin: 15px auto;
+                display: inline-block;
+            ">
+                <span style="font-size: 18px; font-weight: bold;">Active Mode:</span>
+                <span style="
+                    color: #ffd700;
+                    font-size: 20px;
+                    font-weight: bold;
+                    margin-left: 10px;
+                ">{mode}</span>
+            </div>
+            <p style="
+                font-size: 18px;
+                line-height: 1.6;
+                margin-top: 20px;
+                font-style: italic;
+            ">{wave_description}</p>
+        </div>
+    </div>
+    """
+    
+    st.markdown(identity_card_html, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2: What This Wave Is Doing
+    # ========================================================================
+    st.markdown("### 📊 What This Wave Is Doing")
+    
+    try:
+        # Get wave configuration
+        wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+        benchmark = "SPY"  # Default
+        beta_target = 0.90  # Default
+        
+        if os.path.exists(wave_config_path):
+            config_df = pd.read_csv(wave_config_path)
+            wave_config = config_df[config_df['Wave'] == selected_wave]
+            if len(wave_config) > 0:
+                benchmark = wave_config.iloc[0].get('Benchmark', 'SPY')
+                beta_target = wave_config.iloc[0].get('Beta_Target', 0.90)
+        
+        # Get wave data for analysis
+        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        
+        if wave_data is not None and len(wave_data) > 0:
+            # Calculate metrics
+            metrics = calculate_wave_metrics(wave_data)
+            
+            # Determine performance characteristics
+            volatility = metrics.get('volatility', 'N/A')
+            sharpe = metrics.get('sharpe_ratio', 'N/A')
+            
+            # Theme and capture explanation
+            st.markdown("**📌 What This Wave Captures**")
+            
+            theme_map = {
+                "S&P 500 Wave": "This Wave captures broad U.S. large-cap equity exposure, tracking the S&P 500 with adaptive exposure scaling based on market volatility.",
+                "Growth Wave": "Focused on technology and innovation leaders, this Wave captures the growth premium through Nasdaq-100 exposure with beta targeting.",
+                "Small Cap Growth Wave": "Targets small-cap growth opportunities with higher risk/return potential, using the Russell 2000 as its core benchmark.",
+                "Small-Mid Cap Growth Wave": "Bridges small and mid-cap growth stocks, offering exposure to emerging companies with institutional quality standards.",
+                "Future Power & Energy Wave": "Captures the energy sector transformation, focusing on traditional and renewable energy companies.",
+                "Quantum Computing Wave": "A specialized strategy targeting quantum computing and advanced technology themes through proprietary logic.",
+                "Clean Transit-Infrastructure Wave": "Focuses on clean energy and sustainable infrastructure through ESG-aligned holdings.",
+                "Income Wave": "Designed for capital preservation and income generation through high-quality fixed income exposure.",
+                "US MegaCap Core Wave": "Concentrated exposure to the largest, most stable U.S. companies with quality metrics.",
+                "AI & Cloud MegaCap Wave": "Captures AI and cloud computing trends through mega-cap technology leaders.",
+                "Next-Gen Compute & Semis Wave": "Semiconductor and computing hardware exposure, riding the chip innovation cycle.",
+                "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive potential and innovation focus.",
+                "Demas Fund Wave": "Custom thematic allocation with specialized sector positioning.",
+                "Crypto Income Wave": "Cryptocurrency income and yield through staking, lending, and yield-generating protocols.",
+                "Russell 3000 Wave": "Broad U.S. equity market coverage spanning large, mid, and small-cap companies."
+            }
+            
+            theme_text = theme_map.get(selected_wave, "This Wave employs a specialized strategy to capture specific market opportunities.")
+            st.write(theme_text)
+            
+            # Performance environments
+            st.markdown("**🌤️ Best & Worst Environments**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**✅ Thrives In:**")
+                if "Growth" in selected_wave or "Tech" in selected_wave or "AI" in selected_wave:
+                    st.write("• Low volatility, risk-on markets")
+                    st.write("• Rising innovation trends")
+                    st.write("• Positive earnings momentum")
+                elif "Income" in selected_wave:
+                    st.write("• Risk-off environments")
+                    st.write("• Falling interest rates")
+                    st.write("• Flight to quality periods")
+                elif "Energy" in selected_wave or "Power" in selected_wave:
+                    st.write("• Rising commodity prices")
+                    st.write("• Inflation concerns")
+                    st.write("• Energy transition themes")
+                else:
+                    st.write("• Balanced market conditions")
+                    st.write("• Economic growth periods")
+                    st.write("• Positive market breadth")
+            
+            with col2:
+                st.markdown("**⚠️ Challenged In:**")
+                if "Growth" in selected_wave or "Tech" in selected_wave or "AI" in selected_wave:
+                    st.write("• High volatility, risk-off markets")
+                    st.write("• Rising interest rates")
+                    st.write("• Value rotation periods")
+                elif "Income" in selected_wave:
+                    st.write("• Rising interest rates")
+                    st.write("• Strong risk-on rallies")
+                    st.write("• Inflation spikes")
+                elif "Energy" in selected_wave or "Power" in selected_wave:
+                    st.write("• Falling commodity prices")
+                    st.write("• Green energy headwinds")
+                    st.write("• Recession fears")
+                else:
+                    st.write("• Extreme volatility")
+                    st.write("• Sector rotation away")
+                    st.write("• Market dislocations")
+            
+            # Risk management
+            st.markdown("**🛡️ How Risk Is Managed**")
+            st.write(f"""
+            - **Exposure Control:** Target beta of {beta_target:.2f} vs. benchmark ({benchmark})
+            - **VIX Ladder:** Automatic de-risking when VIX exceeds thresholds (20, 30, 40)
+            - **SmartSafe Integration:** Dynamic allocation to cash/bonds in risk-off regimes
+            - **Daily Rebalancing:** Continuous exposure adjustment based on market conditions
+            """)
+            
+        else:
+            st.info("📊 Wave data unavailable for detailed analysis.")
+            st.write("Unable to load specific performance characteristics. Basic Wave information shown above.")
+    
+    except Exception as e:
+        st.warning(f"Unable to load Wave analysis: {str(e)}")
+        st.info("Information unavailable")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 3: Top Holdings & Exposure Summary
+    # ========================================================================
+    st.markdown("### 📋 Top Holdings & Exposure Summary")
+    
+    try:
+        # Get holdings data from Master_Stock_Sheet.csv
+        holdings_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+        
+        if os.path.exists(holdings_path):
+            holdings_df = pd.read_csv(holdings_path)
+            
+            # Get top 10 holdings by weight
+            if 'Weight' in holdings_df.columns and 'Ticker' in holdings_df.columns:
+                top_holdings = holdings_df.nlargest(10, 'Weight')[['Ticker', 'Company', 'Weight', 'Sector']].copy()
+                
+                # Format weight as percentage
+                top_holdings['Allocation %'] = (top_holdings['Weight'] * 100).round(2)
+                top_holdings = top_holdings[['Ticker', 'Company', 'Allocation %', 'Sector']]
+                
+                # Make tickers clickable (for future enhancement)
+                st.markdown("**📈 Top 10 Holdings**")
+                st.dataframe(top_holdings, use_container_width=True, hide_index=True)
+                
+                # Sector tilt summary
+                if 'Sector' in holdings_df.columns:
+                    st.markdown("**🎯 Sector Tilt Summary**")
+                    
+                    # Calculate sector weights
+                    sector_weights = holdings_df.groupby('Sector')['Weight'].sum().sort_values(ascending=False)
+                    
+                    # Display top 5 sectors
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Top Sectors by Weight:**")
+                        for sector, weight in sector_weights.head(5).items():
+                            if pd.notna(sector):
+                                st.write(f"• {sector}: {weight * 100:.2f}%")
+                    
+                    with col2:
+                        # Create a simple pie chart for sector allocation
+                        if len(sector_weights) > 0:
+                            fig = px.pie(
+                                values=sector_weights.head(5).values,
+                                names=sector_weights.head(5).index,
+                                title="Top 5 Sector Allocation"
+                            )
+                            fig.update_traces(textposition='inside', textinfo='percent+label')
+                            st.plotly_chart(fig, use_container_width=True, key="sector_pie_chart")
+            else:
+                st.info("📊 Holdings data unavailable - Required columns not found")
+        else:
+            st.info("📊 Holdings data unavailable - Master_Stock_Sheet.csv not found")
+    
+    except Exception as e:
+        st.warning(f"Unable to load holdings: {str(e)}")
+        st.info("Information unavailable")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 4: Why This Wave Matters Right Now
+    # ========================================================================
+    st.markdown("### 💡 Why This Wave Matters Right Now")
+    
+    try:
+        # Get current wave data for context
+        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        
+        if wave_data is not None and len(wave_data) > 0:
+            metrics = calculate_wave_metrics(wave_data)
+            
+            # Market context
+            st.markdown("**🌍 Market Context**")
+            
+            wavescore = metrics.get('wavescore', 0)
+            cum_alpha = metrics.get('cumulative_alpha', 0)
+            
+            if wavescore != 'N/A' and wavescore > 60:
+                st.success(f"✅ This Wave is currently outperforming with a WaveScore of {wavescore:.1f}")
+                context = "Strong relative performance suggests favorable market conditions for this strategy."
+            elif wavescore != 'N/A' and wavescore < 40:
+                st.warning(f"⚠️ This Wave is underperforming with a WaveScore of {wavescore:.1f}")
+                context = "Challenging market conditions for this strategy. Consider diversification or wait for regime shift."
+            else:
+                st.info(f"ℹ️ This Wave shows moderate performance with a WaveScore of {wavescore:.1f}")
+                context = "Market conditions are neutral for this strategy. Monitor for regime changes."
+            
+            st.write(context)
+            
+            # Signals supporting current positioning
+            st.markdown("**📡 Supporting Signals**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Performance Signals:**")
+                if cum_alpha != 'N/A':
+                    alpha_pct = cum_alpha * 100 if isinstance(cum_alpha, (int, float)) else 0
+                    if alpha_pct > 0:
+                        st.write(f"• Positive 30-day alpha: +{alpha_pct:.2f}%")
+                    else:
+                        st.write(f"• Negative 30-day alpha: {alpha_pct:.2f}%")
+                
+                sharpe = metrics.get('sharpe_ratio', 'N/A')
+                if sharpe != 'N/A' and isinstance(sharpe, (int, float)):
+                    if sharpe > 1.0:
+                        st.write(f"• Strong risk-adjusted returns (Sharpe: {sharpe:.2f})")
+                    elif sharpe > 0:
+                        st.write(f"• Moderate risk-adjusted returns (Sharpe: {sharpe:.2f})")
+                    else:
+                        st.write(f"• Weak risk-adjusted returns (Sharpe: {sharpe:.2f})")
+            
+            with col2:
+                st.markdown("**Risk Indicators:**")
+                volatility = metrics.get('volatility', 'N/A')
+                if volatility != 'N/A' and isinstance(volatility, (int, float)):
+                    vol_pct = volatility * 100
+                    if vol_pct < 1.5:
+                        st.write(f"• Low volatility: {vol_pct:.2f}%")
+                    elif vol_pct < 3.0:
+                        st.write(f"• Moderate volatility: {vol_pct:.2f}%")
+                    else:
+                        st.write(f"• Elevated volatility: {vol_pct:.2f}%")
+                
+                max_dd = metrics.get('max_drawdown', 'N/A')
+                if max_dd != 'N/A' and isinstance(max_dd, (int, float)):
+                    dd_pct = max_dd * 100
+                    st.write(f"• Max drawdown: {dd_pct:.2f}%")
+            
+            # Opportunities and risks
+            st.markdown("**🎯 Notable Opportunities & Risks**")
+            
+            opportunities_risks_map = {
+                "S&P 500 Wave": {
+                    "opportunities": [
+                        "Broad market exposure provides diversification",
+                        "Low-cost core holding for institutional portfolios",
+                        "Benefits from overall economic growth"
+                    ],
+                    "risks": [
+                        "Limited upside in sector rotations",
+                        "Vulnerable to broad market downturns",
+                        "May lag in specialized themes"
+                    ]
+                },
+                "Growth Wave": {
+                    "opportunities": [
+                        "Strong tech sector performance trends",
+                        "AI and innovation mega-themes",
+                        "Quality earnings from mega-cap tech"
+                    ],
+                    "risks": [
+                        "Interest rate sensitivity",
+                        "High valuation multiples",
+                        "Concentration in few mega-cap names"
+                    ]
+                },
+                "Income Wave": {
+                    "opportunities": [
+                        "Capital preservation during volatility",
+                        "Steady income generation",
+                        "Negative correlation to equities"
+                    ],
+                    "risks": [
+                        "Interest rate rise exposure",
+                        "Inflation erosion risk",
+                        "Limited upside potential"
+                    ]
+                }
+            }
+            
+            opp_risk = opportunities_risks_map.get(selected_wave, {
+                "opportunities": [
+                    "Specialized exposure to targeted theme",
+                    "Potential for alpha generation",
+                    "Diversification benefit"
+                ],
+                "risks": [
+                    "Concentration risk",
+                    "Theme-specific volatility",
+                    "Market regime dependency"
+                ]
+            })
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**✅ Opportunities:**")
+                for opp in opp_risk["opportunities"]:
+                    st.write(f"• {opp}")
+            
+            with col2:
+                st.markdown("**⚠️ Risks:**")
+                for risk in opp_risk["risks"]:
+                    st.write(f"• {risk}")
+        
+        else:
+            st.info("📊 Market context unavailable - No recent Wave data")
+            st.write("Unable to provide current market analysis. Check data availability and try again.")
+    
+    except Exception as e:
+        st.warning(f"Unable to generate market context: {str(e)}")
+        st.info("Information unavailable")
+    
+    st.divider()
+    
+    # Footer
+    st.markdown("---")
+    st.caption("Wave Intelligence Center - Identity and explanation layer for institutional Wave strategies")
+    st.caption("All data gracefully handles unavailability with clear fallback messaging")
+
+
 def render_executive_tab():
     """
     Render the Executive tab with enhanced visualizations.
