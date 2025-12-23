@@ -4543,6 +4543,312 @@ def render_sidebar_info():
 # SECTION 7: TAB RENDER FUNCTIONS
 # ============================================================================
 
+def render_wave_intelligence_center_tab():
+    """
+    Render the Wave Intelligence Center tab - First tab showing comprehensive Wave overview.
+    
+    This tab provides an at-a-glance view of the selected Wave with:
+    - Large, visually distinct header with key metrics
+    - Performance metrics in tile format (returns and alpha for multiple periods)
+    - Top 10 Holdings
+    """
+    # Wave and Mode selectors at the top
+    st.markdown("### 🎯 Select Wave & Mode")
+    
+    col_wave, col_mode = st.columns(2)
+    
+    with col_wave:
+        # Get available waves
+        available_waves = get_available_waves()
+        
+        # Get current selected wave from session state
+        current_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+        
+        # Ensure current wave is in the list
+        if current_wave not in available_waves:
+            if len(available_waves) > 0:
+                current_wave = available_waves[0]
+            else:
+                current_wave = "S&P 500 Wave"
+        
+        # Wave selector
+        selected_wave = st.selectbox(
+            "Select Wave",
+            options=available_waves if len(available_waves) > 0 else ["S&P 500 Wave"],
+            index=available_waves.index(current_wave) if current_wave in available_waves else 0,
+            key="wic_wave_selector",
+            help="Choose a wave to view in the Intelligence Center"
+        )
+        
+        # Update session state
+        st.session_state.selected_wave = selected_wave
+    
+    with col_mode:
+        # Mode selector
+        mode_options = ["Standard", "Alpha-Minus-Beta", "Private Logic"]
+        current_mode = st.session_state.get("mode", "Standard")
+        
+        mode = st.selectbox(
+            "Select Mode",
+            options=mode_options,
+            index=mode_options.index(current_mode) if current_mode in mode_options else 0,
+            key="wic_mode_selector",
+            help="Choose the mode for wave operation"
+        )
+        
+        # Update session state
+        st.session_state.mode = mode
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # LARGE, VISUALLY DISTINCT HEADER
+    # ========================================================================
+    
+    try:
+        # Get wave data for metrics calculation
+        wave_data_30 = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        wave_data_365 = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        
+        # Calculate metrics
+        metrics_30 = calculate_wave_metrics(wave_data_30) if wave_data_30 is not None else {}
+        
+        # Get VIX diagnostics if available
+        regime = "Unknown"
+        vix_value = "N/A"
+        exposure_pct = "N/A"
+        cash_pct = "N/A"
+        
+        if VIX_DIAGNOSTICS_AVAILABLE:
+            try:
+                vix_diagnostics = get_wave_diagnostics(selected_wave, mode=mode, days=30)
+                if vix_diagnostics is not None and len(vix_diagnostics) > 0:
+                    latest = vix_diagnostics.iloc[-1]
+                    regime = latest.get('Regime', 'Unknown')
+                    vix_value = f"{latest.get('VIX', 'N/A'):.2f}" if pd.notna(latest.get('VIX')) else "N/A"
+                    exposure = latest.get('Exposure', None)
+                    exposure_pct = f"{exposure * 100:.1f}%" if pd.notna(exposure) else "N/A"
+                    safe_frac = latest.get('Safe_Fraction', None)
+                    cash_pct = f"{safe_frac * 100:.1f}%" if pd.notna(safe_frac) else "N/A"
+            except Exception:
+                pass
+        
+        # Get WaveScore
+        wavescore = metrics_30.get('wavescore', 0)
+        wavescore_display = f"{wavescore:.1f}" if wavescore != 'N/A' else "N/A"
+        
+        # Beta realized vs target (simplified - will show N/A for now as we don't have beta target)
+        beta_display = "N/A"
+        
+        # Create the large header
+        header_html = f"""
+        <div style="
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            border: 4px solid #00d9ff;
+            border-radius: 16px;
+            padding: 30px 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 16px rgba(0, 217, 255, 0.4), 0 0 40px rgba(0, 217, 255, 0.2);
+        ">
+            <div style="text-align: center; margin-bottom: 25px;">
+                <h1 style="
+                    color: #00d9ff;
+                    font-size: 42px;
+                    font-weight: 900;
+                    margin: 0;
+                    text-transform: uppercase;
+                    letter-spacing: 3px;
+                    text-shadow: 0 0 20px rgba(0, 217, 255, 0.6);
+                ">
+                    🌊 {selected_wave}
+                </h1>
+                <div style="
+                    color: #00ff88;
+                    font-size: 20px;
+                    font-weight: bold;
+                    margin-top: 10px;
+                    text-transform: uppercase;
+                    letter-spacing: 2px;
+                ">
+                    MODE: {mode}
+                </div>
+            </div>
+            
+            <div style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+                margin-top: 25px;
+            ">
+                <div style="background: rgba(0, 217, 255, 0.1); padding: 15px; border-radius: 10px; border-left: 4px solid #00d9ff;">
+                    <div style="color: #94a3b8; font-size: 12px; text-transform: uppercase; margin-bottom: 5px;">Regime / VIX</div>
+                    <div style="color: #ffffff; font-size: 24px; font-weight: bold;">{regime}</div>
+                    <div style="color: #fbbf24; font-size: 16px; margin-top: 5px;">VIX: {vix_value}</div>
+                </div>
+                
+                <div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-radius: 10px; border-left: 4px solid #00ff88;">
+                    <div style="color: #94a3b8; font-size: 12px; text-transform: uppercase; margin-bottom: 5px;">Exposure</div>
+                    <div style="color: #ffffff; font-size: 24px; font-weight: bold;">{exposure_pct}</div>
+                </div>
+                
+                <div style="background: rgba(251, 191, 36, 0.1); padding: 15px; border-radius: 10px; border-left: 4px solid #fbbf24;">
+                    <div style="color: #94a3b8; font-size: 12px; text-transform: uppercase; margin-bottom: 5px;">Cash</div>
+                    <div style="color: #ffffff; font-size: 24px; font-weight: bold;">{cash_pct}</div>
+                </div>
+                
+                <div style="background: rgba(236, 72, 153, 0.1); padding: 15px; border-radius: 10px; border-left: 4px solid #ec4899;">
+                    <div style="color: #94a3b8; font-size: 12px; text-transform: uppercase; margin-bottom: 5px;">Beta (Realized vs Target)</div>
+                    <div style="color: #ffffff; font-size: 24px; font-weight: bold;">{beta_display}</div>
+                </div>
+                
+                <div style="background: rgba(139, 92, 246, 0.1); padding: 15px; border-radius: 10px; border-left: 4px solid #8b5cf6;">
+                    <div style="color: #94a3b8; font-size: 12px; text-transform: uppercase; margin-bottom: 5px;">WaveScore</div>
+                    <div style="color: #ffffff; font-size: 24px; font-weight: bold;">{wavescore_display}</div>
+                </div>
+            </div>
+        </div>
+        """
+        
+        st.markdown(header_html, unsafe_allow_html=True)
+    
+    except Exception as e:
+        st.error(f"Error loading header data: {str(e)}")
+    
+    # ========================================================================
+    # METRIC TILES - RETURNS AND ALPHA
+    # ========================================================================
+    
+    st.markdown("### 📊 Performance Metrics")
+    
+    try:
+        # Calculate returns and alpha for different periods
+        periods = {
+            '1D': 1,
+            '30D': 30,
+            '60D': 60,
+            '365D': 365
+        }
+        
+        metrics_by_period = {}
+        
+        for period_name, days in periods.items():
+            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=days)
+            if wave_data is not None and len(wave_data) > 0:
+                if 'portfolio_return' in wave_data.columns:
+                    total_return = wave_data['portfolio_return'].sum()
+                else:
+                    total_return = None
+                
+                if 'alpha' in wave_data.columns:
+                    total_alpha = wave_data['alpha'].sum()
+                elif 'portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns:
+                    total_alpha = wave_data['portfolio_return'].sum() - wave_data['benchmark_return'].sum()
+                else:
+                    total_alpha = None
+                
+                metrics_by_period[period_name] = {
+                    'return': total_return,
+                    'alpha': total_alpha
+                }
+            else:
+                metrics_by_period[period_name] = {
+                    'return': None,
+                    'alpha': None
+                }
+        
+        # First row: Returns
+        st.markdown("#### 📈 Returns")
+        cols_returns = st.columns(4)
+        
+        for idx, (period_name, days) in enumerate(periods.items()):
+            with cols_returns[idx]:
+                return_val = metrics_by_period[period_name]['return']
+                if return_val is not None:
+                    st.metric(
+                        label=f"{period_name} Return",
+                        value=f"{return_val * 100:.2f}%",
+                        help=f"Total return over {period_name}"
+                    )
+                else:
+                    st.metric(
+                        label=f"{period_name} Return",
+                        value="N/A",
+                        help=f"Data unavailable for {period_name}"
+                    )
+        
+        # Second row: Alpha Captured
+        st.markdown("#### ⚡ Alpha Captured")
+        cols_alpha = st.columns(4)
+        
+        for idx, (period_name, days) in enumerate(periods.items()):
+            with cols_alpha[idx]:
+                alpha_val = metrics_by_period[period_name]['alpha']
+                if alpha_val is not None:
+                    st.metric(
+                        label=f"{period_name} Alpha",
+                        value=f"{alpha_val * 100:.2f}%",
+                        delta=f"{alpha_val * 100:.2f}%" if alpha_val >= 0 else None,
+                        help=f"Alpha captured over {period_name}"
+                    )
+                else:
+                    st.metric(
+                        label=f"{period_name} Alpha",
+                        value="N/A",
+                        help=f"Data unavailable for {period_name}"
+                    )
+    
+    except Exception as e:
+        st.warning(f"Unable to load performance metrics: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # TOP 10 HOLDINGS
+    # ========================================================================
+    
+    st.markdown("### 📋 Top 10 Holdings")
+    
+    try:
+        # Get holdings from WAVE_WEIGHTS
+        if WAVES_ENGINE_AVAILABLE and selected_wave in WAVE_WEIGHTS:
+            holdings = WAVE_WEIGHTS[selected_wave]
+            
+            if holdings and len(holdings) > 0:
+                # Sort by weight descending and take top 10
+                sorted_holdings = sorted(holdings, key=lambda h: h.weight, reverse=True)[:10]
+                
+                # Display holdings as a formatted list with clickable links
+                st.markdown("**Click on any ticker to view on Yahoo Finance:**")
+                
+                holdings_data = []
+                for idx, holding in enumerate(sorted_holdings, 1):
+                    ticker = holding.ticker
+                    weight = holding.weight
+                    name = holding.name if holding.name else ticker
+                    
+                    # Create Yahoo Finance link
+                    yahoo_link = f"https://finance.yahoo.com/quote/{ticker}"
+                    
+                    holdings_data.append({
+                        "Rank": idx,
+                        "Ticker": f"[{ticker}]({yahoo_link})",
+                        "Name": name,
+                        "Weight": f"{weight*100:.2f}%"
+                    })
+                
+                # Display as a dataframe with clickable links
+                holdings_df = pd.DataFrame(holdings_data)
+                st.markdown(holdings_df.to_markdown(index=False), unsafe_allow_html=True)
+                
+            else:
+                st.info("No holdings data available for this wave.")
+        else:
+            st.info("Holdings data unavailable. Wave not found in engine.")
+    
+    except Exception as e:
+        st.warning(f"Unable to load holdings: {str(e)}")
+
+
 def render_wave_profile_tab():
     """
     Render the Wave Profile tab - First tab showing selected wave details.
@@ -8908,24 +9214,24 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    # Updated tab list with Wave Profile as first tab
+    # Updated tab list with Wave Intelligence Center as first tab
     analytics_tabs = st.tabs([
-        "Wave Profile",      # NEW: First tab
-        "Executive",         # Previously first, now second (Console equivalent)
-        "Overview",          # Previously second, now third (Market Intel equivalent)
-        "Details",           # Factor Decomp equivalent
-        "Reports",           # Risk Lab equivalent
-        "Overlays",          # Correlation equivalent
-        "Attribution",       # Rolling Diagnostics equivalent
-        "Board Pack",        # Mode Proof equivalent
+        "Wave Intelligence Center",  # NEW: First tab - comprehensive Wave overview
+        "Console",                    # Previously Executive (second tab)
+        "Overview",                   # Previously third (Market Intel equivalent)
+        "Details",                    # Factor Decomp equivalent
+        "Reports",                    # Risk Lab equivalent
+        "Overlays",                   # Correlation equivalent
+        "Attribution",                # Rolling Diagnostics equivalent
+        "Board Pack",                 # Mode Proof equivalent
         "IC Pack"
     ])
     
-    # Wave Profile tab (NEW - first tab)
+    # Wave Intelligence Center tab (NEW - first tab)
     with analytics_tabs[0]:
-        render_wave_profile_tab()
+        render_wave_intelligence_center_tab()
     
-    # Executive tab (previously first, now second)
+    # Console tab (previously Executive, now second)
     with analytics_tabs[1]:
         render_executive_tab()
     
