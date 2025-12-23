@@ -1,13 +1,13 @@
 export const siteContent = {
   home: {
     hero: {
-      title: "Governance-Native Decision Infrastructure",
+      title: "Institutional Decision Infrastructure",
       subtitle:
-        "WAVES Intelligence™ is institutional decision infrastructure built for transparency, benchmark integrity, and governance-first operations. WAVES™ portfolios operate as live proof—demonstrating disciplined, risk-aware execution under real market conditions. One system: infrastructure credibility and portfolio performance validation.",
+        "WAVES Intelligence™ is decision infrastructure for institutional portfolio management—delivering transparency, attribution integrity, and governance-first operations. WAVES™ portfolios demonstrate the platform through disciplined, risk-aware execution under real market conditions. One platform: infrastructure for oversight, portfolios for validation.",
       ctaText: "Request Institutional Demo",
       ctaLink: "/demo",
-      secondaryCtaText: "View Platform Screens",
-      secondaryCtaLink: "/product",
+      secondaryCtaText: "View Governance Architecture",
+      secondaryCtaLink: "/governance",
     },
     proofStrip: [
       {
@@ -108,6 +108,69 @@ export const siteContent = {
       ],
     },
   },
+  decisionInfrastructure: {
+    title: "Aladdin-Class Decision Infrastructure",
+    subtitle:
+      "Observable decision layers with complete transparency—every decision Made, Measured, Audited, and Replayed within institutional governance frameworks.",
+    processes: [
+      {
+        title: "Made",
+        description:
+          "Every portfolio decision captured with complete transparency—logic, inputs, constraints, and rationale documented at decision point. Observable decision layers ensure institutional accountability from inception.",
+        icon: "⚙️",
+      },
+      {
+        title: "Measured",
+        description:
+          "Capital-weighted truth through factor-level attribution—decomposing what decisions produce with institutional precision. Multi-dimensional exposure analytics reveal portfolio outcomes without opacity.",
+        icon: "📊",
+      },
+      {
+        title: "Audited",
+        description:
+          "Immutable audit trails spanning decision inception through execution—governance controls, policy enforcement, and compliance validation at every layer. Built for regulatory examination and fiduciary oversight.",
+        icon: "📋",
+      },
+      {
+        title: "Replayed",
+        description:
+          "Complete decision reconstruction capability—replay any portfolio state, decision sequence, or attribution period. Risk regime awareness integrated throughout for institutional scenario analysis.",
+        icon: "🔄",
+      },
+    ],
+    concepts: [
+      {
+        title: "Observable Decision Layers",
+        description:
+          "Complete visibility into portfolio construction logic—from data ingestion through execution. Every layer transparent, every decision traceable, every outcome measurable.",
+      },
+      {
+        title: "Attribution Integrity",
+        description:
+          "Factor-level decomposition with benchmark discipline—revealing what systematic decisions produce without black-box obfuscation. Institutional-grade precision throughout.",
+      },
+      {
+        title: "Risk Regime Awareness",
+        description:
+          "Continuous risk overlay integration—VIX regimes, volatility shifts, market stress conditions reflected in real-time. Infrastructure adapts to market conditions systematically.",
+      },
+      {
+        title: "Benchmark Discipline",
+        description:
+          "Benchmark integrity controls embedded at infrastructure level—tracking error validation, deviation limits, sector alignment verification across all analytics.",
+      },
+      {
+        title: "Capital-Weighted Truth",
+        description:
+          "Performance attribution weighted by actual capital deployed—reflecting real portfolio impact, not theoretical backtests. Truth grounded in institutional capital deployment.",
+      },
+      {
+        title: "Governance by Design",
+        description:
+          "Fiduciary controls, audit trails, and compliance frameworks built into platform architecture—not retrofitted add-ons. Institutional governance embedded foundationally.",
+      },
+    ],
+  },
   product: {
     hero: {
       title: "Platform Screens",
@@ -140,9 +203,9 @@ export const siteContent = {
         alt: "Governance Console",
         title: "Governance Console",
         bullets: [
-          "Complete audit trails spanning platform infrastructure and WAVES™ portfolio operations—institutional accountability from data ingestion through execution",
-          "Real-time policy compliance monitoring demonstrating governance frameworks function under live conditions—systematic integrity verification at every decision point",
-          "Board-ready documentation integrating platform analytics and mandate performance—unified reporting for oversight committees and regulatory compliance requirements",
+          "Immutable audit trails spanning platform infrastructure and WAVES™ portfolio operations—institutional accountability from data ingestion through execution. Built for boardrooms, not just traders.",
+          "Real-time policy compliance monitoring with enforcement gates and override controls—governance frameworks function under live conditions with systematic integrity verification at every decision point.",
+          "Board-ready documentation integrating platform analytics and mandate performance—unified reporting for CIOs, Risk Committees, and Regulators with complete transparency and fiduciary accountability.",
         ],
       },
     ],

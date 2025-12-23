@@ -2,6 +2,7 @@ import Hero from "@/components/Hero";
 import ProofStrip from "@/components/ProofStrip";
 import HowItWorks from "@/components/HowItWorks";
 import Audience from "@/components/Audience";
+import DecisionInfrastructure from "@/components/DecisionInfrastructure";
 import InstitutionalCare from "@/components/InstitutionalCare";
 import WavesDistinction from "@/components/WavesDistinction";
 import AcquisitionIntegration from "@/components/AcquisitionIntegration";
@@ -31,6 +32,13 @@ export default function Home() {
         title={siteContent.home.audience.title}
         subtitle={siteContent.home.audience.subtitle}
         columns={siteContent.home.audience.columns}
+      />
+      
+      <DecisionInfrastructure
+        title={siteContent.decisionInfrastructure.title}
+        subtitle={siteContent.decisionInfrastructure.subtitle}
+        processes={siteContent.decisionInfrastructure.processes}
+        concepts={siteContent.decisionInfrastructure.concepts}
       />
       
       <InstitutionalCare
