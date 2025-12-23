@@ -5135,16 +5135,21 @@ def render_sidebar_info():
 
 def render_wave_intelligence_center_tab():
     """
-    Render the Wave Intelligence Center tab - Identity and Explanation Layer for the selected Wave.
+    Render the Intelligence Center (Vector v3) tab - Cross-Wave Correlation & Insights.
     
-    This tab serves as a comprehensive overview of what the Wave is, what it does,
-    and why it matters. Designed to be narrative-focused and non-technical.
+    This tab provides institutional-grade cross-wave analytics:
+    1. Correlation Matrix across all Waves (using daily returns)
+    2. Rolling Correlations for selected Wave (30-day and 90-day)
+    3. Diversification & Redundancy Panel (top 5 lowest/highest correlation pairs)
+    4. Clustering & Grouping View (hierarchical clustering based on correlation distance)
+    5. Market Regime / Risk-On vs Risk-Off Heuristic (using SPY returns and VIX trends)
+    6. Opportunity Lens (3-5 observation bullet points based on correlation and regime context)
     
-    Components:
-    1. Wave Identity Card - Name, icon, mode, description
-    2. What This Wave Is Doing - Theme, environments, risk management
-    3. Top Holdings & Exposure Summary - Top 10 holdings, allocations, sector tilt
-    4. Why This Wave Matters Right Now - Market context, signals, opportunities
+    Features:
+    - Mobile-friendly responsive design
+    - Safe fallbacks for insufficient data
+    - No changes to engine math (reuses existing wave history/return data)
+    - Graceful error handling with panel-level try-except
     
     SAFE_MODE: Wrapped in try-except with crash logging and graceful error handling.
     """
@@ -5152,16 +5157,13 @@ def render_wave_intelligence_center_tab():
     selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
     mode = st.session_state.get("mode", "Standard")
     
-    # Render sticky header at the top of the tab
-    render_sticky_header(selected_wave, mode)
-    
     # SAFE_MODE wrapper - catch exceptions and log crashes
     # Check session state first, then fall back to global flag
     use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
     
     if use_safe_mode:
         try:
-            _render_wave_intelligence_center_content(selected_wave, mode)
+            _render_intelligence_center_v3_content(selected_wave, mode)
             # Clear error flag on success
             st.session_state.wave_ic_has_errors = False
         except Exception as e:
@@ -5169,15 +5171,15 @@ def render_wave_intelligence_center_tab():
             st.session_state.wave_ic_has_errors = True
             
             # Log the crash
-            log_crash_to_file(e, context="Wave Intelligence Center Tab")
+            log_crash_to_file(e, context="Intelligence Center (Vector v3) Tab")
             
             # Display friendly error banner
-            st.error("⚠️ **Wave Intelligence Center Temporarily Unavailable**")
+            st.error("⚠️ **Intelligence Center Temporarily Unavailable**")
             st.warning("""
-            The Wave Intelligence Center encountered an error and cannot be displayed at this time.
+            The Intelligence Center encountered an error and cannot be displayed at this time.
             
             **What happened:**
-            - An unexpected error occurred while loading Wave information
+            - An unexpected error occurred while loading correlation and insights data
             - The error has been logged to `logs/crash_log.txt` for review
             
             **What you can do:**
@@ -5192,7 +5194,7 @@ def render_wave_intelligence_center_tab():
     else:
         # No SAFE_MODE - run directly (original behavior)
         try:
-            _render_wave_intelligence_center_content(selected_wave, mode)
+            _render_intelligence_center_v3_content(selected_wave, mode)
             # Clear error flag on success
             st.session_state.wave_ic_has_errors = False
         except Exception as e:
@@ -5201,510 +5203,676 @@ def render_wave_intelligence_center_tab():
             raise
 
 
-def _render_wave_intelligence_center_content(selected_wave: str, mode: str):
+def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
     """
-    Internal function to render the Wave Intelligence Center content.
+    Internal function to render the Intelligence Center (Vector v3) content.
     Separated to allow SAFE_MODE wrapping.
+    
+    Vector v3 focuses on cross-wave correlation and insights.
     """
-    st.header("🌊 Wave Intelligence Center")
-    st.write("Comprehensive identity and explanation layer for the currently selected Wave")
+    # Header with Vector v3 badge
+    st.header("🧠 Intelligence Center")
     
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 1: Wave Identity Card
-    # ========================================================================
-    st.markdown("### 🎯 Wave Identity Card")
-    
-    # Create a styled identity card
-    wave_emoji_map = {
-        "S&P 500 Wave": "📈",
-        "Growth Wave": "🚀",
-        "Small Cap Growth Wave": "🌱",
-        "Small-Mid Cap Growth Wave": "🌿",
-        "Future Power & Energy Wave": "⚡",
-        "Quantum Computing Wave": "⚛️",
-        "Clean Transit-Infrastructure Wave": "🚄",
-        "Income Wave": "💰",
-        "US MegaCap Core Wave": "🏛️",
-        "AI & Cloud MegaCap Wave": "☁️",
-        "Next-Gen Compute & Semis Wave": "💻",
-        "US Small-Cap Disruptors Wave": "💥",
-        "Demas Fund Wave": "🎯",
-        "Crypto Income Wave": "₿",
-        "Russell 3000 Wave": "📊"
-    }
-    
-    wave_icon = wave_emoji_map.get(selected_wave, "🌊")
-    
-    # Wave description mapping
-    wave_descriptions = {
-        "S&P 500 Wave": "Tracks the flagship S&P 500 index, representing large-cap U.S. equities with institutional-grade risk overlay.",
-        "Growth Wave": "Focuses on technology and innovation leaders through QQQ exposure with adaptive beta targeting.",
-        "Small Cap Growth Wave": "Captures small-cap growth opportunities via IWM with volatility-adjusted exposure scaling.",
-        "Small-Mid Cap Growth Wave": "Targets mid-cap growth companies through IJH with balanced risk management.",
-        "Future Power & Energy Wave": "Invests in energy sector transformation through XLE exposure with environmental focus.",
-        "Quantum Computing Wave": "Private logic strategy focused on quantum computing and advanced technology themes.",
-        "Clean Transit-Infrastructure Wave": "Clean energy and infrastructure exposure through ICLN with ESG alignment.",
-        "Income Wave": "Conservative income generation through AGG bond exposure with capital preservation focus.",
-        "US MegaCap Core Wave": "Concentrated exposure to the largest U.S. companies with quality and stability focus.",
-        "AI & Cloud MegaCap Wave": "AI and cloud computing leaders among mega-cap technology companies.",
-        "Next-Gen Compute & Semis Wave": "Semiconductor and next-generation computing hardware exposure.",
-        "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive business models.",
-        "Demas Fund Wave": "Custom thematic portfolio with specialized sector allocation.",
-        "Crypto Income Wave": "Cryptocurrency income and yield generation strategy.",
-        "Russell 3000 Wave": "Broad U.S. equity market exposure tracking the Russell 3000 index via IWV."
-    }
-    
-    wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
-    
-    # Styled identity card with gradient background - mobile-responsive
-    identity_card_html = f"""
+    # Vector v3 badge (mobile-responsive)
+    badge_html = """
     <style>
-        /* Scoped styles for Wave Identity Card */
-        .wave-identity-card {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-            border: 3px solid #00d9ff;
-            border-radius: 15px;
-            padding: 25px 20px;
-            margin: 15px 0;
-            box-shadow: 0 6px 12px rgba(0, 217, 255, 0.4);
-            color: white;
-            max-height: 400px;
-            overflow: hidden;
-        }}
-        
-        .wave-identity-content {{
-            text-align: center;
-        }}
-        
-        .wave-icon {{
-            font-size: 60px;
-            margin-bottom: 8px;
-        }}
-        
-        .wave-name {{
-            color: #00d9ff;
-            font-size: 28px;
-            font-weight: bold;
-            margin: 8px 0;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }}
-        
-        .wave-mode-pill {{
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 8px;
-            padding: 10px 20px;
-            margin: 12px auto;
+        .vector-v3-badge {
             display: inline-block;
-        }}
-        
-        .wave-mode-label {{
-            font-size: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
             font-weight: bold;
-        }}
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
         
-        .wave-mode-value {{
-            color: #ffd700;
-            font-size: 18px;
-            font-weight: bold;
-            margin-left: 8px;
-        }}
-        
-        .wave-description {{
-            font-size: 16px;
-            line-height: 1.5;
-            margin-top: 15px;
-            font-style: italic;
-            padding: 0 10px;
-        }}
-        
-        /* Mobile responsiveness */
-        @media only screen and (max-width: 768px) {{
-            .wave-identity-card {{
-                padding: 20px 15px;
-                margin: 10px 0;
-                max-height: 350px;
-            }}
-            
-            .wave-icon {{
-                font-size: 48px;
-                margin-bottom: 6px;
-            }}
-            
-            .wave-name {{
-                font-size: 22px;
-                letter-spacing: 1px;
-            }}
-            
-            .wave-mode-pill {{
-                padding: 8px 16px;
-                margin: 10px auto;
-            }}
-            
-            .wave-mode-label {{
-                font-size: 14px;
-            }}
-            
-            .wave-mode-value {{
-                font-size: 16px;
-                margin-left: 6px;
-            }}
-            
-            .wave-description {{
-                font-size: 14px;
-                line-height: 1.4;
-                margin-top: 12px;
-                padding: 0 5px;
-            }}
-        }}
+        @media only screen and (max-width: 768px) {
+            .vector-v3-badge {
+                font-size: 11px;
+                padding: 5px 12px;
+            }
+        }
     </style>
-    
-    <div class="wave-identity-card">
-        <div class="wave-identity-content">
-            <div class="wave-icon">{wave_icon}</div>
-            <h2 class="wave-name">{selected_wave}</h2>
-            <div class="wave-mode-pill">
-                <span class="wave-mode-label">Active Mode:</span>
-                <span class="wave-mode-value">{mode}</span>
-            </div>
-            <p class="wave-description">{wave_description}</p>
-        </div>
-    </div>
+    <div class="vector-v3-badge">Vector v3</div>
     """
+    st.markdown(badge_html, unsafe_allow_html=True)
     
-    render_html_safe(identity_card_html, height=380, scrolling=False)
+    st.write("Cross-Wave Correlation Analysis & Market Intelligence")
     
     st.divider()
     
     # ========================================================================
-    # SECTION 2: What This Wave Is Doing
+    # SECTION 1: Correlation Matrix Across All Waves
     # ========================================================================
-    st.markdown("### 📊 What This Wave Is Doing")
+    st.markdown("### 📊 Correlation Matrix - All Waves")
+    st.caption("Daily return correlations across all waves (reuses existing wave history data)")
     
     try:
-        # Get wave configuration
-        wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-        benchmark = "SPY"  # Default
-        beta_target = 0.90  # Default
+        # Get all available waves
+        waves = get_available_waves()
         
-        if os.path.exists(wave_config_path):
-            config_df = pd.read_csv(wave_config_path)
-            wave_config = config_df[config_df['Wave'] == selected_wave]
-            if len(wave_config) > 0:
-                benchmark = wave_config.iloc[0].get('Benchmark', 'SPY')
-                beta_target = wave_config.iloc[0].get('Beta_Target', 0.90)
-        
-        # Get wave data for analysis
-        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
-        
-        if wave_data is not None and len(wave_data) > 0:
-            # Calculate metrics
-            metrics = calculate_wave_metrics(wave_data)
-            
-            # Determine performance characteristics
-            volatility = metrics.get('volatility', 'N/A')
-            sharpe = metrics.get('sharpe_ratio', 'N/A')
-            
-            # Theme and capture explanation
-            st.markdown("**📌 What This Wave Captures**")
-            
-            theme_map = {
-                "S&P 500 Wave": "This Wave captures broad U.S. large-cap equity exposure, tracking the S&P 500 with adaptive exposure scaling based on market volatility.",
-                "Growth Wave": "Focused on technology and innovation leaders, this Wave captures the growth premium through Nasdaq-100 exposure with beta targeting.",
-                "Small Cap Growth Wave": "Targets small-cap growth opportunities with higher risk/return potential, using the Russell 2000 as its core benchmark.",
-                "Small-Mid Cap Growth Wave": "Bridges small and mid-cap growth stocks, offering exposure to emerging companies with institutional quality standards.",
-                "Future Power & Energy Wave": "Captures the energy sector transformation, focusing on traditional and renewable energy companies.",
-                "Quantum Computing Wave": "A specialized strategy targeting quantum computing and advanced technology themes through proprietary logic.",
-                "Clean Transit-Infrastructure Wave": "Focuses on clean energy and sustainable infrastructure through ESG-aligned holdings.",
-                "Income Wave": "Designed for capital preservation and income generation through high-quality fixed income exposure.",
-                "US MegaCap Core Wave": "Concentrated exposure to the largest, most stable U.S. companies with quality metrics.",
-                "AI & Cloud MegaCap Wave": "Captures AI and cloud computing trends through mega-cap technology leaders.",
-                "Next-Gen Compute & Semis Wave": "Semiconductor and computing hardware exposure, riding the chip innovation cycle.",
-                "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive potential and innovation focus.",
-                "Demas Fund Wave": "Custom thematic allocation with specialized sector positioning.",
-                "Crypto Income Wave": "Cryptocurrency income and yield through staking, lending, and yield-generating protocols.",
-                "Russell 3000 Wave": "Broad U.S. equity market coverage spanning large, mid, and small-cap companies."
-            }
-            
-            theme_text = theme_map.get(selected_wave, "This Wave employs a specialized strategy to capture specific market opportunities.")
-            st.write(theme_text)
-            
-            # Performance environments
-            st.markdown("**🌤️ Best & Worst Environments**")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**✅ Thrives In:**")
-                if "Growth" in selected_wave or "Tech" in selected_wave or "AI" in selected_wave:
-                    st.write("• Low volatility, risk-on markets")
-                    st.write("• Rising innovation trends")
-                    st.write("• Positive earnings momentum")
-                elif "Income" in selected_wave:
-                    st.write("• Risk-off environments")
-                    st.write("• Falling interest rates")
-                    st.write("• Flight to quality periods")
-                elif "Energy" in selected_wave or "Power" in selected_wave:
-                    st.write("• Rising commodity prices")
-                    st.write("• Inflation concerns")
-                    st.write("• Energy transition themes")
-                else:
-                    st.write("• Balanced market conditions")
-                    st.write("• Economic growth periods")
-                    st.write("• Positive market breadth")
-            
-            with col2:
-                st.markdown("**⚠️ Challenged In:**")
-                if "Growth" in selected_wave or "Tech" in selected_wave or "AI" in selected_wave:
-                    st.write("• High volatility, risk-off markets")
-                    st.write("• Rising interest rates")
-                    st.write("• Value rotation periods")
-                elif "Income" in selected_wave:
-                    st.write("• Rising interest rates")
-                    st.write("• Strong risk-on rallies")
-                    st.write("• Inflation spikes")
-                elif "Energy" in selected_wave or "Power" in selected_wave:
-                    st.write("• Falling commodity prices")
-                    st.write("• Green energy headwinds")
-                    st.write("• Recession fears")
-                else:
-                    st.write("• Extreme volatility")
-                    st.write("• Sector rotation away")
-                    st.write("• Market dislocations")
-            
-            # Risk management
-            st.markdown("**🛡️ How Risk Is Managed**")
-            st.write(f"""
-            - **Exposure Control:** Target beta of {beta_target:.2f} vs. benchmark ({benchmark})
-            - **VIX Ladder:** Automatic de-risking when VIX exceeds thresholds (20, 30, 40)
-            - **SmartSafe Integration:** Dynamic allocation to cash/bonds in risk-off regimes
-            - **Daily Rebalancing:** Continuous exposure adjustment based on market conditions
-            """)
-            
+        if not waves or len(waves) < 2:
+            st.info("📊 Insufficient data - Need at least 2 waves with historical data")
         else:
-            st.info("📊 Wave data unavailable for detailed analysis.")
-            st.write("Unable to load specific performance characteristics. Basic Wave information shown above.")
+            # Filter waves with sufficient data (at least 30 days)
+            valid_waves = []
+            wave_returns_dict = {}
+            
+            for wave in waves:
+                wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+                if wave_data is not None and len(wave_data) >= 30:
+                    if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                        valid_waves.append(wave)
+                        # Store returns indexed by date
+                        wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+            
+            if len(valid_waves) < 2:
+                st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
+            else:
+                # Build correlation matrix
+                # Merge all returns on common dates
+                returns_df = pd.DataFrame(wave_returns_dict)
+                
+                # Drop rows with any NaN
+                returns_df = returns_df.dropna()
+                
+                if len(returns_df) < 10:
+                    st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+                else:
+                    # Calculate correlation matrix
+                    corr_matrix = returns_df.corr()
+                    
+                    # Display as heatmap using plotly
+                    fig = go.Figure(data=go.Heatmap(
+                        z=corr_matrix.values,
+                        x=corr_matrix.columns,
+                        y=corr_matrix.index,
+                        colorscale='RdYlGn',
+                        zmid=0,
+                        zmin=-1,
+                        zmax=1,
+                        text=corr_matrix.values,
+                        texttemplate='%{text:.2f}',
+                        textfont={"size": 9},
+                        colorbar=dict(title="Correlation")
+                    ))
+                    
+                    fig.update_layout(
+                        title="Cross-Wave Correlation Matrix (Daily Returns)",
+                        xaxis_title="Wave",
+                        yaxis_title="Wave",
+                        height=max(400, len(valid_waves) * 30),
+                        xaxis={'tickangle': -45},
+                        margin=dict(l=150, r=50, t=80, b=150)
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show summary stats
+                    st.caption(f"Correlation based on {len(returns_df)} days of common return data across {len(valid_waves)} waves")
     
     except Exception as e:
-        st.warning(f"Unable to load Wave analysis: {str(e)}")
-        st.info("Information unavailable")
+        st.warning(f"⚠️ Correlation Matrix panel unavailable: {str(e)}")
+        st.info("📊 Unable to display correlation matrix. Data may be insufficient or unavailable.")
     
     st.divider()
     
     # ========================================================================
-    # SECTION 3: Top Holdings & Exposure Summary
+    # SECTION 2: Rolling Correlations for Selected Wave
     # ========================================================================
-    st.markdown("### 📋 Top Holdings & Exposure Summary")
+    st.markdown("### 📈 Rolling Correlations - Selected Wave")
+    st.caption(f"Rolling 30-day and 90-day correlations between **{selected_wave}** and all other waves")
     
     try:
-        # Get holdings data from Master_Stock_Sheet.csv
-        holdings_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+        # Get selected wave data
+        selected_wave_data = get_wave_data_filtered(wave_name=selected_wave, days=180)
         
-        if os.path.exists(holdings_path):
-            holdings_df = pd.read_csv(holdings_path)
+        if selected_wave_data is None or len(selected_wave_data) < 30:
+            st.info(f"📊 Insufficient data for {selected_wave} - Need at least 30 days of returns")
+        else:
+            # Get all other waves
+            all_waves = get_available_waves()
+            other_waves = [w for w in all_waves if w != selected_wave]
             
-            # Get top 10 holdings by weight
-            if 'Weight' in holdings_df.columns and 'Ticker' in holdings_df.columns:
-                top_holdings = holdings_df.nlargest(10, 'Weight')[['Ticker', 'Company', 'Weight', 'Sector']].copy()
+            if not other_waves:
+                st.info("📊 No other waves available for correlation analysis")
+            else:
+                # Calculate rolling correlations
+                rolling_30d_corrs = {}
+                rolling_90d_corrs = {}
                 
-                # Format weight as percentage
-                top_holdings['Allocation %'] = (top_holdings['Weight'] * 100).round(2)
-                top_holdings = top_holdings[['Ticker', 'Company', 'Allocation %', 'Sector']]
+                selected_returns = selected_wave_data.set_index('date')['portfolio_return']
                 
-                # Make tickers clickable (for future enhancement)
-                st.markdown("**📈 Top 10 Holdings**")
-                st.dataframe(top_holdings, use_container_width=True, hide_index=True)
-                
-                # Sector tilt summary
-                if 'Sector' in holdings_df.columns:
-                    st.markdown("**🎯 Sector Tilt Summary**")
+                for other_wave in other_waves[:10]:  # Limit to top 10 for performance
+                    other_wave_data = get_wave_data_filtered(wave_name=other_wave, days=180)
                     
-                    # Calculate sector weights
-                    sector_weights = holdings_df.groupby('Sector')['Weight'].sum().sort_values(ascending=False)
-                    
-                    # Display top 5 sectors
+                    if other_wave_data is not None and len(other_wave_data) >= 30:
+                        other_returns = other_wave_data.set_index('date')['portfolio_return']
+                        
+                        # Merge on common dates
+                        combined = pd.DataFrame({
+                            'selected': selected_returns,
+                            'other': other_returns
+                        }).dropna()
+                        
+                        if len(combined) >= 30:
+                            # Calculate rolling correlations
+                            rolling_30 = combined['selected'].rolling(window=30).corr(combined['other'])
+                            rolling_90 = combined['selected'].rolling(window=90).corr(combined['other'])
+                            
+                            # Get latest values
+                            latest_30d = rolling_30.iloc[-1] if not rolling_30.empty else None
+                            latest_90d = rolling_90.iloc[-1] if not rolling_90.empty else None
+                            
+                            if latest_30d is not None and not np.isnan(latest_30d):
+                                rolling_30d_corrs[other_wave] = latest_30d
+                            if latest_90d is not None and not np.isnan(latest_90d):
+                                rolling_90d_corrs[other_wave] = latest_90d
+                
+                if not rolling_30d_corrs and not rolling_90d_corrs:
+                    st.info("📊 Insufficient overlapping data to calculate rolling correlations")
+                else:
+                    # Display as bar charts
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown("**Top Sectors by Weight:**")
-                        for sector, weight in sector_weights.head(5).items():
-                            if pd.notna(sector):
-                                st.write(f"• {sector}: {weight * 100:.2f}%")
+                        if rolling_30d_corrs:
+                            st.markdown("**30-Day Rolling Correlation**")
+                            df_30d = pd.DataFrame({
+                                'Wave': list(rolling_30d_corrs.keys()),
+                                'Correlation': list(rolling_30d_corrs.values())
+                            }).sort_values('Correlation', ascending=False)
+                            
+                            fig_30d = px.bar(
+                                df_30d,
+                                x='Correlation',
+                                y='Wave',
+                                orientation='h',
+                                color='Correlation',
+                                color_continuous_scale='RdYlGn',
+                                range_color=[-1, 1]
+                            )
+                            fig_30d.update_layout(height=max(300, len(df_30d) * 30))
+                            st.plotly_chart(fig_30d, use_container_width=True)
+                        else:
+                            st.info("📊 30-day data unavailable")
                     
                     with col2:
-                        # Create a simple pie chart for sector allocation
-                        if len(sector_weights) > 0:
-                            fig = px.pie(
-                                values=sector_weights.head(5).values,
-                                names=sector_weights.head(5).index,
-                                title="Top 5 Sector Allocation"
+                        if rolling_90d_corrs:
+                            st.markdown("**90-Day Rolling Correlation**")
+                            df_90d = pd.DataFrame({
+                                'Wave': list(rolling_90d_corrs.keys()),
+                                'Correlation': list(rolling_90d_corrs.values())
+                            }).sort_values('Correlation', ascending=False)
+                            
+                            fig_90d = px.bar(
+                                df_90d,
+                                x='Correlation',
+                                y='Wave',
+                                orientation='h',
+                                color='Correlation',
+                                color_continuous_scale='RdYlGn',
+                                range_color=[-1, 1]
                             )
-                            fig.update_traces(textposition='inside', textinfo='percent+label')
-                            st.plotly_chart(fig, use_container_width=True, key="sector_pie_chart")
-            else:
-                st.info("📊 Holdings data unavailable - Required columns not found")
-        else:
-            st.info("📊 Holdings data unavailable - Master_Stock_Sheet.csv not found")
+                            fig_90d.update_layout(height=max(300, len(df_90d) * 30))
+                            st.plotly_chart(fig_90d, use_container_width=True)
+                        else:
+                            st.info("📊 90-day data unavailable")
     
     except Exception as e:
-        st.warning(f"Unable to load holdings: {str(e)}")
-        st.info("Information unavailable")
+        st.warning(f"⚠️ Rolling Correlations panel unavailable: {str(e)}")
+        st.info("📊 Unable to calculate rolling correlations. Data may be insufficient or unavailable.")
     
     st.divider()
     
     # ========================================================================
-    # SECTION 4: Why This Wave Matters Right Now
+    # SECTION 3: Diversification & Redundancy Panel
     # ========================================================================
-    st.markdown("### 💡 Why This Wave Matters Right Now")
+    st.markdown("### 🎯 Diversification & Redundancy")
+    st.caption("Top 5 lowest-correlation pairs (best diversifiers) and top 5 highest-correlation pairs (most redundant)")
     
     try:
-        # Get current wave data for context
-        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        # Get all waves with sufficient data
+        waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
         
-        if wave_data is not None and len(wave_data) > 0:
-            metrics = calculate_wave_metrics(wave_data)
-            
-            # Market context
-            st.markdown("**🌍 Market Context**")
-            
-            wavescore = metrics.get('wavescore', 0)
-            cum_alpha = metrics.get('cumulative_alpha', 0)
-            
-            if wavescore != 'N/A' and wavescore > 60:
-                st.success(f"✅ This Wave is currently outperforming with a WaveScore of {wavescore:.1f}")
-                context = "Strong relative performance suggests favorable market conditions for this strategy."
-            elif wavescore != 'N/A' and wavescore < 40:
-                st.warning(f"⚠️ This Wave is underperforming with a WaveScore of {wavescore:.1f}")
-                context = "Challenging market conditions for this strategy. Consider diversification or wait for regime shift."
-            else:
-                st.info(f"ℹ️ This Wave shows moderate performance with a WaveScore of {wavescore:.1f}")
-                context = "Market conditions are neutral for this strategy. Monitor for regime changes."
-            
-            st.write(context)
-            
-            # Signals supporting current positioning
-            st.markdown("**📡 Supporting Signals**")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Performance Signals:**")
-                if cum_alpha != 'N/A':
-                    alpha_pct = cum_alpha * 100 if isinstance(cum_alpha, (int, float)) else 0
-                    if alpha_pct > 0:
-                        st.write(f"• Positive 30-day alpha: +{alpha_pct:.2f}%")
-                    else:
-                        st.write(f"• Negative 30-day alpha: {alpha_pct:.2f}%")
-                
-                sharpe = metrics.get('sharpe_ratio', 'N/A')
-                if sharpe != 'N/A' and isinstance(sharpe, (int, float)):
-                    if sharpe > 1.0:
-                        st.write(f"• Strong risk-adjusted returns (Sharpe: {sharpe:.2f})")
-                    elif sharpe > 0:
-                        st.write(f"• Moderate risk-adjusted returns (Sharpe: {sharpe:.2f})")
-                    else:
-                        st.write(f"• Weak risk-adjusted returns (Sharpe: {sharpe:.2f})")
-            
-            with col2:
-                st.markdown("**Risk Indicators:**")
-                volatility = metrics.get('volatility', 'N/A')
-                if volatility != 'N/A' and isinstance(volatility, (int, float)):
-                    vol_pct = volatility * 100
-                    if vol_pct < 1.5:
-                        st.write(f"• Low volatility: {vol_pct:.2f}%")
-                    elif vol_pct < 3.0:
-                        st.write(f"• Moderate volatility: {vol_pct:.2f}%")
-                    else:
-                        st.write(f"• Elevated volatility: {vol_pct:.2f}%")
-                
-                max_dd = metrics.get('max_drawdown', 'N/A')
-                if max_dd != 'N/A' and isinstance(max_dd, (int, float)):
-                    dd_pct = max_dd * 100
-                    st.write(f"• Max drawdown: {dd_pct:.2f}%")
-            
-            # Opportunities and risks
-            st.markdown("**🎯 Notable Opportunities & Risks**")
-            
-            opportunities_risks_map = {
-                "S&P 500 Wave": {
-                    "opportunities": [
-                        "Broad market exposure provides diversification",
-                        "Low-cost core holding for institutional portfolios",
-                        "Benefits from overall economic growth"
-                    ],
-                    "risks": [
-                        "Limited upside in sector rotations",
-                        "Vulnerable to broad market downturns",
-                        "May lag in specialized themes"
-                    ]
-                },
-                "Growth Wave": {
-                    "opportunities": [
-                        "Strong tech sector performance trends",
-                        "AI and innovation mega-themes",
-                        "Quality earnings from mega-cap tech"
-                    ],
-                    "risks": [
-                        "Interest rate sensitivity",
-                        "High valuation multiples",
-                        "Concentration in few mega-cap names"
-                    ]
-                },
-                "Income Wave": {
-                    "opportunities": [
-                        "Capital preservation during volatility",
-                        "Steady income generation",
-                        "Negative correlation to equities"
-                    ],
-                    "risks": [
-                        "Interest rate rise exposure",
-                        "Inflation erosion risk",
-                        "Limited upside potential"
-                    ]
-                }
-            }
-            
-            opp_risk = opportunities_risks_map.get(selected_wave, {
-                "opportunities": [
-                    "Specialized exposure to targeted theme",
-                    "Potential for alpha generation",
-                    "Diversification benefit"
-                ],
-                "risks": [
-                    "Concentration risk",
-                    "Theme-specific volatility",
-                    "Market regime dependency"
-                ]
-            })
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**✅ Opportunities:**")
-                for opp in opp_risk["opportunities"]:
-                    st.write(f"• {opp}")
-            
-            with col2:
-                st.markdown("**⚠️ Risks:**")
-                for risk in opp_risk["risks"]:
-                    st.write(f"• {risk}")
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
         
+        if len(valid_waves) < 2:
+            st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
         else:
-            st.info("📊 Market context unavailable - No recent Wave data")
-            st.write("Unable to provide current market analysis. Check data availability and try again.")
+            # Build returns dataframe
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
+            
+            if len(returns_df) < 10:
+                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+            else:
+                # Calculate correlation matrix
+                corr_matrix = returns_df.corr()
+                
+                # Extract upper triangle (avoid duplicates and self-correlations)
+                pairs = []
+                for i in range(len(corr_matrix)):
+                    for j in range(i+1, len(corr_matrix)):
+                        wave1 = corr_matrix.index[i]
+                        wave2 = corr_matrix.columns[j]
+                        corr_val = corr_matrix.iloc[i, j]
+                        pairs.append((wave1, wave2, corr_val))
+                
+                if not pairs:
+                    st.info("📊 No wave pairs available for analysis")
+                else:
+                    # Sort by correlation
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
+                    
+                    # Get top 5 lowest and highest
+                    lowest_5 = pairs_sorted[:5]
+                    highest_5 = pairs_sorted[-5:][::-1]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**✅ Best Diversifiers (Lowest Correlation)**")
+                        if lowest_5:
+                            for wave1, wave2, corr in lowest_5:
+                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
+                        else:
+                            st.info("Data unavailable")
+                    
+                    with col2:
+                        st.markdown("**⚠️ Most Redundant (Highest Correlation)**")
+                        if highest_5:
+                            for wave1, wave2, corr in highest_5:
+                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
+                        else:
+                            st.info("Data unavailable")
     
     except Exception as e:
-        st.warning(f"Unable to generate market context: {str(e)}")
-        st.info("Information unavailable")
+        st.warning(f"⚠️ Diversification panel unavailable: {str(e)}")
+        st.info("📊 Unable to identify diversification opportunities. Data may be insufficient or unavailable.")
     
     st.divider()
     
-    # Footer
+    # ========================================================================
+    # SECTION 4: Clustering & Grouping View
+    # ========================================================================
+    st.markdown("### 🔗 Clustering & Grouping")
+    st.caption("Waves grouped by correlation distance (1 - correlation) using hierarchical clustering")
+    
+    try:
+        # Get all waves with sufficient data
+        waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
+        
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+        
+        if len(valid_waves) < 3:
+            st.info("📊 Insufficient data - Need at least 3 waves with 30+ days of returns for clustering")
+        else:
+            # Build returns dataframe
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
+            
+            if len(returns_df) < 10:
+                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+            else:
+                # Calculate correlation matrix
+                corr_matrix = returns_df.corr()
+                
+                # Convert to distance matrix (1 - correlation)
+                dist_matrix = 1 - corr_matrix
+                
+                # Try hierarchical clustering
+                try:
+                    from scipy.cluster.hierarchy import linkage, fcluster
+                    from scipy.spatial.distance import squareform
+                    
+                    # Convert to condensed distance matrix
+                    dist_condensed = squareform(dist_matrix, checks=False)
+                    
+                    # Perform hierarchical clustering (using average linkage)
+                    linkage_matrix = linkage(dist_condensed, method='average')
+                    
+                    # Cut tree to get 3-5 clusters
+                    num_clusters = min(5, max(3, len(valid_waves) // 3))
+                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
+                    
+                    # Group waves by cluster
+                    clusters = {}
+                    for wave, label in zip(valid_waves, cluster_labels):
+                        if label not in clusters:
+                            clusters[label] = []
+                        clusters[label].append(wave)
+                    
+                    # Display clusters
+                    st.markdown("**Wave Clusters (Hierarchical Clustering)**")
+                    for cluster_id in sorted(clusters.keys()):
+                        wave_list = clusters[cluster_id]
+                        st.markdown(f"**Cluster {cluster_id}:** {', '.join(wave_list)}")
+                    
+                    st.caption(f"Identified {len(clusters)} clusters across {len(valid_waves)} waves using average linkage")
+                
+                except ImportError:
+                    # Fallback: Simple greedy grouping if scipy not available
+                    st.info("📊 Using greedy grouping (scipy not available for hierarchical clustering)")
+                    
+                    # Greedy grouping: Start with highest correlations
+                    grouped = set()
+                    groups = []
+                    
+                    # Get all pairs sorted by correlation (highest first)
+                    pairs = []
+                    for i in range(len(corr_matrix)):
+                        for j in range(i+1, len(corr_matrix)):
+                            wave1 = corr_matrix.index[i]
+                            wave2 = corr_matrix.columns[j]
+                            corr_val = corr_matrix.iloc[i, j]
+                            pairs.append((wave1, wave2, corr_val))
+                    
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2], reverse=True)
+                    
+                    # Build groups greedily
+                    for wave1, wave2, corr in pairs_sorted:
+                        if wave1 not in grouped and wave2 not in grouped:
+                            # Start new group
+                            groups.append([wave1, wave2])
+                            grouped.add(wave1)
+                            grouped.add(wave2)
+                    
+                    # Add ungrouped waves as singletons
+                    for wave in valid_waves:
+                        if wave not in grouped:
+                            groups.append([wave])
+                    
+                    # Display groups
+                    st.markdown("**Wave Groups (Greedy Grouping)**")
+                    for idx, group in enumerate(groups, 1):
+                        st.markdown(f"**Group {idx}:** {', '.join(group)}")
+                    
+                    st.caption(f"Identified {len(groups)} groups across {len(valid_waves)} waves")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Clustering panel unavailable: {str(e)}")
+        st.info("📊 Unable to perform wave clustering. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 5: Market Regime / Risk-On vs Risk-Off Heuristic
+    # ========================================================================
+    st.markdown("### 📉 Market Regime Heuristic")
+    st.caption("**Heuristic classification** of recent days into Risk-On vs Risk-Off using SPY returns and VIX trends")
+    st.info("⚠️ This is a heuristic indicator, not a trading signal. Use for context only.")
+    
+    try:
+        # Get SPY wave data (assuming S&P 500 Wave tracks SPY)
+        spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=30)
+        
+        if spy_wave_data is None or len(spy_wave_data) < 10:
+            st.info("📊 Insufficient SPY data - Need at least 10 days of S&P 500 Wave returns")
+        else:
+            # Calculate regime indicators
+            spy_returns = spy_wave_data['portfolio_return'].iloc[-10:]  # Last 10 days
+            
+            # Heuristic:
+            # Risk-On: Positive average return, low volatility
+            # Risk-Off: Negative average return, high volatility
+            
+            avg_return = spy_returns.mean()
+            volatility = spy_returns.std()
+            
+            # VIX data if available
+            vix_available = 'vix' in spy_wave_data.columns
+            if vix_available:
+                latest_vix = spy_wave_data['vix'].iloc[-1]
+                vix_trend = spy_wave_data['vix'].iloc[-10:].mean()
+            else:
+                latest_vix = None
+                vix_trend = None
+            
+            # Classify regime
+            if avg_return > 0.001 and (not vix_available or latest_vix < 20):
+                regime = "Risk-On"
+                regime_color = "green"
+                regime_icon = "📈"
+            elif avg_return < -0.001 or (vix_available and latest_vix >= 25):
+                regime = "Risk-Off"
+                regime_color = "red"
+                regime_icon = "📉"
+            else:
+                regime = "Neutral"
+                regime_color = "orange"
+                regime_icon = "➖"
+            
+            # Display regime
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Current Regime",
+                    f"{regime_icon} {regime}",
+                    help="Heuristic classification based on recent SPY returns"
+                )
+            
+            with col2:
+                st.metric(
+                    "Avg Return (10D)",
+                    f"{avg_return * 100:.2f}%",
+                    help="Average daily return over last 10 days"
+                )
+            
+            with col3:
+                if vix_available and latest_vix is not None:
+                    st.metric(
+                        "VIX Level",
+                        f"{latest_vix:.1f}",
+                        help="Latest VIX value (volatility index)"
+                    )
+                else:
+                    st.metric(
+                        "Volatility (10D)",
+                        f"{volatility * 100:.2f}%",
+                        help="Standard deviation of returns over last 10 days"
+                    )
+            
+            # Regime description
+            if regime == "Risk-On":
+                st.success("✅ **Risk-On Environment:** Positive momentum, favorable for growth-oriented positioning")
+            elif regime == "Risk-Off":
+                st.error("🔴 **Risk-Off Environment:** Defensive positioning recommended, elevated volatility")
+            else:
+                st.warning("⚠️ **Neutral Environment:** Mixed signals, maintain balanced positioning")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Market Regime panel unavailable: {str(e)}")
+        st.info("📊 Unable to determine market regime. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 6: Opportunity Lens
+    # ========================================================================
+    st.markdown("### 💡 Opportunity Lens")
+    st.caption("3-5 neutral observations based on correlation patterns and market regime context")
+    
+    try:
+        # Generate observations based on available data
+        observations = []
+        
+        # Get correlation data
+        waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
+        
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+        
+        if len(valid_waves) >= 2:
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
+            
+            if len(returns_df) >= 10:
+                corr_matrix = returns_df.corr()
+                
+                # Observation 1: Identify rotation opportunities
+                # Find lowest correlation pairs
+                pairs = []
+                for i in range(len(corr_matrix)):
+                    for j in range(i+1, len(corr_matrix)):
+                        wave1 = corr_matrix.index[i]
+                        wave2 = corr_matrix.columns[j]
+                        corr_val = corr_matrix.iloc[i, j]
+                        pairs.append((wave1, wave2, corr_val))
+                
+                if pairs:
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
+                    lowest_pair = pairs_sorted[0]
+                    
+                    observations.append(
+                        f"**Rotation Opportunity:** {lowest_pair[0]} and {lowest_pair[1]} show low correlation "
+                        f"({lowest_pair[2]:.2f}), suggesting potential for diversification or rotation strategies."
+                    )
+                
+                # Observation 2: Identify clustering patterns
+                # Check if we can identify distinct clusters
+                try:
+                    from scipy.cluster.hierarchy import linkage, fcluster
+                    from scipy.spatial.distance import squareform
+                    
+                    dist_matrix = 1 - corr_matrix
+                    dist_condensed = squareform(dist_matrix, checks=False)
+                    linkage_matrix = linkage(dist_condensed, method='average')
+                    
+                    num_clusters = min(4, max(2, len(valid_waves) // 3))
+                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
+                    
+                    # Count clusters
+                    unique_clusters = len(set(cluster_labels))
+                    
+                    observations.append(
+                        f"**Clustering Pattern:** Wave universe segments into approximately {unique_clusters} "
+                        f"correlation-based clusters, indicating distinct thematic or sector groupings."
+                    )
+                except:
+                    pass
+                
+                # Observation 3: Recent performance divergence
+                # Check 30-day returns variance
+                recent_returns = {}
+                for wave in valid_waves[:5]:
+                    wave_data = get_wave_data_filtered(wave_name=wave, days=30)
+                    if wave_data is not None and len(wave_data) > 0:
+                        total_return = wave_data['portfolio_return'].sum()
+                        recent_returns[wave] = total_return
+                
+                if len(recent_returns) >= 2:
+                    sorted_returns = sorted(recent_returns.items(), key=lambda x: x[1], reverse=True)
+                    top_performer = sorted_returns[0]
+                    bottom_performer = sorted_returns[-1]
+                    
+                    spread = (top_performer[1] - bottom_performer[1]) * 100
+                    
+                    observations.append(
+                        f"**Performance Divergence:** {top_performer[0]} outperformed {bottom_performer[0]} "
+                        f"by {spread:.1f}% over the last 30 days, suggesting active thematic rotation."
+                    )
+                
+                # Observation 4: Regime context
+                spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=10)
+                if spy_wave_data is not None and len(spy_wave_data) >= 5:
+                    avg_return = spy_wave_data['portfolio_return'].mean()
+                    
+                    if avg_return > 0.001:
+                        observations.append(
+                            "**Market Context:** Positive momentum in S&P 500 Wave suggests a risk-on environment "
+                            "may favor growth-oriented and higher-beta waves."
+                        )
+                    elif avg_return < -0.001:
+                        observations.append(
+                            "**Market Context:** Negative momentum in S&P 500 Wave suggests defensive positioning "
+                            "or low-correlation waves may provide downside protection."
+                        )
+                
+                # Observation 5: Correlation stability
+                # Compare 30-day vs 90-day correlations for selected wave
+                selected_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+                selected_90d = get_wave_data_filtered(wave_name=selected_wave, days=90)
+                
+                if selected_30d is not None and selected_90d is not None:
+                    if len(selected_30d) >= 20 and len(selected_90d) >= 60:
+                        # Pick another wave for comparison
+                        comparison_wave = None
+                        for w in valid_waves:
+                            if w != selected_wave:
+                                comparison_wave = w
+                                break
+                        
+                        if comparison_wave:
+                            comp_30d = get_wave_data_filtered(wave_name=comparison_wave, days=30)
+                            comp_90d = get_wave_data_filtered(wave_name=comparison_wave, days=90)
+                            
+                            if comp_30d is not None and comp_90d is not None:
+                                corr_30d = calculate_wave_correlation(selected_30d, comp_30d)
+                                corr_90d = calculate_wave_correlation(selected_90d, comp_90d)
+                                
+                                if corr_30d is not None and corr_90d is not None:
+                                    delta = abs(corr_30d - corr_90d)
+                                    
+                                    if delta > 0.2:
+                                        observations.append(
+                                            f"**Correlation Shift:** Correlation between {selected_wave} and {comparison_wave} "
+                                            f"has changed significantly (30D: {corr_30d:.2f}, 90D: {corr_90d:.2f}), "
+                                            "indicating evolving relationship dynamics."
+                                        )
+        
+        # Display observations
+        if observations:
+            for obs in observations[:5]:  # Limit to 5
+                st.markdown(f"• {obs}")
+        else:
+            st.info("📊 Insufficient data to generate observations. More wave history needed.")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Opportunity Lens panel unavailable: {str(e)}")
+        st.info("📊 Unable to generate opportunity insights. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # Footer with mobile padding
+    st.markdown("""
+    <style>
+        /* Global bottom padding to prevent overlap with sticky bar */
+        .main .block-container {
+            padding-bottom: 80px !important;
+        }
+        
+        @media only screen and (max-width: 768px) {
+            .main .block-container {
+                padding-bottom: 120px !important;
+            }
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.markdown("---")
-    st.caption("Wave Intelligence Center - Identity and explanation layer for institutional Wave strategies")
-    st.caption("All data gracefully handles unavailability with clear fallback messaging")
+    st.caption("Intelligence Center (Vector v3) - Cross-Wave Correlation & Market Insights")
+    st.caption("All panels gracefully handle insufficient data with clear fallback messaging")
 
 
 # ============================================================================
