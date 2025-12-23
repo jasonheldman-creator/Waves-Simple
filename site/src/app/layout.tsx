@@ -4,21 +4,21 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
-  title: "WAVES Intelligence - Institutional Portfolio Analytics",
+  title: "WAVES Intelligence™ - Decision Infrastructure for Modern Asset Management",
   description:
-    "Institutional-grade portfolio analytics, alpha attribution, and decision intelligence for sophisticated investors.",
+    "WAVES Intelligence™ unifies portfolio construction, exposure, attribution, and governance into one canonical source of truth.",
   keywords: [
-    "portfolio analytics",
-    "alpha attribution",
-    "institutional investing",
-    "decision intelligence",
-    "risk management",
+    "asset management",
+    "portfolio construction",
+    "attribution",
+    "governance",
+    "decision infrastructure",
   ],
   authors: [{ name: "WAVES Intelligence" }],
   openGraph: {
-    title: "WAVES Intelligence - Institutional Portfolio Analytics",
+    title: "WAVES Intelligence™ - Decision Infrastructure for Modern Asset Management",
     description:
-      "Institutional-grade portfolio analytics, alpha attribution, and decision intelligence for sophisticated investors.",
+      "WAVES Intelligence™ unifies portfolio construction, exposure, attribution, and governance into one canonical source of truth.",
     type: "website",
   },
 };
