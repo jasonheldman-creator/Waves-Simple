@@ -33,7 +33,7 @@ export default function ConsolePage() {
               </p>
               <div className="mt-8 p-4 rounded-lg bg-gray-800/50 border border-gray-700">
                 <p className="text-sm text-gray-400">
-                  For early access, contact: <span className="text-cyan-400 font-semibold">jasonheldman-creator</span>
+                  <span className="font-semibold text-white">Institutional Access:</span> For platform access inquiries, please use the contact form below or reach out to our team.
                 </p>
               </div>
               <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:justify-center">
