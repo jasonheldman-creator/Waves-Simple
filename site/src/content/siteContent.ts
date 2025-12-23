@@ -149,6 +149,37 @@ export const siteContent = {
       subtitle:
         "Decision infrastructure for institutional portfolio oversight. Comprehensive performance attribution, risk overlays, and evidence-based investment decision-making with benchmark integrity at every layer.",
     },
+    platformPreview: {
+      title: "Platform Preview",
+      subtitle: "Institutional-grade decision infrastructure in action",
+      description: "Experience how WAVES Intelligence transforms portfolio oversight through real-time analytics, comprehensive attribution, and governance-ready frameworks. Our platform delivers the transparency and control institutional investors require.",
+      capabilities: [
+        {
+          title: "Real-Time Portfolio Dashboard",
+          description: "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. Multi-dimensional views across strategies, risk factors, and market regimes.",
+          icon: "📊",
+          features: ["Position-level granularity", "Multi-strategy aggregation", "Risk overlay visualization"],
+        },
+        {
+          title: "Attribution & Analytics Engine",
+          description: "Comprehensive performance decomposition with multi-factor attribution, benchmark validation, and return source analysis. Complete transparency into alpha generation and risk-adjusted returns.",
+          icon: "📈",
+          features: ["Factor decomposition", "Benchmark integrity controls", "Risk-adjusted metrics"],
+        },
+        {
+          title: "Governance & Audit Framework",
+          description: "Immutable decision trails, compliance monitoring, and regulatory reporting infrastructure. Board-ready documentation with complete transparency for fiduciary oversight.",
+          icon: "📋",
+          features: ["Audit trail logging", "Compliance validation", "Board reporting"],
+        },
+        {
+          title: "Risk Management Console",
+          description: "Continuous exposure monitoring with multi-layer risk overlays, stress testing, and scenario analysis. Real-time breach detection and automated alerting for institutional risk frameworks.",
+          icon: "🛡️",
+          features: ["Exposure monitoring", "Stress testing", "Automated alerts"],
+        },
+      ],
+    },
     differentiation: {
       title: "How WAVES Is Different",
       subtitle: "Purpose-built decision infrastructure distinct from consumer tools and generic dashboards",
