@@ -11,12 +11,30 @@ interface WaveCardsProps {
   count?: number;
 }
 
+// Professional wave descriptions with diverse investment strategies
+const WAVE_DESCRIPTIONS = [
+  "Large-cap growth equities with emphasis on quality fundamentals, sustainable competitive advantages, and strong cash flow generation.",
+  "Technology sector allocation targeting secular growth trends in cloud computing, artificial intelligence, and digital transformation.",
+  "Global diversification strategy spanning developed and emerging markets with dynamic regional allocation based on regime analysis.",
+  "Value-oriented portfolio focusing on undervalued securities with strong balance sheets and margin of safety principles.",
+  "Dividend growth strategy emphasizing companies with consistent payout increases and sustainable cash flow dynamics.",
+  "Small and mid-cap opportunities leveraging inefficiencies in less-covered market segments with rigorous fundamental analysis.",
+  "Defensive positioning in consumer staples, utilities, and healthcare sectors designed for capital preservation during volatility.",
+  "Fixed income allocation across government and investment-grade corporate bonds with duration management and credit analysis.",
+  "Alternative strategies including real assets, commodities, and absolute return approaches for portfolio diversification.",
+  "Emerging market equities capturing growth in developing economies with focus on demographic trends and structural reforms.",
+  "Sector rotation framework dynamically allocating capital based on economic cycle positioning and relative strength indicators.",
+  "ESG-integrated investment approach combining financial analysis with environmental, social, and governance criteria.",
+  "Quantitative strategies employing systematic factor models, momentum signals, and risk parity frameworks.",
+  "Volatility management through options strategies, tail risk hedging, and tactical de-risking during elevated VIX regimes.",
+  "Opportunistic allocation for special situations including mergers, restructurings, and event-driven catalysts with asymmetric return profiles.",
+];
+
 export default function WaveCards({ waves, count = 15 }: WaveCardsProps) {
-  // Generate placeholder waves if not provided
   const defaultWaves: WaveCard[] = Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     name: `Wave ${i + 1}`,
-    description: `Strategic investment wave focused on specific market opportunities and alpha generation.`,
+    description: WAVE_DESCRIPTIONS[i % WAVE_DESCRIPTIONS.length],
     performance: "+0.00%",
     status: "Active",
   }));

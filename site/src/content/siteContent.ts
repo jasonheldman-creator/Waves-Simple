@@ -80,10 +80,10 @@ export const siteContent = {
   console: {
     hero: {
       title: "WAVES Institutional Console",
-      subtitle: "Console deployment in progress",
+      subtitle: "Advanced analytics platform deployment in progress",
     },
     description:
-      "The WAVES Console provides real-time access to portfolio analytics, alpha attribution, and decision intelligence tools. The institutional dashboard is currently being deployed.",
+      "The WAVES Console delivers comprehensive portfolio analytics, proprietary alpha attribution models, and institutional-grade decision intelligence. Our secure platform provides real-time market regime analysis, performance decomposition, and governance tracking designed for sophisticated institutional investors. Access is currently being rolled out to qualified institutions.",
   },
   waves: {
     hero: {
