@@ -39,6 +39,8 @@ site/
 │   ├── app/                    # Next.js App Router pages
 │   │   ├── layout.tsx         # Root layout with Navbar & Footer
 │   │   ├── page.tsx           # Home page
+│   │   ├── sitemap.ts         # Dynamic sitemap generation
+│   │   ├── robots.ts          # Robots.txt configuration
 │   │   ├── platform/          # Platform page
 │   │   ├── console/           # Console page
 │   │   ├── waves/             # Waves page
@@ -63,6 +65,7 @@ site/
 │   └── content/               # Content management
 │       └── siteContent.ts     # Site copy and text content
 ├── public/                    # Static assets
+├── .env.example               # Environment variable template
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
@@ -167,43 +170,65 @@ Submissions are logged server-side (no external email integration).
 
 3. **Configure Domain:**
    - In Vercel project settings, go to "Domains"
-   - Add your custom domain: `wavesintelligence.com`
+   - Add your custom domain: `www.wavesintelligence.app`
+   - Add non-www redirect: `wavesintelligence.app` (will auto-redirect to www)
    - Follow Vercel's instructions to configure DNS
+
+4. **Set Environment Variables:**
+   - Go to Vercel project settings → Environment Variables
+   - Add: `NEXT_PUBLIC_SITE_URL=https://www.wavesintelligence.app`
+   - Select "Production" environment
+   - Save and redeploy
 
 ### Environment Variables
 
-No environment variables are required for basic operation. If you add external services (email, analytics, etc.), configure them in Vercel's project settings.
+The site requires the following environment variable:
+
+- **NEXT_PUBLIC_SITE_URL**: Canonical site URL (default: `https://www.wavesintelligence.app`)
+  - Used for metadata, Open Graph tags, sitemap, and robots.txt
+  - Set in Vercel for production deployments
+  - For local development, create `.env.local` with `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
+
+See `.env.example` for reference.
 
 ## 🌐 DNS Configuration
 
 ### Marketing Site
-Point your domain to the Next.js site:
+The site uses `www.wavesintelligence.app` as the canonical domain with automatic redirect from non-www.
 
-**Domain:** `wavesintelligence.com`
-**DNS Settings:**
-- Type: `A` or `CNAME`
-- Value: Your Vercel deployment URL
+**Primary Domain:** `www.wavesintelligence.app`
+**Secondary Domain:** `wavesintelligence.app` (redirects to www)
+
+**DNS Settings in Vercel:**
+1. Add both domains in Vercel Dashboard → Project → Settings → Domains
+2. Vercel automatically provisions SSL certificates
+3. The `vercel.json` configuration handles the redirect from non-www to www
+
+**Automatic Redirect:**
+- `wavesintelligence.app/*` → `www.wavesintelligence.app/*` (HTTP 301 permanent)
+- All routes preserve their paths during redirect
+- HTTPS is enforced on all routes
 
 ### Console Subdomain
-Point the console subdomain to your existing Streamlit app:
+If you have a separate console application:
 
-**Domain:** `console.wavesintelligence.com`
+**Domain:** `console.wavesintelligence.app`
 **DNS Settings:**
 - Type: `CNAME`
-- Value: Your Streamlit hosting URL
+- Value: Your console hosting URL
 
 ### Example DNS Configuration
 
 ```
-# Marketing Site (Next.js)
-wavesintelligence.com          A      76.76.21.21
-www.wavesintelligence.com      CNAME  wavesintelligence.com
+# Marketing Site (Next.js on Vercel)
+www.wavesintelligence.app      CNAME  cname.vercel-dns.com
+wavesintelligence.app          A      76.76.21.21  # Vercel's IP (auto-configured)
 
-# Console (Streamlit)
-console.wavesintelligence.com  CNAME  your-streamlit-app.streamlit.app
+# Console (if hosted separately)
+console.wavesintelligence.app  CNAME  your-console-app.example.com
 ```
 
-**Note:** Replace the IPs/URLs with your actual deployment endpoints.
+**Note:** If your domain is purchased through Vercel, DNS is automatically configured. Otherwise, follow Vercel's DNS configuration instructions.
 
 ## 📝 Content Management
 
@@ -219,9 +244,15 @@ All site copy is managed in `src/content/siteContent.ts`. Edit this file to upda
 Each page includes:
 - Custom title and description meta tags
 - Open Graph tags for social sharing
+- Canonical URL configuration via `metadataBase`
 - Semantic HTML structure
 - Mobile-responsive design
 - Fast page load times
+
+**SEO Files:**
+- `/sitemap.xml`: Automatically generated sitemap with all routes
+- `/robots.txt`: Crawler configuration with sitemap reference
+- All URLs point to canonical domain: `www.wavesintelligence.app`
 
 ## 🔒 Security
 

@@ -67,11 +67,88 @@ Preview deployments are automatically created for:
 
 ## Environment Variables
 
-Currently, the marketing site does not require any environment variables. If needed in the future:
+The marketing site requires the following environment variable for proper domain configuration:
+
+### NEXT_PUBLIC_SITE_URL
+
+- **Purpose**: Defines the canonical site URL for metadata, Open Graph tags, sitemap, and robots.txt
+- **Production Value**: `https://www.wavesintelligence.app`
+- **Required**: No (defaults to production URL if not set)
+- **Environments**: Production, Preview (optional for preview environments)
+
+To configure in Vercel:
 
 1. Go to Vercel Dashboard → Project → Settings → Environment Variables
-2. Add variables for Production, Preview, or Development environments
-3. Redeploy for changes to take effect
+2. Add `NEXT_PUBLIC_SITE_URL` with value `https://www.wavesintelligence.app`
+3. Select "Production" environment
+4. Click "Save"
+5. Redeploy for changes to take effect
+
+For local development, create a `.env.local` file:
+```bash
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+See `site/.env.example` for reference.
+
+## Domain Configuration
+
+The site is configured to use `www.wavesintelligence.app` as the canonical domain.
+
+### DNS Setup in Vercel
+
+1. **Go to Vercel Dashboard → Project → Settings → Domains**
+
+2. **Add Primary Domain:**
+   - Click "Add Domain"
+   - Enter: `www.wavesintelligence.app`
+   - Click "Add"
+   - Follow DNS configuration instructions (if domain is managed elsewhere)
+   - If domain is purchased via Vercel, DNS is automatically configured
+
+3. **Add Non-WWW Domain:**
+   - Click "Add Domain"
+   - Enter: `wavesintelligence.app`
+   - Click "Add"
+   - Vercel will automatically redirect to www version (configured in vercel.json)
+
+4. **Verify SSL Certificates:**
+   - Both domains should show "Valid Certificate" status
+   - SSL certificates are automatically provisioned by Vercel
+   - HTTPS is enforced by default
+
+### Redirect Configuration
+
+The `vercel.json` file includes automatic redirects:
+- `wavesintelligence.app` → `www.wavesintelligence.app` (HTTP 301 permanent redirect)
+- All routes preserve their paths during redirect
+- HTTPS is enforced on all routes
+
+### Testing Domain Configuration
+
+After DNS setup is complete:
+
+1. **Test WWW Domain:**
+   ```bash
+   curl -I https://www.wavesintelligence.app
+   # Should return HTTP/2 200
+   ```
+
+2. **Test Non-WWW Redirect:**
+   ```bash
+   curl -I https://wavesintelligence.app
+   # Should return HTTP/2 301 with Location: https://www.wavesintelligence.app/
+   ```
+
+3. **Test Specific Routes:**
+   - Home: `https://www.wavesintelligence.app/`
+   - Product: `https://www.wavesintelligence.app/product`
+   - Why: `https://www.wavesintelligence.app/why`
+   - Demo: `https://www.wavesintelligence.app/demo`
+
+4. **Verify SEO Configuration:**
+   - Sitemap: `https://www.wavesintelligence.app/sitemap.xml`
+   - Robots: `https://www.wavesintelligence.app/robots.txt`
 
 ## Manual Deployments
 
@@ -100,9 +177,26 @@ The build is configured via:
 ```json
 {
   "buildCommand": "npm run build",
-  "rootDirectory": "site"
+  "rootDirectory": "site",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "wavesintelligence.app"
+        }
+      ],
+      "destination": "https://www.wavesintelligence.app/:path*",
+      "permanent": true
+    }
+  ]
 }
 ```
+
+This configuration:
+- Sets the build command and root directory
+- Redirects all traffic from non-www to www domain (301 permanent redirect)
 
 ### Build Scripts
 ```json
