@@ -1,6 +1,5 @@
 {
   "buildCommand": "npm run build",
-  "rootDirectory": "site",
   "redirects": [
     {
       "source": "/:path*",
