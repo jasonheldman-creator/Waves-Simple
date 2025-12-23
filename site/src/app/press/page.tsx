@@ -20,9 +20,7 @@ export default function PressPage() {
       <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <p className="text-lg text-gray-300">
-              {siteContent.press.description}
-            </p>
+            <p className="text-lg text-gray-300">{siteContent.press.description}</p>
           </div>
           <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-8 sm:p-12">
             <h2 className="text-2xl font-bold text-white mb-6">Media Resources</h2>
@@ -40,9 +38,7 @@ export default function PressPage() {
                 <div className="text-cyan-400 mr-3">📧</div>
                 <div>
                   <h3 className="font-semibold text-white">Media Inquiries</h3>
-                  <p className="text-gray-400 text-sm">
-                    Contact: press@wavesintelligence.com
-                  </p>
+                  <p className="text-gray-400 text-sm">Contact: press@wavesintelligence.com</p>
                 </div>
               </div>
               <div className="flex items-start">
@@ -68,7 +64,8 @@ export default function PressPage() {
               {
                 date: "2024",
                 title: "WAVES Intelligence Platform Launch",
-                description: "Introducing institutional-grade portfolio analytics and decision intelligence.",
+                description:
+                  "Introducing institutional-grade portfolio analytics and decision intelligence.",
               },
             ].map((item, index) => (
               <div

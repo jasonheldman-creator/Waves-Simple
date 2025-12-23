@@ -57,12 +57,14 @@ export const siteContent = {
     features: [
       {
         title: "Wave Registry",
-        description: "Centralized registry of all investment waves with canonical identifiers and metadata.",
+        description:
+          "Centralized registry of all investment waves with canonical identifiers and metadata.",
         icon: "🌊",
       },
       {
         title: "Performance Analytics",
-        description: "Deep-dive performance metrics with attribution analysis and risk decomposition.",
+        description:
+          "Deep-dive performance metrics with attribution analysis and risk decomposition.",
         icon: "📈",
       },
       {
@@ -153,11 +155,13 @@ export const siteContent = {
     values: [
       {
         title: "Innovation",
-        description: "Continuously pushing the boundaries of portfolio analytics and decision science.",
+        description:
+          "Continuously pushing the boundaries of portfolio analytics and decision science.",
       },
       {
         title: "Integrity",
-        description: "Maintaining the highest standards of data accuracy, security, and transparency.",
+        description:
+          "Maintaining the highest standards of data accuracy, security, and transparency.",
       },
       {
         title: "Excellence",
