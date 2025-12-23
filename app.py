@@ -69,6 +69,17 @@ except ImportError:
 ENABLE_WAVE_PROFILE = True
 
 # ============================================================================
+# NEW FEATURE FLAGS - Wave Intelligence Center Enhancements
+# ============================================================================
+# RENDER_RICH_HTML: Enable/disable rich HTML rendering via st.components.v1.html
+# Set to False to use plain st.markdown rendering instead
+RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
+
+# SAFE_MODE: Enable/disable safe mode for error handling
+# When enabled, catches exceptions in Wave Intelligence Center and falls back gracefully
+SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
+
+# ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
 # ============================================================================
@@ -766,6 +777,153 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
 
 
 # ============================================================================
+# STICKY HEADER COMPONENT - Pinned Tab Header
+# ============================================================================
+
+def render_sticky_header(selected_wave: str, mode: str):
+    """
+    Render a sticky header that appears at the top of every tab.
+    
+    Displays:
+    - Selected Wave name
+    - Active Mode
+    - Benchmark name
+    - Exposure %
+    - Cash %
+    - Today Return
+    - Today Alpha
+    
+    Args:
+        selected_wave: The name of the currently selected wave
+        mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
+    """
+    try:
+        # Get wave data for today's metrics
+        wave_data = get_wave_data_filtered(wave_name=selected_wave, days=5)
+        
+        # Initialize default values
+        benchmark_name = "SPY"
+        exposure_pct = "N/A"
+        cash_pct = "N/A"
+        today_return = "N/A"
+        today_alpha = "N/A"
+        
+        # Calculate metrics if data is available
+        if wave_data is not None and len(wave_data) > 0:
+            # Get benchmark name from config
+            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+            if os.path.exists(wave_config_path):
+                config_df = pd.read_csv(wave_config_path)
+                wave_config = config_df[config_df['Wave'] == selected_wave]
+                if len(wave_config) > 0:
+                    benchmark_name = wave_config.iloc[0].get('Benchmark', 'SPY')
+            
+            # Get latest day metrics
+            if 'exposure' in wave_data.columns:
+                latest_exposure = wave_data['exposure'].iloc[-1] if len(wave_data) > 0 else 0
+                exposure_pct = f"{latest_exposure * 100:.1f}%"
+                cash_pct = f"{(1 - latest_exposure) * 100:.1f}%"
+            
+            if 'portfolio_return' in wave_data.columns:
+                latest_return = wave_data['portfolio_return'].iloc[-1] if len(wave_data) > 0 else 0
+                today_return = f"{latest_return * 100:.2f}%"
+            
+            if 'portfolio_return' in wave_data.columns and 'benchmark_return' in wave_data.columns:
+                latest_alpha = wave_data['portfolio_return'].iloc[-1] - wave_data['benchmark_return'].iloc[-1] if len(wave_data) > 0 else 0
+                today_alpha = f"{latest_alpha * 100:.2f}%"
+        
+        # Create sticky header HTML
+        sticky_header_html = f"""
+        <style>
+            .sticky-header {{
+                position: sticky;
+                top: 0;
+                z-index: 999;
+                background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+                border-bottom: 3px solid #00d9ff;
+                padding: 12px 20px;
+                margin-bottom: 15px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                border-radius: 0 0 8px 8px;
+            }}
+            
+            .sticky-header-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 12px;
+                align-items: center;
+            }}
+            
+            .sticky-header-item {{
+                text-align: center;
+                padding: 5px;
+            }}
+            
+            .sticky-header-label {{
+                color: #00d9ff;
+                font-size: 11px;
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 3px;
+            }}
+            
+            .sticky-header-value {{
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            
+            .sticky-header-wave {{
+                color: #ffd700;
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        </style>
+        
+        <div class="sticky-header">
+            <div class="sticky-header-grid">
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Wave</div>
+                    <div class="sticky-header-wave">{selected_wave}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Mode</div>
+                    <div class="sticky-header-value">{mode}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Benchmark</div>
+                    <div class="sticky-header-value">{benchmark_name}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Exposure</div>
+                    <div class="sticky-header-value">{exposure_pct}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Cash</div>
+                    <div class="sticky-header-value">{cash_pct}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Today Return</div>
+                    <div class="sticky-header-value">{today_return}</div>
+                </div>
+                <div class="sticky-header-item">
+                    <div class="sticky-header-label">Today Alpha</div>
+                    <div class="sticky-header-value">{today_alpha}</div>
+                </div>
+            </div>
+        </div>
+        """
+        
+        # Render using safe HTML rendering
+        render_html_safe(sticky_header_html, height=100, scrolling=False)
+        
+    except Exception as e:
+        # Silent fail - don't disrupt tab rendering
+        pass
+
+
+# ============================================================================
 # WAVE LINEUP CONFIGURATION - Equity Lineup Reset v1
 # ============================================================================
 
@@ -1097,9 +1255,112 @@ def get_git_branch_name():
     return "unknown"
 
 
+def create_last_known_good_backup():
+    """
+    Create a backup of the current app.py to backup/app_last_good.py.
+    This is called on successful app startup to preserve a working version.
+    
+    Returns:
+        bool: True if backup succeeded, False otherwise
+    """
+    try:
+        # Create backup directory if it doesn't exist
+        backup_dir = os.path.join(os.path.dirname(__file__), 'backup')
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Source file
+        source_file = os.path.join(os.path.dirname(__file__), 'app.py')
+        
+        # Backup file with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = os.path.join(backup_dir, f'app_last_good_{timestamp}.py')
+        
+        # Also keep a generic "latest" backup
+        latest_backup_file = os.path.join(backup_dir, 'app_last_good.py')
+        
+        # Copy the file
+        import shutil
+        shutil.copy2(source_file, backup_file)
+        shutil.copy2(source_file, latest_backup_file)
+        
+        return True
+    except Exception as e:
+        # Silent fail - don't disrupt app startup
+        return False
+
+
+def log_crash_to_file(exception: Exception, context: str = ""):
+    """
+    Log crash information to logs/crash_log.txt.
+    
+    Args:
+        exception: The exception that was caught
+        context: Additional context about where the crash occurred
+    """
+    try:
+        # Create logs directory if it doesn't exist
+        logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+        
+        # Log file path
+        log_file = os.path.join(logs_dir, 'crash_log.txt')
+        
+        # Format log entry
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"""
+{'='*80}
+CRASH LOG ENTRY
+Timestamp: {timestamp}
+Context: {context}
+Exception Type: {type(exception).__name__}
+Exception Message: {str(exception)}
+{'='*80}
+Traceback:
+{traceback.format_exc()}
+{'='*80}
+
+"""
+        
+        # Append to log file
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write(log_entry)
+    except Exception:
+        # Silent fail - don't compound errors
+        pass
+
+
 def get_deploy_timestamp():
     """Get the current timestamp as deploy timestamp."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def render_html_safe(html_content: str, height: int = None, scrolling: bool = False):
+    """
+    Safely render HTML content based on RENDER_RICH_HTML flag.
+    
+    When RENDER_RICH_HTML is True (or session state override):
+        Uses streamlit.components.v1.html for rich rendering
+    When RENDER_RICH_HTML is False:
+        Falls back to st.markdown with unsafe_allow_html=True
+    
+    Args:
+        html_content: The HTML content to render
+        height: Optional height in pixels for the iframe (only used with components.v1.html)
+        scrolling: Whether to enable scrolling in the iframe
+    """
+    # Check session state first, then fall back to global flag
+    use_rich_html = st.session_state.get("render_rich_html_enabled", RENDER_RICH_HTML)
+    
+    if use_rich_html:
+        try:
+            import streamlit.components.v1 as components
+            components.html(html_content, height=height, scrolling=scrolling)
+        except Exception:
+            # Fallback to markdown if components.v1 fails
+            st.markdown(html_content, unsafe_allow_html=True)
+    else:
+        # Use plain markdown rendering
+        st.markdown(html_content, unsafe_allow_html=True)
 
 
 def calculate_wavescore(wave_data):
@@ -4427,19 +4688,39 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
-    # Safe Mode Toggle
+    # Feature Toggles - Wave Intelligence Center
     # ========================================================================
-    st.sidebar.markdown("### 🛡️ Safe Mode")
+    st.sidebar.markdown("### ⚙️ Feature Settings")
     
-    safe_mode = st.sidebar.checkbox(
-        "Enable Safe Mode",
-        value=st.session_state.get("safe_mode_enabled", False),
-        key="safe_mode_checkbox",
-        help="Switch to minimal fallback UI with only stable, core features"
+    # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
+    safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
+    safe_mode_ui = st.sidebar.checkbox(
+        "Enable Safe Mode (Wave IC)",
+        value=safe_mode_default,
+        key="safe_mode_ui_toggle",
+        help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
     )
     
-    # Update session state
-    st.session_state["safe_mode_enabled"] = safe_mode
+    # Update global SAFE_MODE based on UI toggle (allows runtime control)
+    # Note: This doesn't actually update the constant, but we can use session_state
+    st.session_state["safe_mode_enabled"] = safe_mode_ui
+    
+    # RENDER_RICH_HTML toggle
+    render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
+    render_rich_html_ui = st.sidebar.checkbox(
+        "Enable Rich HTML Rendering",
+        value=render_rich_html_default,
+        key="render_rich_html_ui_toggle",
+        help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
+    )
+    st.session_state["render_rich_html_enabled"] = render_rich_html_ui
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Old Safe Mode Toggle (Deprecated - kept for backwards compatibility)
+    # ========================================================================
+    # Note: The old safe mode toggle is now replaced by the feature settings above
     
     st.sidebar.markdown("---")
     
@@ -5345,13 +5626,69 @@ def render_wave_intelligence_center_tab():
     2. What This Wave Is Doing - Theme, environments, risk management
     3. Top Holdings & Exposure Summary - Top 10 holdings, allocations, sector tilt
     4. Why This Wave Matters Right Now - Market context, signals, opportunities
-    """
-    st.header("🌊 Wave Intelligence Center")
-    st.write("Comprehensive identity and explanation layer for the currently selected Wave")
     
+    SAFE_MODE: Wrapped in try-except with crash logging and graceful error handling.
+    """
     # Get selected wave from session state
     selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
     mode = st.session_state.get("mode", "Standard")
+    
+    # Render sticky header at the top of the tab
+    render_sticky_header(selected_wave, mode)
+    
+    # SAFE_MODE wrapper - catch exceptions and log crashes
+    # Check session state first, then fall back to global flag
+    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
+    
+    if use_safe_mode:
+        try:
+            _render_wave_intelligence_center_content(selected_wave, mode)
+            # Clear error flag on success
+            st.session_state.wave_ic_has_errors = False
+        except Exception as e:
+            # Set error flag for fallback behavior
+            st.session_state.wave_ic_has_errors = True
+            
+            # Log the crash
+            log_crash_to_file(e, context="Wave Intelligence Center Tab")
+            
+            # Display friendly error banner
+            st.error("⚠️ **Wave Intelligence Center Temporarily Unavailable**")
+            st.warning("""
+            The Wave Intelligence Center encountered an error and cannot be displayed at this time.
+            
+            **What happened:**
+            - An unexpected error occurred while loading Wave information
+            - The error has been logged to `logs/crash_log.txt` for review
+            
+            **What you can do:**
+            - Use the **Console** and **Overview** tabs for core functionality
+            - Try refreshing the page
+            - Contact support if the problem persists
+            """)
+            
+            # Show error details in expander (for debugging)
+            with st.expander("🔍 Technical Details (for debugging)"):
+                st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+    else:
+        # No SAFE_MODE - run directly (original behavior)
+        try:
+            _render_wave_intelligence_center_content(selected_wave, mode)
+            # Clear error flag on success
+            st.session_state.wave_ic_has_errors = False
+        except Exception as e:
+            # Even without SAFE_MODE, set error flag for potential future use
+            st.session_state.wave_ic_has_errors = True
+            raise
+
+
+def _render_wave_intelligence_center_content(selected_wave: str, mode: str):
+    """
+    Internal function to render the Wave Intelligence Center content.
+    Separated to allow SAFE_MODE wrapping.
+    """
+    st.header("🌊 Wave Intelligence Center")
+    st.write("Comprehensive identity and explanation layer for the currently selected Wave")
     
     st.divider()
     
@@ -5448,7 +5785,7 @@ def render_wave_intelligence_center_tab():
     </div>
     """
     
-    st.markdown(identity_card_html, unsafe_allow_html=True)
+    render_html_safe(identity_card_html, height=300, scrolling=False)
     
     st.divider()
     
@@ -10080,8 +10417,21 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # Last Known Good Backup Creation
+    # ========================================================================
+    
+    # Create backup on successful startup (only once per session)
+    if "backup_created" not in st.session_state:
+        create_last_known_good_backup()
+        st.session_state.backup_created = True
+    
+    # ========================================================================
     # Session State Initialization
     # ========================================================================
+    
+    # Initialize wave_intelligence_center error flag if not present
+    if "wave_ic_has_errors" not in st.session_state:
+        st.session_state.wave_ic_has_errors = False
     
     # Initialize wave_universe_version if not present
     if "wave_universe_version" not in st.session_state:
@@ -10184,66 +10534,137 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
-    # Updated tab list - Add "Wave" tab as first tab if ENABLE_WAVE_PROFILE is True
-    if ENABLE_WAVE_PROFILE:
+    # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
+    # Use session state to check both the error flag and if safe mode is enabled
+    wave_ic_has_errors = st.session_state.get("wave_ic_has_errors", False)
+    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
+    
+    # Tab structure based on SAFE_MODE status and ENABLE_WAVE_PROFILE
+    if wave_ic_has_errors and use_safe_mode:
+        # SAFE_MODE fallback - exclude Wave Intelligence Center tab
+        st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
+        
         analytics_tabs = st.tabs([
-            "Wave",                       # NEW: First tab - Wave Profile with hero card
-            "Console",                    # Previously first (Executive)
-            "Wave Intelligence Center",   # Previously first
-            "Overview",                   # Market Intel equivalent
-            "Details",                    # Factor Decomp equivalent
-            "Reports",                    # Risk Lab equivalent
-            "Overlays",                   # Correlation equivalent
-            "Attribution",                # Rolling Diagnostics equivalent
-            "Board Pack",                 # Mode Proof equivalent
+            "Console",     # Core functionality
+            "Overview",    # Market tab equivalent
+            "Details",     
+            "Reports",     
+            "Overlays",    
+            "Attribution", 
+            "Board Pack",  
             "IC Pack"
         ])
         
-        # Wave Profile tab (NEW - first tab)
+        # Console tab (first in fallback mode)
         with analytics_tabs[0]:
-            render_wave_profile_tab()
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_executive_tab()
+        
+        # Overview tab (second - Market equivalent)
+        with analytics_tabs[1]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_overview_tab()
+        
+        # Details tab
+        with analytics_tabs[2]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_details_tab()
+        
+        # Reports tab
+        with analytics_tabs[3]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_reports_tab()
+        
+        # Overlays tab
+        with analytics_tabs[4]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_overlays_tab()
+        
+        # Attribution tab
+        with analytics_tabs[5]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_attribution_tab()
+        
+        # Board Pack tab
+        with analytics_tabs[6]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_board_pack_tab()
+        
+        # IC Pack tab
+        with analytics_tabs[7]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_ic_pack_tab()
+    
+    elif ENABLE_WAVE_PROFILE:
+        # Normal mode with Wave Profile enabled - Wave Intelligence Center is FIRST
+        analytics_tabs = st.tabs([
+            "Wave Intelligence Center",   # FIRST TAB - comprehensive Wave overview
+            "Console",                     # Second tab - Executive
+            "Wave",                        # Third tab - Wave Profile with hero card
+            "Overview",                    # Market Intel equivalent
+            "Details",                     # Factor Decomp equivalent
+            "Reports",                     # Risk Lab equivalent
+            "Overlays",                    # Correlation equivalent
+            "Attribution",                 # Rolling Diagnostics equivalent
+            "Board Pack",                  # Mode Proof equivalent
+            "IC Pack"
+        ])
+        
+        # Wave Intelligence Center tab (FIRST)
+        with analytics_tabs[0]:
+            render_wave_intelligence_center_tab()
         
         # Console tab (second)
         with analytics_tabs[1]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_executive_tab()
         
-        # Wave Intelligence Center tab (third)
+        # Wave Profile tab (third)
         with analytics_tabs[2]:
-            render_wave_intelligence_center_tab()
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_wave_profile_tab()
         
-        # Overview tab (fourth)
+        # Overview tab
         with analytics_tabs[3]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overview_tab()
         
-        # Details tab (fifth)
+        # Details tab
         with analytics_tabs[4]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_details_tab()
         
-        # Reports tab (sixth)
+        # Reports tab
         with analytics_tabs[5]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_reports_tab()
         
-        # Overlays tab (seventh)
+        # Overlays tab
         with analytics_tabs[6]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overlays_tab()
         
-        # Attribution tab (eighth)
+        # Attribution tab
         with analytics_tabs[7]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_attribution_tab()
         
-        # Board Pack tab (ninth)
+        # Board Pack tab
         with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_board_pack_tab()
         
-        # IC Pack tab (tenth)
+        # IC Pack tab
         with analytics_tabs[9]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
+        # Wave Intelligence Center is FIRST tab
         analytics_tabs = st.tabs([
-            "Wave Intelligence Center",  # First tab - comprehensive Wave overview
-            "Console",                    # Previously Executive (second tab)
-            "Overview",                   # Previously third (Market Intel equivalent)
+            "Wave Intelligence Center",  # FIRST TAB - comprehensive Wave overview
+            "Console",                    # Second tab - Executive
+            "Overview",                   # Third tab - Market Intel equivalent
             "Details",                    # Factor Decomp equivalent
             "Reports",                    # Risk Lab equivalent
             "Overlays",                   # Correlation equivalent
@@ -10252,40 +10673,48 @@ def main():
             "IC Pack"
         ])
         
-        # Wave Intelligence Center tab (first tab)
+        # Wave Intelligence Center tab (FIRST)
         with analytics_tabs[0]:
             render_wave_intelligence_center_tab()
         
         # Console tab (second)
         with analytics_tabs[1]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_executive_tab()
         
         # Overview tab (third)
         with analytics_tabs[2]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overview_tab()
         
         # Details tab (fourth)
         with analytics_tabs[3]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_details_tab()
         
         # Reports tab (fifth)
         with analytics_tabs[4]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_reports_tab()
         
         # Overlays tab (sixth)
         with analytics_tabs[5]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overlays_tab()
         
         # Attribution tab (seventh)
         with analytics_tabs[6]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_attribution_tab()
         
         # Board Pack tab (eighth)
         with analytics_tabs[7]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_board_pack_tab()
         
         # IC Pack tab (ninth)
         with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
     
     # ========================================================================
