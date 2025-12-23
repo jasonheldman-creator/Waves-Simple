@@ -1371,24 +1371,24 @@ def render_html_safe(html_content: str, height: int = None, scrolling: bool = Fa
     Safely render HTML content based on RENDER_RICH_HTML flag.
     
     When RENDER_RICH_HTML is True (or session state override):
-        Uses streamlit.components.v1.html for rich rendering
+        Uses st.html for direct HTML rendering (recommended)
     When RENDER_RICH_HTML is False:
         Falls back to st.markdown with unsafe_allow_html=True
     
     Args:
         html_content: The HTML content to render
-        height: Optional height in pixels for the iframe (only used with components.v1.html)
-        scrolling: Whether to enable scrolling in the iframe
+        height: Optional height in pixels (not used with st.html, kept for compatibility)
+        scrolling: Whether to enable scrolling (not used with st.html, kept for compatibility)
     """
     # Check session state first, then fall back to global flag
     use_rich_html = st.session_state.get("render_rich_html_enabled", RENDER_RICH_HTML)
     
     if use_rich_html:
         try:
-            import streamlit.components.v1 as components
-            components.html(html_content, height=height, scrolling=scrolling)
+            # Use st.html for modern, direct HTML rendering without iframe
+            st.html(html_content)
         except Exception:
-            # Fallback to markdown if components.v1 fails
+            # Fallback to markdown if st.html fails
             st.markdown(html_content, unsafe_allow_html=True)
     else:
         # Use plain markdown rendering
