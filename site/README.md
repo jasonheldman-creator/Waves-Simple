@@ -164,17 +164,22 @@ Submissions are logged server-side (no external email integration).
 2. **Import to Vercel:**
    - Go to [vercel.com](https://vercel.com)
    - Click "New Project"
-   - Import your GitHub repository
-   - Select the `site` directory as the root directory
+   - Import your GitHub repository: `jasonheldman-creator/Waves-Simple`
+   
+3. **Configure Project Settings (CRITICAL):**
+   - **Root Directory**: Set to `site` ⚠️ **REQUIRED**
+   - **Framework Preset**: Next.js (should auto-detect)
+   - **Build Command**: Leave empty (uses default `npm run build`)
+   - **Output Directory**: Leave empty (uses default `.next`)
    - Click "Deploy"
 
-3. **Configure Domain:**
+4. **Configure Domain:**
    - In Vercel project settings, go to "Domains"
    - Add your custom domain: `www.wavesintelligence.app`
-   - Add non-www redirect: `wavesintelligence.app` (will auto-redirect to www)
+   - Add non-www redirect: `wavesintelligence.app` (will auto-redirect to www via `vercel.json`)
    - Follow Vercel's instructions to configure DNS
 
-4. **Set Environment Variables:**
+5. **Set Environment Variables:**
    - Go to Vercel project settings → Environment Variables
    - Add: `NEXT_PUBLIC_SITE_URL=https://www.wavesintelligence.app`
    - Select "Production" environment
