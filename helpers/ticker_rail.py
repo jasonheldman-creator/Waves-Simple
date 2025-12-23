@@ -320,18 +320,22 @@ def render_bottom_ticker_v3(
         # Render to Streamlit using st.html() for safe rendering
         try:
             st.html(ticker_html)
-        except Exception:
+        except (AttributeError, TypeError):
             # Fallback to components.html if st.html not available
             try:
                 import streamlit.components.v1 as components
                 components.html(ticker_html, height=60, scrolling=False)
-            except Exception:
-                # If all fails, use minimal fallback
-                pass
+            except (ImportError, TypeError, ValueError) as e:
+                # Log error and use minimal fallback
+                import logging
+                logging.warning(f"Ticker rail HTML rendering failed: {e}")
         
     except Exception as e:
-        # Fail silently - don't disrupt the app if ticker bar fails
-        # Optionally log error for debugging
+        # Fail gracefully - don't disrupt the app if ticker bar fails
+        import logging
+        logging.warning(f"Ticker rail generation failed: {e}")
+        
+        # Optionally show minimal fallback ticker
         try:
             # Minimal fallback ticker
             fallback_html = """
@@ -356,7 +360,8 @@ def render_bottom_ticker_v3(
             """
             try:
                 st.html(fallback_html)
-            except Exception:
-                pass  # Ultimate fail-safe: do nothing
+            except (AttributeError, TypeError):
+                # Final fallback: do nothing rather than crash
+                logging.debug("Could not render fallback ticker bar")
         except Exception:
             pass  # Ultimate fail-safe: do nothing

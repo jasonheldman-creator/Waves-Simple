@@ -38,7 +38,8 @@ def test_check_for_raw_html_exists():
     
     # Call the function to ensure it runs without errors
     result = check_for_raw_html_in_output()
-    assert isinstance(result, bool), "check_for_raw_html_in_output should return a boolean"
+    # Function now returns None instead of bool
+    assert result is None, "check_for_raw_html_in_output should return None"
     
     print("✓ check_for_raw_html_in_output function exists and runs")
 
