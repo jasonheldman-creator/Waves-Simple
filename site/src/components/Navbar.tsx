@@ -8,10 +8,10 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/platform", label: "Platform" },
-    { href: "/waves", label: "WAVES™ Portfolios" },
+    { href: "/waves", label: "WAVES™" },
     { href: "/governance", label: "Governance" },
-    { href: "/architecture", label: "Architecture" },
-    { href: "/company", label: "About" },
+    { href: "/enterprise", label: "Enterprise" },
+    { href: "/company", label: "Company" },
   ];
 
   return (
