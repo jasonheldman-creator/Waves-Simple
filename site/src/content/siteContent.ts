@@ -145,36 +145,36 @@ export const siteContent = {
   },
   platform: {
     hero: {
-      title: "The WAVES Platform",
+      title: "WAVES Intelligence™ Platform",
       subtitle:
-        "Decision infrastructure for institutional portfolio oversight. Comprehensive performance attribution, risk overlays, and evidence-based investment decision-making with benchmark integrity at every layer.",
+        "Decision infrastructure delivering transparency, governance, and explainability. WAVES™ portfolios demonstrate this infrastructure in live operation across real market conditions.",
     },
     platformPreview: {
       title: "Platform Preview",
-      subtitle: "Institutional-grade decision infrastructure in action",
-      description: "Experience how WAVES Intelligence transforms portfolio oversight through real-time analytics, comprehensive attribution, and governance-ready frameworks. Our platform delivers the transparency and control institutional investors require.",
+      subtitle: "Institutional decision infrastructure powering WAVES™ portfolios",
+      description: "Experience how WAVES Intelligence™ provides the analytics and governance infrastructure while WAVES™ portfolios prove its effectiveness under live market conditions. The platform delivers transparency and control; the portfolios demonstrate disciplined execution. Together, they form an integrated institutional solution.",
       capabilities: [
         {
           title: "Real-Time Portfolio Dashboard",
-          description: "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. Multi-dimensional views across strategies, risk factors, and market regimes.",
+          description: "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. The same analytics infrastructure powering WAVES™ portfolio operations and available for institutional licensing.",
           icon: "📊",
           features: ["Position-level granularity", "Multi-strategy aggregation", "Risk overlay visualization"],
         },
         {
           title: "Attribution & Analytics Engine",
-          description: "Comprehensive performance decomposition with multi-factor attribution, benchmark validation, and return source analysis. Complete transparency into alpha generation and risk-adjusted returns.",
+          description: "Comprehensive performance decomposition explaining how decisions perform. WAVES™ portfolios leverage these analytics to demonstrate risk-aware execution. Institutions can license this same infrastructure for their own decision-making.",
           icon: "📈",
           features: ["Factor decomposition", "Benchmark integrity controls", "Risk-adjusted metrics"],
         },
         {
           title: "Governance & Audit Framework",
-          description: "Immutable decision trails, compliance monitoring, and regulatory reporting infrastructure. Board-ready documentation with complete transparency for fiduciary oversight.",
+          description: "Immutable decision trails and compliance monitoring across both platform infrastructure and WAVES™ portfolio operations. Board-ready documentation proving institutional oversight in action.",
           icon: "📋",
           features: ["Audit trail logging", "Compliance validation", "Board reporting"],
         },
         {
           title: "Risk Management Console",
-          description: "Continuous exposure monitoring with multi-layer risk overlays, stress testing, and scenario analysis. Real-time breach detection and automated alerting for institutional risk frameworks.",
+          description: "Continuous exposure monitoring demonstrating how WAVES™ portfolios operate within institutional risk frameworks. Multi-layer overlays proving disciplined governance and risk controls.",
           icon: "🛡️",
           features: ["Exposure monitoring", "Stress testing", "Automated alerts"],
         },
@@ -182,32 +182,32 @@ export const siteContent = {
     },
     differentiation: {
       title: "How WAVES Is Different",
-      subtitle: "Purpose-built decision infrastructure distinct from consumer tools and generic dashboards",
-      content: "WAVES Intelligence is not a robo-advisor, backtesting tool, stock-picking app, or generic analytics dashboard. We deliver institutional-grade decision infrastructure engineered for fiduciary oversight, regulatory compliance, and enterprise integration.",
+      subtitle: "Integrated infrastructure and live proof—distinct from consumer tools and generic dashboards",
+      content: "WAVES Intelligence™ is not a robo-advisor, backtesting tool, stock-picking app, or generic analytics dashboard. We deliver decision infrastructure that institutions can license, complemented by WAVES™ portfolios that prove the platform's effectiveness under live conditions. One system, two proofs—infrastructure transparency and real-world performance.",
       features: [
         {
-          title: "Strategy-Aware Benchmarks",
-          description: "Custom benchmark construction aligned to mandate-specific objectives, factor exposures, and risk constraints—not generic market indices.",
+          title: "Platform + Portfolio Integration",
+          description: "WAVES Intelligence™ explains how decisions are made. WAVES™ portfolios demonstrate what those decisions produce. Both offerings reinforce each other in a unified institutional solution.",
           icon: "🎯",
         },
         {
-          title: "Risk-Adjusted Capital Allocation",
-          description: "Systematic frameworks for position sizing, portfolio construction, and capital deployment based on risk budgets and return objectives.",
+          title: "Institutional Engagement Options",
+          description: "License the platform as decision infrastructure. Engage WAVES™ portfolios as live mandates. Or pursue both in a deeply integrated approach tailored to institutional requirements.",
           icon: "⚖️",
         },
         {
-          title: "Dynamic Exposure Control",
-          description: "Real-time monitoring and adjustment of factor exposures, sector concentrations, and risk overlays across changing market regimes.",
+          title: "Live Proof, Not Speculation",
+          description: "WAVES™ portfolios operate under real market conditions, demonstrating disciplined, risk-aware decision-making. Not speculative products—live proofs of platform-powered governance.",
           icon: "🎛️",
         },
         {
-          title: "Decision Traceability",
-          description: "Complete audit trails linking portfolio actions to analytical insights, regime signals, and governance approvals for regulatory transparency.",
+          title: "Decision Traceability Across Both",
+          description: "Complete audit trails linking platform analytics to WAVES™ portfolio actions. Full transparency into how the infrastructure operates and what the portfolios deliver.",
           icon: "📋",
         },
         {
-          title: "Explainable Portfolio Intelligence",
-          description: "Transparent attribution of returns to factors, decisions, and market conditions—no black-box algorithms or unexplained recommendations.",
+          title: "Explainable Intelligence Throughout",
+          description: "Transparent attribution across platform infrastructure and portfolio operations—no black-box algorithms. Understand exactly how the system works and what it produces.",
           icon: "🔍",
         },
       ],
@@ -238,13 +238,13 @@ export const siteContent = {
   console: {
     hero: {
       title: "WAVES Institutional Console",
-      subtitle: "Decision infrastructure platform for institutional portfolio oversight and investment governance",
+      subtitle: "Decision infrastructure platform powering WAVES™ portfolio operations and available for institutional licensing",
     },
     description:
-      "The WAVES Console serves as the decision infrastructure platform for modern asset management. Delivering real-time portfolio analytics with risk overlays, comprehensive alpha attribution with benchmark integrity controls, and institutional-grade decision intelligence. Built for fiduciary oversight, the platform provides complete transparency into strategy performance, position-level exposures with audit trails, and governance-ready compliance frameworks. Access controls, encrypted data transmission, and regulatory compliance protocols ensure your portfolio data remains secure while enabling informed, evidence-based capital allocation decisions.",
+      "The WAVES Console serves as the decision infrastructure platform for modern asset management. Delivering real-time portfolio analytics with risk overlays, comprehensive alpha attribution with benchmark integrity controls, and institutional-grade decision intelligence. This is the same platform that powers WAVES™ portfolio operations—demonstrating its effectiveness under live market conditions. Institutions can license this infrastructure for their own decision-making, engage WAVES™ portfolios as live mandates, or pursue both in an integrated approach. Built for fiduciary oversight, the platform provides complete transparency into strategy performance, position-level exposures with audit trails, and governance-ready compliance frameworks.",
     accessRequest: {
       title: "Request Institutional Access",
-      description: "Connect with our team to discuss platform capabilities, deployment options, and institutional onboarding. We provide comprehensive technical due diligence materials and integration support for enterprise evaluation.",
+      description: "Connect with our team to discuss platform capabilities, WAVES™ portfolio mandates, and integrated deployment options. We provide comprehensive technical due diligence materials and support for institutional evaluation of both infrastructure and live portfolio offerings.",
       contact: "jasonheldman-creator",
     },
     intendedUsers: {
@@ -301,12 +301,12 @@ export const siteContent = {
   },
   waves: {
     hero: {
-      title: "Investment Waves",
+      title: "WAVES™ Portfolios",
       subtitle:
-        "Diversified portfolio of institutional strategies with risk overlays and benchmark integrity controls, designed to capture alpha across market regimes, asset classes, and opportunity sets.",
+        "Live demonstration of WAVES Intelligence™ in action. Diversified portfolio strategies proving disciplined, risk-aware decision-making under real market conditions.",
     },
     description:
-      "Each Wave represents a distinct investment mandate with specific objectives, risk parameters, benchmark integrity standards, and performance metrics. The multi-Wave framework enables sophisticated portfolio construction with risk overlays, dynamic capital allocation with audit trails, and risk-adjusted return optimization. Strategies span factors, sectors, geographies, and market capitalizations to deliver consistent alpha generation and downside protection across economic cycles.",
+      "Each WAVES™ portfolio operates as a live proof of the WAVES Intelligence™ platform's effectiveness. These are not speculative products—they are real-world demonstrations of the decision infrastructure's transparency, governance, and explainability under live market conditions. Institutions can engage with WAVES™ portfolios as live mandates powered by the platform, license WAVES Intelligence™ as decision infrastructure for their own portfolios, or pursue both in a deeply integrated approach.",
   },
   architecture: {
     hero: {
@@ -422,22 +422,22 @@ export const siteContent = {
     hero: {
       title: "About WAVES Intelligence",
       subtitle:
-        "Building decision infrastructure for modern asset management. Institutional platforms for portfolio oversight, performance attribution with benchmark integrity, and evidence-based investment decision-making.",
+        "Building decision infrastructure for modern asset management. WAVES Intelligence™ platform for portfolio oversight. WAVES™ portfolios demonstrating platform effectiveness under live conditions.",
     },
     description:
-      "WAVES Intelligence was founded by institutional investment professionals with extensive experience in portfolio management, quantitative research, and fiduciary governance. Recognizing the need for rigorous analytics, risk overlays, and transparent decision support with complete audit trails, we developed a platform that combines advanced quantitative methods with institutional-grade infrastructure. Our mission is to provide investment professionals with the decision infrastructure required for disciplined capital allocation, comprehensive performance attribution with benchmark integrity controls, and fiduciary-level oversight.",
+      "WAVES Intelligence was founded by institutional investment professionals with extensive experience in portfolio management, quantitative research, and fiduciary governance. Recognizing the need for rigorous analytics, risk overlays, and transparent decision support with complete audit trails, we developed an integrated system: WAVES Intelligence™ provides the decision infrastructure—delivering transparency, governance, and explainability. WAVES™ portfolios demonstrate that infrastructure in live operation, proving disciplined, risk-aware decision-making under real market conditions. Our mission is to provide investment professionals with both the platform infrastructure for their own portfolios and the live proof of its effectiveness through WAVES™ mandates.",
     values: [
       {
         title: "Rigor",
-        description: "Maintaining disciplined quantitative methods, comprehensive data validation with benchmark integrity controls, and institutional-grade analytical frameworks with risk overlays across all platform capabilities.",
+        description: "Maintaining disciplined quantitative methods, comprehensive data validation with benchmark integrity controls, and institutional-grade analytical frameworks across both platform infrastructure and WAVES™ portfolio operations.",
       },
       {
         title: "Transparency",
-        description: "Ensuring complete visibility into methodology, performance attribution, and system operations through comprehensive documentation, audit trails, and benchmark integrity validation across all processes.",
+        description: "Ensuring complete visibility into platform methodology and WAVES™ portfolio operations through comprehensive documentation, audit trails, and benchmark integrity validation. No black boxes—understand how the infrastructure works and what the portfolios deliver.",
       },
       {
         title: "Precision",
-        description: "Delivering institutional-quality data accuracy, low-latency analytics with risk overlays, and consistent performance measurement with benchmark integrity across all portfolio dimensions.",
+        description: "Delivering institutional-quality data accuracy, low-latency analytics with risk overlays, and consistent performance measurement across platform infrastructure and WAVES™ portfolio execution.",
       },
     ],
   },
@@ -594,16 +594,16 @@ export const siteContent = {
     default: {
       title: "Ready to Get Started?",
       description:
-        "Join institutional investors leveraging WAVES Intelligence as their decision infrastructure platform. Rigorous portfolio analytics with risk overlays, comprehensive performance attribution with benchmark integrity, and evidence-based decision support with complete audit trails.",
-      primaryButtonText: "Request Access",
-      primaryButtonLink: "/console",
+        "Experience the integrated system—WAVES Intelligence™ as decision infrastructure and WAVES™ portfolios as live proof. License the platform, engage portfolio mandates, or pursue both in a unified institutional approach.",
+      primaryButtonText: "Request Institutional Demo",
+      primaryButtonLink: "/demo",
       secondaryButtonText: "Discuss Integration",
       secondaryButtonLink: "/contact",
     },
     architecture: {
       title: "Ready to Review Our Architecture?",
       description:
-        "Connect with our engineering team to explore infrastructure design, integration pathways, and technical due diligence materials for institutional evaluation.",
+        "Connect with our engineering team to explore platform infrastructure, WAVES™ portfolio operations, and integrated deployment pathways for institutional evaluation.",
       primaryButtonText: "Review Architecture",
       primaryButtonLink: "/architecture",
       secondaryButtonText: "Discuss Integration",
