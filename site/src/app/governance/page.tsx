@@ -14,9 +14,9 @@ export default function GovernancePage() {
       <Hero
         title={siteContent.governance.hero.title}
         subtitle={siteContent.governance.hero.subtitle}
-        ctaText="Request Access"
-        ctaLink="/console"
-        secondaryCtaText="Review Architecture"
+        ctaText="Request Institutional Demo"
+        ctaLink="/demo"
+        secondaryCtaText="View Governance Architecture"
         secondaryCtaLink="/architecture"
       />
       

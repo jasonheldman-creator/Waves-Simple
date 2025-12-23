@@ -592,21 +592,21 @@ export const siteContent = {
   },
   cta: {
     default: {
-      title: "Ready to Get Started?",
+      title: "Ready to Explore Platform Capabilities?",
       description:
-        "Experience the integrated system—WAVES Intelligence™ as decision infrastructure and WAVES™ portfolios as live proof. License the platform, engage portfolio mandates, or pursue both in a unified institutional approach.",
+        "Experience WAVES Intelligence™ decision infrastructure and WAVES™ portfolio validation. License the platform, access portfolio mandates, or pursue integrated institutional deployment.",
       primaryButtonText: "Request Institutional Demo",
       primaryButtonLink: "/demo",
-      secondaryButtonText: "Discuss Integration",
+      secondaryButtonText: "Discuss Platform Licensing",
       secondaryButtonLink: "/contact",
     },
     architecture: {
-      title: "Ready to Review Our Architecture?",
+      title: "Review Platform Architecture",
       description:
-        "Connect with our engineering team to explore platform infrastructure, WAVES™ portfolio operations, and integrated deployment pathways for institutional evaluation.",
-      primaryButtonText: "Review Architecture",
+        "Connect with our team to explore infrastructure design, governance frameworks, and institutional deployment pathways including licensing and integration options.",
+      primaryButtonText: "View Governance Architecture",
       primaryButtonLink: "/architecture",
-      secondaryButtonText: "Discuss Integration",
+      secondaryButtonText: "Discuss Platform Licensing",
       secondaryButtonLink: "/contact",
     },
   },

@@ -16,9 +16,9 @@ export default function PlatformPage() {
       <Hero
         title={siteContent.platform.hero.title}
         subtitle={siteContent.platform.hero.subtitle}
-        ctaText="Request Access"
-        ctaLink="/console"
-        secondaryCtaText="Discuss Integration"
+        ctaText="Request Institutional Demo"
+        ctaLink="/demo"
+        secondaryCtaText="Discuss Platform Licensing"
         secondaryCtaLink="/contact"
       />
       

@@ -1,4 +1,5 @@
 import Hero from "@/components/Hero";
+import CallToAction from "@/components/CallToAction";
 import { siteContent } from "@/content/newSiteContent";
 
 export default function WhyPage() {
@@ -7,6 +8,10 @@ export default function WhyPage() {
       <Hero
         title={siteContent.why.hero.title}
         subtitle={siteContent.why.hero.subtitle}
+        ctaText="Request Institutional Demo"
+        ctaLink="/demo"
+        secondaryCtaText="View Governance Architecture"
+        secondaryCtaLink="/governance"
       />
       
       {/* Main Reasons Section */}
@@ -55,6 +60,15 @@ export default function WhyPage() {
           </div>
         </div>
       </section>
+      
+      <CallToAction
+        title="Experience Institutional Decision Infrastructure"
+        description="See how WAVES Intelligence™ and WAVES™ portfolios deliver governance-native infrastructure with live portfolio validation."
+        primaryButtonText="Request Institutional Demo"
+        primaryButtonLink="/demo"
+        secondaryButtonText="Discuss Platform Licensing"
+        secondaryButtonLink="/contact"
+      />
     </main>
   );
 }

@@ -15,10 +15,10 @@ export default function WavesPage() {
       <Hero
         title={siteContent.waves.hero.title}
         subtitle={siteContent.waves.hero.subtitle}
-        ctaText="Explore Platform"
-        ctaLink="/platform"
-        secondaryCtaText="Learn More"
-        secondaryCtaLink="/contact"
+        ctaText="Request Institutional Demo"
+        ctaLink="/demo"
+        secondaryCtaText="View Platform"
+        secondaryCtaLink="/platform"
       />
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
