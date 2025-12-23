@@ -3,8 +3,10 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.wavesintelligence.app";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://www.wavesintelligence.app"),
+  metadataBase: new URL(siteUrl),
   title: "WAVES Intelligence™ - Decision Infrastructure for Modern Asset Management",
   description:
     "WAVES Intelligence™ unifies portfolio construction, exposure, attribution, and governance into one canonical source of truth.",
@@ -21,7 +23,7 @@ export const metadata: Metadata = {
     description:
       "WAVES Intelligence™ unifies portfolio construction, exposure, attribution, and governance into one canonical source of truth.",
     type: "website",
-    url: "https://www.wavesintelligence.app",
+    url: siteUrl,
     siteName: "WAVES Intelligence",
   },
 };
