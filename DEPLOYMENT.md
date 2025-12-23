@@ -114,6 +114,8 @@ The build is configured via:
 }
 ```
 
+Note: The `lint` script uses ESLint's flat config which automatically discovers and lints files based on `eslint.config.mjs`.
+
 ## Local Development
 
 To run the site locally:
