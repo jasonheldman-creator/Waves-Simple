@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface Screenshot {
   src: string;
   alt: string;
@@ -9,20 +11,20 @@ interface ScreenshotGalleryProps {
 }
 
 export default function ScreenshotGallery({ screenshots }: ScreenshotGalleryProps) {
-  // Default placeholder screenshots
+  // Default branded screenshots
   const defaultScreenshots: Screenshot[] = [
     {
-      src: "/placeholder-dashboard.jpg",
+      src: "/images/dashboard.svg",
       alt: "Dashboard Overview",
       caption: "Comprehensive portfolio analytics dashboard",
     },
     {
-      src: "/placeholder-analytics.jpg",
+      src: "/images/analytics.svg",
       alt: "Analytics View",
       caption: "Real-time performance metrics and insights",
     },
     {
-      src: "/placeholder-reports.jpg",
+      src: "/images/reports.svg",
       alt: "Reports",
       caption: "Institutional-grade reporting and attribution",
     },
@@ -46,18 +48,18 @@ export default function ScreenshotGallery({ screenshots }: ScreenshotGalleryProp
           {displayScreenshots.map((screenshot, index) => (
             <div
               key={index}
-              className="group overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50"
+              className="group overflow-hidden rounded-lg border border-gray-800 bg-gray-900/50 transition-all hover:border-cyan-500/50"
             >
               <div className="relative aspect-video w-full overflow-hidden bg-gray-800">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-4xl mb-2">📊</div>
-                    <div className="text-sm text-gray-500">Screenshot Placeholder</div>
-                  </div>
-                </div>
+                <Image
+                  src={screenshot.src}
+                  alt={screenshot.alt}
+                  fill
+                  className="object-cover transition-transform group-hover:scale-105"
+                />
               </div>
               <div className="p-4">
-                <h3 className="font-semibold text-white group-hover:text-cyan-400">
+                <h3 className="font-semibold text-white group-hover:text-cyan-400 transition-colors">
                   {screenshot.alt}
                 </h3>
                 <p className="mt-1 text-sm text-gray-400">{screenshot.caption}</p>
