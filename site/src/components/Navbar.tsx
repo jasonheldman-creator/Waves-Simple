@@ -7,13 +7,8 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
-    { href: "/platform", label: "Platform" },
-    { href: "/waves", label: "Waves" },
-    { href: "/architecture", label: "Architecture" },
-    { href: "/security", label: "Security" },
-    { href: "/company", label: "Company" },
-    { href: "/press", label: "Press" },
-    { href: "/contact", label: "Contact" },
+    { href: "/product", label: "Product" },
+    { href: "/why", label: "Why WAVES" },
   ];
 
   return (
@@ -24,7 +19,7 @@ export default function Navbar() {
           <Link href="/" className="flex items-center space-x-2">
             <div className="text-2xl font-bold">
               <span className="text-cyan-400">WAVES</span>
-              <span className="text-white"> Intelligence</span>
+              <span className="text-white"> Intelligence™</span>
             </div>
           </Link>
 
@@ -40,10 +35,10 @@ export default function Navbar() {
               </Link>
             ))}
             <Link
-              href="/console"
+              href="/demo"
               className="rounded-md bg-gradient-to-r from-cyan-500 to-green-500 px-4 py-2 text-sm font-semibold text-black transition-all hover:from-cyan-400 hover:to-green-400"
             >
-              Launch Console
+              Request Institutional Demo
             </Link>
           </div>
 
@@ -87,11 +82,11 @@ export default function Navbar() {
               </Link>
             ))}
             <Link
-              href="/console"
+              href="/demo"
               className="block rounded-md bg-gradient-to-r from-cyan-500 to-green-500 px-3 py-2 text-base font-semibold text-black"
               onClick={() => setMobileMenuOpen(false)}
             >
-              Launch Console
+              Request Institutional Demo
             </Link>
           </div>
         </div>
