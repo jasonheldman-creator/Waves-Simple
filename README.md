@@ -3,14 +3,17 @@ WAVES Intelligence™ - Institutional Console v2
 
 ## Live Site
 
-**Production URL:** Set in Vercel dashboard after deployment (see [DEPLOYMENT.md](DEPLOYMENT.md))
+**Production URL:** `https://www.wavesintelligence.app` (after Vercel setup)
 
 **Preview URLs:** Automatically generated for each pull request
 - Preview URLs appear in GitHub PR checks under "Vercel – site"
 - Click "Details" on the Vercel check to visit the preview deployment
 - The Vercel bot also comments on PRs with direct deployment links
 
-For deployment setup and configuration, see [DEPLOYMENT.md](DEPLOYMENT.md).
+**Deployment Documentation:**
+- **[VERCEL_SETUP.md](VERCEL_SETUP.md)** - Step-by-step Vercel configuration guide (⚠️ **START HERE**)
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete deployment reference and troubleshooting
+- **[site/README.md](site/README.md)** - Marketing site documentation
 
 ## Overview
 

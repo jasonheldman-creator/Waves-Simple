@@ -2,6 +2,19 @@
 
 This guide provides the exact steps to configure the WAVES Intelligence™ marketing site deployment on Vercel.
 
+## Quick Validation
+
+Before deploying, validate your configuration:
+
+```bash
+python3 validate_vercel_config.py
+```
+
+This script checks:
+- ✅ No deprecated properties in vercel.json
+- ✅ Redirect rules won't cause loops
+- ✅ Configuration follows Vercel best practices
+
 ## Prerequisites
 
 - GitHub repository: `jasonheldman-creator/Waves-Simple`
