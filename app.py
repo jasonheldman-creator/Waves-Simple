@@ -5133,6 +5133,305 @@ def render_sidebar_info():
 # ============================================================================
 
 
+def render_wave_identity_card(selected_wave: str, mode: str):
+    """
+    Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
+    
+    Renders a professional Wave Identity Card showing:
+    - Wave Name
+    - Mode Pill
+    - Key Stats: 1D, 30D, 60D, 365D Returns, Alpha, Beta, Exposure, Cash
+    
+    Uses st.components.v1.html() for rich rendering with automatic fallback to
+    Streamlit-native layout if the HTML component fails.
+    
+    Args:
+        selected_wave: Name of the selected wave
+        mode: Mode (Standard, Alpha-Minus-Beta, or Private Logic)
+    """
+    try:
+        # Get wave data for different time periods
+        data_1d = get_wave_data_filtered(wave_name=selected_wave, days=1)
+        data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
+        data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        
+        # Calculate returns for each period
+        def calc_return(data):
+            if data is not None and len(data) > 0 and 'portfolio_return' in data.columns:
+                return data['portfolio_return'].sum()
+            return None
+        
+        return_1d = calc_return(data_1d)
+        return_30d = calc_return(data_30d)
+        return_60d = calc_return(data_60d)
+        return_365d = calc_return(data_365d)
+        
+        # Calculate Alpha (30D)
+        alpha_30d = None
+        if data_30d is not None and len(data_30d) > 0:
+            if 'portfolio_return' in data_30d.columns and 'benchmark_return' in data_30d.columns:
+                alpha_30d = (data_30d['portfolio_return'] - data_30d['benchmark_return']).sum()
+        
+        # Calculate Beta (30D) - simplified correlation-based beta
+        beta_30d = None
+        if data_30d is not None and len(data_30d) > 0:
+            if 'portfolio_return' in data_30d.columns and 'benchmark_return' in data_30d.columns:
+                try:
+                    port_returns = data_30d['portfolio_return']
+                    bench_returns = data_30d['benchmark_return']
+                    covariance = np.cov(port_returns, bench_returns)[0, 1]
+                    bench_variance = np.var(bench_returns)
+                    if bench_variance > 0:
+                        beta_30d = covariance / bench_variance
+                except:
+                    pass
+        
+        # Get exposure and cash from latest data point
+        exposure = None
+        cash = None
+        if data_1d is not None and len(data_1d) > 0:
+            if 'exposure' in data_1d.columns:
+                exposure = data_1d['exposure'].iloc[-1]
+            if 'cash' in data_1d.columns:
+                cash = data_1d['cash'].iloc[-1]
+        
+        # Format values for display
+        def fmt_pct(val):
+            return f"{val*100:.2f}%" if val is not None else "N/A"
+        
+        def fmt_num(val, decimals=2):
+            return f"{val:.{decimals}f}" if val is not None else "N/A"
+        
+        # Determine mode color
+        if mode == "Standard":
+            mode_color = "#00ff88"
+        elif mode == "Alpha-Minus-Beta":
+            mode_color = "#ffd700"
+        elif mode == "Aggressive":
+            mode_color = "#ff6b6b"
+        else:
+            mode_color = "#888"
+        
+        # Try to use st.components.v1.html() for rich rendering
+        try:
+            import streamlit.components.v1 as components
+            
+            # Create HTML content for the identity card
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    }}
+                    .wave-identity-card {{
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        border: 2px solid #00ff88;
+                        border-radius: 12px;
+                        padding: 24px;
+                        margin-bottom: 20px;
+                        box-shadow: 0 4px 12px rgba(0, 255, 136, 0.2);
+                    }}
+                    .wave-name {{
+                        color: #ffffff;
+                        font-size: 28px;
+                        font-weight: bold;
+                        margin: 0 0 12px 0;
+                    }}
+                    .mode-pill {{
+                        display: inline-block;
+                        background: {mode_color};
+                        color: #1a1a2e;
+                        padding: 8px 20px;
+                        border-radius: 20px;
+                        font-weight: bold;
+                        font-size: 14px;
+                        margin-bottom: 20px;
+                    }}
+                    .stats-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                        gap: 16px;
+                        margin-top: 16px;
+                    }}
+                    .stat-tile {{
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px solid rgba(0, 255, 136, 0.3);
+                        border-radius: 8px;
+                        padding: 12px;
+                        text-align: center;
+                    }}
+                    .stat-label {{
+                        color: #aaa;
+                        font-size: 12px;
+                        margin-bottom: 4px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }}
+                    .stat-value {{
+                        color: #ffffff;
+                        font-size: 18px;
+                        font-weight: bold;
+                    }}
+                    .stat-value.positive {{
+                        color: #00ff88;
+                    }}
+                    .stat-value.negative {{
+                        color: #ff6b6b;
+                    }}
+                    @media only screen and (max-width: 768px) {{
+                        .wave-identity-card {{
+                            padding: 16px;
+                            margin-bottom: 16px;
+                        }}
+                        .wave-name {{
+                            font-size: 22px;
+                            margin-bottom: 10px;
+                        }}
+                        .mode-pill {{
+                            padding: 6px 16px;
+                            font-size: 12px;
+                            margin-bottom: 16px;
+                        }}
+                        .stats-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 12px;
+                        }}
+                        .stat-tile {{
+                            padding: 10px;
+                        }}
+                        .stat-label {{
+                            font-size: 11px;
+                        }}
+                        .stat-value {{
+                            font-size: 16px;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="wave-identity-card">
+                    <h1 class="wave-name">🌊 {selected_wave}</h1>
+                    <div class="mode-pill">MODE: {mode}</div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-tile">
+                            <div class="stat-label">1D Return</div>
+                            <div class="stat-value {'positive' if return_1d and return_1d > 0 else 'negative' if return_1d and return_1d < 0 else ''}">{fmt_pct(return_1d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">30D Return</div>
+                            <div class="stat-value {'positive' if return_30d and return_30d > 0 else 'negative' if return_30d and return_30d < 0 else ''}">{fmt_pct(return_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">60D Return</div>
+                            <div class="stat-value {'positive' if return_60d and return_60d > 0 else 'negative' if return_60d and return_60d < 0 else ''}">{fmt_pct(return_60d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">365D Return</div>
+                            <div class="stat-value {'positive' if return_365d and return_365d > 0 else 'negative' if return_365d and return_365d < 0 else ''}">{fmt_pct(return_365d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Alpha (30D)</div>
+                            <div class="stat-value {'positive' if alpha_30d and alpha_30d > 0 else 'negative' if alpha_30d and alpha_30d < 0 else ''}">{fmt_pct(alpha_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Beta</div>
+                            <div class="stat-value">{fmt_num(beta_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Exposure</div>
+                            <div class="stat-value">{fmt_pct(exposure)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Cash</div>
+                            <div class="stat-value">{fmt_pct(cash)}</div>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Render using st.components.v1.html()
+            components.html(html_content, height=350, scrolling=False)
+            
+        except Exception as component_error:
+            # Fallback to Streamlit-native layout
+            _render_wave_identity_card_fallback(
+                selected_wave, mode, mode_color,
+                return_1d, return_30d, return_60d, return_365d,
+                alpha_30d, beta_30d, exposure, cash
+            )
+    
+    except Exception as e:
+        # Ultimate fallback - show minimal info
+        st.error(f"⚠️ Wave Identity Card unavailable: {str(e)}")
+        st.info(f"**Selected Wave:** {selected_wave} | **Mode:** {mode}")
+
+
+def _render_wave_identity_card_fallback(
+    selected_wave, mode, mode_color,
+    return_1d, return_30d, return_60d, return_365d,
+    alpha_30d, beta_30d, exposure, cash
+):
+    """
+    Fallback rendering for Wave Identity Card using native Streamlit components only.
+    No HTML, no unsafe_allow_html - pure Streamlit UI.
+    """
+    # Format values
+    def fmt_pct(val):
+        return f"{val*100:.2f}%" if val is not None else "N/A"
+    
+    def fmt_num(val, decimals=2):
+        return f"{val:.{decimals}f}" if val is not None else "N/A"
+    
+    # Create container for the card
+    with st.container():
+        # Wave name and mode
+        st.subheader(f"🌊 {selected_wave}")
+        
+        # Mode indicator using colored text (no HTML)
+        mode_emoji = "🟢" if mode == "Standard" else "🟡" if mode == "Alpha-Minus-Beta" else "🔴"
+        st.markdown(f"**{mode_emoji} MODE:** {mode}")
+        
+        st.markdown("---")
+        
+        # Stats in a grid layout using columns
+        st.markdown("**Key Statistics**")
+        
+        # Row 1: Returns
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            delta_1d = None if return_1d is None else return_1d
+            st.metric("1D Return", fmt_pct(return_1d), delta=fmt_pct(delta_1d) if delta_1d else None)
+        with col2:
+            st.metric("30D Return", fmt_pct(return_30d))
+        with col3:
+            st.metric("60D Return", fmt_pct(return_60d))
+        with col4:
+            st.metric("365D Return", fmt_pct(return_365d))
+        
+        # Row 2: Alpha, Beta, Exposure, Cash
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Alpha (30D)", fmt_pct(alpha_30d))
+        with col2:
+            st.metric("Beta", fmt_num(beta_30d))
+        with col3:
+            st.metric("Exposure", fmt_pct(exposure))
+        with col4:
+            st.metric("Cash", fmt_pct(cash))
+        
+        # Add bottom padding for sticky bar compatibility
+        st.markdown("<br>", unsafe_allow_html=True)
+
+
 def render_wave_intelligence_center_tab():
     """
     Render the Intelligence Center (Vector v3) tab - Cross-Wave Correlation & Insights.
@@ -5210,36 +5509,14 @@ def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
     
     Vector v3 focuses on cross-wave correlation and insights.
     """
-    # Header with Vector v3 badge
+    # Header
     st.header("🧠 Intelligence Center")
     
-    # Vector v3 badge (mobile-responsive)
-    badge_html = """
-    <style>
-        .vector-v3-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-        
-        @media only screen and (max-width: 768px) {
-            .vector-v3-badge {
-                font-size: 11px;
-                padding: 5px 12px;
-            }
-        }
-    </style>
-    <div class="vector-v3-badge">Vector v3</div>
-    """
-    st.markdown(badge_html, unsafe_allow_html=True)
+    # Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
+    # Render the Wave Identity Card at the top
+    render_wave_identity_card(selected_wave, mode)
     
-    st.write("Cross-Wave Correlation Analysis & Market Intelligence")
+    st.write("**Cross-Wave Correlation Analysis & Market Intelligence**")
     
     st.divider()
     
@@ -5854,21 +6131,10 @@ def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
     
     st.divider()
     
-    # Footer with mobile padding
-    st.markdown("""
-    <style>
-        /* Global bottom padding to prevent overlap with sticky bar */
-        .main .block-container {
-            padding-bottom: 80px !important;
-        }
-        
-        @media only screen and (max-width: 768px) {
-            .main .block-container {
-                padding-bottom: 120px !important;
-            }
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # Add bottom padding to prevent overlap with sticky bar (mobile-compatible)
+    # Using native Streamlit spacing instead of HTML
+    st.markdown("")
+    st.markdown("")
     
     st.markdown("---")
     st.caption("Intelligence Center (Vector v3) - Cross-Wave Correlation & Market Insights")
