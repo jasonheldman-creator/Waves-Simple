@@ -114,6 +114,55 @@ export default function ConsolePage() {
           </div>
         </div>
       </section>
+
+      {/* Intended Users Section */}
+      <section className="bg-black py-16 sm:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+              {siteContent.console.intendedUsers.title}
+            </h2>
+            <p className="mt-4 text-lg text-gray-400">
+              {siteContent.console.intendedUsers.subtitle}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {siteContent.console.intendedUsers.roles.map((role, index) => (
+              <div
+                key={index}
+                className="rounded-lg border border-gray-800 bg-gray-900/50 p-6 transition-all hover:border-cyan-500/50"
+              >
+                <div className="text-4xl mb-4">{role.icon}</div>
+                <h3 className="text-lg font-semibold text-white mb-2">{role.title}</h3>
+                <p className="text-sm text-gray-400 leading-relaxed">{role.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Governance & Oversight Readiness Section */}
+      <section className="bg-gradient-to-b from-black via-gray-900 to-black py-16 sm:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+              {siteContent.console.governance.title}
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {siteContent.console.governance.features.map((feature, index) => (
+              <div
+                key={index}
+                className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-6 transition-all hover:border-cyan-500/50"
+              >
+                <div className="text-4xl mb-4">{feature.icon}</div>
+                <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
+                <p className="text-sm text-gray-400 leading-relaxed">{feature.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
