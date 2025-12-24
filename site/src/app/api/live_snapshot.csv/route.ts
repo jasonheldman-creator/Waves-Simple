@@ -35,16 +35,17 @@ function parseCSV(csvText: string): WaveHistoryRow[] {
   const lines = csvText.trim().split('\n');
   
   return lines.slice(1).map(line => {
+    // Simple CSV parser - wave_history.csv uses simple comma separation without quoted fields
     const values = line.split(',');
     return {
-      wave_id: values[0],
-      display_name: values[1],
-      date: values[2],
-      portfolio_return: parseFloat(values[3]),
-      benchmark_return: parseFloat(values[4]),
-      is_synthetic: values[5] === 'True',
+      wave_id: values[0]?.trim() || '',
+      display_name: values[1]?.trim() || '',
+      date: values[2]?.trim() || '',
+      portfolio_return: parseFloat(values[3] || '0'),
+      benchmark_return: parseFloat(values[4] || '0'),
+      is_synthetic: values[5]?.trim() === 'True',
     };
-  }).filter(row => !isNaN(row.portfolio_return));
+  }).filter(row => row.wave_id && !isNaN(row.portfolio_return));
 }
 
 function calculateCumulativeReturn(returns: number[]): number {
@@ -173,11 +174,28 @@ function generateDemoSnapshot(): LiveSnapshotRow[] {
   }));
 }
 
+function escapeCSVField(field: string): string {
+  // Escape fields containing commas, quotes, or newlines by wrapping in quotes
+  if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+    return `"${field.replace(/"/g, '""')}"`;
+  }
+  return field;
+}
+
 function snapshotToCSV(snapshot: LiveSnapshotRow[]): string {
   const headers = "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated";
-  const rows = snapshot.map(row => 
-    `${row.wave_id},${row.wave_name},${row.status},${row.performance_1d.toFixed(2)},${row.performance_30d.toFixed(2)},${row.performance_ytd.toFixed(2)},${row.last_updated}`
-  );
+  const rows = snapshot.map(row => {
+    const fields = [
+      escapeCSVField(row.wave_id),
+      escapeCSVField(row.wave_name),
+      escapeCSVField(row.status),
+      row.performance_1d.toFixed(2),
+      row.performance_30d.toFixed(2),
+      row.performance_ytd.toFixed(2),
+      row.last_updated,
+    ];
+    return fields.join(',');
+  });
   
   return [headers, ...rows].join('\n');
 }

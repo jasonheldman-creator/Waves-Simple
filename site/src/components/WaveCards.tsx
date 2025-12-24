@@ -37,15 +37,37 @@ export default function WaveCards({ waves }: WaveCardsProps) {
           const csvText = await response.text();
           const lines = csvText.trim().split('\n');
           const data: LiveWaveData[] = lines.slice(1).map(line => {
-            const [wave_id, wave_name, status, perf_1d, perf_30d, perf_ytd, last_updated] = line.split(',');
+            // Parse CSV with proper handling of quoted fields
+            const values: string[] = [];
+            let currentValue = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+              const char = line[i];
+              if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                  currentValue += '"';
+                  i++; // Skip next quote
+                } else {
+                  inQuotes = !inQuotes;
+                }
+              } else if (char === ',' && !inQuotes) {
+                values.push(currentValue);
+                currentValue = '';
+              } else {
+                currentValue += char;
+              }
+            }
+            values.push(currentValue); // Add last value
+            
             return {
-              wave_id,
-              wave_name,
-              status,
-              performance_1d: parseFloat(perf_1d),
-              performance_30d: parseFloat(perf_30d),
-              performance_ytd: parseFloat(perf_ytd),
-              last_updated,
+              wave_id: values[0] || '',
+              wave_name: values[1] || '',
+              status: values[2] || '',
+              performance_1d: parseFloat(values[3] || '0'),
+              performance_30d: parseFloat(values[4] || '0'),
+              performance_ytd: parseFloat(values[5] || '0'),
+              last_updated: values[6] || '',
             };
           });
           setLiveWaves(data);
@@ -193,7 +215,10 @@ export default function WaveCards({ waves }: WaveCardsProps) {
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {liveWaves.map((wave, index) => {
               const isPositive = wave.performance_ytd >= 0;
-              const statusColor = wave.status === "ACTIVE" ? "green" : "yellow";
+              const isActiveStatus = wave.status === "ACTIVE";
+              const statusBgColor = isActiveStatus ? "bg-green-500/20" : "bg-yellow-500/20";
+              const statusTextColor = isActiveStatus ? "text-green-400" : "text-yellow-400";
+              
               return (
                 <div
                   key={wave.wave_id || index}
@@ -204,7 +229,7 @@ export default function WaveCards({ waves }: WaveCardsProps) {
                       <h3 className="text-lg font-semibold text-white group-hover:text-cyan-400">
                         {wave.wave_name}
                       </h3>
-                      <span className={`mt-1 inline-block rounded-full bg-${statusColor}-500/20 px-2 py-1 text-xs font-medium text-${statusColor}-400`}>
+                      <span className={`mt-1 inline-block rounded-full px-2 py-1 text-xs font-medium ${statusBgColor} ${statusTextColor}`}>
                         {wave.status}
                       </span>
                     </div>
