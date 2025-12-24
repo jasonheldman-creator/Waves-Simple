@@ -79,7 +79,7 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
             controls
             preload="metadata"
             onError={handleVideoError}
-            controlsList="nodownload"
+            controlsList="nodownload" // Prevents download option in supported browsers (Chrome, Edge)
             playsInline
           >
             <source src={videoSrc} type="video/mp4" />
