@@ -1,16 +1,75 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 interface WaveCard {
   id: number;
   name: string;
   description: string;
   performance?: string;
   status?: string;
+  performance1d?: string;
+  performance30d?: string;
+  performanceYtd?: string;
 }
 
 interface WaveCardsProps {
   waves?: WaveCard[];
 }
 
+interface LiveWaveData {
+  wave_id: string;
+  wave_name: string;
+  status: string;
+  performance_1d: string;
+  performance_30d: string;
+  performance_ytd: string;
+  last_updated: string;
+}
+
 export default function WaveCards({ waves }: WaveCardsProps) {
+  const [liveData, setLiveData] = useState<LiveWaveData[]>([]);
+
+  // Fetch live snapshot data from CSV endpoint
+  useEffect(() => {
+    const fetchLiveData = async () => {
+      try {
+        const response = await fetch("/api/live_snapshot.csv");
+        const csvText = await response.text();
+        
+        // Parse CSV data
+        const lines = csvText.trim().split("\n");
+        const headers = lines[0].split(",");
+        
+        const parsedData: LiveWaveData[] = lines.slice(1).map((line) => {
+          const values = line.split(",");
+          return {
+            wave_id: values[0],
+            wave_name: values[1],
+            status: values[2],
+            performance_1d: values[3],
+            performance_30d: values[4],
+            performance_ytd: values[5],
+            last_updated: values[6],
+          };
+        });
+        
+        setLiveData(parsedData);
+      } catch (error) {
+        console.error("Failed to fetch live snapshot data:", error);
+      }
+    };
+
+    // Initial fetch
+    fetchLiveData();
+
+    // Set up 60-second interval
+    const intervalId = setInterval(fetchLiveData, 60000);
+
+    // Cleanup on unmount
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Generate institutional-grade waves with unique strategies if not provided
   const defaultWaves: WaveCard[] = [
     {
@@ -120,7 +179,27 @@ export default function WaveCards({ waves }: WaveCardsProps) {
     },
   ];
 
-  const displayWaves = waves || defaultWaves;
+  // Merge live data with default waves
+  const displayWaves = (waves || defaultWaves).map((wave) => {
+    const liveWave = liveData.find((live) => {
+      // Match by wave number extracted from name
+      const waveNumber = wave.name.match(/Wave (\d+)/)?.[1];
+      return waveNumber && live.wave_id === `wave_${waveNumber}`;
+    });
+
+    if (liveWave) {
+      return {
+        ...wave,
+        performance: liveWave.performance_1d,
+        performance1d: liveWave.performance_1d,
+        performance30d: liveWave.performance_30d,
+        performanceYtd: liveWave.performance_ytd,
+        status: liveWave.status,
+      };
+    }
+
+    return wave;
+  });
 
   return (
     <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
@@ -145,14 +224,32 @@ export default function WaveCards({ waves }: WaveCardsProps) {
                   <h3 className="text-lg font-semibold text-white group-hover:text-cyan-400">
                     {wave.name}
                   </h3>
-                  <span className="mt-1 inline-block rounded-full bg-green-500/20 px-2 py-1 text-xs font-medium text-green-400">
+                  <span
+                    className={`mt-1 inline-block rounded-full px-2 py-1 text-xs font-medium ${
+                      wave.status === "DEMO"
+                        ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                        : "bg-green-500/20 text-green-400"
+                    }`}
+                  >
                     {wave.status}
                   </span>
                 </div>
                 {wave.performance && (
                   <div className="text-right">
                     <div className="text-lg font-bold text-green-400">{wave.performance}</div>
-                    <div className="text-xs text-gray-500">Performance</div>
+                    <div className="text-xs text-gray-500">1D</div>
+                    {wave.performance30d && (
+                      <>
+                        <div className="text-sm font-semibold text-green-400 mt-1">{wave.performance30d}</div>
+                        <div className="text-xs text-gray-500">30D</div>
+                      </>
+                    )}
+                    {wave.performanceYtd && (
+                      <>
+                        <div className="text-sm font-semibold text-green-400 mt-1">{wave.performanceYtd}</div>
+                        <div className="text-xs text-gray-500">YTD</div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
