@@ -18,35 +18,60 @@ export default function Footer() {
             </p>
           </div>
 
-          {/* Product */}
+          {/* Navigation */}
           <div>
-            <h3 className="text-sm font-semibold text-white">Product</h3>
+            <h3 className="text-sm font-semibold text-white">Navigation</h3>
             <ul className="mt-4 space-y-2">
               <li>
-                <Link href="/product" className="text-sm text-gray-400 hover:text-cyan-400">
-                  Platform Screens
+                <Link href="/" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Home
                 </Link>
               </li>
               <li>
-                <Link href="/why" className="text-sm text-gray-400 hover:text-cyan-400">
-                  Why WAVES
+                <Link href="/platform" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Platform
                 </Link>
               </li>
               <li>
-                <Link href="/demo" className="text-sm text-gray-400 hover:text-cyan-400">
-                  Request Demo
+                <Link href="/waves" className="text-sm text-gray-400 hover:text-cyan-400">
+                  WAVES™
+                </Link>
+              </li>
+              <li>
+                <Link href="/governance" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Governance
                 </Link>
               </li>
             </ul>
           </div>
 
-          {/* Company */}
+          {/* Company & Resources */}
           <div>
-            <h3 className="text-sm font-semibold text-white">Company</h3>
+            <h3 className="text-sm font-semibold text-white">Company & Resources</h3>
             <ul className="mt-4 space-y-2">
               <li>
-                <Link href="/" className="text-sm text-gray-400 hover:text-cyan-400">
-                  Home
+                <Link href="/enterprise" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Enterprise
+                </Link>
+              </li>
+              <li>
+                <Link href="/company" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Company
+                </Link>
+              </li>
+              <li>
+                <Link href="/market" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Market
+                </Link>
+              </li>
+              <li>
+                <Link href="/contact" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Contact
+                </Link>
+              </li>
+              <li>
+                <Link href="/demo" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Request Demo
                 </Link>
               </li>
             </ul>
