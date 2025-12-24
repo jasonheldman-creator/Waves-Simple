@@ -314,49 +314,73 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
         Holding("VTV", 0.12, "Vanguard Value ETF"),
     ],
 
-    # Crypto Waves
-    "Multi-Cap Crypto Growth Wave": [
-        Holding("BTC-USD", 0.25, "Bitcoin"),
-        Holding("ETH-USD", 0.20, "Ethereum"),
-        Holding("SOL-USD", 0.10, "Solana"),
-        Holding("AVAX-USD", 0.07, "Avalanche"),
-        Holding("ADA-USD", 0.07, "Cardano"),
-        Holding("MATIC-USD", 0.06, "Polygon"),
-        Holding("LINK-USD", 0.06, "Chainlink"),
-        Holding("DOT-USD", 0.06, "Polkadot"),
+    # Crypto Waves - Six Wave Lineup (5 Growth + 1 Income)
+    # Growth Wave 1: Layer 1 Smart Contract Platforms
+    "Crypto L1 Growth Wave": [
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("SOL-USD", 0.20, "Solana"),
+        Holding("AVAX-USD", 0.12, "Avalanche"),
+        Holding("ADA-USD", 0.10, "Cardano"),
+        Holding("DOT-USD", 0.10, "Polkadot"),
+        Holding("NEAR-USD", 0.08, "NEAR Protocol"),
+        Holding("APT-USD", 0.05, "Aptos"),
         Holding("ATOM-USD", 0.05, "Cosmos"),
-        Holding("GRT-USD", 0.03, "The Graph"),
-        Holding("AAVE-USD", 0.03, "Aave"),
-        Holding("UNI-USD", 0.02, "Uniswap"),
     ],
-    "Bitcoin Wave": [Holding("BTC-USD", 1.00, "Bitcoin")],
-
-    # Crypto Income Wave - Dynamically uses CSE (Crypto Selection Engine) basket
-    # Represents top 1-200 cryptocurrencies per CSE ranking/selection logic
-    # Holdings are populated dynamically from Master_Stock_Sheet.csv crypto assets
-    # Note: This is a placeholder structure; actual holdings managed by CSE in app.py
+    
+    # Growth Wave 2: DeFi & Infrastructure
+    "Crypto DeFi Growth Wave": [
+        Holding("UNI-USD", 0.20, "Uniswap"),
+        Holding("AAVE-USD", 0.18, "Aave"),
+        Holding("LINK-USD", 0.15, "Chainlink"),
+        Holding("MKR-USD", 0.12, "Maker"),
+        Holding("CRV-USD", 0.10, "Curve DAO"),
+        Holding("INJ-USD", 0.10, "Injective"),
+        Holding("SNX-USD", 0.08, "Synthetix"),
+        Holding("COMP-USD", 0.07, "Compound"),
+    ],
+    
+    # Growth Wave 3: Layer 2 Scaling Solutions
+    "Crypto L2 Growth Wave": [
+        Holding("MATIC-USD", 0.30, "Polygon"),
+        Holding("ARB-USD", 0.25, "Arbitrum"),
+        Holding("OP-USD", 0.20, "Optimism"),
+        Holding("IMX-USD", 0.12, "Immutable X"),
+        Holding("MNT-USD", 0.08, "Mantle"),
+        Holding("STX-USD", 0.05, "Stacks"),
+    ],
+    
+    # Growth Wave 4: AI & Compute
+    "Crypto AI Growth Wave": [
+        Holding("TAO-USD", 0.25, "Bittensor"),
+        Holding("RENDER-USD", 0.20, "Render Token"),
+        Holding("FET-USD", 0.18, "Fetch.ai"),
+        Holding("ICP-USD", 0.15, "Internet Computer"),
+        Holding("OCEAN-USD", 0.12, "Ocean Protocol"),
+        Holding("AGIX-USD", 0.10, "SingularityNET"),
+    ],
+    
+    # Growth Wave 5: Broad Market Multi-Cap
+    "Crypto Broad Growth Wave": [
+        Holding("BTC-USD", 0.30, "Bitcoin"),
+        Holding("ETH-USD", 0.25, "Ethereum"),
+        Holding("BNB-USD", 0.10, "Binance Coin"),
+        Holding("SOL-USD", 0.10, "Solana"),
+        Holding("XRP-USD", 0.08, "XRP"),
+        Holding("ADA-USD", 0.07, "Cardano"),
+        Holding("AVAX-USD", 0.05, "Avalanche"),
+        Holding("DOT-USD", 0.05, "Polkadot"),
+    ],
+    
+    # Income Wave: Staking & Yield Generation
     "Crypto Income Wave": [
-        # Top crypto holdings by market cap (CSE basket representatives)
-        Holding("BTC-USD", 0.20, "Bitcoin"),
-        Holding("ETH-USD", 0.15, "Ethereum"),
-        Holding("BNB-USD", 0.08, "Binance Coin"),
-        Holding("SOL-USD", 0.08, "Solana"),
-        Holding("XRP-USD", 0.07, "XRP"),
-        Holding("ADA-USD", 0.05, "Cardano"),
-        Holding("AVAX-USD", 0.04, "Avalanche"),
-        Holding("DOT-USD", 0.04, "Polkadot"),
-        Holding("LINK-USD", 0.04, "Chainlink"),
-        Holding("MATIC-USD", 0.03, "Polygon"),
-        Holding("UNI-USD", 0.03, "Uniswap"),
-        Holding("AAVE-USD", 0.03, "Aave"),
-        Holding("ATOM-USD", 0.03, "Cosmos"),
-        Holding("MKR-USD", 0.02, "Maker"),
-        Holding("LDO-USD", 0.02, "Lido DAO"),
-        Holding("stETH-USD", 0.02, "Lido Staked Ether"),
-        Holding("GRT-USD", 0.02, "The Graph"),
-        Holding("INJ-USD", 0.02, "Injective"),
-        Holding("NEAR-USD", 0.02, "NEAR Protocol"),
-        Holding("APT-USD", 0.01, "Aptos"),
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("stETH-USD", 0.15, "Lido Staked Ether"),
+        Holding("LDO-USD", 0.15, "Lido DAO"),
+        Holding("AAVE-USD", 0.12, "Aave"),
+        Holding("MKR-USD", 0.10, "Maker"),
+        Holding("UNI-USD", 0.08, "Uniswap"),
+        Holding("CAKE-USD", 0.05, "PancakeSwap"),
+        Holding("CRV-USD", 0.05, "Curve DAO"),
     ],
 
     # SmartSafe Waves
@@ -428,8 +452,11 @@ WAVE_ID_REGISTRY: Dict[str, str] = {
     "clean_transit_infrastructure_wave": "Clean Transit-Infrastructure Wave",
     "income_wave": "Income Wave",
     "demas_fund_wave": "Demas Fund Wave",
-    "multi_cap_crypto_growth_wave": "Multi-Cap Crypto Growth Wave",
-    "bitcoin_wave": "Bitcoin Wave",
+    "crypto_l1_growth_wave": "Crypto L1 Growth Wave",
+    "crypto_defi_growth_wave": "Crypto DeFi Growth Wave",
+    "crypto_l2_growth_wave": "Crypto L2 Growth Wave",
+    "crypto_ai_growth_wave": "Crypto AI Growth Wave",
+    "crypto_broad_growth_wave": "Crypto Broad Growth Wave",
     "crypto_income_wave": "Crypto Income Wave",
     "smartsafe_treasury_cash_wave": "SmartSafe Treasury Cash Wave",
     "smartsafe_tax_free_money_market_wave": "SmartSafe Tax-Free Money Market Wave",
@@ -588,19 +615,58 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
     # Per requirements: Reference crypto-specific benchmark composites
     # Use existing exposure, regime, and risk-control logic (unaltered)
     
-    "Multi-Cap Crypto Growth Wave": [
+    # Growth Wave 1: Layer 1 Smart Contract Platforms
+    "Crypto L1 Growth Wave": [
+        Holding("ETH-USD", 0.30, "Ethereum"),
+        Holding("SOL-USD", 0.15, "Solana"),
+        Holding("AVAX-USD", 0.10, "Avalanche"),
+        Holding("DOT-USD", 0.10, "Polkadot"),
+        Holding("LINK-USD", 0.10, "Chainlink"),
+        Holding("MATIC-USD", 0.08, "Polygon"),
+        Holding("ATOM-USD", 0.07, "Cosmos"),
+        Holding("NEAR-USD", 0.05, "NEAR Protocol"),
+        Holding("APT-USD", 0.05, "Aptos"),
+    ],
+    
+    # Growth Wave 2: DeFi & Infrastructure
+    "Crypto DeFi Growth Wave": [
+        Holding("UNI-USD", 0.25, "Uniswap"),
+        Holding("AAVE-USD", 0.25, "Aave"),
+        Holding("CAKE-USD", 0.15, "PancakeSwap"),
+        Holding("CRV-USD", 0.12, "Curve DAO"),
+        Holding("INJ-USD", 0.10, "Injective"),
+        Holding("SNX-USD", 0.08, "Synthetix"),
+        Holding("COMP-USD", 0.05, "Compound"),
+    ],
+    
+    # Growth Wave 3: Layer 2 Scaling Solutions
+    "Crypto L2 Growth Wave": [
+        Holding("MATIC-USD", 0.35, "Polygon"),
+        Holding("ARB-USD", 0.25, "Arbitrum"),
+        Holding("OP-USD", 0.20, "Optimism"),
+        Holding("IMX-USD", 0.12, "Immutable X"),
+        Holding("MNT-USD", 0.05, "Mantle"),
+        Holding("STX-USD", 0.03, "Stacks"),
+    ],
+    
+    # Growth Wave 4: AI & Compute
+    "Crypto AI Growth Wave": [
+        Holding("TAO-USD", 0.25, "Bittensor"),
+        Holding("RENDER-USD", 0.20, "Render Token"),
+        Holding("FET-USD", 0.18, "Fetch.ai"),
+        Holding("ICP-USD", 0.15, "Internet Computer"),
+        Holding("OCEAN-USD", 0.12, "Ocean Protocol"),
+        Holding("AGIX-USD", 0.10, "SingularityNET"),
+    ],
+    
+    # Growth Wave 5: Broad Market Multi-Cap
+    "Crypto Broad Growth Wave": [
         Holding("BTC-USD", 0.45, "Bitcoin"),
         Holding("ETH-USD", 0.30, "Ethereum"),
         Holding("BNB-USD", 0.08, "Binance Coin"),
         Holding("XRP-USD", 0.08, "XRP"),
         Holding("SOL-USD", 0.05, "Solana"),
         Holding("ADA-USD", 0.04, "Cardano"),
-    ],
-    
-    "Bitcoin Wave": [
-        Holding("BTC-USD", 0.85, "Bitcoin"),
-        Holding("BCH-USD", 0.10, "Bitcoin Cash"),
-        Holding("LTC-USD", 0.05, "Litecoin"),
     ],
 
     # Crypto Income Wave benchmark (uses CSE basket - Crypto Income Benchmark)

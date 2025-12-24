@@ -960,15 +960,11 @@ def render_sticky_header(selected_wave: str, mode: str):
 # ============================================================================
 
 # Legacy Crypto Waves to exclude (removed per requirement)
-# These waves are being deprecated in favor of a unified crypto approach:
-# - Single Crypto Income Wave for crypto income/yield representation
-# - Crypto Selection Engine (CSE) for broad crypto market exposure
-EXCLUDED_CRYPTO_WAVES = {
-    "Multi-Cap Crypto Growth Wave",
-    "Bitcoin Wave", 
-    "Crypto Stable Yield Wave",
-    "Crypto High-Yield Income Wave"
-}
+# All legacy crypto waves have been replaced with new crypto lineup:
+# - 5 Crypto Growth Waves (L1, DeFi, L2, AI, Broad)
+# - 1 Crypto Income Wave
+# Legacy waves no longer exist in the system
+EXCLUDED_CRYPTO_WAVES = set()  # Empty - all legacy waves removed
 
 # Crypto sector classification for CSE universe identification
 # Based on institutional crypto classification standards (Grayscale, 21Shares, MarketVector)
