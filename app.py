@@ -10550,6 +10550,17 @@ def render_bottom_ticker_bar():
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
+def _handle_auto_refresh_error():
+    """
+    Helper function to handle auto-refresh errors.
+    Increments error count and pauses auto-refresh if threshold is exceeded.
+    """
+    if AUTO_REFRESH_CONFIG["pause_on_error"]:
+        st.session_state.auto_refresh_error_count += 1
+        if st.session_state.auto_refresh_error_count >= AUTO_REFRESH_CONFIG["max_consecutive_errors"]:
+            st.session_state.auto_refresh_paused_by_error = True
+            st.session_state.auto_refresh_enabled = False
+
 def main():
     """
     Main application entry point - Executive Layer v2.
@@ -10630,13 +10641,13 @@ def main():
             interval_ms = interval_seconds * 1000
             
             # Trigger auto-refresh with configurable interval
-            refresh_count = st_autorefresh(interval=interval_ms, key="auto_refresh_counter")
+            # Note: refresh_count can be used for debugging if needed
+            _ = st_autorefresh(interval=interval_ms, key="auto_refresh_counter")
             
             # Update last refresh time
             st.session_state.last_refresh_time = datetime.now()
             
-            # Try to mark this refresh as successful (will update after data loads)
-            # Note: Success tracking happens in the data loading sections below
+            # Note: Success tracking happens at the end of main() after all UI components load
             
         except ImportError:
             # Fallback: Check if built-in autorefresh is available
@@ -10646,20 +10657,12 @@ def main():
                     interval_ms = interval_seconds * 1000
                     st.autorefresh(interval=interval_ms)
                     st.session_state.last_refresh_time = datetime.now()
-            except Exception as e:
-                # If auto-refresh fails, log but don't crash
-                if AUTO_REFRESH_CONFIG["pause_on_error"]:
-                    st.session_state.auto_refresh_error_count += 1
-                    if st.session_state.auto_refresh_error_count >= AUTO_REFRESH_CONFIG["max_consecutive_errors"]:
-                        st.session_state.auto_refresh_paused_by_error = True
-                        st.session_state.auto_refresh_enabled = False
-        except Exception as e:
+            except Exception:
+                # If auto-refresh fails, handle error
+                _handle_auto_refresh_error()
+        except Exception:
             # Catch any other errors in auto-refresh execution
-            if AUTO_REFRESH_CONFIG["pause_on_error"]:
-                st.session_state.auto_refresh_error_count += 1
-                if st.session_state.auto_refresh_error_count >= AUTO_REFRESH_CONFIG["max_consecutive_errors"]:
-                    st.session_state.auto_refresh_paused_by_error = True
-                    st.session_state.auto_refresh_enabled = False
+            _handle_auto_refresh_error()
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling

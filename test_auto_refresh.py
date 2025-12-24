@@ -25,26 +25,21 @@ def test_app_imports():
         spec = importlib.util.spec_from_file_location("app", "app.py")
         app = importlib.util.module_from_spec(spec)
         
-        # Check if AUTO_REFRESH_CONFIG exists
-        if hasattr(app, '__dict__'):
-            # Load the module to execute top-level code
-            spec.loader.exec_module(app)
-            
-            # Check for AUTO_REFRESH_CONFIG
-            if hasattr(app, 'AUTO_REFRESH_CONFIG'):
-                config = app.AUTO_REFRESH_CONFIG
-                print("✅ AUTO_REFRESH_CONFIG found in app.py")
-                print(f"   Default enabled: {config.get('default_enabled')}")
-                print(f"   Default interval: {config.get('default_interval_seconds')}s")
-                print(f"   Allowed intervals: {config.get('allowed_intervals')}")
-                print(f"   Pause on error: {config.get('pause_on_error')}")
-                print(f"   Max errors: {config.get('max_consecutive_errors')}")
-                return True
-            else:
-                print("❌ AUTO_REFRESH_CONFIG not found in app.py")
-                return False
+        # Load the module to execute top-level code
+        spec.loader.exec_module(app)
+        
+        # Check for AUTO_REFRESH_CONFIG
+        if hasattr(app, 'AUTO_REFRESH_CONFIG'):
+            config = app.AUTO_REFRESH_CONFIG
+            print("✅ AUTO_REFRESH_CONFIG found in app.py")
+            print(f"   Default enabled: {config.get('default_enabled')}")
+            print(f"   Default interval: {config.get('default_interval_seconds')}s")
+            print(f"   Allowed intervals: {config.get('allowed_intervals')}")
+            print(f"   Pause on error: {config.get('pause_on_error')}")
+            print(f"   Max errors: {config.get('max_consecutive_errors')}")
+            return True
         else:
-            print("❌ Could not load app module")
+            print("❌ AUTO_REFRESH_CONFIG not found in app.py")
             return False
             
     except Exception as e:
