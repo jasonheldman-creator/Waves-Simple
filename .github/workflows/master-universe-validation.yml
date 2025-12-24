@@ -1,0 +1,49 @@
+name: Master Universe Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'data/master_universe.csv'
+      - 'data_tools/build_master_universe.py'
+      - 'data_tools/test_master_universe.py'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'data/master_universe.csv'
+      - 'data_tools/build_master_universe.py'
+      - 'data_tools/test_master_universe.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+      
+      - name: Validate master universe CSV
+        run: |
+          python data_tools/test_master_universe.py
+      
+      - name: Check deduplication report exists
+        run: |
+          if [ ! -f data_tools/master_universe_dedupe_report.json ]; then
+            echo "Warning: Deduplication report not found"
+            echo "This is expected if the CSV was manually created"
+          else
+            echo "Deduplication report found"
+            cat data_tools/master_universe_dedupe_report.json
+          fi
