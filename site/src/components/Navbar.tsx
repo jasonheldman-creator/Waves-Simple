@@ -7,12 +7,14 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
+    { href: "/", label: "Home" },
     { href: "/platform", label: "Platform" },
     { href: "/waves", label: "WAVES™" },
     { href: "/governance", label: "Governance" },
     { href: "/enterprise", label: "Enterprise" },
     { href: "/company", label: "Company" },
     { href: "/market", label: "Market" },
+    { href: "/contact", label: "Contact" },
   ];
 
   return (
