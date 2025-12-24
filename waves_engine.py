@@ -83,6 +83,11 @@ PORTFOLIO_VOL_TARGET = 0.20  # 20% annualized default
 VIX_TICKER = "^VIX"
 BTC_TICKER = "BTC-USD"  # used for crypto "VIX proxy"
 
+# Income wave tickers (for income-specific overlays)
+TNX_TICKER = "^TNX"  # 10-year Treasury (rates/duration proxy)
+HYG_TICKER = "HYG"   # High Yield Corporate Bond ETF (credit risk proxy)
+LQD_TICKER = "LQD"   # Investment Grade Corporate Bond ETF (credit quality proxy)
+
 # Crypto yield overlays (APY assumptions per Wave)
 CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
     "Crypto Income Wave": 0.08,  # Crypto Income Wave with CSE basket
@@ -1474,6 +1479,31 @@ def _drawdown_guard_overlay(current_nav: float, peak_nav: float, recent_vol: flo
     return (float(safe_boost), stress_state)
 
 
+def _calculate_price_return(price_series: pd.Series, dt: pd.Timestamp, periods: int) -> float:
+    """
+    Helper function to calculate price return over specified periods.
+    Returns NaN if insufficient data or date not in index.
+    
+    Args:
+        price_series: Price time series
+        dt: Current date
+        periods: Number of periods to look back
+        
+    Returns:
+        Return as decimal (e.g., 0.05 = 5%) or NaN if insufficient data
+    """
+    if len(price_series) < periods:
+        return np.nan
+    
+    ret_series = price_series / price_series.shift(periods) - 1.0
+    
+    if dt not in ret_series.index:
+        return np.nan
+    
+    ret_val = ret_series.loc[dt]
+    return float(ret_val) if not np.isnan(ret_val) else np.nan
+
+
 # ------------------------------------------------------------
 # Strategy-specific computation functions
 # ------------------------------------------------------------
@@ -1787,7 +1817,7 @@ def _compute_core(
     safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
     
     # Income wave specific tickers
-    income_tickers = ["^TNX", "HYG", "LQD"]  # TNX: 10-year Treasury, HYG: High Yield, LQD: Investment Grade
+    income_tickers = [TNX_TICKER, HYG_TICKER, LQD_TICKER]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
@@ -2143,12 +2173,9 @@ def _compute_core(
         
         # 13. Income Rates/Duration Regime Overlay (for income waves only)
         if is_income:
-            # Calculate TNX (10-year Treasury) trend
-            tnx_ticker = "^TNX"
-            if tnx_ticker in price_df.columns:
-                tnx_price = price_df[tnx_ticker]
-                tnx_ret_60d = tnx_price / tnx_price.shift(60) - 1.0 if len(tnx_price) >= 60 else pd.Series()
-                tnx_trend_val = float(tnx_ret_60d.get(dt, np.nan)) if dt in tnx_ret_60d.index else np.nan
+            # Calculate TNX (10-year Treasury) trend using helper
+            if TNX_TICKER in price_df.columns:
+                tnx_trend_val = _calculate_price_return(price_df[TNX_TICKER], dt, 60)
             else:
                 tnx_trend_val = np.nan
             
@@ -2175,15 +2202,10 @@ def _compute_core(
         
         # 14. Income Credit/Risk Regime Overlay (for income waves only)
         if is_income:
-            # Calculate HYG vs LQD spread (relative performance)
-            hyg_ticker = "HYG"
-            lqd_ticker = "LQD"
-            if hyg_ticker in price_df.columns and lqd_ticker in price_df.columns:
-                hyg_ret_20d = (price_df[hyg_ticker] / price_df[hyg_ticker].shift(20) - 1.0) if len(price_df) >= 20 else pd.Series()
-                lqd_ret_20d = (price_df[lqd_ticker] / price_df[lqd_ticker].shift(20) - 1.0) if len(price_df) >= 20 else pd.Series()
-                
-                hyg_val = float(hyg_ret_20d.get(dt, np.nan)) if dt in hyg_ret_20d.index else np.nan
-                lqd_val = float(lqd_ret_20d.get(dt, np.nan)) if dt in lqd_ret_20d.index else np.nan
+            # Calculate HYG vs LQD spread (relative performance) using helper
+            if HYG_TICKER in price_df.columns and LQD_TICKER in price_df.columns:
+                hyg_val = _calculate_price_return(price_df[HYG_TICKER], dt, 20)
+                lqd_val = _calculate_price_return(price_df[LQD_TICKER], dt, 20)
                 
                 if not np.isnan(hyg_val) and not np.isnan(lqd_val):
                     hyg_lqd_spread = hyg_val - lqd_val

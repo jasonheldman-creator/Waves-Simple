@@ -103,7 +103,8 @@ def test_rates_duration_overlay():
     for tnx_trend, expected_regime in test_cases:
         regime = we._rates_duration_regime(tnx_trend)
         assert regime == expected_regime, f"Expected {expected_regime}, got {regime} for TNX trend {tnx_trend}"
-        print(f"  ✓ TNX trend {tnx_trend:.2f} → {regime}")
+        trend_str = f"{tnx_trend:.2f}" if not np.isnan(tnx_trend) else "NaN"
+        print(f"  ✓ TNX trend {trend_str} → {regime}")
     
     # Test overlay function
     exposure, regime = we._rates_duration_overlay(0.15)
@@ -129,7 +130,8 @@ def test_credit_risk_overlay():
     for spread, expected_regime in test_cases:
         regime = we._credit_risk_regime(spread)
         assert regime == expected_regime, f"Expected {expected_regime}, got {regime} for spread {spread}"
-        print(f"  ✓ HYG-LQD spread {spread:.2f} → {regime}")
+        spread_str = f"{spread:.2f}" if not np.isnan(spread) else "NaN"
+        print(f"  ✓ HYG-LQD spread {spread_str} → {regime}")
     
     # Test overlay function
     exposure, safe_boost, regime = we._credit_risk_overlay(-0.03)
