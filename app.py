@@ -61,6 +61,31 @@ try:
 except ImportError:
     TICKER_V3_AVAILABLE = False
 
+# Import auto-refresh configuration
+try:
+    from auto_refresh_config import (
+        DEFAULT_AUTO_REFRESH_ENABLED,
+        DEFAULT_REFRESH_INTERVAL_MS,
+        REFRESH_INTERVAL_OPTIONS,
+        get_default_settings,
+        validate_refresh_interval,
+        get_interval_display_name,
+        should_refresh_component,
+        AUTO_PAUSE_ON_ERROR,
+        MAX_CONSECUTIVE_ERRORS,
+        STATUS_FORMAT
+    )
+    AUTO_REFRESH_CONFIG_AVAILABLE = True
+except ImportError:
+    AUTO_REFRESH_CONFIG_AVAILABLE = False
+    # Fallback defaults if config module is unavailable
+    DEFAULT_AUTO_REFRESH_ENABLED = True
+    DEFAULT_REFRESH_INTERVAL_MS = 60000
+    REFRESH_INTERVAL_OPTIONS = {"1 minute": 60000, "2 minutes": 120000}
+    AUTO_PAUSE_ON_ERROR = True
+    MAX_CONSECUTIVE_ERRORS = 3
+    STATUS_FORMAT = {"enabled": "🟢 ON", "disabled": "🔴 OFF", "paused": "🟡 PAUSED", "error": "⚠️ ERROR"}
+
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
 # ============================================================================
@@ -4390,18 +4415,34 @@ def render_mission_control():
         )
     
     with sec_col4:
-        # Auto-Refresh Status Indicator
-        auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", True)
-        if auto_refresh_enabled:
-            refresh_display = "🟢 ON (15s)"
+        # Auto-Refresh Status Indicator (Enhanced)
+        auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", DEFAULT_AUTO_REFRESH_ENABLED)
+        auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+        auto_refresh_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+        
+        # Determine status display
+        if auto_refresh_paused:
+            refresh_display = STATUS_FORMAT.get("paused", "🟡 PAUSED")
+        elif auto_refresh_enabled:
+            # Get interval in human-readable format
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                interval_name = get_interval_display_name(auto_refresh_interval_ms)
+            else:
+                interval_sec = auto_refresh_interval_ms / 1000
+                interval_name = f"{interval_sec:.0f}s"
+            refresh_display = f"{STATUS_FORMAT.get('enabled', '🟢 ON')} ({interval_name})"
         else:
-            refresh_display = "🔴 OFF"
+            refresh_display = STATUS_FORMAT.get("disabled", "🔴 OFF")
         
         st.metric(
             label="Auto-Refresh",
             value=refresh_display,
-            help="App automatically refreshes every 15 seconds"
+            help="App automatically refreshes at configured interval. Default: 1 minute"
         )
+        
+        # Show last successful refresh time
+        last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
+        st.caption(f"Last update: {last_successful_refresh.strftime('%H:%M:%S')}")
     
     with sec_col5:
         # Wave Universe Version & Last Refresh Time
@@ -4845,32 +4886,99 @@ def render_sidebar_info():
             autorefresh_available = True
     
     if autorefresh_available:
-        # Initialize auto-refresh setting
+        # Initialize auto-refresh setting (using DEFAULT from config)
         if "auto_refresh_enabled" not in st.session_state:
-            st.session_state.auto_refresh_enabled = False  # Default: OFF
+            st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+        
+        # Initialize auto-refresh interval
+        if "auto_refresh_interval_ms" not in st.session_state:
+            st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
         
         # Toggle switch
         auto_refresh_enabled = st.sidebar.checkbox(
-            "Enable Auto-Refresh (15s)",
-            value=st.session_state.auto_refresh_enabled,
+            "Enable Auto-Refresh",
+            value=st.session_state.auto_refresh_enabled and not st.session_state.get("auto_refresh_paused", False),
             key="auto_refresh_toggle",
-            help="Automatically refresh the dashboard every 15 seconds"
+            help="Automatically refresh live analytics, overlays, attribution, and diagnostics at configured interval"
         )
         
         # Update session state
         st.session_state.auto_refresh_enabled = auto_refresh_enabled
         
-        # Show status
+        # If re-enabled, reset paused state
+        if auto_refresh_enabled and st.session_state.get("auto_refresh_paused", False):
+            st.session_state.auto_refresh_paused = False
+            st.session_state.auto_refresh_error_count = 0
+            st.session_state.auto_refresh_error_message = None
+        
+        # Interval selector (only show when enabled)
         if auto_refresh_enabled:
-            st.sidebar.success("🟢 Auto-refresh is ON")
-            st.sidebar.caption("Dashboard refreshes every 15 seconds")
+            # Get interval options
+            interval_options = list(REFRESH_INTERVAL_OPTIONS.keys())
+            current_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+            
+            # Find current selection index
+            current_index = 0
+            for i, (name, value) in enumerate(REFRESH_INTERVAL_OPTIONS.items()):
+                if value == current_interval_ms:
+                    current_index = i
+                    break
+            
+            selected_interval_name = st.sidebar.selectbox(
+                "Refresh Interval",
+                options=interval_options,
+                index=current_index,
+                key="auto_refresh_interval_selector",
+                help="How frequently to refresh live data. Default: 1 minute"
+            )
+            
+            # Update interval in session state
+            st.session_state.auto_refresh_interval_ms = REFRESH_INTERVAL_OPTIONS[selected_interval_name]
+        
+        # Show status
+        auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+        
+        if auto_refresh_paused:
+            st.sidebar.error("⚠️ Auto-refresh PAUSED due to errors")
+            error_msg = st.session_state.get("auto_refresh_error_message", "Unknown error")
+            st.sidebar.caption(f"Error: {error_msg}")
+            st.sidebar.caption("Re-enable the checkbox above to resume")
+        elif auto_refresh_enabled:
+            interval_name = REFRESH_INTERVAL_OPTIONS.get(
+                st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS),
+                "1 minute"
+            )
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                interval_name = get_interval_display_name(st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS))
+            
+            st.sidebar.success(f"🟢 Auto-refresh is ON")
+            st.sidebar.caption(f"Refreshes every {interval_name}")
+            
+            # Show last successful refresh
+            last_successful = st.session_state.get("last_successful_refresh_time", datetime.now())
+            st.sidebar.caption(f"Last update: {last_successful.strftime('%H:%M:%S')}")
+            
+            # Show scope information
+            with st.sidebar.expander("ℹ️ What gets refreshed?"):
+                st.caption("**Included in auto-refresh:**")
+                st.caption("• Live analytics & metrics")
+                st.caption("• VIX overlays & regime detection")
+                st.caption("• Alpha attribution")
+                st.caption("• System diagnostics")
+                st.caption("• Summary statistics")
+                st.caption("")
+                st.caption("**Excluded (cached):**")
+                st.caption("• Historical backtests")
+                st.caption("• Heavy simulations")
+                st.caption("• Report generation")
         else:
             st.sidebar.info("🔴 Auto-refresh is OFF")
-            st.sidebar.caption("Use Force Reload to manually refresh")
+            st.sidebar.caption("Enable above for live updates")
     else:
         # Auto-refresh not available
-        st.sidebar.info("⚠️ Auto-refresh not supported in this Streamlit version")
-        st.sidebar.caption("Install streamlit-autorefresh to enable this feature: `pip install streamlit-autorefresh`")
+        st.sidebar.warning("⚠️ Auto-refresh unavailable")
+        st.sidebar.caption("Install streamlit-autorefresh:")
+        st.sidebar.code("pip install streamlit-autorefresh", language="bash")
         # Ensure auto-refresh is disabled
         st.session_state.auto_refresh_enabled = False
     
@@ -10493,9 +10601,29 @@ def main():
     if "last_refresh_time" not in st.session_state:
         st.session_state.last_refresh_time = datetime.now()
     
-    # Initialize auto_refresh_enabled if not present (default: OFF)
+    # Initialize last_successful_refresh_time if not present
+    if "last_successful_refresh_time" not in st.session_state:
+        st.session_state.last_successful_refresh_time = datetime.now()
+    
+    # Initialize auto_refresh_enabled if not present (default: ON per requirements)
     if "auto_refresh_enabled" not in st.session_state:
-        st.session_state.auto_refresh_enabled = False
+        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+    
+    # Initialize auto_refresh_interval if not present (default: 60 seconds)
+    if "auto_refresh_interval_ms" not in st.session_state:
+        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
+    
+    # Initialize auto_refresh_error_count for error handling
+    if "auto_refresh_error_count" not in st.session_state:
+        st.session_state.auto_refresh_error_count = 0
+    
+    # Initialize auto_refresh_paused flag
+    if "auto_refresh_paused" not in st.session_state:
+        st.session_state.auto_refresh_paused = False
+    
+    # Initialize auto_refresh_error_message
+    if "auto_refresh_error_message" not in st.session_state:
+        st.session_state.auto_refresh_error_message = None
     
     # Initialize show_bottom_ticker if not present (default: ON)
     if "show_bottom_ticker" not in st.session_state:
@@ -10510,21 +10638,51 @@ def main():
         st.session_state.mode = "Standard"
     
     # ========================================================================
-    # Auto-Refresh Logic (15-second interval)
+    # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
-    # Check if auto-refresh is enabled and supported
-    if st.session_state.auto_refresh_enabled:
+    # Check if auto-refresh is enabled, not paused, and supported
+    if st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
         try:
             # Try using streamlit-autorefresh if available
             from streamlit_autorefresh import st_autorefresh
-            # Refresh every 15000ms (15 seconds) - only refreshes Overview/Executive
-            st_autorefresh(interval=15000, key="auto_refresh_counter")
+            
+            # Get current refresh interval from session state
+            refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+            
+            # Validate interval
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                refresh_interval = validate_refresh_interval(refresh_interval)
+            
+            # Execute auto-refresh
+            count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
+            
+            # Update last refresh time on successful refresh
+            st.session_state.last_refresh_time = datetime.now()
+            st.session_state.last_successful_refresh_time = datetime.now()
+            
+            # Reset error count on successful refresh
+            if count > 0:
+                st.session_state.auto_refresh_error_count = 0
+                st.session_state.auto_refresh_error_message = None
+            
         except ImportError:
             # Fallback: Check if built-in autorefresh is available
             if hasattr(st, 'autorefresh'):
-                st.autorefresh(interval=15000)
-            # If neither is available, do nothing (auto-refresh disabled)
+                refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+                st.autorefresh(interval=refresh_interval)
+                st.session_state.last_refresh_time = datetime.now()
+                st.session_state.last_successful_refresh_time = datetime.now()
+            # If neither is available, auto-refresh is disabled (silent fail)
+        except Exception as e:
+            # Error during auto-refresh - handle according to config
+            st.session_state.auto_refresh_error_count += 1
+            st.session_state.auto_refresh_error_message = str(e)
+            
+            # Auto-pause if enabled and error threshold reached
+            if AUTO_PAUSE_ON_ERROR and st.session_state.auto_refresh_error_count >= MAX_CONSECUTIVE_ERRORS:
+                st.session_state.auto_refresh_paused = True
+                st.session_state.auto_refresh_enabled = False
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
