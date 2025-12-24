@@ -75,9 +75,9 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <a href="/briefing/executive-briefing.mp4" className="text-sm text-gray-400 hover:text-cyan-400">
+                <Link href="/briefing" className="text-sm text-gray-400 hover:text-cyan-400">
                   Executive Briefing
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
