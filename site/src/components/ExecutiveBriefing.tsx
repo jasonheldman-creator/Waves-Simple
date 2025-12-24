@@ -81,6 +81,7 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
             onError={handleVideoError}
             controlsList="nodownload" // Prevents download option in supported browsers (Chrome, Edge)
             playsInline
+            aria-label="WAVES Intelligence Executive Briefing Video"
           >
             <source src={videoSrc} type="video/mp4" />
             <p className="text-gray-400 p-8">
