@@ -1396,11 +1396,11 @@ def _rates_duration_regime(tnx_trend: float) -> str:
         return "rising_fast"
     if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["rising"]:
         return "rising"
-    if tnx_trend <= -INCOME_RATES_REGIME_THRESHOLDS["rising_fast"]:
-        return "falling_fast"
-    if tnx_trend <= INCOME_RATES_REGIME_THRESHOLDS["falling"]:
-        return "falling"
-    return "stable"
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["stable"]:
+        return "stable"  # Between -0.03 and +0.03
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["falling"]:
+        return "falling"  # Between -0.10 and -0.03
+    return "falling_fast"  # Below -0.10
 
 
 def _rates_duration_overlay(tnx_trend: float) -> tuple[float, str]:
