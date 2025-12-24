@@ -82,7 +82,7 @@ export default function RegimeCard() {
         <div className="flex items-center gap-3">
           <div className="text-3xl">{getRegimeIcon(marketData.regime.regime)}</div>
           <div>
-            <h3 className="text-lg font-semibold text-white mb-1">Today's Regime</h3>
+            <h3 className="text-lg font-semibold text-white mb-1">Today&apos;s Regime</h3>
             <div
               className={`inline-block rounded-md px-2 py-1 text-sm font-semibold ${getRegimeBadgeColor(marketData.regime.regime)}`}
             >
