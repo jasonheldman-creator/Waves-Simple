@@ -100,6 +100,42 @@ def test_crypto_income_wave_detection():
     print("✓ Crypto Income Wave detection working correctly")
 
 
+def test_strategy_family_assignment():
+    """Test that strategy families are correctly assigned."""
+    print("\n=== Testing Strategy Family Assignment ===")
+    
+    # Test crypto income wave
+    assert we.get_strategy_family("Crypto Income Wave") == "crypto_income", \
+        "Crypto Income Wave should have crypto_income strategy family"
+    print("  ✓ Crypto Income Wave → crypto_income")
+    
+    # Test crypto growth waves
+    crypto_growth_waves = [
+        "Crypto L1 Growth Wave",
+        "Crypto DeFi Growth Wave",
+        "Crypto L2 Growth Wave",
+        "Crypto AI Growth Wave",
+        "Crypto Broad Growth Wave"
+    ]
+    
+    for wave in crypto_growth_waves:
+        family = we.get_strategy_family(wave)
+        assert family == "crypto_growth", f"{wave} should have crypto_growth family, got {family}"
+        print(f"  ✓ {wave} → crypto_growth")
+    
+    # Test equity growth waves
+    assert we.get_strategy_family("S&P 500 Wave") == "equity_growth", \
+        "S&P 500 Wave should have equity_growth strategy family"
+    print("  ✓ S&P 500 Wave → equity_growth")
+    
+    # Test equity income waves
+    assert we.get_strategy_family("Income Wave") == "equity_income", \
+        "Income Wave should have equity_income strategy family"
+    print("  ✓ Income Wave → equity_income")
+    
+    print("✓ Strategy family assignment working correctly")
+
+
 def test_crypto_overlays_configuration():
     """Test that crypto-specific overlays are in configuration."""
     print("\n=== Testing Crypto Overlay Configuration ===")
@@ -108,7 +144,9 @@ def test_crypto_overlays_configuration():
         "crypto_trend_momentum",
         "crypto_volatility",
         "crypto_liquidity",
-        "crypto_income_stability"
+        "crypto_income_stability",
+        "crypto_income_drawdown_guard",
+        "crypto_income_liquidity_gate"
     ]
     
     for strategy in expected_crypto_strategies:
@@ -285,6 +323,7 @@ def run_all_tests():
         ("Crypto Wave Detection", test_crypto_wave_detection),
         ("Crypto Growth Wave Detection", test_crypto_growth_wave_detection),
         ("Crypto Income Wave Detection", test_crypto_income_wave_detection),
+        ("Strategy Family Assignment", test_strategy_family_assignment),
         ("Crypto Overlay Configuration", test_crypto_overlays_configuration),
         ("Crypto Trend Regime", test_crypto_trend_regime),
         ("Crypto Volatility State", test_crypto_volatility_state),
