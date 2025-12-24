@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import MarketTape from "@/components/MarketTape";
+import DataStateBadge from "@/components/DataStateBadge";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.wavesintelligence.app";
 
@@ -37,6 +39,8 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <Navbar />
+        <DataStateBadge />
+        <MarketTape />
         {children}
         <Footer />
       </body>
