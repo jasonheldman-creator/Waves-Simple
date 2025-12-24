@@ -74,6 +74,11 @@ export default function Footer() {
                   Request Demo
                 </Link>
               </li>
+              <li>
+                <a href="/briefing/executive-briefing.mp4" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Executive Briefing
+                </a>
+              </li>
             </ul>
           </div>
         </div>
