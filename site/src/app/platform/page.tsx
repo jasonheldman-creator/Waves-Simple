@@ -3,6 +3,7 @@ import Hero from "@/components/Hero";
 import FeatureGrid from "@/components/FeatureGrid";
 import ScreenshotGallery from "@/components/ScreenshotGallery";
 import CallToAction from "@/components/CallToAction";
+import RegimeCard from "@/components/RegimeCard";
 import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
@@ -25,6 +26,11 @@ export default function PlatformPage() {
       {/* Institutional Buyer Validation Section */}
       <section className="bg-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          {/* Today's Regime Card */}
+          <div className="mb-16">
+            <RegimeCard />
+          </div>
+
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
               Institutional Validation Frameworks

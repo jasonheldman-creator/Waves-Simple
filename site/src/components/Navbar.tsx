@@ -12,6 +12,7 @@ export default function Navbar() {
     { href: "/governance", label: "Governance" },
     { href: "/enterprise", label: "Enterprise" },
     { href: "/company", label: "Company" },
+    { href: "/market", label: "Market" },
   ];
 
   return (

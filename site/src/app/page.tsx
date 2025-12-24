@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Hero from "@/components/Hero";
+import RegimeCard from "@/components/RegimeCard";
 
 export default function Home() {
   return (
@@ -23,6 +24,11 @@ export default function Home() {
             <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
               Decision infrastructure and portfolio proof unified for institutional governance
             </p>
+          </div>
+
+          {/* Today's Regime Card */}
+          <div className="mb-16">
+            <RegimeCard />
           </div>
           
           {/* Platform Overview */}
