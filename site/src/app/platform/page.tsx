@@ -25,11 +25,11 @@ export default function PlatformPage() {
       />
       
       {/* Institutional Buyer Validation Section */}
-      <section className="bg-black py-20 sm:py-28">
+      <section className="bg-gradient-to-b from-black to-gray-900 py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          {/* Executive Briefing Reference */}
-          <div className="mb-16">
-            <ExecutiveBriefing variant="secondary" showDownload={true} />
+          {/* Executive Briefing Callout */}
+          <div className="mb-16 max-w-4xl mx-auto">
+            <ExecutiveBriefing compact />
           </div>
 
           {/* Today's Regime Card */}
