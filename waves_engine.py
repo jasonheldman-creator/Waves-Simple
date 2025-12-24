@@ -159,6 +159,34 @@ CRYPTO_INCOME_EXPOSURE_CAP = {
     "min_exposure": 0.60,      # Floor at 60% exposure
 }
 
+# Crypto Income: Drawdown Guard thresholds (more aggressive than equity income)
+CRYPTO_INCOME_DRAWDOWN_THRESHOLDS = {
+    "minor": -0.05,           # -5% drawdown (crypto is more volatile)
+    "moderate": -0.10,        # -10% drawdown
+    "severe": -0.15,          # -15% drawdown
+}
+
+# Crypto Income: Drawdown Guard safe allocation boosts
+CRYPTO_INCOME_DRAWDOWN_SAFE_BOOST = {
+    "minor": 0.15,            # 15% to safe on minor drawdown
+    "moderate": 0.25,         # 25% to safe on moderate drawdown
+    "severe": 0.40,           # 40% to safe on severe drawdown
+}
+
+# Crypto Income: Liquidity Gate thresholds (more conservative than crypto growth)
+CRYPTO_INCOME_LIQUIDITY_THRESHOLDS = {
+    "strong_volume": 1.30,     # Volume 30%+ above average = strong (tighter than growth)
+    "normal_volume": 0.90,     # Volume 90%-130% of average = normal (tighter than growth)
+    # Below 90% = weak volume (stricter than growth's 80%)
+}
+
+# Crypto Income: Liquidity exposure adjustments (more conservative)
+CRYPTO_INCOME_LIQUIDITY_EXPOSURE = {
+    "strong_volume": 1.03,     # +3% on strong volume (less aggressive than growth)
+    "normal_volume": 1.00,     # baseline
+    "weak_volume": 0.85,       # -15% on weak volume (more defensive than growth)
+}
+
 # Default per-wave tuning (can be overridden in shadow simulation)
 DEFAULT_TILT_STRENGTH = 0.80
 DEFAULT_EXTRA_SAFE_BOOST = 0.00
@@ -265,6 +293,8 @@ DEFAULT_STRATEGY_CONFIGS: Dict[str, StrategyConfig] = {
     "crypto_volatility": StrategyConfig(enabled=True, weight=1.0, min_impact=0.75, max_impact=1.10),
     "crypto_liquidity": StrategyConfig(enabled=True, weight=1.0, min_impact=0.90, max_impact=1.05),
     "crypto_income_stability": StrategyConfig(enabled=True, weight=1.0, min_impact=0.60, max_impact=0.90),
+    "crypto_income_drawdown_guard": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=0.40),
+    "crypto_income_liquidity_gate": StrategyConfig(enabled=True, weight=1.0, min_impact=0.85, max_impact=1.03),
     # Income-specific overlays (only active for non-crypto income waves)
     "income_rates_regime": StrategyConfig(enabled=True, weight=1.0, min_impact=0.80, max_impact=1.10),
     "income_credit_regime": StrategyConfig(enabled=True, weight=1.0, min_impact=0.90, max_impact=1.05),
@@ -621,6 +651,78 @@ DISPLAY_NAME_TO_WAVE_ID.update(LEGACY_DISPLAY_NAME_ALIASES)
 
 # For backward compatibility, also map WAVE_WEIGHTS keys to wave_ids
 WAVE_WEIGHTS_TO_WAVE_ID: Dict[str, str] = DISPLAY_NAME_TO_WAVE_ID.copy()
+
+# ------------------------------------------------------------
+# Strategy Family Registry
+# ------------------------------------------------------------
+# Canonical strategy family assignment for each wave.
+# Determines which overlay logic applies to each wave.
+
+STRATEGY_FAMILY_REGISTRY: Dict[str, str] = {
+    # Equity Growth Waves
+    "sp500_wave": "equity_growth",
+    "russell_3000_wave": "equity_growth",
+    "us_megacap_core_wave": "equity_growth",
+    "ai_cloud_megacap_wave": "equity_growth",
+    "next_gen_compute_semis_wave": "equity_growth",
+    "future_energy_ev_wave": "equity_growth",
+    "ev_infrastructure_wave": "equity_growth",
+    "us_small_cap_disruptors_wave": "equity_growth",
+    "us_mid_small_growth_semis_wave": "equity_growth",
+    "small_cap_growth_wave": "equity_growth",
+    "small_to_mid_cap_growth_wave": "equity_growth",
+    "future_power_energy_wave": "equity_growth",
+    "quantum_computing_wave": "equity_growth",
+    "clean_transit_infrastructure_wave": "equity_growth",
+    "demas_fund_wave": "equity_growth",
+    "infinity_multi_asset_growth_wave": "equity_growth",
+    
+    # Equity Income Waves
+    "income_wave": "equity_income",
+    "smartsafe_treasury_cash_wave": "equity_income",
+    "smartsafe_tax_free_money_market_wave": "equity_income",
+    "vector_treasury_ladder_wave": "equity_income",
+    "vector_muni_ladder_wave": "equity_income",
+    
+    # Crypto Growth Waves
+    "crypto_l1_growth_wave": "crypto_growth",
+    "crypto_defi_growth_wave": "crypto_growth",
+    "crypto_l2_growth_wave": "crypto_growth",
+    "crypto_ai_growth_wave": "crypto_growth",
+    "crypto_broad_growth_wave": "crypto_growth",
+    
+    # Crypto Income Wave
+    "crypto_income_wave": "crypto_income",
+    
+    # Special Waves
+    "gold_wave": "special",
+}
+
+def get_strategy_family(wave_name: str) -> str:
+    """
+    Get the strategy family for a given wave name.
+    
+    Args:
+        wave_name: Display name of the wave
+        
+    Returns:
+        Strategy family string: "equity_growth", "equity_income", "crypto_growth", "crypto_income", or "special"
+        Defaults to "equity_growth" for backward compatibility if wave not found.
+    """
+    # Get wave_id from display name
+    wave_id = DISPLAY_NAME_TO_WAVE_ID.get(wave_name)
+    if wave_id:
+        return STRATEGY_FAMILY_REGISTRY.get(wave_id, "equity_growth")
+    
+    # Fallback: try to infer from wave name for backward compatibility
+    if "Crypto" in wave_name:
+        if wave_name == "Crypto Income Wave":
+            return "crypto_income"
+        return "crypto_growth"
+    elif _is_income_wave(wave_name):
+        return "equity_income"
+    
+    return "equity_growth"
 
 # ------------------------------------------------------------
 # Static benchmarks (fallback / overrides)
@@ -1384,6 +1486,59 @@ def _crypto_income_stability_overlay(realized_vol: float, trend_60d: float) -> t
     safe_boost = float(np.clip(safe_boost, 0.0, 0.60))
     
     return (exposure, safe_boost)
+
+
+def _crypto_income_drawdown_guard(wave_ret_list: list[float]) -> tuple[float, str]:
+    """
+    Crypto Income Wave: Drawdown Guard Overlay.
+    Monitors drawdowns and increases safe allocation during sharp declines.
+    Returns: (safe_fraction_boost, stress_state)
+    """
+    if len(wave_ret_list) < 10:
+        return (0.0, "normal")
+    
+    # Calculate drawdown from recent peak
+    recent_returns = np.array(wave_ret_list[-30:])  # Last 30 days
+    cumulative = (1 + recent_returns).cumprod()
+    running_max = np.maximum.accumulate(cumulative)
+    drawdown = (cumulative[-1] / running_max[-1]) - 1.0
+    
+    # Classify stress state
+    if drawdown <= CRYPTO_INCOME_DRAWDOWN_THRESHOLDS["severe"]:
+        stress_state = "severe"
+        safe_boost = CRYPTO_INCOME_DRAWDOWN_SAFE_BOOST["severe"]
+    elif drawdown <= CRYPTO_INCOME_DRAWDOWN_THRESHOLDS["moderate"]:
+        stress_state = "moderate"
+        safe_boost = CRYPTO_INCOME_DRAWDOWN_SAFE_BOOST["moderate"]
+    elif drawdown <= CRYPTO_INCOME_DRAWDOWN_THRESHOLDS["minor"]:
+        stress_state = "minor"
+        safe_boost = CRYPTO_INCOME_DRAWDOWN_SAFE_BOOST["minor"]
+    else:
+        stress_state = "normal"
+        safe_boost = 0.0
+    
+    return (float(safe_boost), stress_state)
+
+
+def _crypto_income_liquidity_gate(volume_ratio: float) -> tuple[float, str]:
+    """
+    Crypto Income Wave: Liquidity Gate Overlay (more conservative than growth).
+    Returns: (exposure_multiplier, liquidity_state)
+    """
+    if np.isnan(volume_ratio) or volume_ratio <= 0:
+        return (1.0, "normal_volume")
+    
+    if volume_ratio >= CRYPTO_INCOME_LIQUIDITY_THRESHOLDS["strong_volume"]:
+        liquidity_state = "strong_volume"
+        exposure = CRYPTO_INCOME_LIQUIDITY_EXPOSURE["strong_volume"]
+    elif volume_ratio >= CRYPTO_INCOME_LIQUIDITY_THRESHOLDS["normal_volume"]:
+        liquidity_state = "normal_volume"
+        exposure = CRYPTO_INCOME_LIQUIDITY_EXPOSURE["normal_volume"]
+    else:
+        liquidity_state = "weak_volume"
+        exposure = CRYPTO_INCOME_LIQUIDITY_EXPOSURE["weak_volume"]
+    
+    return (float(exposure), liquidity_state)
 
 
 # ------------------------------------------------------------
@@ -2168,6 +2323,59 @@ def _compute_core(
                 enabled=False,
                 metadata={"note": "not_crypto_income_wave"}
             )
+        
+        # 12a. Crypto Income Drawdown Guard Overlay (for Crypto Income Wave only)
+        if is_crypto_income:
+            crypto_income_dd_safe, crypto_income_dd_state = _crypto_income_drawdown_guard(wave_ret_list)
+            
+            crypto_income_drawdown_contrib = StrategyContribution(
+                name="crypto_income_drawdown_guard",
+                exposure_impact=1.0,
+                safe_fraction_impact=crypto_income_dd_safe,
+                risk_state="risk-off" if crypto_income_dd_state in ("moderate", "severe") else "neutral",
+                enabled=strategy_configs.get("crypto_income_drawdown_guard", DEFAULT_STRATEGY_CONFIGS["crypto_income_drawdown_guard"]).enabled,
+                metadata={"stress_state": crypto_income_dd_state, "safe_boost": crypto_income_dd_safe}
+            )
+        else:
+            crypto_income_drawdown_contrib = StrategyContribution(
+                name="crypto_income_drawdown_guard",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_income_wave"}
+            )
+        
+        # 12b. Crypto Income Liquidity Gate Overlay (for Crypto Income Wave only)
+        if is_crypto_income:
+            # Calculate volume ratio (simplified - using portfolio return magnitude as proxy)
+            if len(wave_ret_list) >= 20:
+                recent_rets = np.array(wave_ret_list[-20:])
+                avg_abs_ret = np.abs(recent_rets).mean()
+                current_abs_ret = abs(portfolio_risk_ret)
+                volume_ratio = current_abs_ret / avg_abs_ret if avg_abs_ret > 0 else 1.0
+            else:
+                volume_ratio = 1.0
+            
+            crypto_income_liq_exp, crypto_income_liq_state = _crypto_income_liquidity_gate(volume_ratio)
+            
+            crypto_income_liquidity_contrib = StrategyContribution(
+                name="crypto_income_liquidity_gate",
+                exposure_impact=crypto_income_liq_exp,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=strategy_configs.get("crypto_income_liquidity_gate", DEFAULT_STRATEGY_CONFIGS["crypto_income_liquidity_gate"]).enabled,
+                metadata={"liquidity_state": crypto_income_liq_state, "volume_ratio": volume_ratio}
+            )
+        else:
+            crypto_income_liquidity_contrib = StrategyContribution(
+                name="crypto_income_liquidity_gate",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_income_wave"}
+            )
 
         # ===== INCOME-SPECIFIC OVERLAYS (only active for non-crypto income waves) =====
         
@@ -2312,6 +2520,8 @@ def _compute_core(
             crypto_vol_contrib,
             crypto_liquidity_contrib,
             crypto_income_contrib,
+            crypto_income_drawdown_contrib,
+            crypto_income_liquidity_contrib,
             income_rates_contrib,
             income_credit_contrib,
             income_drawdown_contrib,
@@ -2384,8 +2594,12 @@ def _compute_core(
                     "income_rates_regime": income_rates_contrib.metadata.get("rates_regime", "n/a") if is_income else "n/a",
                     "income_credit_regime": income_credit_contrib.metadata.get("credit_regime", "n/a") if is_income else "n/a",
                     "income_stress_state": income_drawdown_contrib.metadata.get("stress_state", "n/a") if is_income else "n/a",
-                    # Strategy family tagging
-                    "strategy_family": "income" if is_income else ("crypto" if is_crypto else "equity_growth"),
+                    # Add crypto income-specific diagnostics
+                    "is_crypto_income": is_crypto_income,
+                    "crypto_income_stress_state": crypto_income_drawdown_contrib.metadata.get("stress_state", "n/a") if is_crypto_income else "n/a",
+                    "crypto_income_liq_state": crypto_income_liquidity_contrib.metadata.get("liquidity_state", "n/a") if is_crypto_income else "n/a",
+                    # Strategy family tagging (using canonical registry)
+                    "strategy_family": get_strategy_family(wave_name),
                 }
             )
             
