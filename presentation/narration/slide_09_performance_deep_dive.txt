@@ -1,0 +1,11 @@
+The Performance Deep Dive console provides real-time visibility into every Wave.
+
+You see historical return charts with regime overlays—shaded regions indicating risk-on versus risk-off periods.
+
+You see rolling alpha metrics, drawdown analysis, and volatility tracking, all benchmarked against governed composite indices.
+
+The system highlights synthetic data with clear visual indicators. No one is misled. If a Wave is using placeholder data while real market integration is in progress, you'll know immediately.
+
+The WaveScore system provides a proprietary performance scoring algorithm that combines return magnitude, consistency, regime balance, and risk efficiency into a single digestible metric.
+
+Every chart, every table, every metric is exportable. CSV downloads, PDF board packs, institutional-ready formatting. No manual data wrangling required.

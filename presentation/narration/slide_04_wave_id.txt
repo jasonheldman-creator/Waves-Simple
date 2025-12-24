@@ -1,0 +1,7 @@
+The foundation of WAVES Intelligence is the Wave ID system. Think of Wave IDs as permanent identifiers for every investment strategy or portfolio composition we track.
+
+Each Wave has three data layers: historical performance data, configuration parameters including benchmark definitions, and dynamic weightings that evolve over time.
+
+The system supports both real market data and synthetic placeholder data, marked explicitly with transparency indicators. This means institutions can onboard immediately, with all analytics fully functional, while real data integration happens in the background.
+
+The Wave ID architecture ensures backward compatibility, so legacy data integrates seamlessly. No disruption. No data migration friction.

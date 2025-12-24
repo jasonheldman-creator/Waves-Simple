@@ -1,0 +1,15 @@
+Here's how it works in practice.
+
+Imagine a Wave delivers eight percent total excess return over its benchmark. Vector Truth decomposes this into:
+
+Security selection alpha of five percent—the exposure-adjusted return from strategic positioning.
+
+Exposure management alpha of two percent—gains from timing and scaling decisions.
+
+Capital preservation effect of one and a half percent—the structural benefit from VIX overlays and regime-aware cash sweeps.
+
+And a benchmark construction offset of negative point five percent—the expected structural drag from benchmark composition choices.
+
+Notice how the structural components largely offset. That's intentional. The residual strategy return of seven point five percent is what's truly alpha-eligible after governance controls.
+
+Vector Truth provides this breakdown with full regime attribution, showing how much alpha was earned in risk-on versus risk-off environments. This tells you whether the strategy is durable across market conditions.
