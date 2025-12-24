@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 interface WaveCard {
   id: number;
   name: string;
@@ -10,7 +14,103 @@ interface WaveCardsProps {
   waves?: WaveCard[];
 }
 
+interface SnapshotData {
+  wave_id: string;
+  wave_name: string;
+  status: string;
+  performance_1d: number;
+  performance_30d: number;
+  performance_ytd: number;
+  last_updated: string;
+}
+
 export default function WaveCards({ waves }: WaveCardsProps) {
+  const [liveWaves, setLiveWaves] = useState<WaveCard[] | null>(null);
+  const [dataSource, setDataSource] = useState<"LIVE" | "DEMO">("DEMO");
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchWaveData = async () => {
+      try {
+        // Try external URL first if defined
+        const externalUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL;
+        let csvData: string | null = null;
+        let source: "LIVE" | "DEMO" = "DEMO";
+
+        if (externalUrl) {
+          try {
+            const response = await fetch(externalUrl);
+            if (response.ok) {
+              csvData = await response.text();
+              source = "LIVE";
+            }
+          } catch (error) {
+            console.warn("External CSV URL failed, falling back to internal:", error);
+          }
+        }
+
+        // Fallback to internal endpoint
+        if (!csvData) {
+          const response = await fetch("/api/live_snapshot.csv");
+          if (response.ok) {
+            csvData = await response.text();
+          }
+        }
+
+        if (csvData) {
+          const parsedWaves = parseCSVData(csvData);
+          setLiveWaves(parsedWaves);
+          setDataSource(source);
+        }
+      } catch (error) {
+        console.error("Failed to fetch wave data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchWaveData();
+  }, []);
+
+  function parseCSVData(csvText: string): WaveCard[] {
+    const lines = csvText.trim().split('\n');
+    const dataLines = lines.slice(1); // Skip header
+    
+    return dataLines.map((line, index) => {
+      const parts = line.split(',');
+      const wave_id = parts[0];
+      const wave_name = parts[1];
+      const status = parts[2];
+      const performance_ytd = parseFloat(parts[5]);
+      
+      return {
+        id: index + 1,
+        name: wave_name,
+        description: getWaveDescription(wave_id),
+        performance: formatPerformance(performance_ytd),
+        status: status,
+      };
+    });
+  }
+
+  function formatPerformance(value: number): string {
+    const percentage = (value * 100).toFixed(2);
+    return `${value >= 0 ? '+' : ''}${percentage}%`;
+  }
+
+  function getWaveDescription(wave_id: string): string {
+    // Map wave_id to institutional descriptions
+    const descriptions: Record<string, string> = {
+      'ai_cloud_megacap_wave': 'Large-cap technology and cloud infrastructure positioning. Capital Role: Growth allocation (15-25%). Risk Regime: Innovation-driven expansion.',
+      'sp500_wave': 'Broad market beta exposure with systematic risk controls. Capital Role: Core foundation (40-60%). Risk Regime: All-weather market participation.',
+      'russell_3000_wave': 'Total market exposure across capitalization spectrum. Capital Role: Diversified core (30-50%). Risk Regime: Comprehensive market coverage.',
+      'income_wave': 'Dividend sustainability mandate with quality overlay. Capital Role: Income sleeve (15-25%). Risk Regime: Defensive income generation.',
+      'small_cap_growth_wave': 'Small-cap growth with momentum and quality factors. Capital Role: Opportunistic allocation (10-20%). Risk Regime: Growth-oriented expansion.',
+    };
+    
+    return descriptions[wave_id] || 'Institutional portfolio strategy with disciplined risk management and systematic execution framework.';
+  }
+
   // Generate institutional-grade waves with unique strategies if not provided
   const defaultWaves: WaveCard[] = [
     {
@@ -120,17 +220,31 @@ export default function WaveCards({ waves }: WaveCardsProps) {
     },
   ];
 
-  const displayWaves = waves || defaultWaves;
+  const displayWaves = waves || liveWaves || defaultWaves;
 
   return (
     <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            Investment <span className="text-cyan-400">Waves</span>
-          </h2>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+              Investment <span className="text-cyan-400">Waves</span>
+            </h2>
+            <div
+              className={`inline-flex items-center gap-1.5 rounded border px-3 py-1 text-xs font-semibold ${
+                dataSource === "LIVE"
+                  ? "bg-green-500/20 text-green-400 border-green-500/50"
+                  : "bg-yellow-500/20 text-yellow-400 border-yellow-500/50"
+              }`}
+            >
+              <span className="animate-pulse">{dataSource === "LIVE" ? "●" : "◐"}</span>
+              <span>{dataSource}</span>
+            </div>
+          </div>
           <p className="mt-4 text-lg text-gray-400">
-            Explore our portfolio of strategic investment waves
+            {isLoading
+              ? "Loading wave performance data..."
+              : "Explore our portfolio of strategic investment waves"}
           </p>
         </div>
 
