@@ -105,7 +105,7 @@ def normalize_asset_class(sector: str) -> str:
     sector_lower = sector.lower()
     
     # Cryptocurrency categories
-    crypto_keywords = ["store of value", "settlement", "smart contract", "layer 1", "layer 2",
+    crypto_keywords = ["cryptocurrency", "crypto", "store of value", "settlement", "smart contract", "layer 1", "layer 2",
                        "scaling", "defi", "exchange", "oracle", "gaming", "metaverse",
                        "payments", "remittance", "yield", "staking", "stablecoin", "nft"]
     if any(kw in sector_lower for kw in crypto_keywords):
