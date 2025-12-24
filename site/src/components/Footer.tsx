@@ -42,6 +42,11 @@ export default function Footer() {
                   Governance
                 </Link>
               </li>
+              <li>
+                <Link href="/briefing" className="text-sm text-gray-400 hover:text-cyan-400">
+                  Executive Briefing
+                </Link>
+              </li>
             </ul>
           </div>
 

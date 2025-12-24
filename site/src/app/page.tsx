@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Hero from "@/components/Hero";
 import RegimeCard from "@/components/RegimeCard";
+import ExecutiveBriefing from "@/components/ExecutiveBriefing";
 
 export default function Home() {
   return (
@@ -13,9 +14,37 @@ export default function Home() {
         secondaryCtaText="View Platform"
         secondaryCtaLink="/platform"
       />
+
+      {/* Executive Briefing Section */}
+      <section className="bg-gradient-to-b from-black to-gray-900 py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
+              Executive Briefing
+            </h2>
+            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
+              A narrated overview of the WAVES Intelligence™ decision framework
+              (approximately 8 minutes).
+            </p>
+          </div>
+          
+          <div className="max-w-4xl mx-auto">
+            <ExecutiveBriefing compact />
+            
+            <div className="mt-8 text-center">
+              <Link
+                href="/briefing"
+                className="inline-block rounded-md bg-gradient-to-r from-cyan-500 to-green-500 px-8 py-4 text-base font-semibold text-black transition-all hover:from-cyan-400 hover:to-green-400 hover:shadow-lg hover:shadow-cyan-500/50"
+              >
+                Watch Full Briefing
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
       
       {/* Value Proposition Section */}
-      <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
+      <section className="bg-gradient-to-b from-gray-900 via-black to-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
