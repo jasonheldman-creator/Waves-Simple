@@ -1,8 +1,15 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 interface WaveCard {
   id: number;
   name: string;
   description: string;
   performance?: string;
+  performance1d?: number;
+  performance30d?: number;
+  performanceYtd?: number;
   status?: string;
 }
 
@@ -10,7 +17,20 @@ interface WaveCardsProps {
   waves?: WaveCard[];
 }
 
+interface CSVRow {
+  wave_id: string;
+  wave_name: string;
+  status: string;
+  performance_1d: string;
+  performance_30d: string;
+  performance_ytd: string;
+  last_updated: string;
+}
+
 export default function WaveCards({ waves }: WaveCardsProps) {
+  const [liveWaves, setLiveWaves] = useState<WaveCard[] | null>(null);
+  const [dataSource, setDataSource] = useState<"LIVE" | "DEMO" | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   // Generate institutional-grade waves with unique strategies if not provided
   const defaultWaves: WaveCard[] = [
     {
@@ -120,15 +140,135 @@ export default function WaveCards({ waves }: WaveCardsProps) {
     },
   ];
 
-  const displayWaves = waves || defaultWaves;
+  // Fetch CSV data
+  useEffect(() => {
+    const fetchCSVData = async () => {
+      setIsLoading(true);
+      try {
+        let url = "/api/live_snapshot.csv";
+        let isExternal = false;
+
+        // Try external URL first if configured
+        const externalUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL;
+        if (externalUrl) {
+          try {
+            const externalResponse = await fetch(externalUrl, {
+              cache: "no-store",
+            });
+            if (externalResponse.ok) {
+              url = externalUrl;
+              isExternal = true;
+            }
+          } catch (err) {
+            console.error("External URL failed, falling back to internal endpoint");
+          }
+        }
+
+        // Fetch from determined URL
+        const response = await fetch(url, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch CSV");
+        }
+
+        const csvText = await response.text();
+        const lines = csvText.trim().split("\n");
+
+        if (lines.length < 2) {
+          throw new Error("Invalid CSV format");
+        }
+
+        // Parse CSV (skip header)
+        const parsedWaves: WaveCard[] = [];
+        let detectedStatus = "DEMO";
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          // Parse CSV line (handle quoted fields)
+          const matches = line.match(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g);
+          if (!matches || matches.length < 7) continue;
+
+          const values = matches.map((m) =>
+            m.replace(/^,?"?|"?$/g, "").replace(/""/g, '"')
+          );
+
+          const [wave_id, wave_name, status, perf1d, perf30d, perfYtd] = values;
+
+          if (status === "LIVE") {
+            detectedStatus = "LIVE";
+          }
+
+          const p1d = parseFloat(perf1d);
+          const p30d = parseFloat(perf30d);
+          const pYtd = parseFloat(perfYtd);
+
+          // Format performance strings
+          const formatPerf = (val: number) => {
+            if (isNaN(val)) return "--";
+            const sign = val >= 0 ? "+" : "";
+            return `${sign}${val.toFixed(2)}%`;
+          };
+
+          parsedWaves.push({
+            id: i,
+            name: wave_name,
+            description: `Wave ID: ${wave_id}`,
+            performance: formatPerf(p1d),
+            performance1d: p1d,
+            performance30d: p30d,
+            performanceYtd: pYtd,
+            status: status,
+          });
+        }
+
+        setLiveWaves(parsedWaves);
+        // Note: External URL is assumed to be LIVE if configured and successful.
+        // Internal endpoint status is determined by CSV content (LIVE/DEMO in status column).
+        setDataSource(isExternal ? "LIVE" : detectedStatus as "LIVE" | "DEMO");
+      } catch (error) {
+        console.error("Error fetching CSV data:", error);
+        setLiveWaves(null);
+        setDataSource(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Initial fetch
+    fetchCSVData();
+
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(fetchCSVData, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const displayWaves = liveWaves || waves || defaultWaves;
 
   return (
     <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            Investment <span className="text-cyan-400">Waves</span>
-          </h2>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <h2 className="text-3xl font-bold text-white sm:text-4xl">
+              Investment <span className="text-cyan-400">Waves</span>
+            </h2>
+            {dataSource && (
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                  dataSource === "LIVE"
+                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                }`}
+              >
+                {dataSource}
+              </span>
+            )}
+          </div>
           <p className="mt-4 text-lg text-gray-400">
             Explore our portfolio of strategic investment waves
           </p>
@@ -151,11 +291,58 @@ export default function WaveCards({ waves }: WaveCardsProps) {
                 </div>
                 {wave.performance && (
                   <div className="text-right">
-                    <div className="text-lg font-bold text-green-400">{wave.performance}</div>
-                    <div className="text-xs text-gray-500">Performance</div>
+                    <div
+                      className={`text-lg font-bold ${
+                        wave.performance1d !== undefined
+                          ? wave.performance1d >= 0
+                            ? "text-green-400"
+                            : "text-red-400"
+                          : "text-gray-400"
+                      }`}
+                    >
+                      {wave.performance}
+                    </div>
+                    <div className="text-xs text-gray-500">1-Day</div>
                   </div>
                 )}
               </div>
+              {wave.performance30d !== undefined &&
+                wave.performanceYtd !== undefined && (
+                  <div className="mt-3 flex gap-4 text-sm">
+                    <div className="flex-1">
+                      <div className="text-gray-500 text-xs">30-Day</div>
+                      <div
+                        className={`font-semibold ${
+                          !isNaN(wave.performance30d)
+                            ? wave.performance30d >= 0
+                              ? "text-green-400"
+                              : "text-red-400"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {!isNaN(wave.performance30d)
+                          ? `${wave.performance30d >= 0 ? "+" : ""}${wave.performance30d.toFixed(2)}%`
+                          : "--"}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-gray-500 text-xs">YTD</div>
+                      <div
+                        className={`font-semibold ${
+                          !isNaN(wave.performanceYtd)
+                            ? wave.performanceYtd >= 0
+                              ? "text-green-400"
+                              : "text-red-400"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {!isNaN(wave.performanceYtd)
+                          ? `${wave.performanceYtd >= 0 ? "+" : ""}${wave.performanceYtd.toFixed(2)}%`
+                          : "--"}
+                      </div>
+                    </div>
+                  </div>
+                )}
               <p className="mt-4 text-sm text-gray-400">{wave.description}</p>
             </div>
           ))}
