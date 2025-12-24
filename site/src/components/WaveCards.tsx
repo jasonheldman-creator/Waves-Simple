@@ -17,20 +17,9 @@ interface WaveCardsProps {
   waves?: WaveCard[];
 }
 
-interface CSVRow {
-  wave_id: string;
-  wave_name: string;
-  status: string;
-  performance_1d: string;
-  performance_30d: string;
-  performance_ytd: string;
-  last_updated: string;
-}
-
 export default function WaveCards({ waves }: WaveCardsProps) {
   const [liveWaves, setLiveWaves] = useState<WaveCard[] | null>(null);
   const [dataSource, setDataSource] = useState<"LIVE" | "DEMO" | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   // Generate institutional-grade waves with unique strategies if not provided
   const defaultWaves: WaveCard[] = [
     {
@@ -143,7 +132,6 @@ export default function WaveCards({ waves }: WaveCardsProps) {
   // Fetch CSV data
   useEffect(() => {
     const fetchCSVData = async () => {
-      setIsLoading(true);
       try {
         let url = "/api/live_snapshot.csv";
         let isExternal = false;
@@ -159,7 +147,7 @@ export default function WaveCards({ waves }: WaveCardsProps) {
               url = externalUrl;
               isExternal = true;
             }
-          } catch (err) {
+          } catch {
             console.error("External URL failed, falling back to internal endpoint");
           }
         }
@@ -233,8 +221,6 @@ export default function WaveCards({ waves }: WaveCardsProps) {
         console.error("Error fetching CSV data:", error);
         setLiveWaves(null);
         setDataSource(null);
-      } finally {
-        setIsLoading(false);
       }
     };
 
