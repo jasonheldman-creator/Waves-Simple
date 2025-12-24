@@ -1,0 +1,11 @@
+WAVES Intelligence provides four integrated capabilities:
+
+First, Alpha Attribution—our Vector Truth Layer decomposes returns into structural effects and residual strategy returns, with complete regime awareness.
+
+Second, Performance Deep Dive—comprehensive wave performance charts, metrics, and historical tracking with synthetic data support for seamless onboarding.
+
+Third, Decision Ledger—a governance layer that tracks every decision, contract, and oversight action, creating an immutable audit trail.
+
+And fourth, Board-Ready Reporting—institutional PDF board packs that translate complex analytics into clear, actionable narratives.
+
+Each component is built on the Wave ID system, our canonical identifier framework that ensures data integrity across all analytics.

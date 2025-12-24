@@ -1,0 +1,3 @@
+Traditional portfolio analytics platforms present a challenge. They often deliver attribution reports that are opaque, difficult to validate, and unreliable under changing market regimes. Institutional investors need more than backward-looking performance metrics—they need governance-grade truth outputs that explain exactly where returns come from, under what conditions they persist, and what risks threaten their durability.
+
+Most platforms optimize for prediction. WAVES Intelligence takes a different approach. We embrace a no-predict constraint, focusing instead on deterministic, explainable insights that boards and oversight committees can actually use.

@@ -1,0 +1,11 @@
+Let me explain the Vector Truth Layer—our attribution engine.
+
+Traditional attribution tells you what happened. Vector Truth tells you why it happened, with governance-ready reliability signals.
+
+We separate returns into two categories: structural effects and residual strategy returns.
+
+Structural effects include capital preservation overlays—VIX regime controls, SmartSafe gating—and benchmark construction offsets. These are non-alpha by design. They're governance controls.
+
+Residual strategy returns reflect timing, exposure scaling, volatility control, and regime management after those structural overlays. We don't attribute these to asset selection or static weights. We show them as integrated strategy decisions.
+
+This separation is critical. It prevents alpha inflation, ensures intellectual honesty, and gives boards the transparency they need.

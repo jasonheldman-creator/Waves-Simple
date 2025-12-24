@@ -1,0 +1,11 @@
+The Decision Ledger provides governance accountability.
+
+Every portfolio decision—entry, exit, rebalance—is logged with timestamp, wave identifier, and rationale. Every alpha contract—the expected return profile and risk parameters—is recorded at inception.
+
+The Ledger tracks outcome reconciliation. Did the wave deliver on its contract? If not, why not? Was it regime conditions? Execution friction? Strategy drift?
+
+This creates an immutable audit trail. Oversight committees can trace any current position back to its original decision rationale. No black boxes. No memory gaps.
+
+The Ledger also supports performance attribution at the decision level. You can see which decisions contributed to returns and which detracted, with full transparency.
+
+This is governance-native design. It treats compliance, transparency, and oversight as first-class requirements, not afterthoughts.

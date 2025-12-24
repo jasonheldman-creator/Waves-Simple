@@ -1,0 +1,11 @@
+WAVES Intelligence generates comprehensive PDF board packs automatically.
+
+Each board pack includes an executive summary, wave-by-wave performance analysis, Vector Truth attribution reports, and Decision Ledger highlights.
+
+The system uses deterministic narrative templates. The language is stable, predictable, and governance-appropriate. No marketing fluff. No predictive claims. Just clear, factual reporting.
+
+The board packs integrate seamlessly with existing reporting workflows. They're designed for quarterly board meetings, investment committee reviews, and regulatory filings.
+
+Institutions can customize branding, adjust content sections, and control disclosure levels. But the underlying analytics remain deterministic and auditable.
+
+This isn't just automation. It's institutional-grade documentation at scale.
