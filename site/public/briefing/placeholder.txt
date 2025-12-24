@@ -1,0 +1,9 @@
+This is a placeholder for the Executive Briefing video.
+
+The actual video file (executive-briefing.mp4) should be:
+- Approximately 8 minutes long
+- Exported from the PowerPoint presentation with narration
+- Full HD (1080p) quality
+- Placed in this directory
+
+See README.md for export instructions.

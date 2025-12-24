@@ -4,6 +4,7 @@ import FeatureGrid from "@/components/FeatureGrid";
 import ScreenshotGallery from "@/components/ScreenshotGallery";
 import CallToAction from "@/components/CallToAction";
 import RegimeCard from "@/components/RegimeCard";
+import ExecutiveBriefing from "@/components/ExecutiveBriefing";
 import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
@@ -26,6 +27,11 @@ export default function PlatformPage() {
       {/* Institutional Buyer Validation Section */}
       <section className="bg-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          {/* Executive Briefing Reference */}
+          <div className="mb-16">
+            <ExecutiveBriefing variant="secondary" showDownload={true} />
+          </div>
+
           {/* Today's Regime Card */}
           <div className="mb-16">
             <RegimeCard />

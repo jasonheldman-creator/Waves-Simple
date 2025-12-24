@@ -1,0 +1,6 @@
+# Exclude large video files from git
+*.mp4
+
+# Keep the README and PPTX
+!README.md
+!*.pptx

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Hero from "@/components/Hero";
 import RegimeCard from "@/components/RegimeCard";
+import ExecutiveBriefing from "@/components/ExecutiveBriefing";
 
 export default function Home() {
   return (
@@ -13,6 +14,9 @@ export default function Home() {
         secondaryCtaText="View Platform"
         secondaryCtaLink="/platform"
       />
+
+      {/* Executive Briefing Section */}
+      <ExecutiveBriefing />
       
       {/* Value Proposition Section */}
       <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
