@@ -90,6 +90,70 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
 
+# Crypto-specific overlay configurations
+# These are DISTINCT from equity VIX-based overlays
+
+# Crypto Trend/Momentum Regime thresholds (for growth waves)
+CRYPTO_TREND_MOMENTUM_THRESHOLDS = {
+    "strong_uptrend": 0.15,     # 15% trend = strong bullish
+    "uptrend": 0.05,            # 5% trend = bullish
+    "downtrend": -0.05,         # -5% trend = bearish
+    "strong_downtrend": -0.15,  # -15% trend = strong bearish
+}
+
+# Crypto Trend/Momentum exposure multipliers
+CRYPTO_TREND_EXPOSURE = {
+    "strong_uptrend": 1.15,     # +15% exposure in strong uptrend
+    "uptrend": 1.05,            # +5% exposure in uptrend
+    "neutral": 1.00,            # baseline exposure
+    "downtrend": 0.90,          # -10% exposure in downtrend
+    "strong_downtrend": 0.75,   # -25% exposure in strong downtrend
+}
+
+# Crypto Volatility State thresholds (annualized, for realized vol)
+CRYPTO_VOL_THRESHOLDS = {
+    "extreme_compression": 0.30,  # < 30% annualized = extreme compression
+    "compression": 0.50,          # < 50% = compression
+    "normal": 0.80,               # 50-80% = normal
+    "expansion": 1.20,            # 80-120% = expansion
+    # > 120% = extreme expansion
+}
+
+# Crypto Volatility State exposure adjustments
+CRYPTO_VOL_EXPOSURE = {
+    "extreme_compression": 1.10,   # +10% in extreme compression (anticipate breakout)
+    "compression": 1.05,           # +5% in compression
+    "normal": 1.00,                # baseline
+    "expansion": 0.90,             # -10% in expansion
+    "extreme_expansion": 0.75,     # -25% in extreme expansion
+}
+
+# Crypto Liquidity/Market Structure thresholds (volume-based)
+CRYPTO_LIQUIDITY_THRESHOLDS = {
+    "strong_volume": 1.50,     # Volume 50%+ above average = strong
+    "normal_volume": 0.80,     # Volume 80%-150% of average = normal
+    # Below 80% = weak volume
+}
+
+# Crypto Liquidity exposure adjustments (for all crypto waves)
+CRYPTO_LIQUIDITY_EXPOSURE = {
+    "strong_volume": 1.05,     # +5% on strong volume confirmation
+    "normal_volume": 1.00,     # baseline
+    "weak_volume": 0.90,       # -10% on weak volume/illiquidity
+}
+
+# Crypto Income Wave: Yield Stability Overlay
+# Conservative exposure controls for capital preservation
+CRYPTO_INCOME_SAFE_FRACTION = {
+    "baseline": 0.20,          # 20% baseline safe allocation
+    "stress_boost": 0.30,      # +30% to safe during stress (total 50%)
+}
+
+CRYPTO_INCOME_EXPOSURE_CAP = {
+    "max_exposure": 0.90,      # Cap at 90% exposure (conservative)
+    "min_exposure": 0.60,      # Floor at 60% exposure
+}
+
 # Default per-wave tuning (can be overridden in shadow simulation)
 DEFAULT_TILT_STRENGTH = 0.80
 DEFAULT_EXTRA_SAFE_BOOST = 0.00
@@ -130,6 +194,11 @@ DEFAULT_STRATEGY_CONFIGS: Dict[str, StrategyConfig] = {
     "vix_overlay": StrategyConfig(enabled=True, weight=1.0, min_impact=0.5, max_impact=1.3),
     "smartsafe": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=0.95),
     "mode_constraint": StrategyConfig(enabled=True, weight=1.0, min_impact=0.5, max_impact=1.5),
+    # Crypto-specific overlays (only active for crypto waves)
+    "crypto_trend_momentum": StrategyConfig(enabled=True, weight=1.0, min_impact=0.75, max_impact=1.15),
+    "crypto_volatility": StrategyConfig(enabled=True, weight=1.0, min_impact=0.75, max_impact=1.10),
+    "crypto_liquidity": StrategyConfig(enabled=True, weight=1.0, min_impact=0.90, max_impact=1.05),
+    "crypto_income_stability": StrategyConfig(enabled=True, weight=1.0, min_impact=0.60, max_impact=0.90),
 }
 
 # ------------------------------------------------------------
@@ -1090,6 +1159,147 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
 
 
 # ------------------------------------------------------------
+# Crypto-specific helper functions
+# ------------------------------------------------------------
+
+def _is_crypto_wave(wave_name: str) -> bool:
+    """Determine if a wave is a crypto wave (distinct from equity waves)."""
+    return CRYPTO_WAVE_KEYWORD in wave_name or wave_name == "Bitcoin Wave"
+
+
+def _is_crypto_growth_wave(wave_name: str) -> bool:
+    """Determine if a wave is a crypto growth wave."""
+    if not _is_crypto_wave(wave_name):
+        return False
+    # Crypto Income Wave is NOT a growth wave
+    return "Income" not in wave_name
+
+
+def _is_crypto_income_wave(wave_name: str) -> bool:
+    """Determine if a wave is the crypto income wave."""
+    return wave_name == "Crypto Income Wave"
+
+
+def _crypto_trend_regime(trend_60d: float) -> str:
+    """
+    Classify crypto trend regime based on 60-day momentum.
+    Uses crypto-specific thresholds (higher volatility than equities).
+    """
+    if np.isnan(trend_60d):
+        return "neutral"
+    if trend_60d >= CRYPTO_TREND_MOMENTUM_THRESHOLDS["strong_uptrend"]:
+        return "strong_uptrend"
+    if trend_60d >= CRYPTO_TREND_MOMENTUM_THRESHOLDS["uptrend"]:
+        return "uptrend"
+    if trend_60d <= CRYPTO_TREND_MOMENTUM_THRESHOLDS["strong_downtrend"]:
+        return "strong_downtrend"
+    if trend_60d <= CRYPTO_TREND_MOMENTUM_THRESHOLDS["downtrend"]:
+        return "downtrend"
+    return "neutral"
+
+
+def _crypto_volatility_state(realized_vol: float) -> str:
+    """
+    Classify crypto volatility state based on realized volatility.
+    Returns: extreme_compression, compression, normal, expansion, extreme_expansion
+    """
+    if np.isnan(realized_vol) or realized_vol <= 0:
+        return "normal"
+    if realized_vol < CRYPTO_VOL_THRESHOLDS["extreme_compression"]:
+        return "extreme_compression"
+    if realized_vol < CRYPTO_VOL_THRESHOLDS["compression"]:
+        return "compression"
+    if realized_vol < CRYPTO_VOL_THRESHOLDS["normal"]:
+        return "normal"
+    if realized_vol < CRYPTO_VOL_THRESHOLDS["expansion"]:
+        return "expansion"
+    return "extreme_expansion"
+
+
+def _crypto_liquidity_state(volume_ratio: float) -> str:
+    """
+    Classify crypto liquidity/market structure state.
+    volume_ratio = current volume / average volume
+    Returns: strong_volume, normal_volume, weak_volume
+    """
+    if np.isnan(volume_ratio) or volume_ratio <= 0:
+        return "normal_volume"
+    if volume_ratio >= CRYPTO_LIQUIDITY_THRESHOLDS["strong_volume"]:
+        return "strong_volume"
+    if volume_ratio >= CRYPTO_LIQUIDITY_THRESHOLDS["normal_volume"]:
+        return "normal_volume"
+    return "weak_volume"
+
+
+def _crypto_trend_momentum_overlay(trend_60d: float) -> tuple[float, float, str]:
+    """
+    Crypto Trend/Momentum Regime Overlay (for growth waves).
+    Returns: (exposure_multiplier, safe_fraction_impact, regime)
+    """
+    regime = _crypto_trend_regime(trend_60d)
+    exposure = CRYPTO_TREND_EXPOSURE.get(regime, 1.0)
+    
+    # Safe fraction impact: increase safe allocation in downtrends
+    safe_impact = 0.0
+    if regime == "strong_downtrend":
+        safe_impact = 0.30  # 30% to safe in strong downtrend
+    elif regime == "downtrend":
+        safe_impact = 0.15  # 15% to safe in downtrend
+    
+    return (float(exposure), float(safe_impact), regime)
+
+
+def _crypto_volatility_overlay(realized_vol: float) -> tuple[float, str]:
+    """
+    Crypto Volatility State Overlay (for growth waves).
+    Returns: (exposure_multiplier, vol_state)
+    """
+    vol_state = _crypto_volatility_state(realized_vol)
+    exposure = CRYPTO_VOL_EXPOSURE.get(vol_state, 1.0)
+    return (float(exposure), vol_state)
+
+
+def _crypto_liquidity_overlay(volume_ratio: float) -> tuple[float, str]:
+    """
+    Crypto Liquidity/Market Structure Overlay (for all crypto waves).
+    Returns: (exposure_multiplier, liquidity_state)
+    """
+    liquidity_state = _crypto_liquidity_state(volume_ratio)
+    exposure = CRYPTO_LIQUIDITY_EXPOSURE.get(liquidity_state, 1.0)
+    return (float(exposure), liquidity_state)
+
+
+def _crypto_income_stability_overlay(realized_vol: float, trend_60d: float) -> tuple[float, float]:
+    """
+    Crypto Income Wave: Yield Stability Overlay.
+    Prioritizes capital preservation with conservative exposure controls.
+    Returns: (capped_exposure_multiplier, safe_fraction_boost)
+    """
+    # Start with conservative baseline
+    exposure = 0.80  # 80% baseline exposure (conservative)
+    safe_boost = CRYPTO_INCOME_SAFE_FRACTION["baseline"]
+    
+    # Detect stress conditions
+    is_high_vol = realized_vol > 0.80 if not np.isnan(realized_vol) else False
+    is_downtrend = trend_60d < -0.05 if not np.isnan(trend_60d) else False
+    
+    # Apply stress adjustments
+    if is_high_vol or is_downtrend:
+        exposure *= 0.75  # Further reduce exposure in stress
+        safe_boost += CRYPTO_INCOME_SAFE_FRACTION["stress_boost"]
+    
+    # Apply conservative caps
+    exposure = float(np.clip(
+        exposure,
+        CRYPTO_INCOME_EXPOSURE_CAP["min_exposure"],
+        CRYPTO_INCOME_EXPOSURE_CAP["max_exposure"]
+    ))
+    safe_boost = float(np.clip(safe_boost, 0.0, 0.60))
+    
+    return (exposure, safe_boost)
+
+
+# ------------------------------------------------------------
 # Strategy-specific computation functions
 # ------------------------------------------------------------
 
@@ -1486,35 +1696,62 @@ def _compute_core(
 
         # ===== Individual Strategy Computations =====
         
-        # 1. Regime detection strategy
-        regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
-        regime_exposure = REGIME_EXPOSURE[regime]
-        regime_gate = REGIME_GATING[mode][regime]
-        regime_risk_state = "risk-off" if regime in ("panic", "downtrend") else ("risk-on" if regime == "uptrend" else "neutral")
+        # Detect if this is a crypto wave
+        is_crypto = _is_crypto_wave(wave_name)
+        is_crypto_growth = _is_crypto_growth_wave(wave_name)
+        is_crypto_income = _is_crypto_income_wave(wave_name)
         
-        regime_contrib = StrategyContribution(
-            name="regime_detection",
-            exposure_impact=regime_exposure,
-            safe_fraction_impact=regime_gate,
-            risk_state=regime_risk_state,
-            enabled=strategy_configs.get("regime_detection", DEFAULT_STRATEGY_CONFIGS["regime_detection"]).enabled,
-            metadata={"regime": regime}
-        )
+        # 1. Regime detection strategy (EQUITY ONLY - disabled for crypto)
+        if not is_crypto:
+            regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
+            regime_exposure = REGIME_EXPOSURE[regime]
+            regime_gate = REGIME_GATING[mode][regime]
+            regime_risk_state = "risk-off" if regime in ("panic", "downtrend") else ("risk-on" if regime == "uptrend" else "neutral")
+            
+            regime_contrib = StrategyContribution(
+                name="regime_detection",
+                exposure_impact=regime_exposure,
+                safe_fraction_impact=regime_gate,
+                risk_state=regime_risk_state,
+                enabled=strategy_configs.get("regime_detection", DEFAULT_STRATEGY_CONFIGS["regime_detection"]).enabled,
+                metadata={"regime": regime}
+            )
+        else:
+            # Crypto waves: disable equity regime detection
+            regime_contrib = StrategyContribution(
+                name="regime_detection",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "disabled_for_crypto"}
+            )
 
-        # 2. VIX overlay strategy
-        vix_level = float(vix_level_series.get(dt, np.nan))
-        vix_exposure = _vix_exposure_factor(vix_level, mode)
-        vix_gate = _vix_safe_fraction(vix_level, mode)
-        vix_risk_state = "risk-off" if vix_level >= 25 else ("risk-on" if vix_level < 18 else "neutral")
-        
-        vix_contrib = StrategyContribution(
-            name="vix_overlay",
-            exposure_impact=vix_exposure,
-            safe_fraction_impact=vix_gate,
-            risk_state=vix_risk_state,
-            enabled=strategy_configs.get("vix_overlay", DEFAULT_STRATEGY_CONFIGS["vix_overlay"]).enabled,
-            metadata={"vix_level": vix_level}
-        )
+        # 2. VIX overlay strategy (EQUITY ONLY - disabled for crypto)
+        if not is_crypto:
+            vix_level = float(vix_level_series.get(dt, np.nan))
+            vix_exposure = _vix_exposure_factor(vix_level, mode)
+            vix_gate = _vix_safe_fraction(vix_level, mode)
+            vix_risk_state = "risk-off" if vix_level >= 25 else ("risk-on" if vix_level < 18 else "neutral")
+            
+            vix_contrib = StrategyContribution(
+                name="vix_overlay",
+                exposure_impact=vix_exposure,
+                safe_fraction_impact=vix_gate,
+                risk_state=vix_risk_state,
+                enabled=strategy_configs.get("vix_overlay", DEFAULT_STRATEGY_CONFIGS["vix_overlay"]).enabled,
+                metadata={"vix_level": vix_level}
+            )
+        else:
+            # Crypto waves: disable VIX overlay
+            vix_contrib = StrategyContribution(
+                name="vix_overlay",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "disabled_for_crypto"}
+            )
 
         # 3. Momentum strategy (weight tilting)
         mom_row = mom_60.loc[dt] if dt in mom_60.index else None
@@ -1605,6 +1842,123 @@ def _compute_core(
             metadata={"mode": mode, "base_exposure": mode_base_exposure}
         )
 
+        # ===== CRYPTO-SPECIFIC OVERLAYS (only active for crypto waves) =====
+        
+        # 9. Crypto Trend/Momentum Regime Overlay (for crypto growth waves only)
+        if is_crypto_growth:
+            trend_60d_val = float(idx_ret_60d.get(dt, np.nan))
+            crypto_trend_exp, crypto_trend_safe, crypto_trend_regime = _crypto_trend_momentum_overlay(trend_60d_val)
+            crypto_trend_risk_state = "risk-off" if "downtrend" in crypto_trend_regime else ("risk-on" if "uptrend" in crypto_trend_regime else "neutral")
+            
+            crypto_trend_contrib = StrategyContribution(
+                name="crypto_trend_momentum",
+                exposure_impact=crypto_trend_exp,
+                safe_fraction_impact=crypto_trend_safe,
+                risk_state=crypto_trend_risk_state,
+                enabled=strategy_configs.get("crypto_trend_momentum", DEFAULT_STRATEGY_CONFIGS["crypto_trend_momentum"]).enabled,
+                metadata={"crypto_regime": crypto_trend_regime, "trend_60d": trend_60d_val}
+            )
+        else:
+            crypto_trend_contrib = StrategyContribution(
+                name="crypto_trend_momentum",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_growth_wave"}
+            )
+        
+        # 10. Crypto Volatility State Overlay (for crypto growth waves only)
+        if is_crypto_growth:
+            # Calculate realized volatility for crypto
+            if len(wave_ret_list) >= 30:
+                recent_crypto = np.array(wave_ret_list[-30:])
+                crypto_realized_vol = recent_crypto.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+            else:
+                crypto_realized_vol = 0.60  # Default crypto vol assumption
+            
+            crypto_vol_exp, crypto_vol_state = _crypto_volatility_overlay(crypto_realized_vol)
+            
+            crypto_vol_contrib = StrategyContribution(
+                name="crypto_volatility",
+                exposure_impact=crypto_vol_exp,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=strategy_configs.get("crypto_volatility", DEFAULT_STRATEGY_CONFIGS["crypto_volatility"]).enabled,
+                metadata={"vol_state": crypto_vol_state, "realized_vol": crypto_realized_vol}
+            )
+        else:
+            crypto_vol_contrib = StrategyContribution(
+                name="crypto_volatility",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_growth_wave"}
+            )
+        
+        # 11. Crypto Liquidity/Market Structure Overlay (for ALL crypto waves)
+        if is_crypto:
+            # Calculate volume ratio (simplified - using portfolio return magnitude as proxy)
+            # In production, would use actual volume data
+            if len(wave_ret_list) >= 20:
+                recent_rets = np.array(wave_ret_list[-20:])
+                avg_abs_ret = np.abs(recent_rets).mean()
+                current_abs_ret = abs(portfolio_risk_ret)
+                volume_ratio = current_abs_ret / avg_abs_ret if avg_abs_ret > 0 else 1.0
+            else:
+                volume_ratio = 1.0
+            
+            crypto_liq_exp, crypto_liq_state = _crypto_liquidity_overlay(volume_ratio)
+            
+            crypto_liquidity_contrib = StrategyContribution(
+                name="crypto_liquidity",
+                exposure_impact=crypto_liq_exp,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=strategy_configs.get("crypto_liquidity", DEFAULT_STRATEGY_CONFIGS["crypto_liquidity"]).enabled,
+                metadata={"liquidity_state": crypto_liq_state, "volume_ratio": volume_ratio}
+            )
+        else:
+            crypto_liquidity_contrib = StrategyContribution(
+                name="crypto_liquidity",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_wave"}
+            )
+        
+        # 12. Crypto Income Stability Overlay (for Crypto Income Wave only)
+        if is_crypto_income:
+            # Get metrics for income stability assessment
+            trend_60d_val = float(idx_ret_60d.get(dt, np.nan))
+            if len(wave_ret_list) >= 30:
+                recent_crypto = np.array(wave_ret_list[-30:])
+                crypto_realized_vol = recent_crypto.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+            else:
+                crypto_realized_vol = 0.60
+            
+            crypto_income_exp, crypto_income_safe = _crypto_income_stability_overlay(crypto_realized_vol, trend_60d_val)
+            
+            crypto_income_contrib = StrategyContribution(
+                name="crypto_income_stability",
+                exposure_impact=crypto_income_exp,
+                safe_fraction_impact=crypto_income_safe,
+                risk_state="neutral",
+                enabled=strategy_configs.get("crypto_income_stability", DEFAULT_STRATEGY_CONFIGS["crypto_income_stability"]).enabled,
+                metadata={"realized_vol": crypto_realized_vol, "trend_60d": trend_60d_val}
+            )
+        else:
+            crypto_income_contrib = StrategyContribution(
+                name="crypto_income_stability",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_crypto_income_wave"}
+            )
+
         # ===== Aggregate All Strategy Contributions =====
         all_contributions = [
             mode_contrib,
@@ -1615,6 +1969,10 @@ def _compute_core(
             trend_contrib,
             rs_contrib,
             smartsafe_contrib,
+            crypto_trend_contrib,
+            crypto_vol_contrib,
+            crypto_liquidity_contrib,
+            crypto_income_contrib,
         ]
 
         # Aggregate strategies into final exposure and safe fraction
@@ -1654,18 +2012,30 @@ def _compute_core(
 
         if shadow:
             # Legacy diagnostics (backward compatible)
+            # For crypto waves, regime/vix may not be defined
+            diag_regime = regime_contrib.metadata.get("regime", "n/a") if not is_crypto else "n/a"
+            diag_vix = vix_contrib.metadata.get("vix_level", np.nan) if not is_crypto else np.nan
+            diag_vix_exposure = vix_contrib.exposure_impact if not is_crypto else 1.0
+            diag_vix_gate = vix_contrib.safe_fraction_impact if not is_crypto else 0.0
+            diag_regime_gate = regime_contrib.safe_fraction_impact if not is_crypto else 0.0
+            
             diag_rows.append(
                 {
                     "Date": dt,
-                    "regime": regime,
-                    "vix": vix_level,
+                    "regime": diag_regime,
+                    "vix": diag_vix,
                     "safe_fraction": safe_fraction,
                     "exposure": exposure,
                     "vol_adjust": vol_adjust,
-                    "vix_exposure": vix_exposure,
-                    "vix_gate": vix_gate,
-                    "regime_gate": regime_gate,
+                    "vix_exposure": diag_vix_exposure,
+                    "vix_gate": diag_vix_gate,
+                    "regime_gate": diag_regime_gate,
                     "aggregated_risk_state": agg_risk_state,
+                    # Add crypto-specific diagnostics
+                    "is_crypto": is_crypto,
+                    "crypto_trend_regime": crypto_trend_contrib.metadata.get("crypto_regime", "n/a") if is_crypto_growth else "n/a",
+                    "crypto_vol_state": crypto_vol_contrib.metadata.get("vol_state", "n/a") if is_crypto_growth else "n/a",
+                    "crypto_liq_state": crypto_liquidity_contrib.metadata.get("liquidity_state", "n/a") if is_crypto else "n/a",
                 }
             )
             
