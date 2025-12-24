@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Metadata } from "next";
 import type { MarketData, MarketSymbol } from "@/types/market";
 import { DEFAULT_MARKET_DATA } from "@/types/market";
 import GovernancePanel from "@/components/GovernancePanel";

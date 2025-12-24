@@ -57,7 +57,7 @@ export default function MarketTape() {
     marketData.symbols.macro.find((s) => s.symbol === "QQQ"),
     marketData.symbols.macro.find((s) => s.symbol === "IWM"),
     marketData.symbols.rates.find((s) => s.symbol === "TLT"),
-    marketData.symbols.crypto.find((s) => s.symbol === "GLD"),
+    marketData.symbols.macro.find((s) => s.symbol === "GLD"),
     marketData.symbols.crypto.find((s) => s.symbol === "BTC"),
   ].filter(Boolean);
 
