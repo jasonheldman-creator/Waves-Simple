@@ -70,7 +70,7 @@ export async function GET() {
     // Fetch live market data
     const macroSymbols = ['SPY', 'QQQ', 'IWM', 'GLD'];
     const techSymbols = ['AAPL', 'MSFT', 'NVDA'];
-    const ratesSymbols = ['TLT', '^TNX'];
+    const ratesSymbols = ['TLT', '^TNX', '^VIX'];
     
     // Fetch all symbol groups in parallel
     const [macroResult, techResult, ratesResult, btcData] = await Promise.allSettled([
