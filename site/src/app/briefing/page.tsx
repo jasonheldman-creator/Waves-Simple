@@ -105,7 +105,7 @@ export default function BriefingPage() {
           </h2>
           <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
             Schedule a personalized demo to see how WAVES Intelligence™ can serve your
-            organization's needs.
+            organization&apos;s needs.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
