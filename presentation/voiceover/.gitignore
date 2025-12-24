@@ -1,0 +1,9 @@
+# Generated audio files
+*.mp3
+*.wav
+
+# Generated manifest
+NARRATION_MANIFEST.json
+
+# Placeholder markers (when ffmpeg not available)
+slide_*.txt
