@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 
 interface ExecutiveBriefingProps {
   compact?: boolean;
@@ -44,12 +45,12 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
               Watch a comprehensive overview of the WAVES Intelligence™ decision framework
               (approximately 8 minutes).
             </p>
-            <a
+            <Link
               href="/briefing"
               className="inline-flex items-center text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
             >
               View Briefing →
-            </a>
+            </Link>
           </div>
         </div>
       </div>
