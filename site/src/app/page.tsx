@@ -2,68 +2,10 @@ import Link from "next/link";
 import Hero from "@/components/Hero";
 
 export default function Home() {
-  const navigationCards = [
-    {
-      href: "/platform",
-      icon: "🏗️",
-      title: "Platform",
-      description: "Decision infrastructure for institutional portfolio management—complete transparency, attribution integrity, and governance-first operations.",
-      highlights: [
-        "Multi-dimensional exposure analytics",
-        "Real-time compliance monitoring",
-        "Board-ready reporting frameworks"
-      ]
-    },
-    {
-      href: "/waves",
-      icon: "📈",
-      title: "WAVES™ Portfolios",
-      description: "Live validation of platform infrastructure through disciplined, benchmark-aware execution under real market conditions.",
-      highlights: [
-        "Systematic decision-making proof",
-        "Complete construction transparency",
-        "Institutional governance controls"
-      ]
-    },
-    {
-      href: "/governance",
-      icon: "⚖️",
-      title: "Governance",
-      description: "Institutional-grade frameworks for fiduciary oversight, regulatory compliance, and operational transparency.",
-      highlights: [
-        "Immutable audit trails",
-        "Regulatory compliance frameworks",
-        "Risk limit enforcement"
-      ]
-    },
-    {
-      href: "/enterprise",
-      icon: "🏢",
-      title: "Enterprise Solutions",
-      description: "Flexible deployment models supporting platform licensing, managed mandates, and acquisition pathways.",
-      highlights: [
-        "Integration-ready infrastructure",
-        "M&A evaluation support",
-        "Scalable deployment options"
-      ]
-    },
-    {
-      href: "/company",
-      icon: "🎯",
-      title: "Company",
-      description: "Building the future of institutional decision infrastructure with transparency, governance, and operational excellence.",
-      highlights: [
-        "Institutional expertise",
-        "Technical transparency",
-        "Commitment to compliance"
-      ]
-    },
-  ];
-
   return (
     <main className="min-h-screen bg-black">
       <Hero
-        title="Institutional Decision Infrastructure"
+        title="Decision Infrastructure for Modern Asset Management"
         subtitle="WAVES Intelligence™ is decision infrastructure for institutional portfolio management—delivering transparency, attribution integrity, and governance-first operations. WAVES™ portfolios demonstrate the platform through disciplined execution under real market conditions."
         ctaText="Request Institutional Demo"
         ctaLink="/demo"
@@ -76,97 +18,101 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-              One Platform. Complete Transparency.
+              Executive Summary
             </h2>
             <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
               Decision infrastructure and portfolio proof unified for institutional governance
             </p>
           </div>
           
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 mb-12">
-            <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8 text-center">
-              <div className="text-5xl mb-4">🔍</div>
-              <h3 className="text-xl font-semibold text-white mb-3">
-                Platform vs WAVES™
-              </h3>
-              <p className="text-gray-400 text-sm">
-                <span className="text-cyan-400 font-semibold">Platform:</span> Decision infrastructure for institutional operations<br/>
-                <span className="text-green-400 font-semibold">WAVES™:</span> Live portfolios demonstrating platform effectiveness
-              </p>
+          {/* Platform Overview */}
+          <div className="mb-16 rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-10">
+            <div className="flex items-start mb-4">
+              <div className="text-5xl mr-6">🏗️</div>
+              <div>
+                <h3 className="text-2xl font-semibold text-white mb-4">
+                  WAVES Intelligence™ Platform
+                </h3>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  Decision infrastructure for institutional portfolio management—not a product, but foundational 
+                  architecture. The platform delivers multi-dimensional attribution, risk exposure control, and 
+                  governance-native workflows. From data ingestion through decision execution to board-ready 
+                  documentation, WAVES Intelligence™ provides the canonical source of truth for institutional 
+                  asset management. Built for CIOs, risk officers, and fiduciaries requiring Aladdin-class 
+                  transparency and control.
+                </p>
+              </div>
             </div>
-            
-            <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8 text-center">
-              <div className="text-5xl mb-4">📊</div>
-              <h3 className="text-xl font-semibold text-white mb-3">
-                Institutional Grade
-              </h3>
-              <p className="text-gray-400 text-sm">
-                Built for CIOs, risk officers, portfolio managers, and compliance teams—governance-native architecture at every layer
-              </p>
+          </div>
+
+          {/* WAVES™ Portfolios Overview */}
+          <div className="mb-16 rounded-lg border border-green-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-10">
+            <div className="flex items-start mb-4">
+              <div className="text-5xl mr-6">📈</div>
+              <div>
+                <h3 className="text-2xl font-semibold text-white mb-4">
+                  WAVES™ Portfolios
+                </h3>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  Live portfolios demonstrating platform effectiveness under real market conditions. Each WAVES™ 
+                  portfolio operates as institutional proof—showcasing risk-aware construction, regime-adaptive 
+                  positioning, and complete attribution transparency. Not speculative products, but disciplined 
+                  validation of the underlying infrastructure. Alpha capture through systematic selection, overlay 
+                  management, and regime intelligence with full governance documentation.
+                </p>
+              </div>
             </div>
-            
-            <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8 text-center">
-              <div className="text-5xl mb-4">🔗</div>
-              <h3 className="text-xl font-semibold text-white mb-3">
-                Flexible Engagement
-              </h3>
-              <p className="text-gray-400 text-sm">
-                License infrastructure, access portfolios as mandates, or integrate both—modular deployment pathways
-              </p>
+          </div>
+
+          {/* Governance Signal */}
+          <div className="rounded-lg border border-purple-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-10">
+            <div className="flex items-start mb-4">
+              <div className="text-5xl mr-6">⚖️</div>
+              <div>
+                <h3 className="text-2xl font-semibold text-white mb-4">
+                  Governance & Compliance
+                </h3>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  Institutional-grade governance frameworks embedded throughout. Immutable audit trails capture 
+                  every decision, attribution explainability ensures fiduciary accountability, and compliance-ready 
+                  monitoring supports regulatory examination. Board-ready documentation providing investment 
+                  committees with complete transparency into methodology, risk controls, and performance attribution. 
+                  Built for fiduciary oversight, not retail convenience.
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Navigation Cards Section */}
+      {/* Enterprise Call to Action */}
       <section className="bg-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-              Explore Our Solutions
+          <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-12 text-center">
+            <div className="text-5xl mb-6">🏢</div>
+            <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl mb-6">
+              Enterprise Solutions
             </h2>
-            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-              Comprehensive infrastructure addressing every aspect of institutional decision-making
+            <p className="text-lg text-gray-300 mb-8 max-w-3xl mx-auto">
+              Flexible deployment models for strategic enterprise buyers and partners. Platform licensing for 
+              internal operations, WAVES™ portfolio mandates for externally-managed allocations, or integrated 
+              solutions combining both. Acquisition-grade positioning with complete technical transparency, 
+              integration readiness, and institutional use case validation.
             </p>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-2">
-            {navigationCards.map((card, index) => (
-              <Link
-                key={index}
-                href={card.href}
-                className="group rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8 transition-all hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02]"
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <a
+                href="/enterprise"
+                className="inline-block rounded-md bg-gradient-to-r from-cyan-500 to-green-500 px-8 py-4 text-base font-semibold text-black transition-all hover:from-cyan-400 hover:to-green-400 hover:shadow-lg hover:shadow-cyan-500/50"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="text-5xl">{card.icon}</div>
-                  <svg
-                    className="h-6 w-6 text-gray-600 transition-all group-hover:text-cyan-400 group-hover:translate-x-1"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-semibold text-white group-hover:text-cyan-400 mb-3 transition-colors">
-                  {card.title}
-                </h3>
-                <p className="text-gray-400 leading-relaxed mb-6">
-                  {card.description}
-                </p>
-                <div className="space-y-2 pt-4 border-t border-gray-700">
-                  {card.highlights.map((highlight, hIndex) => (
-                    <div key={hIndex} className="flex items-start text-sm text-gray-500">
-                      <span className="text-cyan-400 mr-2 mt-0.5">✓</span>
-                      <span>{highlight}</span>
-                    </div>
-                  ))}
-                </div>
-              </Link>
-            ))}
+                Explore Enterprise Solutions
+              </a>
+              <a
+                href="/demo"
+                className="inline-block rounded-md border border-cyan-500 px-8 py-4 text-base font-semibold text-cyan-400 transition-all hover:bg-cyan-500/10 hover:shadow-lg hover:shadow-cyan-500/30"
+              >
+                Request Strategic Demo
+              </a>
+            </div>
           </div>
         </div>
       </section>
