@@ -14,16 +14,6 @@ interface WaveCardsProps {
   waves?: WaveCard[];
 }
 
-interface SnapshotData {
-  wave_id: string;
-  wave_name: string;
-  status: string;
-  performance_1d: number;
-  performance_30d: number;
-  performance_ytd: number;
-  last_updated: string;
-}
-
 export default function WaveCards({ waves }: WaveCardsProps) {
   const [liveWaves, setLiveWaves] = useState<WaveCard[] | null>(null);
   const [dataSource, setDataSource] = useState<"LIVE" | "DEMO">("DEMO");
@@ -77,11 +67,35 @@ export default function WaveCards({ waves }: WaveCardsProps) {
     const dataLines = lines.slice(1); // Skip header
     
     return dataLines.map((line, index) => {
-      const parts = line.split(',');
-      const wave_id = parts[0];
-      const wave_name = parts[1];
-      const status = parts[2];
-      const performance_ytd = parseFloat(parts[5]);
+      // Simple CSV parsing that handles quoted fields
+      const fields: string[] = [];
+      let currentField = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"' && line[i + 1] === '"') {
+          // Escaped quote
+          currentField += '"';
+          i++; // Skip next quote
+        } else if (char === '"') {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          // Field separator
+          fields.push(currentField);
+          currentField = '';
+        } else {
+          currentField += char;
+        }
+      }
+      fields.push(currentField); // Add last field
+      
+      const wave_id = fields[0];
+      const wave_name = fields[1];
+      const status = fields[2];
+      const performance_ytd = parseFloat(fields[5]);
       
       return {
         id: index + 1,

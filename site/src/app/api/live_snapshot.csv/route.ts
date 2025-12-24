@@ -154,21 +154,38 @@ function generateDemoSnapshot(): SnapshotRow[] {
 
   const now = new Date().toISOString();
   
-  return demoWaves.map((wave_id, index) => ({
-    wave_id,
-    wave_name: wave_id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-    status: "DEMO",
-    performance_1d: (index * 0.001) - 0.002, // Deterministic small values
-    performance_30d: (index * 0.01) - 0.02,
-    performance_ytd: (index * 0.05) - 0.1,
-    last_updated: now,
-  }));
+  return demoWaves.map((wave_id, index) => {
+    // Simple name formatting for demo - avoid complex transformations
+    const waveName = wave_id
+      .split('_')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    
+    return {
+      wave_id,
+      wave_name: waveName,
+      status: "DEMO",
+      performance_1d: (index * 0.001) - 0.002, // Deterministic small values
+      performance_30d: (index * 0.01) - 0.02,
+      performance_ytd: (index * 0.05) - 0.1,
+      last_updated: now,
+    };
+  });
+}
+
+function escapeCSVField(field: string | number): string {
+  const str = String(field);
+  // If field contains comma, quote, or newline, wrap in quotes and escape quotes
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
 }
 
 function formatCSV(snapshots: SnapshotRow[]): string {
   const header = "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated";
   const rows = snapshots.map(s => 
-    `${s.wave_id},${s.wave_name},${s.status},${s.performance_1d},${s.performance_30d},${s.performance_ytd},${s.last_updated}`
+    `${s.wave_id},${escapeCSVField(s.wave_name)},${s.status},${s.performance_1d},${s.performance_30d},${s.performance_ytd},${s.last_updated}`
   );
   
   return [header, ...rows].join('\n');
