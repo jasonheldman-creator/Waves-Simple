@@ -83,6 +83,11 @@ PORTFOLIO_VOL_TARGET = 0.20  # 20% annualized default
 VIX_TICKER = "^VIX"
 BTC_TICKER = "BTC-USD"  # used for crypto "VIX proxy"
 
+# Income wave tickers (for income-specific overlays)
+TNX_TICKER = "^TNX"  # 10-year Treasury (rates/duration proxy)
+HYG_TICKER = "HYG"   # High Yield Corporate Bond ETF (credit risk proxy)
+LQD_TICKER = "LQD"   # Investment Grade Corporate Bond ETF (credit quality proxy)
+
 # Crypto yield overlays (APY assumptions per Wave)
 CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
     "Crypto Income Wave": 0.08,  # Crypto Income Wave with CSE basket
@@ -159,6 +164,67 @@ DEFAULT_TILT_STRENGTH = 0.80
 DEFAULT_EXTRA_SAFE_BOOST = 0.00
 
 # ------------------------------------------------------------
+# Income Wave Overlay Configurations (Non-Crypto Income Waves)
+# ------------------------------------------------------------
+
+# A) Rates/Duration Regime thresholds (based on TNX trend)
+INCOME_RATES_REGIME_THRESHOLDS = {
+    "rising_fast": 0.10,      # +10% TNX = rising fast
+    "rising": 0.03,           # +3% TNX = rising
+    "stable": -0.03,          # -3% to +3% = stable
+    "falling": -0.10,         # -10% TNX = falling
+    # < -10% = falling_fast
+}
+
+# Rates regime exposure adjustments (reduce duration in rising rate environment)
+INCOME_RATES_EXPOSURE = {
+    "rising_fast": 0.80,      # -20% exposure in fast rising rates
+    "rising": 0.90,           # -10% exposure in rising rates
+    "stable": 1.00,           # baseline in stable rates
+    "falling": 1.05,          # +5% exposure in falling rates
+    "falling_fast": 1.10,     # +10% exposure in fast falling rates
+}
+
+# B) Credit/Risk Regime thresholds (HYG vs LQD relative strength)
+INCOME_CREDIT_REGIME_THRESHOLDS = {
+    "risk_on": 0.02,          # HYG outperforming LQD by 2%+ = risk on
+    "neutral": -0.02,         # Within 2% = neutral
+    # < -2% = risk off
+}
+
+# Credit regime exposure adjustments (shift to quality in risk-off)
+INCOME_CREDIT_EXPOSURE = {
+    "risk_on": 1.05,          # +5% exposure when credit spreads tight
+    "neutral": 1.00,          # baseline
+    "risk_off": 0.90,         # -10% exposure when credit spreads widen
+}
+
+# Credit regime safe allocation boosts (increase quality allocation)
+INCOME_CREDIT_SAFE_BOOST = {
+    "risk_on": 0.00,          # No boost in risk-on
+    "neutral": 0.05,          # 5% to safe in neutral
+    "risk_off": 0.15,         # 15% to safe in risk-off (quality focus)
+}
+
+# C) Carry/Drawdown Guard thresholds
+INCOME_DRAWDOWN_THRESHOLDS = {
+    "minor": -0.03,           # -3% drawdown
+    "moderate": -0.05,        # -5% drawdown
+    "severe": -0.08,          # -8% drawdown
+}
+
+# Drawdown protection adjustments
+INCOME_DRAWDOWN_SAFE_BOOST = {
+    "minor": 0.10,            # 10% to safe on minor drawdown
+    "moderate": 0.20,         # 20% to safe on moderate drawdown
+    "severe": 0.30,           # 30% to safe on severe drawdown
+}
+
+# D) Turnover Discipline settings
+INCOME_MIN_REBALANCE_DAYS = 5        # Minimum days between rebalances
+INCOME_MAX_TURNOVER_PER_PERIOD = 0.20  # Max 20% turnover unless strong signals
+
+# ------------------------------------------------------------
 # Strategy Configuration System
 # ------------------------------------------------------------
 
@@ -199,6 +265,11 @@ DEFAULT_STRATEGY_CONFIGS: Dict[str, StrategyConfig] = {
     "crypto_volatility": StrategyConfig(enabled=True, weight=1.0, min_impact=0.75, max_impact=1.10),
     "crypto_liquidity": StrategyConfig(enabled=True, weight=1.0, min_impact=0.90, max_impact=1.05),
     "crypto_income_stability": StrategyConfig(enabled=True, weight=1.0, min_impact=0.60, max_impact=0.90),
+    # Income-specific overlays (only active for non-crypto income waves)
+    "income_rates_regime": StrategyConfig(enabled=True, weight=1.0, min_impact=0.80, max_impact=1.10),
+    "income_credit_regime": StrategyConfig(enabled=True, weight=1.0, min_impact=0.90, max_impact=1.05),
+    "income_drawdown_guard": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=0.30),
+    "income_turnover_discipline": StrategyConfig(enabled=True, weight=1.0, min_impact=0.0, max_impact=1.0),
 }
 
 # ------------------------------------------------------------
@@ -1180,6 +1251,22 @@ def _is_crypto_income_wave(wave_name: str) -> bool:
     return wave_name == "Crypto Income Wave"
 
 
+def _is_income_wave(wave_name: str) -> bool:
+    """
+    Determine if a wave is a non-crypto Income/Dividend/Yield/Defensive/Bond-like wave.
+    Income waves use distinct income-first overlays instead of equity growth overlays.
+    """
+    # List of non-crypto income waves
+    income_waves = {
+        "Income Wave",
+        "Vector Treasury Ladder Wave",
+        "Vector Muni Ladder Wave",
+        "SmartSafe Treasury Cash Wave",
+        "SmartSafe Tax-Free Money Market Wave",
+    }
+    return wave_name in income_waves
+
+
 def _crypto_trend_regime(trend_60d: float) -> str:
     """
     Classify crypto trend regime based on 60-day momentum.
@@ -1297,6 +1384,124 @@ def _crypto_income_stability_overlay(realized_vol: float, trend_60d: float) -> t
     safe_boost = float(np.clip(safe_boost, 0.0, 0.60))
     
     return (exposure, safe_boost)
+
+
+# ------------------------------------------------------------
+# Income wave overlay functions (non-crypto income waves)
+# ------------------------------------------------------------
+
+def _rates_duration_regime(tnx_trend: float) -> str:
+    """
+    Classify rates/duration regime based on TNX (10-year Treasury) trend.
+    Returns: rising_fast, rising, stable, falling, falling_fast
+    """
+    if np.isnan(tnx_trend):
+        return "stable"
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["rising_fast"]:
+        return "rising_fast"
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["rising"]:
+        return "rising"
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["stable"]:
+        return "stable"  # Between -0.03 and +0.03
+    if tnx_trend >= INCOME_RATES_REGIME_THRESHOLDS["falling"]:
+        return "falling"  # Between -0.10 and -0.03
+    return "falling_fast"  # Below -0.10
+
+
+def _rates_duration_overlay(tnx_trend: float) -> tuple[float, str]:
+    """
+    Income Wave: Rates/Duration Regime Overlay.
+    Monitors TNX trends to calibrate duration sensitivity.
+    Returns: (exposure_multiplier, regime)
+    """
+    regime = _rates_duration_regime(tnx_trend)
+    exposure = INCOME_RATES_EXPOSURE.get(regime, 1.0)
+    return (float(exposure), regime)
+
+
+def _credit_risk_regime(hyg_lqd_spread: float) -> str:
+    """
+    Classify credit/risk regime based on HYG vs LQD relative performance.
+    Positive spread = HYG outperforming (risk on)
+    Negative spread = LQD outperforming (risk off)
+    Returns: risk_on, neutral, risk_off
+    """
+    if np.isnan(hyg_lqd_spread):
+        return "neutral"
+    if hyg_lqd_spread >= INCOME_CREDIT_REGIME_THRESHOLDS["risk_on"]:
+        return "risk_on"
+    if hyg_lqd_spread <= INCOME_CREDIT_REGIME_THRESHOLDS["neutral"]:
+        return "risk_off"
+    return "neutral"
+
+
+def _credit_risk_overlay(hyg_lqd_spread: float) -> tuple[float, float, str]:
+    """
+    Income Wave: Credit/Risk Regime Overlay.
+    Evaluates credit risk via HYG vs LQD to assess credit stress.
+    Returns: (exposure_multiplier, safe_fraction_boost, regime)
+    """
+    regime = _credit_risk_regime(hyg_lqd_spread)
+    exposure = INCOME_CREDIT_EXPOSURE.get(regime, 1.0)
+    safe_boost = INCOME_CREDIT_SAFE_BOOST.get(regime, 0.0)
+    return (float(exposure), float(safe_boost), regime)
+
+
+def _drawdown_guard_overlay(current_nav: float, peak_nav: float, recent_vol: float, vol_threshold: float = 0.15) -> tuple[float, str]:
+    """
+    Income Wave: Carry + Drawdown Guard Overlay.
+    Protects against drawdowns and volatility spikes.
+    Returns: (safe_fraction_boost, stress_state)
+    """
+    # Calculate current drawdown
+    if peak_nav > 0:
+        drawdown = (current_nav / peak_nav) - 1.0
+    else:
+        drawdown = 0.0
+    
+    # Check volatility spike
+    is_vol_spike = recent_vol > vol_threshold if not np.isnan(recent_vol) else False
+    
+    # Determine stress level and safe boost
+    safe_boost = 0.0
+    stress_state = "normal"
+    
+    if drawdown <= INCOME_DRAWDOWN_THRESHOLDS["severe"] or is_vol_spike:
+        safe_boost = INCOME_DRAWDOWN_SAFE_BOOST["severe"]
+        stress_state = "severe"
+    elif drawdown <= INCOME_DRAWDOWN_THRESHOLDS["moderate"]:
+        safe_boost = INCOME_DRAWDOWN_SAFE_BOOST["moderate"]
+        stress_state = "moderate"
+    elif drawdown <= INCOME_DRAWDOWN_THRESHOLDS["minor"]:
+        safe_boost = INCOME_DRAWDOWN_SAFE_BOOST["minor"]
+        stress_state = "minor"
+    
+    return (float(safe_boost), stress_state)
+
+
+def _calculate_price_return(price_series: pd.Series, dt: pd.Timestamp, periods: int) -> float:
+    """
+    Helper function to calculate price return over specified periods.
+    Returns NaN if insufficient data or date not in index.
+    
+    Args:
+        price_series: Price time series
+        dt: Current date
+        periods: Number of periods to look back
+        
+    Returns:
+        Return as decimal (e.g., 0.05 = 5%) or NaN if insufficient data
+    """
+    if len(price_series) < periods:
+        return np.nan
+    
+    ret_series = price_series / price_series.shift(periods) - 1.0
+    
+    if dt not in ret_series.index:
+        return np.nan
+    
+    ret_val = ret_series.loc[dt]
+    return float(ret_val) if not np.isnan(ret_val) else np.nan
 
 
 # ------------------------------------------------------------
@@ -1610,12 +1815,16 @@ def _compute_core(
 
     base_index_ticker = "SPY"
     safe_candidates = ["SGOV", "BIL", "SHY", "SUB", "SHM", "MUB", "USDC-USD", "USDT-USD", "DAI-USD", "USDP-USD"]
+    
+    # Income wave specific tickers
+    income_tickers = [TNX_TICKER, HYG_TICKER, LQD_TICKER]
 
     all_tickers = set(tickers_wave + tickers_bm)
     all_tickers.add(base_index_ticker)
     all_tickers.add(VIX_TICKER)
     all_tickers.add(BTC_TICKER)
     all_tickers.update(safe_candidates)
+    all_tickers.update(income_tickers)  # Add income-specific tickers
 
     all_tickers = sorted(all_tickers)
     if not all_tickers:
@@ -1696,13 +1905,14 @@ def _compute_core(
 
         # ===== Individual Strategy Computations =====
         
-        # Detect if this is a crypto wave
+        # Detect wave type
         is_crypto = _is_crypto_wave(wave_name)
         is_crypto_growth = _is_crypto_growth_wave(wave_name)
         is_crypto_income = _is_crypto_income_wave(wave_name)
+        is_income = _is_income_wave(wave_name)
         
-        # 1. Regime detection strategy (EQUITY ONLY - disabled for crypto)
-        if not is_crypto:
+        # 1. Regime detection strategy (EQUITY GROWTH ONLY - disabled for crypto and income)
+        if not is_crypto and not is_income:
             regime = _regime_from_return(idx_ret_60d.get(dt, np.nan))
             regime_exposure = REGIME_EXPOSURE[regime]
             regime_gate = REGIME_GATING[mode][regime]
@@ -1717,18 +1927,18 @@ def _compute_core(
                 metadata={"regime": regime}
             )
         else:
-            # Crypto waves: disable equity regime detection
+            # Crypto and income waves: disable equity regime detection
             regime_contrib = StrategyContribution(
                 name="regime_detection",
                 exposure_impact=1.0,
                 safe_fraction_impact=0.0,
                 risk_state="neutral",
                 enabled=False,
-                metadata={"note": "disabled_for_crypto"}
+                metadata={"note": "disabled_for_crypto_and_income"}
             )
 
-        # 2. VIX overlay strategy (EQUITY ONLY - disabled for crypto)
-        if not is_crypto:
+        # 2. VIX overlay strategy (EQUITY GROWTH ONLY - disabled for crypto and income)
+        if not is_crypto and not is_income:
             vix_level = float(vix_level_series.get(dt, np.nan))
             vix_exposure = _vix_exposure_factor(vix_level, mode)
             vix_gate = _vix_safe_fraction(vix_level, mode)
@@ -1743,14 +1953,14 @@ def _compute_core(
                 metadata={"vix_level": vix_level}
             )
         else:
-            # Crypto waves: disable VIX overlay
+            # Crypto and income waves: disable VIX overlay
             vix_contrib = StrategyContribution(
                 name="vix_overlay",
                 exposure_impact=1.0,
                 safe_fraction_impact=0.0,
                 risk_state="neutral",
                 enabled=False,
-                metadata={"note": "disabled_for_crypto"}
+                metadata={"note": "disabled_for_crypto_and_income"}
             )
 
         # 3. Momentum strategy (weight tilting)
@@ -1959,6 +2169,135 @@ def _compute_core(
                 metadata={"note": "not_crypto_income_wave"}
             )
 
+        # ===== INCOME-SPECIFIC OVERLAYS (only active for non-crypto income waves) =====
+        
+        # 13. Income Rates/Duration Regime Overlay (for income waves only)
+        if is_income:
+            # Calculate TNX (10-year Treasury) trend using helper
+            if TNX_TICKER in price_df.columns:
+                tnx_trend_val = _calculate_price_return(price_df[TNX_TICKER], dt, 60)
+            else:
+                tnx_trend_val = np.nan
+            
+            income_rates_exp, income_rates_regime = _rates_duration_overlay(tnx_trend_val)
+            income_rates_risk_state = "risk-off" if "rising" in income_rates_regime else ("risk-on" if "falling" in income_rates_regime else "neutral")
+            
+            income_rates_contrib = StrategyContribution(
+                name="income_rates_regime",
+                exposure_impact=income_rates_exp,
+                safe_fraction_impact=0.0,
+                risk_state=income_rates_risk_state,
+                enabled=strategy_configs.get("income_rates_regime", DEFAULT_STRATEGY_CONFIGS["income_rates_regime"]).enabled,
+                metadata={"rates_regime": income_rates_regime, "tnx_trend_60d": tnx_trend_val}
+            )
+        else:
+            income_rates_contrib = StrategyContribution(
+                name="income_rates_regime",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_income_wave"}
+            )
+        
+        # 14. Income Credit/Risk Regime Overlay (for income waves only)
+        if is_income:
+            # Calculate HYG vs LQD spread (relative performance) using helper
+            if HYG_TICKER in price_df.columns and LQD_TICKER in price_df.columns:
+                hyg_val = _calculate_price_return(price_df[HYG_TICKER], dt, 20)
+                lqd_val = _calculate_price_return(price_df[LQD_TICKER], dt, 20)
+                
+                if not np.isnan(hyg_val) and not np.isnan(lqd_val):
+                    hyg_lqd_spread = hyg_val - lqd_val
+                else:
+                    hyg_lqd_spread = np.nan
+            else:
+                hyg_lqd_spread = np.nan
+            
+            income_credit_exp, income_credit_safe, income_credit_regime = _credit_risk_overlay(hyg_lqd_spread)
+            income_credit_risk_state = "risk-on" if income_credit_regime == "risk_on" else ("risk-off" if income_credit_regime == "risk_off" else "neutral")
+            
+            income_credit_contrib = StrategyContribution(
+                name="income_credit_regime",
+                exposure_impact=income_credit_exp,
+                safe_fraction_impact=income_credit_safe,
+                risk_state=income_credit_risk_state,
+                enabled=strategy_configs.get("income_credit_regime", DEFAULT_STRATEGY_CONFIGS["income_credit_regime"]).enabled,
+                metadata={"credit_regime": income_credit_regime, "hyg_lqd_spread": hyg_lqd_spread}
+            )
+        else:
+            income_credit_contrib = StrategyContribution(
+                name="income_credit_regime",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_income_wave"}
+            )
+        
+        # 15. Income Carry + Drawdown Guard Overlay (for income waves only)
+        if is_income:
+            # Calculate current drawdown and recent volatility
+            if len(wave_ret_list) >= 1:
+                wave_nav_series = pd.Series(wave_ret_list, index=dates)
+                wave_nav_cumulative = (1.0 + wave_nav_series).cumprod()
+                peak_nav = wave_nav_cumulative.max()
+                current_nav = wave_nav_cumulative.iloc[-1]
+                
+                # Calculate recent volatility
+                if len(wave_ret_list) >= 20:
+                    recent_rets = np.array(wave_ret_list[-20:])
+                    recent_vol = recent_rets.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+                else:
+                    recent_vol = 0.05  # Default low vol for income
+            else:
+                peak_nav = 1.0
+                current_nav = 1.0
+                recent_vol = 0.05
+            
+            income_dd_safe, income_dd_state = _drawdown_guard_overlay(current_nav, peak_nav, recent_vol)
+            income_dd_risk_state = "risk-off" if income_dd_state in ("moderate", "severe") else "neutral"
+            
+            income_drawdown_contrib = StrategyContribution(
+                name="income_drawdown_guard",
+                exposure_impact=1.0,
+                safe_fraction_impact=income_dd_safe,
+                risk_state=income_dd_risk_state,
+                enabled=strategy_configs.get("income_drawdown_guard", DEFAULT_STRATEGY_CONFIGS["income_drawdown_guard"]).enabled,
+                metadata={"stress_state": income_dd_state, "recent_vol": recent_vol, "drawdown": (current_nav / peak_nav - 1.0) if peak_nav > 0 else 0.0}
+            )
+        else:
+            income_drawdown_contrib = StrategyContribution(
+                name="income_drawdown_guard",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_income_wave"}
+            )
+        
+        # 16. Income Turnover Discipline Overlay (for income waves only)
+        # Note: Turnover discipline is primarily enforced through weight stability
+        # This overlay serves as a placeholder for future turnover monitoring
+        if is_income:
+            income_turnover_contrib = StrategyContribution(
+                name="income_turnover_discipline",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=strategy_configs.get("income_turnover_discipline", DEFAULT_STRATEGY_CONFIGS["income_turnover_discipline"]).enabled,
+                metadata={"note": "low_turnover_enforced"}
+            )
+        else:
+            income_turnover_contrib = StrategyContribution(
+                name="income_turnover_discipline",
+                exposure_impact=1.0,
+                safe_fraction_impact=0.0,
+                risk_state="neutral",
+                enabled=False,
+                metadata={"note": "not_income_wave"}
+            )
+
         # ===== Aggregate All Strategy Contributions =====
         all_contributions = [
             mode_contrib,
@@ -1973,6 +2312,10 @@ def _compute_core(
             crypto_vol_contrib,
             crypto_liquidity_contrib,
             crypto_income_contrib,
+            income_rates_contrib,
+            income_credit_contrib,
+            income_drawdown_contrib,
+            income_turnover_contrib,
         ]
 
         # Aggregate strategies into final exposure and safe fraction
@@ -2012,12 +2355,12 @@ def _compute_core(
 
         if shadow:
             # Legacy diagnostics (backward compatible)
-            # For crypto waves, regime/vix may not be defined
-            diag_regime = regime_contrib.metadata.get("regime", "n/a") if not is_crypto else "n/a"
-            diag_vix = vix_contrib.metadata.get("vix_level", np.nan) if not is_crypto else np.nan
-            diag_vix_exposure = vix_contrib.exposure_impact if not is_crypto else 1.0
-            diag_vix_gate = vix_contrib.safe_fraction_impact if not is_crypto else 0.0
-            diag_regime_gate = regime_contrib.safe_fraction_impact if not is_crypto else 0.0
+            # For crypto and income waves, regime/vix may not be defined
+            diag_regime = regime_contrib.metadata.get("regime", "n/a") if not is_crypto and not is_income else "n/a"
+            diag_vix = vix_contrib.metadata.get("vix_level", np.nan) if not is_crypto and not is_income else np.nan
+            diag_vix_exposure = vix_contrib.exposure_impact if not is_crypto and not is_income else 1.0
+            diag_vix_gate = vix_contrib.safe_fraction_impact if not is_crypto and not is_income else 0.0
+            diag_regime_gate = regime_contrib.safe_fraction_impact if not is_crypto and not is_income else 0.0
             
             diag_rows.append(
                 {
@@ -2036,6 +2379,13 @@ def _compute_core(
                     "crypto_trend_regime": crypto_trend_contrib.metadata.get("crypto_regime", "n/a") if is_crypto_growth else "n/a",
                     "crypto_vol_state": crypto_vol_contrib.metadata.get("vol_state", "n/a") if is_crypto_growth else "n/a",
                     "crypto_liq_state": crypto_liquidity_contrib.metadata.get("liquidity_state", "n/a") if is_crypto else "n/a",
+                    # Add income-specific diagnostics
+                    "is_income": is_income,
+                    "income_rates_regime": income_rates_contrib.metadata.get("rates_regime", "n/a") if is_income else "n/a",
+                    "income_credit_regime": income_credit_contrib.metadata.get("credit_regime", "n/a") if is_income else "n/a",
+                    "income_stress_state": income_drawdown_contrib.metadata.get("stress_state", "n/a") if is_income else "n/a",
+                    # Strategy family tagging
+                    "strategy_family": "income" if is_income else ("crypto" if is_crypto else "equity_growth"),
                 }
             )
             
