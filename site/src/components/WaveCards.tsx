@@ -160,7 +160,7 @@ export default function WaveCards({ waves }: WaveCardsProps) {
               isExternal = true;
             }
           } catch (err) {
-            console.log("External URL failed, falling back to internal endpoint");
+            console.error("External URL failed, falling back to internal endpoint");
           }
         }
 
@@ -226,6 +226,8 @@ export default function WaveCards({ waves }: WaveCardsProps) {
         }
 
         setLiveWaves(parsedWaves);
+        // Note: External URL is assumed to be LIVE if configured and successful.
+        // Internal endpoint status is determined by CSV content (LIVE/DEMO in status column).
         setDataSource(isExternal ? "LIVE" : detectedStatus as "LIVE" | "DEMO");
       } catch (error) {
         console.error("Error fetching CSV data:", error);

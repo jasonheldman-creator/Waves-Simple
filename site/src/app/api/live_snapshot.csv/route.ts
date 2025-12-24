@@ -20,7 +20,7 @@ export async function GET() {
     ];
     
     // Deduplicate by wave_id (use Map to preserve order)
-    const waveMap = new Map();
+    const waveMap = new Map<string, typeof waves[0]>();
     for (const wave of waves) {
       if (!waveMap.has(wave.wave_id)) {
         waveMap.set(wave.wave_id, wave);
