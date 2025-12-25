@@ -38,6 +38,7 @@ export default function ScreenshotSection({ screenshot, reverse = false }: Scree
                   src={imagePath} 
                   alt={screenshot.alt} 
                   fill
+                  sizes="(max-width: 1024px) 100vw, 50vw"
                   className="object-contain"
                 />
               </div>
