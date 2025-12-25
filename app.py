@@ -5467,7 +5467,9 @@ def render_wave_identity_card(selected_wave: str, mode: str):
             """
             
             # Render using st.components.v1.html()
-            components.html(html_content, height=350, scrolling=False)
+            # Increased height to 600px to prevent clipping on mobile devices
+            # Enabled scrolling to ensure all content is accessible
+            components.html(html_content, height=600, scrolling=True)
             
         except Exception as component_error:
             # Fallback to Streamlit-native layout
