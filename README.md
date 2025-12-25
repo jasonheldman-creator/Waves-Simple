@@ -19,6 +19,27 @@ WAVES Intelligence™ - Institutional Console v2
 
 WAVES Intelligence™ provides advanced portfolio analytics, alpha attribution, and decision-making tools for institutional investors. The system tracks multiple investment "waves" with comprehensive performance metrics, risk analysis, and automated reporting.
 
+### Live Snapshot CSV Data Priority
+
+The marketing site's wave performance data follows a resilient three-tier fetch priority:
+
+1. **External CSV** (`NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL`) - Primary source when configured
+   - Set this environment variable to point to an external CSV endpoint
+   - Provides real-time live data from external systems
+   - Falls back to next priority if unavailable
+
+2. **Internal API** (`/api/live_snapshot.csv`) - Secondary fallback
+   - Serves data from the repository's `wave_history.csv` file
+   - Automatically used if external source is not configured or fails
+   - Provides latest validated snapshot data
+
+3. **Deterministic Demo Data** - Final fallback
+   - Hardcoded demonstration data
+   - Ensures the site always displays meaningful content
+   - Clearly labeled as "DEMO" in the UI
+
+All fetch requests use `cache: "no-store"` to ensure fresh data. The UI displays "LIVE" or "DEMO" badges to indicate the exact data source being used.
+
 ## Quick Start
 
 ### Installation
