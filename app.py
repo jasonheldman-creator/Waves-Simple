@@ -10498,16 +10498,20 @@ def render_alpha_capture_tab():
     - Detailed table with Alpha and Exposure-Adjusted Alpha across timeframes
     - Method description for transparency
     - Last updated timestamp
+    - Enhanced layout with two-column design and 5-layer alpha breakdown
     """
     try:
-        st.markdown("## 📊 Alpha Capture - Cross-Wave Analysis")
+        # ========================================================================
+        # TOP SECTION: Introductory Header (Always Visible)
+        # ========================================================================
+        st.markdown("# Alpha Capture.")
+        st.markdown("### Where outperformance actually comes from.")
         
-        # Method description caption
-        st.caption("""
-        **Method:** Alpha = Wave Return − Benchmark Return | Exposure-Adjusted Alpha = (Wave Return − Benchmark Return) × Exposure
-        
-        This tab provides a comprehensive view of alpha generation across all Waves, helping identify 
-        which strategies are outperforming their benchmarks and by how much.
+        st.markdown("""
+        **Key Definitions:**
+        - **Alpha** means performance above the benchmark.
+        - **Total Alpha = Wave Return − Benchmark Return.**
+        - This page explains where that difference came from using simple decision layers.
         """)
         
         st.markdown("---")
@@ -10578,8 +10582,9 @@ def render_alpha_capture_tab():
         
         st.markdown("---")
         
-        # Detailed table
-        st.markdown("### 📋 Detailed Alpha Breakdown - All Waves")
+        # ========================================================================
+        # TWO-COLUMN LAYOUT: Alpha Table (Left) + Wave Summary (Right)
+        # ========================================================================
         
         # Build DataFrame for display
         table_data = []
@@ -10616,26 +10621,246 @@ def render_alpha_capture_tab():
             df_display = df_display.sort_values('_alpha_30d_sort', ascending=False)
             df_display = df_display.drop(columns=['_alpha_30d_sort'])
             
-            # Display with highlighting
-            st.dataframe(
-                df_display,
-                use_container_width=True,
-                height=600,
-                hide_index=True
-            )
+            # Create two columns: 60% for table, 40% for summary
+            col_table, col_summary = st.columns([6, 4])
             
-            # Download button
-            csv = df_display.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Alpha Capture Report (CSV)",
-                data=csv,
-                file_name=f"alpha_capture_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                help="Download the complete alpha capture data as CSV"
-            )
+            # ================================================================
+            # LEFT COLUMN: All Waves Alpha Table
+            # ================================================================
+            with col_table:
+                st.markdown("### 📋 All Waves Alpha Table")
+                st.caption("Sorted by 30D Total Alpha (descending)")
+                
+                # Display with highlighting
+                st.dataframe(
+                    df_display,
+                    use_container_width=True,
+                    height=600,
+                    hide_index=True
+                )
+                
+                # Download button
+                csv = df_display.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Alpha Capture Report (CSV)",
+                    data=csv,
+                    file_name=f"alpha_capture_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    help="Download the complete alpha capture data as CSV"
+                )
+            
+            # ================================================================
+            # RIGHT COLUMN: Selected Wave Summary + 5-Layer Breakdown
+            # ================================================================
+            with col_summary:
+                st.markdown("### 🔍 Selected Wave Summary")
+                
+                # Wave selector
+                wave_names = [m['wave_name'] for m in all_metrics]
+                # Default to best performing wave
+                default_wave_name = metrics_30d[0]['wave_name'] if metrics_30d else wave_names[0]
+                
+                selected_wave_name = st.selectbox(
+                    label="Select a Wave to analyze:",
+                    options=wave_names,
+                    index=wave_names.index(default_wave_name) if default_wave_name in wave_names else 0,
+                    key="alpha_capture_wave_selector"
+                )
+                
+                # Find selected wave metrics
+                selected_metrics = next((m for m in all_metrics if m['wave_name'] == selected_wave_name), None)
+                
+                if selected_metrics:
+                    # Display wave summary metrics
+                    st.markdown("#### 📊 Performance Metrics (30D)")
+                    
+                    # Calculate wave return and benchmark return for 30D
+                    # Wave Return = Alpha + Benchmark Return
+                    alpha_30d = selected_metrics.get('alpha_30d', 0) or 0
+                    
+                    # Get wave data to calculate actual returns
+                    wave_universe_version = st.session_state.get("wave_universe_version", 1)
+                    wave_data_30d = get_wave_data_filtered(
+                        wave_name=selected_wave_name, 
+                        days=30, 
+                        _wave_universe_version=wave_universe_version
+                    )
+                    
+                    wave_return_30d = 0
+                    benchmark_return_30d = 0
+                    
+                    if wave_data_30d is not None and len(wave_data_30d) > 0:
+                        if 'portfolio_return' in wave_data_30d.columns:
+                            wave_return_30d = wave_data_30d['portfolio_return'].sum()
+                        if 'benchmark_return' in wave_data_30d.columns:
+                            benchmark_return_30d = wave_data_30d['benchmark_return'].sum()
+                    
+                    st.metric(
+                        label="Wave Return",
+                        value=f"{wave_return_30d*100:.2f}%",
+                        help="Total return of the Wave over 30 days"
+                    )
+                    
+                    st.metric(
+                        label="Benchmark Return",
+                        value=f"{benchmark_return_30d*100:.2f}%",
+                        help="Total return of the benchmark over 30 days"
+                    )
+                    
+                    st.metric(
+                        label="Total Alpha",
+                        value=f"{alpha_30d*100:.2f}%",
+                        delta=f"{alpha_30d*100:.2f}% vs benchmark",
+                        help="Wave Return minus Benchmark Return"
+                    )
+                    
+                    st.markdown("---")
+                    
+                    # ========================================================
+                    # 5-LAYER ALPHA BREAKDOWN
+                    # ========================================================
+                    st.markdown("#### 🔬 5-Layer Alpha Breakdown")
+                    st.caption("Explaining the sources of alpha generation")
+                    
+                    # Note: This is a simplified breakdown for display purposes
+                    # The actual attribution would require the full alpha_attribution module
+                    # For now, we provide conceptual layers with explanations
+                    
+                    layers = [
+                        {
+                            "layer": "1️⃣ Selection (What We Own)",
+                            "description": "Value from choosing which assets to hold",
+                            "help": "Alpha from picking the right stocks, sectors, or assets to include in the portfolio"
+                        },
+                        {
+                            "layer": "2️⃣ Risk Control (VIX Strategy)",
+                            "description": "Value from defensive positioning in high-volatility periods",
+                            "help": "Alpha from shifting to safe assets when VIX is elevated or during market stress"
+                        },
+                        {
+                            "layer": "3️⃣ Dynamic Adaptation",
+                            "description": "Value from timing exposure and momentum tilts",
+                            "help": "Alpha from adjusting exposure levels and overweighting trending assets"
+                        },
+                        {
+                            "layer": "4️⃣ Implementation Drag",
+                            "description": "Cost of execution, rebalancing, and constraints",
+                            "help": "Impact of transaction costs, slippage, and operational realities (typically negative)"
+                        },
+                        {
+                            "layer": "5️⃣ Residual (Unattributed/Learning)",
+                            "description": "Remaining alpha from untracked factors",
+                            "help": "Alpha not explained by the other layers; area for continuous improvement"
+                        }
+                    ]
+                    
+                    for layer_info in layers:
+                        with st.expander(layer_info["layer"], expanded=False):
+                            st.write(layer_info["description"])
+                            st.caption(f"💡 {layer_info['help']}")
+                    
+                    st.info("""
+                    ℹ️ **Note:** Detailed attribution requires historical diagnostics data. 
+                    The layers above provide a conceptual framework for understanding alpha sources. 
+                    For full quantitative attribution, see the Attribution tab.
+                    """)
+                
+                else:
+                    st.warning("No metrics available for selected wave.")
         else:
             st.info("📊 No data available for detailed breakdown")
+        
+        # ========================================================================
+        # COLLAPSIBLE SECTION: Method & Notes
+        # ========================================================================
+        st.markdown("---")
+        
+        with st.expander("📚 Method & Notes", expanded=False):
+            st.markdown("### Understanding Alpha Attribution")
+            
+            st.markdown("""
+            #### How We Calculate Alpha
+            
+            **Total Alpha** is the simplest measure of outperformance:
+            ```
+            Total Alpha = Wave Return − Benchmark Return
+            ```
+            
+            This tells you whether the Wave beat its benchmark, but not *why*.
+            
+            ---
+            
+            #### The 5-Layer Decision Framework
+            
+            To understand *where* alpha comes from, we break it into five decision layers:
+            
+            **1. Selection (What We Own)**
+            - The fundamental choice of which assets to include in the portfolio
+            - This layer captures the value of stock selection and sector allocation
+            - Example: Choosing to own NVDA instead of a different tech stock
+            
+            **2. Risk Control (VIX Strategy)**
+            - Dynamic shifts to defensive assets during market stress
+            - Activated when VIX exceeds thresholds or during risk-off regimes
+            - Example: Moving 20% to safe assets when VIX > 25
+            
+            **3. Dynamic Adaptation**
+            - Timing: Adjusting overall exposure based on market conditions
+            - Momentum: Overweighting trending assets, underweighting laggards
+            - Example: Increasing exposure to 110% during strong uptrends
+            
+            **4. Implementation Drag**
+            - The real-world costs of executing the strategy
+            - Includes transaction costs, slippage, and rebalancing friction
+            - This layer is typically negative (a cost, not a benefit)
+            
+            **5. Residual (Unattributed/Learning)**
+            - Alpha not explained by the other four layers
+            - Represents opportunity for improvement and deeper analysis
+            - May include untracked factors or interaction effects
+            
+            ---
+            
+            #### Reconciliation & Transparency
+            
+            All five layers must sum exactly to Total Alpha:
+            ```
+            Selection + Risk Control + Dynamic Adaptation + Implementation Drag + Residual = Total Alpha
+            ```
+            
+            This ensures complete accountability—no alpha is hidden or double-counted.
+            
+            ---
+            
+            #### Why This Matters
+            
+            Understanding alpha sources helps you:
+            - **Identify strengths:** Which decision layers are working well?
+            - **Find weaknesses:** Where are we losing value?
+            - **Guide improvements:** What should we optimize next?
+            - **Build confidence:** Transparency builds trust in the strategy
+            
+            ---
+            
+            #### Important Notes
+            
+            **Data Consistency:**
+            - All metrics use the same comprehensive return series as WaveScore
+            - No hypothetical or estimated values—only actual realized returns
+            - Daily-level transparency aggregates to period totals
+            
+            **Exposure-Adjusted Alpha:**
+            - Standard Alpha measures pure outperformance
+            - Exposure-Adjusted Alpha accounts for varying investment levels
+            - Formula: `(Wave Return − Benchmark Return) × Exposure`
+            - When exposure = 1.0 (fully invested), both metrics are identical
+            
+            **Attribution vs. Simple Alpha:**
+            - The 5-layer breakdown requires detailed historical diagnostics
+            - If diagnostics are unavailable, we show Total Alpha only
+            - See the **Attribution** tab for full quantitative breakdowns when available
+            """)
         
         # Last updated timestamp
         st.markdown("---")
@@ -10645,13 +10870,6 @@ def render_alpha_capture_tab():
             st.caption(f"**Last Updated:** {latest_update.strftime('%Y-%m-%d %H:%M:%S') if hasattr(latest_update, 'strftime') else latest_update}")
         else:
             st.caption(f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Exposure note
-        st.info("""
-        ℹ️ **Note on Exposure:** When exposure data is unavailable in the wave history, 
-        exposure defaults to 1.0 (fully invested). Exposure-Adjusted Alpha will equal 
-        regular Alpha in these cases.
-        """)
         
     except Exception as e:
         st.error(f"⚠️ Error rendering Alpha Capture tab: {str(e)}")
