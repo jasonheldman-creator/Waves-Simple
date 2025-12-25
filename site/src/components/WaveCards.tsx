@@ -14,6 +14,10 @@ interface WaveData {
 
 type DataSource = "external" | "internal" | "demo";
 
+// Constants
+const EXPECTED_CSV_COLUMNS = 7; // wave_id, wave_name, status, performance_1d, performance_30d, performance_ytd, last_updated
+const REFRESH_INTERVAL_MS = 60000; // Auto-refresh every 60 seconds
+
 // Helper function to parse CSV data
 const parseCSV = (csvText: string): WaveData[] => {
   const lines = csvText.trim().split("\n");
@@ -22,11 +26,13 @@ const parseCSV = (csvText: string): WaveData[] => {
   return lines
     .slice(1)
     .map((line) => {
-      // Handle quoted fields that might contain commas
+      // Handle quoted fields that might contain commas using regex lookahead
+      // This regex splits on commas that are not inside quoted strings
+      // Reference: https://stackoverflow.com/questions/11456850/split-a-string-by-commas-but-ignore-commas-within-double-quotes
       const regex = /,(?=(?:[^"]*"[^"]*")*[^"]*$)/;
       const values = line.split(regex).map((v) => v.replace(/^"|"$/g, "").trim());
 
-      if (values.length < 7) return null;
+      if (values.length < EXPECTED_CSV_COLUMNS) return null;
 
       return {
         wave_id: values[0],
@@ -138,8 +144,8 @@ const WaveCards = () => {
 
     fetchWaveData();
     
-    // Auto-refresh every 60 seconds
-    const interval = setInterval(fetchWaveData, 60000);
+    // Auto-refresh at the specified interval
+    const interval = setInterval(fetchWaveData, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
