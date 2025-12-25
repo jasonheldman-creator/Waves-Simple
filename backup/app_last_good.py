@@ -61,6 +61,31 @@ try:
 except ImportError:
     TICKER_V3_AVAILABLE = False
 
+# Import auto-refresh configuration
+try:
+    from auto_refresh_config import (
+        DEFAULT_AUTO_REFRESH_ENABLED,
+        DEFAULT_REFRESH_INTERVAL_MS,
+        REFRESH_INTERVAL_OPTIONS,
+        get_default_settings,
+        validate_refresh_interval,
+        get_interval_display_name,
+        should_refresh_component,
+        AUTO_PAUSE_ON_ERROR,
+        MAX_CONSECUTIVE_ERRORS,
+        STATUS_FORMAT
+    )
+    AUTO_REFRESH_CONFIG_AVAILABLE = True
+except ImportError:
+    AUTO_REFRESH_CONFIG_AVAILABLE = False
+    # Fallback defaults if config module is unavailable
+    DEFAULT_AUTO_REFRESH_ENABLED = True
+    DEFAULT_REFRESH_INTERVAL_MS = 60000
+    REFRESH_INTERVAL_OPTIONS = {"1 minute": 60000, "2 minutes": 120000}
+    AUTO_PAUSE_ON_ERROR = True
+    MAX_CONSECUTIVE_ERRORS = 3
+    STATUS_FORMAT = {"enabled": "🟢 ON", "disabled": "🔴 OFF", "paused": "🟡 PAUSED", "error": "⚠️ ERROR"}
+
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
 # ============================================================================
@@ -764,7 +789,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         </div>
         """
         
-        st.markdown(banner_html, unsafe_allow_html=True)
+        # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
+        # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
+        render_html_safe(banner_html)
         
     except Exception as e:
         # Fallback to simple banner if enhanced version fails
@@ -805,7 +832,9 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
         </h2>
     </div>
     """
-    st.markdown(banner_html, unsafe_allow_html=True)
+    # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
+    # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
+    render_html_safe(banner_html)
 
 
 # ============================================================================
@@ -960,15 +989,11 @@ def render_sticky_header(selected_wave: str, mode: str):
 # ============================================================================
 
 # Legacy Crypto Waves to exclude (removed per requirement)
-# These waves are being deprecated in favor of a unified crypto approach:
-# - Single Crypto Income Wave for crypto income/yield representation
-# - Crypto Selection Engine (CSE) for broad crypto market exposure
-EXCLUDED_CRYPTO_WAVES = {
-    "Multi-Cap Crypto Growth Wave",
-    "Bitcoin Wave", 
-    "Crypto Stable Yield Wave",
-    "Crypto High-Yield Income Wave"
-}
+# All legacy crypto waves have been replaced with new crypto lineup:
+# - 5 Crypto Growth Waves (L1, DeFi, L2, AI, Broad)
+# - 1 Crypto Income Wave
+# Legacy waves no longer exist in the system
+EXCLUDED_CRYPTO_WAVES = set()  # Empty - all legacy waves removed
 
 # Crypto sector classification for CSE universe identification
 # Based on institutional crypto classification standards (Grayscale, 21Shares, MarketVector)
@@ -4394,18 +4419,34 @@ def render_mission_control():
         )
     
     with sec_col4:
-        # Auto-Refresh Status Indicator
-        auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", True)
-        if auto_refresh_enabled:
-            refresh_display = "🟢 ON (15s)"
+        # Auto-Refresh Status Indicator (Enhanced)
+        auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", DEFAULT_AUTO_REFRESH_ENABLED)
+        auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+        auto_refresh_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+        
+        # Determine status display
+        if auto_refresh_paused:
+            refresh_display = STATUS_FORMAT.get("paused", "🟡 PAUSED")
+        elif auto_refresh_enabled:
+            # Get interval in human-readable format
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                interval_name = get_interval_display_name(auto_refresh_interval_ms)
+            else:
+                interval_sec = auto_refresh_interval_ms / 1000
+                interval_name = f"{interval_sec:.0f}s"
+            refresh_display = f"{STATUS_FORMAT.get('enabled', '🟢 ON')} ({interval_name})"
         else:
-            refresh_display = "🔴 OFF"
+            refresh_display = STATUS_FORMAT.get("disabled", "🔴 OFF")
         
         st.metric(
             label="Auto-Refresh",
             value=refresh_display,
-            help="App automatically refreshes every 15 seconds"
+            help="App automatically refreshes at configured interval. Default: 1 minute"
         )
+        
+        # Show last successful refresh time
+        last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
+        st.caption(f"Last update: {last_successful_refresh.strftime('%H:%M:%S')}")
     
     with sec_col5:
         # Wave Universe Version & Last Refresh Time
@@ -4849,32 +4890,99 @@ def render_sidebar_info():
             autorefresh_available = True
     
     if autorefresh_available:
-        # Initialize auto-refresh setting
+        # Initialize auto-refresh setting (using DEFAULT from config)
         if "auto_refresh_enabled" not in st.session_state:
-            st.session_state.auto_refresh_enabled = False  # Default: OFF
+            st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+        
+        # Initialize auto-refresh interval
+        if "auto_refresh_interval_ms" not in st.session_state:
+            st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
         
         # Toggle switch
         auto_refresh_enabled = st.sidebar.checkbox(
-            "Enable Auto-Refresh (15s)",
-            value=st.session_state.auto_refresh_enabled,
+            "Enable Auto-Refresh",
+            value=st.session_state.auto_refresh_enabled and not st.session_state.get("auto_refresh_paused", False),
             key="auto_refresh_toggle",
-            help="Automatically refresh the dashboard every 15 seconds"
+            help="Automatically refresh live analytics, overlays, attribution, and diagnostics at configured interval"
         )
         
         # Update session state
         st.session_state.auto_refresh_enabled = auto_refresh_enabled
         
-        # Show status
+        # If re-enabled, reset paused state
+        if auto_refresh_enabled and st.session_state.get("auto_refresh_paused", False):
+            st.session_state.auto_refresh_paused = False
+            st.session_state.auto_refresh_error_count = 0
+            st.session_state.auto_refresh_error_message = None
+        
+        # Interval selector (only show when enabled)
         if auto_refresh_enabled:
-            st.sidebar.success("🟢 Auto-refresh is ON")
-            st.sidebar.caption("Dashboard refreshes every 15 seconds")
+            # Get interval options
+            interval_options = list(REFRESH_INTERVAL_OPTIONS.keys())
+            current_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+            
+            # Find current selection index
+            current_index = 0
+            for i, (name, value) in enumerate(REFRESH_INTERVAL_OPTIONS.items()):
+                if value == current_interval_ms:
+                    current_index = i
+                    break
+            
+            selected_interval_name = st.sidebar.selectbox(
+                "Refresh Interval",
+                options=interval_options,
+                index=current_index,
+                key="auto_refresh_interval_selector",
+                help="How frequently to refresh live data. Default: 1 minute"
+            )
+            
+            # Update interval in session state
+            st.session_state.auto_refresh_interval_ms = REFRESH_INTERVAL_OPTIONS[selected_interval_name]
+        
+        # Show status
+        auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+        
+        if auto_refresh_paused:
+            st.sidebar.error("⚠️ Auto-refresh PAUSED due to errors")
+            error_msg = st.session_state.get("auto_refresh_error_message", "Unknown error")
+            st.sidebar.caption(f"Error: {error_msg}")
+            st.sidebar.caption("Re-enable the checkbox above to resume")
+        elif auto_refresh_enabled:
+            interval_name = REFRESH_INTERVAL_OPTIONS.get(
+                st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS),
+                "1 minute"
+            )
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                interval_name = get_interval_display_name(st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS))
+            
+            st.sidebar.success(f"🟢 Auto-refresh is ON")
+            st.sidebar.caption(f"Refreshes every {interval_name}")
+            
+            # Show last successful refresh
+            last_successful = st.session_state.get("last_successful_refresh_time", datetime.now())
+            st.sidebar.caption(f"Last update: {last_successful.strftime('%H:%M:%S')}")
+            
+            # Show scope information
+            with st.sidebar.expander("ℹ️ What gets refreshed?"):
+                st.caption("**Included in auto-refresh:**")
+                st.caption("• Live analytics & metrics")
+                st.caption("• VIX overlays & regime detection")
+                st.caption("• Alpha attribution")
+                st.caption("• System diagnostics")
+                st.caption("• Summary statistics")
+                st.caption("")
+                st.caption("**Excluded (cached):**")
+                st.caption("• Historical backtests")
+                st.caption("• Heavy simulations")
+                st.caption("• Report generation")
         else:
             st.sidebar.info("🔴 Auto-refresh is OFF")
-            st.sidebar.caption("Use Force Reload to manually refresh")
+            st.sidebar.caption("Enable above for live updates")
     else:
         # Auto-refresh not available
-        st.sidebar.info("⚠️ Auto-refresh not supported in this Streamlit version")
-        st.sidebar.caption("Install streamlit-autorefresh to enable this feature: `pip install streamlit-autorefresh`")
+        st.sidebar.warning("⚠️ Auto-refresh unavailable")
+        st.sidebar.caption("Install streamlit-autorefresh:")
+        st.sidebar.code("pip install streamlit-autorefresh", language="bash")
         # Ensure auto-refresh is disabled
         st.session_state.auto_refresh_enabled = False
     
@@ -5133,6 +5241,305 @@ def render_sidebar_info():
 # ============================================================================
 
 
+def render_wave_identity_card(selected_wave: str, mode: str):
+    """
+    Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
+    
+    Renders a professional Wave Identity Card showing:
+    - Wave Name
+    - Mode Pill
+    - Key Stats: 1D, 30D, 60D, 365D Returns, Alpha, Beta, Exposure, Cash
+    
+    Uses st.components.v1.html() for rich rendering with automatic fallback to
+    Streamlit-native layout if the HTML component fails.
+    
+    Args:
+        selected_wave: Name of the selected wave
+        mode: Mode (Standard, Alpha-Minus-Beta, or Private Logic)
+    """
+    try:
+        # Get wave data for different time periods
+        data_1d = get_wave_data_filtered(wave_name=selected_wave, days=1)
+        data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+        data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
+        data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        
+        # Calculate returns for each period
+        def calc_return(data):
+            if data is not None and len(data) > 0 and 'portfolio_return' in data.columns:
+                return data['portfolio_return'].sum()
+            return None
+        
+        return_1d = calc_return(data_1d)
+        return_30d = calc_return(data_30d)
+        return_60d = calc_return(data_60d)
+        return_365d = calc_return(data_365d)
+        
+        # Calculate Alpha (30D)
+        alpha_30d = None
+        if data_30d is not None and len(data_30d) > 0:
+            if 'portfolio_return' in data_30d.columns and 'benchmark_return' in data_30d.columns:
+                alpha_30d = (data_30d['portfolio_return'] - data_30d['benchmark_return']).sum()
+        
+        # Calculate Beta (30D) - simplified correlation-based beta
+        beta_30d = None
+        if data_30d is not None and len(data_30d) > 0:
+            if 'portfolio_return' in data_30d.columns and 'benchmark_return' in data_30d.columns:
+                try:
+                    port_returns = data_30d['portfolio_return']
+                    bench_returns = data_30d['benchmark_return']
+                    covariance = np.cov(port_returns, bench_returns)[0, 1]
+                    bench_variance = np.var(bench_returns)
+                    if bench_variance > 0:
+                        beta_30d = covariance / bench_variance
+                except:
+                    pass
+        
+        # Get exposure and cash from latest data point
+        exposure = None
+        cash = None
+        if data_1d is not None and len(data_1d) > 0:
+            if 'exposure' in data_1d.columns:
+                exposure = data_1d['exposure'].iloc[-1]
+            if 'cash' in data_1d.columns:
+                cash = data_1d['cash'].iloc[-1]
+        
+        # Format values for display
+        def fmt_pct(val):
+            return f"{val*100:.2f}%" if val is not None else "N/A"
+        
+        def fmt_num(val, decimals=2):
+            return f"{val:.{decimals}f}" if val is not None else "N/A"
+        
+        # Determine mode color
+        if mode == "Standard":
+            mode_color = "#00ff88"
+        elif mode == "Alpha-Minus-Beta":
+            mode_color = "#ffd700"
+        elif mode == "Aggressive":
+            mode_color = "#ff6b6b"
+        else:
+            mode_color = "#888"
+        
+        # Try to use st.components.v1.html() for rich rendering
+        try:
+            import streamlit.components.v1 as components
+            
+            # Create HTML content for the identity card
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    }}
+                    .wave-identity-card {{
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        border: 2px solid #00ff88;
+                        border-radius: 12px;
+                        padding: 24px;
+                        margin-bottom: 20px;
+                        box-shadow: 0 4px 12px rgba(0, 255, 136, 0.2);
+                    }}
+                    .wave-name {{
+                        color: #ffffff;
+                        font-size: 28px;
+                        font-weight: bold;
+                        margin: 0 0 12px 0;
+                    }}
+                    .mode-pill {{
+                        display: inline-block;
+                        background: {mode_color};
+                        color: #1a1a2e;
+                        padding: 8px 20px;
+                        border-radius: 20px;
+                        font-weight: bold;
+                        font-size: 14px;
+                        margin-bottom: 20px;
+                    }}
+                    .stats-grid {{
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                        gap: 16px;
+                        margin-top: 16px;
+                    }}
+                    .stat-tile {{
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px solid rgba(0, 255, 136, 0.3);
+                        border-radius: 8px;
+                        padding: 12px;
+                        text-align: center;
+                    }}
+                    .stat-label {{
+                        color: #aaa;
+                        font-size: 12px;
+                        margin-bottom: 4px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }}
+                    .stat-value {{
+                        color: #ffffff;
+                        font-size: 18px;
+                        font-weight: bold;
+                    }}
+                    .stat-value.positive {{
+                        color: #00ff88;
+                    }}
+                    .stat-value.negative {{
+                        color: #ff6b6b;
+                    }}
+                    @media only screen and (max-width: 768px) {{
+                        .wave-identity-card {{
+                            padding: 16px;
+                            margin-bottom: 16px;
+                        }}
+                        .wave-name {{
+                            font-size: 22px;
+                            margin-bottom: 10px;
+                        }}
+                        .mode-pill {{
+                            padding: 6px 16px;
+                            font-size: 12px;
+                            margin-bottom: 16px;
+                        }}
+                        .stats-grid {{
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: 12px;
+                        }}
+                        .stat-tile {{
+                            padding: 10px;
+                        }}
+                        .stat-label {{
+                            font-size: 11px;
+                        }}
+                        .stat-value {{
+                            font-size: 16px;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="wave-identity-card">
+                    <h1 class="wave-name">🌊 {selected_wave}</h1>
+                    <div class="mode-pill">MODE: {mode}</div>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-tile">
+                            <div class="stat-label">1D Return</div>
+                            <div class="stat-value {'positive' if return_1d and return_1d > 0 else 'negative' if return_1d and return_1d < 0 else ''}">{fmt_pct(return_1d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">30D Return</div>
+                            <div class="stat-value {'positive' if return_30d and return_30d > 0 else 'negative' if return_30d and return_30d < 0 else ''}">{fmt_pct(return_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">60D Return</div>
+                            <div class="stat-value {'positive' if return_60d and return_60d > 0 else 'negative' if return_60d and return_60d < 0 else ''}">{fmt_pct(return_60d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">365D Return</div>
+                            <div class="stat-value {'positive' if return_365d and return_365d > 0 else 'negative' if return_365d and return_365d < 0 else ''}">{fmt_pct(return_365d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Alpha (30D)</div>
+                            <div class="stat-value {'positive' if alpha_30d and alpha_30d > 0 else 'negative' if alpha_30d and alpha_30d < 0 else ''}">{fmt_pct(alpha_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Beta</div>
+                            <div class="stat-value">{fmt_num(beta_30d)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Exposure</div>
+                            <div class="stat-value">{fmt_pct(exposure)}</div>
+                        </div>
+                        <div class="stat-tile">
+                            <div class="stat-label">Cash</div>
+                            <div class="stat-value">{fmt_pct(cash)}</div>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Render using st.components.v1.html()
+            components.html(html_content, height=350, scrolling=False)
+            
+        except Exception as component_error:
+            # Fallback to Streamlit-native layout
+            _render_wave_identity_card_fallback(
+                selected_wave, mode, mode_color,
+                return_1d, return_30d, return_60d, return_365d,
+                alpha_30d, beta_30d, exposure, cash
+            )
+    
+    except Exception as e:
+        # Ultimate fallback - show minimal info
+        st.error(f"⚠️ Wave Identity Card unavailable: {str(e)}")
+        st.info(f"**Selected Wave:** {selected_wave} | **Mode:** {mode}")
+
+
+def _render_wave_identity_card_fallback(
+    selected_wave, mode, mode_color,
+    return_1d, return_30d, return_60d, return_365d,
+    alpha_30d, beta_30d, exposure, cash
+):
+    """
+    Fallback rendering for Wave Identity Card using native Streamlit components only.
+    No HTML, no unsafe_allow_html - pure Streamlit UI.
+    """
+    # Format values
+    def fmt_pct(val):
+        return f"{val*100:.2f}%" if val is not None else "N/A"
+    
+    def fmt_num(val, decimals=2):
+        return f"{val:.{decimals}f}" if val is not None else "N/A"
+    
+    # Create container for the card
+    with st.container():
+        # Wave name and mode
+        st.subheader(f"🌊 {selected_wave}")
+        
+        # Mode indicator using colored text (no HTML)
+        mode_emoji = "🟢" if mode == "Standard" else "🟡" if mode == "Alpha-Minus-Beta" else "🔴"
+        st.markdown(f"**{mode_emoji} MODE:** {mode}")
+        
+        st.markdown("---")
+        
+        # Stats in a grid layout using columns
+        st.markdown("**Key Statistics**")
+        
+        # Row 1: Returns
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            delta_1d = None if return_1d is None else return_1d
+            st.metric("1D Return", fmt_pct(return_1d), delta=fmt_pct(delta_1d) if delta_1d else None)
+        with col2:
+            st.metric("30D Return", fmt_pct(return_30d))
+        with col3:
+            st.metric("60D Return", fmt_pct(return_60d))
+        with col4:
+            st.metric("365D Return", fmt_pct(return_365d))
+        
+        # Row 2: Alpha, Beta, Exposure, Cash
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Alpha (30D)", fmt_pct(alpha_30d))
+        with col2:
+            st.metric("Beta", fmt_num(beta_30d))
+        with col3:
+            st.metric("Exposure", fmt_pct(exposure))
+        with col4:
+            st.metric("Cash", fmt_pct(cash))
+        
+        # Add bottom padding for sticky bar compatibility
+        st.markdown("<br>", unsafe_allow_html=True)
+
+
 def render_wave_intelligence_center_tab():
     """
     Render the Intelligence Center (Vector v3) tab - Cross-Wave Correlation & Insights.
@@ -5210,36 +5617,14 @@ def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
     
     Vector v3 focuses on cross-wave correlation and insights.
     """
-    # Header with Vector v3 badge
+    # Header
     st.header("🧠 Intelligence Center")
     
-    # Vector v3 badge (mobile-responsive)
-    badge_html = """
-    <style>
-        .vector-v3-badge {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-        
-        @media only screen and (max-width: 768px) {
-            .vector-v3-badge {
-                font-size: 11px;
-                padding: 5px 12px;
-            }
-        }
-    </style>
-    <div class="vector-v3-badge">Vector v3</div>
-    """
-    st.markdown(badge_html, unsafe_allow_html=True)
+    # Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
+    # Render the Wave Identity Card at the top
+    render_wave_identity_card(selected_wave, mode)
     
-    st.write("Cross-Wave Correlation Analysis & Market Intelligence")
+    st.write("**Cross-Wave Correlation Analysis & Market Intelligence**")
     
     st.divider()
     
@@ -5854,21 +6239,10 @@ def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
     
     st.divider()
     
-    # Footer with mobile padding
-    st.markdown("""
-    <style>
-        /* Global bottom padding to prevent overlap with sticky bar */
-        .main .block-container {
-            padding-bottom: 80px !important;
-        }
-        
-        @media only screen and (max-width: 768px) {
-            .main .block-container {
-                padding-bottom: 120px !important;
-            }
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # Add bottom padding to prevent overlap with sticky bar (mobile-compatible)
+    # Using native Streamlit spacing instead of HTML
+    st.markdown("")
+    st.markdown("")
     
     st.markdown("---")
     st.caption("Intelligence Center (Vector v3) - Cross-Wave Correlation & Market Insights")
@@ -10231,9 +10605,29 @@ def main():
     if "last_refresh_time" not in st.session_state:
         st.session_state.last_refresh_time = datetime.now()
     
-    # Initialize auto_refresh_enabled if not present (default: OFF)
+    # Initialize last_successful_refresh_time if not present
+    if "last_successful_refresh_time" not in st.session_state:
+        st.session_state.last_successful_refresh_time = datetime.now()
+    
+    # Initialize auto_refresh_enabled if not present (default: ON per requirements)
     if "auto_refresh_enabled" not in st.session_state:
-        st.session_state.auto_refresh_enabled = False
+        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+    
+    # Initialize auto_refresh_interval if not present (default: 60 seconds)
+    if "auto_refresh_interval_ms" not in st.session_state:
+        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
+    
+    # Initialize auto_refresh_error_count for error handling
+    if "auto_refresh_error_count" not in st.session_state:
+        st.session_state.auto_refresh_error_count = 0
+    
+    # Initialize auto_refresh_paused flag
+    if "auto_refresh_paused" not in st.session_state:
+        st.session_state.auto_refresh_paused = False
+    
+    # Initialize auto_refresh_error_message
+    if "auto_refresh_error_message" not in st.session_state:
+        st.session_state.auto_refresh_error_message = None
     
     # Initialize show_bottom_ticker if not present (default: ON)
     if "show_bottom_ticker" not in st.session_state:
@@ -10248,21 +10642,51 @@ def main():
         st.session_state.mode = "Standard"
     
     # ========================================================================
-    # Auto-Refresh Logic (15-second interval)
+    # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
-    # Check if auto-refresh is enabled and supported
-    if st.session_state.auto_refresh_enabled:
+    # Check if auto-refresh is enabled, not paused, and supported
+    if st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
         try:
             # Try using streamlit-autorefresh if available
             from streamlit_autorefresh import st_autorefresh
-            # Refresh every 15000ms (15 seconds) - only refreshes Overview/Executive
-            st_autorefresh(interval=15000, key="auto_refresh_counter")
+            
+            # Get current refresh interval from session state
+            refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+            
+            # Validate interval
+            if AUTO_REFRESH_CONFIG_AVAILABLE:
+                refresh_interval = validate_refresh_interval(refresh_interval)
+            
+            # Execute auto-refresh
+            count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
+            
+            # Update last refresh time on successful refresh
+            st.session_state.last_refresh_time = datetime.now()
+            st.session_state.last_successful_refresh_time = datetime.now()
+            
+            # Reset error count on successful refresh
+            if count > 0:
+                st.session_state.auto_refresh_error_count = 0
+                st.session_state.auto_refresh_error_message = None
+            
         except ImportError:
             # Fallback: Check if built-in autorefresh is available
             if hasattr(st, 'autorefresh'):
-                st.autorefresh(interval=15000)
-            # If neither is available, do nothing (auto-refresh disabled)
+                refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
+                st.autorefresh(interval=refresh_interval)
+                st.session_state.last_refresh_time = datetime.now()
+                st.session_state.last_successful_refresh_time = datetime.now()
+            # If neither is available, auto-refresh is disabled (silent fail)
+        except Exception as e:
+            # Error during auto-refresh - handle according to config
+            st.session_state.auto_refresh_error_count += 1
+            st.session_state.auto_refresh_error_message = str(e)
+            
+            # Auto-pause if enabled and error threshold reached
+            if AUTO_PAUSE_ON_ERROR and st.session_state.auto_refresh_error_count >= MAX_CONSECUTIVE_ERRORS:
+                st.session_state.auto_refresh_paused = True
+                st.session_state.auto_refresh_enabled = False
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
