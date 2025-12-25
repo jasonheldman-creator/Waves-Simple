@@ -164,17 +164,35 @@ async function fetchLiveSnapshotCSV(url: string): Promise<{
   // Parse CSV rows (skip header)
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    const values = line.split(',');
+    
+    // Simple CSV parsing that handles quoted fields with commas
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        values.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current); // Push the last value
     
     if (values.length < 7) continue;
     
-    const wave_id = values[0];
-    const wave_name = values[1].replace(/^"|"$/g, ''); // Remove quotes
-    const status = values[2];
+    const wave_id = values[0].trim();
+    const wave_name = values[1].trim();
+    const status = values[2].trim();
     const performance_1d = parseFloat(values[3]);
     const performance_30d = parseFloat(values[4]);
     const performance_ytd = parseFloat(values[5]);
-    const last_updated = values[6];
+    const last_updated = values[6].trim();
     
     const isSynthetic = status === "DEMO";
     if (isSynthetic) syntheticCount++;
@@ -192,6 +210,8 @@ async function fetchLiveSnapshotCSV(url: string): Promise<{
     waves.push({
       wave_id,
       display_name: wave_name,
+      // Note: CSV values are already in percentage form (e.g., 1.5 = 1.5%)
+      // No need to multiply by 100 like we do for wave_history.csv
       todayReturn: performance_1d,
       todayReturnVsBenchmark: 0, // Not available in CSV
       weekReturn: 0, // Not available in CSV
