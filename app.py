@@ -10533,19 +10533,6 @@ def render_alpha_capture_tab():
         # ========================================================================
         with col_left:
             st.markdown("### 📋 All Waves Alpha Table")
-        
-        # ========================================================================
-        # MAIN CONTENT AREA - Two Columns
-        # ========================================================================
-        
-        # Create two columns: Left (Primary - Table), Right (Summary & Breakdown)
-        col_left, col_right = st.columns([2, 1])
-        
-        # ========================================================================
-        # LEFT COLUMN - All Waves Alpha Table
-        # ========================================================================
-        with col_left:
-            st.markdown("### 📋 All Waves Alpha Table")
             
             # Build DataFrame for display
             table_data = []
