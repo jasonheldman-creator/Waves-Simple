@@ -2345,6 +2345,164 @@ def calculate_portfolio_metrics(wave_names, weights, days):
         return None
 
 
+def compute_alpha_metrics_for_wave(wave_name, wave_id=None):
+    """
+    Compute Alpha and Exposure-Adjusted Alpha for a single wave across all timeframes.
+    
+    This is the canonical helper function for Alpha Capture calculations.
+    Reuses existing engine outputs and datasets (wave_history.csv).
+    
+    Args:
+        wave_name: Display name of the wave
+        wave_id: Optional wave ID for reference
+        
+    Returns:
+        Dictionary with:
+        - wave_name: Display name
+        - wave_id: Wave ID (if available)
+        - alpha_1d: 1-day alpha
+        - alpha_30d: 30-day alpha
+        - alpha_60d: 60-day alpha  
+        - alpha_365d: 365-day alpha
+        - exp_adj_alpha_1d: Exposure-adjusted 1-day alpha
+        - exp_adj_alpha_30d: Exposure-adjusted 30-day alpha
+        - exp_adj_alpha_60d: Exposure-adjusted 60-day alpha
+        - exp_adj_alpha_365d: Exposure-adjusted 365-day alpha
+        - exposure_1d: 1-day exposure (defaults to 1.0)
+        - exposure_30d: 30-day average exposure (defaults to 1.0)
+        - exposure_60d: 60-day average exposure (defaults to 1.0)
+        - exposure_365d: 365-day average exposure (defaults to 1.0)
+        - last_updated: Last data update timestamp
+    """
+    metrics = {
+        'wave_name': wave_name,
+        'wave_id': wave_id if wave_id else 'N/A',
+        'alpha_1d': None,
+        'alpha_30d': None,
+        'alpha_60d': None,
+        'alpha_365d': None,
+        'exp_adj_alpha_1d': None,
+        'exp_adj_alpha_30d': None,
+        'exp_adj_alpha_60d': None,
+        'exp_adj_alpha_365d': None,
+        'exposure_1d': 1.0,
+        'exposure_30d': 1.0,
+        'exposure_60d': 1.0,
+        'exposure_365d': 1.0,
+        'last_updated': None
+    }
+    
+    try:
+        # Get wave universe version
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # Load data for all timeframes
+        data_1d = get_wave_data_filtered(wave_name=wave_name, days=1, _wave_universe_version=wave_universe_version)
+        data_30d = get_wave_data_filtered(wave_name=wave_name, days=30, _wave_universe_version=wave_universe_version)
+        data_60d = get_wave_data_filtered(wave_name=wave_name, days=60, _wave_universe_version=wave_universe_version)
+        data_365d = get_wave_data_filtered(wave_name=wave_name, days=365, _wave_universe_version=wave_universe_version)
+        
+        # Helper function to calculate alpha and exposure-adjusted alpha for a timeframe
+        def calc_alpha_metrics(data):
+            if data is None or len(data) == 0:
+                return None, None, 1.0, None
+            
+            alpha = None
+            exp_adj_alpha = None
+            avg_exposure = 1.0
+            last_date = None
+            
+            # Calculate alpha (Wave Return - Benchmark Return)
+            if 'portfolio_return' in data.columns and 'benchmark_return' in data.columns:
+                wave_return = data['portfolio_return'].sum()
+                benchmark_return = data['benchmark_return'].sum()
+                alpha = wave_return - benchmark_return
+                
+                # Calculate exposure-adjusted alpha
+                if 'exposure' in data.columns:
+                    # Use actual exposure data
+                    avg_exposure = data['exposure'].fillna(1.0).mean()
+                    # Exposure-Adjusted Alpha = (Wave Return - Benchmark Return) × Exposure
+                    exp_adj_alpha = alpha * avg_exposure
+                else:
+                    # Default to 1.0 exposure (fully invested)
+                    exp_adj_alpha = alpha * 1.0
+                
+                # Get last updated date
+                if 'date' in data.columns:
+                    last_date = data['date'].max()
+            
+            return alpha, exp_adj_alpha, avg_exposure, last_date
+        
+        # Calculate metrics for each timeframe
+        alpha_1d, exp_adj_1d, exposure_1d, date_1d = calc_alpha_metrics(data_1d)
+        alpha_30d, exp_adj_30d, exposure_30d, date_30d = calc_alpha_metrics(data_30d)
+        alpha_60d, exp_adj_60d, exposure_60d, date_60d = calc_alpha_metrics(data_60d)
+        alpha_365d, exp_adj_365d, exposure_365d, date_365d = calc_alpha_metrics(data_365d)
+        
+        # Update metrics
+        metrics['alpha_1d'] = alpha_1d
+        metrics['alpha_30d'] = alpha_30d
+        metrics['alpha_60d'] = alpha_60d
+        metrics['alpha_365d'] = alpha_365d
+        metrics['exp_adj_alpha_1d'] = exp_adj_1d
+        metrics['exp_adj_alpha_30d'] = exp_adj_30d
+        metrics['exp_adj_alpha_60d'] = exp_adj_60d
+        metrics['exp_adj_alpha_365d'] = exp_adj_365d
+        metrics['exposure_1d'] = exposure_1d
+        metrics['exposure_30d'] = exposure_30d
+        metrics['exposure_60d'] = exposure_60d
+        metrics['exposure_365d'] = exposure_365d
+        
+        # Use the most recent date available
+        last_dates = [d for d in [date_1d, date_30d, date_60d, date_365d] if d is not None]
+        if last_dates:
+            metrics['last_updated'] = max(last_dates)
+        
+    except Exception:
+        pass  # Return metrics with default/None values
+    
+    return metrics
+
+
+def compute_alpha_metrics_all_waves():
+    """
+    Compute Alpha and Exposure-Adjusted Alpha for all waves.
+    
+    Returns:
+        List of dictionaries, one per wave, with alpha metrics across all timeframes.
+    """
+    all_metrics = []
+    
+    try:
+        # Get all waves from the universe
+        waves = get_wave_universe()
+        
+        # Get wave_history to extract wave_ids if available
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        wave_id_map = {}
+        if wave_history is not None and 'wave' in wave_history.columns and 'wave_id' in wave_history.columns:
+            # Create mapping from display_name to wave_id
+            for _, row in wave_history.iterrows():
+                wave_name = row.get('wave', row.get('display_name', ''))
+                wave_id = row.get('wave_id', None)
+                if wave_name and wave_id:
+                    wave_id_map[wave_name] = wave_id
+        
+        # Compute metrics for each wave
+        for wave_name in waves:
+            wave_id = wave_id_map.get(wave_name, None)
+            metrics = compute_alpha_metrics_for_wave(wave_name, wave_id)
+            all_metrics.append(metrics)
+    
+    except Exception:
+        pass  # Return empty list on error
+    
+    return all_metrics
+
+
 # ============================================================================
 # WAVE UNIVERSE TRUTH LAYER - Diagnostics and Freshness
 # ============================================================================
@@ -10329,6 +10487,178 @@ def generate_ic_pack_html():
         return f"<html><body><h1>Error generating report</h1><p>{str(e)}</p></body></html>"
 
 
+def render_alpha_capture_tab():
+    """
+    Render the Alpha Capture tab.
+    
+    This tab aggregates alpha data across all Waves using existing data and benchmarks.
+    
+    Features:
+    - Summary metrics (Total Alpha, % Waves Positive Alpha, Best/Worst Waves)
+    - Detailed table with Alpha and Exposure-Adjusted Alpha across timeframes
+    - Method description for transparency
+    - Last updated timestamp
+    """
+    try:
+        st.markdown("## 📊 Alpha Capture - Cross-Wave Analysis")
+        
+        # Method description caption
+        st.caption("""
+        **Method:** Alpha = Wave Return − Benchmark Return | Exposure-Adjusted Alpha = (Wave Return − Benchmark Return) × Exposure
+        
+        This tab provides a comprehensive view of alpha generation across all Waves, helping identify 
+        which strategies are outperforming their benchmarks and by how much.
+        """)
+        
+        st.markdown("---")
+        
+        # Compute alpha metrics for all waves
+        with st.spinner("Computing alpha metrics across all waves..."):
+            all_metrics = compute_alpha_metrics_all_waves()
+        
+        if not all_metrics:
+            st.warning("⚠️ No alpha data available. Please ensure wave_history.csv contains valid data.")
+            return
+        
+        # Calculate summary metrics
+        st.markdown("### 📈 Summary Metrics (30-Day)")
+        
+        # Filter metrics with valid 30D alpha
+        metrics_30d = [m for m in all_metrics if m['alpha_30d'] is not None]
+        
+        if metrics_30d:
+            # Total Alpha (average across all waves)
+            total_alpha_30d = np.mean([m['alpha_30d'] for m in metrics_30d])
+            
+            # % Waves with Positive Alpha
+            positive_count = len([m for m in metrics_30d if m['alpha_30d'] > 0])
+            pct_positive = (positive_count / len(metrics_30d)) * 100 if metrics_30d else 0
+            
+            # Best and Worst Waves
+            best_wave = max(metrics_30d, key=lambda x: x['alpha_30d'])
+            worst_wave = min(metrics_30d, key=lambda x: x['alpha_30d'])
+            
+            # Display summary in columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="📊 Average Alpha (30D)",
+                    value=f"{total_alpha_30d*100:.2f}%",
+                    delta=None,
+                    help="Average alpha across all waves over 30 days"
+                )
+            
+            with col2:
+                st.metric(
+                    label="✅ Waves w/ Positive Alpha",
+                    value=f"{pct_positive:.1f}%",
+                    delta=f"{positive_count}/{len(metrics_30d)} waves",
+                    help="Percentage of waves with positive alpha over 30 days"
+                )
+            
+            with col3:
+                st.metric(
+                    label="🏆 Best Wave (30D Alpha)",
+                    value=best_wave['wave_name'][:20] + "..." if len(best_wave['wave_name']) > 20 else best_wave['wave_name'],
+                    delta=f"{best_wave['alpha_30d']*100:.2f}%",
+                    help=f"{best_wave['wave_name']}: {best_wave['alpha_30d']*100:.2f}%"
+                )
+            
+            with col4:
+                st.metric(
+                    label="📉 Worst Wave (30D Alpha)",
+                    value=worst_wave['wave_name'][:20] + "..." if len(worst_wave['wave_name']) > 20 else worst_wave['wave_name'],
+                    delta=f"{worst_wave['alpha_30d']*100:.2f}%",
+                    delta_color="inverse",
+                    help=f"{worst_wave['wave_name']}: {worst_wave['alpha_30d']*100:.2f}%"
+                )
+        else:
+            st.info("📊 Insufficient data for summary metrics")
+        
+        st.markdown("---")
+        
+        # Detailed table
+        st.markdown("### 📋 Detailed Alpha Breakdown - All Waves")
+        
+        # Build DataFrame for display
+        table_data = []
+        for metrics in all_metrics:
+            # Format values for display
+            def fmt_pct(val):
+                return f"{val*100:.2f}%" if val is not None else "N/A"
+            
+            def fmt_exp(val):
+                return f"{val:.2f}" if val is not None else "1.00"
+            
+            table_data.append({
+                'Wave Name': metrics['wave_name'],
+                'Wave ID': metrics['wave_id'],
+                'Alpha 1D': fmt_pct(metrics['alpha_1d']),
+                'Alpha 30D': fmt_pct(metrics['alpha_30d']),
+                'Alpha 60D': fmt_pct(metrics['alpha_60d']),
+                'Alpha 365D': fmt_pct(metrics['alpha_365d']),
+                'Exp-Adj Alpha 1D': fmt_pct(metrics['exp_adj_alpha_1d']),
+                'Exp-Adj Alpha 30D': fmt_pct(metrics['exp_adj_alpha_30d']),
+                'Exp-Adj Alpha 60D': fmt_pct(metrics['exp_adj_alpha_60d']),
+                'Exp-Adj Alpha 365D': fmt_pct(metrics['exp_adj_alpha_365d']),
+                'Avg Exposure 30D': fmt_exp(metrics['exposure_30d']),
+            })
+        
+        if table_data:
+            df_display = pd.DataFrame(table_data)
+            
+            # Sort by 30D Alpha (descending)
+            # Extract numeric values for sorting
+            df_display['_alpha_30d_sort'] = df_display['Alpha 30D'].apply(
+                lambda x: float(x.replace('%', '')) if x != 'N/A' else -9999
+            )
+            df_display = df_display.sort_values('_alpha_30d_sort', ascending=False)
+            df_display = df_display.drop(columns=['_alpha_30d_sort'])
+            
+            # Display with highlighting
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                height=600,
+                hide_index=True
+            )
+            
+            # Download button
+            csv = df_display.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Alpha Capture Report (CSV)",
+                data=csv,
+                file_name=f"alpha_capture_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                help="Download the complete alpha capture data as CSV"
+            )
+        else:
+            st.info("📊 No data available for detailed breakdown")
+        
+        # Last updated timestamp
+        st.markdown("---")
+        last_updated_times = [m['last_updated'] for m in all_metrics if m['last_updated'] is not None]
+        if last_updated_times:
+            latest_update = max(last_updated_times)
+            st.caption(f"**Last Updated:** {latest_update.strftime('%Y-%m-%d %H:%M:%S') if hasattr(latest_update, 'strftime') else latest_update}")
+        else:
+            st.caption(f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Exposure note
+        st.info("""
+        ℹ️ **Note on Exposure:** When exposure data is unavailable in the wave history, 
+        exposure defaults to 1.0 (fully invested). Exposure-Adjusted Alpha will equal 
+        regular Alpha in these cases.
+        """)
+        
+    except Exception as e:
+        st.error(f"⚠️ Error rendering Alpha Capture tab: {str(e)}")
+        with st.expander("🔍 View Error Details"):
+            st.code(traceback.format_exc(), language="python")
+
+
 # ============================================================================
 # SECTION 7.5: BOTTOM TICKER BAR FUNCTIONALITY
 # ============================================================================
@@ -10768,7 +11098,8 @@ def main():
             "Overlays",    
             "Attribution", 
             "Board Pack",  
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture"
         ])
         
         # Console tab (first in fallback mode)
@@ -10810,6 +11141,11 @@ def main():
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
+        
+        # Alpha Capture tab
+        with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_alpha_capture_tab()
     
     elif ENABLE_WAVE_PROFILE:
         # Normal mode with Wave Profile enabled - Wave Intelligence Center is FIRST
@@ -10823,7 +11159,8 @@ def main():
             "Overlays",                    # Correlation equivalent
             "Attribution",                 # Rolling Diagnostics equivalent
             "Board Pack",                  # Mode Proof equivalent
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture"
         ])
         
         # Wave Intelligence Center tab (FIRST)
@@ -10874,6 +11211,11 @@ def main():
         with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
+        
+        # Alpha Capture tab
+        with analytics_tabs[10]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_alpha_capture_tab()
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
         # Wave Intelligence Center is FIRST tab
@@ -10886,7 +11228,8 @@ def main():
             "Overlays",                   # Correlation equivalent
             "Attribution",                # Rolling Diagnostics equivalent
             "Board Pack",                 # Mode Proof equivalent
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture"
         ])
         
         # Wave Intelligence Center tab (FIRST)
@@ -10932,6 +11275,11 @@ def main():
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
+        
+        # Alpha Capture tab (tenth)
+        with analytics_tabs[9]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_alpha_capture_tab()
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
