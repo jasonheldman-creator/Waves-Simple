@@ -96,8 +96,8 @@ ENABLE_WAVE_PROFILE = True
 # ============================================================================
 # NEW FEATURE FLAGS - Wave Intelligence Center Enhancements
 # ============================================================================
-# RENDER_RICH_HTML: Enable/disable rich HTML rendering via st.components.v1.html
-# Set to False to use plain st.markdown rendering instead
+# RENDER_RICH_HTML: DEPRECATED - No longer used. Now always uses st.markdown for HTML rendering.
+# Kept for backward compatibility with environment variables.
 RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
 
 # SAFE_MODE: Enable/disable safe mode for error handling
@@ -1389,31 +1389,20 @@ def get_deploy_timestamp():
 
 def render_html_safe(html_content: str, height: int = None, scrolling: bool = False):
     """
-    Safely render HTML content based on RENDER_RICH_HTML flag.
+    Safely render HTML content using st.markdown with unsafe_allow_html=True.
     
-    When RENDER_RICH_HTML is True (or session state override):
-        Uses st.html for direct HTML rendering (recommended)
-    When RENDER_RICH_HTML is False:
-        Falls back to st.markdown with unsafe_allow_html=True
+    This ensures consistent HTML rendering across all Streamlit versions and
+    deployment environments. Previously used st.html(), but that can cause
+    raw HTML text to be displayed instead of rendered in some environments.
     
     Args:
         html_content: The HTML content to render
-        height: Optional height in pixels (not used with st.html, kept for compatibility)
-        scrolling: Whether to enable scrolling (not used with st.html, kept for compatibility)
+        height: Optional height in pixels (kept for compatibility, not used)
+        scrolling: Whether to enable scrolling (kept for compatibility, not used)
     """
-    # Check session state first, then fall back to global flag
-    use_rich_html = st.session_state.get("render_rich_html_enabled", RENDER_RICH_HTML)
-    
-    if use_rich_html:
-        try:
-            # Use st.html for modern, direct HTML rendering without iframe
-            st.html(html_content)
-        except Exception:
-            # Fallback to markdown if st.html fails
-            st.markdown(html_content, unsafe_allow_html=True)
-    else:
-        # Use plain markdown rendering
-        st.markdown(html_content, unsafe_allow_html=True)
+    # Always use st.markdown with unsafe_allow_html=True for reliable HTML rendering
+    # This is more compatible across different Streamlit versions and deployment platforms
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 def calculate_wavescore(wave_data):
