@@ -789,7 +789,8 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         </div>
         """
         
-        # Use render_html_safe for proper HTML rendering (uses st.html() when available)
+        # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
+        # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
         render_html_safe(banner_html)
         
     except Exception as e:
@@ -831,7 +832,8 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
         </h2>
     </div>
     """
-    # Use render_html_safe for proper HTML rendering (uses st.html() when available)
+    # Use render_html_safe for proper HTML rendering (uses st.html() when Rich HTML 
+    # rendering is enabled, falls back to st.markdown with unsafe_allow_html=True)
     render_html_safe(banner_html)
 
 
