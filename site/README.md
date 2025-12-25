@@ -182,17 +182,25 @@ Submissions are logged server-side (no external email integration).
 5. **Set Environment Variables:**
    - Go to Vercel project settings → Environment Variables
    - Add: `NEXT_PUBLIC_SITE_URL=https://www.wavesintelligence.app`
+   - (Optional) Add: `NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL=<your-csv-url>` if fetching from external source
    - Select "Production" environment
    - Save and redeploy
 
 ### Environment Variables
 
-The site requires the following environment variable:
+The site uses the following environment variables:
 
 - **NEXT_PUBLIC_SITE_URL**: Canonical site URL (default: `https://www.wavesintelligence.app`)
   - Used for metadata, Open Graph tags, sitemap, and robots.txt
   - Set in Vercel for production deployments
   - For local development, create `.env.local` with `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
+
+- **NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL**: External URL for live performance CSV data (optional)
+  - If set, the site will fetch performance data from this URL instead of generating from local files
+  - The CSV must follow the format: `wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated`
+  - If not set or if fetch fails, falls back to generating from local `wave_history.csv`
+  - Set in Vercel project settings → Environment Variables for production deployments
+  - Example: `NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL=https://data.example.com/waves/live_snapshot.csv`
 
 See `.env.example` for reference.
 
