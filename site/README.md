@@ -182,6 +182,7 @@ Submissions are logged server-side (no external email integration).
 5. **Set Environment Variables:**
    - Go to Vercel project settings → Environment Variables
    - Add: `NEXT_PUBLIC_SITE_URL=https://www.wavesintelligence.app`
+   - (Optional) Add: `NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL=<your-csv-url>` if fetching from external source
    - Select "Production" environment
    - Save and redeploy
 
