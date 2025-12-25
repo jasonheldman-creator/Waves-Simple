@@ -789,7 +789,8 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         </div>
         """
         
-        st.markdown(banner_html, unsafe_allow_html=True)
+        # Use render_html_safe for proper HTML rendering (uses st.html() when available)
+        render_html_safe(banner_html)
         
     except Exception as e:
         # Fallback to simple banner if enhanced version fails
@@ -830,7 +831,8 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
         </h2>
     </div>
     """
-    st.markdown(banner_html, unsafe_allow_html=True)
+    # Use render_html_safe for proper HTML rendering (uses st.html() when available)
+    render_html_safe(banner_html)
 
 
 # ============================================================================
