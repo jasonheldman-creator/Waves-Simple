@@ -1,6 +1,7 @@
 /**
  * WAVES Data Reader
  * Reads wave_history.csv and computes metrics
+ * Or fetches from NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL if configured
  */
 
 import fs from "fs/promises";
@@ -136,11 +137,111 @@ function generateAlerts(
   return alerts;
 }
 
+/**
+ * Fetch and parse live snapshot CSV from URL
+ * CSV format: wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated
+ */
+async function fetchLiveSnapshotCSV(url: string): Promise<{
+  waves: WaveMetrics[];
+  dataState: DataState;
+  syntheticPercentage: number;
+}> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch CSV from ${url}: ${response.statusText}`);
+  }
+  
+  const csvText = await response.text();
+  const lines = csvText.trim().split('\n');
+  
+  if (lines.length < 2) {
+    throw new Error("CSV is empty or has no data rows");
+  }
+  
+  const waves: WaveMetrics[] = [];
+  let syntheticCount = 0;
+  
+  // Parse CSV rows (skip header)
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const values = line.split(',');
+    
+    if (values.length < 7) continue;
+    
+    const wave_id = values[0];
+    const wave_name = values[1].replace(/^"|"$/g, ''); // Remove quotes
+    const status = values[2];
+    const performance_1d = parseFloat(values[3]);
+    const performance_30d = parseFloat(values[4]);
+    const performance_ytd = parseFloat(values[5]);
+    const last_updated = values[6];
+    
+    const isSynthetic = status === "DEMO";
+    if (isSynthetic) syntheticCount++;
+    
+    const alerts: WaveAlert[] = [];
+    if (isSynthetic) {
+      alerts.push({
+        type: "data_quality",
+        severity: "low",
+        message: "Using synthetic/simulated data",
+        timestamp: new Date().toISOString(),
+      });
+    }
+    
+    waves.push({
+      wave_id,
+      display_name: wave_name,
+      todayReturn: performance_1d,
+      todayReturnVsBenchmark: 0, // Not available in CSV
+      weekReturn: 0, // Not available in CSV
+      monthReturn: performance_30d,
+      ytdReturn: performance_ytd,
+      alpha: 0, // Not available in CSV
+      beta: 0.9, // Default assumption
+      sharpeRatio: 0, // Not available in CSV
+      maxDrawdown: 0, // Not available in CSV
+      cashPosition: 10, // Default assumption
+      equityExposure: 90, // Default assumption
+      vixLadderExposure: 5, // Default assumption
+      nav: 100, // Default assumption
+      navChange: 0, // Not available in CSV
+      navChangePercent: performance_1d,
+      alerts,
+      isSynthetic,
+      lastUpdate: last_updated,
+    });
+  }
+  
+  const syntheticPercentage = waves.length > 0 ? (syntheticCount / waves.length) * 100 : 0;
+  const dataState: DataState = syntheticPercentage === 100 ? "SNAPSHOT" : syntheticPercentage > 0 ? "SNAPSHOT" : "LIVE";
+  
+  return {
+    waves,
+    dataState,
+    syntheticPercentage,
+  };
+}
+
 export async function readWavesData(): Promise<{
   waves: WaveMetrics[];
   dataState: DataState;
   syntheticPercentage: number;
 }> {
+  // Check if NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL is set (external URL)
+  const liveSnapshotUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL;
+  
+  if (liveSnapshotUrl) {
+    try {
+      console.log(`Fetching live snapshot from: ${liveSnapshotUrl}`);
+      return await fetchLiveSnapshotCSV(liveSnapshotUrl);
+    } catch (error) {
+      console.error(`Failed to fetch from ${liveSnapshotUrl}, falling back to local file:`, error);
+      // Fall through to local file read
+    }
+  }
+  
+  // Fallback: read from local wave_history.csv
   try {
     const repoRoot = path.join(process.cwd(), "..");
     const historyPath = path.join(repoRoot, "wave_history.csv");
