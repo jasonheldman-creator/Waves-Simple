@@ -1311,6 +1311,33 @@ def validate_wave_data(wave_name: str, mode: str, days: int, df=None) -> tuple[b
 # SECTION 2: UTILITY FUNCTIONS
 # ============================================================================
 
+def k(tab, name, wave_id=None, mode=None):
+    """
+    Unique key factory for Streamlit widgets.
+    Creates unique keys to avoid duplicate key errors across tabs and waves.
+    
+    Args:
+        tab: Tab name or section identifier (e.g., "Diagnostics", "Overview")
+        name: Widget name (e.g., "wave_selector", "timeframe")
+        wave_id: Optional wave identifier for wave-specific widgets
+        mode: Optional mode identifier for mode-specific widgets
+        
+    Returns:
+        Unique key string in format: "tab__name" or "tab__wave__name" etc.
+    
+    Examples:
+        k("Diagnostics", "wave_selector") -> "Diagnostics__wave_selector"
+        k("Overview", "timeframe", wave_id="SP500") -> "Overview__SP500__timeframe"
+        k("Console", "chart", mode="Standard") -> "Console__Standard__chart"
+    """
+    parts = [tab, name]
+    if wave_id:
+        parts.insert(1, wave_id)
+    if mode:
+        parts.insert(1, mode)
+    return "__".join(parts)
+
+
 def get_git_commit_hash():
     """Get the current git commit hash, return 'unknown' if unavailable."""
     try:
@@ -1546,7 +1573,7 @@ def safe_video(video_path, format="video/mp4", start_time=0, placeholder_msg="�
 def safe_component(component_name, render_func, *args, show_error=True, **kwargs):
     """
     Safely execute a component rendering function with error handling.
-    If the component fails, shows a warning instead of crashing the entire app.
+    If the component fails, shows a minimal indicator instead of crashing the entire app.
     
     Args:
         component_name: Name of the component for error messages
@@ -1561,13 +1588,50 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
     try:
         return render_func(*args, **kwargs)
     except Exception as e:
+        # Store error for diagnostics (silent logging)
+        if "component_errors" not in st.session_state:
+            st.session_state.component_errors = []
+        
+        error_entry = {
+            "component": component_name,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        st.session_state.component_errors.append(error_entry)
+        
+        # Keep only last 20 errors to avoid memory bloat
+        if len(st.session_state.component_errors) > 20:
+            st.session_state.component_errors = st.session_state.component_errors[-20:]
+        
+        # Show minimal UI based on debug_mode
         if show_error:
-            st.warning(f"⚠️ {component_name} temporarily unavailable")
-        # Log error for debugging but don't crash
-        if st.session_state.get("debug_mode", False):
-            with st.expander(f"Debug: {component_name} error details", expanded=False):
-                st.error(f"**Error:** {str(e)}")
-                st.code(traceback.format_exc(), language="python")
+            debug_mode = st.session_state.get("debug_mode", False)
+            
+            if debug_mode:
+                # Debug mode ON: Show detailed error with expander
+                st.warning(f"⚠️ {component_name} temporarily unavailable")
+                with st.expander(f"🐛 Debug: {component_name} error details", expanded=False):
+                    st.error(f"**Error:** {str(e)}")
+                    st.code(traceback.format_exc(), language="python")
+            else:
+                # Debug mode OFF: Show small pill only (silent fallback)
+                st.markdown(f"""
+                    <div style="
+                        display: inline-block;
+                        background: rgba(255, 193, 7, 0.1);
+                        border: 1px solid rgba(255, 193, 7, 0.3);
+                        border-radius: 12px;
+                        padding: 4px 12px;
+                        margin: 8px 0;
+                        font-size: 12px;
+                        color: #ffc107;
+                    ">
+                        ⚠️ {component_name} unavailable
+                    </div>
+                """, unsafe_allow_html=True)
+                st.caption("💡 Enable Debug Mode in sidebar for details")
+        
         return None
 
 
@@ -5446,7 +5510,7 @@ def render_mission_control():
                             selected_wave = st.selectbox(
                                 "Select Wave for Diagnostics",
                                 waves,
-                                key="diagnostics_wave_selector"
+                                key=k("Diagnostics", "wave_selector")
                             )
                             
                             try:
@@ -5547,6 +5611,15 @@ def render_sidebar_info():
         help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
     )
     st.session_state["render_rich_html_enabled"] = render_rich_html_ui
+    
+    # Debug Mode toggle (default OFF per requirements)
+    debug_mode_ui = st.sidebar.checkbox(
+        "🐛 Debug Mode",
+        value=st.session_state.get("debug_mode", False),
+        key="debug_mode_ui_toggle",
+        help="Show detailed error messages and diagnostics when components fail (default: OFF)"
+    )
+    st.session_state["debug_mode"] = debug_mode_ui
     
     st.sidebar.markdown("---")
     
@@ -6306,21 +6379,91 @@ def render_executive_brief_tab():
     """
     Render the Executive Brief tab - Top-level actionable insights for decision-makers.
     
-    This tab provides:
-    - Section A: System Snapshot (4 metric tiles)
-    - Section B: Market Context Block (regime, volatility, trend narrative)
-    - Section C: Waves Overview Performance Table
+    This is the FIRST tab (Overview) and provides:
+    - Mission Control Header: "WAVES Intelligence™"
+    - Market Snapshot: Market Regime, VIX Gate Status, Rates, SPY/QQQ, Liquidity
+    - Wave System Snapshot: System Return, Alpha, Win Rate, Risk State
+    - What's Strong/What's Weak: Top/Bottom 5 Waves by Alpha (30D)
+    - Why: Compact narrative paragraph on the current regime
+    - What to Do: Action panel (e.g., today's actions, watchlist)
+    - Performance Table (Collapsed): Full waves table ranked by Alpha
     
-    Designed to relay actionable insights efficiently with graceful error handling.
+    NO DIAGNOSTICS CONTENT - All diagnostics moved to Diagnostics tab.
     """
-    st.header("📊 Executive Brief")
-    st.write("**Top-level system performance, market conditions, and key insights for decision-makers**")
+    # ========================================================================
+    # MISSION CONTROL HEADER
+    # ========================================================================
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border: 2px solid #00d9ff;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        text-align: center;
+    ">
+        <h1 style="color: #00d9ff; margin: 0; font-size: 32px;">
+            🌊 WAVES Intelligence™
+        </h1>
+        <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 16px;">
+            Market + Wave Health Dashboard
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     try:
         # ========================================================================
-        # SECTION A: System Snapshot (Top Metric Tiles)
+        # SECTION 1: MARKET SNAPSHOT
         # ========================================================================
-        st.markdown("### 🎯 System Snapshot")
+        st.markdown("### 🌐 Market Snapshot")
+        
+        try:
+            # Get mission control data
+            mc_data = get_mission_control_data()
+            
+            # Market metrics in 5 columns
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                market_regime = mc_data.get('market_regime', 'Unknown')
+                st.metric("Market Regime", market_regime)
+            
+            with col2:
+                vix_gate = mc_data.get('vix_gate_status', 'Unknown')
+                st.metric("VIX Gate Status", vix_gate)
+            
+            with col3:
+                # Placeholder for rates - you can fetch real data
+                st.metric("10Y Rate", "N/A", help="10-Year Treasury yield")
+            
+            with col4:
+                # Placeholder for SPY/QQQ - you can fetch real data
+                st.metric("SPY/QQQ", "N/A", help="S&P 500 vs NASDAQ performance")
+            
+            with col5:
+                # Placeholder for liquidity - you can fetch real data
+                st.metric("Liquidity", "N/A", help="Market liquidity indicator")
+        
+        except Exception as e:
+            # Graceful fallback
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Market Regime", "N/A")
+            with col2:
+                st.metric("VIX Gate Status", "N/A")
+            with col3:
+                st.metric("10Y Rate", "N/A")
+            with col4:
+                st.metric("SPY/QQQ", "N/A")
+            with col5:
+                st.metric("Liquidity", "N/A")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 2: WAVE SYSTEM SNAPSHOT
+        # ========================================================================
+        st.markdown("### 📊 Wave System Snapshot")
         
         try:
             # Get system statistics for 30D
@@ -6401,9 +6544,69 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION B: Market Context Block
+        # SECTION 3: WHAT'S STRONG / WHAT'S WEAK
         # ========================================================================
-        st.markdown("### 🌐 Market Context")
+        st.markdown("### 📈📉 What's Strong / What's Weak")
+        st.caption("Top/Bottom 5 Waves by 30-Day Alpha")
+        
+        try:
+            # Get all waves
+            waves = get_available_waves()
+            
+            if waves:
+                # Build performance data
+                performance_data = []
+                
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                        alpha = wave_return - benchmark_return
+                        
+                        performance_data.append({
+                            'Wave Name': wave_name,
+                            '30D Alpha': alpha
+                        })
+                
+                if performance_data:
+                    # Create DataFrame
+                    df_performance = pd.DataFrame(performance_data)
+                    
+                    # Sort by 30D Alpha (descending)
+                    df_performance = df_performance.sort_values('30D Alpha', ascending=False)
+                    
+                    # Get top 5 and bottom 5
+                    top_5 = df_performance.head(5).copy()
+                    bottom_5 = df_performance.tail(5).copy()
+                    
+                    # Display in two columns
+                    col_strong, col_weak = st.columns(2)
+                    
+                    with col_strong:
+                        st.markdown("#### 🟢 What's Strong")
+                        top_5['30D Alpha'] = top_5['30D Alpha'].apply(lambda x: f"{x:+.2%}")
+                        st.dataframe(top_5, use_container_width=True, hide_index=True, height=220)
+                    
+                    with col_weak:
+                        st.markdown("#### 🔴 What's Weak")
+                        bottom_5['30D Alpha'] = bottom_5['30D Alpha'].apply(lambda x: f"{x:+.2%}")
+                        st.dataframe(bottom_5, use_container_width=True, hide_index=True, height=220)
+                else:
+                    st.info("No performance data available")
+            else:
+                st.info("No waves available")
+        
+        except Exception as e:
+            st.info("Performance data unavailable")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 4: WHY - Compact Narrative
+        # ========================================================================
+        st.markdown("### 💡 Why - Current Regime Narrative")
         
         try:
             # Get mission control data for market regime and VIX info
@@ -6426,17 +6629,17 @@ def render_executive_brief_tab():
                     regime_desc = "**Transitional/Risk-Off**"
                 else:
                     regime_desc = "**Transitional**"
-                narrative_parts.append(f"**Regime:** {regime_desc}")
+                narrative_parts.append(f"Market is in a {regime_desc} regime.")
             
             # 2. Volatility (Low/Elevated/High via VIX thresholds)
             if vix_gate_status != 'unknown':
                 if 'Low Vol' in vix_gate_status or 'GREEN' in vix_gate_status:
-                    vol_desc = "**Low** - favorable for risk assets"
+                    vol_desc = "low volatility environment, favorable for risk assets"
                 elif 'Med Vol' in vix_gate_status or 'YELLOW' in vix_gate_status:
-                    vol_desc = "**Elevated** - increased caution warranted"
+                    vol_desc = "elevated volatility, suggesting increased caution"
                 else:
-                    vol_desc = "**High** - defensive positioning active"
-                narrative_parts.append(f"**Volatility:** {vol_desc}")
+                    vol_desc = "high volatility, defensive positioning active"
+                narrative_parts.append(f"Volatility is {vol_desc}.")
             
             # 3. Trend (qualitative summary based on system performance)
             if stats_30d:
@@ -6444,246 +6647,144 @@ def render_executive_brief_tab():
                 pct_positive = stats_30d.get('pct_positive_alpha', 0.0)
                 
                 if pct_positive >= 70 and avg_alpha > 0.005:
-                    trend_desc = "Strong uptrend with broad-based momentum"
+                    trend_desc = "Strong uptrend with broad-based momentum across the system."
                 elif pct_positive >= 55 and avg_alpha > 0.0:
-                    trend_desc = "Positive trend with selective opportunities"
+                    trend_desc = "Positive trend with selective opportunities emerging."
                 elif pct_positive >= 45:
-                    trend_desc = "Mixed trend with divergent sector performance"
+                    trend_desc = "Mixed trend with divergent sector performance."
                 elif pct_positive >= 30:
-                    trend_desc = "Weakening trend with defensive leadership"
+                    trend_desc = "Weakening trend with defensive sectors leading."
                 else:
-                    trend_desc = "Downtrend with elevated volatility"
+                    trend_desc = "Downtrend with elevated volatility and defensive positioning."
                 
-                narrative_parts.append(f"**Trend:** {trend_desc}")
+                narrative_parts.append(trend_desc)
             
             # Display narrative
             if narrative_parts:
-                narrative_text = "\n\n".join(narrative_parts)
-                st.markdown(narrative_text)
+                narrative_text = " ".join(narrative_parts)
+                st.info(narrative_text)
             else:
-                st.info("Market details unavailable.")
+                st.info("Market narrative unavailable.")
         
         except Exception as e:
             # Graceful fallback for market context
-            st.info("Market details unavailable.")
+            st.info("Market narrative unavailable.")
         
         st.divider()
         
         # ========================================================================
-        # SECTION C: Waves Overview - Performance Table
+        # SECTION 5: WHAT TO DO - Action Panel
         # ========================================================================
-        st.markdown("### 📈 Waves Overview - Performance Table")
-        st.caption("All Waves ranked by 30-Day Alpha performance")
+        st.markdown("### 🎯 What To Do - Action Panel")
         
         try:
-            # Get all waves
-            waves = get_available_waves()
+            # Get system statistics to determine actions
+            stats_30d = get_system_statistics(timeframe_days=30)
+            mc_data = get_mission_control_data()
             
-            if waves:
-                # Build performance table
-                performance_data = []
+            if stats_30d:
+                avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                win_rate = stats_30d.get('pct_positive_alpha', 0.0)
                 
-                for wave_name in waves:
-                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
-                    
-                    if wave_data is not None and len(wave_data) > 0:
-                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
-                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
-                        alpha = wave_return - benchmark_return
-                        
-                        performance_data.append({
-                            'Wave Name': wave_name,
-                            '30D Return': wave_return,
-                            '30D Alpha': alpha
-                        })
+                # Determine recommended actions
+                actions = []
                 
-                if performance_data:
-                    # Create DataFrame
-                    df_performance = pd.DataFrame(performance_data)
-                    
-                    # Sort by 30D Alpha (descending)
-                    df_performance = df_performance.sort_values('30D Alpha', ascending=False)
-                    
-                    # Format for display
-                    df_display = df_performance.copy()
-                    df_display['30D Return'] = df_display['30D Return'].apply(lambda x: f"{x:+.2%}")
-                    df_display['30D Alpha'] = df_display['30D Alpha'].apply(lambda x: f"{x:+.2%}")
-                    
-                    # Display table
-                    st.dataframe(
-                        df_display,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
-                    
-                    # Add download button
-                    csv = df_performance.to_csv(index=False)
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    st.download_button(
-                        label="📥 Download Performance Data as CSV",
-                        data=csv,
-                        file_name=f"waves_performance_{timestamp}.csv",
-                        mime="text/csv"
-                    )
+                if win_rate >= 70 and avg_alpha > 0.005:
+                    actions.append("✅ **Maintain risk-on exposure** - System is performing well")
+                    actions.append("🔍 **Monitor top performers** for potential profit-taking opportunities")
+                    actions.append("📊 **Consider increasing allocation** to high-alpha waves")
+                elif win_rate >= 45 and avg_alpha > -0.003:
+                    actions.append("⚖️ **Maintain balanced positioning** - Mixed signals in play")
+                    actions.append("🎯 **Focus on selective opportunities** in strong waves")
+                    actions.append("🛡️ **Implement risk management** for underperforming positions")
                 else:
-                    st.info("No wave performance data available")
+                    actions.append("🛡️ **Reduce risk exposure** - Defensive positioning recommended")
+                    actions.append("💰 **Increase cash allocation** to preserve capital")
+                    actions.append("📉 **Review underperforming waves** for potential exits")
+                
+                # Always add watchlist item
+                actions.append("📋 **Watchlist:** Monitor top 5 performers for entry signals")
+                
+                # Display actions
+                for action in actions:
+                    st.markdown(f"- {action}")
             else:
-                st.info("No waves available")
+                st.info("Action recommendations unavailable - data not loaded")
         
         except Exception as e:
-            st.warning("⚠️ Unable to load performance table. Please check data availability.")
+            st.info("Action recommendations unavailable")
         
         st.divider()
         
         # ========================================================================
-        # SECTION D: Strengths, Weaknesses & Actions
+        # SECTION 6: FULL PERFORMANCE TABLE (COLLAPSED)
         # ========================================================================
-        st.markdown("### 🎯 Strengths, Weaknesses & Actions")
-        
-        try:
-            # Get all waves and their 30D alpha performance
-            waves = get_available_waves()
-            
-            if waves:
-                # Collect alpha data for all waves
-                wave_alpha_data = []
+        with st.expander("📈 Full Performance Table - All Waves (Click to Expand)", expanded=False):
+            try:
+                # Get all waves
+                waves = get_available_waves()
                 
-                for wave_name in waves:
-                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                if waves:
+                    # Build performance table
+                    performance_data = []
                     
-                    if wave_data is not None and len(wave_data) > 0:
-                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
-                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
-                        alpha_30d = wave_return - benchmark_return
+                    for wave_name in waves:
+                        wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
                         
-                        wave_alpha_data.append({
-                            'wave_name': wave_name,
-                            'alpha_30d': alpha_30d,
-                            'wave_return': wave_return
-                        })
-                
-                if wave_alpha_data:
-                    # Sort by alpha
-                    wave_alpha_data.sort(key=lambda x: x['alpha_30d'], reverse=True)
+                        if wave_data is not None and len(wave_data) > 0:
+                            wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                            benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                            alpha = wave_return - benchmark_return
+                            
+                            performance_data.append({
+                                'Wave Name': wave_name,
+                                '30D Return': wave_return,
+                                '30D Alpha': alpha
+                            })
                     
-                    # Get top 3 and bottom 3
-                    top_3 = wave_alpha_data[:3]
-                    bottom_3 = wave_alpha_data[-3:]
-                    
-                    # Display Strengths (Top 3)
-                    st.markdown("#### ✅ Top Performers (30D Alpha)")
-                    
-                    for i, wave_info in enumerate(top_3, 1):
-                        wave_name = wave_info['wave_name']
-                        alpha = wave_info['alpha_30d']
-                        wave_ret = wave_info['wave_return']
+                    if performance_data:
+                        # Create DataFrame
+                        df_performance = pd.DataFrame(performance_data)
                         
-                        # Generate reason based on performance
-                        if alpha > 0.05:
-                            reason = "Strong outperformance driven by favorable market conditions"
-                        elif alpha > 0.02:
-                            reason = "Solid alpha generation with consistent positioning"
-                        else:
-                            reason = "Positive alpha with relative strength vs benchmark"
+                        # Sort by 30D Alpha (descending)
+                        df_performance = df_performance.sort_values('30D Alpha', ascending=False)
                         
-                        st.markdown(f"{i}. **{wave_name}** — Alpha: **{alpha:+.2%}** (Return: {wave_ret:+.2%})")
-                        st.caption(f"   _{reason}_")
-                    
-                    st.markdown("")  # Spacing
-                    
-                    # Display Weaknesses (Bottom 3)
-                    st.markdown("#### ⚠️ Underperformers (30D Alpha)")
-                    
-                    for i, wave_info in enumerate(bottom_3, 1):
-                        wave_name = wave_info['wave_name']
-                        alpha = wave_info['alpha_30d']
-                        wave_ret = wave_info['wave_return']
+                        # Format for display
+                        df_display = df_performance.copy()
+                        df_display['30D Return'] = df_display['30D Return'].apply(lambda x: f"{x:+.2%}")
+                        df_display['30D Alpha'] = df_display['30D Alpha'].apply(lambda x: f"{x:+.2%}")
                         
-                        # Generate reason based on performance
-                        if alpha < -0.05:
-                            reason = "Significant underperformance indicating sector headwinds"
-                        elif alpha < -0.02:
-                            reason = "Negative alpha suggests challenging positioning"
-                        else:
-                            reason = "Minor underperformance relative to benchmark"
+                        # Display table
+                        st.dataframe(
+                            df_display,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
                         
-                        st.markdown(f"{i}. **{wave_name}** — Alpha: **{alpha:+.2%}** (Return: {wave_ret:+.2%})")
-                        st.caption(f"   _{reason}_")
-                    
-                    st.markdown("")  # Spacing
-                    
-                    # Display Actionable Points
-                    st.markdown("#### 📋 Action Items")
-                    
-                    # Generate context-aware action items
-                    actions = []
-                    
-                    # Get system-level stats for context
-                    stats_30d = get_system_statistics(timeframe_days=30)
-                    if stats_30d:
-                        avg_alpha = stats_30d.get('avg_alpha', 0.0)
-                        pct_positive = stats_30d.get('pct_positive_alpha', 0.0)
-                        
-                        # Action 1: Based on overall system performance
-                        if avg_alpha > 0.01 and pct_positive > 60:
-                            actions.append("**Maintain risk exposure** - System showing broad-based strength with positive alpha across majority of waves")
-                        elif avg_alpha < -0.01 or pct_positive < 40:
-                            actions.append("**Reduce risk exposure** - System experiencing broad-based weakness; consider defensive positioning")
-                        else:
-                            actions.append("**Monitor positioning** - Mixed performance signals warrant selective approach and active rebalancing")
-                        
-                        # Action 2: Based on top performers
-                        if top_3:
-                            top_wave = top_3[0]['wave_name']
-                            actions.append(f"**Watch {top_wave}** for potential profit-taking opportunities given strong recent outperformance")
-                        
-                        # Action 3: Based on bottom performers
-                        if bottom_3:
-                            bottom_wave = bottom_3[0]['wave_name']
-                            bottom_alpha = bottom_3[0]['alpha_30d']
-                            if bottom_alpha < -0.03:
-                                actions.append(f"**Review {bottom_wave}** holdings and factor exposures to assess rebalancing needs")
-                            else:
-                                actions.append(f"**Monitor {bottom_wave}** for potential reversal or continued weakness")
-                        
-                        # Action 4: Volatility-based
-                        mc_data = get_mission_control_data()
-                        vix_gate = mc_data.get('vix_gate_status', 'unknown')
-                        if 'HIGH' in str(vix_gate).upper() or 'RED' in str(vix_gate).upper():
-                            actions.append("**Increase hedging** - Elevated volatility regime suggests defensive positioning or options hedges")
-                        elif 'LOW' in str(vix_gate).upper() or 'GREEN' in str(vix_gate).upper():
-                            actions.append("**Opportunistic rebalancing** - Low volatility environment favorable for strategic adjustments")
-                        
-                        # Action 5: Diversification check
-                        if pct_positive < 50:
-                            actions.append("**Review portfolio diversification** - Less than half of waves showing positive alpha may indicate concentration risk")
+                        # Add download button
+                        csv = df_performance.to_csv(index=False)
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        st.download_button(
+                            label="📥 Download Performance Data as CSV",
+                            data=csv,
+                            file_name=f"waves_performance_{timestamp}.csv",
+                            mime="text/csv",
+                            key=k("ExecutiveBrief", "download_performance")
+                        )
                     else:
-                        # Fallback actions if no stats available
-                        actions = [
-                            "**Review top performers** for potential rebalancing opportunities",
-                            "**Monitor underperformers** for factor exposure and positioning issues",
-                            "**Check market regime** alignment with current portfolio positioning",
-                            "**Assess risk levels** relative to volatility environment"
-                        ]
-                    
-                    # Display actions (limit to 5)
-                    for i, action in enumerate(actions[:5], 1):
-                        st.markdown(f"{i}. {action}")
-                
+                        st.info("No performance data available for display")
                 else:
-                    st.info("Insufficient data to generate insights")
-            else:
-                st.info("No waves available for analysis")
-        
-        except Exception as e:
-            st.warning("⚠️ Unable to generate insights. Please check data availability.")
+                    st.info("No waves available")
+            
+            except Exception as e:
+                st.error(f"Unable to load performance table: {str(e)}")
     
     except Exception as e:
         # Top-level error handler - prevent Safe Mode trigger
-        st.error("⚠️ Executive Brief encountered an error loading data. Please refresh or check data sources.")
-        with st.expander("Error Details"):
-            st.code(str(e))
+        st.error("⚠️ Executive Brief tab encountered an error")
+        if st.session_state.get("debug_mode", False):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
 def render_wave_intelligence_center_tab():
@@ -11339,7 +11440,7 @@ def render_alpha_capture_tab():
             "Select Timeframe:",
             options=list(timeframe_options.keys()),
             index=0,  # Default to 30 Days
-            key="alpha_drivers_timeframe"
+            key=k("AlphaCapture", "timeframe")
         )
         
         timeframe_days = timeframe_options[selected_timeframe_label]
@@ -11467,7 +11568,7 @@ def render_alpha_capture_tab():
                     label="Select a Wave:",
                     options=wave_names,
                     index=wave_names.index(default_wave) if default_wave in wave_names else 0,
-                    key="alpha_drivers_wave_selector"
+                    key=k("AlphaCapture", "wave_selector")
                 )
                 
                 st.markdown("---")
@@ -11901,6 +12002,37 @@ def render_diagnostics_tab():
         # Show if Safe Mode was previously triggered
         if st.session_state.get("safe_mode_error_shown", False):
             st.info("**Note:** Safe Mode was triggered earlier in this session but has been cleared.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2.5: Component Errors History
+    # ========================================================================
+    st.subheader("🔍 Component Errors History")
+    
+    component_errors = st.session_state.get("component_errors", [])
+    
+    if component_errors:
+        st.warning(f"**{len(component_errors)} component error(s) logged in this session**")
+        
+        with st.expander(f"📋 View Component Errors ({len(component_errors)})", expanded=False):
+            for i, error in enumerate(reversed(component_errors), 1):
+                st.markdown(f"### Error {i}: {error['component']}")
+                st.text(f"Timestamp: {error['timestamp']}")
+                st.error(f"**Error:** {error['error']}")
+                
+                with st.expander("View Traceback", expanded=False):
+                    st.code(error['traceback'], language="python")
+                
+                st.markdown("---")
+        
+        # Clear errors button
+        if st.button("🗑️ Clear Error History", help="Clear all logged component errors"):
+            st.session_state.component_errors = []
+            st.success("Error history cleared.")
+            st.rerun()
+    else:
+        st.success("**No component errors logged.** All components are functioning normally.")
     
     st.markdown("---")
     
@@ -12491,7 +12623,7 @@ def main():
         # Wave Profile tab (third)
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Wave Profile", render_wave_profile_tab)
+            safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[3]:
