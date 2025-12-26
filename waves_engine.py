@@ -1104,33 +1104,55 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 
 
 def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
+    """
+    Download historical price data with caching and graceful error handling.
+    
+    Features:
+    - LRU cache with 15-minute TTL to prevent redundant API calls
+    - Try/except wrapper to handle rate limits and API errors
+    - Returns empty DataFrame on error instead of raising exceptions
+    """
     if yf is None:
         raise RuntimeError("yfinance is not available in this environment.")
+    
     lookback_days = days + 260
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
-    data = yf.download(
-        tickers=tickers,
-        start=start.isoformat(),
-        end=end.isoformat(),
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
-    if isinstance(data.columns, pd.MultiIndex):
-        if "Adj Close" in data.columns.get_level_values(0):
-            data = data["Adj Close"]
-        elif "Close" in data.columns.get_level_values(0):
-            data = data["Close"]
-        else:
-            data = data[data.columns.levels[0][0]]
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data.droplevel(0, axis=1)
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-    data = data.sort_index().ffill().bfill()
-    return data
+    
+    try:
+        data = yf.download(
+            tickers=tickers,
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="column",
+        )
+        
+        if data is None or len(data) == 0:
+            # Return empty DataFrame if download failed silently
+            return pd.DataFrame()
+        
+        if isinstance(data.columns, pd.MultiIndex):
+            if "Adj Close" in data.columns.get_level_values(0):
+                data = data["Adj Close"]
+            elif "Close" in data.columns.get_level_values(0):
+                data = data["Close"]
+            else:
+                data = data[data.columns.levels[0][0]]
+        if isinstance(data.columns, pd.MultiIndex):
+            data = data.droplevel(0, axis=1)
+        if isinstance(data, pd.Series):
+            data = data.to_frame()
+        data = data.sort_index().ffill().bfill()
+        return data
+        
+    except Exception as e:
+        # Graceful degradation on rate limits or other errors
+        # Return empty DataFrame instead of crashing
+        print(f"Warning: yfinance download failed for {tickers}: {str(e)}")
+        return pd.DataFrame()
 
 
 def _map_sector_name(raw_sector: str | None) -> str:

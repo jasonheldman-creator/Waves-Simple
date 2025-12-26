@@ -2018,6 +2018,7 @@ def get_wave_status_map(_wave_universe_version=1):
         Dictionary mapping wave names to status:
         - "Ready": Full analytics data available (recent 7 days)
         - "Degraded": Partial data or stale data
+        - "Degraded (Rate Limited)": API errors or rate limiting detected
         - "Missing Inputs": No data available
     
     This does NOT affect whether a wave is Active - waves remain Active
@@ -2051,9 +2052,14 @@ def get_wave_status_map(_wave_universe_version=1):
         # Get waves with any data (older than 7 days)
         all_waves_with_data = set(wave_history['wave'].unique())
         
+        # Check for rate-limited or error status in session state
+        rate_limited_waves = st.session_state.get("rate_limited_waves", set())
+        
         # Classify each wave
         for wave in all_waves:
-            if wave in waves_with_recent_data:
+            if wave in rate_limited_waves:
+                status_map[wave] = "Degraded (Rate Limited)"
+            elif wave in waves_with_recent_data:
                 status_map[wave] = "Ready"
             elif wave in all_waves_with_data:
                 status_map[wave] = "Degraded"
@@ -3493,14 +3499,21 @@ def render_wave_universe_truth_panel():
     status_counts = {
         "Ready": 0,
         "Degraded": 0,
+        "Rate Limited": 0,
         "Missing Inputs": 0
     }
     
     for status in wave_status_map.values():
-        if status in status_counts:
-            status_counts[status] += 1
+        if status == "Ready":
+            status_counts["Ready"] += 1
+        elif "Rate Limited" in status:
+            status_counts["Rate Limited"] += 1
+        elif status == "Degraded":
+            status_counts["Degraded"] += 1
+        elif status == "Missing Inputs":
+            status_counts["Missing Inputs"] += 1
     
-    status_col1, status_col2, status_col3 = st.columns(3)
+    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
     
     with status_col1:
         st.metric(
@@ -3517,6 +3530,13 @@ def render_wave_universe_truth_panel():
         )
     
     with status_col3:
+        st.metric(
+            label="🟠 Rate Limited",
+            value=status_counts["Rate Limited"],
+            help="Waves with API errors or rate limiting issues"
+        )
+    
+    with status_col4:
         st.metric(
             label="🔴 Missing Inputs",
             value=status_counts["Missing Inputs"],
