@@ -6153,373 +6153,973 @@ def _render_wave_identity_card_fallback(
 
 def render_wave_intelligence_center_tab():
     """
-    Render the Overview page - Consolidated system-wide summary.
+    Render the Intelligence Center (Vector v3) tab - Cross-Wave Correlation & Insights.
     
-    This tab provides:
-    - Section A) System Synopsis (Market Context, Top/Bottom Waves, System Posture)
-    - Section B) Platform Snapshot Tiles
-    - Section C) Master "All Waves" Performance Grid
-    - Section D) Alpha Heat Strip
-    - Section E) Selected Wave Alpha Drivers
+    This tab provides institutional-grade cross-wave analytics:
+    1. Correlation Matrix across all Waves (using daily returns)
+    2. Rolling Correlations for selected Wave (30-day and 90-day)
+    3. Diversification & Redundancy Panel (top 5 lowest/highest correlation pairs)
+    4. Clustering & Grouping View (hierarchical clustering based on correlation distance)
+    5. Market Regime / Risk-On vs Risk-Off Heuristic (using SPY returns and VIX trends)
+    6. Opportunity Lens (3-5 observation bullet points based on correlation and regime context)
     
-    All metrics reconcile with existing Wave card outputs.
-    Mobile-friendly with auto-scroll where needed.
+    Features:
+    - Mobile-friendly responsive design
+    - Safe fallbacks for insufficient data
+    - No changes to engine math (reuses existing wave history/return data)
+    - Graceful error handling with panel-level try-except
+    
+    SAFE_MODE: Wrapped in try-except with crash logging and graceful error handling.
     """
-    st.header("📊 System Overview")
-    st.write("**Consolidated system-wide market context, Wave performance, and Alpha Drivers**")
+    # Get selected wave from session state
+    selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+    mode = st.session_state.get("mode", "Standard")
     
-    # Get timestamp for updates
-    latest_timestamp = get_latest_data_timestamp()
+    # SAFE_MODE wrapper - catch exceptions and log crashes
+    # Check session state first, then fall back to global flag
+    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
+    
+    if use_safe_mode:
+        try:
+            _render_intelligence_center_v3_content(selected_wave, mode)
+            # Clear error flag on success
+            st.session_state.wave_ic_has_errors = False
+        except Exception as e:
+            # Set error flag for fallback behavior
+            st.session_state.wave_ic_has_errors = True
+            
+            # Log the crash
+            log_crash_to_file(e, context="Intelligence Center (Vector v3) Tab")
+            
+            # Display friendly error banner
+            st.error("⚠️ **Intelligence Center Temporarily Unavailable**")
+            st.warning("""
+            The Intelligence Center encountered an error and cannot be displayed at this time.
+            
+            **What happened:**
+            - An unexpected error occurred while loading correlation and insights data
+            - The error has been logged to `logs/crash_log.txt` for review
+            
+            **What you can do:**
+            - Use the **Console** and **Overview** tabs for core functionality
+            - Try refreshing the page
+            - Contact support if the problem persists
+            """)
+            
+            # Show error details in expander (for debugging)
+            with st.expander("🔍 Technical Details (for debugging)"):
+                st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+    else:
+        # No SAFE_MODE - run directly (original behavior)
+        try:
+            _render_intelligence_center_v3_content(selected_wave, mode)
+            # Clear error flag on success
+            st.session_state.wave_ic_has_errors = False
+        except Exception as e:
+            # Even without SAFE_MODE, set error flag for potential future use
+            st.session_state.wave_ic_has_errors = True
+            raise
+
+
+def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
+    """
+    Internal function to render the Intelligence Center (Vector v3) content.
+    Separated to allow SAFE_MODE wrapping.
+    
+    Vector v3 focuses on cross-wave correlation and insights.
+    """
+    # Header
+    st.header("🧠 Intelligence Center")
+    
+    # Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
+    # Render the Wave Identity Card at the top
+    render_wave_identity_card(selected_wave, mode)
+    
+    st.write("**Cross-Wave Correlation Analysis & Market Intelligence**")
     
     st.divider()
     
     # ========================================================================
-    # SECTION A: System Synopsis (Rule-Based)
+    # SECTION 1: Correlation Matrix Across All Waves
     # ========================================================================
-    st.markdown("### 🎯 System Synopsis")
+    st.markdown("### 📊 Correlation Matrix - All Waves")
+    st.caption("Daily return correlations across all waves (reuses existing wave history data)")
     
     try:
-        # Get system statistics for 30D
-        stats_30d = get_system_statistics(timeframe_days=30)
-        top_waves, bottom_waves = get_top_bottom_waves(timeframe_days=30, top_n=3, bottom_n=3)
+        # Get all available waves
+        waves = get_available_waves()
         
-        if stats_30d:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 1. Market Context")
-                # Derive market context from SPY, QQQ, IWM data if available
-                # For now, provide a basic context based on average alpha
-                avg_alpha = stats_30d['avg_alpha']
-                pct_positive = stats_30d['pct_positive_alpha']
-                
-                if pct_positive >= 60:
-                    market_sentiment = "risk-on"
-                elif pct_positive >= 40:
-                    market_sentiment = "mixed"
-                else:
-                    market_sentiment = "risk-off"
-                
-                st.write(f"Over the past 30 days, markets have been **{market_sentiment}**, with "
-                         f"**{pct_positive:.0f}%** of Waves showing positive alpha.")
-                
-                st.markdown("#### 3. Waves Under Pressure")
-                if bottom_waves:
-                    for wave_name, alpha in bottom_waves:
-                        st.write(f"• **{wave_name}**: {alpha:+.2%}")
-                else:
-                    st.write("No data available")
-            
-            with col2:
-                st.markdown("#### 2. Waves That Stood Out")
-                if top_waves:
-                    for wave_name, alpha in top_waves:
-                        st.write(f"• **{wave_name}**: {alpha:+.2%}")
-                else:
-                    st.write("No data available")
-                
-                st.markdown("#### 4. System Posture")
-                # Base posture on average alpha
-                if avg_alpha > 0.005:
-                    posture = "risk-on"
-                    overlay_contrib = "meaningfully"
-                elif avg_alpha < -0.005:
-                    posture = "defensive"
-                    overlay_contrib = "minimally"
-                else:
-                    posture = "mixed"
-                    overlay_contrib = "moderately"
-                
-                st.write(f"System posture is **{posture}**, with overlays contributing **{overlay_contrib}**.")
+        if not waves or len(waves) < 2:
+            st.info("📊 Insufficient data - Need at least 2 waves with historical data")
         else:
-            st.info("Insufficient data to generate system synopsis")
+            # Filter waves with sufficient data (at least 30 days)
+            valid_waves = []
+            wave_returns_dict = {}
+            
+            for wave in waves:
+                wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+                if wave_data is not None and len(wave_data) >= 30:
+                    if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                        valid_waves.append(wave)
+                        # Store returns indexed by date
+                        wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+            
+            if len(valid_waves) < 2:
+                st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
+            else:
+                # Build correlation matrix
+                # Merge all returns on common dates
+                returns_df = pd.DataFrame(wave_returns_dict)
+                
+                # Drop rows with any NaN
+                returns_df = returns_df.dropna()
+                
+                if len(returns_df) < 10:
+                    st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+                else:
+                    # Calculate correlation matrix
+                    corr_matrix = returns_df.corr()
+                    
+                    # Display as heatmap using plotly
+                    fig = go.Figure(data=go.Heatmap(
+                        z=corr_matrix.values,
+                        x=corr_matrix.columns,
+                        y=corr_matrix.index,
+                        colorscale='RdYlGn',
+                        zmid=0,
+                        zmin=-1,
+                        zmax=1,
+                        text=corr_matrix.values,
+                        texttemplate='%{text:.2f}',
+                        textfont={"size": 9},
+                        colorbar=dict(title="Correlation")
+                    ))
+                    
+                    fig.update_layout(
+                        title="Cross-Wave Correlation Matrix (Daily Returns)",
+                        xaxis_title="Wave",
+                        yaxis_title="Wave",
+                        height=max(400, len(valid_waves) * 30),
+                        xaxis={'tickangle': -45},
+                        margin=dict(l=150, r=50, t=80, b=150)
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show summary stats
+                    st.caption(f"Correlation based on {len(returns_df)} days of common return data across {len(valid_waves)} waves")
     
     except Exception as e:
-        st.error(f"Error generating system synopsis: {str(e)}")
+        st.warning(f"⚠️ Correlation Matrix panel unavailable: {str(e)}")
+        st.info("📊 Unable to display correlation matrix. Data may be insufficient or unavailable.")
     
     st.divider()
     
     # ========================================================================
-    # SECTION B: Platform Snapshot Tiles
+    # SECTION 2: Rolling Correlations for Selected Wave
     # ========================================================================
-    st.markdown("### 📊 Platform Snapshot")
+    st.markdown("### 📈 Rolling Correlations - Selected Wave")
+    st.caption(f"Rolling 30-day and 90-day correlations between **{selected_wave}** and all other waves")
     
     try:
-        stats_30d = get_system_statistics(timeframe_days=30)
+        # Get selected wave data
+        selected_wave_data = get_wave_data_filtered(wave_name=selected_wave, days=180)
         
-        if stats_30d:
-            col1, col2, col3, col4, col5 = st.columns(5)
+        if selected_wave_data is None or len(selected_wave_data) < 30:
+            st.info(f"📊 Insufficient data for {selected_wave} - Need at least 30 days of returns")
+        else:
+            # Get all other waves
+            all_waves = get_available_waves()
+            other_waves = [w for w in all_waves if w != selected_wave]
+            
+            if not other_waves:
+                st.info("📊 No other waves available for correlation analysis")
+            else:
+                # Calculate rolling correlations
+                rolling_30d_corrs = {}
+                rolling_90d_corrs = {}
+                
+                selected_returns = selected_wave_data.set_index('date')['portfolio_return']
+                
+                for other_wave in other_waves[:10]:  # Limit to top 10 for performance
+                    other_wave_data = get_wave_data_filtered(wave_name=other_wave, days=180)
+                    
+                    if other_wave_data is not None and len(other_wave_data) >= 30:
+                        other_returns = other_wave_data.set_index('date')['portfolio_return']
+                        
+                        # Merge on common dates
+                        combined = pd.DataFrame({
+                            'selected': selected_returns,
+                            'other': other_returns
+                        }).dropna()
+                        
+                        if len(combined) >= 30:
+                            # Calculate rolling correlations
+                            rolling_30 = combined['selected'].rolling(window=30).corr(combined['other'])
+                            rolling_90 = combined['selected'].rolling(window=90).corr(combined['other'])
+                            
+                            # Get latest values
+                            latest_30d = rolling_30.iloc[-1] if not rolling_30.empty else None
+                            latest_90d = rolling_90.iloc[-1] if not rolling_90.empty else None
+                            
+                            if latest_30d is not None and not np.isnan(latest_30d):
+                                rolling_30d_corrs[other_wave] = latest_30d
+                            if latest_90d is not None and not np.isnan(latest_90d):
+                                rolling_90d_corrs[other_wave] = latest_90d
+                
+                if not rolling_30d_corrs and not rolling_90d_corrs:
+                    st.info("📊 Insufficient overlapping data to calculate rolling correlations")
+                else:
+                    # Display as bar charts
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if rolling_30d_corrs:
+                            st.markdown("**30-Day Rolling Correlation**")
+                            df_30d = pd.DataFrame({
+                                'Wave': list(rolling_30d_corrs.keys()),
+                                'Correlation': list(rolling_30d_corrs.values())
+                            }).sort_values('Correlation', ascending=False)
+                            
+                            fig_30d = px.bar(
+                                df_30d,
+                                x='Correlation',
+                                y='Wave',
+                                orientation='h',
+                                color='Correlation',
+                                color_continuous_scale='RdYlGn',
+                                range_color=[-1, 1]
+                            )
+                            fig_30d.update_layout(height=max(300, len(df_30d) * 30))
+                            st.plotly_chart(fig_30d, use_container_width=True)
+                        else:
+                            st.info("📊 30-day data unavailable")
+                    
+                    with col2:
+                        if rolling_90d_corrs:
+                            st.markdown("**90-Day Rolling Correlation**")
+                            df_90d = pd.DataFrame({
+                                'Wave': list(rolling_90d_corrs.keys()),
+                                'Correlation': list(rolling_90d_corrs.values())
+                            }).sort_values('Correlation', ascending=False)
+                            
+                            fig_90d = px.bar(
+                                df_90d,
+                                x='Correlation',
+                                y='Wave',
+                                orientation='h',
+                                color='Correlation',
+                                color_continuous_scale='RdYlGn',
+                                range_color=[-1, 1]
+                            )
+                            fig_90d.update_layout(height=max(300, len(df_90d) * 30))
+                            st.plotly_chart(fig_90d, use_container_width=True)
+                        else:
+                            st.info("📊 90-day data unavailable")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Rolling Correlations panel unavailable: {str(e)}")
+        st.info("📊 Unable to calculate rolling correlations. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 3: Diversification & Redundancy Panel
+    # ========================================================================
+    st.markdown("### 🎯 Diversification & Redundancy")
+    st.caption("Top 5 lowest-correlation pairs (best diversifiers) and top 5 highest-correlation pairs (most redundant)")
+    
+    try:
+        # Get all waves with sufficient data
+        waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
+        
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+        
+        if len(valid_waves) < 2:
+            st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
+        else:
+            # Build returns dataframe
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
+            
+            if len(returns_df) < 10:
+                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+            else:
+                # Calculate correlation matrix
+                corr_matrix = returns_df.corr()
+                
+                # Extract upper triangle (avoid duplicates and self-correlations)
+                pairs = []
+                for i in range(len(corr_matrix)):
+                    for j in range(i+1, len(corr_matrix)):
+                        wave1 = corr_matrix.index[i]
+                        wave2 = corr_matrix.columns[j]
+                        corr_val = corr_matrix.iloc[i, j]
+                        pairs.append((wave1, wave2, corr_val))
+                
+                if not pairs:
+                    st.info("📊 No wave pairs available for analysis")
+                else:
+                    # Sort by correlation
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
+                    
+                    # Get top 5 lowest and highest
+                    lowest_5 = pairs_sorted[:5]
+                    highest_5 = pairs_sorted[-5:][::-1]
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**✅ Best Diversifiers (Lowest Correlation)**")
+                        if lowest_5:
+                            for wave1, wave2, corr in lowest_5:
+                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
+                        else:
+                            st.info("Data unavailable")
+                    
+                    with col2:
+                        st.markdown("**⚠️ Most Redundant (Highest Correlation)**")
+                        if highest_5:
+                            for wave1, wave2, corr in highest_5:
+                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
+                        else:
+                            st.info("Data unavailable")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Diversification panel unavailable: {str(e)}")
+        st.info("📊 Unable to identify diversification opportunities. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 4: Clustering & Grouping View
+    # ========================================================================
+    st.markdown("### 🔗 Clustering & Grouping")
+    st.caption("Waves grouped by correlation distance (1 - correlation) using hierarchical clustering")
+    
+    try:
+        # Get all waves with sufficient data
+        waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
+        
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+        
+        if len(valid_waves) < 3:
+            st.info("📊 Insufficient data - Need at least 3 waves with 30+ days of returns for clustering")
+        else:
+            # Build returns dataframe
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
+            
+            if len(returns_df) < 10:
+                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
+            else:
+                # Calculate correlation matrix
+                corr_matrix = returns_df.corr()
+                
+                # Convert to distance matrix (1 - correlation)
+                dist_matrix = 1 - corr_matrix
+                
+                # Try hierarchical clustering
+                try:
+                    from scipy.cluster.hierarchy import linkage, fcluster
+                    from scipy.spatial.distance import squareform
+                    
+                    # Convert to condensed distance matrix
+                    dist_condensed = squareform(dist_matrix, checks=False)
+                    
+                    # Perform hierarchical clustering (using average linkage)
+                    linkage_matrix = linkage(dist_condensed, method='average')
+                    
+                    # Cut tree to get 3-5 clusters
+                    num_clusters = min(5, max(3, len(valid_waves) // 3))
+                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
+                    
+                    # Group waves by cluster
+                    clusters = {}
+                    for wave, label in zip(valid_waves, cluster_labels):
+                        if label not in clusters:
+                            clusters[label] = []
+                        clusters[label].append(wave)
+                    
+                    # Display clusters
+                    st.markdown("**Wave Clusters (Hierarchical Clustering)**")
+                    for cluster_id in sorted(clusters.keys()):
+                        wave_list = clusters[cluster_id]
+                        st.markdown(f"**Cluster {cluster_id}:** {', '.join(wave_list)}")
+                    
+                    st.caption(f"Identified {len(clusters)} clusters across {len(valid_waves)} waves using average linkage")
+                
+                except ImportError:
+                    # Fallback: Simple greedy grouping if scipy not available
+                    st.info("📊 Using greedy grouping (scipy not available for hierarchical clustering)")
+                    
+                    # Greedy grouping: Start with highest correlations
+                    grouped = set()
+                    groups = []
+                    
+                    # Get all pairs sorted by correlation (highest first)
+                    pairs = []
+                    for i in range(len(corr_matrix)):
+                        for j in range(i+1, len(corr_matrix)):
+                            wave1 = corr_matrix.index[i]
+                            wave2 = corr_matrix.columns[j]
+                            corr_val = corr_matrix.iloc[i, j]
+                            pairs.append((wave1, wave2, corr_val))
+                    
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2], reverse=True)
+                    
+                    # Build groups greedily
+                    for wave1, wave2, corr in pairs_sorted:
+                        if wave1 not in grouped and wave2 not in grouped:
+                            # Start new group
+                            groups.append([wave1, wave2])
+                            grouped.add(wave1)
+                            grouped.add(wave2)
+                    
+                    # Add ungrouped waves as singletons
+                    for wave in valid_waves:
+                        if wave not in grouped:
+                            groups.append([wave])
+                    
+                    # Display groups
+                    st.markdown("**Wave Groups (Greedy Grouping)**")
+                    for idx, group in enumerate(groups, 1):
+                        st.markdown(f"**Group {idx}:** {', '.join(group)}")
+                    
+                    st.caption(f"Identified {len(groups)} groups across {len(valid_waves)} waves")
+    
+    except Exception as e:
+        st.warning(f"⚠️ Clustering panel unavailable: {str(e)}")
+        st.info("📊 Unable to perform wave clustering. Data may be insufficient or unavailable.")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 5: Market Regime / Risk-On vs Risk-Off Heuristic
+    # ========================================================================
+    st.markdown("### 📉 Market Regime Heuristic")
+    st.caption("**Heuristic classification** of recent days into Risk-On vs Risk-Off using SPY returns and VIX trends")
+    st.info("⚠️ This is a heuristic indicator, not a trading signal. Use for context only.")
+    
+    try:
+        # Get SPY wave data (assuming S&P 500 Wave tracks SPY)
+        spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=30)
+        
+        if spy_wave_data is None or len(spy_wave_data) < 10:
+            st.info("📊 Insufficient SPY data - Need at least 10 days of S&P 500 Wave returns")
+        else:
+            # Calculate regime indicators
+            spy_returns = spy_wave_data['portfolio_return'].iloc[-10:]  # Last 10 days
+            
+            # Heuristic:
+            # Risk-On: Positive average return, low volatility
+            # Risk-Off: Negative average return, high volatility
+            
+            avg_return = spy_returns.mean()
+            volatility = spy_returns.std()
+            
+            # VIX data if available
+            vix_available = 'vix' in spy_wave_data.columns
+            if vix_available:
+                latest_vix = spy_wave_data['vix'].iloc[-1]
+                vix_trend = spy_wave_data['vix'].iloc[-10:].mean()
+            else:
+                latest_vix = None
+                vix_trend = None
+            
+            # Classify regime
+            if avg_return > 0.001 and (not vix_available or latest_vix < 20):
+                regime = "Risk-On"
+                regime_color = "green"
+                regime_icon = "📈"
+            elif avg_return < -0.001 or (vix_available and latest_vix >= 25):
+                regime = "Risk-Off"
+                regime_color = "red"
+                regime_icon = "📉"
+            else:
+                regime = "Neutral"
+                regime_color = "orange"
+                regime_icon = "➖"
+            
+            # Display regime
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric(
-                    "% Waves Positive",
-                    f"{stats_30d['pct_positive_alpha']:.1f}%",
-                    help="Percentage of Waves with positive 30D Alpha"
+                    "Current Regime",
+                    f"{regime_icon} {regime}",
+                    help="Heuristic classification based on recent SPY returns"
                 )
             
             with col2:
                 st.metric(
-                    "Average Alpha (30D)",
-                    f"{stats_30d['avg_alpha']:+.2%}",
-                    help="Average Alpha across all Waves over 30 days"
+                    "Avg Return (10D)",
+                    f"{avg_return * 100:.2f}%",
+                    help="Average daily return over last 10 days"
                 )
             
             with col3:
-                best_wave = stats_30d['best_wave']
-                best_alpha = stats_30d['best_alpha']
-                st.metric(
-                    "Best Wave (30D)",
-                    f"{best_wave[:15]}..." if len(best_wave) > 15 else best_wave,
-                    f"{best_alpha:+.2%}",
-                    help=f"{best_wave}: {best_alpha:+.2%}"
-                )
-            
-            with col4:
-                worst_wave = stats_30d['worst_wave']
-                worst_alpha = stats_30d['worst_alpha']
-                st.metric(
-                    "Worst Wave (30D)",
-                    f"{worst_wave[:15]}..." if len(worst_wave) > 15 else worst_wave,
-                    f"{worst_alpha:+.2%}",
-                    help=f"{worst_wave}: {worst_alpha:+.2%}"
-                )
-            
-            with col5:
-                st.metric(
-                    "Updated",
-                    latest_timestamp,
-                    help="Data as of date"
-                )
-        else:
-            st.info("Insufficient data for platform snapshot")
-    
-    except Exception as e:
-        st.error(f"Error generating platform snapshot: {str(e)}")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION C: Master "All Waves" Performance Grid
-    # ========================================================================
-    st.markdown("### 📈 All Waves Performance Grid")
-    st.caption("Multi-timeframe performance summary across all Waves (sorted by 30D Alpha)")
-    
-    try:
-        # Get multi-timeframe data for all waves
-        timeframes = [1, 30, 60, 365]
-        df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
-        
-        if not df.empty:
-            # Sort by 30D Alpha (descending)
-            if '30D_Alpha' in df.columns:
-                df = df.sort_values('30D_Alpha', ascending=False)
-            
-            # Format the dataframe for display
-            display_df = df.copy()
-            
-            # Format numeric columns as percentages
-            for col in display_df.columns:
-                if col != 'Wave' and col in display_df.columns:
-                    display_df[col] = display_df[col].apply(
-                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                if vix_available and latest_vix is not None:
+                    st.metric(
+                        "VIX Level",
+                        f"{latest_vix:.1f}",
+                        help="Latest VIX value (volatility index)"
+                    )
+                else:
+                    st.metric(
+                        "Volatility (10D)",
+                        f"{volatility * 100:.2f}%",
+                        help="Standard deviation of returns over last 10 days"
                     )
             
-            # Display with custom styling
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
-            
-            # Download button
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download as CSV",
-                data=csv,
-                file_name=f"all_waves_performance_{latest_timestamp}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No wave data available for performance grid")
+            # Regime description
+            if regime == "Risk-On":
+                st.success("✅ **Risk-On Environment:** Positive momentum, favorable for growth-oriented positioning")
+            elif regime == "Risk-Off":
+                st.error("🔴 **Risk-Off Environment:** Defensive positioning recommended, elevated volatility")
+            else:
+                st.warning("⚠️ **Neutral Environment:** Mixed signals, maintain balanced positioning")
     
     except Exception as e:
-        st.error(f"Error generating performance grid: {str(e)}")
+        st.warning(f"⚠️ Market Regime panel unavailable: {str(e)}")
+        st.info("📊 Unable to determine market regime. Data may be insufficient or unavailable.")
     
     st.divider()
     
     # ========================================================================
-    # SECTION D: Alpha Heat Strip
+    # SECTION 6: Opportunity Lens
     # ========================================================================
-    st.markdown("### 🔥 Alpha Heat Strip")
-    st.caption("Alpha values across timeframes with heat coloring by magnitude")
+    st.markdown("### 💡 Opportunity Lens")
+    st.caption("3-5 neutral observations based on correlation patterns and market regime context")
     
     try:
-        # Reuse the same data from the grid
-        timeframes = [1, 30, 60, 365]
-        df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+        # Generate observations based on available data
+        observations = []
         
-        if not df.empty:
-            # Extract alpha columns
-            alpha_cols = [f'{days}D_Alpha' for days in timeframes]
-            heat_data = df[['Wave'] + alpha_cols].copy()
-            
-            # Sort by 30D Alpha
-            if '30D_Alpha' in heat_data.columns:
-                heat_data = heat_data.sort_values('30D_Alpha', ascending=False)
-            
-            # Create heatmap
-            fig = go.Figure(data=go.Heatmap(
-                z=heat_data[alpha_cols].values,
-                x=['1D', '30D', '60D', '365D'],
-                y=heat_data['Wave'].values,
-                colorscale='RdYlGn',
-                zmid=0,
-                text=heat_data[alpha_cols].values,
-                texttemplate='%{text:.2%}',
-                textfont={"size": 8},
-                colorbar=dict(title="Alpha")
-            ))
-            
-            fig.update_layout(
-                title="Alpha Heat Strip - All Waves",
-                xaxis_title="Timeframe",
-                yaxis_title="Wave",
-                height=max(400, len(heat_data) * 20),
-                yaxis=dict(autorange="reversed")
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No data available for heat strip")
-    
-    except Exception as e:
-        st.error(f"Error generating alpha heat strip: {str(e)}")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION E: Selected Wave - Alpha Drivers
-    # ========================================================================
-    st.markdown("### 🎯 Alpha Drivers - Selected Wave")
-    st.caption("Attribution breakdown for selected Wave (default timeframe: 30D)")
-    
-    try:
-        # Get available waves
+        # Get correlation data
         waves = get_available_waves()
+        valid_waves = []
+        wave_returns_dict = {}
         
-        if waves:
-            # Default to top wave by 30D Alpha
-            stats_30d = get_system_statistics(timeframe_days=30)
-            default_wave = stats_30d['best_wave'] if stats_30d else waves[0]
+        for wave in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
+            if wave_data is not None and len(wave_data) >= 30:
+                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
+                    valid_waves.append(wave)
+                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
+        
+        if len(valid_waves) >= 2:
+            returns_df = pd.DataFrame(wave_returns_dict).dropna()
             
-            selected_wave_attr = st.selectbox(
-                "Select Wave for Attribution Analysis",
-                options=waves,
-                index=waves.index(default_wave) if default_wave in waves else 0,
-                key="overview_wave_selector"
-            )
-            
-            if selected_wave_attr:
-                # Get wave data for 30D
-                wave_data = get_wave_data_filtered(wave_name=selected_wave_attr, days=30)
+            if len(returns_df) >= 10:
+                corr_matrix = returns_df.corr()
                 
-                if wave_data is not None and len(wave_data) > 0:
-                    # Calculate basic metrics
-                    wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
-                    benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
-                    total_alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
+                # Observation 1: Identify rotation opportunities
+                # Find lowest correlation pairs
+                pairs = []
+                for i in range(len(corr_matrix)):
+                    for j in range(i+1, len(corr_matrix)):
+                        wave1 = corr_matrix.index[i]
+                        wave2 = corr_matrix.columns[j]
+                        corr_val = corr_matrix.iloc[i, j]
+                        pairs.append((wave1, wave2, corr_val))
+                
+                if pairs:
+                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
+                    lowest_pair = pairs_sorted[0]
                     
-                    # Display metrics
-                    col1, col2, col3 = st.columns(3)
+                    observations.append(
+                        f"**Rotation Opportunity:** {lowest_pair[0]} and {lowest_pair[1]} show low correlation "
+                        f"({lowest_pair[2]:.2f}), suggesting potential for diversification or rotation strategies."
+                    )
+                
+                # Observation 2: Identify clustering patterns
+                # Check if we can identify distinct clusters
+                try:
+                    from scipy.cluster.hierarchy import linkage, fcluster
+                    from scipy.spatial.distance import squareform
                     
-                    with col1:
-                        st.metric("Wave Return (30D)", f"{wave_return:+.2%}" if wave_return is not None else "N/A")
+                    dist_matrix = 1 - corr_matrix
+                    dist_condensed = squareform(dist_matrix, checks=False)
+                    linkage_matrix = linkage(dist_condensed, method='average')
                     
-                    with col2:
-                        st.metric("Benchmark Return (30D)", f"{benchmark_return:+.2%}" if benchmark_return is not None else "N/A")
+                    num_clusters = min(4, max(2, len(valid_waves) // 3))
+                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
                     
-                    with col3:
-                        st.metric("Total Alpha (30D)", f"{total_alpha:+.2%}" if total_alpha is not None else "N/A")
+                    # Count clusters
+                    unique_clusters = len(set(cluster_labels))
                     
-                    st.markdown("#### Alpha Drivers Breakdown")
+                    observations.append(
+                        f"**Clustering Pattern:** Wave universe segments into approximately {unique_clusters} "
+                        f"correlation-based clusters, indicating distinct thematic or sector groupings."
+                    )
+                except:
+                    pass
+                
+                # Observation 3: Recent performance divergence
+                # Check 30-day returns variance
+                recent_returns = {}
+                for wave in valid_waves[:5]:
+                    wave_data = get_wave_data_filtered(wave_name=wave, days=30)
+                    if wave_data is not None and len(wave_data) > 0:
+                        total_return = wave_data['portfolio_return'].sum()
+                        recent_returns[wave] = total_return
+                
+                if len(recent_returns) >= 2:
+                    sorted_returns = sorted(recent_returns.items(), key=lambda x: x[1], reverse=True)
+                    top_performer = sorted_returns[0]
+                    bottom_performer = sorted_returns[-1]
                     
-                    # Use alpha_attribution module if available
-                    if ALPHA_ATTRIBUTION_AVAILABLE and total_alpha is not None and abs(total_alpha) > 0.0001:
-                        try:
-                            # Compute attribution using alpha_attribution module
-                            from alpha_attribution import compute_alpha_attribution_series
-                            
-                            # Prepare data for attribution
-                            wave_data_copy = wave_data.copy()
-                            wave_data_copy = wave_data_copy.set_index('date') if 'date' in wave_data_copy.columns else wave_data_copy
-                            
-                            attribution_result = compute_alpha_attribution_series(
-                                wave_data_copy,
-                                wave_name=selected_wave_attr,
-                                mode=st.session_state.get("mode", "Standard")
-                            )
-                            
-                            if attribution_result and hasattr(attribution_result, 'summary'):
-                                summary = attribution_result.summary
-                                
-                                # Display attribution components
-                                st.write("**Attribution Components:**")
-                                
-                                # Calculate percentages
-                                stock_selection_pct = (summary.asset_selection_alpha / total_alpha * 100) if total_alpha != 0 else 0
-                                overlay_pct = ((summary.exposure_timing_alpha + summary.regime_vix_alpha) / total_alpha * 100) if total_alpha != 0 else 0
-                                residual_pct = 100 - stock_selection_pct - overlay_pct
-                                
-                                col1, col2, col3 = st.columns(3)
-                                
-                                with col1:
-                                    st.metric("Stock Selection", f"{stock_selection_pct:+.1f}%")
-                                
-                                with col2:
-                                    st.metric("Risk Overlay", f"{overlay_pct:+.1f}%")
-                                
-                                with col3:
-                                    st.metric("Residual / Other", f"{residual_pct:+.1f}%")
-                            else:
-                                st.info("Attribution calculation returned no data")
+                    spread = (top_performer[1] - bottom_performer[1]) * 100
+                    
+                    observations.append(
+                        f"**Performance Divergence:** {top_performer[0]} outperformed {bottom_performer[0]} "
+                        f"by {spread:.1f}% over the last 30 days, suggesting active thematic rotation."
+                    )
+                
+                # Observation 4: Regime context
+                spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=10)
+                if spy_wave_data is not None and len(spy_wave_data) >= 5:
+                    avg_return = spy_wave_data['portfolio_return'].mean()
+                    
+                    if avg_return > 0.001:
+                        observations.append(
+                            "**Market Context:** Positive momentum in S&P 500 Wave suggests a risk-on environment "
+                            "may favor growth-oriented and higher-beta waves."
+                        )
+                    elif avg_return < -0.001:
+                        observations.append(
+                            "**Market Context:** Negative momentum in S&P 500 Wave suggests defensive positioning "
+                            "or low-correlation waves may provide downside protection."
+                        )
+                
+                # Observation 5: Correlation stability
+                # Compare 30-day vs 90-day correlations for selected wave
+                selected_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+                selected_90d = get_wave_data_filtered(wave_name=selected_wave, days=90)
+                
+                if selected_30d is not None and selected_90d is not None:
+                    if len(selected_30d) >= 20 and len(selected_90d) >= 60:
+                        # Pick another wave for comparison
+                        comparison_wave = None
+                        for w in valid_waves:
+                            if w != selected_wave:
+                                comparison_wave = w
+                                break
                         
-                        except Exception as attr_err:
-                            st.warning(f"Alpha attribution unavailable: {str(attr_err)}")
-                            st.info("Showing simplified attribution estimate")
+                        if comparison_wave:
+                            comp_30d = get_wave_data_filtered(wave_name=comparison_wave, days=30)
+                            comp_90d = get_wave_data_filtered(wave_name=comparison_wave, days=90)
                             
-                            # Fallback: Use simple estimation
-                            stock_selection_pct = 70.0
-                            overlay_pct = 20.0
-                            residual_pct = 10.0
-                            
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                st.metric("Stock Selection (est.)", f"{stock_selection_pct:.1f}%")
-                            
-                            with col2:
-                                st.metric("Risk Overlay (est.)", f"{overlay_pct:.1f}%")
-                            
-                            with col3:
-                                st.metric("Residual / Other (est.)", f"{residual_pct:.1f}%")
-                    
-                    elif total_alpha is not None and abs(total_alpha) < 0.0001:
-                        st.info("Total Alpha ≈ 0 - Attribution breakdown not meaningful (N/A)")
-                    
-                    else:
-                        st.info("Alpha attribution module not available")
-                
-                else:
-                    st.warning(f"No data available for {selected_wave_attr}")
+                            if comp_30d is not None and comp_90d is not None:
+                                corr_30d = calculate_wave_correlation(selected_30d, comp_30d)
+                                corr_90d = calculate_wave_correlation(selected_90d, comp_90d)
+                                
+                                if corr_30d is not None and corr_90d is not None:
+                                    delta = abs(corr_30d - corr_90d)
+                                    
+                                    if delta > 0.2:
+                                        observations.append(
+                                            f"**Correlation Shift:** Correlation between {selected_wave} and {comparison_wave} "
+                                            f"has changed significantly (30D: {corr_30d:.2f}, 90D: {corr_90d:.2f}), "
+                                            "indicating evolving relationship dynamics."
+                                        )
+        
+        # Display observations
+        if observations:
+            for obs in observations[:5]:  # Limit to 5
+                st.markdown(f"• {obs}")
         else:
-            st.info("No waves available for attribution analysis")
+            st.info("📊 Insufficient data to generate observations. More wave history needed.")
     
     except Exception as e:
-        st.error(f"Error in alpha drivers section: {str(e)}")
+        st.warning(f"⚠️ Opportunity Lens panel unavailable: {str(e)}")
+        st.info("📊 Unable to generate opportunity insights. Data may be insufficient or unavailable.")
     
     st.divider()
-    st.caption(f"Data as of: {latest_timestamp} | All calculations reconcile with Wave card outputs")
+    
+    # Add bottom padding to prevent overlap with sticky bar (mobile-compatible)
+    # Using native Streamlit spacing instead of HTML
+    st.markdown("")
+    st.markdown("")
+    
+    st.markdown("---")
+    st.caption("Intelligence Center (Vector v3) - Cross-Wave Correlation & Market Insights")
+    st.caption("All panels gracefully handle insufficient data with clear fallback messaging")
+
+
+# ============================================================================
+# WAVE PROFILE TAB - New First Tab (Before Console)
+# ============================================================================
+
+def render_wave_profile_tab():
+    """
+    Render the Wave Profile tab - New first tab with enhanced styling.
+    
+    This tab displays:
+    1. Hero card with Wave information (styled, not raw HTML)
+    2. Mode indicator
+    3. Top 10 Holdings (clickable)
+    4. Performance metrics
+    
+    Wrapped in try/except with fallback to original layout if errors occur.
+    """
+    try:
+        if not ENABLE_WAVE_PROFILE:
+            # Feature flag disabled - show info message
+            st.info("Wave Profile tab is currently disabled. Enable by setting ENABLE_WAVE_PROFILE = True")
+            return
+        
+        st.header("🌊 Wave Profile")
+        st.write("Comprehensive overview of the selected Wave with styled hero card and holdings")
+        
+        # Get selected wave and mode from session state
+        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+        mode = st.session_state.get("mode", "Standard")
+        
+        st.divider()
+        
+        # ====================================================================
+        # SECTION 1: HERO CARD - Styled Wave Information
+        # ====================================================================
+        
+        # Wave description mapping
+        wave_descriptions = {
+            "S&P 500 Wave": "Tracks the flagship S&P 500 index, representing large-cap U.S. equities with institutional-grade risk overlay.",
+            "Growth Wave": "Focuses on technology and innovation leaders through QQQ exposure with adaptive beta targeting.",
+            "Small Cap Growth Wave": "Captures small-cap growth opportunities via IWM with volatility-adjusted exposure scaling.",
+            "Small-Mid Cap Growth Wave": "Targets mid-cap growth companies through IJH with balanced risk management.",
+            "Future Power & Energy Wave": "Invests in energy sector transformation through XLE exposure with environmental focus.",
+            "Quantum Computing Wave": "Private logic strategy focused on quantum computing and advanced technology themes.",
+            "Clean Transit-Infrastructure Wave": "Clean energy and infrastructure exposure through ICLN with ESG alignment.",
+            "Income Wave": "Conservative income generation through AGG bond exposure with capital preservation focus.",
+            "US MegaCap Core Wave": "Concentrated exposure to the largest U.S. companies with quality and stability focus.",
+            "AI & Cloud MegaCap Wave": "AI and cloud computing leaders among mega-cap technology companies.",
+            "Next-Gen Compute & Semis Wave": "Semiconductor and next-generation computing hardware exposure.",
+            "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive business models.",
+            "Demas Fund Wave": "Custom thematic portfolio with specialized sector allocation.",
+            "Crypto Income Wave": "Cryptocurrency income and yield generation strategy.",
+            "Russell 3000 Wave": "Broad U.S. equity market exposure tracking the Russell 3000 index via IWV."
+        }
+        
+        wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
+        
+        # Create styled hero card with mobile-responsive CSS
+        hero_card_html = f"""
+        <style>
+            .wave-profile-hero {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+                border: 3px solid #00d9ff;
+                border-radius: 15px;
+                padding: 30px;
+                margin-bottom: 20px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            }}
+            
+            .wave-profile-title {{
+                color: #ffffff;
+                font-size: 36px;
+                font-weight: bold;
+                margin: 0 0 10px 0;
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            }}
+            
+            .wave-profile-mode-pill {{
+                display: inline-block;
+                background: {'#00ff88' if mode == 'Standard' else '#ffd700' if mode == 'Aggressive' else '#ff6b6b'};
+                color: #1a1a2e;
+                padding: 8px 20px;
+                border-radius: 25px;
+                font-weight: bold;
+                font-size: 16px;
+                margin-bottom: 15px;
+            }}
+            
+            .wave-profile-description {{
+                color: #ffffff;
+                font-size: 16px;
+                line-height: 1.6;
+                margin: 15px 0 0 0;
+            }}
+            
+            /* Mobile responsiveness */
+            @media only screen and (max-width: 768px) {{
+                .wave-profile-hero {{
+                    padding: 20px 15px;
+                    margin-bottom: 15px;
+                    border-radius: 12px;
+                    border-width: 2px;
+                }}
+                
+                .wave-profile-title {{
+                    font-size: 24px;
+                    margin: 0 0 8px 0;
+                }}
+                
+                .wave-profile-mode-pill {{
+                    padding: 6px 16px;
+                    font-size: 14px;
+                    margin-bottom: 12px;
+                }}
+                
+                .wave-profile-description {{
+                    font-size: 14px;
+                    line-height: 1.5;
+                    margin: 12px 0 0 0;
+                }}
+            }}
+        </style>
+        
+        <div class="wave-profile-hero">
+            <h1 class="wave-profile-title">
+                🌊 {selected_wave}
+            </h1>
+            
+            <div class="wave-profile-mode-pill">
+                MODE: {mode}
+            </div>
+            
+            <p class="wave-profile-description">
+                {wave_description}
+            </p>
+        </div>
+        """
+        
+        # Render hero card using st.markdown with unsafe_allow_html=True
+        st.markdown(hero_card_html, unsafe_allow_html=True)
+        
+        # Add spacing between hero card and Top 10 Holdings
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ====================================================================
+        # SECTION 2: TOP 10 HOLDINGS - Clickable
+        # ====================================================================
+        
+        st.markdown("### 📋 Top 10 Holdings")
+        
+        try:
+            # Get holdings from WAVE_WEIGHTS
+            if WAVES_ENGINE_AVAILABLE and selected_wave in WAVE_WEIGHTS:
+                holdings = WAVE_WEIGHTS[selected_wave]
+                
+                if holdings and len(holdings) > 0:
+                    # Sort by weight descending and take top 10
+                    sorted_holdings = sorted(holdings, key=lambda h: h.weight, reverse=True)[:10]
+                    
+                    # Display holdings as a formatted table with clickable links
+                    st.markdown("**Click on any ticker to view on Yahoo Finance:**")
+                    
+                    holdings_data = []
+                    for idx, holding in enumerate(sorted_holdings, 1):
+                        ticker = holding.ticker
+                        weight = holding.weight
+                        name = holding.name if holding.name else ticker
+                        
+                        # Create Yahoo Finance link
+                        yahoo_link = f"https://finance.yahoo.com/quote/{ticker}"
+                        
+                        holdings_data.append({
+                            "Rank": idx,
+                            "Ticker": f"[{ticker}]({yahoo_link})",
+                            "Name": name,
+                            "Weight": f"{weight*100:.2f}%"
+                        })
+                    
+                    # Display as a dataframe with clickable links
+                    holdings_df = pd.DataFrame(holdings_data)
+                    st.markdown(holdings_df.to_markdown(index=False), unsafe_allow_html=True)
+                    
+                else:
+                    st.info("📊 No holdings data available for this wave.")
+            else:
+                st.info("📊 Holdings data unavailable. Wave not found in engine.")
+        
+        except Exception as holdings_err:
+            st.warning(f"⚠️ Unable to load holdings: {str(holdings_err)}")
+            st.info("📊 Data unavailable")
+        
+        # Add spacing
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # ====================================================================
+        # SECTION 3: PERFORMANCE METRICS
+        # ====================================================================
+        
+        st.markdown("### 📊 Performance Metrics")
+        
+        try:
+            # Get wave data for metrics calculation
+            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
+            
+            if wave_data is not None and len(wave_data) > 0:
+                # Calculate metrics
+                metrics = calculate_wave_metrics(wave_data)
+                
+                # Display metrics in columns
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    wavescore = metrics.get('wavescore', 'N/A')
+                    if wavescore != 'N/A':
+                        st.metric("WaveScore", f"{wavescore:.1f}")
+                    else:
+                        st.metric("WaveScore", "N/A")
+                
+                with col2:
+                    cum_alpha = metrics.get('cumulative_alpha', 'N/A')
+                    if cum_alpha != 'N/A':
+                        st.metric("Cumulative Alpha (30D)", f"{cum_alpha*100:.2f}%")
+                    else:
+                        st.metric("Cumulative Alpha (30D)", "N/A")
+                
+                with col3:
+                    sharpe = metrics.get('sharpe_ratio', 'N/A')
+                    if sharpe != 'N/A':
+                        st.metric("Sharpe Ratio", f"{sharpe:.2f}")
+                    else:
+                        st.metric("Sharpe Ratio", "N/A")
+                
+                with col4:
+                    volatility = metrics.get('volatility', 'N/A')
+                    if volatility != 'N/A':
+                        st.metric("Volatility (Daily)", f"{volatility*100:.2f}%")
+                    else:
+                        st.metric("Volatility (Daily)", "N/A")
+            else:
+                st.info("📊 Wave data unavailable for the selected wave. Metrics cannot be calculated.")
+        
+        except Exception as metrics_err:
+            st.warning(f"⚠️ Unable to load wave metrics: {str(metrics_err)}")
+            st.info("📊 Data unavailable")
+        
+        # Footer
+        st.markdown("---")
+        st.caption("Wave Profile - Enhanced visualization with styled hero card and clickable holdings")
+    
+    except Exception as e:
+        # Fallback: Display error and revert to original Console tab layout
+        st.error("⚠️ Wave Profile tab encountered an error. Falling back to original layout.")
+        st.warning(f"Error details: {str(e)}")
+        
+        # Display simplified version
+        st.header("🌊 Wave Profile (Fallback Mode)")
+        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
+        mode = st.session_state.get("mode", "Standard")
+        st.info(f"Selected Wave: {selected_wave} | Mode: {mode}")
+        st.info("The enhanced Wave Profile is temporarily unavailable. Please check the Console tab.")
+
 
 def render_executive_tab():
     """
@@ -7785,393 +8385,17 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
 
 
 def render_overview_tab():
-    """
-    Render the new comprehensive Overview tab.
+    """Render the Overview tab with Vector Explain and Compare Waves."""
+    st.header("Overview")
     
-    This tab provides:
-    1. Platform Snapshot - High-level summary metrics
-    2. All-Waves Performance & Alpha Grid - Detailed multi-timeframe table
-    3. Alpha Drivers breakdown for selected wave
-    4. Methodology expander (optional)
+    # Create sub-tabs for Vector Explain and Compare Waves
+    overview_subtabs = st.tabs(["Vector Explain", "Compare Waves"])
     
-    Reuses existing data pipelines for consistency with Wave cards.
-    """
-    try:
-        st.header("📊 Platform Overview")
-        st.caption("Comprehensive system-wide performance dashboard")
-        
-        # ========================================================================
-        # SECTION A: Platform Snapshot (Top tiles)
-        # ========================================================================
-        st.markdown("### 🎯 Platform Snapshot")
-        
-        # Compute metrics for all waves
-        with st.spinner("Loading platform metrics..."):
-            all_metrics = compute_alpha_metrics_all_waves()
-        
-        if not all_metrics:
-            st.warning("⚠️ No platform data available. Please ensure wave_history.csv contains valid data.")
-            return
-        
-        # Calculate platform-wide metrics for 30D timeframe
-        alpha_30d_values = [m.get('alpha_30d') for m in all_metrics if m.get('alpha_30d') is not None]
-        
-        if alpha_30d_values:
-            # Calculate snapshot metrics
-            waves_positive_30d = sum(1 for a in alpha_30d_values if a > 0)
-            total_waves = len(alpha_30d_values)
-            pct_positive = (waves_positive_30d / total_waves * 100) if total_waves > 0 else 0
-            
-            avg_alpha_30d = sum(alpha_30d_values) / len(alpha_30d_values)
-            best_alpha_30d = max(alpha_30d_values)
-            worst_alpha_30d = min(alpha_30d_values)
-            dispersion_30d = best_alpha_30d - worst_alpha_30d
-            
-            # Find wave names for best/worst
-            best_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == best_alpha_30d), "N/A")
-            worst_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == worst_alpha_30d), "N/A")
-            
-            # Get timestamp from any wave with data
-            last_updated = None
-            for m in all_metrics:
-                if m.get('last_updated'):
-                    last_updated = m['last_updated']
-                    break
-            
-            # Display tiles in columns
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
-            with col1:
-                st.metric(
-                    label="Waves Positive (30D)",
-                    value=f"{pct_positive:.1f}%",
-                    delta=f"{waves_positive_30d}/{total_waves} waves",
-                    help="Percentage of waves with positive 30-day alpha"
-                )
-            
-            with col2:
-                st.metric(
-                    label="Average Alpha (30D)",
-                    value=f"{avg_alpha_30d*100:.2f}%",
-                    help="Average 30-day alpha across all waves"
-                )
-            
-            with col3:
-                st.metric(
-                    label="Best Wave (30D)",
-                    value=f"{best_alpha_30d*100:.2f}%",
-                    delta=best_wave,
-                    help="Wave with highest 30-day alpha"
-                )
-            
-            with col4:
-                st.metric(
-                    label="Worst Wave (30D)",
-                    value=f"{worst_alpha_30d*100:.2f}%",
-                    delta=worst_wave,
-                    delta_color="inverse",
-                    help="Wave with lowest 30-day alpha"
-                )
-            
-            with col5:
-                if last_updated:
-                    st.metric(
-                        label="Last Updated",
-                        value=last_updated.strftime('%Y-%m-%d') if hasattr(last_updated, 'strftime') else str(last_updated)[:10],
-                        help="Most recent data timestamp"
-                    )
-                else:
-                    st.metric(label="Last Updated", value="N/A")
-        else:
-            st.info("📊 Insufficient data for platform snapshot")
-        
-        st.divider()
-        
-        # ========================================================================
-        # SECTION B: All-Waves Performance & Alpha Grid (Main table)
-        # ========================================================================
-        st.markdown("### 📈 All-Waves Performance & Alpha Grid")
-        st.caption("Multi-timeframe performance metrics for all waves")
-        
-        # Build comprehensive grid data
-        grid_data = []
-        for metrics in all_metrics:
-            wave_name = metrics['wave_name']
-            wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            
-            # Helper to get returns for a timeframe
-            def get_returns(days):
-                wave_data = get_wave_data_filtered(
-                    wave_name=wave_name,
-                    days=days,
-                    _wave_universe_version=wave_universe_version
-                )
-                if wave_data is not None and len(wave_data) > 0:
-                    wave_ret = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
-                    bench_ret = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
-                    return wave_ret, bench_ret
-                return 0.0, 0.0
-            
-            # Get returns for each timeframe
-            wave_1d, bench_1d = get_returns(1)
-            wave_30d, bench_30d = get_returns(30)
-            wave_60d, bench_60d = get_returns(60)
-            wave_365d, bench_365d = get_returns(365)
-            
-            # Calculate alphas
-            alpha_1d = wave_1d - bench_1d
-            alpha_30d = wave_30d - bench_30d
-            alpha_60d = wave_60d - bench_60d
-            alpha_365d = wave_365d - bench_365d
-            
-            grid_data.append({
-                'Wave Name': wave_name,
-                '1D Wave': wave_1d,
-                '1D Benchmark': bench_1d,
-                '1D Alpha': alpha_1d,
-                '30D Wave': wave_30d,
-                '30D Benchmark': bench_30d,
-                '30D Alpha': alpha_30d,
-                '60D Wave': wave_60d,
-                '60D Benchmark': bench_60d,
-                '60D Alpha': alpha_60d,
-                '365D Wave': wave_365d,
-                '365D Benchmark': bench_365d,
-                '365D Alpha': alpha_365d,
-                '_sort_alpha_30d': alpha_30d  # Hidden column for sorting
-            })
-        
-        if grid_data:
-            df_grid = pd.DataFrame(grid_data)
-            
-            # Sort by 30D Alpha (descending) - default sort
-            df_grid = df_grid.sort_values('_sort_alpha_30d', ascending=False)
-            
-            # Format percentages for display
-            percent_cols = [
-                '1D Wave', '1D Benchmark', '1D Alpha',
-                '30D Wave', '30D Benchmark', '30D Alpha',
-                '60D Wave', '60D Benchmark', '60D Alpha',
-                '365D Wave', '365D Benchmark', '365D Alpha'
-            ]
-            
-            df_display = df_grid.copy()
-            for col in percent_cols:
-                df_display[col] = df_display[col].apply(lambda x: f"{x*100:.2f}%")
-            
-            # Drop the sort column
-            df_display = df_display.drop(columns=['_sort_alpha_30d'])
-            
-            # Apply color styling to alpha columns
-            def color_alpha(val):
-                """Apply green color to positive values, red to negative."""
-                try:
-                    # Extract numeric value from percentage string
-                    num_val = float(val.strip('%'))
-                    if num_val > 0:
-                        return 'background-color: #d4edda; color: #155724'  # Light green background, dark green text
-                    elif num_val < 0:
-                        return 'background-color: #f8d7da; color: #721c24'  # Light red background, dark red text
-                    else:
-                        return ''
-                except:
-                    return ''
-            
-            # Style the dataframe
-            alpha_cols = ['1D Alpha', '30D Alpha', '60D Alpha', '365D Alpha']
-            styled_df = df_display.style.applymap(color_alpha, subset=alpha_cols)
-            
-            # Display with horizontal scroll for mobile
-            st.dataframe(
-                styled_df,
-                use_container_width=True,
-                height=600,
-                hide_index=True
-            )
-            
-            st.caption(f"✓ Showing {len(df_grid)} waves | Sorted by 30D Alpha (descending) | Green = positive alpha, Red = negative alpha")
-        else:
-            st.info("📊 No wave data available for grid")
-        
-        st.divider()
-        
-        # ========================================================================
-        # SECTION C: Selected Wave — Alpha Drivers %
-        # ========================================================================
-        st.markdown("### 🎯 Alpha Drivers Breakdown")
-        st.caption("Performance attribution for selected wave")
-        
-        # Create two columns: Wave selector + Timeframe selector on left, Alpha breakdown on right
-        col_controls, col_breakdown = st.columns([3, 7])
-        
-        with col_controls:
-            # Wave selector - default to top wave by 30D Alpha
-            wave_names = [m['wave_name'] for m in all_metrics]
-            
-            if alpha_30d_values:
-                valid_metrics = [m for m in all_metrics if m.get('alpha_30d') is not None]
-                if valid_metrics:
-                    default_wave = max(valid_metrics, key=lambda x: x.get('alpha_30d', -9999))['wave_name']
-                else:
-                    default_wave = wave_names[0] if wave_names else None
-            else:
-                default_wave = wave_names[0] if wave_names else None
-            
-            selected_wave_for_drivers = st.selectbox(
-                "Select Wave:",
-                options=wave_names,
-                index=wave_names.index(default_wave) if default_wave and default_wave in wave_names else 0,
-                key="overview_drivers_wave_selector"
-            )
-            
-            # Timeframe selector
-            timeframe_options = {
-                "1 Day": 1,
-                "30 Days": 30,
-                "60 Days": 60,
-                "365 Days": 365
-            }
-            
-            selected_timeframe_label = st.selectbox(
-                "Select Timeframe:",
-                options=list(timeframe_options.keys()),
-                index=1,  # Default to 30 Days
-                key="overview_drivers_timeframe"
-            )
-            
-            timeframe_days = timeframe_options[selected_timeframe_label]
-        
-        with col_breakdown:
-            # Compute Alpha Drivers for selected wave
-            with st.spinner(f"Computing alpha drivers for {selected_wave_for_drivers}..."):
-                drivers = compute_alpha_drivers(
-                    wave_name=selected_wave_for_drivers,
-                    timeframe_days=timeframe_days
-                )
-            
-            # Display summary metrics
-            st.markdown(f"#### {selected_wave_for_drivers} — {selected_timeframe_label}")
-            
-            col_ret1, col_ret2, col_ret3 = st.columns(3)
-            
-            with col_ret1:
-                st.metric(
-                    label="Wave Return",
-                    value=f"{drivers['wave_return']*100:.2f}%",
-                    help="Total wave return over the period"
-                )
-            
-            with col_ret2:
-                st.metric(
-                    label="Benchmark Return",
-                    value=f"{drivers['benchmark_return']*100:.2f}%",
-                    help="Total benchmark return over the period"
-                )
-            
-            with col_ret3:
-                st.metric(
-                    label="Total Alpha",
-                    value=f"{drivers['total_alpha']*100:.2f}%",
-                    help="Wave Return minus Benchmark Return"
-                )
-            
-            st.markdown("---")
-            
-            # Display Alpha Drivers Breakdown
-            st.markdown("**Alpha Drivers (% Contribution)**")
-            
-            # Check if we can display percentages
-            if drivers['selection_percent'] is not None:
-                # Build drivers table
-                drivers_table_data = [
-                    {
-                        'Driver': '📈 Stock Selection',
-                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
-                        'Share of Alpha': f"{drivers['selection_percent']:.1f}%"
-                    },
-                    {
-                        'Driver': '🛡️ Risk Overlay',
-                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
-                        'Share of Alpha': f"{drivers['overlay_percent']:.1f}%"
-                    },
-                    {
-                        'Driver': '⚪ Residual/Other',
-                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
-                        'Share of Alpha': f"{drivers['residual_percent']:.1f}%"
-                    }
-                ]
-                
-                df_drivers = pd.DataFrame(drivers_table_data)
-                
-                st.dataframe(
-                    df_drivers,
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-                # Verification that shares sum to ~100%
-                total_share = drivers['selection_percent'] + drivers['overlay_percent'] + drivers['residual_percent']
-                st.caption(f"✓ Total: {total_share:.1f}% (should be ~100%)")
-                
-            else:
-                # Total alpha is effectively zero - display N/A
-                st.info("📊 Total Alpha is near zero. Share percentages: N/A")
-                
-                # Still show contributions in return points
-                drivers_table_data = [
-                    {
-                        'Driver': '📈 Stock Selection',
-                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
-                        'Share of Alpha': 'N/A'
-                    },
-                    {
-                        'Driver': '🛡️ Risk Overlay',
-                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
-                        'Share of Alpha': 'N/A'
-                    },
-                    {
-                        'Driver': '⚪ Residual/Other',
-                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
-                        'Share of Alpha': 'N/A'
-                    }
-                ]
-                
-                df_drivers = pd.DataFrame(drivers_table_data)
-                
-                st.dataframe(
-                    df_drivers,
-                    use_container_width=True,
-                    hide_index=True
-                )
-        
-        st.divider()
-        
-        # ========================================================================
-        # SECTION D: Method (Optional Expander)
-        # ========================================================================
-        with st.expander("📖 Methodology"):
-            st.markdown("""
-            **Alpha Calculation:**
-            - Alpha = Wave Return − Benchmark Return
-            
-            **Driver Attribution:**
-            - **Stock Selection**: Alpha from holding and weighting decisions (counterfactual: no risk overlay)
-            - **Risk Overlay**: Alpha from dynamic exposure and VIX-based overlays
-            - **Residual/Other**: Compounding effects and timing interactions (not forced to zero)
-            
-            **Data Sources:**
-            - All metrics derive from the same canonical wave_history.csv dataset
-            - Consistent with Wave cards and other performance displays
-            """)
+    with overview_subtabs[0]:
+        render_vector_explain_panel()
     
-    except Exception as e:
-        st.error("⚠️ **Overview Tab Error**")
-        st.warning(f"An error occurred while rendering the Overview tab: {str(e)}")
-        st.info("Please try refreshing the page or contact support if the problem persists.")
-        
-        # Show error details in expander (for debugging)
-        with st.expander("🔍 Technical Details"):
-            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+    with overview_subtabs[1]:
+        render_compare_waves_panel()
 
 
 def render_details_tab():
