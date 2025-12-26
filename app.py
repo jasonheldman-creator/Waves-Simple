@@ -11892,10 +11892,6 @@ if __name__ == "__main__":
     if "safe_mode_enabled" not in st.session_state:
         st.session_state.safe_mode_enabled = False
     
-    # Initialize safe_mode_banner_shown flag (to show banner only once per session)
-    if "safe_mode_banner_shown" not in st.session_state:
-        st.session_state.safe_mode_banner_shown = False
-    
     # If safe mode is manually enabled, run fallback directly
     if st.session_state.get("safe_mode_enabled", False):
         import app_fallback
@@ -11905,9 +11901,25 @@ if __name__ == "__main__":
         try:
             main()
         except Exception as e:
-            # Only show the large banner once per session
-            if not st.session_state.safe_mode_banner_shown:
-                # Display prominent error banner
+            # ========================================================================
+            # SAFE MODE ERROR HANDLING - BANNER SHOWN ONLY ONCE PER SESSION
+            # ========================================================================
+            # Issue: Previously, every Streamlit rerun would redisplay the large error
+            # banner, causing repeated interruptions during user interactions.
+            # 
+            # Fix: Use session state to track if banner has been shown. On first error,
+            # show full banner. On subsequent reruns, show minimal status line.
+            # This prevents the intrusive red banner from appearing on every rerun.
+            # ========================================================================
+            
+            # Initialize safe mode error tracking in session state
+            if "safe_mode_error_shown" not in st.session_state:
+                st.session_state.safe_mode_error_shown = False
+                st.session_state.safe_mode_error_message = str(e)
+                st.session_state.safe_mode_error_traceback = traceback.format_exc()
+            
+            # Display prominent error banner ONLY ONCE per session
+            if not st.session_state.safe_mode_error_shown:
                 st.markdown("""
                     <div style="
                         background-color: #ff4444;
@@ -11928,28 +11940,29 @@ if __name__ == "__main__":
                 """, unsafe_allow_html=True)
                 
                 # Mark banner as shown
-                st.session_state.safe_mode_banner_shown = True
+                st.session_state.safe_mode_error_shown = True
             else:
-                # Show smaller inline notice for subsequent errors
-                st.warning("⚠️ Safe Mode active - some features may be limited")
+                # For subsequent reruns, show a smaller, less intrusive status line
+                st.warning("⚠️ Running in Safe Mode due to application error.")
             
             # Display error details in a collapsible expander (collapsed by default)
             with st.expander("🔍 View Error Details", expanded=False):
-                st.error(f"**Error Message:** {str(e)}")
-                st.code(traceback.format_exc(), language="python")
+                st.error(f"**Error Message:** {st.session_state.safe_mode_error_message}")
+                st.code(st.session_state.safe_mode_error_traceback, language="python")
             
-            # Add Retry Full Mode button
-            col1, col2, col3 = st.columns([1, 1, 2])
+            # Add "Retry Full Mode" button to allow recovery without page refresh
+            col1, col2 = st.columns([1, 4])
             with col1:
-                if st.button("🔄 Retry Full Mode", key="retry_full_mode", help="Clear Safe Mode and try to load the full application again"):
-                    # Clear Safe Mode flags and force a rerun
+                if st.button("🔄 Retry Full Mode", help="Clear Safe Mode and attempt to run the full application"):
+                    # Clear error flags
+                    st.session_state.safe_mode_error_shown = False
                     st.session_state.safe_mode_enabled = False
-                    st.session_state.safe_mode_banner_shown = False
+                    if "safe_mode_error_message" in st.session_state:
+                        del st.session_state.safe_mode_error_message
+                    if "safe_mode_error_traceback" in st.session_state:
+                        del st.session_state.safe_mode_error_traceback
+                    # Trigger rerun
                     st.rerun()
-            
-            with col2:
-                if st.button("ℹ️ Stay in Safe Mode", key="stay_safe_mode", help="Continue using the simplified Safe Mode interface"):
-                    pass  # Just acknowledge, already in safe mode
             
             st.markdown("---")
             
