@@ -1157,6 +1157,7 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         - removed_duplicates: List of removed duplicates
         - source: Data source ("engine", "fallback")
         - timestamp: Current timestamp for tracking
+        - enabled_flags: Dictionary mapping wave names to enabled status (default True)
     """
     from datetime import datetime
     
@@ -1195,12 +1196,45 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     # Deduplicate
     deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
     
+    # Load wave_config.csv if available to get enabled flags
+    enabled_flags = {}
+    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+    if os.path.exists(wave_config_path):
+        try:
+            config_df = pd.read_csv(wave_config_path)
+            # Default enabled to True if column doesn't exist or value is missing
+            if 'enabled' in config_df.columns:
+                for _, row in config_df.iterrows():
+                    wave_name = row.get('Wave', '')
+                    enabled_value = row.get('enabled', True)
+                    # Handle NaN or empty values - default to True
+                    if pd.isna(enabled_value) or enabled_value == '':
+                        enabled_value = True
+                    enabled_flags[wave_name] = bool(enabled_value)
+        except Exception:
+            pass  # If CSV reading fails, continue with defaults
+    
+    # Initialize enabled flags from session state if available (for runtime changes)
+    session_enabled = st.session_state.get("wave_enabled_flags", {})
+    
+    # Build final enabled flags - default all waves to enabled=True
+    final_enabled = {}
+    for wave in deduplicated_waves:
+        # Priority: session state > CSV config > default True
+        if wave in session_enabled:
+            final_enabled[wave] = session_enabled[wave]
+        elif wave in enabled_flags:
+            final_enabled[wave] = enabled_flags[wave]
+        else:
+            final_enabled[wave] = True  # Default to enabled
+    
     # Build universe dictionary
     universe = {
         "waves": deduplicated_waves,
         "removed_duplicates": removed_duplicates,
         "source": source,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "enabled_flags": final_enabled
     }
     
     # Cache in session state
@@ -1974,6 +2008,74 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
         
     except Exception:
         return []
+
+
+def get_wave_status_map(_wave_universe_version=1):
+    """
+    Get status for each wave in the universe.
+    
+    Returns:
+        Dictionary mapping wave names to status:
+        - "Ready": Full analytics data available (recent 7 days)
+        - "Degraded": Partial data or stale data
+        - "Degraded (Rate Limited)": API errors or rate limiting detected
+        - "Missing Inputs": No data available
+    
+    This does NOT affect whether a wave is Active - waves remain Active
+    based on their enabled flag regardless of data status.
+    """
+    status_map = {}
+    
+    try:
+        # Get all waves from universe
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        
+        # Get wave history
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        if wave_history is None or 'wave' not in wave_history.columns:
+            # No data available - all waves are Missing Inputs
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+            return status_map
+        
+        # Get latest date
+        latest_date = wave_history['date'].max()
+        cutoff_date = latest_date - timedelta(days=7)
+        
+        # Get waves with recent data
+        recent_data = wave_history[wave_history['date'] >= cutoff_date]
+        waves_with_recent_data = set(recent_data['wave'].unique())
+        
+        # Get waves with any data (older than 7 days)
+        all_waves_with_data = set(wave_history['wave'].unique())
+        
+        # Check for rate-limited or error status in session state
+        rate_limited_waves = st.session_state.get("rate_limited_waves", set())
+        
+        # Classify each wave
+        for wave in all_waves:
+            if wave in rate_limited_waves:
+                status_map[wave] = "Degraded (Rate Limited)"
+            elif wave in waves_with_recent_data:
+                status_map[wave] = "Ready"
+            elif wave in all_waves_with_data:
+                status_map[wave] = "Degraded"
+            else:
+                status_map[wave] = "Missing Inputs"
+        
+    except Exception:
+        # On error, default all to Missing Inputs
+        try:
+            all_waves = get_wave_universe()
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+        except:
+            pass
+    
+    return status_map
 
 
 def get_cse_crypto_universe():
@@ -3180,7 +3282,8 @@ def compute_wave_universe_diagnostics():
     Returns:
         Dictionary with diagnostic metrics including:
         - universe_count: Total waves in canonical registry
-        - active_count: Waves with recent data (last 7 days)
+        - active_count: Waves with enabled=True (NEW: not data-dependent)
+        - data_ready_count: Waves with recent data (last 7 days)
         - history_unique_count: Unique waves in wave_history.csv
         - missing_waves: Waves in registry but no data
         - orphan_waves: Waves in data but not in registry
@@ -3190,6 +3293,7 @@ def compute_wave_universe_diagnostics():
     diagnostics = {
         'universe_count': 0,
         'active_count': 0,
+        'data_ready_count': 0,  # NEW: Waves with full analytics
         'history_unique_count': 0,
         'missing_waves': [],
         'orphan_waves': [],
@@ -3206,9 +3310,14 @@ def compute_wave_universe_diagnostics():
         
         registry_waves = set(universe.get("waves", []))
         duplicate_waves = universe.get("removed_duplicates", [])
+        enabled_flags = universe.get("enabled_flags", {})
         
         diagnostics['universe_count'] = len(registry_waves)
         diagnostics['duplicate_waves'] = duplicate_waves
+        
+        # NEW: Active count = enabled waves (not data-dependent)
+        active_count = sum(1 for wave in registry_waves if enabled_flags.get(wave, True))
+        diagnostics['active_count'] = active_count
         
         # Get wave history data
         wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
@@ -3226,13 +3335,13 @@ def compute_wave_universe_diagnostics():
             orphan_waves = history_waves - registry_waves
             diagnostics['orphan_waves'] = sorted(list(orphan_waves))
             
-            # Calculate active waves (recent data in last 7 days)
+            # NEW: Calculate data-ready waves (recent data in last 7 days)
             if 'date' in wave_history.columns:
                 latest_date = wave_history['date'].max()
                 cutoff_date = latest_date - timedelta(days=7)
                 recent_data = wave_history[wave_history['date'] >= cutoff_date]
-                active_waves = set(recent_data['wave'].unique())
-                diagnostics['active_count'] = len(active_waves & registry_waves)
+                data_ready_waves = set(recent_data['wave'].unique())
+                diagnostics['data_ready_count'] = len(data_ready_waves & registry_waves)
                 
                 # Compute data freshness per wave
                 data_freshness = []
@@ -3300,11 +3409,11 @@ def render_wave_universe_truth_panel():
     # ========================================================================
     st.markdown("#### 📊 Universe Metrics")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
-            label="Universe Count",
+            label="Universe",
             value=diagnostics.get('universe_count', 0),
             help="Total waves in canonical Wave Universe registry"
         )
@@ -3313,10 +3422,17 @@ def render_wave_universe_truth_panel():
         st.metric(
             label="Active Waves",
             value=diagnostics.get('active_count', 0),
-            help="Waves with data in last 7 days"
+            help="Waves with enabled=True (not data-dependent)"
         )
     
     with col3:
+        st.metric(
+            label="Data-Ready",
+            value=diagnostics.get('data_ready_count', 0),
+            help="Waves with full analytics data (recent 7 days)"
+        )
+    
+    with col4:
         st.metric(
             label="History Unique",
             value=diagnostics.get('history_unique_count', 0),
@@ -3367,6 +3483,65 @@ def render_wave_universe_truth_panel():
             with st.expander("View Duplicates Removed"):
                 for wave in diagnostics['duplicate_waves']:
                     st.text(f"• {wave}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2.5: WAVE STATUS SUMMARY
+    # ========================================================================
+    st.markdown("#### 📊 Wave Status Summary")
+    st.caption("Wave status does NOT affect Active count - waves remain Active based on enabled flag")
+    
+    # Get wave status map
+    wave_status_map = get_wave_status_map()
+    
+    # Count waves by status
+    status_counts = {
+        "Ready": 0,
+        "Degraded": 0,
+        "Rate Limited": 0,
+        "Missing Inputs": 0
+    }
+    
+    for status in wave_status_map.values():
+        if status == "Ready":
+            status_counts["Ready"] += 1
+        elif "Rate Limited" in status:
+            status_counts["Rate Limited"] += 1
+        elif status == "Degraded":
+            status_counts["Degraded"] += 1
+        elif status == "Missing Inputs":
+            status_counts["Missing Inputs"] += 1
+    
+    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+    
+    with status_col1:
+        st.metric(
+            label="🟢 Ready",
+            value=status_counts["Ready"],
+            help="Waves with full analytics data available (recent 7 days)"
+        )
+    
+    with status_col2:
+        st.metric(
+            label="🟡 Degraded",
+            value=status_counts["Degraded"],
+            help="Waves with partial or stale data"
+        )
+    
+    with status_col3:
+        st.metric(
+            label="🟠 Rate Limited",
+            value=status_counts["Rate Limited"],
+            help="Waves with API errors or rate limiting issues"
+        )
+    
+    with status_col4:
+        st.metric(
+            label="🔴 Missing Inputs",
+            value=status_counts["Missing Inputs"],
+            help="Waves with no data available"
+        )
     
     st.divider()
     
@@ -3502,6 +3677,7 @@ def render_wave_universe_truth_panel():
             csv_rows.append("METRICS")
             csv_rows.append(f"Universe Count,{diagnostics.get('universe_count', 0)}")
             csv_rows.append(f"Active Waves,{diagnostics.get('active_count', 0)}")
+            csv_rows.append(f"Data-Ready Waves,{diagnostics.get('data_ready_count', 0)}")
             csv_rows.append(f"History Unique,{diagnostics.get('history_unique_count', 0)}")
             csv_rows.append(f"Missing Waves,{len(diagnostics.get('missing_waves', []))}")
             csv_rows.append(f"Orphan Waves,{len(diagnostics.get('orphan_waves', []))}")
@@ -3991,6 +4167,11 @@ def get_mission_control_data():
     Retrieve Mission Control metrics from available data.
     Returns dict with all metrics, using 'unknown' for unavailable data.
     Enhanced with additional system health indicators.
+    
+    NEW DEFINITIONS:
+    - universe_count: Total waves in the wave registry
+    - active_waves: Waves with enabled=True (not based on data availability)
+    - data_ready_count: Waves with enough data to compute full analytics
     """
     mc_data = {
         'market_regime': 'unknown',
@@ -4003,6 +4184,7 @@ def get_mission_control_data():
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
+        'data_ready_count': 0,  # NEW: Waves with full analytics data
         'system_status': 'unknown',
         'universe_count': 0,
         'history_unique_count': 0
@@ -4015,9 +4197,21 @@ def get_mission_control_data():
             mc_data['system_status'] = 'Data Unavailable'
             # Still get wave universe count even if no history (Data Backbone V1)
             try:
-                canonical_waves = get_wave_universe()
+                wave_universe_version = st.session_state.get("wave_universe_version", 1)
+                universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+                
+                canonical_waves = universe.get("waves", [])
+                enabled_flags = universe.get("enabled_flags", {})
+                
                 mc_data['total_waves'] = len(canonical_waves)
                 mc_data['universe_count'] = mc_data['total_waves']
+                
+                # NEW: Active = enabled waves, not data-dependent
+                active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+                mc_data['active_waves'] = active_count
+                
+                # No data means data_ready_count = 0
+                mc_data['data_ready_count'] = 0
             except Exception:
                 pass
             return mc_data
@@ -4033,35 +4227,46 @@ def get_mission_control_data():
         # Count waves using centralized wave universe (Data Backbone V1)
         try:
             # Get wave universe - single source of truth for all wave lists and counts
-            canonical_waves = get_wave_universe()
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            
+            canonical_waves = universe.get("waves", [])
+            enabled_flags = universe.get("enabled_flags", {})
+            
             mc_data['total_waves'] = len(canonical_waves)
             mc_data['universe_count'] = len(canonical_waves)
+            
+            # NEW: Active = enabled waves, not data-dependent
+            active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+            mc_data['active_waves'] = active_count
             
             # Count unique waves in historical data
             if 'wave' in df.columns:
                 history_waves_unique = df['wave'].nunique()
                 mc_data['history_unique_count'] = history_waves_unique
                 
-                # Count active waves: intersection of canonical universe with waves in recent history
+                # NEW: Data-Ready = waves with recent data (full analytics available)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
                 recent_waves = set(recent_data['wave'].unique())
                 canonical_waves_set = set(canonical_waves)
-                active_waves_set = recent_waves.intersection(canonical_waves_set)
-                mc_data['active_waves'] = len(active_waves_set)
+                data_ready_waves = recent_waves.intersection(canonical_waves_set)
+                mc_data['data_ready_count'] = len(data_ready_waves)
             else:
                 # No wave column in history
-                mc_data['active_waves'] = 0
                 mc_data['history_unique_count'] = 0
+                mc_data['data_ready_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
                 mc_data['total_waves'] = df['wave'].nunique()
                 mc_data['universe_count'] = mc_data['total_waves']
                 mc_data['history_unique_count'] = mc_data['total_waves']
+                # Assume all waves are enabled in fallback mode
+                mc_data['active_waves'] = mc_data['total_waves']
                 
-                # Count active waves (with recent data)
+                # Count data-ready waves (with recent data)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                mc_data['active_waves'] = recent_data['wave'].nunique()
+                mc_data['data_ready_count'] = recent_data['wave'].nunique()
         
         # System status based on data age
         if age_days <= 1:
@@ -5205,29 +5410,26 @@ def render_mission_control():
     
     with sec_col1:
         st.metric(
-            label="Total Waves",
-            value=mc_data.get('total_waves', 0),
-            help="Total number of waves in the canonical universe"
+            label="Universe",
+            value=mc_data.get('universe_count', 0),
+            help="Total waves in the canonical wave registry"
         )
-        # Debugging caption
-        universe_count = mc_data.get('universe_count', 0)
-        active_count = mc_data.get('active_waves', 0)
-        history_unique = mc_data.get('history_unique_count', 0)
-        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col2:
         st.metric(
             label="Active Waves",
             value=mc_data.get('active_waves', 0),
-            help="Waves present in both canonical universe and recent history (last 7 days)"
+            help="Waves with enabled=True (not dependent on data availability)"
         )
-        # Debugging caption
-        universe_count = mc_data.get('universe_count', 0)
-        active_count = mc_data.get('active_waves', 0)
-        history_unique = mc_data.get('history_unique_count', 0)
-        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col3:
+        st.metric(
+            label="Data-Ready",
+            value=mc_data.get('data_ready_count', 0),
+            help="Waves with full analytics data available (recent 7 days)"
+        )
+        
+    with sec_col4:
         data_age = mc_data.get('data_age_days')
         if data_age is not None:
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
@@ -5242,7 +5444,7 @@ def render_mission_control():
             help="Time since last data update"
         )
     
-    with sec_col4:
+    with sec_col5:
         # Auto-Refresh Status Indicator (Enhanced)
         auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", DEFAULT_AUTO_REFRESH_ENABLED)
         auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
@@ -5270,19 +5472,7 @@ def render_mission_control():
         
         # Show last successful refresh time
         last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
-        st.caption(f"Last update: {last_successful_refresh.strftime('%H:%M:%S')}")
-    
-    with sec_col5:
-        # Wave Universe Version & Last Refresh Time
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        last_refresh_time = st.session_state.get("last_refresh_time", datetime.now())
-        
-        st.metric(
-            label="Wave Universe",
-            value=f"v{wave_universe_version}",
-            help="Wave universe version for cache invalidation"
-        )
-        st.caption(f"Last refresh: {last_refresh_time.strftime('%H:%M:%S')}")
+        st.caption(f"Last: {last_successful_refresh.strftime('%H:%M:%S')}")
     
     # ========================================================================
     # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
@@ -5703,6 +5893,35 @@ def render_sidebar_info():
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Activate All Waves Button
+    # ========================================================================
+    if st.sidebar.button(
+        "✅ Activate All Waves",
+        key="activate_all_waves_button",
+        use_container_width=True,
+        help="Enable all waves in the universe (set enabled=True for all)"
+    ):
+        try:
+            # Get current universe
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            
+            # Create enabled flags dictionary with all waves set to True
+            enabled_flags = {wave: True for wave in universe.get("waves", [])}
+            
+            # Store in session state
+            st.session_state["wave_enabled_flags"] = enabled_flags
+            
+            # Force reload universe to pick up new flags
+            st.session_state.wave_universe_version = wave_universe_version + 1
+            st.cache_data.clear()
+            
+            st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error activating waves: {str(e)}")
     
     st.sidebar.markdown("---")
     
