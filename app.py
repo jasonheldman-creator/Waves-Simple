@@ -11827,30 +11827,68 @@ if __name__ == "__main__":
         try:
             main()
         except Exception as e:
-            # Display prominent error banner
-            st.markdown("""
-                <div style="
-                    background-color: #ff4444;
-                    color: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                    border: 3px solid #cc0000;
-                    box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
-                ">
-                    <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
-                        ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
-                    </h1>
-                    <p style="font-size: 18px; margin-top: 15px;">
-                        The application encountered an error and has automatically switched to safe fallback mode.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
+            # ========================================================================
+            # SAFE MODE ERROR HANDLING - BANNER SHOWN ONLY ONCE PER SESSION
+            # ========================================================================
+            # Issue: Previously, every Streamlit rerun would redisplay the large error
+            # banner, causing repeated interruptions during user interactions.
+            # 
+            # Fix: Use session state to track if banner has been shown. On first error,
+            # show full banner. On subsequent reruns, show minimal status line.
+            # This prevents the intrusive red banner from appearing on every rerun.
+            # ========================================================================
             
-            # Display error details in an expander
+            # Initialize safe mode error tracking in session state
+            if "safe_mode_error_shown" not in st.session_state:
+                st.session_state.safe_mode_error_shown = False
+                st.session_state.safe_mode_error_message = str(e)
+                st.session_state.safe_mode_error_traceback = traceback.format_exc()
+            
+            # Display prominent error banner ONLY ONCE per session
+            if not st.session_state.safe_mode_error_shown:
+                st.markdown("""
+                    <div style="
+                        background-color: #ff4444;
+                        color: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        margin: 20px 0;
+                        border: 3px solid #cc0000;
+                        box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
+                    ">
+                        <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
+                            ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
+                        </h1>
+                        <p style="font-size: 18px; margin-top: 15px;">
+                            The application encountered an error and has automatically switched to safe fallback mode.
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Mark banner as shown
+                st.session_state.safe_mode_error_shown = True
+            else:
+                # For subsequent reruns, show a smaller, less intrusive status line
+                st.warning("⚠️ Running in Safe Mode due to application error.")
+            
+            # Display error details in a collapsible expander (collapsed by default)
             with st.expander("🔍 View Error Details", expanded=False):
-                st.error(f"**Error Message:** {str(e)}")
-                st.code(traceback.format_exc(), language="python")
+                st.error(f"**Error Message:** {st.session_state.safe_mode_error_message}")
+                st.code(st.session_state.safe_mode_error_traceback, language="python")
+            
+            # Add "Retry Full Mode" button to allow recovery without page refresh
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.button("🔄 Retry Full Mode", help="Clear Safe Mode and attempt to run the full application"):
+                    # Clear error flags
+                    st.session_state.safe_mode_error_shown = False
+                    st.session_state.safe_mode_enabled = False
+                    if "safe_mode_error_message" in st.session_state:
+                        del st.session_state.safe_mode_error_message
+                    if "safe_mode_error_traceback" in st.session_state:
+                        del st.session_state.safe_mode_error_traceback
+                    # Trigger rerun
+                    st.rerun()
             
             st.markdown("---")
             
