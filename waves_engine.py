@@ -1950,6 +1950,7 @@ def _compute_core(
     days: int = 365,
     overrides: Optional[Dict[str, Any]] = None,
     shadow: bool = False,
+    price_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Core engine calculator used by:
@@ -1964,6 +1965,10 @@ def _compute_core(
       - exp_min: float
       - exp_max: float
       - freeze_benchmark: bool   (use static benchmark only)
+    
+    Args:
+        price_df: Optional pre-fetched price DataFrame (date index, ticker columns). 
+                  If provided, uses this instead of calling _download_history().
     """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")
@@ -2007,7 +2012,18 @@ def _compute_core(
     if not all_tickers:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
-    price_df = _download_history(all_tickers, days=days)
+    # Use provided price_df if available, otherwise download
+    if price_df is None:
+        price_df = _download_history(all_tickers, days=days)
+    else:
+        # Filter to needed tickers and ensure we have the data
+        available_tickers = [t for t in all_tickers if t in price_df.columns]
+        if available_tickers:
+            price_df = price_df[available_tickers].copy()
+        else:
+            # Fallback to download if no tickers are available in provided price_df
+            price_df = _download_history(all_tickers, days=days)
+    
     if price_df.empty:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
     if len(price_df) > days:
@@ -2657,7 +2673,7 @@ def _compute_core(
 # Baseline API (unchanged behavior)
 # ------------------------------------------------------------
 
-def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False) -> pd.DataFrame:
+def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Baseline (official) engine output.
     
@@ -2666,20 +2682,24 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
         mode: operating mode (Standard, Alpha-Minus-Beta, Private Logic)
         days: history window
         include_diagnostics: if True, include per-day VIX/regime/exposure diagnostics in result.attrs["diagnostics"]
+        price_df: Optional pre-fetched price DataFrame (date index, ticker columns). If provided, skips yfinance download.
         
     Returns:
         DataFrame with wave_nav, bm_nav, wave_ret, bm_ret columns.
         If include_diagnostics=True, also includes diagnostics DataFrame in attrs["diagnostics"].
     """
-    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics)
+    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
 
 
-def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Shadow "What-If" simulation. Never overwrites baseline.
     Returns the same columns, plus diagnostics in out.attrs["diagnostics"] if available.
+    
+    Args:
+        price_df: Optional pre-fetched price DataFrame (date index, ticker columns). If provided, skips yfinance download.
     """
-    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=overrides or {}, shadow=True)
+    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=overrides or {}, shadow=True, price_df=price_df)
 
 
 def get_benchmark_mix_table() -> pd.DataFrame:
