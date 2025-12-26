@@ -647,3 +647,56 @@ def format_daily_attribution_sample(daily_df: pd.DataFrame, n_rows: int = 10) ->
     md += "\n**Note:** All alpha components reconcile to TotalAlpha = WaveRet - BmRet"
     
     return md
+
+
+# ------------------------------------------------------------
+# Safe Wrapper Function - Prevents Positional/Keyword Duplication
+# ------------------------------------------------------------
+
+def compute_alpha_attribution_series_safe(
+    *,
+    wave_name: str,
+    mode: str,
+    history_df: pd.DataFrame,
+    diagnostics_df: Optional[pd.DataFrame] = None,
+    tilt_strength: float = 0.8,
+    base_exposure: float = 1.0
+) -> Tuple[pd.DataFrame, AlphaAttributionSummary]:
+    """
+    Safe wrapper for compute_alpha_attribution_series that enforces keyword-only arguments.
+    
+    This function prevents the TypeError: "got multiple values for argument 'wave_name'"
+    by requiring all arguments to be passed as keywords (using the * before arguments).
+    
+    All arguments are keyword-only (must be passed as name=value).
+    
+    Args:
+        wave_name: Name of the Wave (keyword-only)
+        mode: Operating mode (keyword-only)
+        history_df: DataFrame with wave_ret, bm_ret columns (keyword-only)
+        diagnostics_df: Optional diagnostics DataFrame (keyword-only)
+        tilt_strength: Momentum tilt strength parameter (keyword-only)
+        base_exposure: Base exposure level (keyword-only)
+        
+    Returns:
+        Tuple of (daily_attribution_df, summary)
+        
+    Example:
+        # Correct usage (keyword-only):
+        daily_df, summary = compute_alpha_attribution_series_safe(
+            wave_name="S&P 500 Wave",
+            mode="Standard",
+            history_df=my_df
+        )
+        
+        # This will raise TypeError (positional not allowed):
+        # daily_df, summary = compute_alpha_attribution_series_safe("S&P 500 Wave", "Standard", my_df)
+    """
+    return compute_alpha_attribution_series(
+        wave_name=wave_name,
+        mode=mode,
+        history_df=history_df,
+        diagnostics_df=diagnostics_df,
+        tilt_strength=tilt_strength,
+        base_exposure=base_exposure
+    )

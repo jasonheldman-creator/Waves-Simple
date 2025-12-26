@@ -1497,6 +1497,52 @@ def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg=
             st.caption(f"_Debug: {str(e)}_")
 
 
+def safe_audio(audio_path, format="audio/mp3", start_time=0, placeholder_msg="🔊 Audio unavailable"):
+    """
+    Safely render an audio file with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        audio_path: Path to audio file
+        format: Audio format (default: "audio/mp3")
+        start_time: Start time in seconds (default: 0)
+        placeholder_msg: Message to show if audio fails to render
+    """
+    try:
+        if not os.path.exists(audio_path):
+            st.info(placeholder_msg)
+            return
+        st.audio(audio_path, format=format, start_time=start_time)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_video(video_path, format="video/mp4", start_time=0, placeholder_msg="🎥 Video unavailable"):
+    """
+    Safely render a video file with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        video_path: Path to video file
+        format: Video format (default: "video/mp4")
+        start_time: Start time in seconds (default: 0)
+        placeholder_msg: Message to show if video fails to render
+    """
+    try:
+        if not os.path.exists(video_path):
+            st.info(placeholder_msg)
+            return
+        st.video(video_path, format=format, start_time=start_time)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
 def safe_component(component_name, render_func, *args, show_error=True, **kwargs):
     """
     Safely execute a component rendering function with error handling.
@@ -11626,6 +11672,277 @@ def get_fed_decision_info():
         return {'next_date': None, 'current_rate': None}
 
 
+def render_diagnostics_tab():
+    """
+    Render the Diagnostics / Health tab.
+    
+    This tab provides:
+    - System health status
+    - Data availability checks
+    - Safe Mode status and error history
+    - Wave universe diagnostics
+    - Performance diagnostics
+    """
+    st.markdown("# 🏥 Health & Diagnostics")
+    st.markdown("### System health, data availability, and diagnostics")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: System Health Overview
+    # ========================================================================
+    st.subheader("📊 System Health Overview")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Check if in Safe Mode
+        safe_mode_active = st.session_state.get("safe_mode_enabled", False)
+        safe_mode_status = "🔴 Active" if safe_mode_active else "🟢 Normal"
+        st.metric("Safe Mode", safe_mode_status)
+    
+    with col2:
+        # Check wave universe status
+        wave_universe = st.session_state.get("wave_universe", {})
+        wave_count = len(wave_universe.get("waves", []))
+        st.metric("Waves Loaded", wave_count)
+    
+    with col3:
+        # Check data freshness
+        last_refresh = st.session_state.get("last_successful_refresh_time")
+        if last_refresh:
+            time_since = datetime.now() - last_refresh
+            freshness = "🟢 Fresh" if time_since.total_seconds() < 300 else "🟡 Stale"
+        else:
+            freshness = "⚪ Unknown"
+        st.metric("Data Freshness", freshness)
+    
+    with col4:
+        # Check auto-refresh status
+        auto_refresh = st.session_state.get("auto_refresh_enabled", False)
+        refresh_status = "🟢 On" if auto_refresh else "🔴 Off"
+        st.metric("Auto-Refresh", refresh_status)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: Safe Mode Status
+    # ========================================================================
+    st.subheader("⚠️ Safe Mode Status")
+    
+    if safe_mode_active:
+        st.error("**Safe Mode is currently active.** The application is running in fallback mode with limited functionality.")
+        
+        # Show error details if available
+        with st.expander("🔍 View Safe Mode Error Details", expanded=False):
+            error_msg = st.session_state.get("safe_mode_error_message", "No error message available")
+            error_trace = st.session_state.get("safe_mode_error_traceback", "No traceback available")
+            
+            st.error(f"**Error Message:** {error_msg}")
+            st.code(error_trace, language="python")
+        
+        # Retry button
+        if st.button("🔄 Retry Full Mode", help="Clear Safe Mode and attempt to run the full application"):
+            st.session_state.safe_mode_enabled = False
+            st.session_state.safe_mode_error_shown = False
+            if "safe_mode_error_message" in st.session_state:
+                del st.session_state.safe_mode_error_message
+            if "safe_mode_error_traceback" in st.session_state:
+                del st.session_state.safe_mode_error_traceback
+            st.rerun()
+    else:
+        st.success("**Safe Mode is not active.** The application is running normally.")
+        
+        # Show if Safe Mode was previously triggered
+        if st.session_state.get("safe_mode_error_shown", False):
+            st.info("**Note:** Safe Mode was triggered earlier in this session but has been cleared.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: Data Availability Checks
+    # ========================================================================
+    st.subheader("📁 Data Availability")
+    
+    # Check for key data files
+    data_checks = []
+    
+    # wave_history.csv
+    wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+    wave_history_exists = os.path.exists(wave_history_path)
+    wave_history_size = os.path.getsize(wave_history_path) if wave_history_exists else 0
+    data_checks.append({
+        "File": "wave_history.csv",
+        "Status": "✅ Found" if wave_history_exists else "❌ Missing",
+        "Size": f"{wave_history_size / 1024:.1f} KB" if wave_history_exists else "N/A"
+    })
+    
+    # wave_config.csv
+    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+    wave_config_exists = os.path.exists(wave_config_path)
+    wave_config_size = os.path.getsize(wave_config_path) if wave_config_exists else 0
+    data_checks.append({
+        "File": "wave_config.csv",
+        "Status": "✅ Found" if wave_config_exists else "❌ Missing",
+        "Size": f"{wave_config_size / 1024:.1f} KB" if wave_config_exists else "N/A"
+    })
+    
+    # Master_Stock_Sheet.csv
+    master_sheet_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+    master_sheet_exists = os.path.exists(master_sheet_path)
+    master_sheet_size = os.path.getsize(master_sheet_path) if master_sheet_exists else 0
+    data_checks.append({
+        "File": "Master_Stock_Sheet.csv",
+        "Status": "✅ Found" if master_sheet_exists else "❌ Missing",
+        "Size": f"{master_sheet_size / 1024:.1f} KB" if master_sheet_exists else "N/A"
+    })
+    
+    # Display data checks
+    df_data_checks = pd.DataFrame(data_checks)
+    st.dataframe(df_data_checks, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 4: Wave Universe Diagnostics
+    # ========================================================================
+    st.subheader("🌊 Wave Universe Diagnostics")
+    
+    wave_universe = st.session_state.get("wave_universe", {})
+    
+    if wave_universe:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total Waves", len(wave_universe.get("waves", [])))
+            st.metric("Duplicates Removed", len(wave_universe.get("removed_duplicates", [])))
+        
+        with col2:
+            st.metric("Data Source", wave_universe.get("source", "Unknown"))
+            st.metric("Last Updated", wave_universe.get("timestamp", "Unknown"))
+        
+        # Show removed duplicates if any
+        removed_duplicates = wave_universe.get("removed_duplicates", [])
+        if removed_duplicates:
+            with st.expander(f"📋 View Removed Duplicates ({len(removed_duplicates)})", expanded=False):
+                for dup in removed_duplicates:
+                    st.text(f"• {dup}")
+        
+        # Show full wave list
+        with st.expander(f"📋 View All Waves ({len(wave_universe.get('waves', []))})", expanded=False):
+            waves = wave_universe.get("waves", [])
+            if waves:
+                # Display in 3 columns
+                cols = st.columns(3)
+                for i, wave in enumerate(sorted(waves)):
+                    with cols[i % 3]:
+                        st.text(f"• {wave}")
+    else:
+        st.warning("Wave universe data not available.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 5: Module Availability
+    # ========================================================================
+    st.subheader("📦 Module Availability")
+    
+    module_checks = []
+    
+    # Alpha Attribution
+    module_checks.append({
+        "Module": "Alpha Attribution",
+        "Status": "✅ Available" if ALPHA_ATTRIBUTION_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # VIX Diagnostics
+    module_checks.append({
+        "Module": "VIX Diagnostics",
+        "Status": "✅ Available" if VIX_DIAGNOSTICS_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Waves Engine
+    module_checks.append({
+        "Module": "Waves Engine",
+        "Status": "✅ Available" if WAVES_ENGINE_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Ticker V3
+    module_checks.append({
+        "Module": "Ticker V3",
+        "Status": "✅ Available" if TICKER_V3_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Auto Refresh Config
+    module_checks.append({
+        "Module": "Auto Refresh Config",
+        "Status": "✅ Available" if AUTO_REFRESH_CONFIG_AVAILABLE else "❌ Unavailable"
+    })
+    
+    df_module_checks = pd.DataFrame(module_checks)
+    st.dataframe(df_module_checks, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 6: Performance Diagnostics
+    # ========================================================================
+    st.subheader("⚡ Performance Diagnostics")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Session start time
+        if "session_start_time" not in st.session_state:
+            st.session_state.session_start_time = datetime.now()
+        
+        session_duration = datetime.now() - st.session_state.session_start_time
+        st.metric("Session Duration", f"{session_duration.total_seconds() / 60:.1f} min")
+    
+    with col2:
+        # Auto-refresh error count
+        error_count = st.session_state.get("auto_refresh_error_count", 0)
+        st.metric("Auto-Refresh Errors", error_count)
+    
+    # Last refresh time
+    last_refresh = st.session_state.get("last_successful_refresh_time")
+    if last_refresh:
+        time_since_refresh = datetime.now() - last_refresh
+        st.info(f"**Last Successful Refresh:** {time_since_refresh.total_seconds():.0f} seconds ago")
+    else:
+        st.warning("**Last Successful Refresh:** Unknown")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 7: Force Reload Actions
+    # ========================================================================
+    st.subheader("🔧 Maintenance Actions")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Force Reload Wave Universe", help="Rebuild wave universe from scratch"):
+            st.session_state.wave_universe_version = st.session_state.get("wave_universe_version", 1) + 1
+            st.session_state.force_reload_universe = True
+            st.success("Wave universe reload triggered. Refreshing...")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
+            # Clear session state
+            for key in list(st.session_state.keys()):
+                if key not in ["safe_mode_enabled", "session_start_time"]:
+                    del st.session_state[key]
+            st.success("Cache cleared. Refreshing...")
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Footer
+    st.caption("**Note:** This tab is for diagnostic purposes only. Most users won't need to interact with it.")
+
+
 def render_bottom_ticker_bar():
     """
     Render the bottom ticker bar with scrolling animation.
@@ -11948,7 +12265,8 @@ def main():
             "Attribution", 
             "Board Pack",  
             "IC Pack",
-            "Alpha Capture"
+            "Alpha Capture",
+            "Diagnostics"  # NEW: Health/Diagnostics tab
         ])
         
         # Console tab (first in fallback mode)
@@ -11995,6 +12313,10 @@ def main():
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[9]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     
     elif ENABLE_WAVE_PROFILE:
         # Normal mode with Wave Profile enabled - Overview is FIRST
@@ -12008,7 +12330,8 @@ def main():
             "Attribution",                 # Rolling Diagnostics equivalent
             "Board Pack",                  # Mode Proof equivalent
             "IC Pack",
-            "Alpha Capture"
+            "Alpha Capture",
+            "Diagnostics"                  # NEW: Health/Diagnostics tab
         ])
         
         # Overview tab (FIRST) - Executive Brief
@@ -12059,6 +12382,10 @@ def main():
         with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[10]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
         # Overview is FIRST tab
@@ -12071,7 +12398,8 @@ def main():
             "Attribution",                # Rolling Diagnostics equivalent
             "Board Pack",                 # Mode Proof equivalent
             "IC Pack",
-            "Alpha Capture"
+            "Alpha Capture",
+            "Diagnostics"                 # NEW: Health/Diagnostics tab
         ])
         
         # Overview tab (FIRST) - Executive Brief
@@ -12117,6 +12445,10 @@ def main():
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[9]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     
     # ========================================================================
     # Bottom Ticker Bar Rendering

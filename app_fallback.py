@@ -15,6 +15,46 @@ def run():
     Main entry point for fallback UI.
     Provides minimal, stable functionality with basic wave display.
     """
+    # Safe Mode banner at the top - shown only once per session
+    if "safe_mode_banner_shown_fallback" not in st.session_state:
+        st.session_state.safe_mode_banner_shown_fallback = False
+    
+    if not st.session_state.safe_mode_banner_shown_fallback:
+        # Show full banner on first display
+        st.markdown("""
+        <div style="
+            background-color: #ff8800;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px solid #cc6600;
+        ">
+            <h2 style="margin: 0;">⚠️ SAFE MODE (fallback) — real console did not load.</h2>
+            <p style="margin: 10px 0 0 0;">You are viewing a simplified version of the Institutional Console.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.session_state.safe_mode_banner_shown_fallback = True
+    else:
+        # Show smaller banner on subsequent displays
+        st.warning("⚠️ SAFE MODE (fallback) — real console did not load.")
+    
+    # Collapsible section showing root cause
+    with st.expander("🔍 View Root Cause", expanded=False):
+        error_msg = st.session_state.get("safe_mode_error_message", "Unknown error")
+        error_trace = st.session_state.get("safe_mode_error_traceback", "No traceback available")
+        
+        st.error(f"**Error Message:** {error_msg}")
+        st.code(error_trace, language="python")
+        
+        st.markdown("**Common Causes:**")
+        st.markdown("""
+        - Missing or corrupted data files
+        - Invalid wave configuration
+        - Python dependency issues
+        - Network connectivity problems
+        """)
+    
     st.title("⚠️ Safe Mode - Minimal Console")
     
     st.info("""
