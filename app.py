@@ -6256,6 +6256,245 @@ def _render_wave_identity_card_fallback(
         st.markdown("<br>", unsafe_allow_html=True)
 
 
+def render_executive_brief_tab():
+    """
+    Render the Executive Brief tab - Top-level actionable insights for decision-makers.
+    
+    This tab provides:
+    - Section A: System Snapshot (4 metric tiles)
+    - Section B: Market Context Block (regime, volatility, trend narrative)
+    - Section C: Waves Overview Performance Table
+    
+    Designed to relay actionable insights efficiently with graceful error handling.
+    """
+    st.header("📊 Executive Brief")
+    st.write("**Top-level system performance, market conditions, and key insights for decision-makers**")
+    
+    try:
+        # ========================================================================
+        # SECTION A: System Snapshot (Top Metric Tiles)
+        # ========================================================================
+        st.markdown("### 🎯 System Snapshot")
+        
+        try:
+            # Get system statistics for 30D
+            stats_30d = get_system_statistics(timeframe_days=30)
+            
+            if stats_30d:
+                # Calculate metrics
+                system_return_30d = stats_30d.get('avg_wave_return', 0.0)
+                system_alpha_30d = stats_30d.get('avg_alpha', 0.0)
+                win_rate_30d = stats_30d.get('pct_positive_alpha', 0.0)
+                
+                # Determine risk state based on win rate and alpha
+                if win_rate_30d >= 70 and system_alpha_30d > 0.005:
+                    risk_state = "Risk-On"
+                    risk_state_emoji = "🟢"
+                elif win_rate_30d >= 45 and system_alpha_30d > -0.003:
+                    risk_state = "Risk-Managed"
+                    risk_state_emoji = "🟡"
+                else:
+                    risk_state = "Defensive"
+                    risk_state_emoji = "🔴"
+                
+                # Display 4 metric tiles
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        label="System Return (30D)",
+                        value=f"{system_return_30d:+.2%}",
+                        help="Average wave return across all Waves over 30 days"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="System Alpha (30D)",
+                        value=f"{system_alpha_30d:+.2%}",
+                        help="Average alpha (excess return vs benchmark) across all Waves"
+                    )
+                
+                with col3:
+                    st.metric(
+                        label="Win Rate (30D)",
+                        value=f"{win_rate_30d:.1f}%",
+                        help="Percentage of Waves with positive alpha"
+                    )
+                
+                with col4:
+                    st.metric(
+                        label="Risk State",
+                        value=f"{risk_state_emoji} {risk_state}",
+                        help="System risk posture based on win rate and alpha"
+                    )
+            else:
+                # Fallback to N/A when data unavailable
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(label="System Return (30D)", value="N/A")
+                with col2:
+                    st.metric(label="System Alpha (30D)", value="N/A")
+                with col3:
+                    st.metric(label="Win Rate (30D)", value="N/A")
+                with col4:
+                    st.metric(label="Risk State", value="N/A")
+        
+        except Exception as e:
+            # Graceful degradation - show N/A metrics without triggering Safe Mode
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric(label="System Return (30D)", value="N/A")
+            with col2:
+                st.metric(label="System Alpha (30D)", value="N/A")
+            with col3:
+                st.metric(label="Win Rate (30D)", value="N/A")
+            with col4:
+                st.metric(label="Risk State", value="N/A")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION B: Market Context Block
+        # ========================================================================
+        st.markdown("### 🌐 Market Context")
+        
+        try:
+            # Get mission control data for market regime and VIX info
+            mc_data = get_mission_control_data()
+            
+            # Get system statistics for additional context
+            stats_30d = get_system_statistics(timeframe_days=30)
+            
+            # Build market narrative
+            narrative_parts = []
+            
+            # 1. Regime (Risk-On/Transitional based on VIX logic)
+            market_regime = mc_data.get('market_regime', 'unknown')
+            vix_gate_status = mc_data.get('vix_gate_status', 'unknown')
+            
+            if market_regime != 'unknown':
+                if 'Risk-On' in market_regime:
+                    regime_desc = "**Risk-On**"
+                elif 'Risk-Off' in market_regime:
+                    regime_desc = "**Transitional/Risk-Off**"
+                else:
+                    regime_desc = "**Transitional**"
+                narrative_parts.append(f"**Regime:** {regime_desc}")
+            
+            # 2. Volatility (Low/Elevated/High via VIX thresholds)
+            if vix_gate_status != 'unknown':
+                if 'Low Vol' in vix_gate_status or 'GREEN' in vix_gate_status:
+                    vol_desc = "**Low** - favorable for risk assets"
+                elif 'Med Vol' in vix_gate_status or 'YELLOW' in vix_gate_status:
+                    vol_desc = "**Elevated** - increased caution warranted"
+                else:
+                    vol_desc = "**High** - defensive positioning active"
+                narrative_parts.append(f"**Volatility:** {vol_desc}")
+            
+            # 3. Trend (qualitative summary based on system performance)
+            if stats_30d:
+                avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                pct_positive = stats_30d.get('pct_positive_alpha', 0.0)
+                
+                if pct_positive >= 70 and avg_alpha > 0.005:
+                    trend_desc = "Strong uptrend with broad-based momentum"
+                elif pct_positive >= 55 and avg_alpha > 0.0:
+                    trend_desc = "Positive trend with selective opportunities"
+                elif pct_positive >= 45:
+                    trend_desc = "Mixed trend with divergent sector performance"
+                elif pct_positive >= 30:
+                    trend_desc = "Weakening trend with defensive leadership"
+                else:
+                    trend_desc = "Downtrend with elevated volatility"
+                
+                narrative_parts.append(f"**Trend:** {trend_desc}")
+            
+            # Display narrative
+            if narrative_parts:
+                narrative_text = "\n\n".join(narrative_parts)
+                st.markdown(narrative_text)
+            else:
+                st.info("Market details unavailable.")
+        
+        except Exception as e:
+            # Graceful fallback for market context
+            st.info("Market details unavailable.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION C: Waves Overview - Performance Table
+        # ========================================================================
+        st.markdown("### 📈 Waves Overview - Performance Table")
+        st.caption("All Waves ranked by 30-Day Alpha performance")
+        
+        try:
+            # Get all waves
+            waves = get_available_waves()
+            
+            if waves:
+                # Build performance table
+                performance_data = []
+                
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                        alpha = wave_return - benchmark_return
+                        
+                        performance_data.append({
+                            'Wave Name': wave_name,
+                            '30D Return': wave_return,
+                            '30D Alpha': alpha
+                        })
+                
+                if performance_data:
+                    # Create DataFrame
+                    df_performance = pd.DataFrame(performance_data)
+                    
+                    # Sort by 30D Alpha (descending)
+                    df_performance = df_performance.sort_values('30D Alpha', ascending=False)
+                    
+                    # Format for display
+                    df_display = df_performance.copy()
+                    df_display['30D Return'] = df_display['30D Return'].apply(lambda x: f"{x:+.2%}")
+                    df_display['30D Alpha'] = df_display['30D Alpha'].apply(lambda x: f"{x:+.2%}")
+                    
+                    # Display table
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+                    
+                    # Add download button
+                    csv = df_performance.to_csv(index=False)
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    st.download_button(
+                        label="📥 Download Performance Data as CSV",
+                        data=csv,
+                        file_name=f"waves_performance_{timestamp}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("No wave performance data available")
+            else:
+                st.info("No waves available")
+        
+        except Exception as e:
+            st.warning("⚠️ Unable to load performance table. Please check data availability.")
+    
+    except Exception as e:
+        # Top-level error handler - prevent Safe Mode trigger
+        st.error("⚠️ Executive Brief encountered an error loading data. Please refresh or check data sources.")
+        with st.expander("Error Details"):
+            st.code(str(e))
+
+
 def render_wave_intelligence_center_tab():
     """
     Render the unified Overview tab - Consolidated system-wide summary.
@@ -6268,6 +6507,9 @@ def render_wave_intelligence_center_tab():
     
     All metrics reconcile with existing Wave card outputs.
     Addresses alpha attribution errors with proper error handling.
+    
+    NOTE: This function is being replaced by render_executive_brief_tab() for a more
+    executive-friendly presentation. Keeping this for backwards compatibility.
     """
     st.header("📊 Overview")
     st.write("**Unified system-level summary: performance, alpha attribution, and market context**")
@@ -11769,9 +12011,9 @@ def main():
             "Alpha Capture"
         ])
         
-        # Overview tab (FIRST) - Unified system overview
+        # Overview tab (FIRST) - Executive Brief
         with analytics_tabs[0]:
-            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
+            safe_component("Executive Brief", render_executive_brief_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
@@ -11832,9 +12074,9 @@ def main():
             "Alpha Capture"
         ])
         
-        # Overview tab (FIRST)
+        # Overview tab (FIRST) - Executive Brief
         with analytics_tabs[0]:
-            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
+            safe_component("Executive Brief", render_executive_brief_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
