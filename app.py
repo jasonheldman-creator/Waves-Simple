@@ -1451,6 +1451,80 @@ def render_html_safe(html_content: str, height: int = None, scrolling: bool = Fa
         st.markdown(html_content, unsafe_allow_html=True)
 
 
+def safe_plotly_chart(fig, use_container_width=True, key=None, placeholder_msg="📊 Chart unavailable"):
+    """
+    Safely render a plotly chart with error handling.
+    If rendering fails, shows a placeholder message instead of crashing.
+    
+    Args:
+        fig: Plotly figure object
+        use_container_width: Whether to use container width
+        key: Unique key for the chart
+        placeholder_msg: Message to show if chart fails to render
+    """
+    try:
+        if fig is None:
+            st.info(placeholder_msg)
+            return
+        st.plotly_chart(fig, use_container_width=use_container_width, key=key)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg="🖼️ Image unavailable"):
+    """
+    Safely render an image with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        image_path: Path to image file
+        caption: Optional image caption
+        use_column_width: Whether to use column width
+        placeholder_msg: Message to show if image fails to render
+    """
+    try:
+        if not os.path.exists(image_path):
+            st.info(placeholder_msg)
+            return
+        st.image(image_path, caption=caption, use_column_width=use_column_width)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_component(component_name, render_func, *args, show_error=True, **kwargs):
+    """
+    Safely execute a component rendering function with error handling.
+    If the component fails, shows a warning instead of crashing the entire app.
+    
+    Args:
+        component_name: Name of the component for error messages
+        render_func: The function to execute
+        *args: Positional arguments to pass to render_func
+        show_error: Whether to show error message on failure (default: True)
+        **kwargs: Keyword arguments to pass to render_func
+        
+    Returns:
+        The result of render_func, or None if it fails
+    """
+    try:
+        return render_func(*args, **kwargs)
+    except Exception as e:
+        if show_error:
+            st.warning(f"⚠️ {component_name} temporarily unavailable")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            with st.expander(f"Debug: {component_name} error details", expanded=False):
+                st.error(f"**Error:** {str(e)}")
+                st.code(traceback.format_exc(), language="python")
+        return None
+
+
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
@@ -4613,7 +4687,7 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
+        safe_plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
         
         # Data table
         st.markdown("#### 📋 Component Details")
@@ -6590,7 +6664,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6608,7 +6682,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_movers_chart(movers)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6678,7 +6752,7 @@ def render_executive_tab():
                     # Display performance chart
                     chart = create_wave_performance_chart(wave_data, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
                     else:
                         st.info("Unable to generate performance chart")
                 else:
@@ -6981,7 +7055,7 @@ def render_alpha_proof_section():
                     # Create waterfall chart
                     chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
                     
                     # Show detailed table
                     with st.expander("View Detailed Breakdown"):
@@ -7410,7 +7484,7 @@ def render_portfolio_constructor_section():
                         )
                         if corr_chart is not None:
                             waves_key = "_".join(sorted(selected_waves))[:50]  # Limit key length
-                            st.plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
+                            safe_plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
                     
                     # Show weights breakdown
                     with st.expander("View Portfolio Composition"):
@@ -7518,7 +7592,7 @@ def render_vector_explain_panel():
                 if chart is not None:
                     selected_wave_id = st.session_state['current_narrative_wave']
                     timeframe = st.session_state.get('current_narrative_timeframe', 30)
-                    st.plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
+                    safe_plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
             
             st.divider()
             
@@ -7620,7 +7694,7 @@ def render_compare_waves_panel():
                 if radar_chart is not None:
                     wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                     wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
+                    safe_plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -7636,7 +7710,7 @@ def render_compare_waves_panel():
                     if heatmap is not None:
                         wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                         wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
+                        safe_plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
                     else:
                         st.info("Correlation matrix unavailable")
             
@@ -9310,7 +9384,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
+        safe_plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
         
         st.divider()
         
@@ -9347,7 +9421,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
+        safe_plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
         
         st.divider()
         
@@ -11638,47 +11712,47 @@ def main():
         # Console tab (first in fallback mode)
         with analytics_tabs[0]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Overview tab (second - Market equivalent)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
+            safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     
     elif ENABLE_WAVE_PROFILE:
         # Normal mode with Wave Profile enabled - Overview is FIRST
@@ -11697,52 +11771,52 @@ def main():
         
         # Overview tab (FIRST) - Unified system overview
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (third)
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_wave_profile_tab()
+            safe_component("Wave Profile", render_wave_profile_tab)
         
         # Details tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
         # Overview is FIRST tab
@@ -11760,47 +11834,47 @@ def main():
         
         # Overview tab (FIRST)
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
@@ -11808,7 +11882,7 @@ def main():
     
     # Render bottom ticker bar if enabled
     if st.session_state.get("show_bottom_ticker", True):
-        render_bottom_ticker_bar()
+        safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
 
 
 # Run the application
