@@ -1451,6 +1451,52 @@ def render_html_safe(html_content: str, height: int = None, scrolling: bool = Fa
         st.markdown(html_content, unsafe_allow_html=True)
 
 
+def safe_plotly_chart(fig, use_container_width=True, key=None, placeholder_msg="📊 Chart unavailable"):
+    """
+    Safely render a plotly chart with error handling.
+    If rendering fails, shows a placeholder message instead of crashing.
+    
+    Args:
+        fig: Plotly figure object
+        use_container_width: Whether to use container width
+        key: Unique key for the chart
+        placeholder_msg: Message to show if chart fails to render
+    """
+    try:
+        if fig is None:
+            st.info(placeholder_msg)
+            return
+        st.plotly_chart(fig, use_container_width=use_container_width, key=key)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg="🖼️ Image unavailable"):
+    """
+    Safely render an image with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        image_path: Path to image file
+        caption: Optional image caption
+        use_column_width: Whether to use column width
+        placeholder_msg: Message to show if image fails to render
+    """
+    try:
+        if not os.path.exists(image_path):
+            st.info(placeholder_msg)
+            return
+        st.image(image_path, caption=caption, use_column_width=use_column_width)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
@@ -4613,7 +4659,7 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
+        safe_plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
         
         # Data table
         st.markdown("#### 📋 Component Details")
@@ -6590,7 +6636,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6608,7 +6654,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_movers_chart(movers)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6678,7 +6724,7 @@ def render_executive_tab():
                     # Display performance chart
                     chart = create_wave_performance_chart(wave_data, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
                     else:
                         st.info("Unable to generate performance chart")
                 else:
@@ -6981,7 +7027,7 @@ def render_alpha_proof_section():
                     # Create waterfall chart
                     chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
                     
                     # Show detailed table
                     with st.expander("View Detailed Breakdown"):
@@ -7410,7 +7456,7 @@ def render_portfolio_constructor_section():
                         )
                         if corr_chart is not None:
                             waves_key = "_".join(sorted(selected_waves))[:50]  # Limit key length
-                            st.plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
+                            safe_plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
                     
                     # Show weights breakdown
                     with st.expander("View Portfolio Composition"):
@@ -7518,7 +7564,7 @@ def render_vector_explain_panel():
                 if chart is not None:
                     selected_wave_id = st.session_state['current_narrative_wave']
                     timeframe = st.session_state.get('current_narrative_timeframe', 30)
-                    st.plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
+                    safe_plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
             
             st.divider()
             
@@ -7620,7 +7666,7 @@ def render_compare_waves_panel():
                 if radar_chart is not None:
                     wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                     wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
+                    safe_plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -7636,7 +7682,7 @@ def render_compare_waves_panel():
                     if heatmap is not None:
                         wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                         wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
+                        safe_plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
                     else:
                         st.info("Correlation matrix unavailable")
             
@@ -9310,7 +9356,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
+        safe_plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
         
         st.divider()
         
@@ -9347,7 +9393,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
+        safe_plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
         
         st.divider()
         
@@ -11818,6 +11864,10 @@ if __name__ == "__main__":
     if "safe_mode_enabled" not in st.session_state:
         st.session_state.safe_mode_enabled = False
     
+    # Initialize safe_mode_banner_shown flag (to show banner only once per session)
+    if "safe_mode_banner_shown" not in st.session_state:
+        st.session_state.safe_mode_banner_shown = False
+    
     # If safe mode is manually enabled, run fallback directly
     if st.session_state.get("safe_mode_enabled", False):
         import app_fallback
@@ -11827,30 +11877,51 @@ if __name__ == "__main__":
         try:
             main()
         except Exception as e:
-            # Display prominent error banner
-            st.markdown("""
-                <div style="
-                    background-color: #ff4444;
-                    color: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                    border: 3px solid #cc0000;
-                    box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
-                ">
-                    <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
-                        ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
-                    </h1>
-                    <p style="font-size: 18px; margin-top: 15px;">
-                        The application encountered an error and has automatically switched to safe fallback mode.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
+            # Only show the large banner once per session
+            if not st.session_state.safe_mode_banner_shown:
+                # Display prominent error banner
+                st.markdown("""
+                    <div style="
+                        background-color: #ff4444;
+                        color: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        margin: 20px 0;
+                        border: 3px solid #cc0000;
+                        box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
+                    ">
+                        <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
+                            ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
+                        </h1>
+                        <p style="font-size: 18px; margin-top: 15px;">
+                            The application encountered an error and has automatically switched to safe fallback mode.
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Mark banner as shown
+                st.session_state.safe_mode_banner_shown = True
+            else:
+                # Show smaller inline notice for subsequent errors
+                st.warning("⚠️ Safe Mode active - some features may be limited")
             
-            # Display error details in an expander
+            # Display error details in a collapsible expander (collapsed by default)
             with st.expander("🔍 View Error Details", expanded=False):
                 st.error(f"**Error Message:** {str(e)}")
                 st.code(traceback.format_exc(), language="python")
+            
+            # Add Retry Full Mode button
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                if st.button("🔄 Retry Full Mode", key="retry_full_mode", help="Clear Safe Mode and try to load the full application again"):
+                    # Clear Safe Mode flags and force a rerun
+                    st.session_state.safe_mode_enabled = False
+                    st.session_state.safe_mode_banner_shown = False
+                    st.rerun()
+            
+            with col2:
+                if st.button("ℹ️ Stay in Safe Mode", key="stay_safe_mode", help="Continue using the simplified Safe Mode interface"):
+                    pass  # Just acknowledge, already in safe mode
             
             st.markdown("---")
             
