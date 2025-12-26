@@ -1497,6 +1497,34 @@ def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg=
             st.caption(f"_Debug: {str(e)}_")
 
 
+def safe_component(component_name, render_func, *args, show_error=True, **kwargs):
+    """
+    Safely execute a component rendering function with error handling.
+    If the component fails, shows a warning instead of crashing the entire app.
+    
+    Args:
+        component_name: Name of the component for error messages
+        render_func: The function to execute
+        *args: Positional arguments to pass to render_func
+        show_error: Whether to show error message on failure (default: True)
+        **kwargs: Keyword arguments to pass to render_func
+        
+    Returns:
+        The result of render_func, or None if it fails
+    """
+    try:
+        return render_func(*args, **kwargs)
+    except Exception as e:
+        if show_error:
+            st.warning(f"⚠️ {component_name} temporarily unavailable")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            with st.expander(f"Debug: {component_name} error details", expanded=False):
+                st.error(f"**Error:** {str(e)}")
+                st.code(traceback.format_exc(), language="python")
+        return None
+
+
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
@@ -11684,47 +11712,47 @@ def main():
         # Console tab (first in fallback mode)
         with analytics_tabs[0]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Overview tab (second - Market equivalent)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
+            safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     
     elif ENABLE_WAVE_PROFILE:
         # Normal mode with Wave Profile enabled - Overview is FIRST
@@ -11743,52 +11771,52 @@ def main():
         
         # Overview tab (FIRST) - Unified system overview
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (third)
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_wave_profile_tab()
+            safe_component("Wave Profile", render_wave_profile_tab)
         
         # Details tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
         # Overview is FIRST tab
@@ -11806,47 +11834,47 @@ def main():
         
         # Overview tab (FIRST)
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Wave Intelligence Center", render_wave_intelligence_center_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_alpha_capture_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
@@ -11854,7 +11882,7 @@ def main():
     
     # Render bottom ticker bar if enabled
     if st.session_state.get("show_bottom_ticker", True):
-        render_bottom_ticker_bar()
+        safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
 
 
 # Run the application
