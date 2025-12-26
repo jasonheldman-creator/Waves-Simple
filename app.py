@@ -5786,12 +5786,22 @@ def render_mission_control():
         else:
             status_display = f"🔴 {system_status}"
         
+        # Check for degraded data state (price cache failures)
+        price_failures = st.session_state.get("global_price_failures", {})
+        has_failures = len(price_failures) > 0
+        
         st.metric(
             label="System Health",
             value=status_display,
             help=f"Data freshness: {freshness_value}"
         )
-        st.caption(f"Data: {freshness_value}")
+        
+        # Show data quality badge if there are failures
+        if has_failures:
+            failure_count = len(price_failures)
+            st.caption(f"⚠️ Data: Degraded ({failure_count} tickers failed)")
+        else:
+            st.caption(f"Data: {freshness_value}")
     
     # Bottom row: Secondary metrics + Auto-Refresh Indicators (5 columns)
     st.markdown("---")
