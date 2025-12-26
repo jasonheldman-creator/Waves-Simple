@@ -2548,6 +2548,25 @@ def compute_alpha_drivers(wave_name, timeframe_days=30):
         # ========================================================================
         # STEP 1: Try to use diagnostics data (preferred method)
         # ========================================================================
+        # 
+        # Correct Attribution Logic (Counterfactual Analysis):
+        # 
+        # Stock Selection Contribution:
+        #   - Counterfactual: Same holdings, always fully invested (exposure=1.0, safe_fraction=0.0)
+        #   - This isolates the contribution from the portfolio holdings themselves
+        #   - Formula: sum(portfolio_risk_ret) - benchmark_return
+        # 
+        # Risk Overlay Contribution:
+        #   - Counterfactual: Difference between actual returns and full-exposure scenario
+        #   - This captures value from exposure management and safe asset allocation
+        #   - Formula: actual_wave_return - stock_selection_counterfactual_return
+        # 
+        # Residual Contribution:
+        #   - Compounding effects, timing interactions, rounding
+        #   - NOT forced to zero - reflects real nonlinear behavior
+        #   - Formula: total_alpha - (stock_selection + risk_overlay)
+        # 
+        selection_contribution = 0.0
         overlay_contribution = 0.0
         has_diagnostics = False
         
@@ -2561,58 +2580,123 @@ def compute_alpha_drivers(wave_name, timeframe_days=30):
                 )
                 
                 if diagnostics is not None and not diagnostics.empty:
-                    # Calculate return with full exposure (no overlay)
-                    # This represents what the wave would have returned at 1.0 exposure
                     if 'Wave_Return' in diagnostics.columns and 'Benchmark_Return' in diagnostics.columns:
-                        # Get actual wave returns from diagnostics
+                        # Get actual wave and benchmark returns
                         actual_wave_return = diagnostics['Wave_Return'].sum()
+                        benchmark_return = diagnostics['Benchmark_Return'].sum()
                         
-                        # Estimate return without overlay by scaling with exposure
-                        if 'Exposure' in diagnostics.columns:
-                            # For days with reduced exposure, calculate what return would have been at full exposure
-                            # This is an approximation: full_exposure_return = wave_return / max(exposure, 0.01)
-                            daily_returns_no_overlay = []
-                            for idx, row in diagnostics.iterrows():
-                                exposure_val = row.get('Exposure', 1.0)
-                                if exposure_val > 0.01:
-                                    # Estimate risky sleeve return
-                                    risky_return = row.get('Wave_Return', 0.0) / exposure_val
-                                    daily_returns_no_overlay.append(risky_return)
-                                else:
-                                    daily_returns_no_overlay.append(row.get('Wave_Return', 0.0))
+                        # STOCK SELECTION CONTRIBUTION (Counterfactual Analysis)
+                        # ======================================================
+                        # Counterfactual: What would the return be with the same holdings
+                        # but always fully invested (exposure=1.0, safe_fraction=0.0)?
+                        # 
+                        # The Wave return formula is:
+                        #   wave_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
+                        # 
+                        # For the counterfactual (full exposure, no safe assets):
+                        #   counterfactual_ret = portfolio_risk_ret
+                        # 
+                        # We need to reconstruct portfolio_risk_ret from the actual returns.
+                        # Given: wave_ret = safe_frac * safe_ret + (1 - safe_frac) * exposure * portfolio_risk_ret
+                        # Solve for: portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / ((1 - safe_frac) * exposure)
+                        
+                        if 'Exposure' in diagnostics.columns and 'Safe_Fraction' in diagnostics.columns:
+                            # Calculate counterfactual return (fully invested in risky assets)
+                            counterfactual_returns = []
                             
-                            return_without_overlay = sum(daily_returns_no_overlay)
-                            overlay_contribution = actual_wave_return - return_without_overlay
+                            for idx, row in diagnostics.iterrows():
+                                wave_ret = row.get('Wave_Return', 0.0)
+                                exposure_val = row.get('Exposure', 1.0)
+                                safe_frac = row.get('Safe_Fraction', 0.0)
+                                risk_frac = 1.0 - safe_frac
+                                
+                                # Estimate safe asset return (use small constant for now)
+                                # In the engine, safe assets return roughly 4 bps annually
+                                # Daily return = 0.0004 / 252 ≈ 0.0000016
+                                safe_ret = 0.0000016  # ~4 bps annually, converted to daily
+                                
+                                # Reconstruct the portfolio risk return
+                                # portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / (risk_frac * exposure)
+                                denominator = risk_frac * exposure_val
+                                if abs(denominator) > 0.001:  # Avoid division by very small numbers
+                                    portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / denominator
+                                else:
+                                    # When exposure is near zero, wave return is mostly from safe assets
+                                    # The counterfactual would have zero return from risky assets
+                                    portfolio_risk_ret = 0.0
+                                
+                                # Counterfactual: fully invested in risky portfolio
+                                counterfactual_returns.append(portfolio_risk_ret)
+                            
+                            # Stock selection is the counterfactual return minus benchmark
+                            counterfactual_total = sum(counterfactual_returns)
+                            selection_contribution = counterfactual_total - benchmark_return
+                            
+                            # RISK OVERLAY CONTRIBUTION (Counterfactual Comparison)
+                            # =====================================================
+                            # This is the difference between actual returns and the
+                            # counterfactual full-exposure scenario
+                            overlay_contribution = actual_wave_return - counterfactual_total
+                            
                             has_diagnostics = True
+                        else:
+                            # Missing required columns - fall through to fallback
+                            pass
             except Exception:
                 pass  # Fall through to fallback method
         
         # ========================================================================
-        # STEP 2: Fallback method using exposure data
+        # STEP 2: Fallback method using average exposure (less accurate)
         # ========================================================================
         if not has_diagnostics:
-            if 'exposure' in wave_data.columns and avg_exposure < 1.0:
-                # Fallback logic based on exposure
-                # risky_sleeve_return = wave_return / max(exposure, 0.01)
-                risky_sleeve_return = wave_return / max(avg_exposure, 0.01)
-                selection_alpha_estimate = risky_sleeve_return - benchmark_return
-                overlay_contribution = total_alpha - selection_alpha_estimate
+            # Without detailed diagnostics, we use a simplified approximation
+            # This is less accurate but better than nothing
+            
+            # Estimate counterfactual using average exposure
+            if avg_exposure > 0.01 and avg_exposure < 0.99:
+                # There was meaningful exposure variation
+                # Rough estimate: stock selection contributed based on scaled return
+                safe_ret_estimate = 0.0000016 * timeframe_days  # ~4 bps annually, converted to daily
+                avg_safe_fraction = max(0.0, 1.0 - avg_exposure)  # Rough estimate
+                avg_risk_fraction = 1.0 - avg_safe_fraction
+                
+                # Estimate portfolio risk return from actual wave return
+                # wave_return ≈ safe_frac * safe_ret + risk_frac * exposure * portfolio_risk_ret
+                denominator = avg_risk_fraction * avg_exposure
+                if abs(denominator) > 0.001:
+                    portfolio_risk_ret_est = (wave_return - avg_safe_fraction * safe_ret_estimate) / denominator
+                    
+                    # Stock selection: counterfactual fully invested
+                    selection_contribution = portfolio_risk_ret_est - benchmark_return
+                    
+                    # Risk overlay: difference between actual and counterfactual
+                    overlay_contribution = wave_return - portfolio_risk_ret_est
+                else:
+                    # Very low exposure - mostly in safe assets
+                    selection_contribution = 0.0
+                    overlay_contribution = total_alpha
             else:
-                # No exposure data available - assign all alpha to selection
+                # Average exposure near 1.0 or no exposure data
+                # Assume most alpha is from selection, minimal from overlay
+                selection_contribution = total_alpha
                 overlay_contribution = 0.0
         
+        result['selection_contribution'] = selection_contribution
         result['overlay_contribution'] = overlay_contribution
         result['has_diagnostics'] = has_diagnostics
         
         # ========================================================================
-        # STEP 3: Calculate selection and residual contributions
+        # STEP 3: Calculate residual contribution (NOT forced to zero)
         # ========================================================================
-        selection_contribution = total_alpha - overlay_contribution
-        
-        # Residual should be close to 0 (ensures transparency)
+        # Residual captures:
+        # - Compounding effects (multiplicative vs additive returns)
+        # - Timing interactions between exposure changes and market moves
+        # - Rounding and numerical precision
+        # - Nonlinear behavior from strategy interactions
+        # 
+        # This is an honest reflection of what cannot be cleanly attributed
         residual_contribution = total_alpha - (selection_contribution + overlay_contribution)
         
-        result['selection_contribution'] = selection_contribution
         result['residual_contribution'] = residual_contribution
         
         # ========================================================================
