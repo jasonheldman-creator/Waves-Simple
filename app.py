@@ -6533,6 +6533,151 @@ def render_executive_brief_tab():
         
         except Exception as e:
             st.warning("⚠️ Unable to load performance table. Please check data availability.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION D: Strengths, Weaknesses & Actions
+        # ========================================================================
+        st.markdown("### 🎯 Strengths, Weaknesses & Actions")
+        
+        try:
+            # Get all waves and their 30D alpha performance
+            waves = get_available_waves()
+            
+            if waves:
+                # Collect alpha data for all waves
+                wave_alpha_data = []
+                
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                        alpha_30d = wave_return - benchmark_return
+                        
+                        wave_alpha_data.append({
+                            'wave_name': wave_name,
+                            'alpha_30d': alpha_30d,
+                            'wave_return': wave_return
+                        })
+                
+                if wave_alpha_data:
+                    # Sort by alpha
+                    wave_alpha_data.sort(key=lambda x: x['alpha_30d'], reverse=True)
+                    
+                    # Get top 3 and bottom 3
+                    top_3 = wave_alpha_data[:3]
+                    bottom_3 = wave_alpha_data[-3:]
+                    
+                    # Display Strengths (Top 3)
+                    st.markdown("#### ✅ Top Performers (30D Alpha)")
+                    
+                    for i, wave_info in enumerate(top_3, 1):
+                        wave_name = wave_info['wave_name']
+                        alpha = wave_info['alpha_30d']
+                        wave_ret = wave_info['wave_return']
+                        
+                        # Generate reason based on performance
+                        if alpha > 0.05:
+                            reason = "Strong outperformance driven by favorable market conditions"
+                        elif alpha > 0.02:
+                            reason = "Solid alpha generation with consistent positioning"
+                        else:
+                            reason = "Positive alpha with relative strength vs benchmark"
+                        
+                        st.markdown(f"{i}. **{wave_name}** — Alpha: **{alpha:+.2%}** (Return: {wave_ret:+.2%})")
+                        st.caption(f"   _{reason}_")
+                    
+                    st.markdown("")  # Spacing
+                    
+                    # Display Weaknesses (Bottom 3)
+                    st.markdown("#### ⚠️ Underperformers (30D Alpha)")
+                    
+                    for i, wave_info in enumerate(bottom_3, 1):
+                        wave_name = wave_info['wave_name']
+                        alpha = wave_info['alpha_30d']
+                        wave_ret = wave_info['wave_return']
+                        
+                        # Generate reason based on performance
+                        if alpha < -0.05:
+                            reason = "Significant underperformance indicating sector headwinds"
+                        elif alpha < -0.02:
+                            reason = "Negative alpha suggests challenging positioning"
+                        else:
+                            reason = "Minor underperformance relative to benchmark"
+                        
+                        st.markdown(f"{i}. **{wave_name}** — Alpha: **{alpha:+.2%}** (Return: {wave_ret:+.2%})")
+                        st.caption(f"   _{reason}_")
+                    
+                    st.markdown("")  # Spacing
+                    
+                    # Display Actionable Points
+                    st.markdown("#### 📋 Action Items")
+                    
+                    # Generate context-aware action items
+                    actions = []
+                    
+                    # Get system-level stats for context
+                    stats_30d = get_system_statistics(timeframe_days=30)
+                    if stats_30d:
+                        avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                        pct_positive = stats_30d.get('pct_positive_alpha', 0.0)
+                        
+                        # Action 1: Based on overall system performance
+                        if avg_alpha > 0.01 and pct_positive > 60:
+                            actions.append("**Maintain risk exposure** - System showing broad-based strength with positive alpha across majority of waves")
+                        elif avg_alpha < -0.01 or pct_positive < 40:
+                            actions.append("**Reduce risk exposure** - System experiencing broad-based weakness; consider defensive positioning")
+                        else:
+                            actions.append("**Monitor positioning** - Mixed performance signals warrant selective approach and active rebalancing")
+                        
+                        # Action 2: Based on top performers
+                        if top_3:
+                            top_wave = top_3[0]['wave_name']
+                            actions.append(f"**Watch {top_wave}** for potential profit-taking opportunities given strong recent outperformance")
+                        
+                        # Action 3: Based on bottom performers
+                        if bottom_3:
+                            bottom_wave = bottom_3[0]['wave_name']
+                            bottom_alpha = bottom_3[0]['alpha_30d']
+                            if bottom_alpha < -0.03:
+                                actions.append(f"**Review {bottom_wave}** holdings and factor exposures to assess rebalancing needs")
+                            else:
+                                actions.append(f"**Monitor {bottom_wave}** for potential reversal or continued weakness")
+                        
+                        # Action 4: Volatility-based
+                        mc_data = get_mission_control_data()
+                        vix_gate = mc_data.get('vix_gate_status', 'unknown')
+                        if 'HIGH' in str(vix_gate).upper() or 'RED' in str(vix_gate).upper():
+                            actions.append("**Increase hedging** - Elevated volatility regime suggests defensive positioning or options hedges")
+                        elif 'LOW' in str(vix_gate).upper() or 'GREEN' in str(vix_gate).upper():
+                            actions.append("**Opportunistic rebalancing** - Low volatility environment favorable for strategic adjustments")
+                        
+                        # Action 5: Diversification check
+                        if pct_positive < 50:
+                            actions.append("**Review portfolio diversification** - Less than half of waves showing positive alpha may indicate concentration risk")
+                    else:
+                        # Fallback actions if no stats available
+                        actions = [
+                            "**Review top performers** for potential rebalancing opportunities",
+                            "**Monitor underperformers** for factor exposure and positioning issues",
+                            "**Check market regime** alignment with current portfolio positioning",
+                            "**Assess risk levels** relative to volatility environment"
+                        ]
+                    
+                    # Display actions (limit to 5)
+                    for i, action in enumerate(actions[:5], 1):
+                        st.markdown(f"{i}. {action}")
+                
+                else:
+                    st.info("Insufficient data to generate insights")
+            else:
+                st.info("No waves available for analysis")
+        
+        except Exception as e:
+            st.warning("⚠️ Unable to generate insights. Please check data availability.")
     
     except Exception as e:
         # Top-level error handler - prevent Safe Mode trigger
@@ -12461,90 +12606,39 @@ def main():
 
 # Run the application
 if __name__ == "__main__":
-    # Check for safe mode before running main app
     # Initialize safe_mode_enabled if not present
     if "safe_mode_enabled" not in st.session_state:
         st.session_state.safe_mode_enabled = False
     
-    # If safe mode is manually enabled, run fallback directly
-    if st.session_state.get("safe_mode_enabled", False):
-        import app_fallback
-        app_fallback.run()
-    else:
-        # Wrap main execution in try-except for automatic fallback on error
+    # Wrap main execution in try-except to capture errors into Safe Mode
+    # but continue rendering the UI with degraded functionality
+    try:
+        main()
+    except Exception as e:
+        # ========================================================================
+        # SAFE MODE ERROR HANDLING - NO FULL-PAGE TAKEOVER
+        # ========================================================================
+        # Errors are captured and stored in session state for display in the
+        # Diagnostics tab. The main UI continues to render with degraded
+        # functionality rather than showing a full-page error screen.
+        # ========================================================================
+        
+        # Store error in session state for Diagnostics tab
+        st.session_state.safe_mode_enabled = True
+        st.session_state.safe_mode_error_message = str(e)
+        st.session_state.safe_mode_error_traceback = traceback.format_exc()
+        
+        # Show a small, non-intrusive notification
+        # (only at the very top - not taking over the whole page)
+        if not st.session_state.get("safe_mode_error_shown", False):
+            st.toast("⚠️ An error occurred. Check Diagnostics tab for details.", icon="⚠️")
+            st.session_state.safe_mode_error_shown = True
+        
+        # Try to run main() again - this time it will run with safe_mode_enabled=True
+        # which causes graceful degradation in components
         try:
             main()
-        except Exception as e:
-            # ========================================================================
-            # SAFE MODE ERROR HANDLING - BANNER SHOWN ONLY ONCE PER SESSION
-            # ========================================================================
-            # Issue: Previously, every Streamlit rerun would redisplay the large error
-            # banner, causing repeated interruptions during user interactions.
-            # 
-            # Fix: Use session state to track if banner has been shown. On first error,
-            # show full banner. On subsequent reruns, show minimal status line.
-            # This prevents the intrusive red banner from appearing on every rerun.
-            # ========================================================================
-            
-            # Initialize safe mode error tracking in session state
-            if "safe_mode_error_shown" not in st.session_state:
-                st.session_state.safe_mode_error_shown = False
-                st.session_state.safe_mode_error_message = str(e)
-                st.session_state.safe_mode_error_traceback = traceback.format_exc()
-            
-            # Display prominent error banner ONLY ONCE per session
-            if not st.session_state.safe_mode_error_shown:
-                st.markdown("""
-                    <div style="
-                        background-color: #ff4444;
-                        color: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                        margin: 20px 0;
-                        border: 3px solid #cc0000;
-                        box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
-                    ">
-                        <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
-                            ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
-                        </h1>
-                        <p style="font-size: 18px; margin-top: 15px;">
-                            The application encountered an error and has automatically switched to safe fallback mode.
-                        </p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Mark banner as shown
-                st.session_state.safe_mode_error_shown = True
-            else:
-                # For subsequent reruns, show a smaller, less intrusive status line
-                st.warning("⚠️ Running in Safe Mode due to application error.")
-            
-            # Display error details in a collapsible expander (collapsed by default)
-            with st.expander("🔍 View Error Details", expanded=False):
-                st.error(f"**Error Message:** {st.session_state.safe_mode_error_message}")
-                st.code(st.session_state.safe_mode_error_traceback, language="python")
-            
-            # Add "Retry Full Mode" button to allow recovery without page refresh
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("🔄 Retry Full Mode", help="Clear Safe Mode and attempt to run the full application"):
-                    # Clear error flags
-                    st.session_state.safe_mode_error_shown = False
-                    st.session_state.safe_mode_enabled = False
-                    if "safe_mode_error_message" in st.session_state:
-                        del st.session_state.safe_mode_error_message
-                    if "safe_mode_error_traceback" in st.session_state:
-                        del st.session_state.safe_mode_error_traceback
-                    # Trigger rerun
-                    st.rerun()
-            
-            st.markdown("---")
-            
-            # Load and execute fallback UI
-            try:
-                import app_fallback
-                app_fallback.run()
-            except Exception as fallback_error:
-                # If even the fallback fails, show minimal error message
-                st.error("Critical Error: Both main application and fallback system failed.")
-                st.code(f"Fallback Error: {str(fallback_error)}\n\n{traceback.format_exc()}", language="python")
+        except Exception as retry_error:
+            # If main() fails even in safe mode, show minimal error
+            st.error("Critical Error: Unable to render application.")
+            st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
