@@ -324,9 +324,40 @@ class DecisionAttributionEngine:
                 try:
                     # Use existing alpha attribution if available
                     from alpha_attribution import compute_alpha_attribution_series
-                    attribution_result = compute_alpha_attribution_series(wave_data, wave_name)
-                    if attribution_result and hasattr(attribution_result, 'asset_selection_alpha'):
-                        components.selection_alpha = attribution_result.asset_selection_alpha
+                    
+                    # Prepare data for attribution - transform column names
+                    wave_data_copy = wave_data.copy()
+                    
+                    # Ensure date is index
+                    if 'date' in wave_data_copy.columns:
+                        wave_data_copy = wave_data_copy.set_index('date')
+                    
+                    # Transform column names: return -> wave_ret, benchmark_return -> bm_ret
+                    if 'return' in wave_data_copy.columns and has_benchmark:
+                        wave_data_copy['wave_ret'] = wave_data_copy['return']
+                        if 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        elif benchmark_data is not None and 'return' in benchmark_data.columns:
+                            wave_data_copy['bm_ret'] = benchmark_data['return']
+                        else:
+                            wave_data_copy['bm_ret'] = 0.0
+                    elif 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                        wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                        wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                    else:
+                        warnings.append("Selection alpha unavailable - missing return columns")
+                        calculations_skipped.append('selection_alpha')
+                        raise ValueError("Missing required return columns")
+                    
+                    # Call with correct parameter order: wave_name, mode, history_df
+                    _, summary = compute_alpha_attribution_series(
+                        wave_name=wave_name,
+                        mode=st.session_state.get("mode", "Standard"),
+                        history_df=wave_data_copy
+                    )
+                    
+                    if summary and hasattr(summary, 'asset_selection_alpha'):
+                        components.selection_alpha = summary.asset_selection_alpha
                         components.selection_available = True
                         calculations_performed.append('selection_alpha')
                     else:
@@ -10246,15 +10277,31 @@ def render_ic_pack_tab():
                 
                 if wave_data is not None and len(wave_data) > 0:
                     try:
-                        # Use alpha attribution module
-                        attribution_result = compute_alpha_attribution_series(
+                        # Prepare data for attribution - transform column names
+                        wave_data_copy = wave_data.copy()
+                        
+                        # Ensure date is index
+                        if 'date' in wave_data_copy.columns:
+                            wave_data_copy = wave_data_copy.set_index('date')
+                        
+                        # Transform column names to match expected format
+                        if 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        elif 'return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['wave_ret'] = wave_data_copy['return']
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        else:
+                            raise ValueError("Missing required return columns (wave_ret/bm_ret)")
+                        
+                        # Use alpha attribution module with correct parameters
+                        daily_df, summary = compute_alpha_attribution_series(
                             wave_name=selected_alpha_wave,
-                            wave_data=wave_data,
-                            days=30
+                            mode="Standard",
+                            history_df=wave_data_copy
                         )
                         
-                        if attribution_result is not None and hasattr(attribution_result, 'summary'):
-                            summary = attribution_result.summary
+                        if summary is not None:
                             
                             # Display alpha components
                             st.markdown("**Alpha Components (Last 30 Days)**")
@@ -10262,36 +10309,46 @@ def render_ic_pack_tab():
                             col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
                             
                             with col_alpha1:
-                                selection_val = getattr(summary, 'selection_alpha', None)
+                                # Asset Selection Alpha
+                                selection_val = getattr(summary, 'asset_selection_alpha', None)
                                 if selection_val is not None:
                                     st.metric("Selection Alpha", f"{selection_val * 100:.3f}%")
                                 else:
                                     st.metric("Selection Alpha", "Data unavailable")
                             
                             with col_alpha2:
-                                overlay_val = getattr(summary, 'overlay_alpha', None)
+                                # Exposure & Timing Alpha (previously called "overlay")
+                                overlay_val = getattr(summary, 'exposure_timing_alpha', None)
                                 if overlay_val is not None:
-                                    st.metric("Overlay Alpha", f"{overlay_val * 100:.3f}%")
+                                    st.metric("Timing Alpha", f"{overlay_val * 100:.3f}%")
                                 else:
-                                    st.metric("Overlay Alpha", "Data unavailable")
+                                    st.metric("Timing Alpha", "Data unavailable")
                             
                             with col_alpha3:
-                                risk_off_val = getattr(summary, 'risk_off_alpha', None)
+                                # Regime & VIX Alpha (previously called "risk-off")
+                                risk_off_val = getattr(summary, 'regime_vix_alpha', None)
                                 if risk_off_val is not None:
-                                    st.metric("Risk-Off Alpha", f"{risk_off_val * 100:.3f}%")
+                                    st.metric("Regime Alpha", f"{risk_off_val * 100:.3f}%")
                                 else:
-                                    st.metric("Risk-Off Alpha", "Data unavailable")
+                                    st.metric("Regime Alpha", "Data unavailable")
                             
                             with col_alpha4:
-                                residual_val = getattr(summary, 'residual_alpha', None)
-                                if residual_val is not None:
-                                    st.metric("Residual Alpha", f"{residual_val * 100:.3f}%")
+                                # Momentum & Trend Alpha
+                                momentum_val = getattr(summary, 'momentum_trend_alpha', None)
+                                if momentum_val is not None:
+                                    st.metric("Momentum Alpha", f"{momentum_val * 100:.3f}%")
                                 else:
-                                    st.metric("Residual Alpha", "Data unavailable")
+                                    st.metric("Momentum Alpha", "Data unavailable")
                             
-                            # Data completeness indicator
-                            completeness = getattr(summary, 'data_completeness', 0)
-                            st.progress(completeness, text=f"Data Completeness: {completeness * 100:.0f}%")
+                            # Display total alpha and reconciliation
+                            total_alpha = getattr(summary, 'total_alpha', None)
+                            if total_alpha is not None:
+                                st.metric("Total Alpha", f"{total_alpha * 100:.3f}%")
+                            
+                            # Display reconciliation error as a progress bar (lower is better)
+                            recon_error_pct = abs(getattr(summary, 'reconciliation_pct_error', 0))
+                            if recon_error_pct < 0.01:  # Less than 1% error is excellent
+                                st.success(f"✅ Reconciliation: {(1 - recon_error_pct) * 100:.1f}% accurate")
                             
                         else:
                             # Fallback: Try to use DecisionAttributionEngine
