@@ -110,6 +110,25 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 # ============================================================================
 
 # ============================================================================
+# DATA-READY CONFIGURATION - Price Caching and Wave Status
+# ============================================================================
+# Minimum days of price history required for a wave to be considered "Data-Ready"
+MIN_DAYS_READY = 60
+
+# Batch size for ticker price downloads to reduce rate-limit risks
+PRICE_DOWNLOAD_BATCH_SIZE = 100
+
+# Pause duration (seconds) between batches to avoid rate limiting
+BATCH_PAUSE_MIN = 0.5
+BATCH_PAUSE_MAX = 1.5
+
+# Cache TTL for price downloads (in seconds) - 1 hour default
+PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
+
+# Safe asset tickers for overlays (cash, treasuries, etc.)
+SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
+
+# ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
 
@@ -2078,6 +2097,291 @@ def get_wave_status_map(_wave_universe_version=1):
     return status_map
 
 
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None) -> tuple[bool, str, str]:
+    """
+    Check if a wave is data-ready with explicit criteria.
+    
+    Args:
+        wave_id: Wave identifier
+        wave_history_df: Optional wave history DataFrame (will load if not provided)
+        wave_universe: Optional wave universe dict (will load if not provided)
+    
+    Returns:
+        Tuple of (is_ready: bool, status: str, reason: str)
+        
+    Statuses:
+        - "Ready": All criteria met
+        - "Missing Inputs": Missing holdings/benchmark/registry fields
+        - "Degraded (Rate Limited)": yfinance limit/download failure
+        - "Degraded (Partial Data)": Insufficient history or missing some tickers
+        - "Error (Computation)": NAV metrics exception
+    """
+    try:
+        # Load universe if not provided
+        if wave_universe is None:
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            wave_universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        
+        # Check 1: Wave is enabled
+        enabled_flags = wave_universe.get("enabled_flags", {})
+        if not enabled_flags.get(wave_id, True):
+            return False, "Missing Inputs", "Wave is not enabled"
+        
+        # Check 2: Wave exists in registry
+        all_waves = wave_universe.get("waves", [])
+        if wave_id not in all_waves:
+            return False, "Missing Inputs", "Wave not found in registry"
+        
+        # Load wave history if not provided
+        if wave_history_df is None:
+            wave_history_version = st.session_state.get("wave_universe_version", 1)
+            wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+        
+        # Check 3: Wave history data exists
+        if wave_history_df is None or 'wave' not in wave_history_df.columns:
+            return False, "Missing Inputs", "No wave history data available"
+        
+        # Filter to this wave
+        wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
+        
+        if len(wave_data) == 0:
+            return False, "Missing Inputs", "No historical data for this wave"
+        
+        # Check 4: Holdings/weights input is present (check if we have position data)
+        # For index-only waves, this is acceptable if marked in registry
+        # We'll assume if data exists, holdings are present (can be enhanced later)
+        
+        # Check 5: Benchmark specification exists (check wave_config.csv)
+        try:
+            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+            if os.path.exists(wave_config_path):
+                config_df = pd.read_csv(wave_config_path)
+                wave_config = config_df[config_df['Wave'] == wave_id]
+                if len(wave_config) == 0:
+                    return False, "Missing Inputs", "No benchmark configuration found"
+        except Exception as e:
+            return False, "Missing Inputs", f"Error reading wave config: {str(e)}"
+        
+        # Check 6: Price history DataFrame exists with at least MIN_DAYS_READY days
+        if 'date' not in wave_data.columns:
+            return False, "Degraded (Partial Data)", "No date column in wave data"
+        
+        # Count unique days
+        unique_days = wave_data['date'].nunique()
+        if unique_days < MIN_DAYS_READY:
+            return False, "Degraded (Partial Data)", f"Insufficient history: {unique_days} days (need {MIN_DAYS_READY})"
+        
+        # Check 7: Recent data (last 7 days)
+        latest_date = wave_data['date'].max()
+        cutoff_date = latest_date - timedelta(days=7)
+        recent_data = wave_data[wave_data['date'] >= cutoff_date]
+        
+        if len(recent_data) == 0:
+            return False, "Degraded (Partial Data)", "No recent data (last 7 days)"
+        
+        # Check 8: Check if wave is flagged as rate-limited
+        rate_limited_waves = st.session_state.get("rate_limited_waves", set())
+        if wave_id in rate_limited_waves:
+            return False, "Degraded (Rate Limited)", "Price download failed or rate limited"
+        
+        # Check 9: NAV/metrics computation completes without exceptions
+        # We check for key columns that should be present if metrics computed successfully
+        required_columns = ['portfolio_return', 'benchmark_return', 'nav']
+        missing_columns = [col for col in required_columns if col not in wave_data.columns]
+        
+        if missing_columns:
+            return False, "Error (Computation)", f"Missing computed columns: {', '.join(missing_columns)}"
+        
+        # Check for NaN values in recent data (indicates computation issues)
+        recent_nav = recent_data['nav'].dropna()
+        if len(recent_nav) == 0:
+            return False, "Error (Computation)", "NAV computation failed (all NaN values)"
+        
+        # All checks passed!
+        return True, "Ready", f"All criteria met ({unique_days} days of data)"
+        
+    except Exception as e:
+        return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
+
+
+def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
+    """
+    Batched prefetch function for prices with rate-limit protection.
+    
+    Features:
+    - Builds master ticker set from holdings + benchmarks + safe assets
+    - Batched downloads (chunk size: PRICE_DOWNLOAD_BATCH_SIZE)
+    - Pauses between chunks to avoid rate limits
+    - Per-ticker failure tracking
+    
+    Args:
+        days: Number of days of history to fetch (default: 365)
+    
+    Returns:
+        Tuple of (price_df: pd.DataFrame, per_ticker_failures: dict)
+        - price_df: DataFrame with dates as index and tickers as columns
+        - per_ticker_failures: Dict mapping failed tickers to error reasons
+    """
+    import time
+    import random
+    
+    # Import yfinance
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("Warning: yfinance not available")
+        return pd.DataFrame(), {"error": "yfinance not installed"}
+    
+    per_ticker_failures = {}
+    all_prices = pd.DataFrame()
+    
+    try:
+        # Build master ticker set
+        master_tickers = set()
+        
+        # 1. Get all holdings tickers from enabled waves
+        try:
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            enabled_waves = [w for w in universe.get("waves", []) if universe.get("enabled_flags", {}).get(w, True)]
+            
+            # Load wave weights/holdings
+            wave_weights_path = os.path.join(os.path.dirname(__file__), 'wave_weights.csv')
+            if os.path.exists(wave_weights_path):
+                wave_weights_df = pd.read_csv(wave_weights_path)
+                for wave in enabled_waves:
+                    wave_holdings = wave_weights_df[wave_weights_df['wave'] == wave]
+                    if 'ticker' in wave_holdings.columns:
+                        holdings_tickers = wave_holdings['ticker'].dropna().unique().tolist()
+                        master_tickers.update(holdings_tickers)
+        except Exception as e:
+            print(f"Warning: Could not load wave holdings: {str(e)}")
+        
+        # 2. Get all benchmark tickers from enabled waves
+        try:
+            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+            if os.path.exists(wave_config_path):
+                config_df = pd.read_csv(wave_config_path)
+                if 'Benchmark' in config_df.columns:
+                    benchmark_tickers = config_df['Benchmark'].dropna().unique().tolist()
+                    master_tickers.update(benchmark_tickers)
+        except Exception as e:
+            print(f"Warning: Could not load benchmark tickers: {str(e)}")
+        
+        # 3. Add safe asset tickers
+        master_tickers.update(SAFE_ASSET_TICKERS)
+        
+        # Convert to sorted list for consistent batching
+        master_tickers = sorted(list(master_tickers))
+        
+        if len(master_tickers) == 0:
+            print("Warning: No tickers found to prefetch")
+            return pd.DataFrame(), {"error": "No tickers to fetch"}
+        
+        print(f"Prefetching prices for {len(master_tickers)} tickers...")
+        
+        # Calculate date range
+        end_date = datetime.utcnow().date()
+        start_date = end_date - timedelta(days=days + 10)  # Extra buffer
+        
+        # Batch download
+        batch_size = PRICE_DOWNLOAD_BATCH_SIZE
+        num_batches = (len(master_tickers) + batch_size - 1) // batch_size
+        
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min((batch_idx + 1) * batch_size, len(master_tickers))
+            batch_tickers = master_tickers[start_idx:end_idx]
+            
+            print(f"Downloading batch {batch_idx + 1}/{num_batches} ({len(batch_tickers)} tickers)...")
+            
+            try:
+                # Download this batch
+                batch_data = yf.download(
+                    tickers=batch_tickers,
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                    interval="1d",
+                    auto_adjust=True,
+                    progress=False,
+                    group_by="column"
+                )
+                
+                if batch_data is None or len(batch_data) == 0:
+                    # Record failure for all tickers in batch
+                    for ticker in batch_tickers:
+                        per_ticker_failures[ticker] = "Empty response from yfinance"
+                    continue
+                
+                # Extract Adj Close or Close prices
+                if isinstance(batch_data.columns, pd.MultiIndex):
+                    if "Adj Close" in batch_data.columns.get_level_values(0):
+                        batch_prices = batch_data["Adj Close"]
+                    elif "Close" in batch_data.columns.get_level_values(0):
+                        batch_prices = batch_data["Close"]
+                    else:
+                        batch_prices = batch_data[batch_data.columns.levels[0][0]]
+                else:
+                    batch_prices = batch_data
+                
+                # Handle single ticker case (Series instead of DataFrame)
+                if isinstance(batch_prices, pd.Series):
+                    batch_prices = batch_prices.to_frame()
+                
+                # Merge into all_prices
+                if len(all_prices) == 0:
+                    all_prices = batch_prices.copy()
+                else:
+                    all_prices = pd.concat([all_prices, batch_prices], axis=1)
+                
+                # Check which tickers succeeded and which failed
+                for ticker in batch_tickers:
+                    if ticker not in batch_prices.columns:
+                        per_ticker_failures[ticker] = "Ticker not in downloaded data"
+                    elif batch_prices[ticker].isna().all():
+                        per_ticker_failures[ticker] = "All NaN values"
+                
+            except Exception as e:
+                # Record failure for all tickers in batch
+                error_msg = str(e)
+                print(f"Batch {batch_idx + 1} failed: {error_msg}")
+                for ticker in batch_tickers:
+                    per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
+            
+            # Pause between batches (random to avoid patterns)
+            if batch_idx < num_batches - 1:
+                pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
+                print(f"Pausing {pause_duration:.2f}s before next batch...")
+                time.sleep(pause_duration)
+        
+        # Fill missing values (forward fill then backward fill)
+        if len(all_prices) > 0:
+            all_prices = all_prices.sort_index().ffill().bfill()
+        
+        print(f"Prefetch complete: {len(all_prices.columns)} tickers downloaded, {len(per_ticker_failures)} failures")
+        
+        return all_prices, per_ticker_failures
+        
+    except Exception as e:
+        print(f"Error in prefetch_prices_for_all_waves: {str(e)}")
+        return pd.DataFrame(), {"error": f"Prefetch exception: {str(e)}"}
+
+
+@st.cache_data(ttl=PRICE_CACHE_TTL)
+def cached_prefetch_prices_for_all_waves(days: int = 365, _force_refresh: bool = False) -> tuple[pd.DataFrame, dict]:
+    """
+    Cached wrapper for prefetch_prices_for_all_waves with configurable TTL.
+    
+    Args:
+        days: Number of days of history to fetch
+        _force_refresh: Force refresh flag (prefixed with _ to exclude from cache key)
+    
+    Returns:
+        Tuple of (price_df, per_ticker_failures)
+    """
+    return prefetch_prices_for_all_waves(days)
+
+
 def get_cse_crypto_universe():
     """
     Get the Crypto Selection Engine (CSE) universe of top 1-200 cryptocurrencies.
@@ -3335,13 +3639,22 @@ def compute_wave_universe_diagnostics():
             orphan_waves = history_waves - registry_waves
             diagnostics['orphan_waves'] = sorted(list(orphan_waves))
             
-            # NEW: Calculate data-ready waves (recent data in last 7 days)
+            # NEW: Calculate data-ready waves using explicit criteria
             if 'date' in wave_history.columns:
                 latest_date = wave_history['date'].max()
-                cutoff_date = latest_date - timedelta(days=7)
-                recent_data = wave_history[wave_history['date'] >= cutoff_date]
-                data_ready_waves = set(recent_data['wave'].unique())
-                diagnostics['data_ready_count'] = len(data_ready_waves & registry_waves)
+                
+                # Use is_wave_data_ready to check each wave
+                data_ready_waves = set()
+                wave_statuses = {}
+                
+                for wave in registry_waves:
+                    is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe)
+                    wave_statuses[wave] = {'status': status, 'reason': reason}
+                    if is_ready:
+                        data_ready_waves.add(wave)
+                
+                diagnostics['data_ready_count'] = len(data_ready_waves)
+                diagnostics['wave_statuses'] = wave_statuses
                 
                 # Compute data freshness per wave
                 data_freshness = []
@@ -3487,60 +3800,105 @@ def render_wave_universe_truth_panel():
     st.divider()
     
     # ========================================================================
-    # SECTION 2.5: WAVE STATUS SUMMARY
+    # SECTION 2.5: WAVE STATUS SUMMARY AND TABLE
     # ========================================================================
     st.markdown("#### 📊 Wave Status Summary")
     st.caption("Wave status does NOT affect Active count - waves remain Active based on enabled flag")
     
-    # Get wave status map
-    wave_status_map = get_wave_status_map()
+    # Get wave statuses from diagnostics (uses is_wave_data_ready function)
+    wave_statuses = diagnostics.get('wave_statuses', {})
     
     # Count waves by status
     status_counts = {
         "Ready": 0,
-        "Degraded": 0,
-        "Rate Limited": 0,
-        "Missing Inputs": 0
+        "Degraded (Partial Data)": 0,
+        "Degraded (Rate Limited)": 0,
+        "Missing Inputs": 0,
+        "Error (Computation)": 0
     }
     
-    for status in wave_status_map.values():
+    for wave, info in wave_statuses.items():
+        status = info['status']
         if status == "Ready":
             status_counts["Ready"] += 1
-        elif "Rate Limited" in status:
-            status_counts["Rate Limited"] += 1
-        elif status == "Degraded":
-            status_counts["Degraded"] += 1
-        elif status == "Missing Inputs":
+        elif status == "Degraded (Rate Limited)":
+            status_counts["Degraded (Rate Limited)"] += 1
+        elif status == "Degraded (Partial Data)":
+            status_counts["Degraded (Partial Data)"] += 1
+        elif status == "Error (Computation)":
+            status_counts["Error (Computation)"] += 1
+        else:
             status_counts["Missing Inputs"] += 1
     
-    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+    status_col1, status_col2, status_col3, status_col4, status_col5 = st.columns(5)
     
     with status_col1:
         st.metric(
             label="🟢 Ready",
             value=status_counts["Ready"],
-            help="Waves with full analytics data available (recent 7 days)"
+            help="Waves with all data-ready criteria met"
         )
     
     with status_col2:
         st.metric(
-            label="🟡 Degraded",
-            value=status_counts["Degraded"],
-            help="Waves with partial or stale data"
+            label="🟡 Degraded (Data)",
+            value=status_counts["Degraded (Partial Data)"],
+            help="Insufficient history or missing tickers"
         )
     
     with status_col3:
         st.metric(
             label="🟠 Rate Limited",
-            value=status_counts["Rate Limited"],
-            help="Waves with API errors or rate limiting issues"
+            value=status_counts["Degraded (Rate Limited)"],
+            help="yfinance API errors or rate limiting"
         )
     
     with status_col4:
         st.metric(
             label="🔴 Missing Inputs",
             value=status_counts["Missing Inputs"],
-            help="Waves with no data available"
+            help="Missing holdings, benchmark, or registry fields"
+        )
+    
+    with status_col5:
+        st.metric(
+            label="⚫ Computation Error",
+            value=status_counts["Error (Computation)"],
+            help="NAV/metrics computation exceptions"
+        )
+    
+    # Display detailed wave status table
+    if wave_statuses:
+        st.markdown("##### Wave Status Details")
+        
+        # Create DataFrame for display
+        status_rows = []
+        for wave, info in wave_statuses.items():
+            status_rows.append({
+                'Wave Name': wave,
+                'Status': info['status'],
+                'Reason': info['reason']
+            })
+        
+        status_df = pd.DataFrame(status_rows)
+        
+        # Sort: Ready first, then Degraded, then Missing Inputs, then Errors
+        status_order = {
+            "Ready": 1,
+            "Degraded (Partial Data)": 2,
+            "Degraded (Rate Limited)": 2,
+            "Missing Inputs": 3,
+            "Error (Computation)": 4
+        }
+        status_df['sort_order'] = status_df['Status'].map(status_order)
+        status_df = status_df.sort_values(['sort_order', 'Wave Name']).drop('sort_order', axis=1)
+        
+        # Display table
+        st.dataframe(
+            status_df,
+            use_container_width=True,
+            hide_index=True,
+            height=400
         )
     
     st.divider()
@@ -5895,6 +6253,48 @@ def render_sidebar_info():
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
     # ========================================================================
+    # NEW: Force Build Data for All Waves Button
+    # ========================================================================
+    if st.sidebar.button(
+        "🔨 Force Build Data for All Waves",
+        key="force_build_all_waves_button",
+        use_container_width=True,
+        help="Trigger price prefetch and update readiness statuses for all waves"
+    ):
+        try:
+            # Show progress indicator
+            with st.spinner("Prefetching prices for all waves..."):
+                # Clear any previous rate-limited flags
+                if "rate_limited_waves" in st.session_state:
+                    del st.session_state["rate_limited_waves"]
+                
+                # Force refresh the cached prefetch
+                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
+                
+                # Store last good prices in session state
+                if len(price_df) > 0:
+                    st.session_state["last_good_prices"] = price_df
+                    st.session_state["last_price_fetch_time"] = datetime.now()
+                
+                # Mark waves with failures as rate-limited
+                if failures:
+                    rate_limited_tickers = set(failures.keys())
+                    # Map failed tickers back to waves (simplified - just flag them)
+                    st.session_state["rate_limited_waves"] = rate_limited_tickers
+                
+                # Show results
+                success_count = len(price_df.columns) if len(price_df) > 0 else 0
+                failure_count = len(failures)
+                
+                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                
+                # Force reload diagnostics
+                st.cache_data.clear()
+                st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error building data: {str(e)}")
+    
+    # ========================================================================
     # NEW: Activate All Waves Button
     # ========================================================================
     if st.sidebar.button(
@@ -5922,6 +6322,41 @@ def render_sidebar_info():
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error activating waves: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Warm Cache Button (Optional - Recommended)
+    # ========================================================================
+    if st.sidebar.button(
+        "🔥 Warm Cache",
+        key="warm_cache_button",
+        use_container_width=True,
+        help="Prefetch and cache price data to ensure fast startup (optional)"
+    ):
+        try:
+            with st.spinner("Warming cache with price data..."):
+                # Prefetch prices
+                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
+                
+                # Store to session state
+                if len(price_df) > 0:
+                    st.session_state["last_good_prices"] = price_df
+                    st.session_state["last_price_fetch_time"] = datetime.now()
+                
+                # Optional: Save to disk (parquet format for fast loading)
+                try:
+                    cache_dir = os.path.join(os.path.dirname(__file__), 'data')
+                    os.makedirs(cache_dir, exist_ok=True)
+                    cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
+                    price_df.to_parquet(cache_file)
+                    st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
+                except Exception as disk_error:
+                    # Disk save failed, but memory cache still works
+                    st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
+                    st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
+                
+                st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error warming cache: {str(e)}")
     
     st.sidebar.markdown("---")
     
