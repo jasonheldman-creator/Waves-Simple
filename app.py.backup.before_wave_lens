@@ -9195,45 +9195,25 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
 
 def render_overview_tab():
     """
-    Render the new comprehensive Overview tab with Wave Lens selector.
+    Render the new comprehensive Overview tab.
     
     This tab provides:
-    - Wave Lens dropdown to switch between "All Waves (System View)" and individual wave views
-    - System View: Platform-wide summaries, rankings, attribution, narratives
-    - Individual Wave View: Wave-specific metrics, attribution, narratives
-    - Data readiness status for all waves
+    1. Platform Snapshot - High-level summary metrics
+    2. All-Waves Performance & Alpha Grid - Detailed multi-timeframe table
+    3. Alpha Drivers breakdown for selected wave
+    4. Methodology expander (optional)
     
     Reuses existing data pipelines for consistency with Wave cards.
     """
     try:
         st.header("📊 Platform Overview")
-        st.caption("Executive-level intelligence across all waves")
+        st.caption("Comprehensive system-wide performance dashboard")
         
         # ========================================================================
-        # WAVE LENS SELECTOR - Top of page
+        # SECTION A: Platform Snapshot (Top tiles)
         # ========================================================================
-        st.markdown("### 🔍 Wave Lens")
+        st.markdown("### 🎯 Platform Snapshot")
         
-        # Get all available waves
-        waves = get_wave_universe()
-        
-        # Build options for dropdown: "All Waves (System View)" + individual waves
-        wave_lens_options = ["All Waves (System View)"] + sorted(waves)
-        
-        # Wave Lens selector - default to "All Waves (System View)"
-        selected_wave_lens = st.selectbox(
-            "Select View:",
-            options=wave_lens_options,
-            index=0,
-            key="wave_lens_selector",
-            help="Choose 'All Waves (System View)' for system-level intelligence, or select a specific wave for wave-scoped metrics"
-        )
-        
-        st.divider()
-        
-        # ========================================================================
-        # Load data for both views
-        # ========================================================================
         # Compute metrics for all waves
         with st.spinner("Loading platform metrics..."):
             all_metrics = compute_alpha_metrics_all_waves()
@@ -9241,52 +9221,6 @@ def render_overview_tab():
         if not all_metrics:
             st.warning("⚠️ No platform data available. Please ensure wave_history.csv contains valid data.")
             return
-        
-        # ========================================================================
-        # Conditional rendering based on Wave Lens selection
-        # ========================================================================
-        if selected_wave_lens == "All Waves (System View)":
-            # ====================================================================
-            # ALL WAVES (SYSTEM VIEW) - System-level intelligence only
-            # ====================================================================
-            render_all_waves_system_view(all_metrics)
-        else:
-            # ====================================================================
-            # INDIVIDUAL WAVE VIEW - Wave-specific intelligence
-            # ====================================================================
-            render_individual_wave_view(selected_wave_lens, all_metrics)
-    
-    except Exception as e:
-        st.error("⚠️ **Overview Tab Error**")
-        st.warning(f"An error occurred while rendering the Overview tab: {str(e)}")
-        st.info("Please try refreshing the page or contact support if the problem persists.")
-        
-        # Show error details in expander (for debugging)
-        with st.expander("🔍 Technical Details"):
-            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
-
-
-def render_all_waves_system_view(all_metrics):
-    """
-    Render the All Waves (System View) - System-level intelligence only.
-    
-    Shows:
-    - Platform Snapshot with system-wide metrics
-    - Data Readiness Status for all waves
-    - All-Waves Performance & Alpha Grid
-    - System-level narratives and rankings
-    
-    Does NOT show:
-    - Wave-specific cards or holdings
-    - Wave-specific charts
-    - Individual wave alpha drivers
-    """
-    try:
-        # ========================================================================
-        # SECTION A: Platform Snapshot (Top tiles)
-        # ========================================================================
-        st.markdown("### 🎯 Platform Snapshot")
-        st.caption("System-wide performance metrics across all waves")
         
         # Calculate platform-wide metrics for 30D timeframe
         alpha_30d_values = [m.get('alpha_30d') for m in all_metrics if m.get('alpha_30d') is not None]
@@ -9363,52 +9297,7 @@ def render_all_waves_system_view(all_metrics):
         st.divider()
         
         # ========================================================================
-        # SECTION B: Data Readiness Status
-        # ========================================================================
-        st.markdown("### 📋 Data Readiness Status")
-        st.caption("Status of all waves in the system (Ready / Degraded / Missing Inputs)")
-        
-        # Compute wave diagnostics to get data readiness
-        wave_diagnostics = compute_wave_universe_diagnostics()
-        wave_statuses = wave_diagnostics.get('wave_statuses', {})
-        
-        # Build status table
-        status_data = []
-        for wave_name in sorted(all_metrics, key=lambda x: x['wave_name']):
-            wave = wave_name['wave_name']
-            status_info = wave_statuses.get(wave, {'status': 'Unknown', 'reason': 'N/A'})
-            status = status_info['status']
-            reason = status_info['reason']
-            
-            # Map status to display format
-            if status == 'ready':
-                status_display = "✅ Ready"
-            elif status == 'degraded':
-                status_display = "⚠️ Degraded"
-            else:
-                status_display = "❌ Missing Inputs"
-            
-            status_data.append({
-                'Wave Name': wave,
-                'Status': status_display,
-                'Details': reason if reason else 'Data available'
-            })
-        
-        if status_data:
-            df_status = pd.DataFrame(status_data)
-            st.dataframe(
-                df_status,
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
-        else:
-            st.info("📊 No wave status information available")
-        
-        st.divider()
-        
-        # ========================================================================
-        # SECTION C: All-Waves Performance & Alpha Grid
+        # SECTION B: All-Waves Performance & Alpha Grid (Main table)
         # ========================================================================
         st.markdown("### 📈 All-Waves Performance & Alpha Grid")
         st.caption("Multi-timeframe performance metrics for all waves")
@@ -9513,107 +9402,37 @@ def render_all_waves_system_view(all_metrics):
         else:
             st.info("📊 No wave data available for grid")
         
-        # ========================================================================
-        # SECTION D: System-Level Narratives (Optional Expander)
-        # ========================================================================
-        with st.expander("📖 System Intelligence"):
-            st.markdown("""
-            **Market Context:**
-            - System-wide intelligence based on aggregate wave performance
-            - Rankings and attribution across all waves
-            
-            **Action Guidance:**
-            - Executive-level insights for portfolio positioning
-            - Risk-on/risk-off signals from system behavior
-            
-            **Methodology:**
-            - Alpha = Wave Return − Benchmark Return
-            - All metrics derive from canonical wave_history.csv dataset
-            """)
-    
-    except Exception as e:
-        st.error("⚠️ **System View Error**")
-        st.warning(f"An error occurred: {str(e)}")
-        with st.expander("🔍 Technical Details"):
-            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
-
-
-def render_individual_wave_view(selected_wave, all_metrics):
-    """
-    Render the Individual Wave View - Wave-specific intelligence.
-    
-    Shows:
-    - Wave-specific metrics and performance
-    - Alpha drivers breakdown for the selected wave
-    - Wave-scoped narratives and action guidance
-    
-    Maintains executive-level presentation without raw diagnostics.
-    """
-    try:
-        st.markdown(f"### 🌊 {selected_wave}")
-        st.caption(f"Executive intelligence for {selected_wave}")
-        
-        # Get wave_universe_version from session state
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        
-        # ========================================================================
-        # SECTION A: Wave Performance Metrics
-        # ========================================================================
-        st.markdown("#### 📊 Performance Metrics")
-        
-        # Get metrics for the selected wave
-        wave_metrics = next((m for m in all_metrics if m['wave_name'] == selected_wave), None)
-        
-        if wave_metrics:
-            # Display multi-timeframe metrics in columns
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                alpha_1d = wave_metrics.get('alpha_1d', 0.0)
-                st.metric(
-                    label="1D Alpha",
-                    value=f"{alpha_1d*100:.2f}%",
-                    help="1-day alpha vs benchmark"
-                )
-            
-            with col2:
-                alpha_30d = wave_metrics.get('alpha_30d', 0.0)
-                st.metric(
-                    label="30D Alpha",
-                    value=f"{alpha_30d*100:.2f}%",
-                    help="30-day alpha vs benchmark"
-                )
-            
-            with col3:
-                alpha_60d = wave_metrics.get('alpha_60d', 0.0)
-                st.metric(
-                    label="60D Alpha",
-                    value=f"{alpha_60d*100:.2f}%",
-                    help="60-day alpha vs benchmark"
-                )
-            
-            with col4:
-                alpha_365d = wave_metrics.get('alpha_365d', 0.0)
-                st.metric(
-                    label="365D Alpha",
-                    value=f"{alpha_365d*100:.2f}%",
-                    help="365-day alpha vs benchmark"
-                )
-        else:
-            st.info(f"📊 No performance data available for {selected_wave}")
-        
         st.divider()
         
         # ========================================================================
-        # SECTION B: Alpha Drivers Breakdown
+        # SECTION C: Selected Wave — Alpha Drivers %
         # ========================================================================
-        st.markdown("#### 🎯 Alpha Drivers Breakdown")
-        st.caption("Performance attribution for this wave")
+        st.markdown("### 🎯 Alpha Drivers Breakdown")
+        st.caption("Performance attribution for selected wave")
         
-        # Create columns for timeframe selector and breakdown
+        # Create two columns: Wave selector + Timeframe selector on left, Alpha breakdown on right
         col_controls, col_breakdown = st.columns([3, 7])
         
         with col_controls:
+            # Wave selector - default to top wave by 30D Alpha
+            wave_names = [m['wave_name'] for m in all_metrics]
+            
+            if alpha_30d_values:
+                valid_metrics = [m for m in all_metrics if m.get('alpha_30d') is not None]
+                if valid_metrics:
+                    default_wave = max(valid_metrics, key=lambda x: x.get('alpha_30d', -9999))['wave_name']
+                else:
+                    default_wave = wave_names[0] if wave_names else None
+            else:
+                default_wave = wave_names[0] if wave_names else None
+            
+            selected_wave_for_drivers = st.selectbox(
+                "Select Wave:",
+                options=wave_names,
+                index=wave_names.index(default_wave) if default_wave and default_wave in wave_names else 0,
+                key="overview_drivers_wave_selector"
+            )
+            
             # Timeframe selector
             timeframe_options = {
                 "1 Day": 1,
@@ -9626,21 +9445,21 @@ def render_individual_wave_view(selected_wave, all_metrics):
                 "Select Timeframe:",
                 options=list(timeframe_options.keys()),
                 index=1,  # Default to 30 Days
-                key="individual_wave_drivers_timeframe"
+                key="overview_drivers_timeframe"
             )
             
             timeframe_days = timeframe_options[selected_timeframe_label]
         
         with col_breakdown:
             # Compute Alpha Drivers for selected wave
-            with st.spinner(f"Computing alpha drivers for {selected_wave}..."):
+            with st.spinner(f"Computing alpha drivers for {selected_wave_for_drivers}..."):
                 drivers = compute_alpha_drivers(
-                    wave_name=selected_wave,
+                    wave_name=selected_wave_for_drivers,
                     timeframe_days=timeframe_days
                 )
             
             # Display summary metrics
-            st.markdown(f"**{selected_wave} — {selected_timeframe_label}**")
+            st.markdown(f"#### {selected_wave_for_drivers} — {selected_timeframe_label}")
             
             col_ret1, col_ret2, col_ret3 = st.columns(3)
             
@@ -9734,29 +9553,32 @@ def render_individual_wave_view(selected_wave, all_metrics):
                     hide_index=True
                 )
         
+        st.divider()
+        
         # ========================================================================
-        # SECTION C: Wave-Level Narratives (Optional Expander)
+        # SECTION D: Method (Optional Expander)
         # ========================================================================
-        with st.expander("📖 Wave Intelligence"):
-            st.markdown(f"""
-            **{selected_wave} Context:**
-            - Wave-specific performance metrics and attribution
-            - Executive-level insights scoped to this wave
-            
-            **Action Guidance:**
-            - Position sizing and risk management for this wave
-            - Alpha driver analysis for decision support
-            
-            **Methodology:**
+        with st.expander("📖 Methodology"):
+            st.markdown("""
+            **Alpha Calculation:**
             - Alpha = Wave Return − Benchmark Return
-            - **Stock Selection**: Alpha from holding and weighting decisions
+            
+            **Driver Attribution:**
+            - **Stock Selection**: Alpha from holding and weighting decisions (counterfactual: no risk overlay)
             - **Risk Overlay**: Alpha from dynamic exposure and VIX-based overlays
-            - **Residual/Other**: Compounding effects and timing interactions
+            - **Residual/Other**: Compounding effects and timing interactions (not forced to zero)
+            
+            **Data Sources:**
+            - All metrics derive from the same canonical wave_history.csv dataset
+            - Consistent with Wave cards and other performance displays
             """)
     
     except Exception as e:
-        st.error(f"⚠️ **Wave View Error: {selected_wave}**")
-        st.warning(f"An error occurred: {str(e)}")
+        st.error("⚠️ **Overview Tab Error**")
+        st.warning(f"An error occurred while rendering the Overview tab: {str(e)}")
+        st.info("Please try refreshing the page or contact support if the problem persists.")
+        
+        # Show error details in expander (for debugging)
         with st.expander("🔍 Technical Details"):
             st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
@@ -13339,9 +13161,9 @@ def main():
     if "show_bottom_ticker" not in st.session_state:
         st.session_state.show_bottom_ticker = True
     
-    # Initialize selected_wave if not present (default: None - will be set by context)
+    # Initialize selected_wave if not present (default: S&P 500 Wave)
     if "selected_wave" not in st.session_state:
-        st.session_state.selected_wave = None
+        st.session_state.selected_wave = "S&P 500 Wave"
     
     # Initialize mode if not present (default: Standard)
     if "mode" not in st.session_state:
