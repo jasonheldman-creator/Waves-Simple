@@ -6153,20 +6153,22 @@ def _render_wave_identity_card_fallback(
 
 def render_wave_intelligence_center_tab():
     """
-    Render the Overview page - Consolidated system-wide summary.
+    Render the unified Overview tab - Consolidated system-wide summary.
     
     This tab provides:
-    - Section A) System Synopsis (Market Context, Top/Bottom Waves, System Posture)
-    - Section B) Platform Snapshot Tiles
-    - Section C) Master "All Waves" Performance Grid
-    - Section D) Alpha Heat Strip
-    - Section E) Selected Wave Alpha Drivers
+    - Section 1: System Overview Table (All Waves with multi-timeframe returns)
+    - Section 2: Alpha Summary (system-level rollups)
+    - Section 3: Alpha Drivers Breakdown (for selected wave)
+    - Section 4: Market and System Context (auto-generated narrative)
     
     All metrics reconcile with existing Wave card outputs.
-    Mobile-friendly with auto-scroll where needed.
+    Addresses alpha attribution errors with proper error handling.
     """
-    st.header("📊 System Overview")
-    st.write("**Consolidated system-wide market context, Wave performance, and Alpha Drivers**")
+    st.header("📊 Overview")
+    st.write("**Unified system-level summary: performance, alpha attribution, and market context**")
+    
+    st.header("📊 Overview")
+    st.write("**Unified system-level summary: performance, alpha attribution, and market context**")
     
     # Get timestamp for updates
     latest_timestamp = get_latest_data_timestamp()
@@ -6174,135 +6176,10 @@ def render_wave_intelligence_center_tab():
     st.divider()
     
     # ========================================================================
-    # SECTION A: System Synopsis (Rule-Based)
+    # SECTION 1: System Overview Table (All Waves)
     # ========================================================================
-    st.markdown("### 🎯 System Synopsis")
-    
-    try:
-        # Get system statistics for 30D
-        stats_30d = get_system_statistics(timeframe_days=30)
-        top_waves, bottom_waves = get_top_bottom_waves(timeframe_days=30, top_n=3, bottom_n=3)
-        
-        if stats_30d:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 1. Market Context")
-                # Derive market context from SPY, QQQ, IWM data if available
-                # For now, provide a basic context based on average alpha
-                avg_alpha = stats_30d['avg_alpha']
-                pct_positive = stats_30d['pct_positive_alpha']
-                
-                if pct_positive >= 60:
-                    market_sentiment = "risk-on"
-                elif pct_positive >= 40:
-                    market_sentiment = "mixed"
-                else:
-                    market_sentiment = "risk-off"
-                
-                st.write(f"Over the past 30 days, markets have been **{market_sentiment}**, with "
-                         f"**{pct_positive:.0f}%** of Waves showing positive alpha.")
-                
-                st.markdown("#### 3. Waves Under Pressure")
-                if bottom_waves:
-                    for wave_name, alpha in bottom_waves:
-                        st.write(f"• **{wave_name}**: {alpha:+.2%}")
-                else:
-                    st.write("No data available")
-            
-            with col2:
-                st.markdown("#### 2. Waves That Stood Out")
-                if top_waves:
-                    for wave_name, alpha in top_waves:
-                        st.write(f"• **{wave_name}**: {alpha:+.2%}")
-                else:
-                    st.write("No data available")
-                
-                st.markdown("#### 4. System Posture")
-                # Base posture on average alpha
-                if avg_alpha > 0.005:
-                    posture = "risk-on"
-                    overlay_contrib = "meaningfully"
-                elif avg_alpha < -0.005:
-                    posture = "defensive"
-                    overlay_contrib = "minimally"
-                else:
-                    posture = "mixed"
-                    overlay_contrib = "moderately"
-                
-                st.write(f"System posture is **{posture}**, with overlays contributing **{overlay_contrib}**.")
-        else:
-            st.info("Insufficient data to generate system synopsis")
-    
-    except Exception as e:
-        st.error(f"Error generating system synopsis: {str(e)}")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION B: Platform Snapshot Tiles
-    # ========================================================================
-    st.markdown("### 📊 Platform Snapshot")
-    
-    try:
-        stats_30d = get_system_statistics(timeframe_days=30)
-        
-        if stats_30d:
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
-            with col1:
-                st.metric(
-                    "% Waves Positive",
-                    f"{stats_30d['pct_positive_alpha']:.1f}%",
-                    help="Percentage of Waves with positive 30D Alpha"
-                )
-            
-            with col2:
-                st.metric(
-                    "Average Alpha (30D)",
-                    f"{stats_30d['avg_alpha']:+.2%}",
-                    help="Average Alpha across all Waves over 30 days"
-                )
-            
-            with col3:
-                best_wave = stats_30d['best_wave']
-                best_alpha = stats_30d['best_alpha']
-                st.metric(
-                    "Best Wave (30D)",
-                    f"{best_wave[:15]}..." if len(best_wave) > 15 else best_wave,
-                    f"{best_alpha:+.2%}",
-                    help=f"{best_wave}: {best_alpha:+.2%}"
-                )
-            
-            with col4:
-                worst_wave = stats_30d['worst_wave']
-                worst_alpha = stats_30d['worst_alpha']
-                st.metric(
-                    "Worst Wave (30D)",
-                    f"{worst_wave[:15]}..." if len(worst_wave) > 15 else worst_wave,
-                    f"{worst_alpha:+.2%}",
-                    help=f"{worst_wave}: {worst_alpha:+.2%}"
-                )
-            
-            with col5:
-                st.metric(
-                    "Updated",
-                    latest_timestamp,
-                    help="Data as of date"
-                )
-        else:
-            st.info("Insufficient data for platform snapshot")
-    
-    except Exception as e:
-        st.error(f"Error generating platform snapshot: {str(e)}")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION C: Master "All Waves" Performance Grid
-    # ========================================================================
-    st.markdown("### 📈 All Waves Performance Grid")
-    st.caption("Multi-timeframe performance summary across all Waves (sorted by 30D Alpha)")
+    st.markdown("### 📈 System Overview Table - All Waves")
+    st.caption("Multi-timeframe returns across all Waves (sorted by 30D Alpha, descending)")
     
     try:
         # Get multi-timeframe data for all waves
@@ -6314,95 +6191,123 @@ def render_wave_intelligence_center_tab():
             if '30D_Alpha' in df.columns:
                 df = df.sort_values('30D_Alpha', ascending=False)
             
-            # Format the dataframe for display
-            display_df = df.copy()
+            # Create formatted display dataframe
+            display_df = pd.DataFrame()
+            display_df['Wave Name'] = df['Wave']
             
-            # Format numeric columns as percentages
-            for col in display_df.columns:
-                if col != 'Wave' and col in display_df.columns:
-                    display_df[col] = display_df[col].apply(
+            # Add columns for each timeframe
+            for days in timeframes:
+                wave_col = f'{days}D_Wave'
+                bm_col = f'{days}D_BM'
+                alpha_col = f'{days}D_Alpha'
+                
+                if wave_col in df.columns:
+                    display_df[f'{days}D Wave'] = df[wave_col].apply(
+                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                    )
+                
+                if bm_col in df.columns:
+                    display_df[f'{days}D Benchmark'] = df[bm_col].apply(
+                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                    )
+                
+                if alpha_col in df.columns:
+                    display_df[f'{days}D Alpha'] = df[alpha_col].apply(
                         lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
                     )
             
-            # Display with custom styling
+            # Display the table
             st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True,
-                height=400
+                height=500
             )
             
             # Download button
             csv = df.to_csv(index=False)
             st.download_button(
-                label="📥 Download as CSV",
+                label="📥 Download Performance Data as CSV",
                 data=csv,
-                file_name=f"all_waves_performance_{latest_timestamp}.csv",
+                file_name=f"waves_performance_{latest_timestamp}.csv",
                 mime="text/csv"
             )
         else:
-            st.info("No wave data available for performance grid")
+            st.info("No wave performance data available")
     
     except Exception as e:
-        st.error(f"Error generating performance grid: {str(e)}")
+        st.error(f"Error generating system overview table: {str(e)}")
     
     st.divider()
     
     # ========================================================================
-    # SECTION D: Alpha Heat Strip
+    # SECTION 2: Alpha Summary (System-Level Rollups)
     # ========================================================================
-    st.markdown("### 🔥 Alpha Heat Strip")
-    st.caption("Alpha values across timeframes with heat coloring by magnitude")
+    st.markdown("### 🎯 Alpha Summary (30-Day)")
     
     try:
-        # Reuse the same data from the grid
-        timeframes = [1, 30, 60, 365]
-        df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+        stats_30d = get_system_statistics(timeframe_days=30)
         
-        if not df.empty:
-            # Extract alpha columns
-            alpha_cols = [f'{days}D_Alpha' for days in timeframes]
-            heat_data = df[['Wave'] + alpha_cols].copy()
+        if stats_30d:
+            col1, col2, col3, col4 = st.columns(4)
             
-            # Sort by 30D Alpha
-            if '30D_Alpha' in heat_data.columns:
-                heat_data = heat_data.sort_values('30D_Alpha', ascending=False)
+            with col1:
+                # Calculate total alpha (sum across all waves)
+                waves = get_available_waves()
+                total_alpha_30d = 0.0
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0
+                        total_alpha_30d += (wave_return - benchmark_return)
+                
+                st.metric(
+                    "Total Alpha (30D)",
+                    f"{total_alpha_30d:+.2%}",
+                    help="Sum of alpha across all Waves over 30 days"
+                )
             
-            # Create heatmap
-            fig = go.Figure(data=go.Heatmap(
-                z=heat_data[alpha_cols].values,
-                x=['1D', '30D', '60D', '365D'],
-                y=heat_data['Wave'].values,
-                colorscale='RdYlGn',
-                zmid=0,
-                text=heat_data[alpha_cols].values,
-                texttemplate='%{text:.2%}',
-                textfont={"size": 8},
-                colorbar=dict(title="Alpha")
-            ))
+            with col2:
+                st.metric(
+                    "% Waves Positive Alpha",
+                    f"{stats_30d['pct_positive_alpha']:.1f}%",
+                    help="Percentage of Waves with positive 30D Alpha"
+                )
             
-            fig.update_layout(
-                title="Alpha Heat Strip - All Waves",
-                xaxis_title="Timeframe",
-                yaxis_title="Wave",
-                height=max(400, len(heat_data) * 20),
-                yaxis=dict(autorange="reversed")
-            )
+            with col3:
+                best_wave = stats_30d['best_wave']
+                best_alpha = stats_30d['best_alpha']
+                st.metric(
+                    "Best Performing Wave",
+                    f"{best_wave[:20]}..." if len(best_wave) > 20 else best_wave,
+                    f"{best_alpha:+.2%}",
+                    help=f"Best Wave: {best_wave} with {best_alpha:+.2%} alpha"
+                )
             
-            st.plotly_chart(fig, use_container_width=True)
+            with col4:
+                worst_wave = stats_30d['worst_wave']
+                worst_alpha = stats_30d['worst_alpha']
+                st.metric(
+                    "Weakest Performing Wave",
+                    f"{worst_wave[:20]}..." if len(worst_wave) > 20 else worst_wave,
+                    f"{worst_alpha:+.2%}",
+                    delta_color="inverse",
+                    help=f"Weakest Wave: {worst_wave} with {worst_alpha:+.2%} alpha"
+                )
         else:
-            st.info("No data available for heat strip")
+            st.info("Insufficient data for alpha summary")
     
     except Exception as e:
-        st.error(f"Error generating alpha heat strip: {str(e)}")
+        st.error(f"Error generating alpha summary: {str(e)}")
     
     st.divider()
     
     # ========================================================================
-    # SECTION E: Selected Wave - Alpha Drivers
+    # SECTION 3: Alpha Drivers Breakdown
     # ========================================================================
-    st.markdown("### 🎯 Alpha Drivers - Selected Wave")
-    st.caption("Attribution breakdown for selected Wave (default timeframe: 30D)")
+    st.markdown("### 🔍 Alpha Drivers Breakdown")
+    st.caption("Attribution breakdown for selected Wave (30-day timeframe)")
     
     try:
         # Get available waves
@@ -6417,7 +6322,7 @@ def render_wave_intelligence_center_tab():
                 "Select Wave for Attribution Analysis",
                 options=waves,
                 index=waves.index(default_wave) if default_wave in waves else 0,
-                key="overview_wave_selector"
+                key="overview_attribution_wave_selector"
             )
             
             if selected_wave_attr:
@@ -6450,62 +6355,81 @@ def render_wave_intelligence_center_tab():
                             # Compute attribution using alpha_attribution module
                             from alpha_attribution import compute_alpha_attribution_series
                             
-                            # Prepare data for attribution
+                            # Prepare data for attribution - transform column names
                             wave_data_copy = wave_data.copy()
-                            wave_data_copy = wave_data_copy.set_index('date') if 'date' in wave_data_copy.columns else wave_data_copy
                             
-                            attribution_result = compute_alpha_attribution_series(
-                                wave_data_copy,
+                            # Ensure date is index
+                            if 'date' in wave_data_copy.columns:
+                                wave_data_copy = wave_data_copy.set_index('date')
+                            
+                            # Transform column names: portfolio_return -> wave_ret, benchmark_return -> bm_ret
+                            if 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                                wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                                wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                            
+                            # Call with correct parameter order: wave_name, mode, history_df
+                            daily_df, summary = compute_alpha_attribution_series(
                                 wave_name=selected_wave_attr,
-                                mode=st.session_state.get("mode", "Standard")
+                                mode=st.session_state.get("mode", "Standard"),
+                                history_df=wave_data_copy
                             )
                             
-                            if attribution_result and hasattr(attribution_result, 'summary'):
-                                summary = attribution_result.summary
-                                
+                            if summary is not None:
                                 # Display attribution components
-                                st.write("**Attribution Components:**")
+                                st.write("**Attribution Components (% of Total Alpha):**")
                                 
-                                # Calculate percentages
-                                stock_selection_pct = (summary.asset_selection_alpha / total_alpha * 100) if total_alpha != 0 else 0
-                                overlay_pct = ((summary.exposure_timing_alpha + summary.regime_vix_alpha) / total_alpha * 100) if total_alpha != 0 else 0
-                                residual_pct = 100 - stock_selection_pct - overlay_pct
+                                # Calculate percentages using actual attribution data
+                                stock_selection_pct = summary.asset_selection_contribution_pct
+                                overlay_pct = summary.exposure_timing_contribution_pct + summary.regime_vix_contribution_pct
+                                residual_pct = summary.momentum_trend_contribution_pct + summary.volatility_control_contribution_pct
                                 
                                 col1, col2, col3 = st.columns(3)
                                 
                                 with col1:
-                                    st.metric("Stock Selection", f"{stock_selection_pct:+.1f}%")
+                                    st.metric(
+                                        "Stock Selection", 
+                                        f"{stock_selection_pct:+.1f}%",
+                                        help="Alpha from underlying asset selection and performance"
+                                    )
                                 
                                 with col2:
-                                    st.metric("Risk Overlay", f"{overlay_pct:+.1f}%")
+                                    st.metric(
+                                        "Risk Overlay", 
+                                        f"{overlay_pct:+.1f}%",
+                                        help="Alpha from exposure timing and regime-based adjustments"
+                                    )
                                 
                                 with col3:
-                                    st.metric("Residual / Other", f"{residual_pct:+.1f}%")
+                                    st.metric(
+                                        "Residual / Other", 
+                                        f"{residual_pct:+.1f}%",
+                                        help="Alpha from momentum, volatility control, and other factors"
+                                    )
+                                
+                                # Show reconciliation info
+                                with st.expander("📊 View Attribution Details"):
+                                    st.write(f"**Reconciliation Check:**")
+                                    st.write(f"- Total Alpha: {summary.total_alpha:+.4%}")
+                                    st.write(f"- Sum of Components: {summary.sum_of_components:+.4%}")
+                                    st.write(f"- Reconciliation Error: {summary.reconciliation_error:+.6%} ({summary.reconciliation_pct_error:+.2f}%)")
+                                    
+                                    st.write(f"\n**Component Breakdown:**")
+                                    st.write(f"- Asset Selection: {summary.asset_selection_alpha:+.4%} ({stock_selection_pct:+.1f}%)")
+                                    st.write(f"- Exposure & Timing: {summary.exposure_timing_alpha:+.4%} ({summary.exposure_timing_contribution_pct:+.1f}%)")
+                                    st.write(f"- Regime & VIX: {summary.regime_vix_alpha:+.4%} ({summary.regime_vix_contribution_pct:+.1f}%)")
+                                    st.write(f"- Momentum & Trend: {summary.momentum_trend_alpha:+.4%} ({summary.momentum_trend_contribution_pct:+.1f}%)")
+                                    st.write(f"- Volatility Control: {summary.volatility_control_alpha:+.4%} ({summary.volatility_control_contribution_pct:+.1f}%)")
                             else:
-                                st.info("Attribution calculation returned no data")
+                                st.info("Attribution calculation returned no summary data")
                         
                         except Exception as attr_err:
-                            st.warning(f"Alpha attribution unavailable: {str(attr_err)}")
-                            st.info("Showing simplified attribution estimate")
-                            
-                            # Fallback: Use simple estimation
-                            stock_selection_pct = 70.0
-                            overlay_pct = 20.0
-                            residual_pct = 10.0
-                            
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                st.metric("Stock Selection (est.)", f"{stock_selection_pct:.1f}%")
-                            
-                            with col2:
-                                st.metric("Risk Overlay (est.)", f"{overlay_pct:.1f}%")
-                            
-                            with col3:
-                                st.metric("Residual / Other (est.)", f"{residual_pct:.1f}%")
+                            st.warning(f"⚠️ Alpha attribution calculation unavailable")
+                            with st.expander("View error details"):
+                                st.code(str(attr_err))
+                            st.info("Attribution breakdown cannot be computed with current data. This may occur if historical data is incomplete or column names don't match expected format.")
                     
                     elif total_alpha is not None and abs(total_alpha) < 0.0001:
-                        st.info("Total Alpha ≈ 0 - Attribution breakdown not meaningful (N/A)")
+                        st.info("Total Alpha ≈ 0 - Attribution breakdown not meaningful")
                     
                     else:
                         st.info("Alpha attribution module not available")
@@ -6519,7 +6443,100 @@ def render_wave_intelligence_center_tab():
         st.error(f"Error in alpha drivers section: {str(e)}")
     
     st.divider()
-    st.caption(f"Data as of: {latest_timestamp} | All calculations reconcile with Wave card outputs")
+    
+    # ========================================================================
+    # SECTION 4: Market and System Context
+    # ========================================================================
+    st.markdown("### 🌐 Market and System Context")
+    st.caption("Auto-generated narrative summary of market conditions and system performance")
+    
+    try:
+        # Get system statistics and top/bottom waves
+        stats_30d = get_system_statistics(timeframe_days=30)
+        top_waves, bottom_waves = get_top_bottom_waves(timeframe_days=30, top_n=3, bottom_n=3)
+        
+        if stats_30d:
+            avg_alpha = stats_30d['avg_alpha']
+            pct_positive = stats_30d['pct_positive_alpha']
+            
+            # Generate narrative based on data
+            narrative_parts = []
+            
+            # Market sentiment
+            if pct_positive >= 70:
+                market_sentiment = "strongly risk-on"
+                market_desc = "with broad-based gains across the portfolio"
+            elif pct_positive >= 55:
+                market_sentiment = "moderately risk-on"
+                market_desc = "with most strategies benefiting from favorable conditions"
+            elif pct_positive >= 45:
+                market_sentiment = "mixed"
+                market_desc = "with divergent performance across different strategies"
+            elif pct_positive >= 30:
+                market_sentiment = "moderately risk-off"
+                market_desc = "with defensive positioning providing some protection"
+            else:
+                market_sentiment = "strongly risk-off"
+                market_desc = "with elevated volatility penalizing most strategies"
+            
+            narrative_parts.append(
+                f"**Market Conditions:** Over the past 30 days, markets have been **{market_sentiment}**, "
+                f"{market_desc}. **{pct_positive:.0f}%** of Waves are showing positive alpha."
+            )
+            
+            # System performance
+            if avg_alpha > 0.01:
+                performance_desc = "strong outperformance"
+            elif avg_alpha > 0.003:
+                performance_desc = "moderate outperformance"
+            elif avg_alpha > -0.003:
+                performance_desc = "roughly in-line with benchmarks"
+            elif avg_alpha > -0.01:
+                performance_desc = "moderate underperformance"
+            else:
+                performance_desc = "challenging performance"
+            
+            narrative_parts.append(
+                f"**System Performance:** The platform is delivering **{performance_desc}** "
+                f"with an average alpha of **{avg_alpha:+.2%}** across all Waves."
+            )
+            
+            # Top performers
+            if top_waves:
+                top_wave_names = ", ".join([f"**{name}** ({alpha:+.2%})" for name, alpha in top_waves[:3]])
+                narrative_parts.append(
+                    f"**Top Performers:** Leading the way are {top_wave_names}."
+                )
+            
+            # Bottom performers
+            if bottom_waves:
+                bottom_wave_names = ", ".join([f"**{name}** ({alpha:+.2%})" for name, alpha in bottom_waves[:3]])
+                narrative_parts.append(
+                    f"**Under Pressure:** Facing headwinds are {bottom_wave_names}."
+                )
+            
+            # Strategy effectiveness
+            if pct_positive > 60:
+                strategy_desc = "Risk overlays are contributing positively, with growth and momentum strategies being rewarded."
+            elif pct_positive < 40:
+                strategy_desc = "Defensive overlays are providing value, with high-beta strategies facing challenges."
+            else:
+                strategy_desc = "Mixed effectiveness across strategies, with alpha dispersion reflecting varied market leadership."
+            
+            narrative_parts.append(
+                f"**Strategy Dynamics:** {strategy_desc}"
+            )
+            
+            # Display narrative
+            narrative_text = "\n\n".join(narrative_parts)
+            st.markdown(narrative_text)
+            
+        else:
+            st.info("Insufficient data to generate market context summary")
+    
+    except Exception as e:
+        st.error(f"Error generating market context: {str(e)}")
+
 
 def render_executive_tab():
     """
@@ -11607,12 +11624,11 @@ def main():
             render_alpha_capture_tab()
     
     elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Wave Intelligence Center is FIRST
+        # Normal mode with Wave Profile enabled - Overview is FIRST
         analytics_tabs = st.tabs([
-            "Wave Intelligence Center",   # FIRST TAB - comprehensive Wave overview
+            "Overview",                    # FIRST TAB - unified system overview with performance, alpha attribution, and market context
             "Console",                     # Second tab - Executive
             "Wave",                        # Third tab - Wave Profile with hero card
-            "Overview",                    # Market Intel equivalent
             "Details",                     # Factor Decomp equivalent
             "Reports",                     # Risk Lab equivalent
             "Overlays",                    # Correlation equivalent
@@ -11622,7 +11638,7 @@ def main():
             "Alpha Capture"
         ])
         
-        # Wave Intelligence Center tab (FIRST)
+        # Overview tab (FIRST) - Unified system overview
         with analytics_tabs[0]:
             render_wave_intelligence_center_tab()
         
@@ -11636,52 +11652,46 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_wave_profile_tab()
         
-        # Overview tab
-        with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
-        
         # Details tab
-        with analytics_tabs[4]:
+        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_details_tab()
         
         # Reports tab
-        with analytics_tabs[5]:
+        with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_reports_tab()
         
         # Overlays tab
-        with analytics_tabs[6]:
+        with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overlays_tab()
         
         # Attribution tab
-        with analytics_tabs[7]:
+        with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_attribution_tab()
         
         # Board Pack tab
-        with analytics_tabs[8]:
+        with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_board_pack_tab()
         
         # IC Pack tab
-        with analytics_tabs[9]:
+        with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
         
         # Alpha Capture tab
-        with analytics_tabs[10]:
+        with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_alpha_capture_tab()
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Wave Intelligence Center is FIRST tab
+        # Overview is FIRST tab
         analytics_tabs = st.tabs([
-            "Wave Intelligence Center",  # FIRST TAB - comprehensive Wave overview
+            "Overview",                   # FIRST TAB - unified system overview
             "Console",                    # Second tab - Executive
-            "Overview",                   # Third tab - Market Intel equivalent
             "Details",                    # Factor Decomp equivalent
             "Reports",                    # Risk Lab equivalent
             "Overlays",                   # Correlation equivalent
@@ -11691,7 +11701,7 @@ def main():
             "Alpha Capture"
         ])
         
-        # Wave Intelligence Center tab (FIRST)
+        # Overview tab (FIRST)
         with analytics_tabs[0]:
             render_wave_intelligence_center_tab()
         
@@ -11700,43 +11710,38 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_executive_tab()
         
-        # Overview tab (third)
+        # Details tab
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
-        
-        # Details tab (fourth)
-        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_details_tab()
         
-        # Reports tab (fifth)
-        with analytics_tabs[4]:
+        # Reports tab
+        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_reports_tab()
         
-        # Overlays tab (sixth)
-        with analytics_tabs[5]:
+        # Overlays tab
+        with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_overlays_tab()
         
-        # Attribution tab (seventh)
-        with analytics_tabs[6]:
+        # Attribution tab
+        with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_attribution_tab()
         
-        # Board Pack tab (eighth)
-        with analytics_tabs[7]:
+        # Board Pack tab
+        with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_board_pack_tab()
         
-        # IC Pack tab (ninth)
-        with analytics_tabs[8]:
+        # IC Pack tab
+        with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_ic_pack_tab()
         
-        # Alpha Capture tab (tenth)
-        with analytics_tabs[9]:
+        # Alpha Capture tab
+        with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             render_alpha_capture_tab()
     
