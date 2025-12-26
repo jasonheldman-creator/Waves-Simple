@@ -54,6 +54,14 @@ except ImportError:
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
 
+# Import data cache for global price caching
+try:
+    from data_cache import get_global_price_cache
+    DATA_CACHE_AVAILABLE = True
+except ImportError:
+    DATA_CACHE_AVAILABLE = False
+    get_global_price_cache = None
+
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
     from helpers.ticker_rail import render_bottom_ticker_v3
@@ -2097,7 +2105,7 @@ def get_wave_status_map(_wave_universe_version=1):
     return status_map
 
 
-def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None) -> tuple[bool, str, str]:
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None) -> tuple[bool, str, str]:
     """
     Check if a wave is data-ready with explicit criteria.
     
@@ -2105,6 +2113,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None) -
         wave_id: Wave identifier
         wave_history_df: Optional wave history DataFrame (will load if not provided)
         wave_universe: Optional wave universe dict (will load if not provided)
+        price_df: Optional cached price DataFrame for NAV computation
     
     Returns:
         Tuple of (is_ready: bool, status: str, reason: str)
@@ -2132,74 +2141,94 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None) -
         if wave_id not in all_waves:
             return False, "Missing Inputs", "Wave not found in registry"
         
-        # Load wave history if not provided
-        if wave_history_df is None:
-            wave_history_version = st.session_state.get("wave_universe_version", 1)
-            wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+        # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
+        if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+            if wave_id not in WAVE_WEIGHTS:
+                return False, "Missing Inputs", "No holdings defined in WAVE_WEIGHTS"
+        else:
+            return False, "Missing Inputs", "Wave engine not available"
         
-        # Check 3: Wave history data exists
-        if wave_history_df is None or 'wave' not in wave_history_df.columns:
-            return False, "Missing Inputs", "No wave history data available"
+        # Check 4: Price data availability
+        # Use cached price_df if provided, otherwise try to get from session state
+        if price_df is None:
+            price_df = st.session_state.get("global_price_df")
         
-        # Filter to this wave
-        wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
+        if price_df is None or price_df.empty:
+            # Fallback to checking wave_history.csv
+            if wave_history_df is None:
+                wave_history_version = st.session_state.get("wave_universe_version", 1)
+                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+            
+            if wave_history_df is None or 'wave' not in wave_history_df.columns:
+                return False, "Degraded (Partial Data)", "No price data or wave history available"
+            
+            wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
+            if len(wave_data) == 0:
+                return False, "Missing Inputs", "No historical data for this wave"
+            
+            # Check for sufficient days in wave history
+            if 'date' not in wave_data.columns:
+                return False, "Degraded (Partial Data)", "No date column in wave data"
+            
+            unique_days = wave_data['date'].nunique()
+            if unique_days < MIN_DAYS_READY:
+                return False, "Degraded (Partial Data)", f"Insufficient history: {unique_days} days (need {MIN_DAYS_READY})"
+            
+            # Check for required computed columns
+            required_columns = ['portfolio_return', 'benchmark_return', 'nav']
+            missing_columns = [col for col in required_columns if col not in wave_data.columns]
+            if missing_columns:
+                return False, "Error (Computation)", f"Missing computed columns: {', '.join(missing_columns)}"
+            
+            return True, "Ready", f"All criteria met ({unique_days} days of data)"
         
-        if len(wave_data) == 0:
-            return False, "Missing Inputs", "No historical data for this wave"
+        # NEW: Use cached price_df to verify data coverage and try NAV computation
+        # Check if price_df has enough days of data
+        if len(price_df) < MIN_DAYS_READY:
+            return False, "Degraded (Partial Data)", f"Insufficient price history: {len(price_df)} days (need {MIN_DAYS_READY})"
         
-        # Check 4: Holdings/weights input is present (check if we have position data)
-        # For index-only waves, this is acceptable if marked in registry
-        # We'll assume if data exists, holdings are present (can be enhanced later)
-        
-        # Check 5: Benchmark specification exists (check wave_config.csv)
+        # Check 5: Try to compute NAV using cached prices to verify everything works
         try:
-            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-            if os.path.exists(wave_config_path):
-                config_df = pd.read_csv(wave_config_path)
-                wave_config = config_df[config_df['Wave'] == wave_id]
-                if len(wave_config) == 0:
-                    return False, "Missing Inputs", "No benchmark configuration found"
+            # Import compute_history_nav if available
+            from waves_engine import compute_history_nav
+            
+            # Attempt NAV computation with cached prices
+            result_df = compute_history_nav(
+                wave_name=wave_id,
+                mode="Standard",
+                days=MIN_DAYS_READY,
+                price_df=price_df
+            )
+            
+            # Check if computation succeeded
+            if result_df is None or result_df.empty:
+                return False, "Error (Computation)", "NAV computation returned empty result"
+            
+            # Check for required columns
+            required_cols = ['wave_nav', 'bm_nav']
+            missing = [col for col in required_cols if col not in result_df.columns]
+            if missing:
+                return False, "Error (Computation)", f"NAV missing columns: {', '.join(missing)}"
+            
+            # Check for valid NAV values (not all NaN)
+            if result_df['wave_nav'].isna().all():
+                return False, "Error (Computation)", "NAV computation failed (all NaN values)"
+            
+            # All checks passed!
+            actual_days = len(result_df)
+            return True, "Ready", f"All criteria met ({actual_days} days computed)"
+            
         except Exception as e:
-            return False, "Missing Inputs", f"Error reading wave config: {str(e)}"
+            # NAV computation failed
+            error_msg = str(e)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                return False, "Degraded (Rate Limited)", f"Rate limited: {error_msg}"
+            else:
+                return False, "Error (Computation)", f"NAV computation error: {error_msg}"
         
-        # Check 6: Price history DataFrame exists with at least MIN_DAYS_READY days
-        if 'date' not in wave_data.columns:
-            return False, "Degraded (Partial Data)", "No date column in wave data"
-        
-        # Count unique days
-        unique_days = wave_data['date'].nunique()
-        if unique_days < MIN_DAYS_READY:
-            return False, "Degraded (Partial Data)", f"Insufficient history: {unique_days} days (need {MIN_DAYS_READY})"
-        
-        # Check 7: Recent data (last 7 days)
-        latest_date = wave_data['date'].max()
-        cutoff_date = latest_date - timedelta(days=7)
-        recent_data = wave_data[wave_data['date'] >= cutoff_date]
-        
-        if len(recent_data) == 0:
-            return False, "Degraded (Partial Data)", "No recent data (last 7 days)"
-        
-        # Check 8: Check if wave is flagged as rate-limited
-        rate_limited_waves = st.session_state.get("rate_limited_waves", set())
-        if wave_id in rate_limited_waves:
-            return False, "Degraded (Rate Limited)", "Price download failed or rate limited"
-        
-        # Check 9: NAV/metrics computation completes without exceptions
-        # We check for key columns that should be present if metrics computed successfully
-        required_columns = ['portfolio_return', 'benchmark_return', 'nav']
-        missing_columns = [col for col in required_columns if col not in wave_data.columns]
-        
-        if missing_columns:
-            return False, "Error (Computation)", f"Missing computed columns: {', '.join(missing_columns)}"
-        
-        # Check for NaN values in recent data (indicates computation issues)
-        recent_nav = recent_data['nav'].dropna()
-        if len(recent_nav) == 0:
-            return False, "Error (Computation)", "NAV computation failed (all NaN values)"
-        
-        # All checks passed!
-        return True, "Ready", f"All criteria met ({unique_days} days of data)"
-        
+    except Exception as e:
+        return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
+
     except Exception as e:
         return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
 
@@ -3647,8 +3676,11 @@ def compute_wave_universe_diagnostics():
                 data_ready_waves = set()
                 wave_statuses = {}
                 
+                # Get cached price_df from session state
+                price_df = st.session_state.get("global_price_df")
+                
                 for wave in registry_waves:
-                    is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe)
+                    is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe, price_df)
                     wave_statuses[wave] = {'status': status, 'reason': reason}
                     if is_ready:
                         data_ready_waves.add(wave)
@@ -6264,35 +6296,95 @@ def render_sidebar_info():
         try:
             # Show progress indicator
             with st.spinner("Prefetching prices for all waves..."):
+                # Set force rebuild flag
+                st.session_state.force_price_cache_rebuild = True
+                
                 # Clear any previous rate-limited flags
                 if "rate_limited_waves" in st.session_state:
                     del st.session_state["rate_limited_waves"]
                 
-                # Force refresh the cached prefetch
-                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
-                
-                # Store last good prices in session state
-                if len(price_df) > 0:
-                    st.session_state["last_good_prices"] = price_df
-                    st.session_state["last_price_fetch_time"] = datetime.now()
-                
-                # Mark waves with failures as rate-limited
-                if failures:
-                    rate_limited_tickers = set(failures.keys())
-                    # Map failed tickers back to waves (simplified - just flag them)
-                    st.session_state["rate_limited_waves"] = rate_limited_tickers
-                
-                # Show results
-                success_count = len(price_df.columns) if len(price_df) > 0 else 0
-                failure_count = len(failures)
-                
-                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                # Force refresh the global price cache
+                if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+                    cache_result = get_global_price_cache(
+                        wave_registry=WAVE_WEIGHTS,
+                        days=365,
+                        ttl_seconds=st.session_state.get("price_cache_ttl_seconds", 7200)
+                    )
+                    
+                    # Update session state
+                    st.session_state.global_price_df = cache_result.get("price_df")
+                    st.session_state.global_price_failures = cache_result.get("failures", {})
+                    st.session_state.global_price_asof = cache_result.get("asof")
+                    st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                    st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                    
+                    # Show results
+                    success_count = cache_result.get("success_count", 0)
+                    failure_count = len(cache_result.get("failures", {}))
+                    
+                    st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                else:
+                    st.sidebar.warning("⚠️ Data cache system not available")
                 
                 # Force reload diagnostics
                 st.cache_data.clear()
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error building data: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Data Refresh TTL Selector
+    # ========================================================================
+    st.sidebar.markdown("### 🕐 Data Refresh Settings")
+    
+    ttl_options = {
+        "1 hour": 3600,
+        "2 hours": 7200,
+        "4 hours": 14400,
+        "8 hours": 28800,
+        "12 hours": 43200,
+        "24 hours": 86400
+    }
+    
+    # Get current TTL from session state
+    current_ttl = st.session_state.get("price_cache_ttl_seconds", 7200)
+    
+    # Find the label for current TTL
+    current_label = "2 hours"  # default
+    for label, value in ttl_options.items():
+        if value == current_ttl:
+            current_label = label
+            break
+    
+    selected_ttl_label = st.sidebar.selectbox(
+        "Data Refresh TTL",
+        options=list(ttl_options.keys()),
+        index=list(ttl_options.keys()).index(current_label),
+        key="ttl_selector",
+        help="How long to cache price data before refreshing"
+    )
+    
+    # Update session state
+    st.session_state.price_cache_ttl_seconds = ttl_options[selected_ttl_label]
+    
+    # Show cache status if available
+    if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+        asof_time = st.session_state.global_price_asof
+        time_diff = datetime.utcnow() - asof_time
+        minutes_ago = int(time_diff.total_seconds() / 60)
+        
+        if minutes_ago < 60:
+            age_str = f"{minutes_ago} min ago"
+        else:
+            hours_ago = minutes_ago // 60
+            age_str = f"{hours_ago}h {minutes_ago % 60}m ago"
+        
+        success_count = st.session_state.get("global_price_success_count", 0)
+        ticker_count = st.session_state.get("global_price_ticker_count", 0)
+        
+        st.sidebar.caption(f"📊 Cache: {success_count}/{ticker_count} tickers ({age_str})")
+    
+    st.sidebar.markdown("---")
     
     # ========================================================================
     # NEW: Activate All Waves Button
@@ -13150,6 +13242,43 @@ def main():
                     st.text(f"• {dup}")
     except Exception:
         pass
+    
+    # ========================================================================
+    # Global Price Cache Initialization
+    # ========================================================================
+    
+    # Initialize price cache TTL setting if not present (default: 2 hours)
+    if "price_cache_ttl_seconds" not in st.session_state:
+        st.session_state.price_cache_ttl_seconds = 7200
+    
+    # Initialize force rebuild flag if not present
+    if "force_price_cache_rebuild" not in st.session_state:
+        st.session_state.force_price_cache_rebuild = False
+    
+    # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
+    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+        try:
+            # Get TTL from session state
+            ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
+            
+            # Prefetch prices once (cached with TTL)
+            cache_result = get_global_price_cache(
+                wave_registry=WAVE_WEIGHTS,
+                days=365,
+                ttl_seconds=ttl_seconds
+            )
+            
+            # Store in session state for use across the app
+            st.session_state.global_price_df = cache_result.get("price_df")
+            st.session_state.global_price_failures = cache_result.get("failures", {})
+            st.session_state.global_price_asof = cache_result.get("asof")
+            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+            
+        except Exception as e:
+            # Log error but don't crash - app can still work without cache
+            print(f"Warning: Failed to prefetch global price cache: {str(e)}")
+            st.session_state.global_price_df = None
     
     # ========================================================================
     # Main Application UI
