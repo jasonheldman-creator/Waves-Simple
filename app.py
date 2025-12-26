@@ -8364,9 +8364,28 @@ def render_overview_tab():
             # Drop the sort column
             df_display = df_display.drop(columns=['_sort_alpha_30d'])
             
+            # Apply color styling to alpha columns
+            def color_alpha(val):
+                """Apply green color to positive values, red to negative."""
+                try:
+                    # Extract numeric value from percentage string
+                    num_val = float(val.strip('%'))
+                    if num_val > 0:
+                        return 'background-color: #d4edda; color: #155724'  # Light green background, dark green text
+                    elif num_val < 0:
+                        return 'background-color: #f8d7da; color: #721c24'  # Light red background, dark red text
+                    else:
+                        return ''
+                except:
+                    return ''
+            
+            # Style the dataframe
+            alpha_cols = ['1D Alpha', '30D Alpha', '60D Alpha', '365D Alpha']
+            styled_df = df_display.style.applymap(color_alpha, subset=alpha_cols)
+            
             # Display with horizontal scroll for mobile
             st.dataframe(
-                df_display,
+                styled_df,
                 use_container_width=True,
                 height=600,
                 hide_index=True
