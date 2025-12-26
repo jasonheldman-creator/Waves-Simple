@@ -324,13 +324,36 @@ class DecisionAttributionEngine:
                 try:
                     # Use existing alpha attribution if available
                     from alpha_attribution import compute_alpha_attribution_series
-                    attribution_result = compute_alpha_attribution_series(wave_data, wave_name)
-                    if attribution_result and hasattr(attribution_result, 'asset_selection_alpha'):
-                        components.selection_alpha = attribution_result.asset_selection_alpha
-                        components.selection_available = True
-                        calculations_performed.append('selection_alpha')
+                    
+                    # Prepare data for attribution
+                    history_df = wave_data.copy()
+                    if 'date' in history_df.columns:
+                        history_df.set_index('date', inplace=True)
+                    
+                    # Ensure required columns exist and rename
+                    if 'portfolio_return' in history_df.columns and 'benchmark_return' in history_df.columns:
+                        history_df = history_df.rename(columns={
+                            'portfolio_return': 'wave_ret',
+                            'benchmark_return': 'bm_ret'
+                        })
+                        
+                        # Call with correct signature
+                        _, summary = compute_alpha_attribution_series(
+                            wave_name=wave_name,
+                            mode='Standard',
+                            history_df=history_df,
+                            diagnostics_df=None
+                        )
+                        
+                        if summary and hasattr(summary, 'asset_selection_alpha'):
+                            components.selection_alpha = summary.asset_selection_alpha
+                            components.selection_available = True
+                            calculations_performed.append('selection_alpha')
+                        else:
+                            warnings.append("Selection alpha computation returned no results")
+                            calculations_skipped.append('selection_alpha')
                     else:
-                        warnings.append("Selection alpha computation returned no results")
+                        warnings.append("Selection alpha unavailable - missing required columns")
                         calculations_skipped.append('selection_alpha')
                 except Exception as e:
                     warnings.append(f"Selection alpha unavailable: {str(e)}")
@@ -10002,96 +10025,67 @@ def render_ic_pack_tab():
                 
                 if wave_data is not None and len(wave_data) > 0:
                     try:
-                        # Use alpha attribution module
-                        attribution_result = compute_alpha_attribution_series(
-                            wave_name=selected_alpha_wave,
-                            wave_data=wave_data,
-                            days=30
-                        )
+                        # Prepare data for attribution
+                        history_df = wave_data.copy()
+                        if 'date' in history_df.columns:
+                            history_df.set_index('date', inplace=True)
                         
-                        if attribution_result is not None and hasattr(attribution_result, 'summary'):
-                            summary = attribution_result.summary
+                        # Ensure required columns and rename
+                        if 'portfolio_return' in history_df.columns and 'benchmark_return' in history_df.columns:
+                            history_df = history_df.rename(columns={
+                                'portfolio_return': 'wave_ret',
+                                'benchmark_return': 'bm_ret'
+                            })
                             
+                            # Use alpha attribution module with correct signature
+                            _, summary = compute_alpha_attribution_series(
+                                wave_name=selected_alpha_wave,
+                                mode='Standard',
+                                history_df=history_df,
+                                diagnostics_df=None
+                            )
+                        else:
+                            summary = None
+                        
+                        if summary is not None:
                             # Display alpha components
                             st.markdown("**Alpha Components (Last 30 Days)**")
                             
                             col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
                             
                             with col_alpha1:
-                                selection_val = getattr(summary, 'selection_alpha', None)
+                                selection_val = getattr(summary, 'asset_selection_alpha', None)
                                 if selection_val is not None:
                                     st.metric("Selection Alpha", f"{selection_val * 100:.3f}%")
                                 else:
-                                    st.metric("Selection Alpha", "Data unavailable")
+                                    st.metric("Selection Alpha", "N/A")
                             
                             with col_alpha2:
-                                overlay_val = getattr(summary, 'overlay_alpha', None)
+                                overlay_val = getattr(summary, 'regime_vix_alpha', None)
                                 if overlay_val is not None:
-                                    st.metric("Overlay Alpha", f"{overlay_val * 100:.3f}%")
+                                    st.metric("Regime/VIX Alpha", f"{overlay_val * 100:.3f}%")
                                 else:
-                                    st.metric("Overlay Alpha", "Data unavailable")
+                                    st.metric("Regime/VIX Alpha", "N/A")
                             
                             with col_alpha3:
-                                risk_off_val = getattr(summary, 'risk_off_alpha', None)
-                                if risk_off_val is not None:
-                                    st.metric("Risk-Off Alpha", f"{risk_off_val * 100:.3f}%")
+                                exposure_val = getattr(summary, 'exposure_timing_alpha', None)
+                                if exposure_val is not None:
+                                    st.metric("Exposure/Timing Alpha", f"{exposure_val * 100:.3f}%")
                                 else:
-                                    st.metric("Risk-Off Alpha", "Data unavailable")
+                                    st.metric("Exposure/Timing Alpha", "N/A")
                             
                             with col_alpha4:
-                                residual_val = getattr(summary, 'residual_alpha', None)
-                                if residual_val is not None:
-                                    st.metric("Residual Alpha", f"{residual_val * 100:.3f}%")
+                                total_val = getattr(summary, 'total_alpha', None)
+                                if total_val is not None:
+                                    st.metric("Total Alpha", f"{total_val * 100:.3f}%")
                                 else:
-                                    st.metric("Residual Alpha", "Data unavailable")
-                            
-                            # Data completeness indicator
-                            completeness = getattr(summary, 'data_completeness', 0)
-                            st.progress(completeness, text=f"Data Completeness: {completeness * 100:.0f}%")
-                            
+                                    st.metric("Total Alpha", "N/A")
                         else:
-                            # Fallback: Try to use DecisionAttributionEngine
-                            st.info("📊 Using alternative attribution calculation")
-                            
-                            engine = DecisionAttributionEngine()
-                            components = engine.compute_attribution(wave_data, selected_alpha_wave)
-                            
-                            if components:
-                                col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
-                                
-                                with col_alpha1:
-                                    if components.selection_available:
-                                        st.metric("Selection", f"{components.selection_alpha * 100:.3f}%")
-                                    else:
-                                        st.metric("Selection", "Data unavailable")
-                                
-                                with col_alpha2:
-                                    if components.overlay_available:
-                                        st.metric("Overlay", f"{components.overlay_alpha * 100:.3f}%")
-                                    else:
-                                        st.metric("Overlay", "Data unavailable")
-                                
-                                with col_alpha3:
-                                    if components.risk_off_available:
-                                        st.metric("Risk-Off", f"{components.risk_off_alpha * 100:.3f}%")
-                                    else:
-                                        st.metric("Risk-Off", "Data unavailable")
-                                
-                                with col_alpha4:
-                                    if components.residual_available:
-                                        st.metric("Residual", f"{components.residual_alpha * 100:.3f}%")
-                                    else:
-                                        st.metric("Residual", "Data unavailable")
-                                
-                                st.progress(components.data_completeness, 
-                                          text=f"Data Completeness: {components.data_completeness * 100:.0f}%")
-                            else:
-                                st.info("📊 Data unavailable for attribution calculation")
-                    
-                    except Exception as attr_err:
-                        st.info(f"📊 Data unavailable: {str(attr_err)}")
+                            st.info("Alpha attribution data not available for this wave")
+                    except Exception as e:
+                        st.warning(f"Unable to compute alpha attribution: {str(e)}")
                 else:
-                    st.info("📊 Data unavailable for selected wave")
+                    st.info("No wave data available for the selected wave")
             else:
                 st.info("📊 Data unavailable - No waves found")
     
@@ -10648,30 +10642,30 @@ def render_alpha_capture_tab():
                             
                             # Check if alpha attribution is available
                             if ALPHA_ATTRIBUTION_AVAILABLE:
-                                try:
-                                    # Prepare data for attribution
-                                    history_df = wave_data_30d.copy()
-                                    if 'date' in history_df.columns:
-                                        history_df.set_index('date', inplace=True)
+                                # Prepare data for attribution
+                                history_df = wave_data_30d.copy()
+                                if 'date' in history_df.columns:
+                                    history_df.set_index('date', inplace=True)
+                                
+                                # Ensure required columns exist
+                                if 'portfolio_return' in history_df.columns and 'benchmark_return' in history_df.columns:
+                                    # Rename for attribution module
+                                    history_df = history_df.rename(columns={
+                                        'portfolio_return': 'wave_ret',
+                                        'benchmark_return': 'bm_ret'
+                                    })
                                     
-                                    # Ensure required columns exist
-                                    if 'portfolio_return' in history_df.columns and 'benchmark_return' in history_df.columns:
-                                        # Rename for attribution module
-                                        history_df = history_df.rename(columns={
-                                            'portfolio_return': 'wave_ret',
-                                            'benchmark_return': 'bm_ret'
-                                        })
-                                        
-                                        # Get diagnostics if available
-                                        diagnostics_df = None
-                                        if VIX_DIAGNOSTICS_AVAILABLE:
-                                            try:
-                                                from vix_overlay_diagnostics import get_wave_diagnostics
-                                                diagnostics_df = get_wave_diagnostics(selected_wave, days=30)
-                                            except:
-                                                pass
-                                        
-                                        # Compute attribution
+                                    # Get diagnostics if available
+                                    diagnostics_df = None
+                                    if VIX_DIAGNOSTICS_AVAILABLE:
+                                        try:
+                                            from vix_overlay_diagnostics import get_wave_diagnostics
+                                            diagnostics_df = get_wave_diagnostics(selected_wave, days=30)
+                                        except:
+                                            pass
+                                    
+                                    # Compute attribution with error handling
+                                    try:
                                         daily_df, summary = compute_alpha_attribution_series(
                                             wave_name=selected_wave,
                                             mode=st.session_state.get('mode', 'Standard'),
@@ -10679,64 +10673,73 @@ def render_alpha_capture_tab():
                                             diagnostics_df=diagnostics_df
                                         )
                                         
-                                        # Display 5-layer breakdown based on problem statement requirements
-                                        # Mapping from attribution model to requirement layers:
-                                        # 1. Selection (What We Own) -> Asset Selection Alpha
-                                        # 2. Risk Control (VIX Strategy) -> Regime & VIX Alpha
-                                        # 3. Dynamic Adaptation -> Exposure & Timing Alpha
-                                        # 4. Implementation Drag -> Volatility Control Alpha (negative)
-                                        # 5. Residual -> Momentum & Trend Alpha + any remainder
-                                        
-                                        # Layer 1: Selection (What We Own)
-                                        selection_alpha = summary.asset_selection_alpha
-                                        st.metric(
-                                            label="1️⃣ Selection (What We Own)",
-                                            value=f"{selection_alpha*100:.2f}%",
-                                            help="Alpha from security selection and portfolio construction choices"
-                                        )
-                                        
-                                        # Layer 2: Risk Control (VIX Strategy)
-                                        risk_control_alpha = summary.regime_vix_alpha
-                                        st.metric(
-                                            label="2️⃣ Risk Control (VIX Strategy)",
-                                            value=f"{risk_control_alpha*100:.2f}%",
-                                            help="Alpha from VIX gating and defensive positioning during stress"
-                                        )
-                                        
-                                        # Layer 3: Dynamic Adaptation
-                                        dynamic_alpha = summary.exposure_timing_alpha
-                                        st.metric(
-                                            label="3️⃣ Dynamic Adaptation",
-                                            value=f"{dynamic_alpha*100:.2f}%",
-                                            help="Alpha from dynamic exposure adjustments and timing"
-                                        )
-                                        
-                                        # Layer 4: Implementation Drag
-                                        implementation_drag = summary.volatility_control_alpha
-                                        st.metric(
-                                            label="4️⃣ Implementation Drag",
-                                            value=f"{implementation_drag*100:.2f}%",
-                                            help="Impact from volatility targeting and execution constraints"
-                                        )
-                                        
-                                        # Layer 5: Residual (Unattributed / Learning)
-                                        residual_alpha = summary.momentum_trend_alpha
-                                        st.metric(
-                                            label="5️⃣ Residual (Unattributed)",
-                                            value=f"{residual_alpha*100:.2f}%",
-                                            help="Remaining alpha from trend following and other factors"
-                                        )
-                                        
-                                        # Show reconciliation
-                                        st.caption(f"**Reconciliation:** Components sum to {summary.total_alpha*100:.2f}%")
-                                        
-                                    else:
-                                        st.info("Required return data not available for attribution analysis")
-                                        
-                                except Exception as e:
-                                    st.warning("Unable to compute detailed attribution breakdown")
-                                    # Fallback to simple placeholder
-                                    st.caption("5-layer breakdown temporarily unavailable")
+                                        # Verify summary object has required attributes
+                                        if summary and hasattr(summary, 'asset_selection_alpha'):
+                                                # Display 5-layer breakdown based on problem statement requirements
+                                                # Mapping from attribution model to requirement layers:
+                                                # 1. Selection (What We Own) -> Asset Selection Alpha
+                                                # 2. Risk Control (VIX Strategy) -> Regime & VIX Alpha
+                                                # 3. Dynamic Adaptation -> Exposure & Timing Alpha
+                                                # 4. Implementation Drag -> Volatility Control Alpha (negative)
+                                                # 5. Residual -> Momentum & Trend Alpha + any remainder
+                                                
+                                                # Layer 1: Selection (What We Own)
+                                                selection_alpha = getattr(summary, 'asset_selection_alpha', 0.0)
+                                                st.metric(
+                                                    label="1️⃣ Selection (What We Own)",
+                                                    value=f"{selection_alpha*100:.2f}%",
+                                                    help="Alpha from security selection and portfolio construction choices"
+                                                )
+                                                
+                                                # Layer 2: Risk Control (VIX Strategy)
+                                                risk_control_alpha = getattr(summary, 'regime_vix_alpha', 0.0)
+                                                st.metric(
+                                                    label="2️⃣ Risk Control (VIX Strategy)",
+                                                    value=f"{risk_control_alpha*100:.2f}%",
+                                                    help="Alpha from VIX gating and defensive positioning during stress"
+                                                )
+                                                
+                                                # Layer 3: Dynamic Adaptation
+                                                dynamic_alpha = getattr(summary, 'exposure_timing_alpha', 0.0)
+                                                st.metric(
+                                                    label="3️⃣ Dynamic Adaptation",
+                                                    value=f"{dynamic_alpha*100:.2f}%",
+                                                    help="Alpha from dynamic exposure adjustments and timing"
+                                                )
+                                                
+                                                # Layer 4: Implementation Drag
+                                                implementation_drag = getattr(summary, 'volatility_control_alpha', 0.0)
+                                                st.metric(
+                                                    label="4️⃣ Implementation Drag",
+                                                    value=f"{implementation_drag*100:.2f}%",
+                                                    help="Impact from volatility targeting and execution constraints"
+                                                )
+                                                
+                                                # Layer 5: Residual (Unattributed / Learning)
+                                                residual_alpha = getattr(summary, 'momentum_trend_alpha', 0.0)
+                                                st.metric(
+                                                    label="5️⃣ Residual (Unattributed)",
+                                                    value=f"{residual_alpha*100:.2f}%",
+                                                    help="Remaining alpha from trend following and other factors"
+                                                )
+                                                
+                                                # Show reconciliation
+                                                total_alpha_check = getattr(summary, 'total_alpha', None)
+                                                if total_alpha_check is not None:
+                                                    st.caption(f"**Reconciliation:** Components sum to {total_alpha_check*100:.2f}%")
+                                        else:
+                                            # Summary object missing or invalid
+                                            st.info("Alpha attribution computation completed but detailed breakdown unavailable")
+                                    except ValueError as ve:
+                                        # Handle specific ValueError from compute_alpha_attribution_series
+                                        st.info(f"Attribution data incomplete: {str(ve)}")
+                                    except Exception as attr_err:
+                                        # Catch any other exceptions
+                                        st.warning(f"Unable to compute attribution breakdown: {str(attr_err)}")
+                                        st.caption("5-layer breakdown temporarily unavailable")
+                                    
+                                else:
+                                    st.info("Required return data not available for attribution analysis")
                             else:
                                 # Fallback: Show simple placeholder breakdown
                                 st.info("""
