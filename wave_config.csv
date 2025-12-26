@@ -1,9 +1,9 @@
-Wave,Benchmark,Mode,Beta_Target
-S&P 500 Wave,SPY,Standard,0.90
-Growth Wave,QQQ,Standard,0.90
-Small Cap Growth Wave,IWM,Standard,0.90
-Small-Mid Cap Growth Wave,IJH,Standard,0.90
-Future Power & Energy Wave,XLE,Standard,0.90
-Quantum Computing Wave,QQQ,Private Logic,1.00
-Clean Transit-Infrastructure Wave,ICLN,Standard,0.90
-Income Wave,AGG,Standard,0.60
+Wave,Benchmark,Mode,Beta_Target,enabled
+S&P 500 Wave,SPY,Standard,0.90,True
+Growth Wave,QQQ,Standard,0.90,True
+Small Cap Growth Wave,IWM,Standard,0.90,True
+Small-Mid Cap Growth Wave,IJH,Standard,0.90,True
+Future Power & Energy Wave,XLE,Standard,0.90,True
+Quantum Computing Wave,QQQ,Private Logic,1.00,True
+Clean Transit-Infrastructure Wave,ICLN,Standard,0.90,True
+Income Wave,AGG,Standard,0.60,True
