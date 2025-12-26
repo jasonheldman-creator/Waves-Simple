@@ -1957,7 +1957,16 @@ def _compute_core(
       - compute_history_nav()  [baseline]
       - simulate_history_nav() [shadow overrides]
 
-    overrides keys (optional):
+    Args:
+        wave_name: Name of the Wave
+        mode: Operating mode (Standard, Alpha-Minus-Beta, Private Logic)
+        days: History window
+        overrides: Optional dict with parameter overrides
+        shadow: Whether to include diagnostics in result.attrs
+        price_df: Optional pre-fetched price DataFrame (date index, ticker columns).
+                  If provided, uses this instead of calling _download_history().
+    
+    Overrides keys (optional):
       - tilt_strength: float
       - vol_target: float
       - extra_safe_boost: float
@@ -1965,10 +1974,6 @@ def _compute_core(
       - exp_min: float
       - exp_max: float
       - freeze_benchmark: bool   (use static benchmark only)
-    
-    Args:
-        price_df: Optional pre-fetched price DataFrame (date index, ticker columns). 
-                  If provided, uses this instead of calling _download_history().
     """
     if wave_name not in WAVE_WEIGHTS:
         raise ValueError(f"Unknown Wave: {wave_name}")

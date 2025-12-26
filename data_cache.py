@@ -34,6 +34,13 @@ except ImportError:
     yf = None
 
 
+# Constants for download configuration
+BUFFER_DAYS = 260  # Extra days to fetch for moving average calculations
+BATCH_PAUSE_MIN = 0.5  # Minimum pause between batches (seconds)
+BATCH_PAUSE_MAX = 1.5  # Maximum pause between batches (seconds)
+DEFAULT_TTL_SECONDS = 7200  # Default cache TTL (2 hours)
+
+
 def collect_all_required_tickers(
     wave_registry: Dict[str, List[Any]],
     include_benchmarks: bool = True,
@@ -121,7 +128,7 @@ def download_prices_batched(
     
     # Calculate date range with buffer
     end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=period_days + 260)  # Extra buffer for calculations
+    start_date = end_date - timedelta(days=period_days + BUFFER_DAYS)  # Extra buffer for calculations
     
     # Split into batches
     num_batches = (len(tickers) + chunk_size - 1) // chunk_size
@@ -193,13 +200,13 @@ def download_prices_batched(
         
         # Pause between batches to avoid rate limits (except for last batch)
         if batch_idx < num_batches - 1:
-            pause_time = random.uniform(0.5, 1.5)
+            pause_time = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
             time.sleep(pause_time)
     
     return all_prices, failures
 
 
-@st.cache_data(ttl=7200, show_spinner=False)
+@st.cache_data(ttl=DEFAULT_TTL_SECONDS, show_spinner=False)
 def _download_prices_cached(
     tickers_tuple: Tuple[str, ...],
     period_days: int,
@@ -211,6 +218,8 @@ def _download_prices_cached(
     
     Note: Uses tuple for tickers to make it hashable for caching.
     _cache_key is a timestamp used to force cache invalidation.
+    The decorator TTL provides automatic expiration, while _cache_key
+    allows manual cache invalidation via get_global_price_cache().
     """
     tickers = list(tickers_tuple)
     return download_prices_batched(tickers, period_days, chunk_size)

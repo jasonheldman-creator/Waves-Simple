@@ -2229,9 +2229,6 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
     except Exception as e:
         return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
 
-    except Exception as e:
-        return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
-
 
 def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
     """
