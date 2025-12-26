@@ -2010,6 +2010,68 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
         return []
 
 
+def get_wave_status_map(_wave_universe_version=1):
+    """
+    Get status for each wave in the universe.
+    
+    Returns:
+        Dictionary mapping wave names to status:
+        - "Ready": Full analytics data available (recent 7 days)
+        - "Degraded": Partial data or stale data
+        - "Missing Inputs": No data available
+    
+    This does NOT affect whether a wave is Active - waves remain Active
+    based on their enabled flag regardless of data status.
+    """
+    status_map = {}
+    
+    try:
+        # Get all waves from universe
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        
+        # Get wave history
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        if wave_history is None or 'wave' not in wave_history.columns:
+            # No data available - all waves are Missing Inputs
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+            return status_map
+        
+        # Get latest date
+        latest_date = wave_history['date'].max()
+        cutoff_date = latest_date - timedelta(days=7)
+        
+        # Get waves with recent data
+        recent_data = wave_history[wave_history['date'] >= cutoff_date]
+        waves_with_recent_data = set(recent_data['wave'].unique())
+        
+        # Get waves with any data (older than 7 days)
+        all_waves_with_data = set(wave_history['wave'].unique())
+        
+        # Classify each wave
+        for wave in all_waves:
+            if wave in waves_with_recent_data:
+                status_map[wave] = "Ready"
+            elif wave in all_waves_with_data:
+                status_map[wave] = "Degraded"
+            else:
+                status_map[wave] = "Missing Inputs"
+        
+    except Exception:
+        # On error, default all to Missing Inputs
+        try:
+            all_waves = get_wave_universe()
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+        except:
+            pass
+    
+    return status_map
+
+
 def get_cse_crypto_universe():
     """
     Get the Crypto Selection Engine (CSE) universe of top 1-200 cryptocurrencies.
@@ -3415,6 +3477,51 @@ def render_wave_universe_truth_panel():
             with st.expander("View Duplicates Removed"):
                 for wave in diagnostics['duplicate_waves']:
                     st.text(f"• {wave}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2.5: WAVE STATUS SUMMARY
+    # ========================================================================
+    st.markdown("#### 📊 Wave Status Summary")
+    st.caption("Wave status does NOT affect Active count - waves remain Active based on enabled flag")
+    
+    # Get wave status map
+    wave_status_map = get_wave_status_map()
+    
+    # Count waves by status
+    status_counts = {
+        "Ready": 0,
+        "Degraded": 0,
+        "Missing Inputs": 0
+    }
+    
+    for status in wave_status_map.values():
+        if status in status_counts:
+            status_counts[status] += 1
+    
+    status_col1, status_col2, status_col3 = st.columns(3)
+    
+    with status_col1:
+        st.metric(
+            label="🟢 Ready",
+            value=status_counts["Ready"],
+            help="Waves with full analytics data available (recent 7 days)"
+        )
+    
+    with status_col2:
+        st.metric(
+            label="🟡 Degraded",
+            value=status_counts["Degraded"],
+            help="Waves with partial or stale data"
+        )
+    
+    with status_col3:
+        st.metric(
+            label="🔴 Missing Inputs",
+            value=status_counts["Missing Inputs"],
+            help="Waves with no data available"
+        )
     
     st.divider()
     
