@@ -2465,6 +2465,175 @@ def compute_alpha_metrics_for_wave(wave_name, wave_id=None):
     return metrics
 
 
+def compute_alpha_drivers(wave_name, timeframe_days=30):
+    """
+    Compute alpha driver breakdown for a wave across a specified timeframe.
+    
+    Returns a 3-bucket breakdown:
+    - Stock Selection (Portfolio vs Benchmark)
+    - Risk Overlay (VIX/SafeSmart/Cash Shift)
+    - Residual/Other
+    
+    Args:
+        wave_name: Display name of the wave
+        timeframe_days: Number of days to analyze (default 30)
+        
+    Returns:
+        Dictionary with:
+        - total_alpha: Total alpha in return points
+        - selection_contribution: Selection alpha in return points
+        - overlay_contribution: Overlay alpha in return points
+        - residual_contribution: Residual alpha in return points
+        - selection_percent: Selection share as percentage
+        - overlay_percent: Overlay share as percentage
+        - residual_percent: Residual share as percentage
+        - wave_return: Wave return over the period
+        - benchmark_return: Benchmark return over the period
+        - avg_exposure: Average exposure over the period
+        - last_updated: Last data update timestamp
+        - has_diagnostics: Whether diagnostics data was used
+    """
+    result = {
+        'total_alpha': 0.0,
+        'selection_contribution': 0.0,
+        'overlay_contribution': 0.0,
+        'residual_contribution': 0.0,
+        'selection_percent': None,
+        'overlay_percent': None,
+        'residual_percent': None,
+        'wave_return': 0.0,
+        'benchmark_return': 0.0,
+        'avg_exposure': 1.0,
+        'last_updated': None,
+        'has_diagnostics': False
+    }
+    
+    try:
+        # Get wave universe version
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # Load wave data for the specified timeframe
+        wave_data = get_wave_data_filtered(
+            wave_name=wave_name, 
+            days=timeframe_days, 
+            _wave_universe_version=wave_universe_version
+        )
+        
+        if wave_data is None or len(wave_data) == 0:
+            return result
+        
+        # Check required columns
+        if 'portfolio_return' not in wave_data.columns or 'benchmark_return' not in wave_data.columns:
+            return result
+        
+        # Calculate total returns
+        wave_return = wave_data['portfolio_return'].sum()
+        benchmark_return = wave_data['benchmark_return'].sum()
+        total_alpha = wave_return - benchmark_return
+        
+        result['wave_return'] = wave_return
+        result['benchmark_return'] = benchmark_return
+        result['total_alpha'] = total_alpha
+        
+        # Get last updated date
+        if 'date' in wave_data.columns:
+            result['last_updated'] = wave_data['date'].max()
+        
+        # Calculate average exposure
+        avg_exposure = 1.0
+        if 'exposure' in wave_data.columns:
+            avg_exposure = wave_data['exposure'].fillna(1.0).mean()
+        result['avg_exposure'] = avg_exposure
+        
+        # ========================================================================
+        # STEP 1: Try to use diagnostics data (preferred method)
+        # ========================================================================
+        overlay_contribution = 0.0
+        has_diagnostics = False
+        
+        if VIX_DIAGNOSTICS_AVAILABLE:
+            try:
+                # Get diagnostics for this wave
+                diagnostics = get_wave_diagnostics(
+                    wave_name=wave_name,
+                    mode="Standard",
+                    days=timeframe_days
+                )
+                
+                if diagnostics is not None and not diagnostics.empty:
+                    # Calculate return with full exposure (no overlay)
+                    # This represents what the wave would have returned at 1.0 exposure
+                    if 'Wave_Return' in diagnostics.columns and 'Benchmark_Return' in diagnostics.columns:
+                        # Get actual wave returns from diagnostics
+                        actual_wave_return = diagnostics['Wave_Return'].sum()
+                        
+                        # Estimate return without overlay by scaling with exposure
+                        if 'Exposure' in diagnostics.columns:
+                            # For days with reduced exposure, calculate what return would have been at full exposure
+                            # This is an approximation: full_exposure_return = wave_return / max(exposure, 0.01)
+                            daily_returns_no_overlay = []
+                            for idx, row in diagnostics.iterrows():
+                                exposure_val = row.get('Exposure', 1.0)
+                                if exposure_val > 0.01:
+                                    # Estimate risky sleeve return
+                                    risky_return = row.get('Wave_Return', 0.0) / exposure_val
+                                    daily_returns_no_overlay.append(risky_return)
+                                else:
+                                    daily_returns_no_overlay.append(row.get('Wave_Return', 0.0))
+                            
+                            return_without_overlay = sum(daily_returns_no_overlay)
+                            overlay_contribution = actual_wave_return - return_without_overlay
+                            has_diagnostics = True
+            except Exception:
+                pass  # Fall through to fallback method
+        
+        # ========================================================================
+        # STEP 2: Fallback method using exposure data
+        # ========================================================================
+        if not has_diagnostics:
+            if 'exposure' in wave_data.columns and avg_exposure < 1.0:
+                # Fallback logic based on exposure
+                # risky_sleeve_return = wave_return / max(exposure, 0.01)
+                risky_sleeve_return = wave_return / max(avg_exposure, 0.01)
+                selection_alpha_estimate = risky_sleeve_return - benchmark_return
+                overlay_contribution = total_alpha - selection_alpha_estimate
+            else:
+                # No exposure data available - assign all alpha to selection
+                overlay_contribution = 0.0
+        
+        result['overlay_contribution'] = overlay_contribution
+        result['has_diagnostics'] = has_diagnostics
+        
+        # ========================================================================
+        # STEP 3: Calculate selection and residual contributions
+        # ========================================================================
+        selection_contribution = total_alpha - overlay_contribution
+        
+        # Residual should be close to 0 (ensures transparency)
+        residual_contribution = total_alpha - (selection_contribution + overlay_contribution)
+        
+        result['selection_contribution'] = selection_contribution
+        result['residual_contribution'] = residual_contribution
+        
+        # ========================================================================
+        # STEP 4: Calculate percentage shares
+        # ========================================================================
+        if abs(total_alpha) > 1e-6:  # Avoid division by very small numbers
+            result['selection_percent'] = (selection_contribution / total_alpha) * 100
+            result['overlay_percent'] = (overlay_contribution / total_alpha) * 100
+            result['residual_percent'] = (residual_contribution / total_alpha) * 100
+        else:
+            # Total alpha is effectively zero - set to N/A
+            result['selection_percent'] = None
+            result['overlay_percent'] = None
+            result['residual_percent'] = None
+        
+    except Exception:
+        pass  # Return default result
+    
+    return result
+
+
 def compute_alpha_metrics_all_waves():
     """
     Compute Alpha and Exposure-Adjusted Alpha for all waves.
@@ -10489,106 +10658,85 @@ def generate_ic_pack_html():
 
 def render_alpha_capture_tab():
     """
-    Render the Alpha Capture tab.
+    Render the Alpha Capture tab with Alpha Drivers breakdown.
     
-    This tab aggregates alpha data across all Waves using existing data and benchmarks.
+    This tab shows:
+    - Left column: All Waves table with 30D returns, alpha, and exposure
+    - Right column: Alpha Drivers breakdown for selected wave showing 3-bucket attribution
     
     Features:
-    - Summary metrics (Total Alpha, % Waves Positive Alpha, Best/Worst Waves)
-    - Detailed table with Alpha and Exposure-Adjusted Alpha across timeframes
-    - Method description for transparency
-    - Last updated timestamp
-    - Enhanced layout with two-column design and 5-layer alpha breakdown
+    - Simple table-based layout (no HTML components)
+    - Mobile-friendly design
+    - Timeframe selector (default 30D)
+    - 3-bucket alpha breakdown with percentages and return points
+    - Graceful fallback when exposure/diagnostics data is missing
     """
     try:
         # ========================================================================
-        # TOP SECTION: Introductory Header (Always Visible)
+        # TOP SECTION: Introductory Header
         # ========================================================================
-        st.markdown("# Alpha Capture.")
-        st.markdown("### Where outperformance actually comes from.")
+        st.markdown("# Alpha Drivers.")
+        st.markdown("### A defensible breakdown of where alpha comes from.")
         
         st.markdown("""
         **Key Definitions:**
-        - **Alpha** means performance above the benchmark.
         - **Total Alpha = Wave Return − Benchmark Return.**
-        - This page explains where that difference came from using simple decision layers.
+        - **Stock Selection**: Alpha from choosing which assets to hold.
+        - **Risk Overlay**: Alpha from VIX/SafeSmart/Cash shift strategies.
+        - **Residual/Other**: Remaining alpha not attributed to the above.
         """)
         
         st.markdown("---")
         
+        # Timeframe selector
+        timeframe_options = {
+            "30 Days": 30,
+            "60 Days": 60,
+            "90 Days": 90,
+            "365 Days": 365
+        }
+        
+        selected_timeframe_label = st.selectbox(
+            "Select Timeframe:",
+            options=list(timeframe_options.keys()),
+            index=0,  # Default to 30 Days
+            key="alpha_drivers_timeframe"
+        )
+        
+        timeframe_days = timeframe_options[selected_timeframe_label]
+        
         # Compute alpha metrics for all waves
-        with st.spinner("Computing alpha metrics across all waves..."):
+        with st.spinner(f"Computing alpha metrics for {selected_timeframe_label}..."):
             all_metrics = compute_alpha_metrics_all_waves()
         
         if not all_metrics:
             st.warning("⚠️ No alpha data available. Please ensure wave_history.csv contains valid data.")
             return
         
-        # Calculate summary metrics
-        st.markdown("### 📈 Summary Metrics (30-Day)")
-        
-        # Filter metrics with valid 30D alpha
-        metrics_30d = [m for m in all_metrics if m['alpha_30d'] is not None]
-        
-        if metrics_30d:
-            # Total Alpha (average across all waves)
-            total_alpha_30d = np.mean([m['alpha_30d'] for m in metrics_30d])
-            
-            # % Waves with Positive Alpha
-            positive_count = len([m for m in metrics_30d if m['alpha_30d'] > 0])
-            pct_positive = (positive_count / len(metrics_30d)) * 100 if metrics_30d else 0
-            
-            # Best and Worst Waves
-            best_wave = max(metrics_30d, key=lambda x: x['alpha_30d'])
-            worst_wave = min(metrics_30d, key=lambda x: x['alpha_30d'])
-            
-            # Display summary in columns
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric(
-                    label="📊 Average Alpha (30D)",
-                    value=f"{total_alpha_30d*100:.2f}%",
-                    delta=None,
-                    help="Average alpha across all waves over 30 days"
-                )
-            
-            with col2:
-                st.metric(
-                    label="✅ Waves w/ Positive Alpha",
-                    value=f"{pct_positive:.1f}%",
-                    delta=f"{positive_count}/{len(metrics_30d)} waves",
-                    help="Percentage of waves with positive alpha over 30 days"
-                )
-            
-            with col3:
-                st.metric(
-                    label="🏆 Best Wave (30D Alpha)",
-                    value=best_wave['wave_name'][:20] + "..." if len(best_wave['wave_name']) > 20 else best_wave['wave_name'],
-                    delta=f"{best_wave['alpha_30d']*100:.2f}%",
-                    help=f"{best_wave['wave_name']}: {best_wave['alpha_30d']*100:.2f}%"
-                )
-            
-            with col4:
-                st.metric(
-                    label="📉 Worst Wave (30D Alpha)",
-                    value=worst_wave['wave_name'][:20] + "..." if len(worst_wave['wave_name']) > 20 else worst_wave['wave_name'],
-                    delta=f"{worst_wave['alpha_30d']*100:.2f}%",
-                    delta_color="inverse",
-                    help=f"{worst_wave['wave_name']}: {worst_wave['alpha_30d']*100:.2f}%"
-                )
-        else:
-            st.info("📊 Insufficient data for summary metrics")
-        
         st.markdown("---")
         
         # ========================================================================
-        # TWO-COLUMN LAYOUT: Alpha Table (Left) + Wave Summary (Right)
+        # TWO-COLUMN LAYOUT: All Waves Table (Left) + Alpha Drivers (Right)
         # ========================================================================
         
-        # Build DataFrame for display
+        # Build DataFrame for All Waves table
         table_data = []
         for metrics in all_metrics:
+            # Get the appropriate alpha based on selected timeframe
+            if timeframe_days == 30:
+                alpha_val = metrics.get('alpha_30d')
+                exposure_val = metrics.get('exposure_30d', 1.0)
+            elif timeframe_days == 60:
+                alpha_val = metrics.get('alpha_60d')
+                exposure_val = metrics.get('exposure_60d', 1.0)
+            elif timeframe_days == 90:
+                # Use 60d as approximation for 90d
+                alpha_val = metrics.get('alpha_60d')
+                exposure_val = metrics.get('exposure_60d', 1.0)
+            else:  # 365 days
+                alpha_val = metrics.get('alpha_365d')
+                exposure_val = metrics.get('exposure_365d', 1.0)
+            
             # Format values for display
             def fmt_pct(val):
                 return f"{val*100:.2f}%" if val is not None else "N/A"
@@ -10596,180 +10744,223 @@ def render_alpha_capture_tab():
             def fmt_exp(val):
                 return f"{val:.2f}" if val is not None else "1.00"
             
+            # Get wave data to calculate actual returns for the timeframe
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            wave_data = get_wave_data_filtered(
+                wave_name=metrics['wave_name'],
+                days=timeframe_days,
+                _wave_universe_version=wave_universe_version
+            )
+            
+            wave_return = 0.0
+            benchmark_return = 0.0
+            
+            if wave_data is not None and len(wave_data) > 0:
+                if 'portfolio_return' in wave_data.columns:
+                    wave_return = wave_data['portfolio_return'].sum()
+                if 'benchmark_return' in wave_data.columns:
+                    benchmark_return = wave_data['benchmark_return'].sum()
+            
             table_data.append({
                 'Wave Name': metrics['wave_name'],
-                'Wave ID': metrics['wave_id'],
-                'Alpha 1D': fmt_pct(metrics['alpha_1d']),
-                'Alpha 30D': fmt_pct(metrics['alpha_30d']),
-                'Alpha 60D': fmt_pct(metrics['alpha_60d']),
-                'Alpha 365D': fmt_pct(metrics['alpha_365d']),
-                'Exp-Adj Alpha 1D': fmt_pct(metrics['exp_adj_alpha_1d']),
-                'Exp-Adj Alpha 30D': fmt_pct(metrics['exp_adj_alpha_30d']),
-                'Exp-Adj Alpha 60D': fmt_pct(metrics['exp_adj_alpha_60d']),
-                'Exp-Adj Alpha 365D': fmt_pct(metrics['exp_adj_alpha_365d']),
-                'Avg Exposure 30D': fmt_exp(metrics['exposure_30d']),
+                f'{selected_timeframe_label} Wave Return': fmt_pct(wave_return),
+                f'{selected_timeframe_label} Benchmark Return': fmt_pct(benchmark_return),
+                f'{selected_timeframe_label} Alpha': fmt_pct(alpha_val),
+                'Exposure (Optional)': fmt_exp(exposure_val),
+                '_alpha_sort': alpha_val if alpha_val is not None else -9999
             })
         
         if table_data:
             df_display = pd.DataFrame(table_data)
             
-            # Sort by 30D Alpha (descending)
-            # Extract numeric values for sorting
-            df_display['_alpha_30d_sort'] = df_display['Alpha 30D'].apply(
-                lambda x: float(x.replace('%', '')) if x != 'N/A' else -9999
-            )
-            df_display = df_display.sort_values('_alpha_30d_sort', ascending=False)
-            df_display = df_display.drop(columns=['_alpha_30d_sort'])
+            # Sort by Alpha (descending) - default sorting
+            df_display = df_display.sort_values('_alpha_sort', ascending=False)
+            df_display = df_display.drop(columns=['_alpha_sort'])
             
-            # Create two columns: 60% for table, 40% for summary
-            col_table, col_summary = st.columns([6, 4])
+            # Create two columns: 50% for table, 50% for alpha drivers
+            col_table, col_drivers = st.columns([5, 5])
             
             # ================================================================
-            # LEFT COLUMN: All Waves Alpha Table
+            # LEFT COLUMN: All Waves Table
             # ================================================================
             with col_table:
-                st.markdown("### 📋 All Waves Alpha Table")
-                st.caption("Sorted by 30D Total Alpha (descending)")
+                st.markdown("### 📋 All Waves")
+                st.caption(f"Sorted by {selected_timeframe_label} Alpha (descending)")
                 
-                # Display with highlighting
+                # Display table
                 st.dataframe(
                     df_display,
                     use_container_width=True,
                     height=600,
                     hide_index=True
                 )
-                
-                # Download button
-                csv = df_display.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Alpha Capture Report (CSV)",
-                    data=csv,
-                    file_name=f"alpha_capture_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                    help="Download the complete alpha capture data as CSV"
-                )
             
             # ================================================================
-            # RIGHT COLUMN: Selected Wave Summary + 5-Layer Breakdown
+            # RIGHT COLUMN: Alpha Drivers for Selected Wave
             # ================================================================
-            with col_summary:
-                st.markdown("### 🔍 Selected Wave Summary")
+            with col_drivers:
+                st.markdown("### 🎯 Alpha Drivers")
                 
                 # Wave selector
                 wave_names = [m['wave_name'] for m in all_metrics]
-                # Default to best performing wave
-                default_wave_name = metrics_30d[0]['wave_name'] if metrics_30d else wave_names[0]
+                
+                # Default to wave with highest alpha in the selected timeframe
+                if timeframe_days == 30:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_30d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_30d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
+                elif timeframe_days == 60:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_60d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_60d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
+                else:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_365d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_365d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
                 
                 selected_wave_name = st.selectbox(
-                    label="Select a Wave to analyze:",
+                    label="Select a Wave:",
                     options=wave_names,
-                    index=wave_names.index(default_wave_name) if default_wave_name in wave_names else 0,
-                    key="alpha_capture_wave_selector"
+                    index=wave_names.index(default_wave) if default_wave in wave_names else 0,
+                    key="alpha_drivers_wave_selector"
                 )
                 
-                # Find selected wave metrics
-                selected_metrics = next((m for m in all_metrics if m['wave_name'] == selected_wave_name), None)
+                st.markdown("---")
                 
-                if selected_metrics:
-                    # Display wave summary metrics
-                    st.markdown("#### 📊 Performance Metrics (30D)")
-                    
-                    # Calculate wave return and benchmark return for 30D
-                    # Wave Return = Alpha + Benchmark Return
-                    alpha_30d = selected_metrics.get('alpha_30d', 0) or 0
-                    
-                    # Get wave data to calculate actual returns
-                    wave_universe_version = st.session_state.get("wave_universe_version", 1)
-                    wave_data_30d = get_wave_data_filtered(
-                        wave_name=selected_wave_name, 
-                        days=30, 
-                        _wave_universe_version=wave_universe_version
+                # Compute Alpha Drivers for selected wave
+                with st.spinner(f"Computing alpha drivers for {selected_wave_name}..."):
+                    drivers = compute_alpha_drivers(
+                        wave_name=selected_wave_name,
+                        timeframe_days=timeframe_days
                     )
-                    
-                    wave_return_30d = 0
-                    benchmark_return_30d = 0
-                    
-                    if wave_data_30d is not None and len(wave_data_30d) > 0:
-                        if 'portfolio_return' in wave_data_30d.columns:
-                            wave_return_30d = wave_data_30d['portfolio_return'].sum()
-                        if 'benchmark_return' in wave_data_30d.columns:
-                            benchmark_return_30d = wave_data_30d['benchmark_return'].sum()
-                    
-                    st.metric(
-                        label="Wave Return",
-                        value=f"{wave_return_30d*100:.2f}%",
-                        help="Total return of the Wave over 30 days"
-                    )
-                    
-                    st.metric(
-                        label="Benchmark Return",
-                        value=f"{benchmark_return_30d*100:.2f}%",
-                        help="Total return of the benchmark over 30 days"
-                    )
-                    
-                    st.metric(
-                        label="Total Alpha",
-                        value=f"{alpha_30d*100:.2f}%",
-                        delta=f"{alpha_30d*100:.2f}% vs benchmark",
-                        help="Wave Return minus Benchmark Return"
-                    )
-                    
-                    st.markdown("---")
-                    
-                    # ========================================================
-                    # 5-LAYER ALPHA BREAKDOWN
-                    # ========================================================
-                    st.markdown("#### 🔬 5-Layer Alpha Breakdown")
-                    st.caption("Explaining the sources of alpha generation")
-                    
-                    # Note: This is a simplified breakdown for display purposes
-                    # The actual attribution would require the full alpha_attribution module
-                    # For now, we provide conceptual layers with explanations
-                    
-                    layers = [
+                
+                # Display Total Alpha
+                st.markdown("#### 📊 Total Alpha")
+                total_alpha_pct = drivers['total_alpha'] * 100
+                st.metric(
+                    label=f"Total Alpha ({selected_timeframe_label})",
+                    value=f"{total_alpha_pct:.2f}%",
+                    help="Wave Return minus Benchmark Return"
+                )
+                
+                st.markdown("---")
+                
+                # Display Alpha Drivers Breakdown
+                st.markdown("#### 🔍 Alpha Drivers Breakdown")
+                st.caption("3-bucket percentage breakdown")
+                
+                # Check if we can display percentages
+                if drivers['selection_percent'] is not None:
+                    # Build drivers table
+                    drivers_table_data = [
                         {
-                            "layer": "1️⃣ Selection (What We Own)",
-                            "description": "Value from choosing which assets to hold",
-                            "help": "Alpha from picking the right stocks, sectors, or assets to include in the portfolio"
+                            'Driver': '📈 Stock Selection',
+                            'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                            'Share': f"{drivers['selection_percent']:.1f}%"
                         },
                         {
-                            "layer": "2️⃣ Risk Control (VIX Strategy)",
-                            "description": "Value from defensive positioning in high-volatility periods",
-                            "help": "Alpha from shifting to safe assets when VIX is elevated or during market stress"
+                            'Driver': '🛡️ Risk Overlay',
+                            'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                            'Share': f"{drivers['overlay_percent']:.1f}%"
                         },
                         {
-                            "layer": "3️⃣ Dynamic Adaptation",
-                            "description": "Value from timing exposure and momentum tilts",
-                            "help": "Alpha from adjusting exposure levels and overweighting trending assets"
-                        },
-                        {
-                            "layer": "4️⃣ Implementation Drag",
-                            "description": "Cost of execution, rebalancing, and constraints",
-                            "help": "Impact of transaction costs, slippage, and operational realities (typically negative)"
-                        },
-                        {
-                            "layer": "5️⃣ Residual (Unattributed/Learning)",
-                            "description": "Remaining alpha from untracked factors",
-                            "help": "Alpha not explained by the other layers; area for continuous improvement"
+                            'Driver': '⚪ Residual/Other',
+                            'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                            'Share': f"{drivers['residual_percent']:.1f}%"
                         }
                     ]
                     
-                    for layer_info in layers:
-                        with st.expander(layer_info["layer"], expanded=False):
-                            st.write(layer_info["description"])
-                            st.caption(f"💡 {layer_info['help']}")
+                    df_drivers = pd.DataFrame(drivers_table_data)
                     
-                    st.info("""
-                    ℹ️ **Note:** Detailed attribution requires historical diagnostics data. 
-                    The layers above provide a conceptual framework for understanding alpha sources. 
-                    For full quantitative attribution, see the Attribution tab.
-                    """)
-                
+                    st.dataframe(
+                        df_drivers,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Verification that shares sum to ~100%
+                    total_share = drivers['selection_percent'] + drivers['overlay_percent'] + drivers['residual_percent']
+                    st.caption(f"✓ Total: {total_share:.1f}% (should be ~100%)")
+                    
                 else:
-                    st.warning("No metrics available for selected wave.")
+                    # Total alpha is effectively zero - display N/A
+                    st.info("📊 Total Alpha is near zero. Share percentages: N/A")
+                    
+                    # Still show contributions in return points
+                    drivers_table_data = [
+                        {
+                            'Driver': '📈 Stock Selection',
+                            'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        },
+                        {
+                            'Driver': '🛡️ Risk Overlay',
+                            'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        },
+                        {
+                            'Driver': '⚪ Residual/Other',
+                            'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        }
+                    ]
+                    
+                    df_drivers = pd.DataFrame(drivers_table_data)
+                    
+                    st.dataframe(
+                        df_drivers,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                st.markdown("---")
+                
+                # Display additional metrics
+                st.markdown("#### 📈 Wave Metrics")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric(
+                        label="Wave Return",
+                        value=f"{drivers['wave_return']*100:.2f}%",
+                        help=f"Total return over {selected_timeframe_label}"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="Benchmark Return",
+                        value=f"{drivers['benchmark_return']*100:.2f}%",
+                        help=f"Benchmark return over {selected_timeframe_label}"
+                    )
+                
+                # Show average exposure
+                st.metric(
+                    label="Avg Exposure",
+                    value=f"{drivers['avg_exposure']:.2f}",
+                    help="Average exposure over the period (1.0 = fully invested)"
+                )
+                
+                # Data source indicator
+                if drivers['has_diagnostics']:
+                    st.caption("✓ Using diagnostics data for overlay calculation")
+                else:
+                    st.caption("ℹ️ Using fallback method (diagnostics unavailable)")
+                
+                # Last updated timestamp
+                if drivers['last_updated'] is not None:
+                    st.caption(f"**Last Updated:** {drivers['last_updated'].strftime('%Y-%m-%d') if hasattr(drivers['last_updated'], 'strftime') else drivers['last_updated']}")
+                else:
+                    st.caption(f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d')}")
+        
         else:
-            st.info("📊 No data available for detailed breakdown")
+            st.info("📊 No data available for display")
         
         # ========================================================================
         # COLLAPSIBLE SECTION: Method & Notes
@@ -10777,102 +10968,94 @@ def render_alpha_capture_tab():
         st.markdown("---")
         
         with st.expander("📚 Method & Notes", expanded=False):
-            st.markdown("### Understanding Alpha Attribution")
+            st.markdown("### Understanding Alpha Drivers")
             
             st.markdown("""
-            #### How We Calculate Alpha
+            #### How We Calculate Alpha Drivers
             
-            **Total Alpha** is the simplest measure of outperformance:
+            **Total Alpha** is calculated as:
             ```
             Total Alpha = Wave Return − Benchmark Return
             ```
             
-            This tells you whether the Wave beat its benchmark, but not *why*.
+            We then break down this alpha into three buckets:
             
             ---
             
-            #### The 5-Layer Decision Framework
+            #### The 3-Bucket Breakdown
             
-            To understand *where* alpha comes from, we break it into five decision layers:
+            **1. Stock Selection (Portfolio vs Benchmark)**
+            - Alpha from choosing which assets to hold
+            - Represents the value of stock picking and sector allocation
+            - Calculated by comparing portfolio composition to benchmark
             
-            **1. Selection (What We Own)**
-            - The fundamental choice of which assets to include in the portfolio
-            - This layer captures the value of stock selection and sector allocation
-            - Example: Choosing to own NVDA instead of a different tech stock
+            **2. Risk Overlay (VIX/SafeSmart/Cash Shift)**
+            - Alpha from dynamic risk management strategies
+            - Includes VIX-driven exposure adjustments and safe asset allocation
+            - Based on diagnostics data when available, otherwise uses exposure-based fallback
             
-            **2. Risk Control (VIX Strategy)**
-            - Dynamic shifts to defensive assets during market stress
-            - Activated when VIX exceeds thresholds or during risk-off regimes
-            - Example: Moving 20% to safe assets when VIX > 25
-            
-            **3. Dynamic Adaptation**
-            - Timing: Adjusting overall exposure based on market conditions
-            - Momentum: Overweighting trending assets, underweighting laggards
-            - Example: Increasing exposure to 110% during strong uptrends
-            
-            **4. Implementation Drag**
-            - The real-world costs of executing the strategy
-            - Includes transaction costs, slippage, and rebalancing friction
-            - This layer is typically negative (a cost, not a benefit)
-            
-            **5. Residual (Unattributed/Learning)**
-            - Alpha not explained by the other four layers
-            - Represents opportunity for improvement and deeper analysis
-            - May include untracked factors or interaction effects
+            **3. Residual/Other**
+            - Alpha not attributed to the above two buckets
+            - Should be close to 0% for transparency and accountability
+            - May include rounding differences or untracked factors
             
             ---
             
-            #### Reconciliation & Transparency
+            #### Computation Method
             
-            All five layers must sum exactly to Total Alpha:
+            **Preferred Method (when diagnostics available):**
+            - Extract daily exposure and overlay activity from diagnostics
+            - Calculate return with and without overlay effects
+            - `Overlay Contribution = Return_with_overlay − Return_without_overlay`
+            - `Selection Contribution = Total_Alpha − Overlay_Contribution`
+            
+            **Fallback Method (when diagnostics unavailable):**
+            - Use exposure data from wave_history
+            - `Risky Sleeve Return = Wave_Return / max(Exposure, 0.01)`
+            - `Selection Alpha = Risky_Sleeve_Return − Benchmark_Return`
+            - `Overlay Alpha = Total_Alpha − Selection_Alpha`
+            
+            **When exposure data is missing:**
+            - `Overlay Alpha = 0`
+            - `Selection Alpha = Total_Alpha`
+            
+            ---
+            
+            #### Percentage Shares
+            
+            If `Total Alpha ≠ 0`:
             ```
-            Selection + Risk Control + Dynamic Adaptation + Implementation Drag + Residual = Total Alpha
+            Share % = (Contribution / Total Alpha) × 100
             ```
             
-            This ensures complete accountability—no alpha is hidden or double-counted.
-            
-            ---
-            
-            #### Why This Matters
-            
-            Understanding alpha sources helps you:
-            - **Identify strengths:** Which decision layers are working well?
-            - **Find weaknesses:** Where are we losing value?
-            - **Guide improvements:** What should we optimize next?
-            - **Build confidence:** Transparency builds trust in the strategy
+            If `Total Alpha == 0`:
+            - Display "N/A" for share percentages
+            - Still show contributions in return points
             
             ---
             
             #### Important Notes
             
-            **Data Consistency:**
-            - All metrics use the same comprehensive return series as WaveScore
-            - No hypothetical or estimated values—only actual realized returns
-            - Daily-level transparency aggregates to period totals
+            **Data Sources:**
+            - Wave returns and benchmark returns from wave_history.csv
+            - Diagnostics from VIX overlay diagnostics module (when available)
+            - Exposure data from wave_history.csv
             
-            **Exposure-Adjusted Alpha:**
-            - Standard Alpha measures pure outperformance
-            - Exposure-Adjusted Alpha accounts for varying investment levels
-            - Formula: `(Wave Return − Benchmark Return) × Exposure`
-            - When exposure = 1.0 (fully invested), both metrics are identical
+            **Verification:**
+            - All three buckets must sum to ~100%
+            - Any deviation indicates calculation transparency
+            - Residual bucket captures rounding and unattributed effects
             
-            **Attribution vs. Simple Alpha:**
-            - The 5-layer breakdown requires detailed historical diagnostics
-            - If diagnostics are unavailable, we show Total Alpha only
-            - See the **Attribution** tab for full quantitative breakdowns when available
+            **Mobile-Friendly Design:**
+            - Clean table-based layout
+            - No HTML components
+            - Responsive columns
             """)
         
-        # Last updated timestamp
         st.markdown("---")
-        last_updated_times = [m['last_updated'] for m in all_metrics if m['last_updated'] is not None]
-        if last_updated_times:
-            latest_update = max(last_updated_times)
-            st.caption(f"**Last Updated:** {latest_update.strftime('%Y-%m-%d %H:%M:%S') if hasattr(latest_update, 'strftime') else latest_update}")
-        else:
-            st.caption(f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
     except Exception as e:
-        st.error(f"⚠️ Error rendering Alpha Capture tab: {str(e)}")
+        st.error(f"⚠️ Error rendering Alpha Drivers tab: {str(e)}")
         with st.expander("🔍 View Error Details"):
             st.code(traceback.format_exc(), language="python")
 
