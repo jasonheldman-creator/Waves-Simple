@@ -8187,17 +8187,374 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
 
 
 def render_overview_tab():
-    """Render the Overview tab with Vector Explain and Compare Waves."""
-    st.header("Overview")
+    """
+    Render the new comprehensive Overview tab.
     
-    # Create sub-tabs for Vector Explain and Compare Waves
-    overview_subtabs = st.tabs(["Vector Explain", "Compare Waves"])
+    This tab provides:
+    1. Platform Snapshot - High-level summary metrics
+    2. All-Waves Performance & Alpha Grid - Detailed multi-timeframe table
+    3. Alpha Drivers breakdown for selected wave
+    4. Methodology expander (optional)
     
-    with overview_subtabs[0]:
-        render_vector_explain_panel()
+    Reuses existing data pipelines for consistency with Wave cards.
+    """
+    try:
+        st.header("📊 Platform Overview")
+        st.caption("Comprehensive system-wide performance dashboard")
+        
+        # ========================================================================
+        # SECTION A: Platform Snapshot (Top tiles)
+        # ========================================================================
+        st.markdown("### 🎯 Platform Snapshot")
+        
+        # Compute metrics for all waves
+        with st.spinner("Loading platform metrics..."):
+            all_metrics = compute_alpha_metrics_all_waves()
+        
+        if not all_metrics:
+            st.warning("⚠️ No platform data available. Please ensure wave_history.csv contains valid data.")
+            return
+        
+        # Calculate platform-wide metrics for 30D timeframe
+        alpha_30d_values = [m.get('alpha_30d') for m in all_metrics if m.get('alpha_30d') is not None]
+        
+        if alpha_30d_values:
+            # Calculate snapshot metrics
+            waves_positive_30d = sum(1 for a in alpha_30d_values if a > 0)
+            total_waves = len(alpha_30d_values)
+            pct_positive = (waves_positive_30d / total_waves * 100) if total_waves > 0 else 0
+            
+            avg_alpha_30d = sum(alpha_30d_values) / len(alpha_30d_values)
+            best_alpha_30d = max(alpha_30d_values)
+            worst_alpha_30d = min(alpha_30d_values)
+            dispersion_30d = best_alpha_30d - worst_alpha_30d
+            
+            # Find wave names for best/worst
+            best_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == best_alpha_30d), "N/A")
+            worst_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == worst_alpha_30d), "N/A")
+            
+            # Get timestamp from any wave with data
+            last_updated = None
+            for m in all_metrics:
+                if m.get('last_updated'):
+                    last_updated = m['last_updated']
+                    break
+            
+            # Display tiles in columns
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric(
+                    label="Waves Positive (30D)",
+                    value=f"{pct_positive:.1f}%",
+                    delta=f"{waves_positive_30d}/{total_waves} waves",
+                    help="Percentage of waves with positive 30-day alpha"
+                )
+            
+            with col2:
+                st.metric(
+                    label="Average Alpha (30D)",
+                    value=f"{avg_alpha_30d*100:.2f}%",
+                    help="Average 30-day alpha across all waves"
+                )
+            
+            with col3:
+                st.metric(
+                    label="Best Wave (30D)",
+                    value=f"{best_alpha_30d*100:.2f}%",
+                    delta=best_wave,
+                    help="Wave with highest 30-day alpha"
+                )
+            
+            with col4:
+                st.metric(
+                    label="Worst Wave (30D)",
+                    value=f"{worst_alpha_30d*100:.2f}%",
+                    delta=worst_wave,
+                    delta_color="inverse",
+                    help="Wave with lowest 30-day alpha"
+                )
+            
+            with col5:
+                if last_updated:
+                    st.metric(
+                        label="Last Updated",
+                        value=last_updated.strftime('%Y-%m-%d') if hasattr(last_updated, 'strftime') else str(last_updated)[:10],
+                        help="Most recent data timestamp"
+                    )
+                else:
+                    st.metric(label="Last Updated", value="N/A")
+        else:
+            st.info("📊 Insufficient data for platform snapshot")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION B: All-Waves Performance & Alpha Grid (Main table)
+        # ========================================================================
+        st.markdown("### 📈 All-Waves Performance & Alpha Grid")
+        st.caption("Multi-timeframe performance metrics for all waves")
+        
+        # Build comprehensive grid data
+        grid_data = []
+        for metrics in all_metrics:
+            wave_name = metrics['wave_name']
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            
+            # Helper to get returns for a timeframe
+            def get_returns(days):
+                wave_data = get_wave_data_filtered(
+                    wave_name=wave_name,
+                    days=days,
+                    _wave_universe_version=wave_universe_version
+                )
+                if wave_data is not None and len(wave_data) > 0:
+                    wave_ret = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                    bench_ret = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                    return wave_ret, bench_ret
+                return 0.0, 0.0
+            
+            # Get returns for each timeframe
+            wave_1d, bench_1d = get_returns(1)
+            wave_30d, bench_30d = get_returns(30)
+            wave_60d, bench_60d = get_returns(60)
+            wave_365d, bench_365d = get_returns(365)
+            
+            # Calculate alphas
+            alpha_1d = wave_1d - bench_1d
+            alpha_30d = wave_30d - bench_30d
+            alpha_60d = wave_60d - bench_60d
+            alpha_365d = wave_365d - bench_365d
+            
+            grid_data.append({
+                'Wave Name': wave_name,
+                '1D Wave': wave_1d,
+                '1D Benchmark': bench_1d,
+                '1D Alpha': alpha_1d,
+                '30D Wave': wave_30d,
+                '30D Benchmark': bench_30d,
+                '30D Alpha': alpha_30d,
+                '60D Wave': wave_60d,
+                '60D Benchmark': bench_60d,
+                '60D Alpha': alpha_60d,
+                '365D Wave': wave_365d,
+                '365D Benchmark': bench_365d,
+                '365D Alpha': alpha_365d,
+                '_sort_alpha_30d': alpha_30d  # Hidden column for sorting
+            })
+        
+        if grid_data:
+            df_grid = pd.DataFrame(grid_data)
+            
+            # Sort by 30D Alpha (descending) - default sort
+            df_grid = df_grid.sort_values('_sort_alpha_30d', ascending=False)
+            
+            # Format percentages for display
+            percent_cols = [
+                '1D Wave', '1D Benchmark', '1D Alpha',
+                '30D Wave', '30D Benchmark', '30D Alpha',
+                '60D Wave', '60D Benchmark', '60D Alpha',
+                '365D Wave', '365D Benchmark', '365D Alpha'
+            ]
+            
+            df_display = df_grid.copy()
+            for col in percent_cols:
+                df_display[col] = df_display[col].apply(lambda x: f"{x*100:.2f}%")
+            
+            # Drop the sort column
+            df_display = df_display.drop(columns=['_sort_alpha_30d'])
+            
+            # Display with horizontal scroll for mobile
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                height=600,
+                hide_index=True
+            )
+            
+            st.caption(f"✓ Showing {len(df_grid)} waves | Sorted by 30D Alpha (descending) | Green = positive alpha, Red = negative alpha")
+        else:
+            st.info("📊 No wave data available for grid")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION C: Selected Wave — Alpha Drivers %
+        # ========================================================================
+        st.markdown("### 🎯 Alpha Drivers Breakdown")
+        st.caption("Performance attribution for selected wave")
+        
+        # Create two columns: Wave selector + Timeframe selector on left, Alpha breakdown on right
+        col_controls, col_breakdown = st.columns([3, 7])
+        
+        with col_controls:
+            # Wave selector - default to top wave by 30D Alpha
+            wave_names = [m['wave_name'] for m in all_metrics]
+            
+            if alpha_30d_values:
+                valid_metrics = [m for m in all_metrics if m.get('alpha_30d') is not None]
+                if valid_metrics:
+                    default_wave = max(valid_metrics, key=lambda x: x.get('alpha_30d', -9999))['wave_name']
+                else:
+                    default_wave = wave_names[0] if wave_names else None
+            else:
+                default_wave = wave_names[0] if wave_names else None
+            
+            selected_wave_for_drivers = st.selectbox(
+                "Select Wave:",
+                options=wave_names,
+                index=wave_names.index(default_wave) if default_wave and default_wave in wave_names else 0,
+                key="overview_drivers_wave_selector"
+            )
+            
+            # Timeframe selector
+            timeframe_options = {
+                "1 Day": 1,
+                "30 Days": 30,
+                "60 Days": 60,
+                "365 Days": 365
+            }
+            
+            selected_timeframe_label = st.selectbox(
+                "Select Timeframe:",
+                options=list(timeframe_options.keys()),
+                index=1,  # Default to 30 Days
+                key="overview_drivers_timeframe"
+            )
+            
+            timeframe_days = timeframe_options[selected_timeframe_label]
+        
+        with col_breakdown:
+            # Compute Alpha Drivers for selected wave
+            with st.spinner(f"Computing alpha drivers for {selected_wave_for_drivers}..."):
+                drivers = compute_alpha_drivers(
+                    wave_name=selected_wave_for_drivers,
+                    timeframe_days=timeframe_days
+                )
+            
+            # Display summary metrics
+            st.markdown(f"#### {selected_wave_for_drivers} — {selected_timeframe_label}")
+            
+            col_ret1, col_ret2, col_ret3 = st.columns(3)
+            
+            with col_ret1:
+                st.metric(
+                    label="Wave Return",
+                    value=f"{drivers['wave_return']*100:.2f}%",
+                    help="Total wave return over the period"
+                )
+            
+            with col_ret2:
+                st.metric(
+                    label="Benchmark Return",
+                    value=f"{drivers['benchmark_return']*100:.2f}%",
+                    help="Total benchmark return over the period"
+                )
+            
+            with col_ret3:
+                st.metric(
+                    label="Total Alpha",
+                    value=f"{drivers['total_alpha']*100:.2f}%",
+                    help="Wave Return minus Benchmark Return"
+                )
+            
+            st.markdown("---")
+            
+            # Display Alpha Drivers Breakdown
+            st.markdown("**Alpha Drivers (% Contribution)**")
+            
+            # Check if we can display percentages
+            if drivers['selection_percent'] is not None:
+                # Build drivers table
+                drivers_table_data = [
+                    {
+                        'Driver': '📈 Stock Selection',
+                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['selection_percent']:.1f}%"
+                    },
+                    {
+                        'Driver': '🛡️ Risk Overlay',
+                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['overlay_percent']:.1f}%"
+                    },
+                    {
+                        'Driver': '⚪ Residual/Other',
+                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['residual_percent']:.1f}%"
+                    }
+                ]
+                
+                df_drivers = pd.DataFrame(drivers_table_data)
+                
+                st.dataframe(
+                    df_drivers,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Verification that shares sum to ~100%
+                total_share = drivers['selection_percent'] + drivers['overlay_percent'] + drivers['residual_percent']
+                st.caption(f"✓ Total: {total_share:.1f}% (should be ~100%)")
+                
+            else:
+                # Total alpha is effectively zero - display N/A
+                st.info("📊 Total Alpha is near zero. Share percentages: N/A")
+                
+                # Still show contributions in return points
+                drivers_table_data = [
+                    {
+                        'Driver': '📈 Stock Selection',
+                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    },
+                    {
+                        'Driver': '🛡️ Risk Overlay',
+                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    },
+                    {
+                        'Driver': '⚪ Residual/Other',
+                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    }
+                ]
+                
+                df_drivers = pd.DataFrame(drivers_table_data)
+                
+                st.dataframe(
+                    df_drivers,
+                    use_container_width=True,
+                    hide_index=True
+                )
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION D: Method (Optional Expander)
+        # ========================================================================
+        with st.expander("📖 Methodology"):
+            st.markdown("""
+            **Alpha Calculation:**
+            - Alpha = Wave Return − Benchmark Return
+            
+            **Driver Attribution:**
+            - **Stock Selection**: Alpha from holding and weighting decisions (counterfactual: no risk overlay)
+            - **Risk Overlay**: Alpha from dynamic exposure and VIX-based overlays
+            - **Residual/Other**: Compounding effects and timing interactions (not forced to zero)
+            
+            **Data Sources:**
+            - All metrics derive from the same canonical wave_history.csv dataset
+            - Consistent with Wave cards and other performance displays
+            """)
     
-    with overview_subtabs[1]:
-        render_compare_waves_panel()
+    except Exception as e:
+        st.error("⚠️ **Overview Tab Error**")
+        st.warning(f"An error occurred while rendering the Overview tab: {str(e)}")
+        st.info("Please try refreshing the page or contact support if the problem persists.")
+        
+        # Show error details in expander (for debugging)
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
 def render_details_tab():
