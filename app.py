@@ -2191,6 +2191,7 @@ def get_wave_status_map(_wave_universe_version=1):
 def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None) -> tuple[bool, str, str]:
     """
     Check if a wave is data-ready with explicit criteria.
+    Updated to prioritize NAV history and always allow wave rendering.
     
     Args:
         wave_id: Wave identifier
@@ -2202,11 +2203,13 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         Tuple of (is_ready: bool, status: str, reason: str)
         
     Statuses:
-        - "Ready": All criteria met
-        - "Missing Inputs": Missing holdings/benchmark/registry fields
-        - "Degraded (Rate Limited)": yfinance limit/download failure
-        - "Degraded (Partial Data)": Insufficient history or missing some tickers
-        - "Error (Computation)": NAV metrics exception
+        - "Ready": All criteria met (NAV history exists with sufficient days)
+        - "Partial": Wave exists but with degraded data (informational only)
+        - "Degraded": Missing some data but wave can still render
+        - "Missing Inputs": Missing holdings/benchmark/registry fields (still renders)
+        
+    Note: This function no longer prevents wave rendering. All waves render regardless
+    of data status. The status is informational only for diagnostics.
     """
     try:
         # Load universe if not provided
@@ -2214,103 +2217,90 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
             wave_universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
         
-        # Check 1: Wave is enabled
-        enabled_flags = wave_universe.get("enabled_flags", {})
-        if not enabled_flags.get(wave_id, True):
-            return False, "Missing Inputs", "Wave is not enabled"
-        
-        # Check 2: Wave exists in registry
+        # Check 1: Wave exists in registry (ALWAYS render even if not found)
         all_waves = wave_universe.get("waves", [])
         if wave_id not in all_waves:
-            return False, "Missing Inputs", "Wave not found in registry"
+            # Wave not in registry - still allow it to render
+            return True, "Partial", "Wave not found in registry (rendering anyway)"
         
-        # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
+        # Check 2: Wave is enabled (informational only, don't block rendering)
+        enabled_flags = wave_universe.get("enabled_flags", {})
+        if not enabled_flags.get(wave_id, True):
+            return True, "Partial", "Wave disabled in config (rendering anyway)"
+        
+        # Check 3: Holdings/weights input is present (informational only)
         if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
             if wave_id not in WAVE_WEIGHTS:
-                return False, "Missing Inputs", "No holdings defined in WAVE_WEIGHTS"
+                return True, "Partial", "No holdings defined in WAVE_WEIGHTS (rendering anyway)"
         else:
-            return False, "Missing Inputs", "Wave engine not available"
+            return True, "Partial", "Wave engine not available (rendering anyway)"
         
-        # Check 4: Price data availability
-        # Use cached price_df if provided, otherwise try to get from session state
+        # Check 4: NAV history availability (PRIMARY data-ready metric)
+        # This is the key metric for determining if analytics can be computed
+        if wave_history_df is None:
+            wave_history_version = st.session_state.get("wave_universe_version", 1)
+            wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+        
+        # Check NAV history first (preferred method)
+        if wave_history_df is not None and 'wave' in wave_history_df.columns:
+            wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
+            
+            if len(wave_data) > 0 and 'date' in wave_data.columns:
+                unique_days = wave_data['date'].nunique()
+                
+                # Check for required NAV columns
+                required_columns = ['nav']  # Primary requirement
+                has_nav = all(col in wave_data.columns for col in required_columns)
+                
+                if has_nav and unique_days >= MIN_DAYS_READY:
+                    # Check if NAV has valid data (not all NaN)
+                    if not wave_data['nav'].isna().all():
+                        return True, "Ready", f"NAV history available ({unique_days} days)"
+                    else:
+                        return True, "Partial", f"NAV history exists but all NaN ({unique_days} days)"
+                elif has_nav:
+                    return True, "Partial", f"NAV history exists but insufficient days ({unique_days}/{MIN_DAYS_READY})"
+                else:
+                    return True, "Degraded", f"Wave data exists but missing NAV column ({unique_days} days)"
+        
+        # Fallback: Check if we can compute NAV from price cache
         if price_df is None:
             price_df = st.session_state.get("global_price_df")
         
-        if price_df is None or price_df.empty:
-            # Fallback to checking wave_history.csv
-            if wave_history_df is None:
-                wave_history_version = st.session_state.get("wave_universe_version", 1)
-                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
-            
-            if wave_history_df is None or 'wave' not in wave_history_df.columns:
-                return False, "Degraded (Partial Data)", "No price data or wave history available"
-            
-            wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
-            if len(wave_data) == 0:
-                return False, "Missing Inputs", "No historical data for this wave"
-            
-            # Check for sufficient days in wave history
-            if 'date' not in wave_data.columns:
-                return False, "Degraded (Partial Data)", "No date column in wave data"
-            
-            unique_days = wave_data['date'].nunique()
-            if unique_days < MIN_DAYS_READY:
-                return False, "Degraded (Partial Data)", f"Insufficient history: {unique_days} days (need {MIN_DAYS_READY})"
-            
-            # Check for required computed columns
-            required_columns = ['portfolio_return', 'benchmark_return', 'nav']
-            missing_columns = [col for col in required_columns if col not in wave_data.columns]
-            if missing_columns:
-                return False, "Error (Computation)", f"Missing computed columns: {', '.join(missing_columns)}"
-            
-            return True, "Ready", f"All criteria met ({unique_days} days of data)"
-        
-        # NEW: Use cached price_df to verify data coverage and try NAV computation
-        # Check if price_df has enough days of data
-        if len(price_df) < MIN_DAYS_READY:
-            return False, "Degraded (Partial Data)", f"Insufficient price history: {len(price_df)} days (need {MIN_DAYS_READY})"
-        
-        # Check 5: Try to compute NAV using cached prices to verify everything works
-        try:
-            # Import compute_history_nav if available
-            from waves_engine import compute_history_nav
-            
-            # Attempt NAV computation with cached prices
-            result_df = compute_history_nav(
-                wave_name=wave_id,
-                mode="Standard",
-                days=MIN_DAYS_READY,
-                price_df=price_df
-            )
-            
-            # Check if computation succeeded
-            if result_df is None or result_df.empty:
-                return False, "Error (Computation)", "NAV computation returned empty result"
-            
-            # Check for required columns
-            required_cols = ['wave_nav', 'bm_nav']
-            missing = [col for col in required_cols if col not in result_df.columns]
-            if missing:
-                return False, "Error (Computation)", f"NAV missing columns: {', '.join(missing)}"
-            
-            # Check for valid NAV values (not all NaN)
-            if result_df['wave_nav'].isna().all():
-                return False, "Error (Computation)", "NAV computation failed (all NaN values)"
-            
-            # All checks passed!
-            actual_days = len(result_df)
-            return True, "Ready", f"All criteria met ({actual_days} days computed)"
-            
-        except Exception as e:
-            # NAV computation failed
-            error_msg = str(e)
-            if "rate limit" in error_msg.lower() or "429" in error_msg:
-                return False, "Degraded (Rate Limited)", f"Rate limited: {error_msg}"
+        if price_df is not None and not price_df.empty:
+            if len(price_df) >= MIN_DAYS_READY:
+                # Try to verify NAV can be computed (optional validation)
+                try:
+                    from waves_engine import compute_history_nav
+                    
+                    # Quick NAV computation test with minimal days
+                    result_df = compute_history_nav(
+                        wave_name=wave_id,
+                        mode="Standard",
+                        days=min(7, MIN_DAYS_READY),
+                        price_df=price_df
+                    )
+                    
+                    if result_df is not None and not result_df.empty and 'wave_nav' in result_df.columns:
+                        if not result_df['wave_nav'].isna().all():
+                            return True, "Ready", f"NAV computable from price cache ({len(price_df)} days)"
+                        else:
+                            return True, "Degraded", "NAV computation returns all NaN"
+                    else:
+                        return True, "Degraded", "NAV computation failed or incomplete"
+                        
+                except Exception as e:
+                    # NAV computation failed, but still render
+                    return True, "Degraded", f"NAV computation error (rendering anyway): {str(e)[:50]}"
             else:
-                return False, "Error (Computation)", f"NAV computation error: {error_msg}"
+                return True, "Degraded", f"Price cache has insufficient days ({len(price_df)}/{MIN_DAYS_READY})"
+        
+        # No NAV history and no price cache - still render with degraded status
+        return True, "Degraded", "No NAV history or price data available (rendering anyway)"
         
     except Exception as e:
-        return False, "Error (Computation)", f"Exception during readiness check: {str(e)}"
+        # Always render even on exceptions - just mark as degraded
+        return True, "Degraded", f"Exception during check (rendering anyway): {str(e)[:50]}"
 
 
 def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
@@ -3753,6 +3743,7 @@ def compute_wave_universe_diagnostics():
                 latest_date = wave_history['date'].max()
                 
                 # Use is_wave_data_ready to check each wave
+                # NOTE: All waves now return True (always render), status is informational
                 data_ready_waves = set()
                 wave_statuses = {}
                 
@@ -3762,9 +3753,13 @@ def compute_wave_universe_diagnostics():
                 for wave in registry_waves:
                     is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe, price_df)
                     wave_statuses[wave] = {'status': status, 'reason': reason}
-                    if is_ready:
+                    
+                    # is_ready is always True now, but track "Ready" status separately
+                    if status == "Ready":
                         data_ready_waves.add(wave)
                 
+                # data_ready_count now means "fully ready" (not degraded)
+                # All waves still render regardless
                 diagnostics['data_ready_count'] = len(data_ready_waves)
                 diagnostics['wave_statuses'] = wave_statuses
                 
@@ -6699,8 +6694,15 @@ def render_sidebar_info():
     # ========================================================================
     with st.sidebar.expander("📊 Data Health Status", expanded=False):
         try:
-            from helpers.data_health_panel import render_data_health_panel
+            from helpers.data_health_panel import render_data_health_panel, render_degraded_data_diagnostics
+            
+            # Render main health panel
             render_data_health_panel()
+            
+            # Add degraded data diagnostics
+            st.markdown("---")
+            render_degraded_data_diagnostics()
+            
         except ImportError:
             st.warning("⚠️ Data health panel not available")
         except Exception as e:

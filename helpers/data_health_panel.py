@@ -1,11 +1,161 @@
 """
 Data Health Panel
 Provides visibility into system health, cache performance, and data availability.
+Enhanced with degraded data diagnostics and ticker failure tracking.
 """
 
 import streamlit as st
+import os
+import pandas as pd
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List
+
+
+def load_ticker_failures() -> pd.DataFrame:
+    """
+    Load ticker failures from the analytics pipeline output.
+    
+    Returns:
+        DataFrame with ticker failure records or empty DataFrame
+    """
+    try:
+        ticker_failures_path = os.path.join('data', 'waves', 'ticker_failures.csv')
+        if os.path.exists(ticker_failures_path):
+            df = pd.read_csv(ticker_failures_path)
+            return df
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_validation_report() -> pd.DataFrame:
+    """
+    Load validation report from the analytics pipeline.
+    
+    Returns:
+        DataFrame with validation results or empty DataFrame
+    """
+    try:
+        validation_path = os.path.join('data', 'waves', 'validation_report.csv')
+        if os.path.exists(validation_path):
+            df = pd.read_csv(validation_path)
+            return df
+        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def render_degraded_data_diagnostics():
+    """
+    Render diagnostics panel for degraded data and ticker failures.
+    Shows detailed information about which waves have degraded data and why.
+    """
+    st.subheader("🔍 Degraded Data Diagnostics")
+    st.caption("Detailed view of data quality issues and ticker failures")
+    
+    try:
+        # Load validation report
+        validation_df = load_validation_report()
+        
+        if not validation_df.empty:
+            # Filter for degraded waves
+            degraded_mask = validation_df['data_status'].isin(['PARTIAL', 'NO_DATA'])
+            degraded_waves = validation_df[degraded_mask]
+            
+            if not degraded_waves.empty:
+                st.warning(f"⚠️ {len(degraded_waves)} wave(s) have degraded data")
+                
+                # Display degraded waves summary
+                summary_cols = ['wave_id', 'data_status', 'data_quality', 'ticker_failures', 'issue_count']
+                available_cols = [col for col in summary_cols if col in degraded_waves.columns]
+                st.dataframe(
+                    degraded_waves[available_cols],
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Show detailed issues for each degraded wave
+                with st.expander("📋 Detailed Issues by Wave"):
+                    for _, row in degraded_waves.iterrows():
+                        wave_id = row['wave_id']
+                        data_status = row.get('data_status', 'UNKNOWN')
+                        data_quality = row.get('data_quality', '')
+                        
+                        st.markdown(f"**{wave_id}** - Status: `{data_status}`")
+                        if data_quality:
+                            st.caption(f"Quality: {data_quality}")
+                        st.markdown("---")
+            else:
+                st.success("✅ All waves have OK data status")
+        else:
+            st.info("ℹ️ No validation report available. Run analytics pipeline to generate diagnostics.")
+        
+        # Load and display ticker failures
+        st.markdown("---")
+        st.markdown("### Ticker Failures")
+        
+        ticker_failures_df = load_ticker_failures()
+        
+        if not ticker_failures_df.empty:
+            st.error(f"❌ {len(ticker_failures_df)} ticker failure(s) detected")
+            
+            # Group by wave to show affected waves
+            if 'wave_id' in ticker_failures_df.columns:
+                failures_by_wave = ticker_failures_df.groupby('wave_id').size().reset_index(name='failure_count')
+                failures_by_wave = failures_by_wave.sort_values('failure_count', ascending=False)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Affected Waves**")
+                    st.dataframe(
+                        failures_by_wave,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                with col2:
+                    st.markdown("**All Failed Tickers**")
+                    if 'ticker' in ticker_failures_df.columns:
+                        unique_tickers = ticker_failures_df['ticker'].unique()
+                        st.write(", ".join(sorted(unique_tickers)))
+            
+            # Detailed failure list
+            with st.expander("📊 Detailed Ticker Failures"):
+                st.dataframe(
+                    ticker_failures_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+            
+            # CSV Download button
+            csv = ticker_failures_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Ticker Failures CSV",
+                data=csv,
+                file_name=f"ticker_failures_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_ticker_failures"
+            )
+        else:
+            st.success("✅ No ticker failures detected")
+        
+        # Full validation report download
+        if not validation_df.empty:
+            st.markdown("---")
+            st.markdown("### Full Validation Report")
+            
+            csv = validation_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Full Validation Report CSV",
+                data=csv,
+                file_name=f"validation_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_validation_report"
+            )
+        
+    except Exception as e:
+        st.error(f"❌ Error displaying degraded data diagnostics: {str(e)}")
 
 
 def render_data_health_panel():
