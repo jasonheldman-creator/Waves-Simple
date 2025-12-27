@@ -429,7 +429,8 @@ def test_no_silent_exclusions():
     registry_wave_ids = set(all_wave_ids)
     
     missing_from_report = registry_wave_ids - report_wave_ids
-    assert not missing_from_report, f"Waves missing from report: {missing_from_report}"
+    assert not missing_from_report, \
+        f"Expected all waves to be included in report but found missing waves: {missing_from_report}"
     
     print(f"✓ All {len(all_wave_ids)} waves are included in the report")
     print(f"  NO SILENT EXCLUSIONS - All waves visible with diagnostics")

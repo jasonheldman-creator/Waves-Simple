@@ -7809,7 +7809,12 @@ def render_wave_intelligence_center_tab():
                    "No waves are hidden - transparency in data capabilities and limitations.")
         
         try:
-            from analytics_pipeline import generate_wave_readiness_report, DEFAULT_COVERAGE_THRESHOLD
+            from analytics_pipeline import (
+                generate_wave_readiness_report,
+                DEFAULT_COVERAGE_THRESHOLD,
+                MIN_COVERAGE_FULL, MIN_COVERAGE_PARTIAL, MIN_COVERAGE_OPERATIONAL,
+                MIN_DAYS_FULL, MIN_DAYS_PARTIAL, MIN_DAYS_OPERATIONAL
+            )
             
             # Generate the report
             readiness_df = generate_wave_readiness_report(coverage_threshold=DEFAULT_COVERAGE_THRESHOLD)
@@ -7841,14 +7846,14 @@ def render_wave_intelligence_center_tab():
                 
                 st.markdown("---")
                 
-                # Explanation of graded statuses
+                # Explanation of graded statuses with dynamic thresholds
                 with st.expander("ℹ️ Understanding Graded Readiness", expanded=False):
-                    st.markdown("""
+                    st.markdown(f"""
                     **Graded Readiness Model:**
                     
-                    - **🟢 Full**: Complete data (≥95% coverage, ≥365 days) - all analytics including multi-window analysis, alpha attribution
-                    - **🟡 Partial**: Good data (≥90% coverage, ≥30 days) - basic analytics like volatility, correlation
-                    - **🟠 Operational**: Minimal data (≥80% coverage, ≥7 days) - current state and simple returns
+                    - **🟢 Full**: Complete data (≥{MIN_COVERAGE_FULL*100:.0f}% coverage, ≥{MIN_DAYS_FULL} days) - all analytics including multi-window analysis, alpha attribution
+                    - **🟡 Partial**: Good data (≥{MIN_COVERAGE_PARTIAL*100:.0f}% coverage, ≥{MIN_DAYS_PARTIAL} days) - basic analytics like volatility, correlation
+                    - **🟠 Operational**: Minimal data (≥{MIN_COVERAGE_OPERATIONAL*100:.0f}% coverage, ≥{MIN_DAYS_OPERATIONAL} days) - current state and simple returns
                     - **🔴 Unavailable**: Insufficient data - needs attention, but still visible with diagnostics
                     
                     **Key Principles:**

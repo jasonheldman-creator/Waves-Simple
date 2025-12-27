@@ -69,6 +69,7 @@ MIN_DAYS_FULL = 365           # Required for full multi-window analytics
 MIN_COVERAGE_OPERATIONAL = 0.80  # 80% coverage for operational
 MIN_COVERAGE_PARTIAL = 0.90      # 90% coverage for partial
 MIN_COVERAGE_FULL = 0.95         # 95% coverage for full
+MAX_DAYS_STALE = 5            # Maximum age in days before data considered stale
 
 
 # ------------------------------------------------------------
@@ -1082,7 +1083,7 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         now = datetime.now(timezone.utc) if hasattr(last_date, 'tz') and last_date.tz else datetime.now()
         days_old = (now - last_date).days
         
-        is_fresh = days_old <= 5
+        is_fresh = days_old <= MAX_DAYS_STALE
         if not is_fresh:
             result['reason_codes'].append('STALE_DATA')
             result['informational_issues'].append('STALE_DATA')
@@ -1158,16 +1159,18 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
                 issue = f'Insufficient coverage: {coverage_pct:.1f}% (need {MIN_COVERAGE_OPERATIONAL*100:.0f}% for operational)'
                 result['blocking_issues'].append('LOW_COVERAGE')
                 result['readiness_reasons'].append(issue)
+                missing_count = len(missing)
                 result['suggested_actions'].append(
-                    f'Fix {len(missing)} missing tickers or adjust coverage threshold'
+                    f'Improve coverage from {coverage_pct:.1f}% to {MIN_COVERAGE_OPERATIONAL*100:.0f}% by fixing {missing_count} missing ticker(s) or adjust coverage threshold'
                 )
             
             if num_days < MIN_DAYS_OPERATIONAL:
                 issue = f'Insufficient history: {num_days} days (need {MIN_DAYS_OPERATIONAL} for operational)'
                 result['blocking_issues'].append('INSUFFICIENT_HISTORY')
                 result['readiness_reasons'].append(issue)
+                days_needed = MIN_DAYS_OPERATIONAL - num_days
                 result['suggested_actions'].append(
-                    f'Run analytics pipeline with longer lookback period'
+                    f'Increase history from {num_days} to {MIN_DAYS_OPERATIONAL} days by running analytics pipeline with longer lookback'
                 )
         
         # Set legacy fields for backward compatibility
