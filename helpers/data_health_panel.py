@@ -16,7 +16,8 @@ def load_ticker_failures() -> pd.DataFrame:
     Load ticker failures from the analytics pipeline output.
     
     Returns:
-        DataFrame with ticker failure records or empty DataFrame
+        DataFrame with columns: wave_id, display_name, ticker, timestamp
+        Returns empty DataFrame if file doesn't exist or on error
     """
     try:
         ticker_failures_path = os.path.join('data', 'waves', 'ticker_failures.csv')
@@ -33,7 +34,10 @@ def load_validation_report() -> pd.DataFrame:
     Load validation report from the analytics pipeline.
     
     Returns:
-        DataFrame with validation results or empty DataFrame
+        DataFrame with columns: wave_id, display_name, status, data_status, 
+        data_quality, prices_ok, benchmark_ok, positions_ok, trades_ok, nav_ok,
+        ticker_failures, issue_count
+        Returns empty DataFrame if file doesn't exist or on error
     """
     try:
         validation_path = os.path.join('data', 'waves', 'validation_report.csv')

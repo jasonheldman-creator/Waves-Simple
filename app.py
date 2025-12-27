@@ -123,6 +123,14 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 # Minimum days of price history required for a wave to be considered "Data-Ready"
 MIN_DAYS_READY = 60
 
+# Session lock configuration
+LOCK_RETRY_DELAY_SECONDS = 1  # Delay before retrying when lock is held
+LOCK_TIMEOUT_SECONDS = 300     # Lock timeout (5 minutes)
+
+# NAV computation configuration
+NAV_VALIDATION_DAYS = 7        # Minimum days for NAV validation in readiness check
+MAX_ERROR_MESSAGE_LENGTH = 50  # Max characters for error messages in logs
+
 # Batch size for ticker price downloads to reduce rate-limit risks
 PRICE_DOWNLOAD_BATCH_SIZE = 100
 
@@ -1259,13 +1267,13 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         return st.session_state["wave_universe"]
     
     # Try to acquire lock to prevent concurrent builds
-    if not acquire_data_build_lock("wave_universe", timeout_seconds=300):
+    if not acquire_data_build_lock("wave_universe", timeout_seconds=LOCK_TIMEOUT_SECONDS):
         # Another build is in progress, return cached data if available
         if "wave_universe" in st.session_state:
             return st.session_state["wave_universe"]
         # If no cache available, wait and retry once
         import time
-        time.sleep(1)
+        time.sleep(LOCK_RETRY_DELAY_SECONDS)
         if "wave_universe" in st.session_state:
             return st.session_state["wave_universe"]
         # Still no cache, proceed anyway (lock may have expired)
@@ -2277,7 +2285,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
                     result_df = compute_history_nav(
                         wave_name=wave_id,
                         mode="Standard",
-                        days=min(7, MIN_DAYS_READY),
+                        days=min(NAV_VALIDATION_DAYS, MIN_DAYS_READY),
                         price_df=price_df
                     )
                     
@@ -2291,7 +2299,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
                         
                 except Exception as e:
                     # NAV computation failed, but still render
-                    return True, "Degraded", f"NAV computation error (rendering anyway): {str(e)[:50]}"
+                    return True, "Degraded", f"NAV computation error (rendering anyway): {str(e)[:MAX_ERROR_MESSAGE_LENGTH]}"
             else:
                 return True, "Degraded", f"Price cache has insufficient days ({len(price_df)}/{MIN_DAYS_READY})"
         
@@ -2300,7 +2308,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         
     except Exception as e:
         # Always render even on exceptions - just mark as degraded
-        return True, "Degraded", f"Exception during check (rendering anyway): {str(e)[:50]}"
+        return True, "Degraded", f"Exception during check (rendering anyway): {str(e)[:MAX_ERROR_MESSAGE_LENGTH]}"
 
 
 def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
