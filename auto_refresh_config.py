@@ -20,23 +20,23 @@ Design Principles:
 # AUTO-REFRESH SETTINGS
 # ============================================================================
 
-# Default auto-refresh state (True = enabled by default)
-DEFAULT_AUTO_REFRESH_ENABLED = True
+# Default auto-refresh state (False = disabled by default per stability requirements)
+DEFAULT_AUTO_REFRESH_ENABLED = False
 
-# Default refresh interval in milliseconds (60000ms = 1 minute)
-DEFAULT_REFRESH_INTERVAL_MS = 60000
+# Default refresh interval in milliseconds (600000ms = 10 minutes, minimum safe interval)
+DEFAULT_REFRESH_INTERVAL_MS = 600000
 
-# Available refresh interval options (in seconds)
+# Available refresh interval options (minimum 10 minutes for stability)
 REFRESH_INTERVAL_OPTIONS = {
-    "30 seconds": 30000,
-    "1 minute": 60000,
-    "2 minutes": 120000,
-    "5 minutes": 300000,
+    "10 minutes": 600000,
+    "15 minutes": 900000,
+    "30 minutes": 1800000,
+    "60 minutes": 3600000,
 }
 
 # Minimum allowed refresh interval (in milliseconds)
-# Set to 15 seconds to prevent excessive refresh rates
-MIN_REFRESH_INTERVAL_MS = 15000
+# Set to 10 minutes (600000ms) to prevent data build pipeline overlaps and ensure stability
+MIN_REFRESH_INTERVAL_MS = 600000
 
 # Maximum allowed refresh interval (in milliseconds)
 # Set to 10 minutes to ensure reasonably fresh data

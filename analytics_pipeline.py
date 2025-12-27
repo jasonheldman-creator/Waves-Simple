@@ -519,6 +519,7 @@ def generate_nav_csv(wave_id: str, lookback_days: int) -> bool:
 def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, Any]:
     """
     Validate that all required data is present and consistent for a wave.
+    Returns detailed status including OK, PARTIAL, and NO_DATA states.
     
     Args:
         wave_id: The wave identifier
@@ -528,7 +529,9 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
         Dictionary with validation results:
         {
             'wave_id': str,
-            'status': 'pass' or 'fail',
+            'status': 'pass' or 'partial' or 'fail',
+            'data_status': 'OK' | 'PARTIAL' | 'NO_DATA',
+            'data_quality': str (description of any degradation),
             'checks': {
                 'prices_exists': bool,
                 'prices_days': int,
@@ -539,12 +542,14 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
                 'nav_exists': bool,
                 'nav_aligned': bool,
             },
-            'issues': List[str]
+            'issues': List[str],
+            'ticker_failures': List[str]  # List of tickers that failed to fetch
         }
     """
     wave_dir = get_wave_analytics_dir(wave_id)
     checks = {}
     issues = []
+    ticker_failures = []
     
     # Check prices.csv
     prices_path = os.path.join(wave_dir, 'prices.csv')
@@ -555,6 +560,13 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
             prices_df = pd.read_csv(prices_path, index_col=0, parse_dates=True)
             checks['prices_days'] = len(prices_df)
             checks['prices_valid'] = len(prices_df) >= lookback_days
+            
+            # Check for tickers with all NaN values (failed fetches)
+            if not prices_df.empty:
+                for col in prices_df.columns:
+                    if prices_df[col].isna().all():
+                        ticker_failures.append(col)
+                        issues.append(f"Ticker {col} has no price data")
             
             if not checks['prices_valid']:
                 issues.append(f"Insufficient price data: {len(prices_df)} days < {lookback_days} required")
@@ -615,9 +627,47 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
         checks['nav_aligned'] = False
         issues.append("nav.csv does not exist")
     
-    # Determine overall status
+    # Determine overall status and data quality
     required_checks = [
-        'prices_exists', 'prices_valid', 'benchmark_exists',
+        'prices_exists', 'benchmark_exists', 'positions_exists', 
+        'trades_exists', 'nav_exists'
+    ]
+    
+    all_required_exist = all(checks.get(c, False) for c in required_checks)
+    prices_valid = checks.get('prices_valid', False)
+    nav_aligned = checks.get('nav_aligned', False)
+    
+    # Determine data_status: OK, PARTIAL, or NO_DATA
+    if all_required_exist and prices_valid and nav_aligned and not ticker_failures:
+        data_status = 'OK'
+        status = 'pass'
+        data_quality = ''
+    elif all_required_exist and (prices_valid or nav_aligned):
+        # Some data exists but not perfect
+        data_status = 'PARTIAL'
+        status = 'partial'
+        if ticker_failures:
+            data_quality = f'DEGRADED: {len(ticker_failures)} ticker(s) failed'
+        else:
+            data_quality = 'DEGRADED: incomplete data'
+    else:
+        # Missing critical files or no usable data
+        data_status = 'NO_DATA'
+        status = 'fail'
+        data_quality = 'DEGRADED: missing critical data'
+    
+    display_name = get_display_name_from_wave_id(wave_id) or wave_id
+    
+    return {
+        'wave_id': wave_id,
+        'display_name': display_name,
+        'status': status,
+        'data_status': data_status,
+        'data_quality': data_quality,
+        'checks': checks,
+        'issues': issues,
+        'ticker_failures': ticker_failures
+    }
         'positions_exists', 'trades_exists', 'nav_exists', 'nav_aligned'
     ]
     
@@ -749,8 +799,21 @@ def run_daily_analytics_pipeline(
         val_result = validate_wave_data_ready(wave_id, MIN_REQUIRED_TRADING_DAYS)
         validation_results.append(val_result)
         
-        status_icon = "✓" if val_result['status'] == 'pass' else "✗"
-        print(f"{status_icon} {wave_id}: {val_result['status'].upper()}")
+        # Enhanced status display with data_status
+        data_status = val_result.get('data_status', 'NO_DATA')
+        if data_status == 'OK':
+            status_icon = "✓"
+        elif data_status == 'PARTIAL':
+            status_icon = "⚠"
+        else:
+            status_icon = "✗"
+        
+        print(f"{status_icon} {wave_id}: {data_status}", end="")
+        
+        # Add data quality info if degraded
+        if val_result.get('data_quality'):
+            print(f" ({val_result['data_quality']})", end="")
+        print()
         
         if val_result['issues']:
             for issue in val_result['issues']:
@@ -758,17 +821,20 @@ def run_daily_analytics_pipeline(
     
     print()
     
-    # Create validation summary DataFrame
+    # Create validation summary DataFrame with enhanced status tracking
     validation_summary = pd.DataFrame([
         {
             'wave_id': vr['wave_id'],
             'display_name': vr['display_name'],
             'status': vr['status'],
+            'data_status': vr.get('data_status', 'NO_DATA'),
+            'data_quality': vr.get('data_quality', ''),
             'prices_ok': vr['checks'].get('prices_valid', False),
             'benchmark_ok': vr['checks'].get('benchmark_exists', False),
             'positions_ok': vr['checks'].get('positions_exists', False),
             'trades_ok': vr['checks'].get('trades_exists', False),
             'nav_ok': vr['checks'].get('nav_aligned', False),
+            'ticker_failures': len(vr.get('ticker_failures', [])),
             'issue_count': len(vr['issues'])
         }
         for vr in validation_results
@@ -781,6 +847,25 @@ def run_daily_analytics_pipeline(
     print(f"Validation report saved to: {validation_path}")
     print()
     
+    # Save detailed ticker failures for diagnostics
+    ticker_failure_records = []
+    for vr in validation_results:
+        if vr.get('ticker_failures'):
+            for ticker in vr['ticker_failures']:
+                ticker_failure_records.append({
+                    'wave_id': vr['wave_id'],
+                    'display_name': vr['display_name'],
+                    'ticker': ticker,
+                    'timestamp': datetime.now().isoformat()
+                })
+    
+    if ticker_failure_records:
+        ticker_failures_df = pd.DataFrame(ticker_failure_records)
+        ticker_failures_path = os.path.join(ANALYTICS_BASE_DIR, 'ticker_failures.csv')
+        ticker_failures_df.to_csv(ticker_failures_path, index=False)
+        print(f"Ticker failures report saved to: {ticker_failures_path}")
+        print()
+    
     # Print summary
     print("=" * 70)
     print("Pipeline Summary")
@@ -788,8 +873,15 @@ def run_daily_analytics_pipeline(
     print(f"Total waves processed: {len(target_wave_ids)}")
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
-    print(f"Validation passed: {(validation_summary['status'] == 'pass').sum()}")
-    print(f"Validation failed: {(validation_summary['status'] == 'fail').sum()}")
+    print(f"Validation passed (OK): {(validation_summary['data_status'] == 'OK').sum()}")
+    print(f"Validation partial (DEGRADED): {(validation_summary['data_status'] == 'PARTIAL').sum()}")
+    print(f"Validation failed (NO_DATA): {(validation_summary['data_status'] == 'NO_DATA').sum()}")
+    if ticker_failure_records:
+        print(f"Total ticker failures: {len(ticker_failure_records)}")
+    print("=" * 70)
+    print()
+    print("NOTE: All waves are included in output regardless of data status.")
+    print("Waves with PARTIAL or NO_DATA status will still render with degraded functionality.")
     print("=" * 70)
     
     return {
@@ -798,7 +890,8 @@ def run_daily_analytics_pipeline(
         'failed': failed,
         'results': results,
         'validation_summary': validation_summary,
-        'validation_results': validation_results
+        'validation_results': validation_results,
+        'ticker_failures': ticker_failure_records
     }
 
 

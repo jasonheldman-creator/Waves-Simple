@@ -1166,6 +1166,71 @@ def dedupe_waves(names: list[str]) -> tuple[list[str], list[str]]:
     return deduplicated, removed
 
 
+# ============================================================================
+# Session Lock Mechanism for Data Build Pipeline
+# ============================================================================
+
+def acquire_data_build_lock(lock_name: str, timeout_seconds: int = 300) -> bool:
+    """
+    Acquire a lock to prevent overlapping data build operations.
+    
+    Args:
+        lock_name: Name of the lock (e.g., "wave_universe", "price_cache")
+        timeout_seconds: Lock timeout in seconds (default 5 minutes)
+        
+    Returns:
+        True if lock acquired, False if already locked
+    """
+    from datetime import datetime, timedelta
+    
+    lock_key = f"_lock_{lock_name}"
+    lock_time_key = f"_lock_time_{lock_name}"
+    
+    # Check if lock exists and is still valid
+    if lock_key in st.session_state:
+        lock_time = st.session_state.get(lock_time_key)
+        if lock_time:
+            # Check if lock has expired
+            if datetime.now() - lock_time < timedelta(seconds=timeout_seconds):
+                # Lock is still active
+                return False
+    
+    # Acquire lock
+    st.session_state[lock_key] = True
+    st.session_state[lock_time_key] = datetime.now()
+    return True
+
+
+def release_data_build_lock(lock_name: str) -> None:
+    """
+    Release a data build lock.
+    
+    Args:
+        lock_name: Name of the lock to release
+    """
+    lock_key = f"_lock_{lock_name}"
+    lock_time_key = f"_lock_time_{lock_name}"
+    
+    if lock_key in st.session_state:
+        del st.session_state[lock_key]
+    if lock_time_key in st.session_state:
+        del st.session_state[lock_time_key]
+
+
+def is_data_build_locked(lock_name: str) -> bool:
+    """
+    Check if a data build operation is currently locked.
+    
+    Args:
+        lock_name: Name of the lock to check
+        
+    Returns:
+        True if locked, False otherwise
+    """
+    lock_key = f"_lock_{lock_name}"
+    return lock_key in st.session_state and st.session_state[lock_key]
+
+
 @st.cache_data(ttl=15)
 def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_version: int = 1) -> dict:
     """
@@ -1173,6 +1238,7 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     
     Uses wave list from waves_engine or falls back to static list.
     Caches result in session state for performance.
+    Uses session lock to prevent overlapping builds.
     
     Args:
         force_reload: If True, bypass cache and rebuild universe
@@ -1192,82 +1258,99 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     if not force_reload and "wave_universe" in st.session_state:
         return st.session_state["wave_universe"]
     
-    # Build wave universe
-    wave_list = []
-    source = "fallback"
+    # Try to acquire lock to prevent concurrent builds
+    if not acquire_data_build_lock("wave_universe", timeout_seconds=300):
+        # Another build is in progress, return cached data if available
+        if "wave_universe" in st.session_state:
+            return st.session_state["wave_universe"]
+        # If no cache available, wait and retry once
+        import time
+        time.sleep(1)
+        if "wave_universe" in st.session_state:
+            return st.session_state["wave_universe"]
+        # Still no cache, proceed anyway (lock may have expired)
     
     try:
-        # Try to get waves from engine (single source of truth)
-        if WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
-            wave_list = engine_get_all_waves()
-            source = "engine"
-        elif WAVE_WEIGHTS:
-            # Fallback: directly access WAVE_WEIGHTS
-            wave_list = sorted(list(WAVE_WEIGHTS.keys()))
-            source = "engine"
-    except Exception:
-        pass
-    
-    # If engine unavailable, use fallback static list
-    if not wave_list:
-        # Fallback: combine INCLUDED_EQUITY_WAVES with other known waves
-        wave_list = list(INCLUDED_EQUITY_WAVES)
-        wave_list.append(CRYPTO_INCOME_WAVE)
-        wave_list.append(CSE_WAVE_NAME)
+        # Build wave universe
+        wave_list = []
         source = "fallback"
-    
-    # Add Russell 3000 Wave if not already present
-    if "Russell 3000 Wave" not in wave_list:
-        wave_list.append("Russell 3000 Wave")
-    
-    # Deduplicate
-    deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
-    
-    # Load wave_config.csv if available to get enabled flags
-    enabled_flags = {}
-    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-    if os.path.exists(wave_config_path):
+        
         try:
-            config_df = pd.read_csv(wave_config_path)
-            # Default enabled to True if column doesn't exist or value is missing
-            if 'enabled' in config_df.columns:
-                for _, row in config_df.iterrows():
-                    wave_name = row.get('Wave', '')
-                    enabled_value = row.get('enabled', True)
-                    # Handle NaN or empty values - default to True
-                    if pd.isna(enabled_value) or enabled_value == '':
-                        enabled_value = True
-                    enabled_flags[wave_name] = bool(enabled_value)
+            # Try to get waves from engine (single source of truth)
+            if WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
+                wave_list = engine_get_all_waves()
+                source = "engine"
+            elif WAVE_WEIGHTS:
+                # Fallback: directly access WAVE_WEIGHTS
+                wave_list = sorted(list(WAVE_WEIGHTS.keys()))
+                source = "engine"
         except Exception:
-            pass  # If CSV reading fails, continue with defaults
+            pass
+        
+        # If engine unavailable, use fallback static list
+        if not wave_list:
+            # Fallback: combine INCLUDED_EQUITY_WAVES with other known waves
+            wave_list = list(INCLUDED_EQUITY_WAVES)
+            wave_list.append(CRYPTO_INCOME_WAVE)
+            wave_list.append(CSE_WAVE_NAME)
+            source = "fallback"
+        
+        # Add Russell 3000 Wave if not already present
+        if "Russell 3000 Wave" not in wave_list:
+            wave_list.append("Russell 3000 Wave")
+        
+        # Deduplicate
+        deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
+        
+        # Load wave_config.csv if available to get enabled flags
+        enabled_flags = {}
+        wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+        if os.path.exists(wave_config_path):
+            try:
+                config_df = pd.read_csv(wave_config_path)
+                # Default enabled to True if column doesn't exist or value is missing
+                if 'enabled' in config_df.columns:
+                    for _, row in config_df.iterrows():
+                        wave_name = row.get('Wave', '')
+                        enabled_value = row.get('enabled', True)
+                        # Handle NaN or empty values - default to True
+                        if pd.isna(enabled_value) or enabled_value == '':
+                            enabled_value = True
+                        enabled_flags[wave_name] = bool(enabled_value)
+            except Exception:
+                pass  # If CSV reading fails, continue with defaults
+        
+        # Initialize enabled flags from session state if available (for runtime changes)
+        session_enabled = st.session_state.get("wave_enabled_flags", {})
+        
+        # Build final enabled flags - default all waves to enabled=True
+        final_enabled = {}
+        for wave in deduplicated_waves:
+            # Priority: session state > CSV config > default True
+            if wave in session_enabled:
+                final_enabled[wave] = session_enabled[wave]
+            elif wave in enabled_flags:
+                final_enabled[wave] = enabled_flags[wave]
+            else:
+                final_enabled[wave] = True  # Default to enabled
+        
+        # Build universe dictionary
+        universe = {
+            "waves": deduplicated_waves,
+            "removed_duplicates": removed_duplicates,
+            "source": source,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "enabled_flags": final_enabled
+        }
+        
+        # Cache in session state
+        st.session_state["wave_universe"] = universe
+        
+        return universe
     
-    # Initialize enabled flags from session state if available (for runtime changes)
-    session_enabled = st.session_state.get("wave_enabled_flags", {})
-    
-    # Build final enabled flags - default all waves to enabled=True
-    final_enabled = {}
-    for wave in deduplicated_waves:
-        # Priority: session state > CSV config > default True
-        if wave in session_enabled:
-            final_enabled[wave] = session_enabled[wave]
-        elif wave in enabled_flags:
-            final_enabled[wave] = enabled_flags[wave]
-        else:
-            final_enabled[wave] = True  # Default to enabled
-    
-    # Build universe dictionary
-    universe = {
-        "waves": deduplicated_waves,
-        "removed_duplicates": removed_duplicates,
-        "source": source,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "enabled_flags": final_enabled
-    }
-    
-    # Cache in session state
-    st.session_state["wave_universe"] = universe
-    
-    return universe
+    finally:
+        # Always release lock
+        release_data_build_lock("wave_universe")
 
 
 def get_wave_universe():
