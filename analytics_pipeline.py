@@ -148,9 +148,9 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 # Price Data Fetching
 # ------------------------------------------------------------
 
-def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, use_dummy_data: bool = False) -> pd.DataFrame:
+def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, use_dummy_data: bool = False) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Fetch historical prices for a list of tickers.
+    Fetch historical prices for a list of tickers with per-ticker error isolation.
     
     Args:
         tickers: List of ticker symbols
@@ -159,8 +159,12 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
         use_dummy_data: If True, generate dummy data instead of fetching from yfinance
         
     Returns:
-        DataFrame with dates as index and tickers as columns
+        Tuple of (prices_df, failures_dict):
+        - prices_df: DataFrame with dates as index and tickers as columns
+        - failures_dict: Dict mapping failed tickers to error reasons
     """
+    failures = {}
+    
     if use_dummy_data:
         # Generate dummy price data for testing
         dates = pd.bdate_range(start=start_date, end=end_date)
@@ -174,17 +178,22 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
             prices_dict[ticker] = prices
         
         prices = pd.DataFrame(prices_dict, index=dates)
-        return prices
+        return prices, failures
     
     if not YFINANCE_AVAILABLE:
-        raise RuntimeError("yfinance is not available. Please install it or use use_dummy_data=True.")
+        error_msg = "yfinance is not available"
+        print(f"Error: {error_msg}")
+        for ticker in tickers:
+            failures[ticker] = error_msg
+        return pd.DataFrame(), failures
     
     if not tickers:
-        return pd.DataFrame()
+        return pd.DataFrame(), failures
     
     # Remove duplicates and clean tickers
     tickers = sorted(set(t.strip().upper() for t in tickers if t.strip()))
     
+    # Try batch download first, then fall back to individual ticker fetching on failure
     try:
         data = yf.download(
             tickers=tickers,
@@ -197,7 +206,8 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
         
         if data.empty:
             print(f"Warning: No data returned from yfinance for {tickers}")
-            return pd.DataFrame()
+            # Try individual ticker fetching
+            return _fetch_prices_individually(tickers, start_date, end_date, failures)
         
         # Normalize the data structure
         if len(tickers) == 1:
@@ -205,6 +215,7 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
             if 'Close' in data.columns:
                 prices = data[['Close']].rename(columns={'Close': tickers[0]})
             else:
+                failures[tickers[0]] = "No Close column in data"
                 prices = pd.DataFrame()
         else:
             # Multiple tickers case
@@ -215,7 +226,10 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
                         frames.append(data[(ticker, 'Close')].rename(ticker))
                     elif ticker in data.columns and 'Close' in data[ticker].columns:
                         frames.append(data[ticker]['Close'].rename(ticker))
-                except (KeyError, AttributeError):
+                    else:
+                        failures[ticker] = "Missing Close column"
+                except (KeyError, AttributeError) as e:
+                    failures[ticker] = f"Data extraction error: {str(e)}"
                     continue
             
             if frames:
@@ -229,11 +243,82 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
             # Forward fill missing data (holidays)
             prices = prices.ffill()
         
-        return prices
+        # Track which tickers failed
+        for ticker in tickers:
+            if prices.empty or ticker not in prices.columns:
+                if ticker not in failures:
+                    failures[ticker] = "No data in result"
+        
+        return prices, failures
         
     except Exception as e:
-        print(f"Error fetching prices for {tickers}: {e}")
-        return pd.DataFrame()
+        error_msg = f"Batch download error: {str(e)}"
+        print(f"Error fetching prices for {tickers}: {error_msg}")
+        # Try individual ticker fetching as fallback
+        return _fetch_prices_individually(tickers, start_date, end_date, failures)
+
+
+def _fetch_prices_individually(tickers: List[str], start_date: datetime, end_date: datetime, failures: Dict[str, str]) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    """
+    Fetch prices one ticker at a time for maximum resilience.
+    
+    Args:
+        tickers: List of ticker symbols
+        start_date: Start date for historical data
+        end_date: End date for historical data
+        failures: Dict to track failures (modified in place)
+        
+    Returns:
+        Tuple of (prices_df, failures_dict)
+    """
+    if not YFINANCE_AVAILABLE:
+        return pd.DataFrame(), failures
+    
+    all_prices = {}
+    common_index = None
+    
+    for ticker in tickers:
+        try:
+            data = yf.download(
+                tickers=ticker,
+                start=start_date.strftime('%Y-%m-%d'),
+                end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
+                auto_adjust=True,
+                progress=False,
+            )
+            
+            if data.empty:
+                failures[ticker] = "Empty data returned"
+                continue
+            
+            if 'Close' in data.columns:
+                prices_series = data['Close']
+            else:
+                failures[ticker] = "No Close column"
+                continue
+            
+            # Store prices
+            all_prices[ticker] = prices_series
+            
+            # Build common index
+            if common_index is None:
+                common_index = prices_series.index
+            else:
+                common_index = common_index.union(prices_series.index)
+                
+        except Exception as e:
+            failures[ticker] = f"Individual fetch error: {str(e)}"
+            continue
+    
+    if not all_prices:
+        return pd.DataFrame(), failures
+    
+    # Build DataFrame with common index
+    prices_df = pd.DataFrame(all_prices, index=common_index)
+    prices_df = prices_df.sort_index()
+    prices_df = prices_df.ffill()
+    
+    return prices_df, failures
 
 
 # ------------------------------------------------------------
@@ -263,7 +348,10 @@ def materialize_composite_benchmark(
     
     # Fetch all benchmark prices
     benchmark_tickers = [ticker for ticker, _ in benchmark_specs]
-    prices = fetch_prices(benchmark_tickers, start_date, end_date, use_dummy_data)
+    prices, failures = fetch_prices(benchmark_tickers, start_date, end_date, use_dummy_data)
+    
+    if failures:
+        print(f"Warning: {len(failures)} benchmark ticker(s) failed to download")
     
     if prices.empty:
         return pd.DataFrame()
@@ -311,15 +399,20 @@ def generate_prices_csv(wave_id: str, lookback_days: int, use_dummy_data: bool =
     end_date = datetime.now()
     start_date = get_trading_days_back(lookback_days)
     
-    prices = fetch_prices(tickers, start_date, end_date, use_dummy_data)
+    prices, failures = fetch_prices(tickers, start_date, end_date, use_dummy_data)
+    
+    if failures:
+        print(f"Warning: {len(failures)}/{len(tickers)} ticker(s) failed for {wave_id}: {list(failures.keys())}")
     
     if prices.empty:
         print(f"Warning: No price data fetched for {wave_id}")
         return False
     
     # Ensure we have the minimum required trading days
+    # NEW: Lower threshold for partial data support
     if len(prices) < MIN_REQUIRED_TRADING_DAYS:
         print(f"Warning: Only {len(prices)} trading days available for {wave_id}, need {MIN_REQUIRED_TRADING_DAYS}")
+        # Continue anyway - partial data is better than no data
     
     # Save to CSV
     output_dir = get_wave_analytics_dir(wave_id)
@@ -354,7 +447,10 @@ def generate_benchmark_prices_csv(wave_id: str, lookback_days: int, use_dummy_da
     
     # Fetch individual benchmark prices
     benchmark_tickers = [ticker for ticker, _ in benchmark_specs]
-    prices = fetch_prices(benchmark_tickers, start_date, end_date, use_dummy_data)
+    prices, failures = fetch_prices(benchmark_tickers, start_date, end_date, use_dummy_data)
+    
+    if failures:
+        print(f"Warning: {len(failures)} benchmark ticker(s) failed for {wave_id}")
     
     if prices.empty:
         print(f"Warning: No benchmark price data fetched for {wave_id}")

@@ -1105,20 +1105,24 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 
 def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
     """
-    Download historical price data with caching and graceful error handling.
+    Download historical price data with per-ticker isolation and graceful error handling.
     
     Features:
     - LRU cache with 15-minute TTL to prevent redundant API calls
+    - Per-ticker error isolation - partial success is acceptable
     - Try/except wrapper to handle rate limits and API errors
-    - Returns empty DataFrame on error instead of raising exceptions
+    - Falls back to individual ticker fetching if batch fails
+    - Returns partial data instead of failing completely
     """
     if yf is None:
-        raise RuntimeError("yfinance is not available in this environment.")
+        print("Error: yfinance is not available in this environment.")
+        return pd.DataFrame()
     
     lookback_days = days + 260
     end = datetime.utcnow().date()
     start = end - timedelta(days=lookback_days)
     
+    # Try batch download first
     try:
         data = yf.download(
             tickers=tickers,
@@ -1131,8 +1135,9 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
         )
         
         if data is None or len(data) == 0:
-            # Return empty DataFrame if download failed silently
-            return pd.DataFrame()
+            # Fall back to individual ticker fetching
+            print(f"Warning: Batch download returned no data, trying individual tickers")
+            return _download_history_individually(tickers, start, end)
         
         if isinstance(data.columns, pd.MultiIndex):
             if "Adj Close" in data.columns.get_level_values(0):
@@ -1146,13 +1151,78 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
         if isinstance(data, pd.Series):
             data = data.to_frame()
         data = data.sort_index().ffill().bfill()
+        
+        # Check if we got at least some data
+        if data.empty:
+            print(f"Warning: No price data after normalization, trying individual tickers")
+            return _download_history_individually(tickers, start, end)
+        
         return data
         
     except Exception as e:
         # Graceful degradation on rate limits or other errors
-        # Return empty DataFrame instead of crashing
-        print(f"Warning: yfinance download failed for {tickers}: {str(e)}")
+        # Try individual ticker fetching as fallback
+        print(f"Warning: yfinance batch download failed, trying individual tickers: {str(e)}")
+        return _download_history_individually(tickers, start, end)
+
+
+def _download_history_individually(tickers: list[str], start, end) -> pd.DataFrame:
+    """
+    Download price data one ticker at a time for maximum resilience.
+    
+    Args:
+        tickers: List of ticker symbols
+        start: Start date
+        end: End date
+        
+    Returns:
+        DataFrame with available ticker data (may be partial)
+    """
+    if yf is None:
         return pd.DataFrame()
+    
+    all_prices = {}
+    failures = []
+    
+    for ticker in tickers:
+        try:
+            data = yf.download(
+                tickers=ticker,
+                start=start.isoformat(),
+                end=end.isoformat(),
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+            
+            if data is None or data.empty:
+                failures.append(ticker)
+                continue
+            
+            if 'Close' in data.columns:
+                all_prices[ticker] = data['Close']
+            elif 'Adj Close' in data.columns:
+                all_prices[ticker] = data['Adj Close']
+            else:
+                failures.append(ticker)
+                
+        except Exception as e:
+            failures.append(ticker)
+            continue
+    
+    if failures:
+        print(f"Warning: {len(failures)} ticker(s) failed to download: {failures[:5]}{'...' if len(failures) > 5 else ''}")
+    
+    if not all_prices:
+        print("Error: No tickers successfully downloaded")
+        return pd.DataFrame()
+    
+    # Build DataFrame
+    prices_df = pd.DataFrame(all_prices)
+    prices_df = prices_df.sort_index().ffill().bfill()
+    
+    print(f"Successfully downloaded {len(all_prices)}/{len(tickers)} tickers")
+    return prices_df
 
 
 def _map_sector_name(raw_sector: str | None) -> str:
@@ -1976,9 +2046,13 @@ def _compute_core(
       - freeze_benchmark: bool   (use static benchmark only)
     """
     if wave_name not in WAVE_WEIGHTS:
-        raise ValueError(f"Unknown Wave: {wave_name}")
+        print(f"Error: Unknown Wave: {wave_name}")
+        # Return empty DataFrame instead of raising
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
     if mode not in MODE_BASE_EXPOSURE:
-        raise ValueError(f"Unknown mode: {mode}")
+        print(f"Error: Unknown mode: {mode}")
+        # Return empty DataFrame instead of raising
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
     ov = overrides or {}
 
@@ -2680,7 +2754,7 @@ def _compute_core(
 
 def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
-    Baseline (official) engine output.
+    Baseline (official) engine output with comprehensive error handling.
     
     Args:
         wave_name: name of the Wave
@@ -2692,8 +2766,16 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
     Returns:
         DataFrame with wave_nav, bm_nav, wave_ret, bm_ret columns.
         If include_diagnostics=True, also includes diagnostics DataFrame in attrs["diagnostics"].
+        Returns empty DataFrame on error to prevent crashes.
     """
-    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
+    try:
+        return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
+    except Exception as e:
+        # Comprehensive error handling - never crash the app
+        print(f"Error in compute_history_nav for {wave_name}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
 
 def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
