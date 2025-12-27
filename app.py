@@ -6604,6 +6604,20 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Data Health Panel
+    # ========================================================================
+    with st.sidebar.expander("📊 Data Health Status", expanded=False):
+        try:
+            from helpers.data_health_panel import render_data_health_panel
+            render_data_health_panel()
+        except ImportError:
+            st.warning("⚠️ Data health panel not available")
+        except Exception as e:
+            st.error(f"❌ Error loading health panel: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Wave Universe Truth Panel (Collapsible)
     # ========================================================================
     with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
