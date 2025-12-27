@@ -9514,10 +9514,20 @@ def render_all_waves_system_view(all_metrics):
                 
                 # Apply filter
                 if filter_option != "All":
-                    # Extract status category from Status column
-                    df_detailed_status = df_detailed_status[
-                        df_detailed_status['Status'].str.contains(filter_option.split()[0], case=False, na=False)
-                    ]
+                    # Match against the emoji-prefixed status display
+                    # Ready: ✅, Degraded: ⚠️, Missing: ❌
+                    if filter_option == "Ready":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("✅", case=False, na=False)
+                        ]
+                    elif filter_option == "Degraded":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("⚠️", case=False, na=False)
+                        ]
+                    elif filter_option == "Missing":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("❌", case=False, na=False)
+                        ]
                 
                 st.dataframe(
                     df_detailed_status,
@@ -9553,10 +9563,11 @@ def render_all_waves_system_view(all_metrics):
                 status = status_info['status']
                 reason = status_info['reason']
                 
-                # Map status to display format
-                if status == 'Ready':
+                # Map status to display format (handle both 'Ready' and 'ready')
+                status_lower = status.lower() if isinstance(status, str) else 'unknown'
+                if status_lower == 'ready':
                     status_display = "✅ Ready"
-                elif 'Degraded' in status:
+                elif 'degraded' in status_lower:
                     status_display = "⚠️ Degraded"
                 else:
                     status_display = "❌ Missing Inputs"

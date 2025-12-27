@@ -766,7 +766,7 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         - "INSUFFICIENT_HISTORY": Less than minimum required trading days
         - "WAVE_NOT_FOUND": Wave ID not in registry
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     # Initialize response
     result = {
@@ -850,7 +850,9 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         
         # Check data freshness
         last_date = prices_df.index[-1]
-        days_old = (datetime.now() - last_date).days
+        # Convert to timezone-aware if needed for comparison
+        now = datetime.now(timezone.utc) if hasattr(last_date, 'tz') and last_date.tz else datetime.now()
+        days_old = (now - last_date).days
         
         if days_old > 5:
             result['reason'] = 'STALE_DATA'
