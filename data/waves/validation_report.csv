@@ -1,0 +1,4 @@
+wave_id,display_name,status,prices_ok,benchmark_ok,positions_ok,trades_ok,nav_ok,issue_count
+sp500_wave,S&P 500 Wave,pass,True,True,True,True,True,0
+income_wave,Income Wave,pass,True,True,True,True,True,0
+gold_wave,Gold Wave,pass,True,True,True,True,True,0
