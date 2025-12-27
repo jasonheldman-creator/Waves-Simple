@@ -8,7 +8,7 @@ import os
 import json
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 import streamlit as st
 
 # Import circuit breaker and persistent cache
@@ -107,7 +107,7 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
 def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]:
     """
     Internal function to fetch ticker price data from yfinance.
-    Enhanced with retry logic.
+    Attempts once per call - no retries to prevent spinner issues.
     
     Args:
         ticker: Stock ticker symbol
@@ -117,64 +117,8 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
     """
     import yfinance as yf
     
-    # Use retry logic if available
-    if RESILIENCE_AVAILABLE:
-        from .resilient_call import call_with_retry
-        
-        def fetch_attempt():
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            
-            if info and 'currentPrice' in info:
-                current_price = info.get('currentPrice')
-                previous_close = info.get('previousClose')
-                
-                if current_price and previous_close:
-                    change_pct = ((current_price - previous_close) / previous_close) * 100
-                    return {
-                        'price': current_price,
-                        'change_pct': change_pct,
-                        'success': True
-                    }
-            
-            # Fallback: Try history method
-            hist = stock.history(period='2d')
-            if not hist.empty and len(hist) >= 2:
-                current_price = hist['Close'].iloc[-1]
-                previous_price = hist['Close'].iloc[-2]
-                change_pct = ((current_price - previous_price) / previous_price) * 100
-                
-                return {
-                    'price': current_price,
-                    'change_pct': change_pct,
-                    'success': True
-                }
-            
-            # If we can't get data, return failure
-            return {
-                'price': None,
-                'change_pct': None,
-                'success': False
-            }
-        
-        # Call with retry (max 2 retries, fast backoff for UI responsiveness)
-        success, result, error = call_with_retry(
-            fetch_attempt,
-            max_retries=2,
-            base_delay=0.5,
-            max_delay=2.0
-        )
-        
-        if success and result:
-            return result
-        else:
-            return {
-                'price': None,
-                'change_pct': None,
-                'success': False
-            }
-    else:
-        # Direct call without retry
+    # Single attempt - no retry logic
+    try:
         stock = yf.Ticker(ticker)
         info = stock.info
         
@@ -202,13 +146,16 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
                 'change_pct': change_pct,
                 'success': True
             }
-        
-        # If we can't get data, return failure
-        return {
-            'price': None,
-            'change_pct': None,
-            'success': False
-        }
+    except Exception:
+        # Fail fast - no retries
+        pass
+    
+    # If we can't get data, return failure
+    return {
+        'price': None,
+        'change_pct': None,
+        'success': False
+    }
 
 
 @st.cache_data(ttl=300)
@@ -492,40 +439,62 @@ def update_cache_with_current_data() -> None:
 def get_ticker_health_status() -> Dict[str, Any]:
     """
     Get health status of ticker data fetching system.
+    Enhanced with fail-safe error handling to prevent crashes.
     
     Returns:
         Dict with health metrics including circuit breaker status and cache stats
     """
-    from typing import Any
-    
+    # Default health status (fail-safe fallback)
     health = {
         'timestamp': datetime.now().isoformat(),
         'resilience_available': RESILIENCE_AVAILABLE,
         'circuit_breakers': {},
         'cache_stats': {},
-        'overall_status': 'healthy'
+        'overall_status': 'unknown'
     }
     
-    if RESILIENCE_AVAILABLE:
-        try:
-            # Get circuit breaker states
-            from .circuit_breaker import get_all_circuit_states
-            health['circuit_breakers'] = get_all_circuit_states()
-            
-            # Check if any circuit is open
-            for name, state in health['circuit_breakers'].items():
-                if state['state'] == 'open':
-                    health['overall_status'] = 'degraded'
-                    
-        except Exception as e:
-            health['circuit_breakers'] = {'error': str(e)}
+    try:
+        # Update timestamp
+        health['timestamp'] = datetime.now().isoformat()
         
-        try:
-            # Get cache statistics
-            cache = get_persistent_cache()
-            health['cache_stats'] = cache.get_stats()
-        except Exception as e:
-            health['cache_stats'] = {'error': str(e)}
+        if RESILIENCE_AVAILABLE:
+            try:
+                # Get circuit breaker states
+                from .circuit_breaker import get_all_circuit_states
+                health['circuit_breakers'] = get_all_circuit_states()
+                
+                # Check if any circuit is open
+                open_count = 0
+                for name, state in health['circuit_breakers'].items():
+                    if isinstance(state, dict) and state.get('state') == 'open':
+                        open_count += 1
+                
+                # Set status based on circuit breaker state
+                if open_count > 0:
+                    health['overall_status'] = 'degraded'
+                else:
+                    health['overall_status'] = 'healthy'
+                        
+            except Exception as e:
+                # Non-blocking: Log error but continue
+                health['circuit_breakers'] = {'error': str(e)}
+                health['overall_status'] = 'unknown'
+            
+            try:
+                # Get cache statistics
+                cache = get_persistent_cache()
+                health['cache_stats'] = cache.get_stats()
+            except Exception as e:
+                # Non-blocking: Log error but continue
+                health['cache_stats'] = {'error': str(e)}
+        else:
+            # Resilience features not available - assume healthy
+            health['overall_status'] = 'healthy'
+    
+    except Exception as e:
+        # Ultimate fail-safe: Return basic health status
+        health['overall_status'] = 'unknown'
+        health['error'] = str(e)
     
     return health
 
@@ -533,6 +502,7 @@ def get_ticker_health_status() -> Dict[str, Any]:
 def test_ticker_fetch(ticker: str = "AAPL") -> Dict[str, Any]:
     """
     Test ticker fetching capability for diagnostics.
+    Enhanced with fail-safe error handling.
     
     Args:
         ticker: Ticker symbol to test
@@ -541,7 +511,6 @@ def test_ticker_fetch(ticker: str = "AAPL") -> Dict[str, Any]:
         Dict with test results
     """
     import time
-    from typing import Any
     
     result = {
         'ticker': ticker,
@@ -562,6 +531,8 @@ def test_ticker_fetch(ticker: str = "AAPL") -> Dict[str, Any]:
         result['success'] = data.get('success', False)
         
     except Exception as e:
+        # Fail-safe: Log error but don't crash
         result['error'] = str(e)
+        result['success'] = False
     
     return result
