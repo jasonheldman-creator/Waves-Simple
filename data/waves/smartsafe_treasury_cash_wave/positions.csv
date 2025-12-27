@@ -1,0 +1,3 @@
+ticker,weight,description,exposure,cash,safe_fraction
+BIL,0.5,SPDR Bloomberg 1-3 Month T-Bill ETF,0.5,0.0,0.0
+SGOV,0.5,iShares 0-3 Month Treasury Bond ETF,0.5,0.0,0.0

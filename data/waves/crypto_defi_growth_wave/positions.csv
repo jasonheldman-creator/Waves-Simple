@@ -1,0 +1,9 @@
+ticker,weight,description,exposure,cash,safe_fraction
+UNI-USD,0.2,Uniswap,0.2,0.0,0.0
+AAVE-USD,0.18,Aave,0.18,0.0,0.0
+LINK-USD,0.15,Chainlink,0.15,0.0,0.0
+MKR-USD,0.12,Maker,0.12,0.0,0.0
+CRV-USD,0.1,Curve DAO,0.1,0.0,0.0
+INJ-USD,0.1,Injective,0.1,0.0,0.0
+SNX-USD,0.08,Synthetix,0.08,0.0,0.0
+COMP-USD,0.07,Compound,0.07,0.0,0.0

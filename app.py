@@ -138,6 +138,24 @@ PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
 SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
 
 # ============================================================================
+# STAGE 4: CACHE AND LOOP CONTROL CONFIGURATION
+# ============================================================================
+# Maximum retries for cache warm-up per session
+MAX_CACHE_WARM_RETRIES = 1
+
+# Maximum consecutive errors before pausing auto-refresh
+MAX_CONSECUTIVE_REFRESH_ERRORS = 3
+
+# Session key for tracking retry counts
+CACHE_RETRY_COUNT_KEY = "_cache_warm_retry_count"
+REFRESH_ERROR_COUNT_KEY = "_refresh_error_count"
+
+# Wave readiness coverage thresholds (percentage)
+COVERAGE_THRESHOLD_READY = 90.0  # >= 90% coverage = "Ready"
+COVERAGE_THRESHOLD_DEGRADED = 50.0  # >= 50% coverage = "Degraded"
+# < 50% coverage = "Limited History"
+
+# ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
 
@@ -145,6 +163,57 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 def metric_alpha_predecomp(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
     """
+    UI-only helper to render alpha metrics safely.
+    No math changes. Presentation only.
+    """
+    st.metric(label, f"{value:.2%}" if value is not None else "N/A")
+
+
+def calculate_wave_coverage_pct(actual_days: int, nan_count: int, min_required_days: int) -> float:
+    """
+    Calculate wave data coverage percentage.
+    
+    Args:
+        actual_days: Total number of days in the dataset
+        nan_count: Number of days with NaN values
+        min_required_days: Minimum required days for full coverage
+        
+    Returns:
+        Coverage percentage (0-100)
+    """
+    if actual_days == 0:
+        return 0.0
+    
+    # Calculate valid days
+    valid_days = actual_days - nan_count
+    coverage_pct = (valid_days / actual_days) * 100.0
+    
+    return coverage_pct
+
+
+def determine_wave_status_from_coverage(coverage_pct: float, actual_days: int, min_required_days: int) -> str:
+    """
+    Determine wave status based on coverage percentage and history.
+    
+    Args:
+        coverage_pct: Data coverage percentage
+        actual_days: Number of days of historical data
+        min_required_days: Minimum required days
+        
+    Returns:
+        Status string: "Ready", "Degraded", or "Limited History"
+    """
+    if coverage_pct >= COVERAGE_THRESHOLD_READY and actual_days >= min_required_days:
+        return "Ready"
+    elif coverage_pct >= COVERAGE_THRESHOLD_DEGRADED:
+        return "Degraded"
+    else:
+        return "Limited History"
+
+
+def metric_alpha_predecomp_original(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
+    """
+    DEPRECATED: Use metric_alpha_predecomp instead.
     UI-only helper to render alpha metrics safely.
     No math changes. Presentation only.
     """
@@ -2106,10 +2175,10 @@ def get_wave_status_map(_wave_universe_version=1):
     return status_map
 
 
-def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None) -> tuple[bool, str, str]:
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None) -> dict:
     """
     Check if a wave is data-ready with explicit criteria.
-    UPDATED: More lenient to support partial data availability.
+    UPDATED: Returns detailed readiness information for Stage 4 safe analytics.
     
     Args:
         wave_id: Wave identifier
@@ -2118,15 +2187,26 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         price_df: Optional cached price DataFrame for NAV computation
     
     Returns:
-        Tuple of (is_ready: bool, status: str, reason: str)
+        Dictionary with detailed readiness information:
+        {
+            'ready_bool': bool,           # Overall readiness (True if renderable)
+            'status': str,                # "Ready", "Degraded", or "Limited History"
+            'reason': str,                # Human-readable reason
+            'coverage_pct': float,        # Data coverage percentage (0-100)
+            'days_of_history': int,       # Number of days of historical data
+            'failed_tickers_count': int   # Number of tickers that failed to load
+        }
         
     Statuses:
-        - "Ready": All criteria met (including partial data)
-        - "Missing Inputs": Missing holdings/benchmark/registry fields
-        - "Degraded (Rate Limited)": yfinance limit/download failure
-        - "Degraded (Partial Data)": Insufficient history or missing some tickers
-        - "Error (Computation)": NAV metrics exception
+        - "Ready": All criteria met, full data available
+        - "Degraded": Partial data available, some tickers/benchmarks missing
+        - "Limited History": Less than ideal history but computable
     """
+    # Initialize tracking variables
+    days_of_history = 0
+    failed_tickers_count = 0
+    total_tickers = 0
+    
     try:
         # Load universe if not provided
         if wave_universe is None:
@@ -2136,19 +2216,49 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         # Check 1: Wave is enabled
         enabled_flags = wave_universe.get("enabled_flags", {})
         if not enabled_flags.get(wave_id, True):
-            return False, "Missing Inputs", "Wave is not enabled"
+            return {
+                'ready_bool': False,
+                'status': 'Missing Inputs',
+                'reason': 'Wave is not enabled',
+                'coverage_pct': 0.0,
+                'days_of_history': 0,
+                'failed_tickers_count': 0
+            }
         
         # Check 2: Wave exists in registry
         all_waves = wave_universe.get("waves", [])
         if wave_id not in all_waves:
-            return False, "Missing Inputs", "Wave not found in registry"
+            return {
+                'ready_bool': False,
+                'status': 'Missing Inputs',
+                'reason': 'Wave not found in registry',
+                'coverage_pct': 0.0,
+                'days_of_history': 0,
+                'failed_tickers_count': 0
+            }
         
         # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
         if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
             if wave_id not in WAVE_WEIGHTS:
-                return False, "Missing Inputs", "No holdings defined in WAVE_WEIGHTS"
+                return {
+                    'ready_bool': False,
+                    'status': 'Missing Inputs',
+                    'reason': 'No holdings defined in WAVE_WEIGHTS',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
+            # Count total tickers for this wave
+            total_tickers = len(WAVE_WEIGHTS.get(wave_id, []))
         else:
-            return False, "Missing Inputs", "Wave engine not available"
+            return {
+                'ready_bool': False,
+                'status': 'Missing Inputs',
+                'reason': 'Wave engine not available',
+                'coverage_pct': 0.0,
+                'days_of_history': 0,
+                'failed_tickers_count': 0
+            }
         
         # Check 4: Price data availability
         # Use cached price_df if provided, otherwise try to get from session state
@@ -2163,37 +2273,94 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             
             if wave_history_df is None or 'wave' not in wave_history_df.columns:
                 # CHANGED: Don't fail immediately - wave might still work with fresh data
-                # Return degraded status but allow rendering
-                return True, "Ready", "No cached data, will fetch fresh"
+                return {
+                    'ready_bool': True,
+                    'status': 'Limited History',
+                    'reason': 'No cached data, will fetch fresh',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
             
             wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
             if len(wave_data) == 0:
                 # CHANGED: Don't fail - wave might work with fresh data
-                return True, "Ready", "No historical cache, will fetch fresh"
+                return {
+                    'ready_bool': True,
+                    'status': 'Limited History',
+                    'reason': 'No historical cache, will fetch fresh',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
             
             # Check for sufficient days in wave history
             if 'date' not in wave_data.columns:
-                return True, "Ready", "No date column, will fetch fresh"
+                return {
+                    'ready_bool': True,
+                    'status': 'Limited History',
+                    'reason': 'No date column, will fetch fresh',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
             
             unique_days = wave_data['date'].nunique()
+            days_of_history = unique_days
+            
             # CHANGED: Accept even 1 day of data - partial data is better than nothing
             if unique_days < 1:
-                return True, "Ready", "Will fetch fresh data"
+                return {
+                    'ready_bool': True,
+                    'status': 'Limited History',
+                    'reason': 'Will fetch fresh data',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
             
             # Check for required computed columns
             required_columns = ['portfolio_return', 'benchmark_return', 'nav']
             missing_columns = [col for col in required_columns if col not in wave_data.columns]
             if missing_columns:
                 # CHANGED: Don't fail - we can compute fresh
-                return True, "Ready", f"Cached data incomplete, will compute fresh"
+                coverage_pct = max(0.0, 100.0 * (len(required_columns) - len(missing_columns)) / len(required_columns))
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': f'Cached data incomplete, will compute fresh',
+                    'coverage_pct': coverage_pct,
+                    'days_of_history': unique_days,
+                    'failed_tickers_count': 0
+                }
             
-            return True, "Ready", f"All criteria met ({unique_days} days of data)"
+            # Determine coverage based on data quality
+            coverage_pct = min(100.0, (unique_days / MIN_DAYS_READY) * 100.0) if unique_days < MIN_DAYS_READY else 100.0
+            status = "Ready" if unique_days >= MIN_DAYS_READY else "Limited History"
+            
+            return {
+                'ready_bool': True,
+                'status': status,
+                'reason': f'All criteria met ({unique_days} days of data)',
+                'coverage_pct': coverage_pct,
+                'days_of_history': unique_days,
+                'failed_tickers_count': 0
+            }
         
         # NEW: Use cached price_df to verify data coverage and try NAV computation
         # CHANGED: Accept even minimal price history
         if len(price_df) < MIN_DAYS_READY:
             # Still mark as ready - we'll fetch more data as needed
-            return True, "Ready", f"Limited price history ({len(price_df)} days), will supplement"
+            days_of_history = len(price_df)
+            coverage_pct = (days_of_history / MIN_DAYS_READY) * 100.0
+            return {
+                'ready_bool': True,
+                'status': 'Limited History',
+                'reason': f'Limited price history ({len(price_df)} days), will supplement',
+                'coverage_pct': coverage_pct,
+                'days_of_history': days_of_history,
+                'failed_tickers_count': 0
+            }
         
         # Check 5: Try to compute NAV using cached prices to verify everything works
         try:
@@ -2211,23 +2378,63 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             # Check if computation succeeded
             if result_df is None or result_df.empty:
                 # CHANGED: Don't fail - mark as ready but will need fresh fetch
-                return True, "Ready", "NAV computation needs fresh data"
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': 'NAV computation needs fresh data',
+                    'coverage_pct': 50.0,
+                    'days_of_history': len(price_df) if price_df is not None and not price_df.empty else 0,
+                    'failed_tickers_count': 0
+                }
             
             # Check for required columns
             required_cols = ['wave_nav', 'bm_nav']
             missing = [col for col in required_cols if col not in result_df.columns]
             if missing:
                 # CHANGED: Still ready, just needs fresh computation
-                return True, "Ready", f"Partial NAV data available"
+                coverage_pct = 100.0 * (len(required_cols) - len(missing)) / len(required_cols)
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': f'Partial NAV data available',
+                    'coverage_pct': coverage_pct,
+                    'days_of_history': len(result_df),
+                    'failed_tickers_count': len(missing)
+                }
             
             # Check for valid NAV values (not all NaN)
             if result_df['wave_nav'].isna().all():
                 # CHANGED: Still ready, computation will retry
-                return True, "Ready", "NAV will be computed fresh"
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': 'NAV will be computed fresh',
+                    'coverage_pct': 50.0,
+                    'days_of_history': len(result_df),
+                    'failed_tickers_count': 0
+                }
+            
+            # Count NaN values as potential ticker failures
+            nan_count = result_df['wave_nav'].isna().sum()
+            actual_days = len(result_df)
+            days_of_history = actual_days
+            failed_tickers_count = 0  # We don't have direct ticker failure info here
+            
+            # Calculate coverage based on non-NaN values
+            coverage_pct = calculate_wave_coverage_pct(actual_days, nan_count, MIN_DAYS_READY)
+            
+            # Determine status based on coverage
+            status = determine_wave_status_from_coverage(coverage_pct, actual_days, MIN_DAYS_READY)
             
             # All checks passed!
-            actual_days = len(result_df)
-            return True, "Ready", f"All criteria met ({actual_days} days computed)"
+            return {
+                'ready_bool': True,
+                'status': status,
+                'reason': f'All criteria met ({actual_days} days computed, {coverage_pct:.1f}% coverage)',
+                'coverage_pct': coverage_pct,
+                'days_of_history': actual_days,
+                'failed_tickers_count': failed_tickers_count
+            }
             
         except Exception as e:
             # CHANGED: NAV computation failed but wave is still ready for rendering
@@ -2235,14 +2442,35 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             error_msg = str(e)
             if "rate limit" in error_msg.lower() or "429" in error_msg:
                 # Rate limited - still mark as ready, will retry later
-                return True, "Ready", "Rate limited, will retry"
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': 'Rate limited, will retry',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
             else:
                 # Other error - still mark as ready
-                return True, "Ready", "Will compute fresh NAV"
+                return {
+                    'ready_bool': True,
+                    'status': 'Degraded',
+                    'reason': 'Will compute fresh NAV',
+                    'coverage_pct': 0.0,
+                    'days_of_history': 0,
+                    'failed_tickers_count': 0
+                }
         
     except Exception as e:
         # CHANGED: Even on exception, mark as ready - fail gracefully during rendering
-        return True, "Ready", f"Will attempt fresh computation"
+        return {
+            'ready_bool': True,
+            'status': 'Degraded',
+            'reason': f'Will attempt fresh computation',
+            'coverage_pct': 0.0,
+            'days_of_history': 0,
+            'failed_tickers_count': 0
+        }
 
 
 def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
@@ -3692,9 +3920,15 @@ def compute_wave_universe_diagnostics():
                 price_df = st.session_state.get("global_price_df")
                 
                 for wave in registry_waves:
-                    is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe, price_df)
-                    wave_statuses[wave] = {'status': status, 'reason': reason}
-                    if is_ready:
+                    readiness_info = is_wave_data_ready(wave, wave_history, universe, price_df)
+                    wave_statuses[wave] = {
+                        'status': readiness_info['status'],
+                        'reason': readiness_info['reason'],
+                        'coverage_pct': readiness_info['coverage_pct'],
+                        'days_of_history': readiness_info['days_of_history'],
+                        'failed_tickers_count': readiness_info['failed_tickers_count']
+                    }
+                    if readiness_info['ready_bool']:
                         data_ready_waves.add(wave)
                 
                 diagnostics['data_ready_count'] = len(data_ready_waves)
@@ -6440,13 +6674,30 @@ def render_sidebar_info():
     # ========================================================================
     # NEW: Warm Cache Button (Optional - Recommended)
     # ========================================================================
+    
+    # Initialize retry counter if not present
+    if CACHE_RETRY_COUNT_KEY not in st.session_state:
+        st.session_state[CACHE_RETRY_COUNT_KEY] = 0
+    
+    # Check if retry limit reached
+    retry_count = st.session_state[CACHE_RETRY_COUNT_KEY]
+    retry_limit_reached = retry_count >= MAX_CACHE_WARM_RETRIES
+    
+    # Show retry status if limit reached
+    if retry_limit_reached:
+        st.sidebar.warning(f"⚠️ Cache warm-up limit reached ({MAX_CACHE_WARM_RETRIES} attempt(s) per session)")
+    
     if st.sidebar.button(
         "🔥 Warm Cache",
         key="warm_cache_button",
         use_container_width=True,
-        help="Prefetch and cache price data to ensure fast startup (optional)"
+        help="Prefetch and cache price data to ensure fast startup (optional)",
+        disabled=retry_limit_reached
     ):
         try:
+            # Increment retry counter
+            st.session_state[CACHE_RETRY_COUNT_KEY] += 1
+            
             with st.spinner("Warming cache with price data..."):
                 # Prefetch prices
                 price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
@@ -13091,6 +13342,113 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 4.5: Wave Readiness States (STAGE 4)
+    # ========================================================================
+    st.subheader("🎯 Wave Readiness States")
+    st.caption("Stage 4: Safe Analytics Coverage with Degraded States")
+    
+    # Get wave universe
+    wave_universe = st.session_state.get("wave_universe", {})
+    registry_waves = wave_universe.get("waves", [])
+    
+    if registry_waves:
+        # Get readiness info for all waves
+        wave_history = safe_load_wave_history()
+        price_df = st.session_state.get("global_price_df")
+        
+        readiness_data = []
+        ready_count = 0
+        degraded_count = 0
+        limited_count = 0
+        missing_count = 0
+        
+        # Analyze each wave
+        for wave_id in sorted(registry_waves):
+            try:
+                readiness_info = is_wave_data_ready(wave_id, wave_history, wave_universe, price_df)
+                
+                status = readiness_info['status']
+                ready_bool = readiness_info['ready_bool']
+                coverage_pct = readiness_info['coverage_pct']
+                days_of_history = readiness_info['days_of_history']
+                failed_tickers = readiness_info['failed_tickers_count']
+                reason = readiness_info['reason']
+                
+                # Count by status
+                if not ready_bool:
+                    missing_count += 1
+                    status_icon = "❌"
+                elif status == "Ready":
+                    ready_count += 1
+                    status_icon = "✅"
+                elif status == "Degraded":
+                    degraded_count += 1
+                    status_icon = "⚠️"
+                else:  # Limited History
+                    limited_count += 1
+                    status_icon = "🟡"
+                
+                readiness_data.append({
+                    "Wave ID": wave_id,
+                    "Status": f"{status_icon} {status}",
+                    "Coverage": f"{coverage_pct:.1f}%",
+                    "Days": days_of_history,
+                    "Failed Tickers": failed_tickers,
+                    "Reason": reason[:50] + "..." if len(reason) > 50 else reason
+                })
+                
+            except Exception as e:
+                missing_count += 1
+                readiness_data.append({
+                    "Wave ID": wave_id,
+                    "Status": "❌ Error",
+                    "Coverage": "0.0%",
+                    "Days": 0,
+                    "Failed Tickers": 0,
+                    "Reason": f"Error: {str(e)[:40]}"
+                })
+        
+        # Display summary metrics
+        total_waves = len(registry_waves)
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Total Waves", total_waves)
+        with col2:
+            st.metric("✅ Ready", ready_count, delta=f"{100*ready_count/total_waves:.0f}%")
+        with col3:
+            st.metric("⚠️ Degraded", degraded_count, delta=f"{100*degraded_count/total_waves:.0f}%")
+        with col4:
+            st.metric("🟡 Limited", limited_count, delta=f"{100*limited_count/total_waves:.0f}%")
+        with col5:
+            st.metric("❌ Missing", missing_count, delta=f"{100*missing_count/total_waves:.0f}%")
+        
+        # Display detailed table
+        st.markdown("#### Detailed Readiness Report")
+        df_readiness = pd.DataFrame(readiness_data)
+        st.dataframe(df_readiness, use_container_width=True, hide_index=True)
+        
+        # Show legend
+        with st.expander("ℹ️ Status Legend", expanded=False):
+            st.markdown("""
+            **Wave Readiness States:**
+            - ✅ **Ready**: All data available, full analytics possible
+            - ⚠️ **Degraded**: Partial data available, some tickers/benchmarks missing
+            - 🟡 **Limited History**: Less than ideal history but computable
+            - ❌ **Missing**: Wave not enabled or critical data missing
+            
+            **Coverage**: Percentage of expected data available (100% = full coverage)
+            
+            **Days**: Number of days of historical data available
+            
+            **Failed Tickers**: Number of tickers that failed to load
+            """)
+    else:
+        st.warning("No waves available in registry.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 5: Module Availability
     # ========================================================================
     st.subheader("📦 Module Availability")
@@ -13391,6 +13749,10 @@ def main():
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
+    # Initialize error counter if not present
+    if REFRESH_ERROR_COUNT_KEY not in st.session_state:
+        st.session_state[REFRESH_ERROR_COUNT_KEY] = 0
+    
     # Check if auto-refresh is enabled, not paused, and supported
     if st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
         try:
@@ -13413,6 +13775,7 @@ def main():
             
             # Reset error count on successful refresh
             if count > 0:
+                st.session_state[REFRESH_ERROR_COUNT_KEY] = 0
                 st.session_state.auto_refresh_error_count = 0
                 st.session_state.auto_refresh_error_message = None
             
@@ -13423,14 +13786,17 @@ def main():
                 st.autorefresh(interval=refresh_interval)
                 st.session_state.last_refresh_time = datetime.now()
                 st.session_state.last_successful_refresh_time = datetime.now()
+                # Reset error count on successful refresh
+                st.session_state[REFRESH_ERROR_COUNT_KEY] = 0
             # If neither is available, auto-refresh is disabled (silent fail)
         except Exception as e:
             # Error during auto-refresh - handle according to config
-            st.session_state.auto_refresh_error_count += 1
+            st.session_state[REFRESH_ERROR_COUNT_KEY] = st.session_state.get(REFRESH_ERROR_COUNT_KEY, 0) + 1
+            st.session_state.auto_refresh_error_count = st.session_state[REFRESH_ERROR_COUNT_KEY]
             st.session_state.auto_refresh_error_message = str(e)
             
             # Auto-pause if enabled and error threshold reached
-            if AUTO_PAUSE_ON_ERROR and st.session_state.auto_refresh_error_count >= MAX_CONSECUTIVE_ERRORS:
+            if AUTO_PAUSE_ON_ERROR and st.session_state[REFRESH_ERROR_COUNT_KEY] >= MAX_CONSECUTIVE_REFRESH_ERRORS:
                 st.session_state.auto_refresh_paused = True
                 st.session_state.auto_refresh_enabled = False
     

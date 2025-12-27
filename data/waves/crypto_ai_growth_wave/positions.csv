@@ -1,0 +1,7 @@
+ticker,weight,description,exposure,cash,safe_fraction
+TAO-USD,0.25,Bittensor,0.25,0.0,0.0
+RENDER-USD,0.2,Render Token,0.2,0.0,0.0
+FET-USD,0.18,Fetch.ai,0.18,0.0,0.0
+ICP-USD,0.15,Internet Computer,0.15,0.0,0.0
+OCEAN-USD,0.12,Ocean Protocol,0.12,0.0,0.0
+AGIX-USD,0.1,SingularityNET,0.1,0.0,0.0

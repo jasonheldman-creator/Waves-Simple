@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+ICLN,0.15,iShares Global Clean Energy ETF,0.15,0.0,0.0
+TAN,0.15,Invesco Solar ETF,0.15,0.0,0.0
+NEE,0.12,NextEra Energy Inc.,0.12,0.0,0.0
+ENPH,0.1,Enphase Energy Inc.,0.1,0.0,0.0
+FSLR,0.1,First Solar Inc.,0.1,0.0,0.0
+XLE,0.1,Energy Select Sector SPDR,0.1,0.0,0.0
+PLUG,0.08,Plug Power Inc.,0.08,0.0,0.0
+BE,0.08,Bloom Energy Corp.,0.08,0.0,0.0
+RUN,0.07,Sunrun Inc.,0.07,0.0,0.0
+SEDG,0.05,SolarEdge Technologies Inc.,0.05,0.0,0.0

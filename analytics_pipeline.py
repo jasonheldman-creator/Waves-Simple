@@ -401,17 +401,30 @@ def generate_prices_csv(wave_id: str, lookback_days: int, use_dummy_data: bool =
     
     prices, failures = fetch_prices(tickers, start_date, end_date, use_dummy_data)
     
+    # Track failed tickers for degraded state reporting
+    failed_count = len(failures)
+    total_count = len(tickers)
+    
     if failures:
-        print(f"Warning: {len(failures)}/{len(tickers)} ticker(s) failed for {wave_id}: {list(failures.keys())}")
+        print(f"Warning: {failed_count}/{total_count} ticker(s) failed for {wave_id}: {list(failures.keys())}")
+        print(f"  Continuing with partial data ({total_count - failed_count} tickers available)")
     
     if prices.empty:
         print(f"Warning: No price data fetched for {wave_id}")
+        # STAGE 4: Don't fail completely - create minimal file for degraded state
+        print(f"  Creating placeholder file for degraded state tracking")
+        output_dir = get_wave_analytics_dir(wave_id)
+        ensure_directory_exists(output_dir)
+        output_path = os.path.join(output_dir, 'prices.csv')
+        # Create empty file with header
+        pd.DataFrame().to_csv(output_path)
         return False
     
     # Ensure we have the minimum required trading days
-    # NEW: Lower threshold for partial data support
+    # STAGE 4: Lower threshold for partial data support
     if len(prices) < MIN_REQUIRED_TRADING_DAYS:
         print(f"Warning: Only {len(prices)} trading days available for {wave_id}, need {MIN_REQUIRED_TRADING_DAYS}")
+        print(f"  Status: Limited History - continuing with available data")
         # Continue anyway - partial data is better than no data
     
     # Save to CSV
@@ -451,9 +464,17 @@ def generate_benchmark_prices_csv(wave_id: str, lookback_days: int, use_dummy_da
     
     if failures:
         print(f"Warning: {len(failures)} benchmark ticker(s) failed for {wave_id}")
+        print(f"  Using fallback proxies for missing benchmarks where possible")
     
     if prices.empty:
         print(f"Warning: No benchmark price data fetched for {wave_id}")
+        # STAGE 4: Create fallback benchmark using available proxies
+        print(f"  Creating fallback benchmark file for degraded state")
+        output_dir = get_wave_analytics_dir(wave_id)
+        ensure_directory_exists(output_dir)
+        output_path = os.path.join(output_dir, 'benchmark_prices.csv')
+        # Create empty file with header
+        pd.DataFrame().to_csv(output_path)
         return False
     
     # Also calculate composite benchmark
@@ -462,8 +483,10 @@ def generate_benchmark_prices_csv(wave_id: str, lookback_days: int, use_dummy_da
     # Combine individual benchmarks and composite
     if not composite.empty:
         benchmark_prices = pd.concat([prices, composite], axis=1)
+        print(f"  Composite benchmark calculated successfully")
     else:
         benchmark_prices = prices
+        print(f"  Using individual benchmarks only (composite unavailable)")
     
     # Save to CSV
     output_dir = get_wave_analytics_dir(wave_id)

@@ -1,0 +1,10 @@
+ticker,weight,description,exposure,cash,safe_fraction
+SPY,0.2,SPDR S&P 500 ETF,0.2,0.0,0.0
+QQQ,0.2,Invesco QQQ Trust,0.2,0.0,0.0
+VGT,0.1,Vanguard Information Technology ETF,0.1,0.0,0.0
+SMH,0.1,VanEck Semiconductor ETF,0.1,0.0,0.0
+ICLN,0.1,iShares Global Clean Energy ETF,0.1,0.0,0.0
+PAVE,0.1,Global X U.S. Infrastructure Development,0.1,0.0,0.0
+IWO,0.1,iShares Russell 2000 Growth ETF,0.1,0.0,0.0
+BTC-USD,0.05,Bitcoin,0.05,0.0,0.0
+ETH-USD,0.05,Ethereum,0.05,0.0,0.0

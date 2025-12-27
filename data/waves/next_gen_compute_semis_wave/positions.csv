@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IBM,0.1,International Business Machines Corp.,0.1,0.0,0.0
+MSFT,0.08,Microsoft Corp.,0.08,0.0,0.0
+GOOGL,0.08,Alphabet Inc. (Class A),0.08,0.0,0.0
+NVDA,0.1,NVIDIA Corp.,0.1,0.0,0.0
+AMZN,0.08,Amazon.com Inc.,0.08,0.0,0.0
+QCOM,0.08,Qualcomm Inc.,0.08,0.0,0.0
+INTC,0.08,Intel Corp.,0.08,0.0,0.0
+TSM,0.1,Taiwan Semiconductor Manufacturing,0.1,0.0,0.0
+ADBE,0.07,Adobe Inc.,0.07,0.0,0.0
+SNOW,0.07,Snowflake Inc.,0.07,0.0,0.0

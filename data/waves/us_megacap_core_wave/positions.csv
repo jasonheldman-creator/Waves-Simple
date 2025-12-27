@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+AAPL,0.07,Apple Inc.,0.07,0.0,0.0
+MSFT,0.07,Microsoft Corp.,0.07,0.0,0.0
+AMZN,0.05,Amazon.com Inc.,0.05,0.0,0.0
+GOOGL,0.04,Alphabet Inc. (Class A),0.04,0.0,0.0
+META,0.03,Meta Platforms Inc.,0.03,0.0,0.0
+NVDA,0.06,NVIDIA Corp.,0.06,0.0,0.0
+BRK-B,0.04,Berkshire Hathaway Inc. (B),0.04,0.0,0.0
+UNH,0.03,UnitedHealth Group Inc.,0.03,0.0,0.0
+JPM,0.03,JPMorgan Chase & Co.,0.03,0.0,0.0
+XOM,0.03,Exxon Mobil Corp.,0.03,0.0,0.0

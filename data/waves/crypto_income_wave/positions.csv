@@ -1,0 +1,9 @@
+ticker,weight,description,exposure,cash,safe_fraction
+ETH-USD,0.3,Ethereum,0.3,0.0,0.0
+stETH-USD,0.15,Lido Staked Ether,0.15,0.0,0.0
+LDO-USD,0.15,Lido DAO,0.15,0.0,0.0
+AAVE-USD,0.12,Aave,0.12,0.0,0.0
+MKR-USD,0.1,Maker,0.1,0.0,0.0
+UNI-USD,0.08,Uniswap,0.08,0.0,0.0
+CAKE-USD,0.05,PancakeSwap,0.05,0.0,0.0
+CRV-USD,0.05,Curve DAO,0.05,0.0,0.0

@@ -1,0 +1,7 @@
+ticker,weight,description,exposure,cash,safe_fraction
+MATIC-USD,0.3,Polygon,0.3,0.0,0.0
+ARB-USD,0.25,Arbitrum,0.25,0.0,0.0
+OP-USD,0.2,Optimism,0.2,0.0,0.0
+IMX-USD,0.12,Immutable X,0.12,0.0,0.0
+MNT-USD,0.08,Mantle,0.08,0.0,0.0
+STX-USD,0.05,Stacks,0.05,0.0,0.0

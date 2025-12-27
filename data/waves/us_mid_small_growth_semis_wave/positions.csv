@@ -1,0 +1,5 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IWP,0.3,iShares Russell Mid-Cap Growth ETF,0.3,0.0,0.0
+MDY,0.3,SPDR S&P MidCap 400 ETF,0.3,0.0,0.0
+IWO,0.2,iShares Russell 2000 Growth ETF,0.2,0.0,0.0
+SMH,0.2,VanEck Semiconductor ETF,0.2,0.0,0.0
