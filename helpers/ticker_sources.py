@@ -1,6 +1,7 @@
 """
 V3 ADD-ON: Bottom Ticker (Institutional Rail) - Data Sources
 Handles all data fetching for the bottom ticker with exception handling and fallbacks.
+Enhanced with circuit breaker and persistent cache for resilience.
 """
 
 import os
@@ -9,6 +10,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set
 import streamlit as st
+
+# Import circuit breaker and persistent cache
+try:
+    from .circuit_breaker import get_circuit_breaker
+    from .persistent_cache import get_persistent_cache
+    RESILIENCE_AVAILABLE = True
+except ImportError:
+    RESILIENCE_AVAILABLE = False
 
 
 # ============================================================================
@@ -94,10 +103,9 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
 # SECTION 2: Market Price Data
 # ============================================================================
 
-@st.cache_data(ttl=300)
-def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
+def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]:
     """
-    Get current price and daily % change for a ticker using yfinance.
+    Internal function to fetch ticker price data from yfinance.
     
     Args:
         ticker: Stock ticker symbol
@@ -105,52 +113,106 @@ def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
     Returns:
         Dict with 'price', 'change_pct', 'success' keys
     """
-    try:
-        import yfinance as yf
+    import yfinance as yf
+    
+    stock = yf.Ticker(ticker)
+    
+    # Get current data
+    info = stock.info
+    
+    if info and 'currentPrice' in info:
+        current_price = info.get('currentPrice')
+        previous_close = info.get('previousClose')
         
-        stock = yf.Ticker(ticker)
-        
-        # Get current data
-        info = stock.info
-        
-        if info and 'currentPrice' in info:
-            current_price = info.get('currentPrice')
-            previous_close = info.get('previousClose')
-            
-            if current_price and previous_close:
-                change_pct = ((current_price - previous_close) / previous_close) * 100
-                return {
-                    'price': current_price,
-                    'change_pct': change_pct,
-                    'success': True
-                }
-        
-        # Fallback: Try history method
-        hist = stock.history(period='2d')
-        if not hist.empty and len(hist) >= 2:
-            current_price = hist['Close'].iloc[-1]
-            previous_price = hist['Close'].iloc[-2]
-            change_pct = ((current_price - previous_price) / previous_price) * 100
-            
+        if current_price and previous_close:
+            change_pct = ((current_price - previous_close) / previous_close) * 100
             return {
                 'price': current_price,
                 'change_pct': change_pct,
                 'success': True
             }
+    
+    # Fallback: Try history method
+    hist = stock.history(period='2d')
+    if not hist.empty and len(hist) >= 2:
+        current_price = hist['Close'].iloc[-1]
+        previous_price = hist['Close'].iloc[-2]
+        change_pct = ((current_price - previous_price) / previous_price) * 100
         
-        # If we can't get change, just return symbol
         return {
-            'price': None,
-            'change_pct': None,
-            'success': False
+            'price': current_price,
+            'change_pct': change_pct,
+            'success': True
         }
-        
-    except Exception:
-        return {
-            'price': None,
-            'change_pct': None,
-            'success': False
-        }
+    
+    # If we can't get change, just return failure
+    return {
+        'price': None,
+        'change_pct': None,
+        'success': False
+    }
+
+
+@st.cache_data(ttl=300)
+def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
+    """
+    Get current price and daily % change for a ticker using yfinance.
+    Enhanced with circuit breaker and persistent cache for resilience.
+    
+    Args:
+        ticker: Stock ticker symbol
+    
+    Returns:
+        Dict with 'price', 'change_pct', 'success' keys
+    """
+    # Default failure response
+    failure_response = {
+        'price': None,
+        'change_pct': None,
+        'success': False
+    }
+    
+    # Try persistent cache first if available
+    if RESILIENCE_AVAILABLE:
+        try:
+            cache = get_persistent_cache()
+            cache_key = f"ticker_price:{ticker}"
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                return cached_data
+        except Exception:
+            pass
+    
+    # Try to fetch with circuit breaker protection
+    if RESILIENCE_AVAILABLE:
+        try:
+            # Get circuit breaker for yfinance
+            cb = get_circuit_breaker("yfinance_ticker", failure_threshold=3, recovery_timeout=30)
+            
+            # Call through circuit breaker
+            success, result, error = cb.call(_fetch_ticker_price_data_internal, ticker)
+            
+            if success and result:
+                # Cache successful result
+                try:
+                    cache = get_persistent_cache()
+                    cache.set(f"ticker_price:{ticker}", result, ttl=300)
+                except Exception:
+                    pass
+                return result
+            else:
+                # Circuit breaker rejected or call failed
+                return failure_response
+                
+        except Exception:
+            return failure_response
+    else:
+        # Fallback to direct call without circuit breaker
+        try:
+            result = _fetch_ticker_price_data_internal(ticker)
+            return result
+        except Exception:
+            return failure_response
 
 
 # ============================================================================
@@ -363,3 +425,85 @@ def update_cache_with_current_data() -> None:
         
     except Exception:
         pass
+
+
+# ============================================================================
+# SECTION 7: Data Health Tracking
+# ============================================================================
+
+def get_ticker_health_status() -> Dict[str, Any]:
+    """
+    Get health status of ticker data fetching system.
+    
+    Returns:
+        Dict with health metrics including circuit breaker status and cache stats
+    """
+    from typing import Any
+    
+    health = {
+        'timestamp': datetime.now().isoformat(),
+        'resilience_available': RESILIENCE_AVAILABLE,
+        'circuit_breakers': {},
+        'cache_stats': {},
+        'overall_status': 'healthy'
+    }
+    
+    if RESILIENCE_AVAILABLE:
+        try:
+            # Get circuit breaker states
+            from .circuit_breaker import get_all_circuit_states
+            health['circuit_breakers'] = get_all_circuit_states()
+            
+            # Check if any circuit is open
+            for name, state in health['circuit_breakers'].items():
+                if state['state'] == 'open':
+                    health['overall_status'] = 'degraded'
+                    
+        except Exception as e:
+            health['circuit_breakers'] = {'error': str(e)}
+        
+        try:
+            # Get cache statistics
+            cache = get_persistent_cache()
+            health['cache_stats'] = cache.get_stats()
+        except Exception as e:
+            health['cache_stats'] = {'error': str(e)}
+    
+    return health
+
+
+def test_ticker_fetch(ticker: str = "AAPL") -> Dict[str, Any]:
+    """
+    Test ticker fetching capability for diagnostics.
+    
+    Args:
+        ticker: Ticker symbol to test
+        
+    Returns:
+        Dict with test results
+    """
+    import time
+    from typing import Any
+    
+    result = {
+        'ticker': ticker,
+        'timestamp': datetime.now().isoformat(),
+        'success': False,
+        'latency_ms': 0,
+        'data': None,
+        'error': None
+    }
+    
+    try:
+        start = time.time()
+        data = get_ticker_price_data(ticker)
+        latency = (time.time() - start) * 1000
+        
+        result['latency_ms'] = round(latency, 2)
+        result['data'] = data
+        result['success'] = data.get('success', False)
+        
+    except Exception as e:
+        result['error'] = str(e)
+    
+    return result

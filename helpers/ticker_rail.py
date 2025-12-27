@@ -141,6 +141,7 @@ def build_ticker_universe(
 ) -> List[str]:
     """
     Build the complete ticker universe from all sources.
+    Enhanced with partial data handling - continues with available data even if some tickers fail.
     
     Args:
         max_tickers: Maximum unique tickers from holdings
@@ -151,6 +152,8 @@ def build_ticker_universe(
         List of formatted ticker items
     """
     ticker_items = []
+    successful_tickers = []
+    failed_count = 0
     
     try:
         # Get ticker symbols from wave holdings
@@ -164,23 +167,50 @@ def build_ticker_universe(
         display_tickers = tickers[:sample_size]
         
         # Format each ticker with price and % change
+        # Continue even if some tickers fail
         for ticker in display_tickers:
-            ticker_item = format_ticker_item(ticker, include_earnings=False)
-            ticker_items.append(ticker_item)
+            try:
+                ticker_item = format_ticker_item(ticker, include_earnings=False)
+                # Only add if we got meaningful data (not just "--")
+                if ticker_item and ": --" not in ticker_item:
+                    ticker_items.append(ticker_item)
+                    successful_tickers.append(ticker)
+                else:
+                    failed_count += 1
+            except Exception:
+                # Skip this ticker and continue
+                failed_count += 1
+                continue
         
-        # Add a few earnings highlights (first 3 tickers)
-        for ticker in display_tickers[:3]:
-            earnings = get_earnings_date(ticker)
-            if earnings:
-                ticker_items.append(f"{ticker} EARNINGS: {earnings}")
+        # Add a few earnings highlights (first 3 successful tickers)
+        for ticker in successful_tickers[:3]:
+            try:
+                earnings = get_earnings_date(ticker)
+                if earnings:
+                    ticker_items.append(f"{ticker} EARNINGS: {earnings}")
+            except Exception:
+                # Skip if earnings fetch fails
+                continue
         
-        # Add Fed/Macro indicators
-        fed_items = format_fed_macro_items()
-        ticker_items.extend(fed_items)
+        # Add Fed/Macro indicators (always try to include)
+        try:
+            fed_items = format_fed_macro_items()
+            ticker_items.extend(fed_items)
+        except Exception:
+            # Continue without Fed data if it fails
+            pass
         
         # Add WAVES status
-        status_items = format_waves_status_items()
-        ticker_items.extend(status_items)
+        try:
+            status_items = format_waves_status_items()
+            ticker_items.extend(status_items)
+        except Exception:
+            # Add minimal status if fetch fails
+            ticker_items.append("WAVES: ONLINE")
+        
+        # If we have some failed tickers, add a status indicator
+        if failed_count > 0:
+            ticker_items.append(f"⚠️ {failed_count} TICKERS UNAVAILABLE")
         
     except Exception:
         # Minimal fallback
