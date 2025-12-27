@@ -335,13 +335,31 @@ def render_bottom_ticker_v3(
     """
     Main function to render the V3 bottom ticker bar.
     Handles all aggregation, formatting, and rendering with graceful degradation.
+    Enhanced with throttling to prevent excessive API calls during auto-refresh.
     
     Args:
         max_tickers: Maximum unique tickers from holdings
         top_n_per_wave: Top holdings per wave
         sample_size: Number of tickers to display in rotation
     """
+    from datetime import datetime, timedelta
+    
+    # Throttle ticker updates to once per 5 minutes minimum
+    # This prevents overloading during auto-refresh cycles
+    TICKER_UPDATE_INTERVAL = timedelta(minutes=5)
+    
     try:
+        # Check last update time from session state
+        last_update = st.session_state.get('ticker_last_update', None)
+        now = datetime.now()
+        
+        # If we updated recently, use cached ticker items
+        if last_update and (now - last_update) < TICKER_UPDATE_INTERVAL:
+            cached_html = st.session_state.get('ticker_cached_html', None)
+            if cached_html:
+                st.markdown(cached_html, unsafe_allow_html=True)
+                return
+        
         # Update cache in background (non-blocking)
         try:
             update_cache_with_current_data()
@@ -357,6 +375,10 @@ def render_bottom_ticker_v3(
         
         # Generate HTML
         ticker_html = render_ticker_rail_html(ticker_items)
+        
+        # Cache the result in session state
+        st.session_state.ticker_last_update = now
+        st.session_state.ticker_cached_html = ticker_html
         
         # Render to Streamlit
         st.markdown(ticker_html, unsafe_allow_html=True)
