@@ -1,0 +1,6 @@
+ticker,weight,description,exposure,cash,safe_fraction
+VYM,0.25,Vanguard High Dividend Yield ETF,0.25,0.0,0.0
+SCHD,0.25,Schwab U.S. Dividend Equity ETF,0.25,0.0,0.0
+DVY,0.2,iShares Select Dividend ETF,0.2,0.0,0.0
+HDV,0.15,iShares Core High Dividend ETF,0.15,0.0,0.0
+NOBL,0.15,ProShares S&P 500 Dividend Aristocrats ETF,0.15,0.0,0.0
