@@ -2056,21 +2056,20 @@ def _compute_core(
 
     ov = overrides or {}
 
-    try:
-        # Holdings
-        wave_holdings = WAVE_WEIGHTS[wave_name]
+    # Holdings
+    wave_holdings = WAVE_WEIGHTS[wave_name]
 
-        # Benchmark selection
-        freeze_benchmark = bool(ov.get("freeze_benchmark", False))
-        if freeze_benchmark:
-            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-        else:
-            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-            if not bm_holdings:
-                bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    # Benchmark selection
+    freeze_benchmark = bool(ov.get("freeze_benchmark", False))
+    if freeze_benchmark:
+        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    else:
+        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+        if not bm_holdings:
+            bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
-        wave_weights = _normalize_weights(wave_holdings)
-        bm_weights = _normalize_weights(bm_holdings)
+    wave_weights = _normalize_weights(wave_holdings)
+    bm_weights = _normalize_weights(bm_holdings)
 
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
@@ -2747,14 +2746,6 @@ def _compute_core(
             out.attrs["strategy_attribution"] = attribution_rows
 
     return out
-    
-    except Exception as e:
-        # Catch any errors in computation and return empty DataFrame
-        # This prevents ticker failures from crashing the entire app
-        print(f"Error computing NAV for {wave_name}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
 
 # ------------------------------------------------------------
@@ -2763,7 +2754,7 @@ def _compute_core(
 
 def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
-    Baseline (official) engine output.
+    Baseline (official) engine output with comprehensive error handling.
     
     Args:
         wave_name: name of the Wave
@@ -2775,8 +2766,16 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
     Returns:
         DataFrame with wave_nav, bm_nav, wave_ret, bm_ret columns.
         If include_diagnostics=True, also includes diagnostics DataFrame in attrs["diagnostics"].
+        Returns empty DataFrame on error to prevent crashes.
     """
-    return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
+    try:
+        return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
+    except Exception as e:
+        # Comprehensive error handling - never crash the app
+        print(f"Error in compute_history_nav for {wave_name}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
 
 def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
