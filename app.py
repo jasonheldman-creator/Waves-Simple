@@ -9584,13 +9584,28 @@ def render_all_waves_system_view(all_metrics):
                 if checks['has_sufficient_history']:
                     check_summary.append(f"✓ History")
                 
+                # Format missing tickers for display
+                missing_tickers_display = ', '.join(diagnostics['missing_tickers'][:3])
+                if len(diagnostics['missing_tickers']) > 3:
+                    missing_tickers_display += f" (+{len(diagnostics['missing_tickers']) - 3} more)"
+                
+                # Format missing benchmark tickers
+                missing_benchmark_display = ', '.join(diagnostics['missing_benchmark_tickers'][:3])
+                if len(diagnostics['missing_benchmark_tickers']) > 3:
+                    missing_benchmark_display += f" (+{len(diagnostics['missing_benchmark_tickers']) - 3} more)"
+                
                 detailed_status_data.append({
                     'Wave ID': wave_id,
                     'Display Name': diagnostics['display_name'],
                     'Status': status_display,
                     'Reason': reason_code,
+                    'Reason Codes': ', '.join(diagnostics['reason_codes']),
                     'Details': diagnostics['details'],
-                    'Checks': ' | '.join(check_summary) if check_summary else 'No checks passed'
+                    'Checks': ' | '.join(check_summary) if check_summary else 'No checks passed',
+                    'Missing Tickers': missing_tickers_display,
+                    'Missing Benchmarks': missing_benchmark_display,
+                    'Source': diagnostics['source_used'],
+                    'History Window': f"{diagnostics['history_window_used']['start'] or 'N/A'} to {diagnostics['history_window_used']['end'] or 'N/A'}",
                 })
             
             # Display summary metrics
@@ -9642,14 +9657,101 @@ def render_all_waves_system_view(all_metrics):
                     height=500
                 )
                 
-                # Download button for diagnostics
-                csv = df_detailed_status.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Readiness Report as CSV",
-                    data=csv,
-                    file_name=f"wave_readiness_diagnostics_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                # Export options
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Download CSV
+                    csv = df_detailed_status.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Readiness Report as CSV",
+                        data=csv,
+                        file_name=f"wave_readiness_diagnostics_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+                
+                with col2:
+                    # Download JSON with full diagnostics
+                    import json
+                    from analytics_pipeline import generate_readiness_report_json
+                    
+                    json_report = generate_readiness_report_json()
+                    json_str = json.dumps(json_report, indent=2)
+                    st.download_button(
+                        label="📥 Download Full Diagnostics as JSON",
+                        data=json_str,
+                        file_name=f"wave_diagnostics_full_{datetime.now().strftime('%Y%m%d')}.json",
+                        mime="application/json"
+                    )
+                
+                # Individual wave detailed viewer
+                st.markdown("---")
+                st.subheader("🔍 Individual Wave Diagnostics Viewer")
+                
+                selected_wave = st.selectbox(
+                    "Select a wave to view detailed diagnostics:",
+                    options=sorted(all_wave_ids),
+                    help="Choose a wave to see complete diagnostic information"
                 )
+                
+                if selected_wave:
+                    wave_diagnostics = compute_data_ready_status(selected_wave)
+                    
+                    # Display in expandable sections
+                    with st.expander(f"📋 Full Diagnostics for {selected_wave}", expanded=True):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**Basic Information**")
+                            st.text(f"Wave ID: {wave_diagnostics['wave_id']}")
+                            st.text(f"Display Name: {wave_diagnostics['display_name']}")
+                            st.text(f"Ready: {wave_diagnostics['is_ready']}")
+                            st.text(f"Primary Reason: {wave_diagnostics['reason']}")
+                            st.text(f"Source: {wave_diagnostics['source_used']}")
+                            
+                            st.markdown("**Checks**")
+                            for check_name, passed in wave_diagnostics['checks'].items():
+                                icon = "✓" if passed else "✗"
+                                st.text(f"{icon} {check_name}: {passed}")
+                        
+                        with col2:
+                            st.markdown("**Reason Codes**")
+                            st.text(', '.join(wave_diagnostics['reason_codes']))
+                            
+                            st.markdown("**History Window**")
+                            st.text(f"Start: {wave_diagnostics['history_window_used']['start'] or 'N/A'}")
+                            st.text(f"End: {wave_diagnostics['history_window_used']['end'] or 'N/A'}")
+                            
+                            if wave_diagnostics['missing_dates']['earliest']:
+                                st.markdown("**Missing Dates**")
+                                st.text(f"Earliest: {wave_diagnostics['missing_dates']['earliest']}")
+                                st.text(f"Latest: {wave_diagnostics['missing_dates']['latest']}")
+                        
+                        st.markdown("**Details**")
+                        st.info(wave_diagnostics['details'])
+                        
+                        if wave_diagnostics['missing_tickers']:
+                            st.markdown("**Missing Tickers**")
+                            st.warning(f"{len(wave_diagnostics['missing_tickers'])} ticker(s): {', '.join(wave_diagnostics['missing_tickers'])}")
+                        
+                        if wave_diagnostics['missing_benchmark_tickers']:
+                            st.markdown("**Missing Benchmark Tickers**")
+                            st.warning(f"{len(wave_diagnostics['missing_benchmark_tickers'])} ticker(s): {', '.join(wave_diagnostics['missing_benchmark_tickers'])}")
+                        
+                        if wave_diagnostics['exception']:
+                            st.markdown("**Exception**")
+                            st.error(wave_diagnostics['exception'])
+                        
+                        # Copy JSON to clipboard
+                        st.markdown("**Raw JSON**")
+                        wave_json = json.dumps(wave_diagnostics, indent=2)
+                        st.code(wave_json, language='json')
+                        st.download_button(
+                            label="📋 Copy Diagnostics as JSON",
+                            data=wave_json,
+                            file_name=f"{selected_wave}_diagnostics.json",
+                            mime="application/json",
+                            key=f"download_{selected_wave}"
+                        )
             else:
                 st.info("📊 No wave status information available")
                 
