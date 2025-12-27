@@ -357,14 +357,12 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
     tickers = sorted(set(t.strip().upper() for t in tickers if t.strip()))
     
     # Normalize tickers before fetching
-    ticker_mapping = {}  # original -> normalized
     normalized_tickers = []
     for ticker in tickers:
         normalized = normalize_ticker(ticker)
-        ticker_mapping[ticker] = normalized
         normalized_tickers.append(normalized)
     
-    # Use normalized tickers for fetching
+    # Use normalized tickers for fetching (remove duplicates)
     tickers_to_fetch = list(set(normalized_tickers))
     
     # Try batch download first with retry logic, then fall back to individual ticker fetching on failure
@@ -607,8 +605,9 @@ def _fetch_prices_individually(
             else:
                 common_index = common_index.union(prices_series.index)
             
-            # Add delay between batches to reduce API stress
-            if (i + 1) % batch_size == 0 and i < len(tickers) - 1:
+            # Add delay after each ticker fetch to reduce API stress
+            # Skip delay for the very last ticker
+            if i < len(tickers) - 1:
                 time.sleep(batch_delay)
                 
         except Exception as e:
