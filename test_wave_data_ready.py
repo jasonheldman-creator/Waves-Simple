@@ -1,7 +1,7 @@
 """
-Test suite for Wave Data Ready pipeline.
+Test suite for Wave Data Ready pipeline and Wave Readiness Report.
 
-Tests the compute_data_ready_status function and related diagnostics.
+Tests the compute_data_ready_status function and generate_wave_readiness_report.
 """
 
 import os
@@ -12,8 +12,99 @@ import pandas as pd
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from analytics_pipeline import compute_data_ready_status
+from analytics_pipeline import (
+    compute_data_ready_status,
+    generate_wave_readiness_report,
+    print_readiness_report,
+    DEFAULT_COVERAGE_THRESHOLD
+)
 from waves_engine import get_all_wave_ids
+
+
+def test_generate_wave_readiness_report():
+    """Test that generate_wave_readiness_report produces the required report structure."""
+    print("=" * 80)
+    print("TEST: Wave Readiness Report Generation")
+    print("=" * 80)
+    
+    # Generate the report
+    df = generate_wave_readiness_report()
+    
+    # Validate report structure
+    assert not df.empty, "Report DataFrame should not be empty"
+    
+    # Check all required columns exist
+    required_columns = [
+        'wave_id',
+        'wave_name',
+        'readiness',
+        'reason_category',
+        'failing_tickers',
+        'coverage_pct',
+        'required_window_days',
+        'available_window_days',
+        'start_date',
+        'end_date',
+        'suggested_fix'
+    ]
+    
+    for col in required_columns:
+        assert col in df.columns, f"Missing required column: {col}"
+    
+    print(f"✓ Report has all {len(required_columns)} required columns")
+    
+    # Validate all 28 waves are included
+    wave_ids = get_all_wave_ids()
+    assert len(df) == len(wave_ids), f"Expected {len(wave_ids)} waves, got {len(df)}"
+    print(f"✓ Report includes all {len(wave_ids)} waves")
+    
+    # Validate readiness values
+    valid_readiness = ['READY', 'NOT_READY', 'NOT_READY (Partial)']
+    invalid = df[~df['readiness'].isin(valid_readiness)]
+    assert invalid.empty, f"Invalid readiness values found: {invalid['readiness'].unique()}"
+    print(f"✓ All readiness values are valid")
+    
+    # Validate reason_category is populated
+    assert df['reason_category'].notna().all(), "All rows should have a reason_category"
+    print(f"✓ All rows have reason_category populated")
+    
+    # Validate that NOT_READY waves have failing information
+    not_ready = df[df['readiness'].str.contains('NOT_READY')]
+    if not not_ready.empty:
+        # At least one should have failing_tickers or a reason
+        has_info = (
+            (not_ready['failing_tickers'] != '') | 
+            (not_ready['reason_category'] != 'READY')
+        )
+        assert has_info.any(), "NOT_READY waves should have failing_tickers or reason_category"
+        print(f"✓ NOT_READY waves ({len(not_ready)}) have diagnostic information")
+    
+    # Validate coverage_pct is in valid range
+    assert (df['coverage_pct'] >= 0).all(), "coverage_pct should be >= 0"
+    assert (df['coverage_pct'] <= 100).all(), "coverage_pct should be <= 100"
+    print(f"✓ Coverage percentages are in valid range (0-100)")
+    
+    # Validate suggested_fix is populated
+    assert df['suggested_fix'].notna().all(), "All rows should have suggested_fix"
+    assert (df['suggested_fix'] != '').all(), "All suggested_fix should be non-empty"
+    print(f"✓ All rows have suggested_fix populated")
+    
+    # Print summary statistics
+    ready_count = (df['readiness'] == 'READY').sum()
+    not_ready_count = (df['readiness'].str.contains('NOT_READY')).sum()
+    
+    print(f"\nREPORT SUMMARY:")
+    print(f"  Total waves: {len(df)}")
+    print(f"  Ready: {ready_count} ({ready_count/len(df)*100:.1f}%)")
+    print(f"  Not Ready: {not_ready_count} ({not_ready_count/len(df)*100:.1f}%)")
+    
+    # Show reason breakdown
+    print(f"\nREASON BREAKDOWN:")
+    for reason, count in df['reason_category'].value_counts().items():
+        print(f"  {reason}: {count}")
+    
+    print(f"\n✓ Wave Readiness Report test passed!")
+    return True
 
 
 def test_compute_data_ready_status_all_waves():
@@ -264,6 +355,7 @@ def main():
         test_checks_structure()
         test_ready_waves_have_all_checks()
         test_diagnostic_report_generation()
+        test_generate_wave_readiness_report()  # NEW TEST
         
         print("\n" + "=" * 80)
         print("ALL TESTS PASSED ✓")
