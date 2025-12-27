@@ -150,6 +150,11 @@ MAX_CONSECUTIVE_REFRESH_ERRORS = 3
 CACHE_RETRY_COUNT_KEY = "_cache_warm_retry_count"
 REFRESH_ERROR_COUNT_KEY = "_refresh_error_count"
 
+# Wave readiness coverage thresholds (percentage)
+COVERAGE_THRESHOLD_READY = 90.0  # >= 90% coverage = "Ready"
+COVERAGE_THRESHOLD_DEGRADED = 50.0  # >= 50% coverage = "Degraded"
+# < 50% coverage = "Limited History"
+
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
@@ -158,6 +163,57 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 def metric_alpha_predecomp(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
     """
+    UI-only helper to render alpha metrics safely.
+    No math changes. Presentation only.
+    """
+    st.metric(label, f"{value:.2%}" if value is not None else "N/A")
+
+
+def calculate_wave_coverage_pct(actual_days: int, nan_count: int, min_required_days: int) -> float:
+    """
+    Calculate wave data coverage percentage.
+    
+    Args:
+        actual_days: Total number of days in the dataset
+        nan_count: Number of days with NaN values
+        min_required_days: Minimum required days for full coverage
+        
+    Returns:
+        Coverage percentage (0-100)
+    """
+    if actual_days == 0:
+        return 0.0
+    
+    # Calculate valid days
+    valid_days = actual_days - nan_count
+    coverage_pct = (valid_days / actual_days) * 100.0
+    
+    return coverage_pct
+
+
+def determine_wave_status_from_coverage(coverage_pct: float, actual_days: int, min_required_days: int) -> str:
+    """
+    Determine wave status based on coverage percentage and history.
+    
+    Args:
+        coverage_pct: Data coverage percentage
+        actual_days: Number of days of historical data
+        min_required_days: Minimum required days
+        
+    Returns:
+        Status string: "Ready", "Degraded", or "Limited History"
+    """
+    if coverage_pct >= COVERAGE_THRESHOLD_READY and actual_days >= min_required_days:
+        return "Ready"
+    elif coverage_pct >= COVERAGE_THRESHOLD_DEGRADED:
+        return "Degraded"
+    else:
+        return "Limited History"
+
+
+def metric_alpha_predecomp_original(value, *, label="Cumulative Alpha (Pre-Decomposition)"):
+    """
+    DEPRECATED: Use metric_alpha_predecomp instead.
     UI-only helper to render alpha metrics safely.
     No math changes. Presentation only.
     """
@@ -2365,19 +2421,10 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             failed_tickers_count = 0  # We don't have direct ticker failure info here
             
             # Calculate coverage based on non-NaN values
-            if actual_days > 0:
-                valid_days = actual_days - nan_count
-                coverage_pct = (valid_days / actual_days) * 100.0
-            else:
-                coverage_pct = 0.0
+            coverage_pct = calculate_wave_coverage_pct(actual_days, nan_count, MIN_DAYS_READY)
             
             # Determine status based on coverage
-            if coverage_pct >= 90.0 and actual_days >= MIN_DAYS_READY:
-                status = "Ready"
-            elif coverage_pct >= 50.0:
-                status = "Degraded"
-            else:
-                status = "Limited History"
+            status = determine_wave_status_from_coverage(coverage_pct, actual_days, MIN_DAYS_READY)
             
             # All checks passed!
             return {

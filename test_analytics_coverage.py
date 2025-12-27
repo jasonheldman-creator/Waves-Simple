@@ -15,6 +15,12 @@ import sys
 import traceback
 from datetime import datetime
 
+# Constants
+NETWORK_CHECK_HOST = "www.google.com"
+NETWORK_CHECK_PORT = 80
+NETWORK_CHECK_TIMEOUT = 3
+MIN_USABILITY_THRESHOLD = 90.0  # Minimum percentage of usable waves
+
 # Import analytics pipeline
 try:
     from analytics_pipeline import run_daily_analytics_pipeline
@@ -64,7 +70,8 @@ def test_analytics_pipeline():
     print("\nChecking network connectivity...")
     try:
         import socket
-        socket.create_connection(("www.google.com", 80), timeout=3)
+        socket.create_connection((NETWORK_CHECK_HOST, NETWORK_CHECK_PORT), 
+                                timeout=NETWORK_CHECK_TIMEOUT)
         print("✓ Network available, using real data")
     except (socket.timeout, socket.error, OSError):
         print("⚠ Network unavailable, using dummy data for testing")
@@ -177,11 +184,11 @@ def test_readiness_states(pipeline_result):
         
         print(f"\nUsability Rate: {success_rate:.1f}%")
         
-        if success_rate >= 90.0:
-            print("✓ TEST PASSED: Analytics coverage meets acceptance criteria")
+        if success_rate >= MIN_USABILITY_THRESHOLD:
+            print(f"✓ TEST PASSED: Analytics coverage meets acceptance criteria (>= {MIN_USABILITY_THRESHOLD}%)")
             return True
         else:
-            print(f"✗ TEST FAILED: Analytics coverage below 90% threshold")
+            print(f"✗ TEST FAILED: Analytics coverage below {MIN_USABILITY_THRESHOLD}% threshold")
             return False
         
     except Exception as e:
