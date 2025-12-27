@@ -1,17 +1,19 @@
 """
 Data Health Panel
 Provides visibility into system health, cache performance, and data availability.
+Enhanced with failed ticker diagnostics and reporting.
 """
 
 import streamlit as st
 from datetime import datetime
 from typing import Dict, Any
+import os
 
 
 def render_data_health_panel():
     """
     Render the Data Health panel showing system status and metrics.
-    Enhanced with fail-safe error handling to prevent crashes.
+    Enhanced with fail-safe error handling and ticker diagnostics.
     """
     st.subheader("📊 Data Health Panel")
     st.caption("System health metrics and data availability status")
@@ -117,6 +119,82 @@ def render_data_health_panel():
                 st.caption(f"Cache directory: `{cache_dir}`")
             else:
                 st.info("Cache statistics unavailable")
+        
+        # Failed Ticker Diagnostics
+        try:
+            from helpers.ticker_diagnostics import get_diagnostics_tracker
+            
+            st.markdown("---")
+            st.markdown("### Failed Ticker Diagnostics")
+            
+            tracker = get_diagnostics_tracker()
+            stats = tracker.get_summary_stats()
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Failures", stats['total_failures'])
+            
+            with col2:
+                st.metric("Unique Tickers", stats['unique_tickers'])
+            
+            with col3:
+                st.metric("Fatal", stats['fatal_count'])
+            
+            with col4:
+                st.metric("Non-Fatal", stats['non_fatal_count'])
+            
+            if stats['total_failures'] > 0:
+                # Show breakdown by failure type
+                st.markdown("#### Failure Type Breakdown")
+                for failure_type, count in stats['by_type'].items():
+                    st.text(f"• {failure_type}: {count}")
+                
+                # Export button
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if st.button("Export Failed Tickers Report", key="export_failed_tickers"):
+                        try:
+                            filepath = tracker.export_to_csv()
+                            st.success(f"✅ Report exported to: `{filepath}`")
+                            
+                            # Provide download option if file exists
+                            if os.path.exists(filepath):
+                                with open(filepath, 'r') as f:
+                                    csv_data = f.read()
+                                st.download_button(
+                                    label="Download Report",
+                                    data=csv_data,
+                                    file_name=os.path.basename(filepath),
+                                    mime="text/csv",
+                                    key="download_failed_tickers"
+                                )
+                        except Exception as e:
+                            st.error(f"❌ Failed to export report: {str(e)}")
+                
+                # Show recent failures
+                st.markdown("#### Recent Failures (Last 10)")
+                failures = tracker.get_all_failures()
+                recent_failures = sorted(failures, key=lambda x: x.last_seen or datetime.min, reverse=True)[:10]
+                
+                if recent_failures:
+                    for failure in recent_failures:
+                        with st.expander(f"🔴 {failure.ticker_original} ({failure.failure_type.value})"):
+                            st.text(f"Wave: {failure.wave_name or 'N/A'}")
+                            st.text(f"Normalized: {failure.ticker_normalized}")
+                            st.text(f"Source: {failure.source}")
+                            st.text(f"Fatal: {'Yes' if failure.is_fatal else 'No'}")
+                            st.text(f"Error: {failure.error_message}")
+                            st.text(f"Suggested Fix: {failure.suggested_fix}")
+                            if failure.last_seen:
+                                st.caption(f"Last seen: {failure.last_seen.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                st.info("✅ No ticker failures recorded")
+        
+        except ImportError:
+            st.info("ℹ️ Ticker diagnostics not available - module not imported")
+        except Exception as e:
+            st.warning(f"⚠️ Unable to load ticker diagnostics: {str(e)}")
         
         # Ticker Fetch Test
         st.markdown("---")
