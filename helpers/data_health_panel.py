@@ -11,6 +11,7 @@ from typing import Dict, Any
 def render_data_health_panel():
     """
     Render the Data Health panel showing system status and metrics.
+    Enhanced with fail-safe error handling to prevent crashes.
     """
     st.subheader("📊 Data Health Panel")
     st.caption("System health metrics and data availability status")
@@ -19,15 +20,24 @@ def render_data_health_panel():
         # Import health status function
         from helpers.ticker_sources import get_ticker_health_status, test_ticker_fetch
         
-        # Get health status
-        health = get_ticker_health_status()
+        # Get health status (with fail-safe)
+        try:
+            health = get_ticker_health_status()
+        except Exception as e:
+            # Fail-safe: Show degraded status but don't crash
+            st.warning(f"⚠️ Unable to fetch health status: {str(e)}")
+            health = {
+                'overall_status': 'unknown',
+                'resilience_available': False,
+                'timestamp': datetime.now().isoformat()
+            }
         
         # Display overall status
         col1, col2, col3 = st.columns(3)
         
         with col1:
             status = health.get('overall_status', 'unknown')
-            status_emoji = "🟢" if status == 'healthy' else "🟡" if status == 'degraded' else "🔴"
+            status_emoji = "🟢" if status == 'healthy' else "🟡" if status == 'degraded' else "⚪"
             st.metric("Overall Status", f"{status_emoji} {status.upper()}")
         
         with col2:

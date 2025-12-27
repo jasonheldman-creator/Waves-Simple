@@ -8178,7 +8178,7 @@ def render_alpha_proof_section():
             # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
-                value=False,
+                value=True,
                 key="alpha_proof_show_all",
                 help="Include all waves in dropdown, even those without historical data"
             )
@@ -8427,7 +8427,7 @@ def render_attribution_matrix_section():
             # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
-                value=False,
+                value=True,
                 key="attribution_matrix_show_all",
                 help="Include all waves in dropdown, even those without historical data"
             )
@@ -9441,10 +9441,10 @@ def render_all_waves_system_view(all_metrics):
                     _wave_universe_version=wave_universe_version
                 )
                 if wave_data is not None and len(wave_data) > 0:
-                    wave_ret = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
-                    bench_ret = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                    wave_ret = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                    bench_ret = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
                     return wave_ret, bench_ret
-                return 0.0, 0.0
+                return None, None
             
             # Get returns for each timeframe
             wave_1d, bench_1d = get_returns(1)
@@ -9452,11 +9452,11 @@ def render_all_waves_system_view(all_metrics):
             wave_60d, bench_60d = get_returns(60)
             wave_365d, bench_365d = get_returns(365)
             
-            # Calculate alphas
-            alpha_1d = wave_1d - bench_1d
-            alpha_30d = wave_30d - bench_30d
-            alpha_60d = wave_60d - bench_60d
-            alpha_365d = wave_365d - bench_365d
+            # Calculate alphas (handle None values)
+            alpha_1d = (wave_1d - bench_1d) if (wave_1d is not None and bench_1d is not None) else None
+            alpha_30d = (wave_30d - bench_30d) if (wave_30d is not None and bench_30d is not None) else None
+            alpha_60d = (wave_60d - bench_60d) if (wave_60d is not None and bench_60d is not None) else None
+            alpha_365d = (wave_365d - bench_365d) if (wave_365d is not None and bench_365d is not None) else None
             
             grid_data.append({
                 'Wave Name': wave_name,
@@ -9478,10 +9478,10 @@ def render_all_waves_system_view(all_metrics):
         if grid_data:
             df_grid = pd.DataFrame(grid_data)
             
-            # Sort by 30D Alpha (descending) - default sort
-            df_grid = df_grid.sort_values('_sort_alpha_30d', ascending=False)
+            # Sort by 30D Alpha (descending) - put None values at the end
+            df_grid = df_grid.sort_values('_sort_alpha_30d', ascending=False, na_position='last')
             
-            # Format percentages for display
+            # Format percentages for display - handle None values
             percent_cols = [
                 '1D Wave', '1D Benchmark', '1D Alpha',
                 '30D Wave', '30D Benchmark', '30D Alpha',
@@ -9491,7 +9491,7 @@ def render_all_waves_system_view(all_metrics):
             
             df_display = df_grid.copy()
             for col in percent_cols:
-                df_display[col] = df_display[col].apply(lambda x: f"{x*100:.2f}%")
+                df_display[col] = df_display[col].apply(lambda x: f"{x*100:.2f}%" if x is not None else "N/A")
             
             # Drop the sort column
             df_display = df_display.drop(columns=['_sort_alpha_30d'])
@@ -9500,6 +9500,9 @@ def render_all_waves_system_view(all_metrics):
             def color_alpha(val):
                 """Apply green color to positive values, red to negative."""
                 try:
+                    # Handle N/A values
+                    if val == "N/A":
+                        return 'background-color: #f0f0f0; color: #666666'  # Light gray for missing data
                     # Extract numeric value from percentage string
                     num_val = float(val.strip('%'))
                     if num_val > 0:
