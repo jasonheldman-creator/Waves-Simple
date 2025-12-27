@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface Screenshot {
   imagePath: string;
   alt: string;
@@ -32,10 +34,11 @@ export default function ScreenshotSection({ screenshot, reverse = false }: Scree
           <div className={`${reverse ? 'lg:order-2' : ''}`}>
             <div className="relative rounded-lg border border-cyan-500/20 bg-gray-900/50 p-2 shadow-lg shadow-cyan-500/10">
               <div className="relative aspect-video w-full bg-gray-800 rounded overflow-hidden">
-                <img 
+                <Image 
                   src={imagePath} 
                   alt={screenshot.alt} 
-                  className="w-full h-full object-contain"
+                  fill
+                  className="object-contain"
                 />
               </div>
             </div>
