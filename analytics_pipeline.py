@@ -728,6 +728,150 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
     }
 
 
+def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
+    """
+    Compute comprehensive data readiness status for a wave.
+    
+    This function provides detailed diagnostics about why a wave may not be ready,
+    enabling operators to quickly identify and resolve data pipeline issues.
+    
+    Args:
+        wave_id: The wave identifier
+        
+    Returns:
+        Dictionary with readiness diagnostics:
+        {
+            'wave_id': str,
+            'display_name': str,
+            'is_ready': bool,
+            'reason': str,  # Failure reason code or success message
+            'details': str,  # Human-readable explanation
+            'checks': {
+                'has_weights': bool,
+                'has_prices': bool,
+                'has_benchmark': bool,
+                'has_nav': bool,
+                'is_fresh': bool,
+                'has_sufficient_history': bool,
+            }
+        }
+    
+    Reason Codes:
+        - "READY": All checks passed
+        - "MISSING_WEIGHTS": No holdings defined in WAVE_WEIGHTS
+        - "MISSING_PRICES": Price data files not found
+        - "MISSING_BENCHMARK": Benchmark price data not found
+        - "MISSING_NAV": NAV calculation data not found
+        - "STALE_DATA": Data is older than 5 days
+        - "INSUFFICIENT_HISTORY": Less than minimum required trading days
+        - "WAVE_NOT_FOUND": Wave ID not in registry
+    """
+    from datetime import datetime
+    
+    # Initialize response
+    result = {
+        'wave_id': wave_id,
+        'display_name': get_display_name_from_wave_id(wave_id) or wave_id,
+        'is_ready': False,
+        'reason': 'UNKNOWN',
+        'details': '',
+        'checks': {
+            'has_weights': False,
+            'has_prices': False,
+            'has_benchmark': False,
+            'has_nav': False,
+            'is_fresh': False,
+            'has_sufficient_history': False,
+        }
+    }
+    
+    # Check 1: Wave exists in registry
+    all_wave_ids = get_all_wave_ids()
+    if wave_id not in all_wave_ids:
+        result['reason'] = 'WAVE_NOT_FOUND'
+        result['details'] = f"Wave ID '{wave_id}' is not registered in WAVE_ID_REGISTRY"
+        return result
+    
+    # Check 2: Has weights/holdings defined
+    if wave_id not in WAVE_WEIGHTS and result['display_name'] not in WAVE_WEIGHTS:
+        result['reason'] = 'MISSING_WEIGHTS'
+        result['details'] = f"No holdings defined in WAVE_WEIGHTS for '{wave_id}'"
+        return result
+    
+    result['checks']['has_weights'] = True
+    
+    # Get wave analytics directory
+    wave_dir = get_wave_analytics_dir(wave_id)
+    
+    # Check 3: Has price data
+    prices_path = os.path.join(wave_dir, 'prices.csv')
+    if not os.path.exists(prices_path):
+        result['reason'] = 'MISSING_PRICES'
+        result['details'] = f"Price data file not found at {prices_path}"
+        return result
+    
+    result['checks']['has_prices'] = True
+    
+    # Check 4: Has benchmark data
+    benchmark_path = os.path.join(wave_dir, 'benchmark_prices.csv')
+    if not os.path.exists(benchmark_path):
+        result['reason'] = 'MISSING_BENCHMARK'
+        result['details'] = f"Benchmark price data file not found at {benchmark_path}"
+        return result
+    
+    result['checks']['has_benchmark'] = True
+    
+    # Check 5: Has NAV data
+    nav_path = os.path.join(wave_dir, 'nav.csv')
+    if not os.path.exists(nav_path):
+        result['reason'] = 'MISSING_NAV'
+        result['details'] = f"NAV calculation file not found at {nav_path}"
+        return result
+    
+    result['checks']['has_nav'] = True
+    
+    # Check 6: Data freshness and history length
+    try:
+        prices_df = pd.read_csv(prices_path, index_col=0, parse_dates=True)
+        
+        if prices_df.empty:
+            result['reason'] = 'INSUFFICIENT_HISTORY'
+            result['details'] = "Price data file is empty"
+            return result
+        
+        # Check history length
+        num_days = len(prices_df)
+        if num_days < MIN_REQUIRED_TRADING_DAYS:
+            result['reason'] = 'INSUFFICIENT_HISTORY'
+            result['details'] = f"Only {num_days} days of history, need at least {MIN_REQUIRED_TRADING_DAYS}"
+            return result
+        
+        result['checks']['has_sufficient_history'] = True
+        
+        # Check data freshness
+        last_date = prices_df.index[-1]
+        days_old = (datetime.now() - last_date).days
+        
+        if days_old > 5:
+            result['reason'] = 'STALE_DATA'
+            result['details'] = f"Data is {days_old} days old (last: {last_date.date()})"
+            return result
+        
+        result['checks']['is_fresh'] = True
+        
+        # All checks passed!
+        result['is_ready'] = True
+        result['reason'] = 'READY'
+        result['details'] = f"All checks passed. {num_days} days of fresh data (last: {last_date.date()})"
+        
+    except Exception as e:
+        result['reason'] = 'DATA_READ_ERROR'
+        result['details'] = f"Error reading price data: {str(e)}"
+        return result
+    
+    return result
+
+
 # ------------------------------------------------------------
 # Main Pipeline Orchestrator
 # ------------------------------------------------------------

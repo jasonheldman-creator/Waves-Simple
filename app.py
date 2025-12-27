@@ -2106,7 +2106,7 @@ def get_wave_status_map(_wave_universe_version=1):
     return status_map
 
 
-def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None) -> tuple[bool, str, str]:
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None, use_analytics_pipeline=False) -> tuple[bool, str, str]:
     """
     Check if a wave is data-ready with explicit criteria.
     UPDATED: More lenient to support partial data availability.
@@ -2116,6 +2116,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         wave_history_df: Optional wave history DataFrame (will load if not provided)
         wave_universe: Optional wave universe dict (will load if not provided)
         price_df: Optional cached price DataFrame for NAV computation
+        use_analytics_pipeline: If True, use analytics_pipeline.compute_data_ready_status for detailed diagnostics
     
     Returns:
         Tuple of (is_ready: bool, status: str, reason: str)
@@ -2128,6 +2129,30 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         - "Error (Computation)": NAV metrics exception
     """
     try:
+        # NEW: Optionally use analytics pipeline for detailed file-based diagnostics
+        if use_analytics_pipeline:
+            try:
+                from analytics_pipeline import compute_data_ready_status
+                diagnostics = compute_data_ready_status(wave_id)
+                
+                # Map analytics pipeline status to app.py status format
+                if diagnostics['is_ready']:
+                    return True, "Ready", diagnostics['details']
+                else:
+                    reason_code = diagnostics['reason']
+                    if reason_code in ['MISSING_WEIGHTS', 'WAVE_NOT_FOUND']:
+                        return False, "Missing Inputs", diagnostics['details']
+                    elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
+                        return False, "Degraded (Partial Data)", diagnostics['details']
+                    elif reason_code in ['MISSING_PRICES', 'MISSING_BENCHMARK', 'MISSING_NAV']:
+                        return False, "Missing Inputs", diagnostics['details']
+                    else:
+                        return False, "Error (Computation)", diagnostics['details']
+            except ImportError:
+                # Fall through to legacy logic if analytics_pipeline not available
+                pass
+        
+        # LEGACY: Lenient runtime-based checks (original logic)
         # Load universe if not provided
         if wave_universe is None:
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
@@ -9403,44 +9428,155 @@ def render_all_waves_system_view(all_metrics):
         # SECTION B: Data Readiness Status
         # ========================================================================
         st.markdown("### 📋 Data Readiness Status")
-        st.caption("Status of all waves in the system (Ready / Degraded / Missing Inputs)")
+        st.caption("Detailed readiness diagnostics for all 28 active waves")
         
-        # Compute wave diagnostics to get data readiness
-        wave_diagnostics = compute_wave_universe_diagnostics()
-        wave_statuses = wave_diagnostics.get('wave_statuses', {})
-        
-        # Build status table
-        status_data = []
-        for wave_name in sorted(all_metrics, key=lambda x: x['wave_name']):
-            wave = wave_name['wave_name']
-            status_info = wave_statuses.get(wave, {'status': 'Unknown', 'reason': 'N/A'})
-            status = status_info['status']
-            reason = status_info['reason']
+        # NEW: Use analytics_pipeline for detailed file-based diagnostics
+        try:
+            from analytics_pipeline import compute_data_ready_status
+            from waves_engine import get_all_wave_ids
             
-            # Map status to display format
-            if status == 'ready':
-                status_display = "✅ Ready"
-            elif status == 'degraded':
-                status_display = "⚠️ Degraded"
+            # Get all wave IDs
+            all_wave_ids = get_all_wave_ids()
+            
+            # Compute detailed status for each wave
+            detailed_status_data = []
+            ready_count = 0
+            degraded_count = 0
+            missing_count = 0
+            
+            for wave_id in sorted(all_wave_ids):
+                diagnostics = compute_data_ready_status(wave_id)
+                
+                # Map reason code to status category and display
+                reason_code = diagnostics['reason']
+                if diagnostics['is_ready']:
+                    status_display = "✅ Ready"
+                    status_category = "Ready"
+                    ready_count += 1
+                elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
+                    status_display = "⚠️ Degraded"
+                    status_category = "Degraded"
+                    degraded_count += 1
+                else:
+                    status_display = "❌ Missing Inputs"
+                    status_category = "Missing"
+                    missing_count += 1
+                
+                # Add check details for transparency
+                checks = diagnostics['checks']
+                check_summary = []
+                if checks['has_weights']:
+                    check_summary.append("✓ Weights")
+                if checks['has_prices']:
+                    check_summary.append("✓ Prices")
+                if checks['has_benchmark']:
+                    check_summary.append("✓ Benchmark")
+                if checks['has_nav']:
+                    check_summary.append("✓ NAV")
+                if checks['is_fresh']:
+                    check_summary.append("✓ Fresh")
+                if checks['has_sufficient_history']:
+                    check_summary.append(f"✓ History")
+                
+                detailed_status_data.append({
+                    'Wave ID': wave_id,
+                    'Display Name': diagnostics['display_name'],
+                    'Status': status_display,
+                    'Reason': reason_code,
+                    'Details': diagnostics['details'],
+                    'Checks': ' | '.join(check_summary) if check_summary else 'No checks passed'
+                })
+            
+            # Display summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Waves", len(all_wave_ids), help="Total waves in the registry")
+            with col2:
+                st.metric("Ready", ready_count, help="Waves with all checks passed")
+            with col3:
+                st.metric("Degraded", degraded_count, help="Waves with stale or insufficient data")
+            with col4:
+                st.metric("Missing Inputs", missing_count, help="Waves with missing configuration or data files")
+            
+            st.markdown("---")
+            
+            # Display detailed status table
+            if detailed_status_data:
+                df_detailed_status = pd.DataFrame(detailed_status_data)
+                
+                # Add filtering option
+                filter_option = st.selectbox(
+                    "Filter by Status:",
+                    options=["All", "Ready", "Degraded", "Missing"],
+                    index=0,
+                    help="Filter the table by wave status"
+                )
+                
+                # Apply filter
+                if filter_option != "All":
+                    # Extract status category from Status column
+                    df_detailed_status = df_detailed_status[
+                        df_detailed_status['Status'].str.contains(filter_option.split()[0], case=False, na=False)
+                    ]
+                
+                st.dataframe(
+                    df_detailed_status,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500
+                )
+                
+                # Download button for diagnostics
+                csv = df_detailed_status.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Readiness Report as CSV",
+                    data=csv,
+                    file_name=f"wave_readiness_diagnostics_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
             else:
-                status_display = "❌ Missing Inputs"
+                st.info("📊 No wave status information available")
+                
+        except ImportError as e:
+            # Fallback to legacy diagnostics if analytics_pipeline not available
+            st.warning("⚠️ Advanced diagnostics unavailable. Using legacy status checks.")
             
-            status_data.append({
-                'Wave Name': wave,
-                'Status': status_display,
-                'Details': reason if reason else 'Data available'
-            })
-        
-        if status_data:
-            df_status = pd.DataFrame(status_data)
-            st.dataframe(
-                df_status,
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
-        else:
-            st.info("📊 No wave status information available")
+            # Compute wave diagnostics to get data readiness (legacy)
+            wave_diagnostics = compute_wave_universe_diagnostics()
+            wave_statuses = wave_diagnostics.get('wave_statuses', {})
+            
+            # Build status table (legacy)
+            status_data = []
+            for wave_name in sorted(all_metrics, key=lambda x: x['wave_name']):
+                wave = wave_name['wave_name']
+                status_info = wave_statuses.get(wave, {'status': 'Unknown', 'reason': 'N/A'})
+                status = status_info['status']
+                reason = status_info['reason']
+                
+                # Map status to display format
+                if status == 'Ready':
+                    status_display = "✅ Ready"
+                elif 'Degraded' in status:
+                    status_display = "⚠️ Degraded"
+                else:
+                    status_display = "❌ Missing Inputs"
+                
+                status_data.append({
+                    'Wave Name': wave,
+                    'Status': status_display,
+                    'Details': reason if reason else 'Data available'
+                })
+            
+            if status_data:
+                df_status = pd.DataFrame(status_data)
+                st.dataframe(
+                    df_status,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+            else:
+                st.info("📊 No wave status information available")
         
         st.divider()
         
