@@ -129,18 +129,49 @@ def _log_readiness_result(result: Dict[str, Any]) -> None:
 
 
 # ------------------------------------------------------------
+# Ticker Normalization
+# ------------------------------------------------------------
+
+def normalize_ticker(ticker: str) -> str:
+    """
+    Normalize ticker symbols to match yfinance conventions.
+    
+    Examples:
+        BRK.B -> BRK-B
+        BF.B -> BF-B
+        stETH-USD -> stETH-USD (already normalized)
+    
+    Args:
+        ticker: Raw ticker symbol
+        
+    Returns:
+        Normalized ticker symbol
+    """
+    if not ticker:
+        return ticker
+    
+    # Replace dots with hyphens for class shares (e.g., BRK.B -> BRK-B)
+    normalized = ticker.replace('.', '-')
+    
+    # Ensure crypto symbols have -USD suffix if needed
+    # (This is a simple heuristic - crypto tickers already have -USD in WAVE_WEIGHTS)
+    
+    return normalized
+
+
+# ------------------------------------------------------------
 # Ticker & Benchmark Resolution
 # ------------------------------------------------------------
 
 def resolve_wave_tickers(wave_id: str) -> List[str]:
     """
-    Resolve all tickers for a given wave_id from WAVE_WEIGHTS.
+    Resolve all tickers for a given wave_id from WAVE_WEIGHTS with normalization.
     
     Args:
         wave_id: The wave identifier
         
     Returns:
-        List of ticker symbols
+        List of normalized ticker symbols
     """
     display_name = get_display_name_from_wave_id(wave_id)
     if not display_name:
@@ -151,24 +182,24 @@ def resolve_wave_tickers(wave_id: str) -> List[str]:
     
     for holding in holdings:
         if isinstance(holding, Holding):
-            tickers.append(holding.ticker)
+            tickers.append(normalize_ticker(holding.ticker))
         elif isinstance(holding, dict) and 'ticker' in holding:
-            tickers.append(holding['ticker'])
+            tickers.append(normalize_ticker(holding['ticker']))
         elif isinstance(holding, str):
-            tickers.append(holding)
+            tickers.append(normalize_ticker(holding))
     
     return list(set(tickers))  # Remove duplicates
 
 
 def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
     """
-    Resolve benchmark tickers and weights for a given wave_id.
+    Resolve benchmark tickers and weights for a given wave_id with normalization.
     
     Args:
         wave_id: The wave identifier
         
     Returns:
-        List of (ticker, weight) tuples
+        List of (normalized_ticker, weight) tuples
     """
     display_name = get_display_name_from_wave_id(wave_id)
     if not display_name:
@@ -179,11 +210,11 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
     
     for bm in benchmark_spec:
         if isinstance(bm, Holding):
-            benchmarks.append((bm.ticker, bm.weight))
+            benchmarks.append((normalize_ticker(bm.ticker), bm.weight))
         elif isinstance(bm, dict):
-            benchmarks.append((bm.get('ticker', ''), bm.get('weight', 1.0)))
+            benchmarks.append((normalize_ticker(bm.get('ticker', '')), bm.get('weight', 1.0)))
         elif isinstance(bm, str):
-            benchmarks.append((bm, 1.0))
+            benchmarks.append((normalize_ticker(bm), 1.0))
     
     return benchmarks
 
@@ -1122,6 +1153,293 @@ def generate_readiness_report_json(wave_ids: Optional[List[str]] = None) -> Dict
         },
         'waves': waves_data
     }
+
+
+# Configuration for coverage-based readiness policy
+DEFAULT_COVERAGE_THRESHOLD = 0.95  # 95% coverage required by default
+DEFAULT_REQUIRED_WINDOW_DAYS = 365  # Default required history window
+
+
+def generate_wave_readiness_report(
+    wave_ids: Optional[List[str]] = None,
+    coverage_threshold: float = DEFAULT_COVERAGE_THRESHOLD,
+    required_window_days: int = DEFAULT_REQUIRED_WINDOW_DAYS
+) -> pd.DataFrame:
+    """
+    Generate comprehensive Wave Readiness Report with detailed diagnostics.
+    
+    This function produces a deterministic report showing:
+    - Readiness status (READY/NOT_READY)
+    - Reason category for failures
+    - Failing tickers
+    - Coverage percentage
+    - Data window availability
+    - Suggested fixes
+    
+    Args:
+        wave_ids: Optional list of wave_ids to include. If None, includes all waves.
+        coverage_threshold: Minimum required coverage (0.0 to 1.0). Default: 0.95
+        required_window_days: Minimum required days of history. Default: 365
+        
+    Returns:
+        DataFrame with columns:
+        - wave_id: Canonical wave identifier
+        - wave_name: Display name
+        - readiness: READY or NOT_READY
+        - reason_category: Category code (e.g., MISSING_PRICES, SHORT_HISTORY)
+        - failing_tickers: Comma-separated list of problematic tickers
+        - coverage_pct: Percentage of required data available (0-100)
+        - required_window_days: Policy-defined minimum days
+        - available_window_days: Actual days of data available
+        - start_date: Start of available data window
+        - end_date: End of available data window
+        - suggested_fix: Human-readable fix suggestion
+    """
+    if wave_ids is None:
+        wave_ids = get_all_wave_ids()
+    
+    records = []
+    
+    for wave_id in wave_ids:
+        # Get basic diagnostics
+        diagnostics = compute_data_ready_status(wave_id)
+        display_name = diagnostics.get('display_name', wave_id)
+        
+        # Resolve tickers for coverage calculation
+        tickers = resolve_wave_tickers(wave_id)
+        total_tickers = len(tickers)
+        missing_tickers = diagnostics.get('missing_tickers', [])
+        available_tickers = total_tickers - len(missing_tickers)
+        
+        # Calculate coverage percentage
+        if total_tickers > 0:
+            coverage_pct = (available_tickers / total_tickers) * 100.0
+        else:
+            coverage_pct = 0.0
+        
+        # Determine readiness based on coverage threshold
+        is_ready = diagnostics.get('is_ready', False)
+        reason = diagnostics.get('reason', 'UNKNOWN')
+        
+        # Map reason to category
+        if is_ready:
+            reason_category = 'READY'
+        elif reason in ['MISSING_WEIGHTS', 'WAVE_NOT_FOUND']:
+            reason_category = 'REGISTRY_MISMATCH'
+        elif reason in ['MISSING_PRICES', 'MISSING_PRICE', 'NAN_SERIES']:
+            reason_category = 'MISSING_PRICES'
+        elif reason == 'MISSING_BENCHMARK':
+            reason_category = 'MISSING_BENCHMARK'
+        elif reason == 'INSUFFICIENT_HISTORY':
+            reason_category = 'SHORT_HISTORY'
+        elif reason == 'STALE_DATA':
+            reason_category = 'STALE_DATA'
+        elif reason in ['UNSUPPORTED_TICKER', 'DELISTED_TICKER']:
+            reason_category = 'INVALID_TICKER'
+        elif reason == 'API_FAILURE':
+            reason_category = 'PROVIDER_UNSUPPORTED'
+        else:
+            reason_category = 'OTHER'
+        
+        # Apply coverage-based readiness override
+        if not is_ready and coverage_pct >= (coverage_threshold * 100):
+            # Sufficient coverage - mark as degraded but usable
+            # Still report as NOT_READY but with coverage info
+            readiness = 'NOT_READY (Partial)'
+        elif is_ready:
+            readiness = 'READY'
+        else:
+            readiness = 'NOT_READY'
+        
+        # Extract date window
+        history_window = diagnostics.get('history_window_used', {})
+        start_date = history_window.get('start', None)
+        end_date = history_window.get('end', None)
+        
+        # Calculate available window days
+        if start_date and end_date:
+            try:
+                start = pd.to_datetime(start_date)
+                end = pd.to_datetime(end_date)
+                available_window_days = (end - start).days
+            except:
+                available_window_days = 0
+        else:
+            available_window_days = 0
+        
+        # Generate suggested fix
+        suggested_fix = _generate_suggested_fix(
+            reason_category,
+            missing_tickers,
+            coverage_pct,
+            coverage_threshold * 100,
+            available_window_days,
+            required_window_days
+        )
+        
+        # Build record
+        record = {
+            'wave_id': wave_id,
+            'wave_name': display_name,
+            'readiness': readiness,
+            'reason_category': reason_category,
+            'failing_tickers': ', '.join(missing_tickers) if missing_tickers else '',
+            'coverage_pct': round(coverage_pct, 2),
+            'required_window_days': required_window_days,
+            'available_window_days': available_window_days,
+            'start_date': start_date or '',
+            'end_date': end_date or '',
+            'suggested_fix': suggested_fix,
+        }
+        
+        records.append(record)
+    
+    # Create DataFrame
+    df = pd.DataFrame(records)
+    
+    # Sort by readiness (READY first) then by wave_id
+    df['_sort_key'] = df['readiness'].apply(lambda x: 0 if x == 'READY' else 1)
+    df = df.sort_values(['_sort_key', 'wave_id']).drop(columns=['_sort_key'])
+    
+    return df
+
+
+def _generate_suggested_fix(
+    reason_category: str,
+    failing_tickers: List[str],
+    coverage_pct: float,
+    coverage_threshold: float,
+    available_days: int,
+    required_days: int
+) -> str:
+    """
+    Generate a human-readable suggested fix for readiness failures.
+    
+    Args:
+        reason_category: Failure reason category
+        failing_tickers: List of failing ticker symbols
+        coverage_pct: Current coverage percentage
+        coverage_threshold: Required coverage threshold
+        available_days: Days of data available
+        required_days: Days of data required
+        
+    Returns:
+        Suggested fix string
+    """
+    if reason_category == 'READY':
+        return 'No action needed - wave is ready'
+    
+    elif reason_category == 'MISSING_PRICES':
+        if failing_tickers:
+            ticker_str = ', '.join(failing_tickers[:3])
+            if len(failing_tickers) > 3:
+                ticker_str += f' (+{len(failing_tickers) - 3} more)'
+            
+            if coverage_pct >= coverage_threshold:
+                return f'Partial coverage ({coverage_pct:.0f}%) meets threshold. Consider dropping: {ticker_str}'
+            else:
+                return f'Fetch missing price data for: {ticker_str}. Run analytics pipeline to populate data.'
+        else:
+            return 'Run analytics pipeline to fetch and populate price data'
+    
+    elif reason_category == 'INVALID_TICKER':
+        if failing_tickers:
+            ticker_str = ', '.join(failing_tickers[:3])
+            return f'Remove invalid/delisted tickers: {ticker_str}'
+        else:
+            return 'Review and remove invalid tickers from wave holdings'
+    
+    elif reason_category == 'SHORT_HISTORY':
+        days_needed = required_days - available_days
+        return f'Fetch {days_needed} more days of history. Run analytics pipeline with longer lookback.'
+    
+    elif reason_category == 'STALE_DATA':
+        return 'Data is stale. Re-run analytics pipeline to fetch fresh prices.'
+    
+    elif reason_category == 'MISSING_BENCHMARK':
+        return 'Benchmark data missing. Ensure benchmark tickers are valid and fetch their prices.'
+    
+    elif reason_category == 'REGISTRY_MISMATCH':
+        return 'Wave not properly registered. Check WAVE_ID_REGISTRY and WAVE_WEIGHTS mappings.'
+    
+    elif reason_category == 'PROVIDER_UNSUPPORTED':
+        return 'Data provider API failure. Check yfinance status or try again later.'
+    
+    else:
+        return 'Unknown issue. Check logs for detailed diagnostics.'
+
+
+def print_readiness_report(coverage_threshold: float = DEFAULT_COVERAGE_THRESHOLD) -> None:
+    """
+    Print Wave Readiness Report to console/logs.
+    
+    This function generates and prints a formatted readiness report showing:
+    - Summary statistics
+    - Per-wave readiness status
+    - Failing tickers and suggested fixes
+    
+    Args:
+        coverage_threshold: Minimum required coverage (0.0 to 1.0). Default: 0.95
+    """
+    print("\n" + "=" * 100)
+    print("WAVE READINESS REPORT")
+    print("=" * 100)
+    print(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Coverage Threshold: {coverage_threshold * 100:.0f}%")
+    print()
+    
+    # Generate report
+    df = generate_wave_readiness_report(coverage_threshold=coverage_threshold)
+    
+    # Summary statistics
+    total_waves = len(df)
+    ready_count = (df['readiness'] == 'READY').sum()
+    partial_count = (df['readiness'] == 'NOT_READY (Partial)').sum()
+    not_ready_count = (df['readiness'] == 'NOT_READY').sum()
+    
+    print("SUMMARY:")
+    print(f"  Total Waves: {total_waves}")
+    print(f"  Ready: {ready_count} ({ready_count/total_waves*100:.1f}%)")
+    if partial_count > 0:
+        print(f"  Partial: {partial_count} ({partial_count/total_waves*100:.1f}%)")
+    print(f"  Not Ready: {not_ready_count} ({not_ready_count/total_waves*100:.1f}%)")
+    print()
+    
+    # Breakdown by reason category
+    reason_counts = df['reason_category'].value_counts()
+    print("FAILURE BREAKDOWN:")
+    for reason, count in reason_counts.items():
+        if reason != 'READY':
+            print(f"  {reason}: {count}")
+    print()
+    
+    # Ready waves
+    ready_df = df[df['readiness'] == 'READY']
+    if not ready_df.empty:
+        print(f"READY WAVES ({len(ready_df)}):")
+        for _, row in ready_df.iterrows():
+            print(f"  ✓ {row['wave_id']}: {row['wave_name']}")
+            print(f"    Coverage: {row['coverage_pct']:.1f}% | Window: {row['available_window_days']} days")
+        print()
+    
+    # Not ready waves (sample)
+    not_ready_df = df[df['readiness'].str.contains('NOT_READY')]
+    if not not_ready_df.empty:
+        print(f"NOT READY WAVES (showing first 10 of {len(not_ready_df)}):")
+        for _, row in not_ready_df.head(10).iterrows():
+            print(f"  ✗ {row['wave_id']}: {row['wave_name']}")
+            print(f"    Reason: {row['reason_category']} | Coverage: {row['coverage_pct']:.1f}%")
+            if row['failing_tickers']:
+                tickers = row['failing_tickers'].split(', ')
+                ticker_preview = ', '.join(tickers[:5])
+                if len(tickers) > 5:
+                    ticker_preview += f' (+{len(tickers) - 5} more)'
+                print(f"    Failing: {ticker_preview}")
+            print(f"    Fix: {row['suggested_fix']}")
+            print()
+    
+    print("=" * 100)
+    print()
 
 
 # ------------------------------------------------------------

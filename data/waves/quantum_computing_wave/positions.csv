@@ -1,0 +1,9 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IONQ,0.2,IonQ Inc.,0.2,0.0,0.0
+RGTI,0.15,Rigetti Computing Inc.,0.15,0.0,0.0
+QBTS,0.15,D-Wave Quantum Inc.,0.15,0.0,0.0
+IBM,0.15,International Business Machines Corp.,0.15,0.0,0.0
+GOOGL,0.1,Alphabet Inc. (Class A),0.1,0.0,0.0
+MSFT,0.1,Microsoft Corp.,0.1,0.0,0.0
+NVDA,0.1,NVIDIA Corp.,0.1,0.0,0.0
+AMD,0.05,Advanced Micro Devices Inc.,0.05,0.0,0.0

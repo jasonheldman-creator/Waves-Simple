@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+BRK-B,0.12,Berkshire Hathaway (B),0.12,0.0,0.0
+JPM,0.1,JPMorgan Chase & Co.,0.1,0.0,0.0
+XOM,0.1,Exxon Mobil Corp.,0.1,0.0,0.0
+CVX,0.08,Chevron Corp.,0.08,0.0,0.0
+PG,0.1,Procter & Gamble,0.1,0.0,0.0
+KO,0.08,Coca-Cola,0.08,0.0,0.0
+JNJ,0.1,Johnson & Johnson,0.1,0.0,0.0
+UNH,0.1,UnitedHealth Group,0.1,0.0,0.0
+WMT,0.1,Walmart,0.1,0.0,0.0
+VTV,0.12,Vanguard Value ETF,0.12,0.0,0.0

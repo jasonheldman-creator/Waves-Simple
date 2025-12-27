@@ -1,0 +1,6 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IJH,0.25,iShares Core S&P Mid-Cap ETF,0.25,0.0,0.0
+IWP,0.25,iShares Russell Mid-Cap Growth ETF,0.25,0.0,0.0
+MDY,0.2,SPDR S&P MidCap 400 ETF,0.2,0.0,0.0
+IWO,0.15,iShares Russell 2000 Growth ETF,0.15,0.0,0.0
+VBK,0.15,Vanguard Small-Cap Growth ETF,0.15,0.0,0.0
