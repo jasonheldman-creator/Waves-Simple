@@ -7801,6 +7801,98 @@ def render_wave_intelligence_center_tab():
     st.divider()
     
     # ========================================================================
+    # WAVE READINESS REPORT (Collapsible)
+    # ========================================================================
+    with st.expander("🔍 Wave Readiness Report", expanded=False):
+        st.markdown("### 📋 Wave Data Readiness Diagnostics")
+        st.caption("Comprehensive diagnostics showing which waves are ready for display and why some are not.")
+        
+        try:
+            from analytics_pipeline import generate_wave_readiness_report, DEFAULT_COVERAGE_THRESHOLD
+            
+            # Generate the report
+            readiness_df = generate_wave_readiness_report(coverage_threshold=DEFAULT_COVERAGE_THRESHOLD)
+            
+            if not readiness_df.empty:
+                # Show summary metrics
+                total_waves = len(readiness_df)
+                ready_count = (readiness_df['readiness'] == 'READY').sum()
+                partial_count = (readiness_df['readiness'] == 'NOT_READY (Partial)').sum()
+                not_ready_count = (readiness_df['readiness'] == 'NOT_READY').sum()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Waves", total_waves)
+                with col2:
+                    st.metric("Ready", ready_count, delta=f"{ready_count/total_waves*100:.1f}%")
+                with col3:
+                    if partial_count > 0:
+                        st.metric("Partial", partial_count)
+                    else:
+                        st.metric("Not Ready", not_ready_count)
+                with col4:
+                    avg_coverage = readiness_df['coverage_pct'].mean()
+                    st.metric("Avg Coverage", f"{avg_coverage:.1f}%")
+                
+                st.markdown("---")
+                
+                # Show the full report table
+                st.dataframe(
+                    readiness_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400,
+                    column_config={
+                        "wave_id": st.column_config.TextColumn("Wave ID", width="medium"),
+                        "wave_name": st.column_config.TextColumn("Wave Name", width="medium"),
+                        "readiness": st.column_config.TextColumn("Status", width="small"),
+                        "reason_category": st.column_config.TextColumn("Reason", width="small"),
+                        "failing_tickers": st.column_config.TextColumn("Failing Tickers", width="medium"),
+                        "coverage_pct": st.column_config.NumberColumn("Coverage %", format="%.1f%%", width="small"),
+                        "required_window_days": st.column_config.NumberColumn("Req. Days", width="small"),
+                        "available_window_days": st.column_config.NumberColumn("Avail. Days", width="small"),
+                        "start_date": st.column_config.TextColumn("Start Date", width="small"),
+                        "end_date": st.column_config.TextColumn("End Date", width="small"),
+                        "suggested_fix": st.column_config.TextColumn("Suggested Fix", width="large"),
+                    }
+                )
+                
+                # Download button
+                csv = readiness_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Readiness Report as CSV",
+                    data=csv,
+                    file_name=f"wave_readiness_report_{latest_timestamp}.csv",
+                    mime="text/csv"
+                )
+                
+                # Show reason breakdown
+                st.markdown("#### Failure Reason Breakdown")
+                reason_counts = readiness_df['reason_category'].value_counts()
+                reason_df = pd.DataFrame({
+                    'Reason Category': reason_counts.index,
+                    'Count': reason_counts.values
+                })
+                reason_df = reason_df[reason_df['Reason Category'] != 'READY']  # Exclude READY
+                
+                if not reason_df.empty:
+                    st.dataframe(reason_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("All waves are ready! ✓")
+                    
+            else:
+                st.info("No readiness data available")
+        
+        except ImportError:
+            st.warning("Wave Readiness Report requires analytics_pipeline module")
+        except Exception as e:
+            st.error(f"Error generating Wave Readiness Report: {str(e)}")
+            if st.session_state.get("debug_mode", False):
+                st.exception(e)
+    
+    st.divider()
+    
+    # ========================================================================
     # SECTION 2: Alpha Summary (System-Level Rollups)
     # ========================================================================
     st.markdown("### 🎯 Alpha Summary (30-Day)")
@@ -13681,6 +13773,19 @@ def main():
     Main application entry point - Executive Layer v2.
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
+    # ========================================================================
+    # Wave Readiness Report - Log on startup
+    # ========================================================================
+    
+    # Print readiness report to logs (only once per session)
+    if "readiness_report_logged" not in st.session_state:
+        try:
+            from analytics_pipeline import print_readiness_report
+            print_readiness_report()
+            st.session_state.readiness_report_logged = True
+        except Exception as e:
+            print(f"Warning: Could not generate readiness report: {e}")
+    
     # ========================================================================
     # Last Known Good Backup Creation
     # ========================================================================

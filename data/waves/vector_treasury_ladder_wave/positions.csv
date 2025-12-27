@@ -1,0 +1,6 @@
+ticker,weight,description,exposure,cash,safe_fraction
+BIL,0.25,SPDR Bloomberg 1-3 Month T-Bill ETF,0.25,0.0,0.0
+SHY,0.2,iShares 1-3 Year Treasury Bond ETF,0.2,0.0,0.0
+IEF,0.2,iShares 7-10 Year Treasury Bond ETF,0.2,0.0,0.0
+TLT,0.2,iShares 20+ Year Treasury Bond ETF,0.2,0.0,0.0
+LQD,0.15,iShares iBoxx $ Investment Grade Corporate Bond ETF,0.15,0.0,0.0

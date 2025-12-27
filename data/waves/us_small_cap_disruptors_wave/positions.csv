@@ -1,0 +1,7 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IWO,0.3,iShares Russell 2000 Growth ETF,0.3,0.0,0.0
+VBK,0.3,Vanguard Small-Cap Growth ETF,0.3,0.0,0.0
+ARKK,0.1,ARK Innovation ETF,0.1,0.0,0.0
+ZS,0.1,Zscaler Inc.,0.1,0.0,0.0
+DDOG,0.1,Datadog Inc.,0.1,0.0,0.0
+NET,0.1,Cloudflare Inc.,0.1,0.0,0.0

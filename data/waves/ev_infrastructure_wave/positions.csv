@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+TSLA,0.12,Tesla Inc.,0.12,0.0,0.0
+NIO,0.08,NIO Inc.,0.08,0.0,0.0
+GM,0.08,General Motors,0.08,0.0,0.0
+F,0.08,Ford Motor Co.,0.08,0.0,0.0
+CAT,0.08,Caterpillar Inc.,0.08,0.0,0.0
+UNP,0.08,Union Pacific Corp.,0.08,0.0,0.0
+VMC,0.08,Vulcan Materials,0.08,0.0,0.0
+MLM,0.08,Martin Marietta Materials,0.08,0.0,0.0
+XLI,0.16,Industrial Select Sector SPDR,0.16,0.0,0.0
+PAVE,0.16,Global X U.S. Infrastructure Development,0.16,0.0,0.0

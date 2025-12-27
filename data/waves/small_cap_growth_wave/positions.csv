@@ -1,0 +1,5 @@
+ticker,weight,description,exposure,cash,safe_fraction
+IWO,0.4,iShares Russell 2000 Growth ETF,0.4,0.0,0.0
+VBK,0.3,Vanguard Small-Cap Growth ETF,0.3,0.0,0.0
+VTWO,0.15,Vanguard Russell 2000 ETF,0.15,0.0,0.0
+IJH,0.15,iShares Core S&P Mid-Cap ETF,0.15,0.0,0.0

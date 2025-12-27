@@ -1,0 +1,11 @@
+ticker,weight,description,exposure,cash,safe_fraction
+TSLA,0.15,Tesla Inc.,0.15,0.0,0.0
+RIVN,0.08,Rivian Automotive Inc.,0.08,0.0,0.0
+LCID,0.07,Lucid Group Inc.,0.07,0.0,0.0
+GM,0.1,General Motors,0.1,0.0,0.0
+F,0.1,Ford Motor Co.,0.1,0.0,0.0
+PAVE,0.15,Global X U.S. Infrastructure Development,0.15,0.0,0.0
+XLI,0.15,Industrial Select Sector SPDR,0.15,0.0,0.0
+CAT,0.08,Caterpillar Inc.,0.08,0.0,0.0
+UNP,0.07,Union Pacific Corp.,0.07,0.0,0.0
+CHPT,0.05,ChargePoint Holdings Inc.,0.05,0.0,0.0
