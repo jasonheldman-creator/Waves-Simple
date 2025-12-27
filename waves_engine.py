@@ -2046,26 +2046,31 @@ def _compute_core(
       - freeze_benchmark: bool   (use static benchmark only)
     """
     if wave_name not in WAVE_WEIGHTS:
-        raise ValueError(f"Unknown Wave: {wave_name}")
+        print(f"Error: Unknown Wave: {wave_name}")
+        # Return empty DataFrame instead of raising
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
     if mode not in MODE_BASE_EXPOSURE:
-        raise ValueError(f"Unknown mode: {mode}")
+        print(f"Error: Unknown mode: {mode}")
+        # Return empty DataFrame instead of raising
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
     ov = overrides or {}
 
-    # Holdings
-    wave_holdings = WAVE_WEIGHTS[wave_name]
+    try:
+        # Holdings
+        wave_holdings = WAVE_WEIGHTS[wave_name]
 
-    # Benchmark selection
-    freeze_benchmark = bool(ov.get("freeze_benchmark", False))
-    if freeze_benchmark:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
-    else:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-        if not bm_holdings:
-            bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        # Benchmark selection
+        freeze_benchmark = bool(ov.get("freeze_benchmark", False))
+        if freeze_benchmark:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        else:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+            if not bm_holdings:
+                bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
 
-    wave_weights = _normalize_weights(wave_holdings)
-    bm_weights = _normalize_weights(bm_holdings)
+        wave_weights = _normalize_weights(wave_holdings)
+        bm_weights = _normalize_weights(bm_holdings)
 
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
@@ -2742,6 +2747,14 @@ def _compute_core(
             out.attrs["strategy_attribution"] = attribution_rows
 
     return out
+    
+    except Exception as e:
+        # Catch any errors in computation and return empty DataFrame
+        # This prevents ticker failures from crashing the entire app
+        print(f"Error computing NAV for {wave_name}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
 
 # ------------------------------------------------------------
