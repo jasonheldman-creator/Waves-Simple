@@ -668,18 +668,6 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
         'issues': issues,
         'ticker_failures': ticker_failures
     }
-        'positions_exists', 'trades_exists', 'nav_exists', 'nav_aligned'
-    ]
-    
-    status = 'pass' if all(checks.get(c, False) for c in required_checks) else 'fail'
-    
-    return {
-        'wave_id': wave_id,
-        'display_name': get_display_name_from_wave_id(wave_id),
-        'status': status,
-        'checks': checks,
-        'issues': issues
-    }
 
 
 # ------------------------------------------------------------
