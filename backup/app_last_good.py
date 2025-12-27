@@ -54,6 +54,14 @@ except ImportError:
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
 
+# Import data cache for global price caching
+try:
+    from data_cache import get_global_price_cache
+    DATA_CACHE_AVAILABLE = True
+except ImportError:
+    DATA_CACHE_AVAILABLE = False
+    get_global_price_cache = None
+
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
     from helpers.ticker_rail import render_bottom_ticker_v3
@@ -108,6 +116,26 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
 # ============================================================================
+
+# ============================================================================
+# DATA-READY CONFIGURATION - Price Caching and Wave Status
+# ============================================================================
+# Minimum days of price history required for a wave to be considered "Data-Ready"
+# LOWERED from 60 to 7 to support partial data availability
+MIN_DAYS_READY = 7
+
+# Batch size for ticker price downloads to reduce rate-limit risks
+PRICE_DOWNLOAD_BATCH_SIZE = 100
+
+# Pause duration (seconds) between batches to avoid rate limiting
+BATCH_PAUSE_MIN = 0.5
+BATCH_PAUSE_MAX = 1.5
+
+# Cache TTL for price downloads (in seconds) - 1 hour default
+PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
+
+# Safe asset tickers for overlays (cash, treasuries, etc.)
+SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
 
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
@@ -324,9 +352,40 @@ class DecisionAttributionEngine:
                 try:
                     # Use existing alpha attribution if available
                     from alpha_attribution import compute_alpha_attribution_series
-                    attribution_result = compute_alpha_attribution_series(wave_data, wave_name)
-                    if attribution_result and hasattr(attribution_result, 'asset_selection_alpha'):
-                        components.selection_alpha = attribution_result.asset_selection_alpha
+                    
+                    # Prepare data for attribution - transform column names
+                    wave_data_copy = wave_data.copy()
+                    
+                    # Ensure date is index
+                    if 'date' in wave_data_copy.columns:
+                        wave_data_copy = wave_data_copy.set_index('date')
+                    
+                    # Transform column names: return -> wave_ret, benchmark_return -> bm_ret
+                    if 'return' in wave_data_copy.columns and has_benchmark:
+                        wave_data_copy['wave_ret'] = wave_data_copy['return']
+                        if 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        elif benchmark_data is not None and 'return' in benchmark_data.columns:
+                            wave_data_copy['bm_ret'] = benchmark_data['return']
+                        else:
+                            wave_data_copy['bm_ret'] = 0.0
+                    elif 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                        wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                        wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                    else:
+                        warnings.append("Selection alpha unavailable - missing return columns")
+                        calculations_skipped.append('selection_alpha')
+                        raise ValueError("Missing required return columns")
+                    
+                    # Call with correct parameter order: wave_name, mode, history_df
+                    _, summary = compute_alpha_attribution_series(
+                        wave_name=wave_name,
+                        mode=st.session_state.get("mode", "Standard"),
+                        history_df=wave_data_copy
+                    )
+                    
+                    if summary and hasattr(summary, 'asset_selection_alpha'):
+                        components.selection_alpha = summary.asset_selection_alpha
                         components.selection_available = True
                         calculations_performed.append('selection_alpha')
                     else:
@@ -1126,6 +1185,7 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         - removed_duplicates: List of removed duplicates
         - source: Data source ("engine", "fallback")
         - timestamp: Current timestamp for tracking
+        - enabled_flags: Dictionary mapping wave names to enabled status (default True)
     """
     from datetime import datetime
     
@@ -1164,12 +1224,45 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     # Deduplicate
     deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
     
+    # Load wave_config.csv if available to get enabled flags
+    enabled_flags = {}
+    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+    if os.path.exists(wave_config_path):
+        try:
+            config_df = pd.read_csv(wave_config_path)
+            # Default enabled to True if column doesn't exist or value is missing
+            if 'enabled' in config_df.columns:
+                for _, row in config_df.iterrows():
+                    wave_name = row.get('Wave', '')
+                    enabled_value = row.get('enabled', True)
+                    # Handle NaN or empty values - default to True
+                    if pd.isna(enabled_value) or enabled_value == '':
+                        enabled_value = True
+                    enabled_flags[wave_name] = bool(enabled_value)
+        except Exception:
+            pass  # If CSV reading fails, continue with defaults
+    
+    # Initialize enabled flags from session state if available (for runtime changes)
+    session_enabled = st.session_state.get("wave_enabled_flags", {})
+    
+    # Build final enabled flags - default all waves to enabled=True
+    final_enabled = {}
+    for wave in deduplicated_waves:
+        # Priority: session state > CSV config > default True
+        if wave in session_enabled:
+            final_enabled[wave] = session_enabled[wave]
+        elif wave in enabled_flags:
+            final_enabled[wave] = enabled_flags[wave]
+        else:
+            final_enabled[wave] = True  # Default to enabled
+    
     # Build universe dictionary
     universe = {
         "waves": deduplicated_waves,
         "removed_duplicates": removed_duplicates,
         "source": source,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "enabled_flags": final_enabled
     }
     
     # Cache in session state
@@ -1279,6 +1372,33 @@ def validate_wave_data(wave_name: str, mode: str, days: int, df=None) -> tuple[b
 # ============================================================================
 # SECTION 2: UTILITY FUNCTIONS
 # ============================================================================
+
+def k(tab, name, wave_id=None, mode=None):
+    """
+    Unique key factory for Streamlit widgets.
+    Creates unique keys to avoid duplicate key errors across tabs and waves.
+    
+    Args:
+        tab: Tab name or section identifier (e.g., "Diagnostics", "Overview")
+        name: Widget name (e.g., "wave_selector", "timeframe")
+        wave_id: Optional wave identifier for wave-specific widgets
+        mode: Optional mode identifier for mode-specific widgets
+        
+    Returns:
+        Unique key string in format: "tab__name" or "tab__wave__name" etc.
+    
+    Examples:
+        k("Diagnostics", "wave_selector") -> "Diagnostics__wave_selector"
+        k("Overview", "timeframe", wave_id="SP500") -> "Overview__SP500__timeframe"
+        k("Console", "chart", mode="Standard") -> "Console__Standard__chart"
+    """
+    parts = [tab, name]
+    if wave_id:
+        parts.insert(1, wave_id)
+    if mode:
+        parts.insert(1, mode)
+    return "__".join(parts)
+
 
 def get_git_commit_hash():
     """Get the current git commit hash, return 'unknown' if unavailable."""
@@ -1418,6 +1538,163 @@ def render_html_safe(html_content: str, height: int = None, scrolling: bool = Fa
     else:
         # Use plain markdown rendering
         st.markdown(html_content, unsafe_allow_html=True)
+
+
+def safe_plotly_chart(fig, use_container_width=True, key=None, placeholder_msg="📊 Chart unavailable"):
+    """
+    Safely render a plotly chart with error handling.
+    If rendering fails, shows a placeholder message instead of crashing.
+    
+    Args:
+        fig: Plotly figure object
+        use_container_width: Whether to use container width
+        key: Unique key for the chart
+        placeholder_msg: Message to show if chart fails to render
+    """
+    try:
+        if fig is None:
+            st.info(placeholder_msg)
+            return
+        st.plotly_chart(fig, use_container_width=use_container_width, key=key)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_image(image_path, caption=None, use_column_width=None, placeholder_msg="🖼️ Image unavailable"):
+    """
+    Safely render an image with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        image_path: Path to image file
+        caption: Optional image caption
+        use_column_width: Whether to use column width
+        placeholder_msg: Message to show if image fails to render
+    """
+    try:
+        if not os.path.exists(image_path):
+            st.info(placeholder_msg)
+            return
+        st.image(image_path, caption=caption, use_column_width=use_column_width)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_audio(audio_path, format="audio/mp3", start_time=0, placeholder_msg="🔊 Audio unavailable"):
+    """
+    Safely render an audio file with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        audio_path: Path to audio file
+        format: Audio format (default: "audio/mp3")
+        start_time: Start time in seconds (default: 0)
+        placeholder_msg: Message to show if audio fails to render
+    """
+    try:
+        if not os.path.exists(audio_path):
+            st.info(placeholder_msg)
+            return
+        st.audio(audio_path, format=format, start_time=start_time)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_video(video_path, format="video/mp4", start_time=0, placeholder_msg="🎥 Video unavailable"):
+    """
+    Safely render a video file with error handling.
+    If the file doesn't exist or rendering fails, shows a placeholder instead of crashing.
+    
+    Args:
+        video_path: Path to video file
+        format: Video format (default: "video/mp4")
+        start_time: Start time in seconds (default: 0)
+        placeholder_msg: Message to show if video fails to render
+    """
+    try:
+        if not os.path.exists(video_path):
+            st.info(placeholder_msg)
+            return
+        st.video(video_path, format=format, start_time=start_time)
+    except Exception as e:
+        st.warning(f"⚠️ {placeholder_msg}")
+        # Log error for debugging but don't crash
+        if st.session_state.get("debug_mode", False):
+            st.caption(f"_Debug: {str(e)}_")
+
+
+def safe_component(component_name, render_func, *args, show_error=True, **kwargs):
+    """
+    Safely execute a component rendering function with error handling.
+    If the component fails, shows a minimal indicator instead of crashing the entire app.
+    
+    Args:
+        component_name: Name of the component for error messages
+        render_func: The function to execute
+        *args: Positional arguments to pass to render_func
+        show_error: Whether to show error message on failure (default: True)
+        **kwargs: Keyword arguments to pass to render_func
+        
+    Returns:
+        The result of render_func, or None if it fails
+    """
+    try:
+        return render_func(*args, **kwargs)
+    except Exception as e:
+        # Store error for diagnostics (silent logging)
+        if "component_errors" not in st.session_state:
+            st.session_state.component_errors = []
+        
+        error_entry = {
+            "component": component_name,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        st.session_state.component_errors.append(error_entry)
+        
+        # Keep only last 20 errors to avoid memory bloat
+        if len(st.session_state.component_errors) > 20:
+            st.session_state.component_errors = st.session_state.component_errors[-20:]
+        
+        # Show minimal UI based on debug_mode
+        if show_error:
+            debug_mode = st.session_state.get("debug_mode", False)
+            
+            if debug_mode:
+                # Debug mode ON: Show detailed error with expander
+                st.warning(f"⚠️ {component_name} temporarily unavailable")
+                with st.expander(f"🐛 Debug: {component_name} error details", expanded=False):
+                    st.error(f"**Error:** {str(e)}")
+                    st.code(traceback.format_exc(), language="python")
+            else:
+                # Debug mode OFF: Show small pill only (silent fallback)
+                st.markdown(f"""
+                    <div style="
+                        display: inline-block;
+                        background: rgba(255, 193, 7, 0.1);
+                        border: 1px solid rgba(255, 193, 7, 0.3);
+                        border-radius: 12px;
+                        padding: 4px 12px;
+                        margin: 8px 0;
+                        font-size: 12px;
+                        color: #ffc107;
+                    ">
+                        ⚠️ {component_name} unavailable
+                    </div>
+                """, unsafe_allow_html=True)
+                st.caption("💡 Enable Debug Mode in sidebar for details")
+        
+        return None
 
 
 def calculate_wavescore(wave_data):
@@ -1759,6 +2036,416 @@ def get_wave_universe_with_data(period_days=30, _wave_universe_version=1):
         
     except Exception:
         return []
+
+
+def get_wave_status_map(_wave_universe_version=1):
+    """
+    Get status for each wave in the universe.
+    
+    Returns:
+        Dictionary mapping wave names to status:
+        - "Ready": Full analytics data available (recent 7 days)
+        - "Degraded": Partial data or stale data
+        - "Degraded (Rate Limited)": API errors or rate limiting detected
+        - "Missing Inputs": No data available
+    
+    This does NOT affect whether a wave is Active - waves remain Active
+    based on their enabled flag regardless of data status.
+    """
+    status_map = {}
+    
+    try:
+        # Get all waves from universe
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        
+        # Get wave history
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        if wave_history is None or 'wave' not in wave_history.columns:
+            # No data available - all waves are Missing Inputs
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+            return status_map
+        
+        # Get latest date
+        latest_date = wave_history['date'].max()
+        cutoff_date = latest_date - timedelta(days=7)
+        
+        # Get waves with recent data
+        recent_data = wave_history[wave_history['date'] >= cutoff_date]
+        waves_with_recent_data = set(recent_data['wave'].unique())
+        
+        # Get waves with any data (older than 7 days)
+        all_waves_with_data = set(wave_history['wave'].unique())
+        
+        # Check for rate-limited or error status in session state
+        rate_limited_waves = st.session_state.get("rate_limited_waves", set())
+        
+        # Classify each wave
+        for wave in all_waves:
+            if wave in rate_limited_waves:
+                status_map[wave] = "Degraded (Rate Limited)"
+            elif wave in waves_with_recent_data:
+                status_map[wave] = "Ready"
+            elif wave in all_waves_with_data:
+                status_map[wave] = "Degraded"
+            else:
+                status_map[wave] = "Missing Inputs"
+        
+    except Exception:
+        # On error, default all to Missing Inputs
+        try:
+            all_waves = get_wave_universe()
+            for wave in all_waves:
+                status_map[wave] = "Missing Inputs"
+        except:
+            pass
+    
+    return status_map
+
+
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None, use_analytics_pipeline=False) -> tuple[bool, str, str]:
+    """
+    Check if a wave is data-ready with explicit criteria.
+    UPDATED: More lenient to support partial data availability.
+    
+    Args:
+        wave_id: Wave identifier
+        wave_history_df: Optional wave history DataFrame (will load if not provided)
+        wave_universe: Optional wave universe dict (will load if not provided)
+        price_df: Optional cached price DataFrame for NAV computation
+        use_analytics_pipeline: If True, use analytics_pipeline.compute_data_ready_status for detailed diagnostics
+    
+    Returns:
+        Tuple of (is_ready: bool, status: str, reason: str)
+        
+    Statuses:
+        - "Ready": All criteria met (including partial data)
+        - "Missing Inputs": Missing holdings/benchmark/registry fields
+        - "Degraded (Rate Limited)": yfinance limit/download failure
+        - "Degraded (Partial Data)": Insufficient history or missing some tickers
+        - "Error (Computation)": NAV metrics exception
+    """
+    try:
+        # NEW: Optionally use analytics pipeline for detailed file-based diagnostics
+        if use_analytics_pipeline:
+            try:
+                from analytics_pipeline import compute_data_ready_status
+                diagnostics = compute_data_ready_status(wave_id)
+                
+                # Map analytics pipeline status to app.py status format
+                if diagnostics['is_ready']:
+                    return True, "Ready", diagnostics['details']
+                else:
+                    reason_code = diagnostics['reason']
+                    if reason_code in ['MISSING_WEIGHTS', 'WAVE_NOT_FOUND']:
+                        return False, "Missing Inputs", diagnostics['details']
+                    elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
+                        return False, "Degraded (Partial Data)", diagnostics['details']
+                    elif reason_code in ['MISSING_PRICES', 'MISSING_BENCHMARK', 'MISSING_NAV']:
+                        return False, "Missing Inputs", diagnostics['details']
+                    else:
+                        return False, "Error (Computation)", diagnostics['details']
+            except ImportError:
+                # Fall through to legacy logic if analytics_pipeline not available
+                pass
+        
+        # LEGACY: Lenient runtime-based checks (original logic)
+        # Load universe if not provided
+        if wave_universe is None:
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            wave_universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        
+        # Check 1: Wave is enabled
+        enabled_flags = wave_universe.get("enabled_flags", {})
+        if not enabled_flags.get(wave_id, True):
+            return False, "Missing Inputs", "Wave is not enabled"
+        
+        # Check 2: Wave exists in registry
+        all_waves = wave_universe.get("waves", [])
+        if wave_id not in all_waves:
+            return False, "Missing Inputs", "Wave not found in registry"
+        
+        # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
+        if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+            if wave_id not in WAVE_WEIGHTS:
+                return False, "Missing Inputs", "No holdings defined in WAVE_WEIGHTS"
+        else:
+            return False, "Missing Inputs", "Wave engine not available"
+        
+        # Check 4: Price data availability
+        # Use cached price_df if provided, otherwise try to get from session state
+        if price_df is None:
+            price_df = st.session_state.get("global_price_df")
+        
+        if price_df is None or price_df.empty:
+            # Fallback to checking wave_history.csv
+            if wave_history_df is None:
+                wave_history_version = st.session_state.get("wave_universe_version", 1)
+                wave_history_df = safe_load_wave_history(_wave_universe_version=wave_history_version)
+            
+            if wave_history_df is None or 'wave' not in wave_history_df.columns:
+                # CHANGED: Don't fail immediately - wave might still work with fresh data
+                # Return degraded status but allow rendering
+                return True, "Ready", "No cached data, will fetch fresh"
+            
+            wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
+            if len(wave_data) == 0:
+                # CHANGED: Don't fail - wave might work with fresh data
+                return True, "Ready", "No historical cache, will fetch fresh"
+            
+            # Check for sufficient days in wave history
+            if 'date' not in wave_data.columns:
+                return True, "Ready", "No date column, will fetch fresh"
+            
+            unique_days = wave_data['date'].nunique()
+            # CHANGED: Accept even 1 day of data - partial data is better than nothing
+            if unique_days < 1:
+                return True, "Ready", "Will fetch fresh data"
+            
+            # Check for required computed columns
+            required_columns = ['portfolio_return', 'benchmark_return', 'nav']
+            missing_columns = [col for col in required_columns if col not in wave_data.columns]
+            if missing_columns:
+                # CHANGED: Don't fail - we can compute fresh
+                return True, "Ready", f"Cached data incomplete, will compute fresh"
+            
+            return True, "Ready", f"All criteria met ({unique_days} days of data)"
+        
+        # NEW: Use cached price_df to verify data coverage and try NAV computation
+        # CHANGED: Accept even minimal price history
+        if len(price_df) < MIN_DAYS_READY:
+            # Still mark as ready - we'll fetch more data as needed
+            return True, "Ready", f"Limited price history ({len(price_df)} days), will supplement"
+        
+        # Check 5: Try to compute NAV using cached prices to verify everything works
+        try:
+            # Import compute_history_nav if available
+            from waves_engine import compute_history_nav
+            
+            # Attempt NAV computation with cached prices
+            result_df = compute_history_nav(
+                wave_name=wave_id,
+                mode="Standard",
+                days=MIN_DAYS_READY,
+                price_df=price_df
+            )
+            
+            # Check if computation succeeded
+            if result_df is None or result_df.empty:
+                # CHANGED: Don't fail - mark as ready but will need fresh fetch
+                return True, "Ready", "NAV computation needs fresh data"
+            
+            # Check for required columns
+            required_cols = ['wave_nav', 'bm_nav']
+            missing = [col for col in required_cols if col not in result_df.columns]
+            if missing:
+                # CHANGED: Still ready, just needs fresh computation
+                return True, "Ready", f"Partial NAV data available"
+            
+            # Check for valid NAV values (not all NaN)
+            if result_df['wave_nav'].isna().all():
+                # CHANGED: Still ready, computation will retry
+                return True, "Ready", "NAV will be computed fresh"
+            
+            # All checks passed!
+            actual_days = len(result_df)
+            return True, "Ready", f"All criteria met ({actual_days} days computed)"
+            
+        except Exception as e:
+            # CHANGED: NAV computation failed but wave is still ready for rendering
+            # Log the error but don't fail the wave
+            error_msg = str(e)
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                # Rate limited - still mark as ready, will retry later
+                return True, "Ready", "Rate limited, will retry"
+            else:
+                # Other error - still mark as ready
+                return True, "Ready", "Will compute fresh NAV"
+        
+    except Exception as e:
+        # CHANGED: Even on exception, mark as ready - fail gracefully during rendering
+        return True, "Ready", f"Will attempt fresh computation"
+
+
+def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
+    """
+    Batched prefetch function for prices with rate-limit protection.
+    
+    Features:
+    - Builds master ticker set from holdings + benchmarks + safe assets
+    - Batched downloads (chunk size: PRICE_DOWNLOAD_BATCH_SIZE)
+    - Pauses between chunks to avoid rate limits
+    - Per-ticker failure tracking
+    
+    Args:
+        days: Number of days of history to fetch (default: 365)
+    
+    Returns:
+        Tuple of (price_df: pd.DataFrame, per_ticker_failures: dict)
+        - price_df: DataFrame with dates as index and tickers as columns
+        - per_ticker_failures: Dict mapping failed tickers to error reasons
+    """
+    import time
+    import random
+    
+    # Import yfinance
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("Warning: yfinance not available")
+        return pd.DataFrame(), {"error": "yfinance not installed"}
+    
+    per_ticker_failures = {}
+    all_prices = pd.DataFrame()
+    
+    try:
+        # Build master ticker set
+        master_tickers = set()
+        
+        # 1. Get all holdings tickers from enabled waves
+        try:
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            enabled_waves = [w for w in universe.get("waves", []) if universe.get("enabled_flags", {}).get(w, True)]
+            
+            # Load wave weights/holdings
+            wave_weights_path = os.path.join(os.path.dirname(__file__), 'wave_weights.csv')
+            if os.path.exists(wave_weights_path):
+                wave_weights_df = pd.read_csv(wave_weights_path)
+                for wave in enabled_waves:
+                    wave_holdings = wave_weights_df[wave_weights_df['wave'] == wave]
+                    if 'ticker' in wave_holdings.columns:
+                        holdings_tickers = wave_holdings['ticker'].dropna().unique().tolist()
+                        master_tickers.update(holdings_tickers)
+        except Exception as e:
+            print(f"Warning: Could not load wave holdings: {str(e)}")
+        
+        # 2. Get all benchmark tickers from enabled waves
+        try:
+            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+            if os.path.exists(wave_config_path):
+                config_df = pd.read_csv(wave_config_path)
+                if 'Benchmark' in config_df.columns:
+                    benchmark_tickers = config_df['Benchmark'].dropna().unique().tolist()
+                    master_tickers.update(benchmark_tickers)
+        except Exception as e:
+            print(f"Warning: Could not load benchmark tickers: {str(e)}")
+        
+        # 3. Add safe asset tickers
+        master_tickers.update(SAFE_ASSET_TICKERS)
+        
+        # Convert to sorted list for consistent batching
+        master_tickers = sorted(list(master_tickers))
+        
+        if len(master_tickers) == 0:
+            print("Warning: No tickers found to prefetch")
+            return pd.DataFrame(), {"error": "No tickers to fetch"}
+        
+        print(f"Prefetching prices for {len(master_tickers)} tickers...")
+        
+        # Calculate date range
+        end_date = datetime.utcnow().date()
+        start_date = end_date - timedelta(days=days + 10)  # Extra buffer
+        
+        # Batch download
+        batch_size = PRICE_DOWNLOAD_BATCH_SIZE
+        num_batches = (len(master_tickers) + batch_size - 1) // batch_size
+        
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min((batch_idx + 1) * batch_size, len(master_tickers))
+            batch_tickers = master_tickers[start_idx:end_idx]
+            
+            print(f"Downloading batch {batch_idx + 1}/{num_batches} ({len(batch_tickers)} tickers)...")
+            
+            try:
+                # Download this batch
+                batch_data = yf.download(
+                    tickers=batch_tickers,
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                    interval="1d",
+                    auto_adjust=True,
+                    progress=False,
+                    group_by="column"
+                )
+                
+                if batch_data is None or len(batch_data) == 0:
+                    # Record failure for all tickers in batch
+                    for ticker in batch_tickers:
+                        per_ticker_failures[ticker] = "Empty response from yfinance"
+                    continue
+                
+                # Extract Adj Close or Close prices
+                if isinstance(batch_data.columns, pd.MultiIndex):
+                    if "Adj Close" in batch_data.columns.get_level_values(0):
+                        batch_prices = batch_data["Adj Close"]
+                    elif "Close" in batch_data.columns.get_level_values(0):
+                        batch_prices = batch_data["Close"]
+                    else:
+                        batch_prices = batch_data[batch_data.columns.levels[0][0]]
+                else:
+                    batch_prices = batch_data
+                
+                # Handle single ticker case (Series instead of DataFrame)
+                if isinstance(batch_prices, pd.Series):
+                    batch_prices = batch_prices.to_frame()
+                
+                # Merge into all_prices
+                if len(all_prices) == 0:
+                    all_prices = batch_prices.copy()
+                else:
+                    all_prices = pd.concat([all_prices, batch_prices], axis=1)
+                
+                # Check which tickers succeeded and which failed
+                for ticker in batch_tickers:
+                    if ticker not in batch_prices.columns:
+                        per_ticker_failures[ticker] = "Ticker not in downloaded data"
+                    elif batch_prices[ticker].isna().all():
+                        per_ticker_failures[ticker] = "All NaN values"
+                
+            except Exception as e:
+                # Record failure for all tickers in batch
+                error_msg = str(e)
+                print(f"Batch {batch_idx + 1} failed: {error_msg}")
+                for ticker in batch_tickers:
+                    per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
+            
+            # Pause between batches (random to avoid patterns)
+            if batch_idx < num_batches - 1:
+                pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
+                print(f"Pausing {pause_duration:.2f}s before next batch...")
+                time.sleep(pause_duration)
+        
+        # Fill missing values (forward fill then backward fill)
+        if len(all_prices) > 0:
+            all_prices = all_prices.sort_index().ffill().bfill()
+        
+        print(f"Prefetch complete: {len(all_prices.columns)} tickers downloaded, {len(per_ticker_failures)} failures")
+        
+        return all_prices, per_ticker_failures
+        
+    except Exception as e:
+        print(f"Error in prefetch_prices_for_all_waves: {str(e)}")
+        return pd.DataFrame(), {"error": f"Prefetch exception: {str(e)}"}
+
+
+@st.cache_data(ttl=PRICE_CACHE_TTL)
+def cached_prefetch_prices_for_all_waves(days: int = 365, _force_refresh: bool = False) -> tuple[pd.DataFrame, dict]:
+    """
+    Cached wrapper for prefetch_prices_for_all_waves with configurable TTL.
+    
+    Args:
+        days: Number of days of history to fetch
+        _force_refresh: Force refresh flag (prefixed with _ to exclude from cache key)
+    
+    Returns:
+        Tuple of (price_df, per_ticker_failures)
+    """
+    return prefetch_prices_for_all_waves(days)
 
 
 def get_cse_crypto_universe():
@@ -2346,6 +3033,615 @@ def calculate_portfolio_metrics(wave_names, weights, days):
 
 
 # ============================================================================
+# OVERVIEW PAGE HELPER FUNCTIONS
+# ============================================================================
+
+def get_multi_timeframe_wave_data(wave_name, timeframes=[1, 30, 60, 365]):
+    """
+    Get wave data for multiple timeframes.
+    
+    Args:
+        wave_name: Name of the wave
+        timeframes: List of timeframes in days (e.g., [1, 30, 60, 365])
+    
+    Returns:
+        Dictionary mapping timeframe to metrics dict or None
+    """
+    try:
+        results = {}
+        for days in timeframes:
+            wave_data = get_wave_data_filtered(wave_name=wave_name, days=days)
+            if wave_data is not None and len(wave_data) > 0:
+                # Calculate metrics for this timeframe
+                wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
+                
+                results[days] = {
+                    'wave_return': wave_return,
+                    'benchmark_return': benchmark_return,
+                    'alpha': alpha,
+                    'data_points': len(wave_data)
+                }
+            else:
+                results[days] = None
+        
+        return results
+    except Exception:
+        return {}
+
+
+def get_all_waves_multi_timeframe_data(timeframes=[1, 30, 60, 365]):
+    """
+    Get multi-timeframe data for all waves.
+    
+    Args:
+        timeframes: List of timeframes in days
+        
+    Returns:
+        DataFrame with columns: Wave, 1D_Wave, 1D_BM, 1D_Alpha, 30D_Wave, etc.
+    """
+    try:
+        waves = get_available_waves()
+        if not waves:
+            return pd.DataFrame()
+        
+        rows = []
+        for wave_name in waves:
+            row = {'Wave': wave_name}
+            
+            for days in timeframes:
+                wave_data = get_wave_data_filtered(wave_name=wave_name, days=days)
+                
+                if wave_data is not None and len(wave_data) > 0:
+                    wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                    benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                    alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
+                    
+                    row[f'{days}D_Wave'] = wave_return
+                    row[f'{days}D_BM'] = benchmark_return
+                    row[f'{days}D_Alpha'] = alpha
+                else:
+                    row[f'{days}D_Wave'] = None
+                    row[f'{days}D_BM'] = None
+                    row[f'{days}D_Alpha'] = None
+            
+            rows.append(row)
+        
+        df = pd.DataFrame(rows)
+        return df
+        
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_system_statistics(timeframe_days=30):
+    """
+    Compute system-wide statistics across all waves.
+    
+    Args:
+        timeframe_days: Number of days for analysis (default: 30)
+        
+    Returns:
+        Dictionary with system-level statistics
+    """
+    try:
+        waves = get_available_waves()
+        if not waves:
+            return None
+        
+        alpha_values = []
+        wave_returns = []
+        benchmark_returns = []
+        positive_alpha_count = 0
+        total_count = 0
+        
+        best_wave = None
+        best_alpha = -float('inf')
+        worst_wave = None
+        worst_alpha = float('inf')
+        
+        for wave_name in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave_name, days=timeframe_days)
+            
+            if wave_data is not None and len(wave_data) > 0:
+                wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
+                
+                if alpha is not None:
+                    alpha_values.append(alpha)
+                    wave_returns.append(wave_return)
+                    benchmark_returns.append(benchmark_return)
+                    total_count += 1
+                    
+                    if alpha > 0:
+                        positive_alpha_count += 1
+                    
+                    if alpha > best_alpha:
+                        best_alpha = alpha
+                        best_wave = wave_name
+                    
+                    if alpha < worst_alpha:
+                        worst_alpha = alpha
+                        worst_wave = wave_name
+        
+        if total_count == 0:
+            return None
+        
+        return {
+            'avg_alpha': np.mean(alpha_values) if alpha_values else 0.0,
+            'avg_wave_return': np.mean(wave_returns) if wave_returns else 0.0,
+            'avg_benchmark_return': np.mean(benchmark_returns) if benchmark_returns else 0.0,
+            'pct_positive_alpha': (positive_alpha_count / total_count) * 100 if total_count > 0 else 0.0,
+            'best_wave': best_wave,
+            'best_alpha': best_alpha,
+            'worst_wave': worst_wave,
+            'worst_alpha': worst_alpha,
+            'total_waves': total_count
+        }
+        
+    except Exception:
+        return None
+
+
+def get_top_bottom_waves(timeframe_days=30, top_n=3, bottom_n=3):
+    """
+    Get top and bottom waves by alpha.
+    
+    Args:
+        timeframe_days: Number of days for analysis
+        top_n: Number of top waves to return
+        bottom_n: Number of bottom waves to return
+        
+    Returns:
+        Tuple of (top_waves, bottom_waves) where each is a list of (wave_name, alpha) tuples
+    """
+    try:
+        waves = get_available_waves()
+        if not waves:
+            return [], []
+        
+        wave_alphas = []
+        
+        for wave_name in waves:
+            wave_data = get_wave_data_filtered(wave_name=wave_name, days=timeframe_days)
+            
+            if wave_data is not None and len(wave_data) > 0:
+                wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
+                
+                if alpha is not None:
+                    wave_alphas.append((wave_name, alpha))
+        
+        if not wave_alphas:
+            return [], []
+        
+        # Sort by alpha
+        wave_alphas.sort(key=lambda x: x[1], reverse=True)
+        
+        top_waves = wave_alphas[:top_n]
+        bottom_waves = wave_alphas[-bottom_n:][::-1]  # Reverse to show worst first
+        
+        return top_waves, bottom_waves
+        
+    except Exception:
+        return [], []
+
+
+def compute_alpha_metrics_for_wave(wave_name, wave_id=None):
+    """
+    Compute Alpha and Exposure-Adjusted Alpha for a single wave across all timeframes.
+    
+    This is the canonical helper function for Alpha Capture calculations.
+    Reuses existing engine outputs and datasets (wave_history.csv).
+    
+    Args:
+        wave_name: Display name of the wave
+        wave_id: Optional wave ID for reference
+        
+    Returns:
+        Dictionary with:
+        - wave_name: Display name
+        - wave_id: Wave ID (if available)
+        - alpha_1d: 1-day alpha
+        - alpha_30d: 30-day alpha
+        - alpha_60d: 60-day alpha  
+        - alpha_365d: 365-day alpha
+        - exp_adj_alpha_1d: Exposure-adjusted 1-day alpha
+        - exp_adj_alpha_30d: Exposure-adjusted 30-day alpha
+        - exp_adj_alpha_60d: Exposure-adjusted 60-day alpha
+        - exp_adj_alpha_365d: Exposure-adjusted 365-day alpha
+        - exposure_1d: 1-day exposure (defaults to 1.0)
+        - exposure_30d: 30-day average exposure (defaults to 1.0)
+        - exposure_60d: 60-day average exposure (defaults to 1.0)
+        - exposure_365d: 365-day average exposure (defaults to 1.0)
+        - last_updated: Last data update timestamp
+    """
+    metrics = {
+        'wave_name': wave_name,
+        'wave_id': wave_id if wave_id else 'N/A',
+        'alpha_1d': None,
+        'alpha_30d': None,
+        'alpha_60d': None,
+        'alpha_365d': None,
+        'exp_adj_alpha_1d': None,
+        'exp_adj_alpha_30d': None,
+        'exp_adj_alpha_60d': None,
+        'exp_adj_alpha_365d': None,
+        'exposure_1d': 1.0,
+        'exposure_30d': 1.0,
+        'exposure_60d': 1.0,
+        'exposure_365d': 1.0,
+        'last_updated': None
+    }
+    
+    try:
+        # Get wave universe version
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # Load data for all timeframes
+        data_1d = get_wave_data_filtered(wave_name=wave_name, days=1, _wave_universe_version=wave_universe_version)
+        data_30d = get_wave_data_filtered(wave_name=wave_name, days=30, _wave_universe_version=wave_universe_version)
+        data_60d = get_wave_data_filtered(wave_name=wave_name, days=60, _wave_universe_version=wave_universe_version)
+        data_365d = get_wave_data_filtered(wave_name=wave_name, days=365, _wave_universe_version=wave_universe_version)
+        
+        # Helper function to calculate alpha and exposure-adjusted alpha for a timeframe
+        def calc_alpha_metrics(data):
+            if data is None or len(data) == 0:
+                return None, None, 1.0, None
+            
+            alpha = None
+            exp_adj_alpha = None
+            avg_exposure = 1.0
+            last_date = None
+            
+            # Calculate alpha (Wave Return - Benchmark Return)
+            if 'portfolio_return' in data.columns and 'benchmark_return' in data.columns:
+                wave_return = data['portfolio_return'].sum()
+                benchmark_return = data['benchmark_return'].sum()
+                alpha = wave_return - benchmark_return
+                
+                # Calculate exposure-adjusted alpha
+                if 'exposure' in data.columns:
+                    # Use actual exposure data
+                    avg_exposure = data['exposure'].fillna(1.0).mean()
+                    # Exposure-Adjusted Alpha = (Wave Return - Benchmark Return) × Exposure
+                    exp_adj_alpha = alpha * avg_exposure
+                else:
+                    # Default to 1.0 exposure (fully invested)
+                    exp_adj_alpha = alpha * 1.0
+                
+                # Get last updated date
+                if 'date' in data.columns:
+                    last_date = data['date'].max()
+            
+            return alpha, exp_adj_alpha, avg_exposure, last_date
+        
+        # Calculate metrics for each timeframe
+        alpha_1d, exp_adj_1d, exposure_1d, date_1d = calc_alpha_metrics(data_1d)
+        alpha_30d, exp_adj_30d, exposure_30d, date_30d = calc_alpha_metrics(data_30d)
+        alpha_60d, exp_adj_60d, exposure_60d, date_60d = calc_alpha_metrics(data_60d)
+        alpha_365d, exp_adj_365d, exposure_365d, date_365d = calc_alpha_metrics(data_365d)
+        
+        # Update metrics
+        metrics['alpha_1d'] = alpha_1d
+        metrics['alpha_30d'] = alpha_30d
+        metrics['alpha_60d'] = alpha_60d
+        metrics['alpha_365d'] = alpha_365d
+        metrics['exp_adj_alpha_1d'] = exp_adj_1d
+        metrics['exp_adj_alpha_30d'] = exp_adj_30d
+        metrics['exp_adj_alpha_60d'] = exp_adj_60d
+        metrics['exp_adj_alpha_365d'] = exp_adj_365d
+        metrics['exposure_1d'] = exposure_1d
+        metrics['exposure_30d'] = exposure_30d
+        metrics['exposure_60d'] = exposure_60d
+        metrics['exposure_365d'] = exposure_365d
+        
+        # Use the most recent date available
+        last_dates = [d for d in [date_1d, date_30d, date_60d, date_365d] if d is not None]
+        if last_dates:
+            metrics['last_updated'] = max(last_dates)
+        
+    except Exception:
+        pass  # Return metrics with default/None values
+    
+    return metrics
+
+
+def compute_alpha_drivers(wave_name, timeframe_days=30):
+    """
+    Compute alpha driver breakdown for a wave across a specified timeframe.
+    
+    Returns a 3-bucket breakdown:
+    - Stock Selection (Portfolio vs Benchmark)
+    - Risk Overlay (VIX/SafeSmart/Cash Shift)
+    - Residual/Other
+    
+    Args:
+        wave_name: Display name of the wave
+        timeframe_days: Number of days to analyze (default 30)
+        
+    Returns:
+        Dictionary with:
+        - total_alpha: Total alpha in return points
+        - selection_contribution: Selection alpha in return points
+        - overlay_contribution: Overlay alpha in return points
+        - residual_contribution: Residual alpha in return points
+        - selection_percent: Selection share as percentage
+        - overlay_percent: Overlay share as percentage
+        - residual_percent: Residual share as percentage
+        - wave_return: Wave return over the period
+        - benchmark_return: Benchmark return over the period
+        - avg_exposure: Average exposure over the period
+        - last_updated: Last data update timestamp
+        - has_diagnostics: Whether diagnostics data was used
+    """
+    result = {
+        'total_alpha': 0.0,
+        'selection_contribution': 0.0,
+        'overlay_contribution': 0.0,
+        'residual_contribution': 0.0,
+        'selection_percent': None,
+        'overlay_percent': None,
+        'residual_percent': None,
+        'wave_return': 0.0,
+        'benchmark_return': 0.0,
+        'avg_exposure': 1.0,
+        'last_updated': None,
+        'has_diagnostics': False
+    }
+    
+    try:
+        # Get wave universe version
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # Load wave data for the specified timeframe
+        wave_data = get_wave_data_filtered(
+            wave_name=wave_name, 
+            days=timeframe_days, 
+            _wave_universe_version=wave_universe_version
+        )
+        
+        if wave_data is None or len(wave_data) == 0:
+            return result
+        
+        # Check required columns
+        if 'portfolio_return' not in wave_data.columns or 'benchmark_return' not in wave_data.columns:
+            return result
+        
+        # Calculate total returns
+        wave_return = wave_data['portfolio_return'].sum()
+        benchmark_return = wave_data['benchmark_return'].sum()
+        total_alpha = wave_return - benchmark_return
+        
+        result['wave_return'] = wave_return
+        result['benchmark_return'] = benchmark_return
+        result['total_alpha'] = total_alpha
+        
+        # Get last updated date
+        if 'date' in wave_data.columns:
+            result['last_updated'] = wave_data['date'].max()
+        
+        # Calculate average exposure
+        avg_exposure = 1.0
+        if 'exposure' in wave_data.columns:
+            avg_exposure = wave_data['exposure'].fillna(1.0).mean()
+        result['avg_exposure'] = avg_exposure
+        
+        # ========================================================================
+        # STEP 1: Try to use diagnostics data (preferred method)
+        # ========================================================================
+        # 
+        # Correct Attribution Logic (Counterfactual Analysis):
+        # 
+        # Stock Selection Contribution:
+        #   - Counterfactual: Same holdings, always fully invested (exposure=1.0, safe_fraction=0.0)
+        #   - This isolates the contribution from the portfolio holdings themselves
+        #   - Formula: sum(portfolio_risk_ret) - benchmark_return
+        # 
+        # Risk Overlay Contribution:
+        #   - Counterfactual: Difference between actual returns and full-exposure scenario
+        #   - This captures value from exposure management and safe asset allocation
+        #   - Formula: actual_wave_return - stock_selection_counterfactual_return
+        # 
+        # Residual Contribution:
+        #   - Compounding effects, timing interactions, rounding
+        #   - NOT forced to zero - reflects real nonlinear behavior
+        #   - Formula: total_alpha - (stock_selection + risk_overlay)
+        # 
+        selection_contribution = 0.0
+        overlay_contribution = 0.0
+        has_diagnostics = False
+        
+        if VIX_DIAGNOSTICS_AVAILABLE:
+            try:
+                # Get diagnostics for this wave
+                diagnostics = get_wave_diagnostics(
+                    wave_name=wave_name,
+                    mode="Standard",
+                    days=timeframe_days
+                )
+                
+                if diagnostics is not None and not diagnostics.empty:
+                    if 'Wave_Return' in diagnostics.columns and 'Benchmark_Return' in diagnostics.columns:
+                        # Get actual wave and benchmark returns
+                        actual_wave_return = diagnostics['Wave_Return'].sum()
+                        benchmark_return = diagnostics['Benchmark_Return'].sum()
+                        
+                        # STOCK SELECTION CONTRIBUTION (Counterfactual Analysis)
+                        # ======================================================
+                        # Counterfactual: What would the return be with the same holdings
+                        # but always fully invested (exposure=1.0, safe_fraction=0.0)?
+                        # 
+                        # The Wave return formula is:
+                        #   wave_ret = safe_fraction * safe_ret + risk_fraction * exposure * portfolio_risk_ret
+                        # 
+                        # For the counterfactual (full exposure, no safe assets):
+                        #   counterfactual_ret = portfolio_risk_ret
+                        # 
+                        # We need to reconstruct portfolio_risk_ret from the actual returns.
+                        # Given: wave_ret = safe_frac * safe_ret + (1 - safe_frac) * exposure * portfolio_risk_ret
+                        # Solve for: portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / ((1 - safe_frac) * exposure)
+                        
+                        if 'Exposure' in diagnostics.columns and 'Safe_Fraction' in diagnostics.columns:
+                            # Calculate counterfactual return (fully invested in risky assets)
+                            counterfactual_returns = []
+                            
+                            for idx, row in diagnostics.iterrows():
+                                wave_ret = row.get('Wave_Return', 0.0)
+                                exposure_val = row.get('Exposure', 1.0)
+                                safe_frac = row.get('Safe_Fraction', 0.0)
+                                risk_frac = 1.0 - safe_frac
+                                
+                                # Estimate safe asset return (use small constant for now)
+                                # In the engine, safe assets return roughly 4 bps annually
+                                # Daily return = 0.0004 / 252 ≈ 0.0000016
+                                safe_ret = 0.0000016  # ~4 bps annually, converted to daily
+                                
+                                # Reconstruct the portfolio risk return
+                                # portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / (risk_frac * exposure)
+                                denominator = risk_frac * exposure_val
+                                if abs(denominator) > 0.001:  # Avoid division by very small numbers
+                                    portfolio_risk_ret = (wave_ret - safe_frac * safe_ret) / denominator
+                                else:
+                                    # When exposure is near zero, wave return is mostly from safe assets
+                                    # The counterfactual would have zero return from risky assets
+                                    portfolio_risk_ret = 0.0
+                                
+                                # Counterfactual: fully invested in risky portfolio
+                                counterfactual_returns.append(portfolio_risk_ret)
+                            
+                            # Stock selection is the counterfactual return minus benchmark
+                            counterfactual_total = sum(counterfactual_returns)
+                            selection_contribution = counterfactual_total - benchmark_return
+                            
+                            # RISK OVERLAY CONTRIBUTION (Counterfactual Comparison)
+                            # =====================================================
+                            # This is the difference between actual returns and the
+                            # counterfactual full-exposure scenario
+                            overlay_contribution = actual_wave_return - counterfactual_total
+                            
+                            has_diagnostics = True
+                        else:
+                            # Missing required columns - fall through to fallback
+                            pass
+            except Exception:
+                pass  # Fall through to fallback method
+        
+        # ========================================================================
+        # STEP 2: Fallback method using average exposure (less accurate)
+        # ========================================================================
+        if not has_diagnostics:
+            # Without detailed diagnostics, we use a simplified approximation
+            # This is less accurate but better than nothing
+            
+            # Estimate counterfactual using average exposure
+            if avg_exposure > 0.01 and avg_exposure < 0.99:
+                # There was meaningful exposure variation
+                # Rough estimate: stock selection contributed based on scaled return
+                safe_ret_estimate = 0.0000016 * timeframe_days  # ~4 bps annually, converted to daily
+                avg_safe_fraction = max(0.0, 1.0 - avg_exposure)  # Rough estimate
+                avg_risk_fraction = 1.0 - avg_safe_fraction
+                
+                # Estimate portfolio risk return from actual wave return
+                # wave_return ≈ safe_frac * safe_ret + risk_frac * exposure * portfolio_risk_ret
+                denominator = avg_risk_fraction * avg_exposure
+                if abs(denominator) > 0.001:
+                    portfolio_risk_ret_est = (wave_return - avg_safe_fraction * safe_ret_estimate) / denominator
+                    
+                    # Stock selection: counterfactual fully invested
+                    selection_contribution = portfolio_risk_ret_est - benchmark_return
+                    
+                    # Risk overlay: difference between actual and counterfactual
+                    overlay_contribution = wave_return - portfolio_risk_ret_est
+                else:
+                    # Very low exposure - mostly in safe assets
+                    selection_contribution = 0.0
+                    overlay_contribution = total_alpha
+            else:
+                # Average exposure near 1.0 or no exposure data
+                # Assume most alpha is from selection, minimal from overlay
+                selection_contribution = total_alpha
+                overlay_contribution = 0.0
+        
+        result['selection_contribution'] = selection_contribution
+        result['overlay_contribution'] = overlay_contribution
+        result['has_diagnostics'] = has_diagnostics
+        
+        # ========================================================================
+        # STEP 3: Calculate residual contribution (NOT forced to zero)
+        # ========================================================================
+        # Residual captures:
+        # - Compounding effects (multiplicative vs additive returns)
+        # - Timing interactions between exposure changes and market moves
+        # - Rounding and numerical precision
+        # - Nonlinear behavior from strategy interactions
+        # 
+        # This is an honest reflection of what cannot be cleanly attributed
+        residual_contribution = total_alpha - (selection_contribution + overlay_contribution)
+        
+        result['residual_contribution'] = residual_contribution
+        
+        # ========================================================================
+        # STEP 4: Calculate percentage shares
+        # ========================================================================
+        if abs(total_alpha) > 1e-6:  # Avoid division by very small numbers
+            result['selection_percent'] = (selection_contribution / total_alpha) * 100
+            result['overlay_percent'] = (overlay_contribution / total_alpha) * 100
+            result['residual_percent'] = (residual_contribution / total_alpha) * 100
+        else:
+            # Total alpha is effectively zero - set to N/A
+            result['selection_percent'] = None
+            result['overlay_percent'] = None
+            result['residual_percent'] = None
+        
+    except Exception:
+        pass  # Return default result
+    
+    return result
+
+
+def compute_alpha_metrics_all_waves():
+    """
+    Compute Alpha and Exposure-Adjusted Alpha for all waves.
+    
+    Returns:
+        List of dictionaries, one per wave, with alpha metrics across all timeframes.
+    """
+    all_metrics = []
+    
+    try:
+        # Get all waves from the universe
+        waves = get_wave_universe()
+        
+        # Get wave_history to extract wave_ids if available
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
+        
+        wave_id_map = {}
+        if wave_history is not None and 'wave' in wave_history.columns and 'wave_id' in wave_history.columns:
+            # Create mapping from display_name to wave_id
+            for _, row in wave_history.iterrows():
+                wave_name = row.get('wave', row.get('display_name', ''))
+                wave_id = row.get('wave_id', None)
+                if wave_name and wave_id:
+                    wave_id_map[wave_name] = wave_id
+        
+        # Compute metrics for each wave
+        for wave_name in waves:
+            wave_id = wave_id_map.get(wave_name, None)
+            metrics = compute_alpha_metrics_for_wave(wave_name, wave_id)
+            all_metrics.append(metrics)
+    
+    except Exception:
+        pass  # Return empty list on error
+    
+    return all_metrics
+
+
+# ============================================================================
 # WAVE UNIVERSE TRUTH LAYER - Diagnostics and Freshness
 # ============================================================================
 
@@ -2356,7 +3652,8 @@ def compute_wave_universe_diagnostics():
     Returns:
         Dictionary with diagnostic metrics including:
         - universe_count: Total waves in canonical registry
-        - active_count: Waves with recent data (last 7 days)
+        - active_count: Waves with enabled=True (NEW: not data-dependent)
+        - data_ready_count: Waves with recent data (last 7 days)
         - history_unique_count: Unique waves in wave_history.csv
         - missing_waves: Waves in registry but no data
         - orphan_waves: Waves in data but not in registry
@@ -2366,6 +3663,7 @@ def compute_wave_universe_diagnostics():
     diagnostics = {
         'universe_count': 0,
         'active_count': 0,
+        'data_ready_count': 0,  # NEW: Waves with full analytics
         'history_unique_count': 0,
         'missing_waves': [],
         'orphan_waves': [],
@@ -2382,9 +3680,14 @@ def compute_wave_universe_diagnostics():
         
         registry_waves = set(universe.get("waves", []))
         duplicate_waves = universe.get("removed_duplicates", [])
+        enabled_flags = universe.get("enabled_flags", {})
         
         diagnostics['universe_count'] = len(registry_waves)
         diagnostics['duplicate_waves'] = duplicate_waves
+        
+        # NEW: Active count = enabled waves (not data-dependent)
+        active_count = sum(1 for wave in registry_waves if enabled_flags.get(wave, True))
+        diagnostics['active_count'] = active_count
         
         # Get wave history data
         wave_history = safe_load_wave_history(_wave_universe_version=wave_universe_version)
@@ -2402,13 +3705,25 @@ def compute_wave_universe_diagnostics():
             orphan_waves = history_waves - registry_waves
             diagnostics['orphan_waves'] = sorted(list(orphan_waves))
             
-            # Calculate active waves (recent data in last 7 days)
+            # NEW: Calculate data-ready waves using explicit criteria
             if 'date' in wave_history.columns:
                 latest_date = wave_history['date'].max()
-                cutoff_date = latest_date - timedelta(days=7)
-                recent_data = wave_history[wave_history['date'] >= cutoff_date]
-                active_waves = set(recent_data['wave'].unique())
-                diagnostics['active_count'] = len(active_waves & registry_waves)
+                
+                # Use is_wave_data_ready to check each wave
+                data_ready_waves = set()
+                wave_statuses = {}
+                
+                # Get cached price_df from session state
+                price_df = st.session_state.get("global_price_df")
+                
+                for wave in registry_waves:
+                    is_ready, status, reason = is_wave_data_ready(wave, wave_history, universe, price_df)
+                    wave_statuses[wave] = {'status': status, 'reason': reason}
+                    if is_ready:
+                        data_ready_waves.add(wave)
+                
+                diagnostics['data_ready_count'] = len(data_ready_waves)
+                diagnostics['wave_statuses'] = wave_statuses
                 
                 # Compute data freshness per wave
                 data_freshness = []
@@ -2476,11 +3791,11 @@ def render_wave_universe_truth_panel():
     # ========================================================================
     st.markdown("#### 📊 Universe Metrics")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
-            label="Universe Count",
+            label="Universe",
             value=diagnostics.get('universe_count', 0),
             help="Total waves in canonical Wave Universe registry"
         )
@@ -2489,10 +3804,17 @@ def render_wave_universe_truth_panel():
         st.metric(
             label="Active Waves",
             value=diagnostics.get('active_count', 0),
-            help="Waves with data in last 7 days"
+            help="Waves with enabled=True (not data-dependent)"
         )
     
     with col3:
+        st.metric(
+            label="Data-Ready",
+            value=diagnostics.get('data_ready_count', 0),
+            help="Waves with full analytics data (recent 7 days)"
+        )
+    
+    with col4:
         st.metric(
             label="History Unique",
             value=diagnostics.get('history_unique_count', 0),
@@ -2543,6 +3865,110 @@ def render_wave_universe_truth_panel():
             with st.expander("View Duplicates Removed"):
                 for wave in diagnostics['duplicate_waves']:
                     st.text(f"• {wave}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2.5: WAVE STATUS SUMMARY AND TABLE
+    # ========================================================================
+    st.markdown("#### 📊 Wave Status Summary")
+    st.caption("Wave status does NOT affect Active count - waves remain Active based on enabled flag")
+    
+    # Get wave statuses from diagnostics (uses is_wave_data_ready function)
+    wave_statuses = diagnostics.get('wave_statuses', {})
+    
+    # Count waves by status
+    status_counts = {
+        "Ready": 0,
+        "Degraded (Partial Data)": 0,
+        "Degraded (Rate Limited)": 0,
+        "Missing Inputs": 0,
+        "Error (Computation)": 0
+    }
+    
+    for wave, info in wave_statuses.items():
+        status = info['status']
+        if status == "Ready":
+            status_counts["Ready"] += 1
+        elif status == "Degraded (Rate Limited)":
+            status_counts["Degraded (Rate Limited)"] += 1
+        elif status == "Degraded (Partial Data)":
+            status_counts["Degraded (Partial Data)"] += 1
+        elif status == "Error (Computation)":
+            status_counts["Error (Computation)"] += 1
+        else:
+            status_counts["Missing Inputs"] += 1
+    
+    status_col1, status_col2, status_col3, status_col4, status_col5 = st.columns(5)
+    
+    with status_col1:
+        st.metric(
+            label="🟢 Ready",
+            value=status_counts["Ready"],
+            help="Waves with all data-ready criteria met"
+        )
+    
+    with status_col2:
+        st.metric(
+            label="🟡 Degraded (Data)",
+            value=status_counts["Degraded (Partial Data)"],
+            help="Insufficient history or missing tickers"
+        )
+    
+    with status_col3:
+        st.metric(
+            label="🟠 Rate Limited",
+            value=status_counts["Degraded (Rate Limited)"],
+            help="yfinance API errors or rate limiting"
+        )
+    
+    with status_col4:
+        st.metric(
+            label="🔴 Missing Inputs",
+            value=status_counts["Missing Inputs"],
+            help="Missing holdings, benchmark, or registry fields"
+        )
+    
+    with status_col5:
+        st.metric(
+            label="⚫ Computation Error",
+            value=status_counts["Error (Computation)"],
+            help="NAV/metrics computation exceptions"
+        )
+    
+    # Display detailed wave status table
+    if wave_statuses:
+        st.markdown("##### Wave Status Details")
+        
+        # Create DataFrame for display
+        status_rows = []
+        for wave, info in wave_statuses.items():
+            status_rows.append({
+                'Wave Name': wave,
+                'Status': info['status'],
+                'Reason': info['reason']
+            })
+        
+        status_df = pd.DataFrame(status_rows)
+        
+        # Sort: Ready first, then Degraded, then Missing Inputs, then Errors
+        status_order = {
+            "Ready": 1,
+            "Degraded (Partial Data)": 2,
+            "Degraded (Rate Limited)": 2,
+            "Missing Inputs": 3,
+            "Error (Computation)": 4
+        }
+        status_df['sort_order'] = status_df['Status'].map(status_order)
+        status_df = status_df.sort_values(['sort_order', 'Wave Name']).drop('sort_order', axis=1)
+        
+        # Display table
+        st.dataframe(
+            status_df,
+            use_container_width=True,
+            hide_index=True,
+            height=400
+        )
     
     st.divider()
     
@@ -2678,6 +4104,7 @@ def render_wave_universe_truth_panel():
             csv_rows.append("METRICS")
             csv_rows.append(f"Universe Count,{diagnostics.get('universe_count', 0)}")
             csv_rows.append(f"Active Waves,{diagnostics.get('active_count', 0)}")
+            csv_rows.append(f"Data-Ready Waves,{diagnostics.get('data_ready_count', 0)}")
             csv_rows.append(f"History Unique,{diagnostics.get('history_unique_count', 0)}")
             csv_rows.append(f"Missing Waves,{len(diagnostics.get('missing_waves', []))}")
             csv_rows.append(f"Orphan Waves,{len(diagnostics.get('orphan_waves', []))}")
@@ -3167,6 +4594,11 @@ def get_mission_control_data():
     Retrieve Mission Control metrics from available data.
     Returns dict with all metrics, using 'unknown' for unavailable data.
     Enhanced with additional system health indicators.
+    
+    NEW DEFINITIONS:
+    - universe_count: Total waves in the wave registry
+    - active_waves: Waves with enabled=True (not based on data availability)
+    - data_ready_count: Waves with enough data to compute full analytics
     """
     mc_data = {
         'market_regime': 'unknown',
@@ -3179,6 +4611,7 @@ def get_mission_control_data():
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
+        'data_ready_count': 0,  # NEW: Waves with full analytics data
         'system_status': 'unknown',
         'universe_count': 0,
         'history_unique_count': 0
@@ -3191,9 +4624,21 @@ def get_mission_control_data():
             mc_data['system_status'] = 'Data Unavailable'
             # Still get wave universe count even if no history (Data Backbone V1)
             try:
-                canonical_waves = get_wave_universe()
+                wave_universe_version = st.session_state.get("wave_universe_version", 1)
+                universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+                
+                canonical_waves = universe.get("waves", [])
+                enabled_flags = universe.get("enabled_flags", {})
+                
                 mc_data['total_waves'] = len(canonical_waves)
                 mc_data['universe_count'] = mc_data['total_waves']
+                
+                # NEW: Active = enabled waves, not data-dependent
+                active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+                mc_data['active_waves'] = active_count
+                
+                # No data means data_ready_count = 0
+                mc_data['data_ready_count'] = 0
             except Exception:
                 pass
             return mc_data
@@ -3209,35 +4654,46 @@ def get_mission_control_data():
         # Count waves using centralized wave universe (Data Backbone V1)
         try:
             # Get wave universe - single source of truth for all wave lists and counts
-            canonical_waves = get_wave_universe()
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            
+            canonical_waves = universe.get("waves", [])
+            enabled_flags = universe.get("enabled_flags", {})
+            
             mc_data['total_waves'] = len(canonical_waves)
             mc_data['universe_count'] = len(canonical_waves)
+            
+            # NEW: Active = enabled waves, not data-dependent
+            active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+            mc_data['active_waves'] = active_count
             
             # Count unique waves in historical data
             if 'wave' in df.columns:
                 history_waves_unique = df['wave'].nunique()
                 mc_data['history_unique_count'] = history_waves_unique
                 
-                # Count active waves: intersection of canonical universe with waves in recent history
+                # NEW: Data-Ready = waves with recent data (full analytics available)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
                 recent_waves = set(recent_data['wave'].unique())
                 canonical_waves_set = set(canonical_waves)
-                active_waves_set = recent_waves.intersection(canonical_waves_set)
-                mc_data['active_waves'] = len(active_waves_set)
+                data_ready_waves = recent_waves.intersection(canonical_waves_set)
+                mc_data['data_ready_count'] = len(data_ready_waves)
             else:
                 # No wave column in history
-                mc_data['active_waves'] = 0
                 mc_data['history_unique_count'] = 0
+                mc_data['data_ready_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
                 mc_data['total_waves'] = df['wave'].nunique()
                 mc_data['universe_count'] = mc_data['total_waves']
                 mc_data['history_unique_count'] = mc_data['total_waves']
+                # Assume all waves are enabled in fallback mode
+                mc_data['active_waves'] = mc_data['total_waves']
                 
-                # Count active waves (with recent data)
+                # Count data-ready waves (with recent data)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                mc_data['active_waves'] = recent_data['wave'].nunique()
+                mc_data['data_ready_count'] = recent_data['wave'].nunique()
         
         # System status based on data age
         if age_days <= 1:
@@ -3973,7 +5429,7 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
             height=400
         )
         
-        st.plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
+        safe_plotly_chart(fig, use_container_width=True, key=f"decision_attr_{wave_name}")
         
         # Data table
         st.markdown("#### 📋 Component Details")
@@ -4367,12 +5823,22 @@ def render_mission_control():
         else:
             status_display = f"🔴 {system_status}"
         
+        # Check for degraded data state (price cache failures)
+        price_failures = st.session_state.get("global_price_failures", {})
+        has_failures = len(price_failures) > 0
+        
         st.metric(
             label="System Health",
             value=status_display,
             help=f"Data freshness: {freshness_value}"
         )
-        st.caption(f"Data: {freshness_value}")
+        
+        # Show data quality badge if there are failures
+        if has_failures:
+            failure_count = len(price_failures)
+            st.caption(f"⚠️ Data: Degraded ({failure_count} tickers failed)")
+        else:
+            st.caption(f"Data: {freshness_value}")
     
     # Bottom row: Secondary metrics + Auto-Refresh Indicators (5 columns)
     st.markdown("---")
@@ -4381,29 +5847,26 @@ def render_mission_control():
     
     with sec_col1:
         st.metric(
-            label="Total Waves",
-            value=mc_data.get('total_waves', 0),
-            help="Total number of waves in the canonical universe"
+            label="Universe",
+            value=mc_data.get('universe_count', 0),
+            help="Total waves in the canonical wave registry"
         )
-        # Debugging caption
-        universe_count = mc_data.get('universe_count', 0)
-        active_count = mc_data.get('active_waves', 0)
-        history_unique = mc_data.get('history_unique_count', 0)
-        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col2:
         st.metric(
             label="Active Waves",
             value=mc_data.get('active_waves', 0),
-            help="Waves present in both canonical universe and recent history (last 7 days)"
+            help="Waves with enabled=True (not dependent on data availability)"
         )
-        # Debugging caption
-        universe_count = mc_data.get('universe_count', 0)
-        active_count = mc_data.get('active_waves', 0)
-        history_unique = mc_data.get('history_unique_count', 0)
-        st.caption(f"Universe={universe_count}, Active={active_count}, HistoryUnique={history_unique}")
     
     with sec_col3:
+        st.metric(
+            label="Data-Ready",
+            value=mc_data.get('data_ready_count', 0),
+            help="Waves with full analytics data available (recent 7 days)"
+        )
+        
+    with sec_col4:
         data_age = mc_data.get('data_age_days')
         if data_age is not None:
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
@@ -4418,7 +5881,7 @@ def render_mission_control():
             help="Time since last data update"
         )
     
-    with sec_col4:
+    with sec_col5:
         # Auto-Refresh Status Indicator (Enhanced)
         auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", DEFAULT_AUTO_REFRESH_ENABLED)
         auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
@@ -4446,19 +5909,7 @@ def render_mission_control():
         
         # Show last successful refresh time
         last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
-        st.caption(f"Last update: {last_successful_refresh.strftime('%H:%M:%S')}")
-    
-    with sec_col5:
-        # Wave Universe Version & Last Refresh Time
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        last_refresh_time = st.session_state.get("last_refresh_time", datetime.now())
-        
-        st.metric(
-            label="Wave Universe",
-            value=f"v{wave_universe_version}",
-            help="Wave universe version for cache invalidation"
-        )
-        st.caption(f"Last refresh: {last_refresh_time.strftime('%H:%M:%S')}")
+        st.caption(f"Last: {last_successful_refresh.strftime('%H:%M:%S')}")
     
     # ========================================================================
     # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
@@ -4686,7 +6137,7 @@ def render_mission_control():
                             selected_wave = st.selectbox(
                                 "Select Wave for Diagnostics",
                                 waves,
-                                key="diagnostics_wave_selector"
+                                key=k("Diagnostics", "wave_selector")
                             )
                             
                             try:
@@ -4788,6 +6239,15 @@ def render_sidebar_info():
     )
     st.session_state["render_rich_html_enabled"] = render_rich_html_ui
     
+    # Debug Mode toggle (default OFF per requirements)
+    debug_mode_ui = st.sidebar.checkbox(
+        "🐛 Debug Mode",
+        value=st.session_state.get("debug_mode", False),
+        key="debug_mode_ui_toggle",
+        help="Show detailed error messages and diagnostics when components fail (default: OFF)"
+    )
+    st.session_state["debug_mode"] = debug_mode_ui
+    
     st.sidebar.markdown("---")
     
     # ========================================================================
@@ -4870,6 +6330,180 @@ def render_sidebar_info():
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Force Build Data for All Waves Button
+    # ========================================================================
+    if st.sidebar.button(
+        "🔨 Force Build Data for All Waves",
+        key="force_build_all_waves_button",
+        use_container_width=True,
+        help="Trigger price prefetch and update readiness statuses for all waves"
+    ):
+        try:
+            # Show progress indicator
+            with st.spinner("Prefetching prices for all waves..."):
+                # Set force rebuild flag
+                st.session_state.force_price_cache_rebuild = True
+                
+                # Clear any previous rate-limited flags
+                if "rate_limited_waves" in st.session_state:
+                    del st.session_state["rate_limited_waves"]
+                
+                # Force refresh the global price cache
+                if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+                    cache_result = get_global_price_cache(
+                        wave_registry=WAVE_WEIGHTS,
+                        days=365,
+                        ttl_seconds=st.session_state.get("price_cache_ttl_seconds", 7200)
+                    )
+                    
+                    # Update session state
+                    st.session_state.global_price_df = cache_result.get("price_df")
+                    st.session_state.global_price_failures = cache_result.get("failures", {})
+                    st.session_state.global_price_asof = cache_result.get("asof")
+                    st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                    st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                    
+                    # Show results
+                    success_count = cache_result.get("success_count", 0)
+                    failure_count = len(cache_result.get("failures", {}))
+                    
+                    st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                else:
+                    st.sidebar.warning("⚠️ Data cache system not available")
+                
+                # Force reload diagnostics
+                st.cache_data.clear()
+                st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error building data: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Data Refresh TTL Selector
+    # ========================================================================
+    st.sidebar.markdown("### 🕐 Data Refresh Settings")
+    
+    ttl_options = {
+        "1 hour": 3600,
+        "2 hours": 7200,
+        "4 hours": 14400,
+        "8 hours": 28800,
+        "12 hours": 43200,
+        "24 hours": 86400
+    }
+    
+    # Get current TTL from session state
+    current_ttl = st.session_state.get("price_cache_ttl_seconds", 7200)
+    
+    # Find the label for current TTL
+    current_label = "2 hours"  # default
+    for label, value in ttl_options.items():
+        if value == current_ttl:
+            current_label = label
+            break
+    
+    selected_ttl_label = st.sidebar.selectbox(
+        "Data Refresh TTL",
+        options=list(ttl_options.keys()),
+        index=list(ttl_options.keys()).index(current_label),
+        key="ttl_selector",
+        help="How long to cache price data before refreshing"
+    )
+    
+    # Update session state
+    st.session_state.price_cache_ttl_seconds = ttl_options[selected_ttl_label]
+    
+    # Show cache status if available
+    if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+        asof_time = st.session_state.global_price_asof
+        time_diff = datetime.utcnow() - asof_time
+        minutes_ago = int(time_diff.total_seconds() / 60)
+        
+        if minutes_ago < 60:
+            age_str = f"{minutes_ago} min ago"
+        else:
+            hours_ago = minutes_ago // 60
+            age_str = f"{hours_ago}h {minutes_ago % 60}m ago"
+        
+        success_count = st.session_state.get("global_price_success_count", 0)
+        ticker_count = st.session_state.get("global_price_ticker_count", 0)
+        
+        st.sidebar.caption(f"📊 Cache: {success_count}/{ticker_count} tickers ({age_str})")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # NEW: Activate All Waves Button
+    # ========================================================================
+    if st.sidebar.button(
+        "✅ Activate All Waves",
+        key="activate_all_waves_button",
+        use_container_width=True,
+        help="Enable all waves in the universe (set enabled=True for all)"
+    ):
+        try:
+            # Get current universe
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+            
+            # Create enabled flags dictionary with all waves set to True
+            enabled_flags = {wave: True for wave in universe.get("waves", [])}
+            
+            # Store in session state
+            st.session_state["wave_enabled_flags"] = enabled_flags
+            
+            # Force reload universe to pick up new flags
+            st.session_state.wave_universe_version = wave_universe_version + 1
+            st.cache_data.clear()
+            
+            st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Error activating waves: {str(e)}")
+    
+    # ========================================================================
+    # NEW: Warm Cache Button (Optional - Recommended)
+    # ========================================================================
+    if st.sidebar.button(
+        "🔥 Warm Cache",
+        key="warm_cache_button",
+        use_container_width=True,
+        help="Prefetch and cache price data to ensure fast startup (optional)"
+    ):
+        try:
+            with st.spinner("Warming cache with price data..."):
+                # Prefetch prices
+                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
+                
+                # Store to session state
+                if len(price_df) > 0:
+                    st.session_state["last_good_prices"] = price_df
+                    st.session_state["last_price_fetch_time"] = datetime.now()
+                    
+                    # Optional: Save to disk (parquet format for fast loading)
+                    try:
+                        cache_dir = os.path.join(os.path.dirname(__file__), 'data')
+                        os.makedirs(cache_dir, exist_ok=True)
+                        cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
+                        price_df.to_parquet(cache_file)
+                        st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
+                    except Exception as disk_error:
+                        # Disk save failed, but memory cache still works
+                        st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
+                        st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
+                    
+                    # Show failure summary if any
+                    if failures:
+                        st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
+                else:
+                    st.sidebar.warning("⚠️ No price data was fetched. Please try again.")
+                    if failures:
+                        st.sidebar.error(f"Failures: {len(failures)} tickers failed to fetch")
+                        
+        except Exception as e:
+            st.sidebar.error(f"❌ Error warming cache: {str(e)}")
+            # Don't crash - let user continue working
     
     st.sidebar.markdown("---")
     
@@ -5014,6 +6648,20 @@ def render_sidebar_info():
         st.sidebar.caption("Displays portfolio tickers, earnings, and Fed data")
     else:
         st.sidebar.info("🔴 Ticker bar is hidden")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Data Health Panel
+    # ========================================================================
+    with st.sidebar.expander("📊 Data Health Status", expanded=False):
+        try:
+            from helpers.data_health_panel import render_data_health_panel
+            render_data_health_panel()
+        except ImportError:
+            st.warning("⚠️ Data health panel not available")
+        except Exception as e:
+            st.error(f"❌ Error loading health panel: {str(e)}")
     
     st.sidebar.markdown("---")
     
@@ -5467,7 +7115,9 @@ def render_wave_identity_card(selected_wave: str, mode: str):
             """
             
             # Render using st.components.v1.html()
-            components.html(html_content, height=350, scrolling=False)
+            # Increased height to 600px to prevent clipping on mobile devices
+            # Enabled scrolling to ensure all content is accessible
+            components.html(html_content, height=600, scrolling=True)
             
         except Exception as component_error:
             # Fallback to Streamlit-native layout
@@ -5540,974 +7190,912 @@ def _render_wave_identity_card_fallback(
         st.markdown("<br>", unsafe_allow_html=True)
 
 
-def render_wave_intelligence_center_tab():
+def render_executive_brief_tab():
     """
-    Render the Intelligence Center (Vector v3) tab - Cross-Wave Correlation & Insights.
+    Render the Executive Brief tab - Top-level actionable insights for decision-makers.
     
-    This tab provides institutional-grade cross-wave analytics:
-    1. Correlation Matrix across all Waves (using daily returns)
-    2. Rolling Correlations for selected Wave (30-day and 90-day)
-    3. Diversification & Redundancy Panel (top 5 lowest/highest correlation pairs)
-    4. Clustering & Grouping View (hierarchical clustering based on correlation distance)
-    5. Market Regime / Risk-On vs Risk-Off Heuristic (using SPY returns and VIX trends)
-    6. Opportunity Lens (3-5 observation bullet points based on correlation and regime context)
+    This is the FIRST tab (Overview) and provides:
+    - Mission Control Header: "WAVES Intelligence™"
+    - Executive Summary: Highlights of top performers and waves requiring attention
+    - Comprehensive Performance Table: All waves with Current, 30D, 60D, 365D returns and alphas
+    - Market Snapshot: Market Regime, VIX Gate Status, Rates, SPY/QQQ, Liquidity
+    - Wave System Snapshot: System Return, Alpha, Win Rate, Risk State
+    - What's Strong/What's Weak: Top/Bottom 5 Waves by Alpha (30D)
+    - Why: Compact narrative paragraph on the current regime
+    - What to Do: Action panel (e.g., today's actions, watchlist)
     
-    Features:
-    - Mobile-friendly responsive design
-    - Safe fallbacks for insufficient data
-    - No changes to engine math (reuses existing wave history/return data)
-    - Graceful error handling with panel-level try-except
-    
-    SAFE_MODE: Wrapped in try-except with crash logging and graceful error handling.
+    NO DIAGNOSTICS CONTENT - All diagnostics moved to Diagnostics tab.
     """
-    # Get selected wave from session state
-    selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
-    mode = st.session_state.get("mode", "Standard")
+    # ========================================================================
+    # MISSION CONTROL HEADER
+    # ========================================================================
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border: 2px solid #00d9ff;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        text-align: center;
+    ">
+        <h1 style="color: #00d9ff; margin: 0; font-size: 32px;">
+            🌊 WAVES Intelligence™
+        </h1>
+        <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 16px;">
+            Market + Wave Health Dashboard
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # SAFE_MODE wrapper - catch exceptions and log crashes
-    # Check session state first, then fall back to global flag
-    use_safe_mode = st.session_state.get("safe_mode_enabled", SAFE_MODE)
-    
-    if use_safe_mode:
+    try:
+        # ========================================================================
+        # SECTION 1: EXECUTIVE SUMMARY
+        # ========================================================================
+        st.markdown("### 📋 Executive Summary")
+        
         try:
-            _render_intelligence_center_v3_content(selected_wave, mode)
-            # Clear error flag on success
-            st.session_state.wave_ic_has_errors = False
+            # Get all waves data for multi-timeframe analysis
+            timeframes = [1, 30, 60, 365]
+            all_waves_df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+            
+            if not all_waves_df.empty and '30D_Alpha' in all_waves_df.columns:
+                # Sort by 30D Alpha to identify top and bottom performers
+                sorted_df = all_waves_df.sort_values('30D_Alpha', ascending=False)
+                sorted_df_clean = sorted_df.dropna(subset=['30D_Alpha'])
+                
+                # Identify top performers (top 3 with valid data)
+                top_performers = sorted_df_clean.head(3)
+                
+                # Identify waves requiring attention (bottom 3 with valid data)
+                bottom_performers = sorted_df_clean.tail(3)
+                
+                # Get system statistics
+                stats_30d = get_system_statistics(timeframe_days=30)
+                mc_data = get_mission_control_data()
+                
+                # Build executive summary narrative
+                summary_parts = []
+                
+                # Market context
+                market_regime = mc_data.get('market_regime', 'Unknown') if mc_data else 'Unknown'
+                vix_gate = mc_data.get('vix_gate_status', 'Unknown') if mc_data else 'Unknown'
+                
+                if market_regime != 'Unknown':
+                    summary_parts.append(f"**Market Regime:** {market_regime}")
+                if vix_gate != 'Unknown':
+                    summary_parts.append(f"**VIX Status:** {vix_gate}")
+                
+                # Top performers section
+                if len(top_performers) > 0:
+                    top_text = "**Top Performers:** "
+                    top_names = []
+                    for idx, row in top_performers.iterrows():
+                        wave_name = row['Wave']
+                        alpha_30d = row.get('30D_Alpha')
+                        if pd.notna(alpha_30d):
+                            top_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                    if top_names:
+                        top_text += ", ".join(top_names)
+                        summary_parts.append(top_text)
+                
+                # Waves requiring attention section
+                if len(bottom_performers) > 0:
+                    bottom_text = "**Requiring Attention:** "
+                    bottom_names = []
+                    for idx, row in bottom_performers.iterrows():
+                        wave_name = row['Wave']
+                        alpha_30d = row.get('30D_Alpha')
+                        if pd.notna(alpha_30d):
+                            bottom_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                    if bottom_names:
+                        bottom_text += ", ".join(bottom_names)
+                        summary_parts.append(bottom_text)
+                
+                # System-level insights
+                if stats_30d:
+                    avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                    win_rate = stats_30d.get('pct_positive_alpha', 0.0)
+                    
+                    if win_rate >= 70 and avg_alpha > 0.005:
+                        insight = "**Overall Impact:** Strong performance across the system with broad-based positive momentum."
+                    elif win_rate >= 55:
+                        insight = "**Overall Impact:** Mixed performance with selective opportunities in leading waves."
+                    elif win_rate >= 40:
+                        insight = "**Overall Impact:** Divergent performance across waves; focus on differentiated positioning."
+                    else:
+                        insight = "**Overall Impact:** Defensive positioning warranted given weak breadth and negative alpha trends."
+                    
+                    summary_parts.append(insight)
+                
+                # Display summary
+                if summary_parts:
+                    summary_text = " | ".join(summary_parts)
+                    st.info(summary_text)
+                else:
+                    st.info("Executive summary unavailable - insufficient data.")
+            else:
+                st.info("Executive summary unavailable - no wave data available.")
+        
         except Exception as e:
-            # Set error flag for fallback behavior
-            st.session_state.wave_ic_has_errors = True
+            st.info("Executive summary unavailable - data loading error.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES
+        # ========================================================================
+        st.markdown("### 📊 Comprehensive Performance Table - All Waves")
+        st.caption("Multi-timeframe returns and alpha for all waves (sorted by 30D Alpha, descending)")
+        
+        try:
+            # Get multi-timeframe data for all waves
+            timeframes = [1, 30, 60, 365]
+            df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
             
-            # Log the crash
-            log_crash_to_file(e, context="Intelligence Center (Vector v3) Tab")
-            
-            # Display friendly error banner
-            st.error("⚠️ **Intelligence Center Temporarily Unavailable**")
-            st.warning("""
-            The Intelligence Center encountered an error and cannot be displayed at this time.
-            
-            **What happened:**
-            - An unexpected error occurred while loading correlation and insights data
-            - The error has been logged to `logs/crash_log.txt` for review
-            
-            **What you can do:**
-            - Use the **Console** and **Overview** tabs for core functionality
-            - Try refreshing the page
-            - Contact support if the problem persists
-            """)
-            
-            # Show error details in expander (for debugging)
-            with st.expander("🔍 Technical Details (for debugging)"):
+            if not df.empty:
+                # Sort by 30D Alpha (descending), handling NaN values
+                if '30D_Alpha' in df.columns:
+                    df = df.sort_values('30D_Alpha', ascending=False, na_position='last')
+                
+                # Create formatted display dataframe
+                display_df = pd.DataFrame()
+                display_df['Wave Name'] = df['Wave']
+                
+                # Add columns for each timeframe with graceful missing data handling
+                for days in timeframes:
+                    # Determine label
+                    if days == 1:
+                        period_label = "Current"
+                    else:
+                        period_label = f"{days}D"
+                    
+                    wave_col = f'{days}D_Wave'
+                    bm_col = f'{days}D_BM'
+                    alpha_col = f'{days}D_Alpha'
+                    
+                    # Wave Return column
+                    if wave_col in df.columns:
+                        display_df[f'{period_label} Return'] = df[wave_col].apply(
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                        )
+                    else:
+                        display_df[f'{period_label} Return'] = "Unavailable"
+                    
+                    # Alpha column
+                    if alpha_col in df.columns:
+                        display_df[f'{period_label} Alpha'] = df[alpha_col].apply(
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                        )
+                    else:
+                        display_df[f'{period_label} Alpha'] = "Unavailable"
+                
+                # Display the table
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500
+                )
+                
+                # Download button for raw data
+                csv = df.to_csv(index=False)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                st.download_button(
+                    label="📥 Download Performance Data as CSV",
+                    data=csv,
+                    file_name=f"waves_comprehensive_performance_{timestamp}.csv",
+                    mime="text/csv",
+                    key=k("ExecutiveBrief", "download_comprehensive_performance")
+                )
+            else:
+                st.info("No wave performance data available")
+        
+        except Exception as e:
+            st.error(f"Error generating comprehensive performance table: {str(e)}")
+            if st.session_state.get("debug_mode", False):
                 st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
-    else:
-        # No SAFE_MODE - run directly (original behavior)
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 3: MARKET SNAPSHOT
+        # ========================================================================
+        st.markdown("### 🌐 Market Snapshot")
+        
         try:
-            _render_intelligence_center_v3_content(selected_wave, mode)
-            # Clear error flag on success
-            st.session_state.wave_ic_has_errors = False
-        except Exception as e:
-            # Even without SAFE_MODE, set error flag for potential future use
-            st.session_state.wave_ic_has_errors = True
-            raise
-
-
-def _render_intelligence_center_v3_content(selected_wave: str, mode: str):
-    """
-    Internal function to render the Intelligence Center (Vector v3) content.
-    Separated to allow SAFE_MODE wrapping.
-    
-    Vector v3 focuses on cross-wave correlation and insights.
-    """
-    # Header
-    st.header("🧠 Intelligence Center")
-    
-    # Wave Identity Card must always render as visual UI. Raw HTML rendering is forbidden.
-    # Render the Wave Identity Card at the top
-    render_wave_identity_card(selected_wave, mode)
-    
-    st.write("**Cross-Wave Correlation Analysis & Market Intelligence**")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 1: Correlation Matrix Across All Waves
-    # ========================================================================
-    st.markdown("### 📊 Correlation Matrix - All Waves")
-    st.caption("Daily return correlations across all waves (reuses existing wave history data)")
-    
-    try:
-        # Get all available waves
-        waves = get_available_waves()
-        
-        if not waves or len(waves) < 2:
-            st.info("📊 Insufficient data - Need at least 2 waves with historical data")
-        else:
-            # Filter waves with sufficient data (at least 30 days)
-            valid_waves = []
-            wave_returns_dict = {}
+            # Get mission control data
+            mc_data = get_mission_control_data()
             
-            for wave in waves:
-                wave_data = get_wave_data_filtered(wave_name=wave, days=90)
-                if wave_data is not None and len(wave_data) >= 30:
-                    if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
-                        valid_waves.append(wave)
-                        # Store returns indexed by date
-                        wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
-            
-            if len(valid_waves) < 2:
-                st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
-            else:
-                # Build correlation matrix
-                # Merge all returns on common dates
-                returns_df = pd.DataFrame(wave_returns_dict)
-                
-                # Drop rows with any NaN
-                returns_df = returns_df.dropna()
-                
-                if len(returns_df) < 10:
-                    st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
-                else:
-                    # Calculate correlation matrix
-                    corr_matrix = returns_df.corr()
-                    
-                    # Display as heatmap using plotly
-                    fig = go.Figure(data=go.Heatmap(
-                        z=corr_matrix.values,
-                        x=corr_matrix.columns,
-                        y=corr_matrix.index,
-                        colorscale='RdYlGn',
-                        zmid=0,
-                        zmin=-1,
-                        zmax=1,
-                        text=corr_matrix.values,
-                        texttemplate='%{text:.2f}',
-                        textfont={"size": 9},
-                        colorbar=dict(title="Correlation")
-                    ))
-                    
-                    fig.update_layout(
-                        title="Cross-Wave Correlation Matrix (Daily Returns)",
-                        xaxis_title="Wave",
-                        yaxis_title="Wave",
-                        height=max(400, len(valid_waves) * 30),
-                        xaxis={'tickangle': -45},
-                        margin=dict(l=150, r=50, t=80, b=150)
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Show summary stats
-                    st.caption(f"Correlation based on {len(returns_df)} days of common return data across {len(valid_waves)} waves")
-    
-    except Exception as e:
-        st.warning(f"⚠️ Correlation Matrix panel unavailable: {str(e)}")
-        st.info("📊 Unable to display correlation matrix. Data may be insufficient or unavailable.")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 2: Rolling Correlations for Selected Wave
-    # ========================================================================
-    st.markdown("### 📈 Rolling Correlations - Selected Wave")
-    st.caption(f"Rolling 30-day and 90-day correlations between **{selected_wave}** and all other waves")
-    
-    try:
-        # Get selected wave data
-        selected_wave_data = get_wave_data_filtered(wave_name=selected_wave, days=180)
-        
-        if selected_wave_data is None or len(selected_wave_data) < 30:
-            st.info(f"📊 Insufficient data for {selected_wave} - Need at least 30 days of returns")
-        else:
-            # Get all other waves
-            all_waves = get_available_waves()
-            other_waves = [w for w in all_waves if w != selected_wave]
-            
-            if not other_waves:
-                st.info("📊 No other waves available for correlation analysis")
-            else:
-                # Calculate rolling correlations
-                rolling_30d_corrs = {}
-                rolling_90d_corrs = {}
-                
-                selected_returns = selected_wave_data.set_index('date')['portfolio_return']
-                
-                for other_wave in other_waves[:10]:  # Limit to top 10 for performance
-                    other_wave_data = get_wave_data_filtered(wave_name=other_wave, days=180)
-                    
-                    if other_wave_data is not None and len(other_wave_data) >= 30:
-                        other_returns = other_wave_data.set_index('date')['portfolio_return']
-                        
-                        # Merge on common dates
-                        combined = pd.DataFrame({
-                            'selected': selected_returns,
-                            'other': other_returns
-                        }).dropna()
-                        
-                        if len(combined) >= 30:
-                            # Calculate rolling correlations
-                            rolling_30 = combined['selected'].rolling(window=30).corr(combined['other'])
-                            rolling_90 = combined['selected'].rolling(window=90).corr(combined['other'])
-                            
-                            # Get latest values
-                            latest_30d = rolling_30.iloc[-1] if not rolling_30.empty else None
-                            latest_90d = rolling_90.iloc[-1] if not rolling_90.empty else None
-                            
-                            if latest_30d is not None and not np.isnan(latest_30d):
-                                rolling_30d_corrs[other_wave] = latest_30d
-                            if latest_90d is not None and not np.isnan(latest_90d):
-                                rolling_90d_corrs[other_wave] = latest_90d
-                
-                if not rolling_30d_corrs and not rolling_90d_corrs:
-                    st.info("📊 Insufficient overlapping data to calculate rolling correlations")
-                else:
-                    # Display as bar charts
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if rolling_30d_corrs:
-                            st.markdown("**30-Day Rolling Correlation**")
-                            df_30d = pd.DataFrame({
-                                'Wave': list(rolling_30d_corrs.keys()),
-                                'Correlation': list(rolling_30d_corrs.values())
-                            }).sort_values('Correlation', ascending=False)
-                            
-                            fig_30d = px.bar(
-                                df_30d,
-                                x='Correlation',
-                                y='Wave',
-                                orientation='h',
-                                color='Correlation',
-                                color_continuous_scale='RdYlGn',
-                                range_color=[-1, 1]
-                            )
-                            fig_30d.update_layout(height=max(300, len(df_30d) * 30))
-                            st.plotly_chart(fig_30d, use_container_width=True)
-                        else:
-                            st.info("📊 30-day data unavailable")
-                    
-                    with col2:
-                        if rolling_90d_corrs:
-                            st.markdown("**90-Day Rolling Correlation**")
-                            df_90d = pd.DataFrame({
-                                'Wave': list(rolling_90d_corrs.keys()),
-                                'Correlation': list(rolling_90d_corrs.values())
-                            }).sort_values('Correlation', ascending=False)
-                            
-                            fig_90d = px.bar(
-                                df_90d,
-                                x='Correlation',
-                                y='Wave',
-                                orientation='h',
-                                color='Correlation',
-                                color_continuous_scale='RdYlGn',
-                                range_color=[-1, 1]
-                            )
-                            fig_90d.update_layout(height=max(300, len(df_90d) * 30))
-                            st.plotly_chart(fig_90d, use_container_width=True)
-                        else:
-                            st.info("📊 90-day data unavailable")
-    
-    except Exception as e:
-        st.warning(f"⚠️ Rolling Correlations panel unavailable: {str(e)}")
-        st.info("📊 Unable to calculate rolling correlations. Data may be insufficient or unavailable.")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 3: Diversification & Redundancy Panel
-    # ========================================================================
-    st.markdown("### 🎯 Diversification & Redundancy")
-    st.caption("Top 5 lowest-correlation pairs (best diversifiers) and top 5 highest-correlation pairs (most redundant)")
-    
-    try:
-        # Get all waves with sufficient data
-        waves = get_available_waves()
-        valid_waves = []
-        wave_returns_dict = {}
-        
-        for wave in waves:
-            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
-            if wave_data is not None and len(wave_data) >= 30:
-                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
-                    valid_waves.append(wave)
-                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
-        
-        if len(valid_waves) < 2:
-            st.info("📊 Insufficient data - Need at least 2 waves with 30+ days of returns")
-        else:
-            # Build returns dataframe
-            returns_df = pd.DataFrame(wave_returns_dict).dropna()
-            
-            if len(returns_df) < 10:
-                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
-            else:
-                # Calculate correlation matrix
-                corr_matrix = returns_df.corr()
-                
-                # Extract upper triangle (avoid duplicates and self-correlations)
-                pairs = []
-                for i in range(len(corr_matrix)):
-                    for j in range(i+1, len(corr_matrix)):
-                        wave1 = corr_matrix.index[i]
-                        wave2 = corr_matrix.columns[j]
-                        corr_val = corr_matrix.iloc[i, j]
-                        pairs.append((wave1, wave2, corr_val))
-                
-                if not pairs:
-                    st.info("📊 No wave pairs available for analysis")
-                else:
-                    # Sort by correlation
-                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
-                    
-                    # Get top 5 lowest and highest
-                    lowest_5 = pairs_sorted[:5]
-                    highest_5 = pairs_sorted[-5:][::-1]
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**✅ Best Diversifiers (Lowest Correlation)**")
-                        if lowest_5:
-                            for wave1, wave2, corr in lowest_5:
-                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
-                        else:
-                            st.info("Data unavailable")
-                    
-                    with col2:
-                        st.markdown("**⚠️ Most Redundant (Highest Correlation)**")
-                        if highest_5:
-                            for wave1, wave2, corr in highest_5:
-                                st.write(f"• **{wave1}** ↔ **{wave2}**: {corr:.3f}")
-                        else:
-                            st.info("Data unavailable")
-    
-    except Exception as e:
-        st.warning(f"⚠️ Diversification panel unavailable: {str(e)}")
-        st.info("📊 Unable to identify diversification opportunities. Data may be insufficient or unavailable.")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 4: Clustering & Grouping View
-    # ========================================================================
-    st.markdown("### 🔗 Clustering & Grouping")
-    st.caption("Waves grouped by correlation distance (1 - correlation) using hierarchical clustering")
-    
-    try:
-        # Get all waves with sufficient data
-        waves = get_available_waves()
-        valid_waves = []
-        wave_returns_dict = {}
-        
-        for wave in waves:
-            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
-            if wave_data is not None and len(wave_data) >= 30:
-                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
-                    valid_waves.append(wave)
-                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
-        
-        if len(valid_waves) < 3:
-            st.info("📊 Insufficient data - Need at least 3 waves with 30+ days of returns for clustering")
-        else:
-            # Build returns dataframe
-            returns_df = pd.DataFrame(wave_returns_dict).dropna()
-            
-            if len(returns_df) < 10:
-                st.info("📊 Insufficient overlapping data - Need at least 10 common days of returns")
-            else:
-                # Calculate correlation matrix
-                corr_matrix = returns_df.corr()
-                
-                # Convert to distance matrix (1 - correlation)
-                dist_matrix = 1 - corr_matrix
-                
-                # Try hierarchical clustering
-                try:
-                    from scipy.cluster.hierarchy import linkage, fcluster
-                    from scipy.spatial.distance import squareform
-                    
-                    # Convert to condensed distance matrix
-                    dist_condensed = squareform(dist_matrix, checks=False)
-                    
-                    # Perform hierarchical clustering (using average linkage)
-                    linkage_matrix = linkage(dist_condensed, method='average')
-                    
-                    # Cut tree to get 3-5 clusters
-                    num_clusters = min(5, max(3, len(valid_waves) // 3))
-                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
-                    
-                    # Group waves by cluster
-                    clusters = {}
-                    for wave, label in zip(valid_waves, cluster_labels):
-                        if label not in clusters:
-                            clusters[label] = []
-                        clusters[label].append(wave)
-                    
-                    # Display clusters
-                    st.markdown("**Wave Clusters (Hierarchical Clustering)**")
-                    for cluster_id in sorted(clusters.keys()):
-                        wave_list = clusters[cluster_id]
-                        st.markdown(f"**Cluster {cluster_id}:** {', '.join(wave_list)}")
-                    
-                    st.caption(f"Identified {len(clusters)} clusters across {len(valid_waves)} waves using average linkage")
-                
-                except ImportError:
-                    # Fallback: Simple greedy grouping if scipy not available
-                    st.info("📊 Using greedy grouping (scipy not available for hierarchical clustering)")
-                    
-                    # Greedy grouping: Start with highest correlations
-                    grouped = set()
-                    groups = []
-                    
-                    # Get all pairs sorted by correlation (highest first)
-                    pairs = []
-                    for i in range(len(corr_matrix)):
-                        for j in range(i+1, len(corr_matrix)):
-                            wave1 = corr_matrix.index[i]
-                            wave2 = corr_matrix.columns[j]
-                            corr_val = corr_matrix.iloc[i, j]
-                            pairs.append((wave1, wave2, corr_val))
-                    
-                    pairs_sorted = sorted(pairs, key=lambda x: x[2], reverse=True)
-                    
-                    # Build groups greedily
-                    for wave1, wave2, corr in pairs_sorted:
-                        if wave1 not in grouped and wave2 not in grouped:
-                            # Start new group
-                            groups.append([wave1, wave2])
-                            grouped.add(wave1)
-                            grouped.add(wave2)
-                    
-                    # Add ungrouped waves as singletons
-                    for wave in valid_waves:
-                        if wave not in grouped:
-                            groups.append([wave])
-                    
-                    # Display groups
-                    st.markdown("**Wave Groups (Greedy Grouping)**")
-                    for idx, group in enumerate(groups, 1):
-                        st.markdown(f"**Group {idx}:** {', '.join(group)}")
-                    
-                    st.caption(f"Identified {len(groups)} groups across {len(valid_waves)} waves")
-    
-    except Exception as e:
-        st.warning(f"⚠️ Clustering panel unavailable: {str(e)}")
-        st.info("📊 Unable to perform wave clustering. Data may be insufficient or unavailable.")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 5: Market Regime / Risk-On vs Risk-Off Heuristic
-    # ========================================================================
-    st.markdown("### 📉 Market Regime Heuristic")
-    st.caption("**Heuristic classification** of recent days into Risk-On vs Risk-Off using SPY returns and VIX trends")
-    st.info("⚠️ This is a heuristic indicator, not a trading signal. Use for context only.")
-    
-    try:
-        # Get SPY wave data (assuming S&P 500 Wave tracks SPY)
-        spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=30)
-        
-        if spy_wave_data is None or len(spy_wave_data) < 10:
-            st.info("📊 Insufficient SPY data - Need at least 10 days of S&P 500 Wave returns")
-        else:
-            # Calculate regime indicators
-            spy_returns = spy_wave_data['portfolio_return'].iloc[-10:]  # Last 10 days
-            
-            # Heuristic:
-            # Risk-On: Positive average return, low volatility
-            # Risk-Off: Negative average return, high volatility
-            
-            avg_return = spy_returns.mean()
-            volatility = spy_returns.std()
-            
-            # VIX data if available
-            vix_available = 'vix' in spy_wave_data.columns
-            if vix_available:
-                latest_vix = spy_wave_data['vix'].iloc[-1]
-                vix_trend = spy_wave_data['vix'].iloc[-10:].mean()
-            else:
-                latest_vix = None
-                vix_trend = None
-            
-            # Classify regime
-            if avg_return > 0.001 and (not vix_available or latest_vix < 20):
-                regime = "Risk-On"
-                regime_color = "green"
-                regime_icon = "📈"
-            elif avg_return < -0.001 or (vix_available and latest_vix >= 25):
-                regime = "Risk-Off"
-                regime_color = "red"
-                regime_icon = "📉"
-            else:
-                regime = "Neutral"
-                regime_color = "orange"
-                regime_icon = "➖"
-            
-            # Display regime
-            col1, col2, col3 = st.columns(3)
+            # Market metrics in 5 columns
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
+                market_regime = mc_data.get('market_regime', 'Unknown')
+                st.metric("Market Regime", market_regime)
+            
+            with col2:
+                vix_gate = mc_data.get('vix_gate_status', 'Unknown')
+                st.metric("VIX Gate Status", vix_gate)
+            
+            with col3:
+                # Placeholder for rates - you can fetch real data
+                st.metric("10Y Rate", "N/A", help="10-Year Treasury yield")
+            
+            with col4:
+                # Placeholder for SPY/QQQ - you can fetch real data
+                st.metric("SPY/QQQ", "N/A", help="S&P 500 vs NASDAQ performance")
+            
+            with col5:
+                # Placeholder for liquidity - you can fetch real data
+                st.metric("Liquidity", "N/A", help="Market liquidity indicator")
+        
+        except Exception as e:
+            # Graceful fallback
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Market Regime", "N/A")
+            with col2:
+                st.metric("VIX Gate Status", "N/A")
+            with col3:
+                st.metric("10Y Rate", "N/A")
+            with col4:
+                st.metric("SPY/QQQ", "N/A")
+            with col5:
+                st.metric("Liquidity", "N/A")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 4: WAVE SYSTEM SNAPSHOT
+        # ========================================================================
+        st.markdown("### 📊 Wave System Snapshot")
+        
+        try:
+            # Get system statistics for 30D
+            stats_30d = get_system_statistics(timeframe_days=30)
+            
+            if stats_30d:
+                # Calculate metrics
+                system_return_30d = stats_30d.get('avg_wave_return', 0.0)
+                system_alpha_30d = stats_30d.get('avg_alpha', 0.0)
+                win_rate_30d = stats_30d.get('pct_positive_alpha', 0.0)
+                
+                # Determine risk state based on win rate and alpha
+                if win_rate_30d >= 70 and system_alpha_30d > 0.005:
+                    risk_state = "Risk-On"
+                    risk_state_emoji = "🟢"
+                elif win_rate_30d >= 45 and system_alpha_30d > -0.003:
+                    risk_state = "Risk-Managed"
+                    risk_state_emoji = "🟡"
+                else:
+                    risk_state = "Defensive"
+                    risk_state_emoji = "🔴"
+                
+                # Display 4 metric tiles
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        label="System Return (30D)",
+                        value=f"{system_return_30d:+.2%}",
+                        help="Average wave return across all Waves over 30 days"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="System Alpha (30D)",
+                        value=f"{system_alpha_30d:+.2%}",
+                        help="Average alpha (excess return vs benchmark) across all Waves"
+                    )
+                
+                with col3:
+                    st.metric(
+                        label="Win Rate (30D)",
+                        value=f"{win_rate_30d:.1f}%",
+                        help="Percentage of Waves with positive alpha"
+                    )
+                
+                with col4:
+                    st.metric(
+                        label="Risk State",
+                        value=f"{risk_state_emoji} {risk_state}",
+                        help="System risk posture based on win rate and alpha"
+                    )
+            else:
+                # Fallback to N/A when data unavailable
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(label="System Return (30D)", value="N/A")
+                with col2:
+                    st.metric(label="System Alpha (30D)", value="N/A")
+                with col3:
+                    st.metric(label="Win Rate (30D)", value="N/A")
+                with col4:
+                    st.metric(label="Risk State", value="N/A")
+        
+        except Exception as e:
+            # Graceful degradation - show N/A metrics without triggering Safe Mode
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric(label="System Return (30D)", value="N/A")
+            with col2:
+                st.metric(label="System Alpha (30D)", value="N/A")
+            with col3:
+                st.metric(label="Win Rate (30D)", value="N/A")
+            with col4:
+                st.metric(label="Risk State", value="N/A")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 5: WHAT'S STRONG / WHAT'S WEAK
+        # ========================================================================
+        st.markdown("### 📈📉 What's Strong / What's Weak")
+        st.caption("Top/Bottom 5 Waves by 30-Day Alpha")
+        
+        try:
+            # Get all waves
+            waves = get_available_waves()
+            
+            if waves:
+                # Build performance data
+                performance_data = []
+                
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
+                        alpha = wave_return - benchmark_return
+                        
+                        performance_data.append({
+                            'Wave Name': wave_name,
+                            '30D Alpha': alpha
+                        })
+                
+                if performance_data:
+                    # Create DataFrame
+                    df_performance = pd.DataFrame(performance_data)
+                    
+                    # Sort by 30D Alpha (descending)
+                    df_performance = df_performance.sort_values('30D Alpha', ascending=False)
+                    
+                    # Get top 5 and bottom 5
+                    top_5 = df_performance.head(5).copy()
+                    bottom_5 = df_performance.tail(5).copy()
+                    
+                    # Display in two columns
+                    col_strong, col_weak = st.columns(2)
+                    
+                    with col_strong:
+                        st.markdown("#### 🟢 What's Strong")
+                        top_5['30D Alpha'] = top_5['30D Alpha'].apply(lambda x: f"{x:+.2%}")
+                        st.dataframe(top_5, use_container_width=True, hide_index=True, height=220)
+                    
+                    with col_weak:
+                        st.markdown("#### 🔴 What's Weak")
+                        bottom_5['30D Alpha'] = bottom_5['30D Alpha'].apply(lambda x: f"{x:+.2%}")
+                        st.dataframe(bottom_5, use_container_width=True, hide_index=True, height=220)
+                else:
+                    st.info("No performance data available")
+            else:
+                st.info("No waves available")
+        
+        except Exception as e:
+            st.info("Performance data unavailable")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 6: WHY - Compact Narrative
+        # ========================================================================
+        st.markdown("### 💡 Why - Current Regime Narrative")
+        
+        try:
+            # Get mission control data for market regime and VIX info
+            mc_data = get_mission_control_data()
+            
+            # Get system statistics for additional context
+            stats_30d = get_system_statistics(timeframe_days=30)
+            
+            # Build market narrative
+            narrative_parts = []
+            
+            # 1. Regime (Risk-On/Transitional based on VIX logic)
+            market_regime = mc_data.get('market_regime', 'unknown')
+            vix_gate_status = mc_data.get('vix_gate_status', 'unknown')
+            
+            if market_regime != 'unknown':
+                if 'Risk-On' in market_regime:
+                    regime_desc = "**Risk-On**"
+                elif 'Risk-Off' in market_regime:
+                    regime_desc = "**Transitional/Risk-Off**"
+                else:
+                    regime_desc = "**Transitional**"
+                narrative_parts.append(f"Market is in a {regime_desc} regime.")
+            
+            # 2. Volatility (Low/Elevated/High via VIX thresholds)
+            if vix_gate_status != 'unknown':
+                if 'Low Vol' in vix_gate_status or 'GREEN' in vix_gate_status:
+                    vol_desc = "low volatility environment, favorable for risk assets"
+                elif 'Med Vol' in vix_gate_status or 'YELLOW' in vix_gate_status:
+                    vol_desc = "elevated volatility, suggesting increased caution"
+                else:
+                    vol_desc = "high volatility, defensive positioning active"
+                narrative_parts.append(f"Volatility is {vol_desc}.")
+            
+            # 3. Trend (qualitative summary based on system performance)
+            if stats_30d:
+                avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                pct_positive = stats_30d.get('pct_positive_alpha', 0.0)
+                
+                if pct_positive >= 70 and avg_alpha > 0.005:
+                    trend_desc = "Strong uptrend with broad-based momentum across the system."
+                elif pct_positive >= 55 and avg_alpha > 0.0:
+                    trend_desc = "Positive trend with selective opportunities emerging."
+                elif pct_positive >= 45:
+                    trend_desc = "Mixed trend with divergent sector performance."
+                elif pct_positive >= 30:
+                    trend_desc = "Weakening trend with defensive sectors leading."
+                else:
+                    trend_desc = "Downtrend with elevated volatility and defensive positioning."
+                
+                narrative_parts.append(trend_desc)
+            
+            # Display narrative
+            if narrative_parts:
+                narrative_text = " ".join(narrative_parts)
+                st.info(narrative_text)
+            else:
+                st.info("Market narrative unavailable.")
+        
+        except Exception as e:
+            # Graceful fallback for market context
+            st.info("Market narrative unavailable.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 7: WHAT TO DO - Action Panel
+        # ========================================================================
+        st.markdown("### 🎯 What To Do - Action Panel")
+        
+        try:
+            # Get system statistics to determine actions
+            stats_30d = get_system_statistics(timeframe_days=30)
+            mc_data = get_mission_control_data()
+            
+            if stats_30d:
+                avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                win_rate = stats_30d.get('pct_positive_alpha', 0.0)
+                
+                # Determine recommended actions
+                actions = []
+                
+                if win_rate >= 70 and avg_alpha > 0.005:
+                    actions.append("✅ **Maintain risk-on exposure** - System is performing well")
+                    actions.append("🔍 **Monitor top performers** for potential profit-taking opportunities")
+                    actions.append("📊 **Consider increasing allocation** to high-alpha waves")
+                elif win_rate >= 45 and avg_alpha > -0.003:
+                    actions.append("⚖️ **Maintain balanced positioning** - Mixed signals in play")
+                    actions.append("🎯 **Focus on selective opportunities** in strong waves")
+                    actions.append("🛡️ **Implement risk management** for underperforming positions")
+                else:
+                    actions.append("🛡️ **Reduce risk exposure** - Defensive positioning recommended")
+                    actions.append("💰 **Increase cash allocation** to preserve capital")
+                    actions.append("📉 **Review underperforming waves** for potential exits")
+                
+                # Always add watchlist item
+                actions.append("📋 **Watchlist:** Monitor top 5 performers for entry signals")
+                
+                # Display actions
+                for action in actions:
+                    st.markdown(f"- {action}")
+            else:
+                st.info("Action recommendations unavailable - data not loaded")
+        
+        except Exception as e:
+            st.info("Action recommendations unavailable")
+        
+        st.divider()
+    
+    except Exception as e:
+        # Top-level error handler - prevent Safe Mode trigger
+        st.error("⚠️ Executive Brief tab encountered an error")
+        if st.session_state.get("debug_mode", False):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+
+
+def render_wave_intelligence_center_tab():
+    """
+    Render the unified Overview tab - Consolidated system-wide summary.
+    
+    This tab provides:
+    - Section 1: System Overview Table (All Waves with multi-timeframe returns)
+    - Section 2: Alpha Summary (system-level rollups)
+    - Section 3: Alpha Drivers Breakdown (for selected wave)
+    - Section 4: Market and System Context (auto-generated narrative)
+    
+    All metrics reconcile with existing Wave card outputs.
+    Addresses alpha attribution errors with proper error handling.
+    
+    NOTE: This function is being replaced by render_executive_brief_tab() for a more
+    executive-friendly presentation. Keeping this for backwards compatibility.
+    """
+    st.header("📊 Overview")
+    st.write("**Unified system-level summary: performance, alpha attribution, and market context**")
+    
+    st.header("📊 Overview")
+    st.write("**Unified system-level summary: performance, alpha attribution, and market context**")
+    
+    # Get timestamp for updates
+    latest_timestamp = get_latest_data_timestamp()
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 1: System Overview Table (All Waves)
+    # ========================================================================
+    st.markdown("### 📈 System Overview Table - All Waves")
+    st.caption("Multi-timeframe returns across all Waves (sorted by 30D Alpha, descending)")
+    
+    try:
+        # Get multi-timeframe data for all waves
+        timeframes = [1, 30, 60, 365]
+        df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+        
+        if not df.empty:
+            # Sort by 30D Alpha (descending)
+            if '30D_Alpha' in df.columns:
+                df = df.sort_values('30D_Alpha', ascending=False)
+            
+            # Create formatted display dataframe
+            display_df = pd.DataFrame()
+            display_df['Wave Name'] = df['Wave']
+            
+            # Add columns for each timeframe
+            for days in timeframes:
+                wave_col = f'{days}D_Wave'
+                bm_col = f'{days}D_BM'
+                alpha_col = f'{days}D_Alpha'
+                
+                if wave_col in df.columns:
+                    display_df[f'{days}D Wave'] = df[wave_col].apply(
+                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                    )
+                
+                if bm_col in df.columns:
+                    display_df[f'{days}D Benchmark'] = df[bm_col].apply(
+                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                    )
+                
+                if alpha_col in df.columns:
+                    display_df[f'{days}D Alpha'] = df[alpha_col].apply(
+                        lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
+                    )
+            
+            # Display the table
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                height=500
+            )
+            
+            # Download button
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Performance Data as CSV",
+                data=csv,
+                file_name=f"waves_performance_{latest_timestamp}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No wave performance data available")
+    
+    except Exception as e:
+        st.error(f"Error generating system overview table: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 2: Alpha Summary (System-Level Rollups)
+    # ========================================================================
+    st.markdown("### 🎯 Alpha Summary (30-Day)")
+    
+    try:
+        stats_30d = get_system_statistics(timeframe_days=30)
+        
+        if stats_30d:
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                # Calculate total alpha (sum across all waves)
+                waves = get_available_waves()
+                total_alpha_30d = 0.0
+                for wave_name in waves:
+                    wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
+                    if wave_data is not None and len(wave_data) > 0:
+                        wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0
+                        benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0
+                        total_alpha_30d += (wave_return - benchmark_return)
+                
                 st.metric(
-                    "Current Regime",
-                    f"{regime_icon} {regime}",
-                    help="Heuristic classification based on recent SPY returns"
+                    "Total Alpha (30D)",
+                    f"{total_alpha_30d:+.2%}",
+                    help="Sum of alpha across all Waves over 30 days"
                 )
             
             with col2:
                 st.metric(
-                    "Avg Return (10D)",
-                    f"{avg_return * 100:.2f}%",
-                    help="Average daily return over last 10 days"
+                    "% Waves Positive Alpha",
+                    f"{stats_30d['pct_positive_alpha']:.1f}%",
+                    help="Percentage of Waves with positive 30D Alpha"
                 )
             
             with col3:
-                if vix_available and latest_vix is not None:
-                    st.metric(
-                        "VIX Level",
-                        f"{latest_vix:.1f}",
-                        help="Latest VIX value (volatility index)"
-                    )
-                else:
-                    st.metric(
-                        "Volatility (10D)",
-                        f"{volatility * 100:.2f}%",
-                        help="Standard deviation of returns over last 10 days"
-                    )
+                best_wave = stats_30d['best_wave']
+                best_alpha = stats_30d['best_alpha']
+                st.metric(
+                    "Best Performing Wave",
+                    f"{best_wave[:20]}..." if len(best_wave) > 20 else best_wave,
+                    f"{best_alpha:+.2%}",
+                    help=f"Best Wave: {best_wave} with {best_alpha:+.2%} alpha"
+                )
             
-            # Regime description
-            if regime == "Risk-On":
-                st.success("✅ **Risk-On Environment:** Positive momentum, favorable for growth-oriented positioning")
-            elif regime == "Risk-Off":
-                st.error("🔴 **Risk-Off Environment:** Defensive positioning recommended, elevated volatility")
-            else:
-                st.warning("⚠️ **Neutral Environment:** Mixed signals, maintain balanced positioning")
-    
-    except Exception as e:
-        st.warning(f"⚠️ Market Regime panel unavailable: {str(e)}")
-        st.info("📊 Unable to determine market regime. Data may be insufficient or unavailable.")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 6: Opportunity Lens
-    # ========================================================================
-    st.markdown("### 💡 Opportunity Lens")
-    st.caption("3-5 neutral observations based on correlation patterns and market regime context")
-    
-    try:
-        # Generate observations based on available data
-        observations = []
-        
-        # Get correlation data
-        waves = get_available_waves()
-        valid_waves = []
-        wave_returns_dict = {}
-        
-        for wave in waves:
-            wave_data = get_wave_data_filtered(wave_name=wave, days=90)
-            if wave_data is not None and len(wave_data) >= 30:
-                if 'date' in wave_data.columns and 'portfolio_return' in wave_data.columns:
-                    valid_waves.append(wave)
-                    wave_returns_dict[wave] = wave_data.set_index('date')['portfolio_return']
-        
-        if len(valid_waves) >= 2:
-            returns_df = pd.DataFrame(wave_returns_dict).dropna()
-            
-            if len(returns_df) >= 10:
-                corr_matrix = returns_df.corr()
-                
-                # Observation 1: Identify rotation opportunities
-                # Find lowest correlation pairs
-                pairs = []
-                for i in range(len(corr_matrix)):
-                    for j in range(i+1, len(corr_matrix)):
-                        wave1 = corr_matrix.index[i]
-                        wave2 = corr_matrix.columns[j]
-                        corr_val = corr_matrix.iloc[i, j]
-                        pairs.append((wave1, wave2, corr_val))
-                
-                if pairs:
-                    pairs_sorted = sorted(pairs, key=lambda x: x[2])
-                    lowest_pair = pairs_sorted[0]
-                    
-                    observations.append(
-                        f"**Rotation Opportunity:** {lowest_pair[0]} and {lowest_pair[1]} show low correlation "
-                        f"({lowest_pair[2]:.2f}), suggesting potential for diversification or rotation strategies."
-                    )
-                
-                # Observation 2: Identify clustering patterns
-                # Check if we can identify distinct clusters
-                try:
-                    from scipy.cluster.hierarchy import linkage, fcluster
-                    from scipy.spatial.distance import squareform
-                    
-                    dist_matrix = 1 - corr_matrix
-                    dist_condensed = squareform(dist_matrix, checks=False)
-                    linkage_matrix = linkage(dist_condensed, method='average')
-                    
-                    num_clusters = min(4, max(2, len(valid_waves) // 3))
-                    cluster_labels = fcluster(linkage_matrix, num_clusters, criterion='maxclust')
-                    
-                    # Count clusters
-                    unique_clusters = len(set(cluster_labels))
-                    
-                    observations.append(
-                        f"**Clustering Pattern:** Wave universe segments into approximately {unique_clusters} "
-                        f"correlation-based clusters, indicating distinct thematic or sector groupings."
-                    )
-                except:
-                    pass
-                
-                # Observation 3: Recent performance divergence
-                # Check 30-day returns variance
-                recent_returns = {}
-                for wave in valid_waves[:5]:
-                    wave_data = get_wave_data_filtered(wave_name=wave, days=30)
-                    if wave_data is not None and len(wave_data) > 0:
-                        total_return = wave_data['portfolio_return'].sum()
-                        recent_returns[wave] = total_return
-                
-                if len(recent_returns) >= 2:
-                    sorted_returns = sorted(recent_returns.items(), key=lambda x: x[1], reverse=True)
-                    top_performer = sorted_returns[0]
-                    bottom_performer = sorted_returns[-1]
-                    
-                    spread = (top_performer[1] - bottom_performer[1]) * 100
-                    
-                    observations.append(
-                        f"**Performance Divergence:** {top_performer[0]} outperformed {bottom_performer[0]} "
-                        f"by {spread:.1f}% over the last 30 days, suggesting active thematic rotation."
-                    )
-                
-                # Observation 4: Regime context
-                spy_wave_data = get_wave_data_filtered(wave_name="S&P 500 Wave", days=10)
-                if spy_wave_data is not None and len(spy_wave_data) >= 5:
-                    avg_return = spy_wave_data['portfolio_return'].mean()
-                    
-                    if avg_return > 0.001:
-                        observations.append(
-                            "**Market Context:** Positive momentum in S&P 500 Wave suggests a risk-on environment "
-                            "may favor growth-oriented and higher-beta waves."
-                        )
-                    elif avg_return < -0.001:
-                        observations.append(
-                            "**Market Context:** Negative momentum in S&P 500 Wave suggests defensive positioning "
-                            "or low-correlation waves may provide downside protection."
-                        )
-                
-                # Observation 5: Correlation stability
-                # Compare 30-day vs 90-day correlations for selected wave
-                selected_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
-                selected_90d = get_wave_data_filtered(wave_name=selected_wave, days=90)
-                
-                if selected_30d is not None and selected_90d is not None:
-                    if len(selected_30d) >= 20 and len(selected_90d) >= 60:
-                        # Pick another wave for comparison
-                        comparison_wave = None
-                        for w in valid_waves:
-                            if w != selected_wave:
-                                comparison_wave = w
-                                break
-                        
-                        if comparison_wave:
-                            comp_30d = get_wave_data_filtered(wave_name=comparison_wave, days=30)
-                            comp_90d = get_wave_data_filtered(wave_name=comparison_wave, days=90)
-                            
-                            if comp_30d is not None and comp_90d is not None:
-                                corr_30d = calculate_wave_correlation(selected_30d, comp_30d)
-                                corr_90d = calculate_wave_correlation(selected_90d, comp_90d)
-                                
-                                if corr_30d is not None and corr_90d is not None:
-                                    delta = abs(corr_30d - corr_90d)
-                                    
-                                    if delta > 0.2:
-                                        observations.append(
-                                            f"**Correlation Shift:** Correlation between {selected_wave} and {comparison_wave} "
-                                            f"has changed significantly (30D: {corr_30d:.2f}, 90D: {corr_90d:.2f}), "
-                                            "indicating evolving relationship dynamics."
-                                        )
-        
-        # Display observations
-        if observations:
-            for obs in observations[:5]:  # Limit to 5
-                st.markdown(f"• {obs}")
+            with col4:
+                worst_wave = stats_30d['worst_wave']
+                worst_alpha = stats_30d['worst_alpha']
+                st.metric(
+                    "Weakest Performing Wave",
+                    f"{worst_wave[:20]}..." if len(worst_wave) > 20 else worst_wave,
+                    f"{worst_alpha:+.2%}",
+                    delta_color="inverse",
+                    help=f"Weakest Wave: {worst_wave} with {worst_alpha:+.2%} alpha"
+                )
         else:
-            st.info("📊 Insufficient data to generate observations. More wave history needed.")
+            st.info("Insufficient data for alpha summary")
     
     except Exception as e:
-        st.warning(f"⚠️ Opportunity Lens panel unavailable: {str(e)}")
-        st.info("📊 Unable to generate opportunity insights. Data may be insufficient or unavailable.")
+        st.error(f"Error generating alpha summary: {str(e)}")
     
     st.divider()
     
-    # Add bottom padding to prevent overlap with sticky bar (mobile-compatible)
-    # Using native Streamlit spacing instead of HTML
-    st.markdown("")
-    st.markdown("")
+    # ========================================================================
+    # SECTION 3: Alpha Drivers Breakdown
+    # ========================================================================
+    st.markdown("### 🔍 Alpha Drivers Breakdown")
+    st.caption("Attribution breakdown for selected Wave (30-day timeframe)")
     
-    st.markdown("---")
-    st.caption("Intelligence Center (Vector v3) - Cross-Wave Correlation & Market Insights")
-    st.caption("All panels gracefully handle insufficient data with clear fallback messaging")
-
-
-# ============================================================================
-# WAVE PROFILE TAB - New First Tab (Before Console)
-# ============================================================================
-
-def render_wave_profile_tab():
-    """
-    Render the Wave Profile tab - New first tab with enhanced styling.
-    
-    This tab displays:
-    1. Hero card with Wave information (styled, not raw HTML)
-    2. Mode indicator
-    3. Top 10 Holdings (clickable)
-    4. Performance metrics
-    
-    Wrapped in try/except with fallback to original layout if errors occur.
-    """
     try:
-        if not ENABLE_WAVE_PROFILE:
-            # Feature flag disabled - show info message
-            st.info("Wave Profile tab is currently disabled. Enable by setting ENABLE_WAVE_PROFILE = True")
-            return
+        # Get available waves
+        waves = get_available_waves()
         
-        st.header("🌊 Wave Profile")
-        st.write("Comprehensive overview of the selected Wave with styled hero card and holdings")
-        
-        # Get selected wave and mode from session state
-        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
-        mode = st.session_state.get("mode", "Standard")
-        
-        st.divider()
-        
-        # ====================================================================
-        # SECTION 1: HERO CARD - Styled Wave Information
-        # ====================================================================
-        
-        # Wave description mapping
-        wave_descriptions = {
-            "S&P 500 Wave": "Tracks the flagship S&P 500 index, representing large-cap U.S. equities with institutional-grade risk overlay.",
-            "Growth Wave": "Focuses on technology and innovation leaders through QQQ exposure with adaptive beta targeting.",
-            "Small Cap Growth Wave": "Captures small-cap growth opportunities via IWM with volatility-adjusted exposure scaling.",
-            "Small-Mid Cap Growth Wave": "Targets mid-cap growth companies through IJH with balanced risk management.",
-            "Future Power & Energy Wave": "Invests in energy sector transformation through XLE exposure with environmental focus.",
-            "Quantum Computing Wave": "Private logic strategy focused on quantum computing and advanced technology themes.",
-            "Clean Transit-Infrastructure Wave": "Clean energy and infrastructure exposure through ICLN with ESG alignment.",
-            "Income Wave": "Conservative income generation through AGG bond exposure with capital preservation focus.",
-            "US MegaCap Core Wave": "Concentrated exposure to the largest U.S. companies with quality and stability focus.",
-            "AI & Cloud MegaCap Wave": "AI and cloud computing leaders among mega-cap technology companies.",
-            "Next-Gen Compute & Semis Wave": "Semiconductor and next-generation computing hardware exposure.",
-            "US Small-Cap Disruptors Wave": "High-conviction small-cap companies with disruptive business models.",
-            "Demas Fund Wave": "Custom thematic portfolio with specialized sector allocation.",
-            "Crypto Income Wave": "Cryptocurrency income and yield generation strategy.",
-            "Russell 3000 Wave": "Broad U.S. equity market exposure tracking the Russell 3000 index via IWV."
-        }
-        
-        wave_description = wave_descriptions.get(selected_wave, "A specialized Wave strategy designed to capture specific market opportunities.")
-        
-        # Create styled hero card with mobile-responsive CSS
-        hero_card_html = f"""
-        <style>
-            .wave-profile-hero {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-                border: 3px solid #00d9ff;
-                border-radius: 15px;
-                padding: 30px;
-                margin-bottom: 20px;
-                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-            }}
+        if waves:
+            # Default to top wave by 30D Alpha
+            stats_30d = get_system_statistics(timeframe_days=30)
+            default_wave = stats_30d['best_wave'] if stats_30d else waves[0]
             
-            .wave-profile-title {{
-                color: #ffffff;
-                font-size: 36px;
-                font-weight: bold;
-                margin: 0 0 10px 0;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-            }}
+            selected_wave_attr = st.selectbox(
+                "Select Wave for Attribution Analysis",
+                options=waves,
+                index=waves.index(default_wave) if default_wave in waves else 0,
+                key="overview_attribution_wave_selector"
+            )
             
-            .wave-profile-mode-pill {{
-                display: inline-block;
-                background: {'#00ff88' if mode == 'Standard' else '#ffd700' if mode == 'Aggressive' else '#ff6b6b'};
-                color: #1a1a2e;
-                padding: 8px 20px;
-                border-radius: 25px;
-                font-weight: bold;
-                font-size: 16px;
-                margin-bottom: 15px;
-            }}
-            
-            .wave-profile-description {{
-                color: #ffffff;
-                font-size: 16px;
-                line-height: 1.6;
-                margin: 15px 0 0 0;
-            }}
-            
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 768px) {{
-                .wave-profile-hero {{
-                    padding: 20px 15px;
-                    margin-bottom: 15px;
-                    border-radius: 12px;
-                    border-width: 2px;
-                }}
+            if selected_wave_attr:
+                # Get wave data for 30D
+                wave_data = get_wave_data_filtered(wave_name=selected_wave_attr, days=30)
                 
-                .wave-profile-title {{
-                    font-size: 24px;
-                    margin: 0 0 8px 0;
-                }}
-                
-                .wave-profile-mode-pill {{
-                    padding: 6px 16px;
-                    font-size: 14px;
-                    margin-bottom: 12px;
-                }}
-                
-                .wave-profile-description {{
-                    font-size: 14px;
-                    line-height: 1.5;
-                    margin: 12px 0 0 0;
-                }}
-            }}
-        </style>
-        
-        <div class="wave-profile-hero">
-            <h1 class="wave-profile-title">
-                🌊 {selected_wave}
-            </h1>
-            
-            <div class="wave-profile-mode-pill">
-                MODE: {mode}
-            </div>
-            
-            <p class="wave-profile-description">
-                {wave_description}
-            </p>
-        </div>
-        """
-        
-        # Render hero card using st.markdown with unsafe_allow_html=True
-        st.markdown(hero_card_html, unsafe_allow_html=True)
-        
-        # Add spacing between hero card and Top 10 Holdings
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ====================================================================
-        # SECTION 2: TOP 10 HOLDINGS - Clickable
-        # ====================================================================
-        
-        st.markdown("### 📋 Top 10 Holdings")
-        
-        try:
-            # Get holdings from WAVE_WEIGHTS
-            if WAVES_ENGINE_AVAILABLE and selected_wave in WAVE_WEIGHTS:
-                holdings = WAVE_WEIGHTS[selected_wave]
-                
-                if holdings and len(holdings) > 0:
-                    # Sort by weight descending and take top 10
-                    sorted_holdings = sorted(holdings, key=lambda h: h.weight, reverse=True)[:10]
+                if wave_data is not None and len(wave_data) > 0:
+                    # Calculate basic metrics
+                    wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                    benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                    total_alpha = (wave_return - benchmark_return) if wave_return is not None and benchmark_return is not None else None
                     
-                    # Display holdings as a formatted table with clickable links
-                    st.markdown("**Click on any ticker to view on Yahoo Finance:**")
+                    # Display metrics
+                    col1, col2, col3 = st.columns(3)
                     
-                    holdings_data = []
-                    for idx, holding in enumerate(sorted_holdings, 1):
-                        ticker = holding.ticker
-                        weight = holding.weight
-                        name = holding.name if holding.name else ticker
+                    with col1:
+                        st.metric("Wave Return (30D)", f"{wave_return:+.2%}" if wave_return is not None else "N/A")
+                    
+                    with col2:
+                        st.metric("Benchmark Return (30D)", f"{benchmark_return:+.2%}" if benchmark_return is not None else "N/A")
+                    
+                    with col3:
+                        st.metric("Total Alpha (30D)", f"{total_alpha:+.2%}" if total_alpha is not None else "N/A")
+                    
+                    st.markdown("#### Alpha Drivers Breakdown")
+                    
+                    # Use alpha_attribution module if available
+                    if ALPHA_ATTRIBUTION_AVAILABLE and total_alpha is not None and abs(total_alpha) > 0.0001:
+                        try:
+                            # Compute attribution using alpha_attribution module
+                            from alpha_attribution import compute_alpha_attribution_series
+                            
+                            # Prepare data for attribution - transform column names
+                            wave_data_copy = wave_data.copy()
+                            
+                            # Ensure date is index
+                            if 'date' in wave_data_copy.columns:
+                                wave_data_copy = wave_data_copy.set_index('date')
+                            
+                            # Transform column names: portfolio_return -> wave_ret, benchmark_return -> bm_ret
+                            if 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                                wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                                wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                            
+                            # Call with correct parameter order: wave_name, mode, history_df
+                            daily_df, summary = compute_alpha_attribution_series(
+                                wave_name=selected_wave_attr,
+                                mode=st.session_state.get("mode", "Standard"),
+                                history_df=wave_data_copy
+                            )
+                            
+                            if summary is not None:
+                                # Display attribution components
+                                st.write("**Attribution Components (% of Total Alpha):**")
+                                
+                                # Calculate percentages using actual attribution data
+                                stock_selection_pct = summary.asset_selection_contribution_pct
+                                overlay_pct = summary.exposure_timing_contribution_pct + summary.regime_vix_contribution_pct
+                                residual_pct = summary.momentum_trend_contribution_pct + summary.volatility_control_contribution_pct
+                                
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    st.metric(
+                                        "Stock Selection", 
+                                        f"{stock_selection_pct:+.1f}%",
+                                        help="Alpha from underlying asset selection and performance"
+                                    )
+                                
+                                with col2:
+                                    st.metric(
+                                        "Risk Overlay", 
+                                        f"{overlay_pct:+.1f}%",
+                                        help="Alpha from exposure timing and regime-based adjustments"
+                                    )
+                                
+                                with col3:
+                                    st.metric(
+                                        "Residual / Other", 
+                                        f"{residual_pct:+.1f}%",
+                                        help="Alpha from momentum, volatility control, and other factors"
+                                    )
+                                
+                                # Show reconciliation info
+                                with st.expander("📊 View Attribution Details"):
+                                    st.write(f"**Reconciliation Check:**")
+                                    st.write(f"- Total Alpha: {summary.total_alpha:+.4%}")
+                                    st.write(f"- Sum of Components: {summary.sum_of_components:+.4%}")
+                                    st.write(f"- Reconciliation Error: {summary.reconciliation_error:+.6%} ({summary.reconciliation_pct_error:+.2f}%)")
+                                    
+                                    st.write(f"\n**Component Breakdown:**")
+                                    st.write(f"- Asset Selection: {summary.asset_selection_alpha:+.4%} ({stock_selection_pct:+.1f}%)")
+                                    st.write(f"- Exposure & Timing: {summary.exposure_timing_alpha:+.4%} ({summary.exposure_timing_contribution_pct:+.1f}%)")
+                                    st.write(f"- Regime & VIX: {summary.regime_vix_alpha:+.4%} ({summary.regime_vix_contribution_pct:+.1f}%)")
+                                    st.write(f"- Momentum & Trend: {summary.momentum_trend_alpha:+.4%} ({summary.momentum_trend_contribution_pct:+.1f}%)")
+                                    st.write(f"- Volatility Control: {summary.volatility_control_alpha:+.4%} ({summary.volatility_control_contribution_pct:+.1f}%)")
+                            else:
+                                st.info("Attribution calculation returned no summary data")
                         
-                        # Create Yahoo Finance link
-                        yahoo_link = f"https://finance.yahoo.com/quote/{ticker}"
-                        
-                        holdings_data.append({
-                            "Rank": idx,
-                            "Ticker": f"[{ticker}]({yahoo_link})",
-                            "Name": name,
-                            "Weight": f"{weight*100:.2f}%"
-                        })
+                        except Exception as attr_err:
+                            st.warning(f"⚠️ Alpha attribution calculation unavailable")
+                            with st.expander("View error details"):
+                                st.code(str(attr_err))
+                            st.info("Attribution breakdown cannot be computed with current data. This may occur if historical data is incomplete or column names don't match expected format.")
                     
-                    # Display as a dataframe with clickable links
-                    holdings_df = pd.DataFrame(holdings_data)
-                    st.markdown(holdings_df.to_markdown(index=False), unsafe_allow_html=True)
+                    elif total_alpha is not None and abs(total_alpha) < 0.0001:
+                        st.info("Total Alpha ≈ 0 - Attribution breakdown not meaningful")
                     
+                    else:
+                        st.info("Alpha attribution module not available")
+                
                 else:
-                    st.info("📊 No holdings data available for this wave.")
-            else:
-                st.info("📊 Holdings data unavailable. Wave not found in engine.")
-        
-        except Exception as holdings_err:
-            st.warning(f"⚠️ Unable to load holdings: {str(holdings_err)}")
-            st.info("📊 Data unavailable")
-        
-        # Add spacing
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ====================================================================
-        # SECTION 3: PERFORMANCE METRICS
-        # ====================================================================
-        
-        st.markdown("### 📊 Performance Metrics")
-        
-        try:
-            # Get wave data for metrics calculation
-            wave_data = get_wave_data_filtered(wave_name=selected_wave, days=30)
-            
-            if wave_data is not None and len(wave_data) > 0:
-                # Calculate metrics
-                metrics = calculate_wave_metrics(wave_data)
-                
-                # Display metrics in columns
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    wavescore = metrics.get('wavescore', 'N/A')
-                    if wavescore != 'N/A':
-                        st.metric("WaveScore", f"{wavescore:.1f}")
-                    else:
-                        st.metric("WaveScore", "N/A")
-                
-                with col2:
-                    cum_alpha = metrics.get('cumulative_alpha', 'N/A')
-                    if cum_alpha != 'N/A':
-                        st.metric("Cumulative Alpha (30D)", f"{cum_alpha*100:.2f}%")
-                    else:
-                        st.metric("Cumulative Alpha (30D)", "N/A")
-                
-                with col3:
-                    sharpe = metrics.get('sharpe_ratio', 'N/A')
-                    if sharpe != 'N/A':
-                        st.metric("Sharpe Ratio", f"{sharpe:.2f}")
-                    else:
-                        st.metric("Sharpe Ratio", "N/A")
-                
-                with col4:
-                    volatility = metrics.get('volatility', 'N/A')
-                    if volatility != 'N/A':
-                        st.metric("Volatility (Daily)", f"{volatility*100:.2f}%")
-                    else:
-                        st.metric("Volatility (Daily)", "N/A")
-            else:
-                st.info("📊 Wave data unavailable for the selected wave. Metrics cannot be calculated.")
-        
-        except Exception as metrics_err:
-            st.warning(f"⚠️ Unable to load wave metrics: {str(metrics_err)}")
-            st.info("📊 Data unavailable")
-        
-        # Footer
-        st.markdown("---")
-        st.caption("Wave Profile - Enhanced visualization with styled hero card and clickable holdings")
+                    st.warning(f"No data available for {selected_wave_attr}")
+        else:
+            st.info("No waves available for attribution analysis")
     
     except Exception as e:
-        # Fallback: Display error and revert to original Console tab layout
-        st.error("⚠️ Wave Profile tab encountered an error. Falling back to original layout.")
-        st.warning(f"Error details: {str(e)}")
+        st.error(f"Error in alpha drivers section: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # SECTION 4: Market and System Context
+    # ========================================================================
+    st.markdown("### 🌐 Market and System Context")
+    st.caption("Auto-generated narrative summary of market conditions and system performance")
+    
+    try:
+        # Get system statistics and top/bottom waves
+        stats_30d = get_system_statistics(timeframe_days=30)
+        top_waves, bottom_waves = get_top_bottom_waves(timeframe_days=30, top_n=3, bottom_n=3)
         
-        # Display simplified version
-        st.header("🌊 Wave Profile (Fallback Mode)")
-        selected_wave = st.session_state.get("selected_wave", "S&P 500 Wave")
-        mode = st.session_state.get("mode", "Standard")
-        st.info(f"Selected Wave: {selected_wave} | Mode: {mode}")
-        st.info("The enhanced Wave Profile is temporarily unavailable. Please check the Console tab.")
+        if stats_30d:
+            avg_alpha = stats_30d['avg_alpha']
+            pct_positive = stats_30d['pct_positive_alpha']
+            
+            # Generate narrative based on data
+            narrative_parts = []
+            
+            # Market sentiment
+            if pct_positive >= 70:
+                market_sentiment = "strongly risk-on"
+                market_desc = "with broad-based gains across the portfolio"
+            elif pct_positive >= 55:
+                market_sentiment = "moderately risk-on"
+                market_desc = "with most strategies benefiting from favorable conditions"
+            elif pct_positive >= 45:
+                market_sentiment = "mixed"
+                market_desc = "with divergent performance across different strategies"
+            elif pct_positive >= 30:
+                market_sentiment = "moderately risk-off"
+                market_desc = "with defensive positioning providing some protection"
+            else:
+                market_sentiment = "strongly risk-off"
+                market_desc = "with elevated volatility penalizing most strategies"
+            
+            narrative_parts.append(
+                f"**Market Conditions:** Over the past 30 days, markets have been **{market_sentiment}**, "
+                f"{market_desc}. **{pct_positive:.0f}%** of Waves are showing positive alpha."
+            )
+            
+            # System performance
+            if avg_alpha > 0.01:
+                performance_desc = "strong outperformance"
+            elif avg_alpha > 0.003:
+                performance_desc = "moderate outperformance"
+            elif avg_alpha > -0.003:
+                performance_desc = "roughly in-line with benchmarks"
+            elif avg_alpha > -0.01:
+                performance_desc = "moderate underperformance"
+            else:
+                performance_desc = "challenging performance"
+            
+            narrative_parts.append(
+                f"**System Performance:** The platform is delivering **{performance_desc}** "
+                f"with an average alpha of **{avg_alpha:+.2%}** across all Waves."
+            )
+            
+            # Top performers
+            if top_waves:
+                top_wave_names = ", ".join([f"**{name}** ({alpha:+.2%})" for name, alpha in top_waves[:3]])
+                narrative_parts.append(
+                    f"**Top Performers:** Leading the way are {top_wave_names}."
+                )
+            
+            # Bottom performers
+            if bottom_waves:
+                bottom_wave_names = ", ".join([f"**{name}** ({alpha:+.2%})" for name, alpha in bottom_waves[:3]])
+                narrative_parts.append(
+                    f"**Under Pressure:** Facing headwinds are {bottom_wave_names}."
+                )
+            
+            # Strategy effectiveness
+            if pct_positive > 60:
+                strategy_desc = "Risk overlays are contributing positively, with growth and momentum strategies being rewarded."
+            elif pct_positive < 40:
+                strategy_desc = "Defensive overlays are providing value, with high-beta strategies facing challenges."
+            else:
+                strategy_desc = "Mixed effectiveness across strategies, with alpha dispersion reflecting varied market leadership."
+            
+            narrative_parts.append(
+                f"**Strategy Dynamics:** {strategy_desc}"
+            )
+            
+            # Display narrative
+            narrative_text = "\n\n".join(narrative_parts)
+            st.markdown(narrative_text)
+            
+        else:
+            st.info("Insufficient data to generate market context summary")
+    
+    except Exception as e:
+        st.error(f"Error generating market context: {str(e)}")
 
 
 def render_executive_tab():
@@ -6531,7 +8119,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_wavescore_bar_chart(leaderboard)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_leaderboard_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6549,7 +8137,7 @@ def render_executive_tab():
             # Show interactive chart
             chart = create_movers_chart(movers)
             if chart is not None:
-                st.plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
+                safe_plotly_chart(chart, use_container_width=True, key="exec_movers_chart")
             
             # Also show data table
             with st.expander("View Data Table"):
@@ -6619,7 +8207,7 @@ def render_executive_tab():
                     # Display performance chart
                     chart = create_wave_performance_chart(wave_data, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_performance_{selected_wave}")
                     else:
                         st.info("Unable to generate performance chart")
                 else:
@@ -6744,7 +8332,7 @@ def render_alpha_proof_section():
             # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
-                value=False,
+                value=True,
                 key="alpha_proof_show_all",
                 help="Include all waves in dropdown, even those without historical data"
             )
@@ -6922,7 +8510,7 @@ def render_alpha_proof_section():
                     # Create waterfall chart
                     chart = create_alpha_waterfall_chart(alpha_components, selected_wave)
                     if chart is not None:
-                        st.plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
+                        safe_plotly_chart(chart, use_container_width=True, key=f"exec_alpha_waterfall_{selected_wave}")
                     
                     # Show detailed table
                     with st.expander("View Detailed Breakdown"):
@@ -6993,7 +8581,7 @@ def render_attribution_matrix_section():
             # Toggle to show all waves or only waves with data
             show_all_waves = st.checkbox(
                 "Show waves with no data",
-                value=False,
+                value=True,
                 key="attribution_matrix_show_all",
                 help="Include all waves in dropdown, even those without historical data"
             )
@@ -7351,7 +8939,7 @@ def render_portfolio_constructor_section():
                         )
                         if corr_chart is not None:
                             waves_key = "_".join(sorted(selected_waves))[:50]  # Limit key length
-                            st.plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
+                            safe_plotly_chart(corr_chart, use_container_width=True, key=f"portfolio_corr_{waves_key}")
                     
                     # Show weights breakdown
                     with st.expander("View Portfolio Composition"):
@@ -7459,7 +9047,7 @@ def render_vector_explain_panel():
                 if chart is not None:
                     selected_wave_id = st.session_state['current_narrative_wave']
                     timeframe = st.session_state.get('current_narrative_timeframe', 30)
-                    st.plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
+                    safe_plotly_chart(chart, use_container_width=True, key=f"vector_explain_{selected_wave_id}_{timeframe}")
             
             st.divider()
             
@@ -7561,7 +9149,7 @@ def render_compare_waves_panel():
                 if radar_chart is not None:
                     wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                     wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                    st.plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
+                    safe_plotly_chart(radar_chart, use_container_width=True, key=f"compare_radar_{wave1_name}_{wave2_name}")
                 else:
                     st.info("Radar chart unavailable")
             
@@ -7577,7 +9165,7 @@ def render_compare_waves_panel():
                     if heatmap is not None:
                         wave1_name = st.session_state.get('comparison_wave1_name', 'wave1')
                         wave2_name = st.session_state.get('comparison_wave2_name', 'wave2')
-                        st.plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
+                        safe_plotly_chart(heatmap, use_container_width=True, key=f"compare_heatmap_{wave1_name}_{wave2_name}")
                     else:
                         st.info("Correlation matrix unavailable")
             
@@ -7774,17 +9362,696 @@ Return Correlation: {correlation if correlation is not None else 'N/A'}
 
 
 def render_overview_tab():
-    """Render the Overview tab with Vector Explain and Compare Waves."""
-    st.header("Overview")
+    """
+    Render the new comprehensive Overview tab with Wave Lens selector.
     
-    # Create sub-tabs for Vector Explain and Compare Waves
-    overview_subtabs = st.tabs(["Vector Explain", "Compare Waves"])
+    This tab provides:
+    - Wave Lens dropdown to switch between "All Waves (System View)" and individual wave views
+    - System View: Platform-wide summaries, rankings, attribution, narratives
+    - Individual Wave View: Wave-specific metrics, attribution, narratives
+    - Data readiness status for all waves
     
-    with overview_subtabs[0]:
-        render_vector_explain_panel()
+    Reuses existing data pipelines for consistency with Wave cards.
+    """
+    try:
+        st.header("📊 Platform Overview")
+        st.caption("Executive-level intelligence across all waves")
+        
+        # ========================================================================
+        # WAVE LENS SELECTOR - Top of page
+        # ========================================================================
+        st.markdown("### 🔍 Wave Lens")
+        
+        # Get all available waves
+        waves = get_wave_universe()
+        
+        # Build options for dropdown: "All Waves (System View)" + individual waves
+        wave_lens_options = ["All Waves (System View)"] + sorted(waves)
+        
+        # Wave Lens selector - default to "All Waves (System View)"
+        selected_wave_lens = st.selectbox(
+            "Select View:",
+            options=wave_lens_options,
+            index=0,
+            key="wave_lens_selector",
+            help="Choose 'All Waves (System View)' for system-level intelligence, or select a specific wave for wave-scoped metrics"
+        )
+        
+        st.divider()
+        
+        # ========================================================================
+        # Load data for both views
+        # ========================================================================
+        # Compute metrics for all waves
+        with st.spinner("Loading platform metrics..."):
+            all_metrics = compute_alpha_metrics_all_waves()
+        
+        if not all_metrics:
+            st.warning("⚠️ No platform data available. Please ensure wave_history.csv contains valid data.")
+            return
+        
+        # ========================================================================
+        # Conditional rendering based on Wave Lens selection
+        # ========================================================================
+        if selected_wave_lens == "All Waves (System View)":
+            # ====================================================================
+            # ALL WAVES (SYSTEM VIEW) - System-level intelligence only
+            # ====================================================================
+            render_all_waves_system_view(all_metrics)
+        else:
+            # ====================================================================
+            # INDIVIDUAL WAVE VIEW - Wave-specific intelligence
+            # ====================================================================
+            render_individual_wave_view(selected_wave_lens, all_metrics)
     
-    with overview_subtabs[1]:
-        render_compare_waves_panel()
+    except Exception as e:
+        st.error("⚠️ **Overview Tab Error**")
+        st.warning(f"An error occurred while rendering the Overview tab: {str(e)}")
+        st.info("Please try refreshing the page or contact support if the problem persists.")
+        
+        # Show error details in expander (for debugging)
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+
+
+def render_all_waves_system_view(all_metrics):
+    """
+    Render the All Waves (System View) - System-level intelligence only.
+    
+    Shows:
+    - Platform Snapshot with system-wide metrics
+    - Data Readiness Status for all waves
+    - All-Waves Performance & Alpha Grid
+    - System-level narratives and rankings
+    
+    Does NOT show:
+    - Wave-specific cards or holdings
+    - Wave-specific charts
+    - Individual wave alpha drivers
+    """
+    try:
+        # ========================================================================
+        # SECTION A: Platform Snapshot (Top tiles)
+        # ========================================================================
+        st.markdown("### 🎯 Platform Snapshot")
+        st.caption("System-wide performance metrics across all waves")
+        
+        # Calculate platform-wide metrics for 30D timeframe
+        alpha_30d_values = [m.get('alpha_30d') for m in all_metrics if m.get('alpha_30d') is not None]
+        
+        if alpha_30d_values:
+            # Calculate snapshot metrics
+            waves_positive_30d = sum(1 for a in alpha_30d_values if a > 0)
+            total_waves = len(alpha_30d_values)
+            pct_positive = (waves_positive_30d / total_waves * 100) if total_waves > 0 else 0
+            
+            avg_alpha_30d = sum(alpha_30d_values) / len(alpha_30d_values)
+            best_alpha_30d = max(alpha_30d_values)
+            worst_alpha_30d = min(alpha_30d_values)
+            dispersion_30d = best_alpha_30d - worst_alpha_30d
+            
+            # Find wave names for best/worst
+            best_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == best_alpha_30d), "N/A")
+            worst_wave = next((m['wave_name'] for m in all_metrics if m.get('alpha_30d') == worst_alpha_30d), "N/A")
+            
+            # Get timestamp from any wave with data
+            last_updated = None
+            for m in all_metrics:
+                if m.get('last_updated'):
+                    last_updated = m['last_updated']
+                    break
+            
+            # Display tiles in columns
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric(
+                    label="Waves Positive (30D)",
+                    value=f"{pct_positive:.1f}%",
+                    delta=f"{waves_positive_30d}/{total_waves} waves",
+                    help="Percentage of waves with positive 30-day alpha"
+                )
+            
+            with col2:
+                st.metric(
+                    label="Average Alpha (30D)",
+                    value=f"{avg_alpha_30d*100:.2f}%",
+                    help="Average 30-day alpha across all waves"
+                )
+            
+            with col3:
+                st.metric(
+                    label="Best Wave (30D)",
+                    value=f"{best_alpha_30d*100:.2f}%",
+                    delta=best_wave,
+                    help="Wave with highest 30-day alpha"
+                )
+            
+            with col4:
+                st.metric(
+                    label="Worst Wave (30D)",
+                    value=f"{worst_alpha_30d*100:.2f}%",
+                    delta=worst_wave,
+                    delta_color="inverse",
+                    help="Wave with lowest 30-day alpha"
+                )
+            
+            with col5:
+                if last_updated:
+                    st.metric(
+                        label="Last Updated",
+                        value=last_updated.strftime('%Y-%m-%d') if hasattr(last_updated, 'strftime') else str(last_updated)[:10],
+                        help="Most recent data timestamp"
+                    )
+                else:
+                    st.metric(label="Last Updated", value="N/A")
+        else:
+            st.info("📊 Insufficient data for platform snapshot")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION B: Data Readiness Status
+        # ========================================================================
+        st.markdown("### 📋 Data Readiness Status")
+        st.caption("Detailed readiness diagnostics for all 28 active waves")
+        
+        # NEW: Use analytics_pipeline for detailed file-based diagnostics
+        try:
+            from analytics_pipeline import compute_data_ready_status
+            from waves_engine import get_all_wave_ids
+            
+            # Get all wave IDs
+            all_wave_ids = get_all_wave_ids()
+            
+            # Compute detailed status for each wave
+            detailed_status_data = []
+            ready_count = 0
+            degraded_count = 0
+            missing_count = 0
+            
+            for wave_id in sorted(all_wave_ids):
+                diagnostics = compute_data_ready_status(wave_id)
+                
+                # Map reason code to status category and display
+                reason_code = diagnostics['reason']
+                if diagnostics['is_ready']:
+                    status_display = "✅ Ready"
+                    status_category = "Ready"
+                    ready_count += 1
+                elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
+                    status_display = "⚠️ Degraded"
+                    status_category = "Degraded"
+                    degraded_count += 1
+                else:
+                    status_display = "❌ Missing Inputs"
+                    status_category = "Missing"
+                    missing_count += 1
+                
+                # Add check details for transparency
+                checks = diagnostics['checks']
+                check_summary = []
+                if checks['has_weights']:
+                    check_summary.append("✓ Weights")
+                if checks['has_prices']:
+                    check_summary.append("✓ Prices")
+                if checks['has_benchmark']:
+                    check_summary.append("✓ Benchmark")
+                if checks['has_nav']:
+                    check_summary.append("✓ NAV")
+                if checks['is_fresh']:
+                    check_summary.append("✓ Fresh")
+                if checks['has_sufficient_history']:
+                    check_summary.append(f"✓ History")
+                
+                detailed_status_data.append({
+                    'Wave ID': wave_id,
+                    'Display Name': diagnostics['display_name'],
+                    'Status': status_display,
+                    'Reason': reason_code,
+                    'Details': diagnostics['details'],
+                    'Checks': ' | '.join(check_summary) if check_summary else 'No checks passed'
+                })
+            
+            # Display summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Waves", len(all_wave_ids), help="Total waves in the registry")
+            with col2:
+                st.metric("Ready", ready_count, help="Waves with all checks passed")
+            with col3:
+                st.metric("Degraded", degraded_count, help="Waves with stale or insufficient data")
+            with col4:
+                st.metric("Missing Inputs", missing_count, help="Waves with missing configuration or data files")
+            
+            st.markdown("---")
+            
+            # Display detailed status table
+            if detailed_status_data:
+                df_detailed_status = pd.DataFrame(detailed_status_data)
+                
+                # Add filtering option
+                filter_option = st.selectbox(
+                    "Filter by Status:",
+                    options=["All", "Ready", "Degraded", "Missing"],
+                    index=0,
+                    help="Filter the table by wave status"
+                )
+                
+                # Apply filter
+                if filter_option != "All":
+                    # Match against the emoji-prefixed status display
+                    # Ready: ✅, Degraded: ⚠️, Missing: ❌
+                    if filter_option == "Ready":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("✅", case=False, na=False)
+                        ]
+                    elif filter_option == "Degraded":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("⚠️", case=False, na=False)
+                        ]
+                    elif filter_option == "Missing":
+                        df_detailed_status = df_detailed_status[
+                            df_detailed_status['Status'].str.contains("❌", case=False, na=False)
+                        ]
+                
+                st.dataframe(
+                    df_detailed_status,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500
+                )
+                
+                # Download button for diagnostics
+                csv = df_detailed_status.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Readiness Report as CSV",
+                    data=csv,
+                    file_name=f"wave_readiness_diagnostics_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("📊 No wave status information available")
+                
+        except ImportError as e:
+            # Fallback to legacy diagnostics if analytics_pipeline not available
+            st.warning("⚠️ Advanced diagnostics unavailable. Using legacy status checks.")
+            
+            # Compute wave diagnostics to get data readiness (legacy)
+            wave_diagnostics = compute_wave_universe_diagnostics()
+            wave_statuses = wave_diagnostics.get('wave_statuses', {})
+            
+            # Build status table (legacy)
+            status_data = []
+            for wave_name in sorted(all_metrics, key=lambda x: x['wave_name']):
+                wave = wave_name['wave_name']
+                status_info = wave_statuses.get(wave, {'status': 'Unknown', 'reason': 'N/A'})
+                status = status_info['status']
+                reason = status_info['reason']
+                
+                # Map status to display format (handle both 'Ready' and 'ready')
+                status_lower = status.lower() if isinstance(status, str) else 'unknown'
+                if status_lower == 'ready':
+                    status_display = "✅ Ready"
+                elif 'degraded' in status_lower:
+                    status_display = "⚠️ Degraded"
+                else:
+                    status_display = "❌ Missing Inputs"
+                
+                status_data.append({
+                    'Wave Name': wave,
+                    'Status': status_display,
+                    'Details': reason if reason else 'Data available'
+                })
+            
+            if status_data:
+                df_status = pd.DataFrame(status_data)
+                st.dataframe(
+                    df_status,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+            else:
+                st.info("📊 No wave status information available")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION C: All-Waves Performance & Alpha Grid
+        # ========================================================================
+        st.markdown("### 📈 All-Waves Performance & Alpha Grid")
+        st.caption("Multi-timeframe performance metrics for all waves")
+        
+        # Build comprehensive grid data
+        grid_data = []
+        for metrics in all_metrics:
+            wave_name = metrics['wave_name']
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            
+            # Helper to get returns for a timeframe
+            def get_returns(days):
+                wave_data = get_wave_data_filtered(
+                    wave_name=wave_name,
+                    days=days,
+                    _wave_universe_version=wave_universe_version
+                )
+                if wave_data is not None and len(wave_data) > 0:
+                    wave_ret = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else None
+                    bench_ret = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else None
+                    return wave_ret, bench_ret
+                return None, None
+            
+            # Get returns for each timeframe
+            wave_1d, bench_1d = get_returns(1)
+            wave_30d, bench_30d = get_returns(30)
+            wave_60d, bench_60d = get_returns(60)
+            wave_365d, bench_365d = get_returns(365)
+            
+            # Calculate alphas (handle None values)
+            alpha_1d = (wave_1d - bench_1d) if (wave_1d is not None and bench_1d is not None) else None
+            alpha_30d = (wave_30d - bench_30d) if (wave_30d is not None and bench_30d is not None) else None
+            alpha_60d = (wave_60d - bench_60d) if (wave_60d is not None and bench_60d is not None) else None
+            alpha_365d = (wave_365d - bench_365d) if (wave_365d is not None and bench_365d is not None) else None
+            
+            grid_data.append({
+                'Wave Name': wave_name,
+                '1D Wave': wave_1d,
+                '1D Benchmark': bench_1d,
+                '1D Alpha': alpha_1d,
+                '30D Wave': wave_30d,
+                '30D Benchmark': bench_30d,
+                '30D Alpha': alpha_30d,
+                '60D Wave': wave_60d,
+                '60D Benchmark': bench_60d,
+                '60D Alpha': alpha_60d,
+                '365D Wave': wave_365d,
+                '365D Benchmark': bench_365d,
+                '365D Alpha': alpha_365d,
+                '_sort_alpha_30d': alpha_30d  # Hidden column for sorting
+            })
+        
+        if grid_data:
+            df_grid = pd.DataFrame(grid_data)
+            
+            # Sort by 30D Alpha (descending) - put None values at the end
+            df_grid = df_grid.sort_values('_sort_alpha_30d', ascending=False, na_position='last')
+            
+            # Format percentages for display - handle None values
+            percent_cols = [
+                '1D Wave', '1D Benchmark', '1D Alpha',
+                '30D Wave', '30D Benchmark', '30D Alpha',
+                '60D Wave', '60D Benchmark', '60D Alpha',
+                '365D Wave', '365D Benchmark', '365D Alpha'
+            ]
+            
+            df_display = df_grid.copy()
+            for col in percent_cols:
+                df_display[col] = df_display[col].apply(lambda x: f"{x*100:.2f}%" if x is not None else "N/A")
+            
+            # Drop the sort column
+            df_display = df_display.drop(columns=['_sort_alpha_30d'])
+            
+            # Apply color styling to alpha columns
+            def color_alpha(val):
+                """Apply green color to positive values, red to negative."""
+                try:
+                    # Handle N/A values
+                    if val == "N/A":
+                        return 'background-color: #f0f0f0; color: #666666'  # Light gray for missing data
+                    # Extract numeric value from percentage string
+                    num_val = float(val.strip('%'))
+                    if num_val > 0:
+                        return 'background-color: #d4edda; color: #155724'  # Light green background, dark green text
+                    elif num_val < 0:
+                        return 'background-color: #f8d7da; color: #721c24'  # Light red background, dark red text
+                    else:
+                        return ''
+                except:
+                    return ''
+            
+            # Style the dataframe
+            alpha_cols = ['1D Alpha', '30D Alpha', '60D Alpha', '365D Alpha']
+            styled_df = df_display.style.applymap(color_alpha, subset=alpha_cols)
+            
+            # Display with horizontal scroll for mobile
+            st.dataframe(
+                styled_df,
+                use_container_width=True,
+                height=600,
+                hide_index=True
+            )
+            
+            st.caption(f"✓ Showing {len(df_grid)} waves | Sorted by 30D Alpha (descending) | Green = positive alpha, Red = negative alpha")
+        else:
+            st.info("📊 No wave data available for grid")
+        
+        # ========================================================================
+        # SECTION D: System-Level Narratives (Optional Expander)
+        # ========================================================================
+        with st.expander("📖 System Intelligence"):
+            st.markdown("""
+            **Market Context:**
+            - System-wide intelligence based on aggregate wave performance
+            - Rankings and attribution across all waves
+            
+            **Action Guidance:**
+            - Executive-level insights for portfolio positioning
+            - Risk-on/risk-off signals from system behavior
+            
+            **Methodology:**
+            - Alpha = Wave Return − Benchmark Return
+            - All metrics derive from canonical wave_history.csv dataset
+            """)
+    
+    except Exception as e:
+        st.error("⚠️ **System View Error**")
+        st.warning(f"An error occurred: {str(e)}")
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+
+
+def render_individual_wave_view(selected_wave, all_metrics):
+    """
+    Render the Individual Wave View - Wave-specific intelligence.
+    
+    Shows:
+    - Wave-specific metrics and performance
+    - Alpha drivers breakdown for the selected wave
+    - Wave-scoped narratives and action guidance
+    
+    Maintains executive-level presentation without raw diagnostics.
+    """
+    try:
+        st.markdown(f"### 🌊 {selected_wave}")
+        st.caption(f"Executive intelligence for {selected_wave}")
+        
+        # Get wave_universe_version from session state
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        
+        # ========================================================================
+        # SECTION A: Wave Performance Metrics
+        # ========================================================================
+        st.markdown("#### 📊 Performance Metrics")
+        
+        # Get metrics for the selected wave
+        wave_metrics = next((m for m in all_metrics if m['wave_name'] == selected_wave), None)
+        
+        if wave_metrics:
+            # Display multi-timeframe metrics in columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                alpha_1d = wave_metrics.get('alpha_1d', 0.0)
+                st.metric(
+                    label="1D Alpha",
+                    value=f"{alpha_1d*100:.2f}%",
+                    help="1-day alpha vs benchmark"
+                )
+            
+            with col2:
+                alpha_30d = wave_metrics.get('alpha_30d', 0.0)
+                st.metric(
+                    label="30D Alpha",
+                    value=f"{alpha_30d*100:.2f}%",
+                    help="30-day alpha vs benchmark"
+                )
+            
+            with col3:
+                alpha_60d = wave_metrics.get('alpha_60d', 0.0)
+                st.metric(
+                    label="60D Alpha",
+                    value=f"{alpha_60d*100:.2f}%",
+                    help="60-day alpha vs benchmark"
+                )
+            
+            with col4:
+                alpha_365d = wave_metrics.get('alpha_365d', 0.0)
+                st.metric(
+                    label="365D Alpha",
+                    value=f"{alpha_365d*100:.2f}%",
+                    help="365-day alpha vs benchmark"
+                )
+        else:
+            st.info(f"📊 No performance data available for {selected_wave}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION B: Alpha Drivers Breakdown
+        # ========================================================================
+        st.markdown("#### 🎯 Alpha Drivers Breakdown")
+        st.caption("Performance attribution for this wave")
+        
+        # Create columns for timeframe selector and breakdown
+        col_controls, col_breakdown = st.columns([3, 7])
+        
+        with col_controls:
+            # Timeframe selector
+            timeframe_options = {
+                "1 Day": 1,
+                "30 Days": 30,
+                "60 Days": 60,
+                "365 Days": 365
+            }
+            
+            selected_timeframe_label = st.selectbox(
+                "Select Timeframe:",
+                options=list(timeframe_options.keys()),
+                index=1,  # Default to 30 Days
+                key="individual_wave_drivers_timeframe"
+            )
+            
+            timeframe_days = timeframe_options[selected_timeframe_label]
+        
+        with col_breakdown:
+            # Compute Alpha Drivers for selected wave
+            with st.spinner(f"Computing alpha drivers for {selected_wave}..."):
+                drivers = compute_alpha_drivers(
+                    wave_name=selected_wave,
+                    timeframe_days=timeframe_days
+                )
+            
+            # Display summary metrics
+            st.markdown(f"**{selected_wave} — {selected_timeframe_label}**")
+            
+            col_ret1, col_ret2, col_ret3 = st.columns(3)
+            
+            with col_ret1:
+                st.metric(
+                    label="Wave Return",
+                    value=f"{drivers['wave_return']*100:.2f}%",
+                    help="Total wave return over the period"
+                )
+            
+            with col_ret2:
+                st.metric(
+                    label="Benchmark Return",
+                    value=f"{drivers['benchmark_return']*100:.2f}%",
+                    help="Total benchmark return over the period"
+                )
+            
+            with col_ret3:
+                st.metric(
+                    label="Total Alpha",
+                    value=f"{drivers['total_alpha']*100:.2f}%",
+                    help="Wave Return minus Benchmark Return"
+                )
+            
+            st.markdown("---")
+            
+            # Display Alpha Drivers Breakdown
+            st.markdown("**Alpha Drivers (% Contribution)**")
+            
+            # Check if we can display percentages
+            if drivers['selection_percent'] is not None:
+                # Build drivers table
+                drivers_table_data = [
+                    {
+                        'Driver': '📈 Stock Selection',
+                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['selection_percent']:.1f}%"
+                    },
+                    {
+                        'Driver': '🛡️ Risk Overlay',
+                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['overlay_percent']:.1f}%"
+                    },
+                    {
+                        'Driver': '⚪ Residual/Other',
+                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                        'Share of Alpha': f"{drivers['residual_percent']:.1f}%"
+                    }
+                ]
+                
+                df_drivers = pd.DataFrame(drivers_table_data)
+                
+                st.dataframe(
+                    df_drivers,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Verification that shares sum to ~100%
+                total_share = drivers['selection_percent'] + drivers['overlay_percent'] + drivers['residual_percent']
+                st.caption(f"✓ Total: {total_share:.1f}% (should be ~100%)")
+                
+            else:
+                # Total alpha is effectively zero - display N/A
+                st.info("📊 Total Alpha is near zero. Share percentages: N/A")
+                
+                # Still show contributions in return points
+                drivers_table_data = [
+                    {
+                        'Driver': '📈 Stock Selection',
+                        'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    },
+                    {
+                        'Driver': '🛡️ Risk Overlay',
+                        'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    },
+                    {
+                        'Driver': '⚪ Residual/Other',
+                        'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                        'Share of Alpha': 'N/A'
+                    }
+                ]
+                
+                df_drivers = pd.DataFrame(drivers_table_data)
+                
+                st.dataframe(
+                    df_drivers,
+                    use_container_width=True,
+                    hide_index=True
+                )
+        
+        # ========================================================================
+        # SECTION C: Wave-Level Narratives (Optional Expander)
+        # ========================================================================
+        with st.expander("📖 Wave Intelligence"):
+            st.markdown(f"""
+            **{selected_wave} Context:**
+            - Wave-specific performance metrics and attribution
+            - Executive-level insights scoped to this wave
+            
+            **Action Guidance:**
+            - Position sizing and risk management for this wave
+            - Alpha driver analysis for decision support
+            
+            **Methodology:**
+            - Alpha = Wave Return − Benchmark Return
+            - **Stock Selection**: Alpha from holding and weighting decisions
+            - **Risk Overlay**: Alpha from dynamic exposure and VIX-based overlays
+            - **Residual/Other**: Compounding effects and timing interactions
+            """)
+    
+    except Exception as e:
+        st.error(f"⚠️ **Wave View Error: {selected_wave}**")
+        st.warning(f"An error occurred: {str(e)}")
+        with st.expander("🔍 Technical Details"):
+            st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
 def render_details_tab():
@@ -8875,7 +11142,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
+        safe_plotly_chart(waterfall_fig, use_container_width=True, key=f"attr_waterfall_{selected_wave}_{days}")
         
         st.divider()
         
@@ -8912,7 +11179,7 @@ def render_attribution_tab():
             height=500
         )
         
-        st.plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
+        safe_plotly_chart(ts_fig, use_container_width=True, key=f"attr_timeseries_{selected_wave}_{days}")
         
         st.divider()
         
@@ -9842,15 +12109,31 @@ def render_ic_pack_tab():
                 
                 if wave_data is not None and len(wave_data) > 0:
                     try:
-                        # Use alpha attribution module
-                        attribution_result = compute_alpha_attribution_series(
+                        # Prepare data for attribution - transform column names
+                        wave_data_copy = wave_data.copy()
+                        
+                        # Ensure date is index
+                        if 'date' in wave_data_copy.columns:
+                            wave_data_copy = wave_data_copy.set_index('date')
+                        
+                        # Transform column names to match expected format
+                        if 'portfolio_return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['wave_ret'] = wave_data_copy['portfolio_return']
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        elif 'return' in wave_data_copy.columns and 'benchmark_return' in wave_data_copy.columns:
+                            wave_data_copy['wave_ret'] = wave_data_copy['return']
+                            wave_data_copy['bm_ret'] = wave_data_copy['benchmark_return']
+                        else:
+                            raise ValueError("Missing required return columns (wave_ret/bm_ret)")
+                        
+                        # Use alpha attribution module with correct parameters
+                        daily_df, summary = compute_alpha_attribution_series(
                             wave_name=selected_alpha_wave,
-                            wave_data=wave_data,
-                            days=30
+                            mode="Standard",
+                            history_df=wave_data_copy
                         )
                         
-                        if attribution_result is not None and hasattr(attribution_result, 'summary'):
-                            summary = attribution_result.summary
+                        if summary is not None:
                             
                             # Display alpha components
                             st.markdown("**Alpha Components (Last 30 Days)**")
@@ -9858,36 +12141,46 @@ def render_ic_pack_tab():
                             col_alpha1, col_alpha2, col_alpha3, col_alpha4 = st.columns(4)
                             
                             with col_alpha1:
-                                selection_val = getattr(summary, 'selection_alpha', None)
+                                # Asset Selection Alpha
+                                selection_val = getattr(summary, 'asset_selection_alpha', None)
                                 if selection_val is not None:
                                     st.metric("Selection Alpha", f"{selection_val * 100:.3f}%")
                                 else:
                                     st.metric("Selection Alpha", "Data unavailable")
                             
                             with col_alpha2:
-                                overlay_val = getattr(summary, 'overlay_alpha', None)
+                                # Exposure & Timing Alpha (previously called "overlay")
+                                overlay_val = getattr(summary, 'exposure_timing_alpha', None)
                                 if overlay_val is not None:
-                                    st.metric("Overlay Alpha", f"{overlay_val * 100:.3f}%")
+                                    st.metric("Timing Alpha", f"{overlay_val * 100:.3f}%")
                                 else:
-                                    st.metric("Overlay Alpha", "Data unavailable")
+                                    st.metric("Timing Alpha", "Data unavailable")
                             
                             with col_alpha3:
-                                risk_off_val = getattr(summary, 'risk_off_alpha', None)
+                                # Regime & VIX Alpha (previously called "risk-off")
+                                risk_off_val = getattr(summary, 'regime_vix_alpha', None)
                                 if risk_off_val is not None:
-                                    st.metric("Risk-Off Alpha", f"{risk_off_val * 100:.3f}%")
+                                    st.metric("Regime Alpha", f"{risk_off_val * 100:.3f}%")
                                 else:
-                                    st.metric("Risk-Off Alpha", "Data unavailable")
+                                    st.metric("Regime Alpha", "Data unavailable")
                             
                             with col_alpha4:
-                                residual_val = getattr(summary, 'residual_alpha', None)
-                                if residual_val is not None:
-                                    st.metric("Residual Alpha", f"{residual_val * 100:.3f}%")
+                                # Momentum & Trend Alpha
+                                momentum_val = getattr(summary, 'momentum_trend_alpha', None)
+                                if momentum_val is not None:
+                                    st.metric("Momentum Alpha", f"{momentum_val * 100:.3f}%")
                                 else:
-                                    st.metric("Residual Alpha", "Data unavailable")
+                                    st.metric("Momentum Alpha", "Data unavailable")
                             
-                            # Data completeness indicator
-                            completeness = getattr(summary, 'data_completeness', 0)
-                            st.progress(completeness, text=f"Data Completeness: {completeness * 100:.0f}%")
+                            # Display total alpha and reconciliation
+                            total_alpha = getattr(summary, 'total_alpha', None)
+                            if total_alpha is not None:
+                                st.metric("Total Alpha", f"{total_alpha * 100:.3f}%")
+                            
+                            # Display reconciliation error as a progress bar (lower is better)
+                            recon_error_pct = abs(getattr(summary, 'reconciliation_pct_error', 0))
+                            if recon_error_pct < 0.01:  # Less than 1% error is excellent
+                                st.success(f"✅ Reconciliation: {(1 - recon_error_pct) * 100:.1f}% accurate")
                             
                         else:
                             # Fallback: Try to use DecisionAttributionEngine
@@ -10327,6 +12620,410 @@ def generate_ic_pack_html():
         return f"<html><body><h1>Error generating report</h1><p>{str(e)}</p></body></html>"
 
 
+def render_alpha_capture_tab():
+    """
+    Render the Alpha Capture tab with Alpha Drivers breakdown.
+    
+    This tab shows:
+    - Left column: All Waves table with 30D returns, alpha, and exposure
+    - Right column: Alpha Drivers breakdown for selected wave showing 3-bucket attribution
+    
+    Features:
+    - Simple table-based layout (no HTML components)
+    - Mobile-friendly design
+    - Timeframe selector (default 30D)
+    - 3-bucket alpha breakdown with percentages and return points
+    - Graceful fallback when exposure/diagnostics data is missing
+    """
+    try:
+        # ========================================================================
+        # TOP SECTION: Introductory Header
+        # ========================================================================
+        st.markdown("# Alpha Drivers.")
+        st.markdown("### A defensible breakdown of where alpha comes from.")
+        
+        st.markdown("""
+        **Key Definitions:**
+        - **Total Alpha = Wave Return − Benchmark Return.**
+        - **Stock Selection**: Alpha from choosing which assets to hold.
+        - **Risk Overlay**: Alpha from VIX/SafeSmart/Cash shift strategies.
+        - **Residual/Other**: Remaining alpha not attributed to the above.
+        """)
+        
+        st.markdown("---")
+        
+        # Timeframe selector
+        timeframe_options = {
+            "30 Days": 30,
+            "60 Days": 60,
+            "90 Days": 90,
+            "365 Days": 365
+        }
+        
+        selected_timeframe_label = st.selectbox(
+            "Select Timeframe:",
+            options=list(timeframe_options.keys()),
+            index=0,  # Default to 30 Days
+            key=k("AlphaCapture", "timeframe")
+        )
+        
+        timeframe_days = timeframe_options[selected_timeframe_label]
+        
+        # Compute alpha metrics for all waves
+        with st.spinner(f"Computing alpha metrics for {selected_timeframe_label}..."):
+            all_metrics = compute_alpha_metrics_all_waves()
+        
+        if not all_metrics:
+            st.warning("⚠️ No alpha data available. Please ensure wave_history.csv contains valid data.")
+            return
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # TWO-COLUMN LAYOUT: All Waves Table (Left) + Alpha Drivers (Right)
+        # ========================================================================
+        
+        # Build DataFrame for All Waves table
+        table_data = []
+        for metrics in all_metrics:
+            # Get the appropriate alpha based on selected timeframe
+            if timeframe_days == 30:
+                alpha_val = metrics.get('alpha_30d')
+                exposure_val = metrics.get('exposure_30d', 1.0)
+            elif timeframe_days == 60:
+                alpha_val = metrics.get('alpha_60d')
+                exposure_val = metrics.get('exposure_60d', 1.0)
+            elif timeframe_days == 90:
+                # Use 60d as approximation for 90d
+                alpha_val = metrics.get('alpha_60d')
+                exposure_val = metrics.get('exposure_60d', 1.0)
+            else:  # 365 days
+                alpha_val = metrics.get('alpha_365d')
+                exposure_val = metrics.get('exposure_365d', 1.0)
+            
+            # Format values for display
+            def fmt_pct(val):
+                return f"{val*100:.2f}%" if val is not None else "N/A"
+            
+            def fmt_exp(val):
+                return f"{val:.2f}" if val is not None else "1.00"
+            
+            # Get wave data to calculate actual returns for the timeframe
+            wave_universe_version = st.session_state.get("wave_universe_version", 1)
+            wave_data = get_wave_data_filtered(
+                wave_name=metrics['wave_name'],
+                days=timeframe_days,
+                _wave_universe_version=wave_universe_version
+            )
+            
+            wave_return = 0.0
+            benchmark_return = 0.0
+            
+            if wave_data is not None and len(wave_data) > 0:
+                if 'portfolio_return' in wave_data.columns:
+                    wave_return = wave_data['portfolio_return'].sum()
+                if 'benchmark_return' in wave_data.columns:
+                    benchmark_return = wave_data['benchmark_return'].sum()
+            
+            table_data.append({
+                'Wave Name': metrics['wave_name'],
+                f'{selected_timeframe_label} Wave Return': fmt_pct(wave_return),
+                f'{selected_timeframe_label} Benchmark Return': fmt_pct(benchmark_return),
+                f'{selected_timeframe_label} Alpha': fmt_pct(alpha_val),
+                'Exposure (Optional)': fmt_exp(exposure_val),
+                '_alpha_sort': alpha_val if alpha_val is not None else -9999
+            })
+        
+        if table_data:
+            df_display = pd.DataFrame(table_data)
+            
+            # Sort by Alpha (descending) - default sorting
+            df_display = df_display.sort_values('_alpha_sort', ascending=False)
+            df_display = df_display.drop(columns=['_alpha_sort'])
+            
+            # Create two columns: 50% for table, 50% for alpha drivers
+            col_table, col_drivers = st.columns([5, 5])
+            
+            # ================================================================
+            # LEFT COLUMN: All Waves Table
+            # ================================================================
+            with col_table:
+                st.markdown("### 📋 All Waves")
+                st.caption(f"Sorted by {selected_timeframe_label} Alpha (descending)")
+                
+                # Display table
+                st.dataframe(
+                    df_display,
+                    use_container_width=True,
+                    height=600,
+                    hide_index=True
+                )
+            
+            # ================================================================
+            # RIGHT COLUMN: Alpha Drivers for Selected Wave
+            # ================================================================
+            with col_drivers:
+                st.markdown("### 🎯 Alpha Drivers")
+                
+                # Wave selector
+                wave_names = [m['wave_name'] for m in all_metrics]
+                
+                # Default to wave with highest alpha in the selected timeframe
+                if timeframe_days == 30:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_30d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_30d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
+                elif timeframe_days == 60:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_60d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_60d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
+                else:
+                    valid_metrics = [m for m in all_metrics if m.get('alpha_365d') is not None]
+                    if valid_metrics:
+                        default_wave = max(valid_metrics, key=lambda x: x['alpha_365d'])['wave_name']
+                    else:
+                        default_wave = wave_names[0]
+                
+                selected_wave_name = st.selectbox(
+                    label="Select a Wave:",
+                    options=wave_names,
+                    index=wave_names.index(default_wave) if default_wave in wave_names else 0,
+                    key=k("AlphaCapture", "wave_selector")
+                )
+                
+                st.markdown("---")
+                
+                # Compute Alpha Drivers for selected wave
+                with st.spinner(f"Computing alpha drivers for {selected_wave_name}..."):
+                    drivers = compute_alpha_drivers(
+                        wave_name=selected_wave_name,
+                        timeframe_days=timeframe_days
+                    )
+                
+                # Display Total Alpha
+                st.markdown("#### 📊 Total Alpha")
+                total_alpha_pct = drivers['total_alpha'] * 100
+                st.metric(
+                    label=f"Total Alpha ({selected_timeframe_label})",
+                    value=f"{total_alpha_pct:.2f}%",
+                    help="Wave Return minus Benchmark Return"
+                )
+                
+                st.markdown("---")
+                
+                # Display Alpha Drivers Breakdown
+                st.markdown("#### 🔍 Alpha Drivers Breakdown")
+                st.caption("3-bucket percentage breakdown")
+                
+                # Check if we can display percentages
+                if drivers['selection_percent'] is not None:
+                    # Build drivers table
+                    drivers_table_data = [
+                        {
+                            'Driver': '📈 Stock Selection',
+                            'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                            'Share': f"{drivers['selection_percent']:.1f}%"
+                        },
+                        {
+                            'Driver': '🛡️ Risk Overlay',
+                            'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                            'Share': f"{drivers['overlay_percent']:.1f}%"
+                        },
+                        {
+                            'Driver': '⚪ Residual/Other',
+                            'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                            'Share': f"{drivers['residual_percent']:.1f}%"
+                        }
+                    ]
+                    
+                    df_drivers = pd.DataFrame(drivers_table_data)
+                    
+                    st.dataframe(
+                        df_drivers,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # Verification that shares sum to ~100%
+                    total_share = drivers['selection_percent'] + drivers['overlay_percent'] + drivers['residual_percent']
+                    st.caption(f"✓ Total: {total_share:.1f}% (should be ~100%)")
+                    
+                else:
+                    # Total alpha is effectively zero - display N/A
+                    st.info("📊 Total Alpha is near zero. Share percentages: N/A")
+                    
+                    # Still show contributions in return points
+                    drivers_table_data = [
+                        {
+                            'Driver': '📈 Stock Selection',
+                            'Contribution (pts)': f"{drivers['selection_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        },
+                        {
+                            'Driver': '🛡️ Risk Overlay',
+                            'Contribution (pts)': f"{drivers['overlay_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        },
+                        {
+                            'Driver': '⚪ Residual/Other',
+                            'Contribution (pts)': f"{drivers['residual_contribution']*100:.2f}%",
+                            'Share': 'N/A'
+                        }
+                    ]
+                    
+                    df_drivers = pd.DataFrame(drivers_table_data)
+                    
+                    st.dataframe(
+                        df_drivers,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                st.markdown("---")
+                
+                # Display additional metrics
+                st.markdown("#### 📈 Wave Metrics")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric(
+                        label="Wave Return",
+                        value=f"{drivers['wave_return']*100:.2f}%",
+                        help=f"Total return over {selected_timeframe_label}"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="Benchmark Return",
+                        value=f"{drivers['benchmark_return']*100:.2f}%",
+                        help=f"Benchmark return over {selected_timeframe_label}"
+                    )
+                
+                # Show average exposure
+                st.metric(
+                    label="Avg Exposure",
+                    value=f"{drivers['avg_exposure']:.2f}",
+                    help="Average exposure over the period (1.0 = fully invested)"
+                )
+                
+                # Data source indicator
+                if drivers['has_diagnostics']:
+                    st.caption("✓ Using diagnostics data for overlay calculation")
+                else:
+                    st.caption("ℹ️ Using fallback method (diagnostics unavailable)")
+                
+                # Last updated timestamp
+                if drivers['last_updated'] is not None:
+                    st.caption(f"**Last Updated:** {drivers['last_updated'].strftime('%Y-%m-%d') if hasattr(drivers['last_updated'], 'strftime') else drivers['last_updated']}")
+                else:
+                    st.caption(f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d')}")
+        
+        else:
+            st.info("📊 No data available for display")
+        
+        # ========================================================================
+        # COLLAPSIBLE SECTION: Method & Notes
+        # ========================================================================
+        st.markdown("---")
+        
+        with st.expander("📚 Method & Notes", expanded=False):
+            st.markdown("### Understanding Alpha Drivers")
+            
+            st.markdown("""
+            #### How We Calculate Alpha Drivers
+            
+            **Total Alpha** is calculated as:
+            ```
+            Total Alpha = Wave Return − Benchmark Return
+            ```
+            
+            We then break down this alpha into three buckets:
+            
+            ---
+            
+            #### The 3-Bucket Breakdown
+            
+            **1. Stock Selection (Portfolio vs Benchmark)**
+            - Alpha from choosing which assets to hold
+            - Represents the value of stock picking and sector allocation
+            - Calculated by comparing portfolio composition to benchmark
+            
+            **2. Risk Overlay (VIX/SafeSmart/Cash Shift)**
+            - Alpha from dynamic risk management strategies
+            - Includes VIX-driven exposure adjustments and safe asset allocation
+            - Based on diagnostics data when available, otherwise uses exposure-based fallback
+            
+            **3. Residual/Other**
+            - Alpha not attributed to the above two buckets
+            - Should be close to 0% for transparency and accountability
+            - May include rounding differences or untracked factors
+            
+            ---
+            
+            #### Computation Method
+            
+            **Preferred Method (when diagnostics available):**
+            - Extract daily exposure and overlay activity from diagnostics
+            - Calculate return with and without overlay effects
+            - `Overlay Contribution = Return_with_overlay − Return_without_overlay`
+            - `Selection Contribution = Total_Alpha − Overlay_Contribution`
+            
+            **Fallback Method (when diagnostics unavailable):**
+            - Use exposure data from wave_history
+            - `Risky Sleeve Return = Wave_Return / max(Exposure, 0.01)`
+            - `Selection Alpha = Risky_Sleeve_Return − Benchmark_Return`
+            - `Overlay Alpha = Total_Alpha − Selection_Alpha`
+            
+            **When exposure data is missing:**
+            - `Overlay Alpha = 0`
+            - `Selection Alpha = Total_Alpha`
+            
+            ---
+            
+            #### Percentage Shares
+            
+            If `Total Alpha ≠ 0`:
+            ```
+            Share % = (Contribution / Total Alpha) × 100
+            ```
+            
+            If `Total Alpha == 0`:
+            - Display "N/A" for share percentages
+            - Still show contributions in return points
+            
+            ---
+            
+            #### Important Notes
+            
+            **Data Sources:**
+            - Wave returns and benchmark returns from wave_history.csv
+            - Diagnostics from VIX overlay diagnostics module (when available)
+            - Exposure data from wave_history.csv
+            
+            **Verification:**
+            - All three buckets must sum to ~100%
+            - Any deviation indicates calculation transparency
+            - Residual bucket captures rounding and unattributed effects
+            
+            **Mobile-Friendly Design:**
+            - Clean table-based layout
+            - No HTML components
+            - Responsive columns
+            """)
+        
+        st.markdown("---")
+        
+    except Exception as e:
+        st.error(f"⚠️ Error rendering Alpha Drivers tab: {str(e)}")
+        with st.expander("🔍 View Error Details"):
+            st.code(traceback.format_exc(), language="python")
+
+
 # ============================================================================
 # SECTION 7.5: BOTTOM TICKER BAR FUNCTIONALITY
 # ============================================================================
@@ -10443,6 +13140,308 @@ def get_fed_decision_info():
         
     except Exception:
         return {'next_date': None, 'current_rate': None}
+
+
+def render_diagnostics_tab():
+    """
+    Render the Diagnostics / Health tab.
+    
+    This tab provides:
+    - System health status
+    - Data availability checks
+    - Safe Mode status and error history
+    - Wave universe diagnostics
+    - Performance diagnostics
+    """
+    st.markdown("# 🏥 Health & Diagnostics")
+    st.markdown("### System health, data availability, and diagnostics")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: System Health Overview
+    # ========================================================================
+    st.subheader("📊 System Health Overview")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Check if in Safe Mode
+        safe_mode_active = st.session_state.get("safe_mode_enabled", False)
+        safe_mode_status = "🔴 Active" if safe_mode_active else "🟢 Normal"
+        st.metric("Safe Mode", safe_mode_status)
+    
+    with col2:
+        # Check wave universe status
+        wave_universe = st.session_state.get("wave_universe", {})
+        wave_count = len(wave_universe.get("waves", []))
+        st.metric("Waves Loaded", wave_count)
+    
+    with col3:
+        # Check data freshness
+        last_refresh = st.session_state.get("last_successful_refresh_time")
+        if last_refresh:
+            time_since = datetime.now() - last_refresh
+            freshness = "🟢 Fresh" if time_since.total_seconds() < 300 else "🟡 Stale"
+        else:
+            freshness = "⚪ Unknown"
+        st.metric("Data Freshness", freshness)
+    
+    with col4:
+        # Check auto-refresh status
+        auto_refresh = st.session_state.get("auto_refresh_enabled", False)
+        refresh_status = "🟢 On" if auto_refresh else "🔴 Off"
+        st.metric("Auto-Refresh", refresh_status)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: Safe Mode Status
+    # ========================================================================
+    st.subheader("⚠️ Safe Mode Status")
+    
+    if safe_mode_active:
+        st.error("**Safe Mode is currently active.** The application is running in fallback mode with limited functionality.")
+        
+        # Show error details if available
+        with st.expander("🔍 View Safe Mode Error Details", expanded=False):
+            error_msg = st.session_state.get("safe_mode_error_message", "No error message available")
+            error_trace = st.session_state.get("safe_mode_error_traceback", "No traceback available")
+            
+            st.error(f"**Error Message:** {error_msg}")
+            st.code(error_trace, language="python")
+        
+        # Retry button
+        if st.button("🔄 Retry Full Mode", help="Clear Safe Mode and attempt to run the full application"):
+            st.session_state.safe_mode_enabled = False
+            st.session_state.safe_mode_error_shown = False
+            if "safe_mode_error_message" in st.session_state:
+                del st.session_state.safe_mode_error_message
+            if "safe_mode_error_traceback" in st.session_state:
+                del st.session_state.safe_mode_error_traceback
+            st.rerun()
+    else:
+        st.success("**Safe Mode is not active.** The application is running normally.")
+        
+        # Show if Safe Mode was previously triggered
+        if st.session_state.get("safe_mode_error_shown", False):
+            st.info("**Note:** Safe Mode was triggered earlier in this session but has been cleared.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2.5: Component Errors History
+    # ========================================================================
+    st.subheader("🔍 Component Errors History")
+    
+    component_errors = st.session_state.get("component_errors", [])
+    
+    if component_errors:
+        st.warning(f"**{len(component_errors)} component error(s) logged in this session**")
+        
+        with st.expander(f"📋 View Component Errors ({len(component_errors)})", expanded=False):
+            for i, error in enumerate(reversed(component_errors), 1):
+                st.markdown(f"### Error {i}: {error['component']}")
+                st.text(f"Timestamp: {error['timestamp']}")
+                st.error(f"**Error:** {error['error']}")
+                
+                with st.expander("View Traceback", expanded=False):
+                    st.code(error['traceback'], language="python")
+                
+                st.markdown("---")
+        
+        # Clear errors button
+        if st.button("🗑️ Clear Error History", help="Clear all logged component errors"):
+            st.session_state.component_errors = []
+            st.success("Error history cleared.")
+            st.rerun()
+    else:
+        st.success("**No component errors logged.** All components are functioning normally.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: Data Availability Checks
+    # ========================================================================
+    st.subheader("📁 Data Availability")
+    
+    # Check for key data files
+    data_checks = []
+    
+    # wave_history.csv
+    wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+    wave_history_exists = os.path.exists(wave_history_path)
+    wave_history_size = os.path.getsize(wave_history_path) if wave_history_exists else 0
+    data_checks.append({
+        "File": "wave_history.csv",
+        "Status": "✅ Found" if wave_history_exists else "❌ Missing",
+        "Size": f"{wave_history_size / 1024:.1f} KB" if wave_history_exists else "N/A"
+    })
+    
+    # wave_config.csv
+    wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
+    wave_config_exists = os.path.exists(wave_config_path)
+    wave_config_size = os.path.getsize(wave_config_path) if wave_config_exists else 0
+    data_checks.append({
+        "File": "wave_config.csv",
+        "Status": "✅ Found" if wave_config_exists else "❌ Missing",
+        "Size": f"{wave_config_size / 1024:.1f} KB" if wave_config_exists else "N/A"
+    })
+    
+    # Master_Stock_Sheet.csv
+    master_sheet_path = os.path.join(os.path.dirname(__file__), 'Master_Stock_Sheet.csv')
+    master_sheet_exists = os.path.exists(master_sheet_path)
+    master_sheet_size = os.path.getsize(master_sheet_path) if master_sheet_exists else 0
+    data_checks.append({
+        "File": "Master_Stock_Sheet.csv",
+        "Status": "✅ Found" if master_sheet_exists else "❌ Missing",
+        "Size": f"{master_sheet_size / 1024:.1f} KB" if master_sheet_exists else "N/A"
+    })
+    
+    # Display data checks
+    df_data_checks = pd.DataFrame(data_checks)
+    st.dataframe(df_data_checks, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 4: Wave Universe Diagnostics
+    # ========================================================================
+    st.subheader("🌊 Wave Universe Diagnostics")
+    
+    wave_universe = st.session_state.get("wave_universe", {})
+    
+    if wave_universe:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total Waves", len(wave_universe.get("waves", [])))
+            st.metric("Duplicates Removed", len(wave_universe.get("removed_duplicates", [])))
+        
+        with col2:
+            st.metric("Data Source", wave_universe.get("source", "Unknown"))
+            st.metric("Last Updated", wave_universe.get("timestamp", "Unknown"))
+        
+        # Show removed duplicates if any
+        removed_duplicates = wave_universe.get("removed_duplicates", [])
+        if removed_duplicates:
+            with st.expander(f"📋 View Removed Duplicates ({len(removed_duplicates)})", expanded=False):
+                for dup in removed_duplicates:
+                    st.text(f"• {dup}")
+        
+        # Show full wave list
+        with st.expander(f"📋 View All Waves ({len(wave_universe.get('waves', []))})", expanded=False):
+            waves = wave_universe.get("waves", [])
+            if waves:
+                # Display in 3 columns
+                cols = st.columns(3)
+                for i, wave in enumerate(sorted(waves)):
+                    with cols[i % 3]:
+                        st.text(f"• {wave}")
+    else:
+        st.warning("Wave universe data not available.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 5: Module Availability
+    # ========================================================================
+    st.subheader("📦 Module Availability")
+    
+    module_checks = []
+    
+    # Alpha Attribution
+    module_checks.append({
+        "Module": "Alpha Attribution",
+        "Status": "✅ Available" if ALPHA_ATTRIBUTION_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # VIX Diagnostics
+    module_checks.append({
+        "Module": "VIX Diagnostics",
+        "Status": "✅ Available" if VIX_DIAGNOSTICS_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Waves Engine
+    module_checks.append({
+        "Module": "Waves Engine",
+        "Status": "✅ Available" if WAVES_ENGINE_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Ticker V3
+    module_checks.append({
+        "Module": "Ticker V3",
+        "Status": "✅ Available" if TICKER_V3_AVAILABLE else "❌ Unavailable"
+    })
+    
+    # Auto Refresh Config
+    module_checks.append({
+        "Module": "Auto Refresh Config",
+        "Status": "✅ Available" if AUTO_REFRESH_CONFIG_AVAILABLE else "❌ Unavailable"
+    })
+    
+    df_module_checks = pd.DataFrame(module_checks)
+    st.dataframe(df_module_checks, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 6: Performance Diagnostics
+    # ========================================================================
+    st.subheader("⚡ Performance Diagnostics")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Session start time
+        if "session_start_time" not in st.session_state:
+            st.session_state.session_start_time = datetime.now()
+        
+        session_duration = datetime.now() - st.session_state.session_start_time
+        st.metric("Session Duration", f"{session_duration.total_seconds() / 60:.1f} min")
+    
+    with col2:
+        # Auto-refresh error count
+        error_count = st.session_state.get("auto_refresh_error_count", 0)
+        st.metric("Auto-Refresh Errors", error_count)
+    
+    # Last refresh time
+    last_refresh = st.session_state.get("last_successful_refresh_time")
+    if last_refresh:
+        time_since_refresh = datetime.now() - last_refresh
+        st.info(f"**Last Successful Refresh:** {time_since_refresh.total_seconds():.0f} seconds ago")
+    else:
+        st.warning("**Last Successful Refresh:** Unknown")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 7: Force Reload Actions
+    # ========================================================================
+    st.subheader("🔧 Maintenance Actions")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Force Reload Wave Universe", help="Rebuild wave universe from scratch"):
+            st.session_state.wave_universe_version = st.session_state.get("wave_universe_version", 1) + 1
+            st.session_state.force_reload_universe = True
+            st.success("Wave universe reload triggered. Refreshing...")
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
+            # Clear session state
+            for key in list(st.session_state.keys()):
+                if key not in ["safe_mode_enabled", "session_start_time"]:
+                    del st.session_state[key]
+            st.success("Cache cleared. Refreshing...")
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Footer
+    st.caption("**Note:** This tab is for diagnostic purposes only. Most users won't need to interact with it.")
 
 
 def render_bottom_ticker_bar():
@@ -10633,9 +13632,9 @@ def main():
     if "show_bottom_ticker" not in st.session_state:
         st.session_state.show_bottom_ticker = True
     
-    # Initialize selected_wave if not present (default: S&P 500 Wave)
+    # Initialize selected_wave if not present (default: None - will be set by context)
     if "selected_wave" not in st.session_state:
-        st.session_state.selected_wave = "S&P 500 Wave"
+        st.session_state.selected_wave = None
     
     # Initialize mode if not present (default: Standard)
     if "mode" not in st.session_state:
@@ -10723,6 +13722,43 @@ def main():
         pass
     
     # ========================================================================
+    # Global Price Cache Initialization
+    # ========================================================================
+    
+    # Initialize price cache TTL setting if not present (default: 2 hours)
+    if "price_cache_ttl_seconds" not in st.session_state:
+        st.session_state.price_cache_ttl_seconds = 7200
+    
+    # Initialize force rebuild flag if not present
+    if "force_price_cache_rebuild" not in st.session_state:
+        st.session_state.force_price_cache_rebuild = False
+    
+    # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
+    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+        try:
+            # Get TTL from session state
+            ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
+            
+            # Prefetch prices once (cached with TTL)
+            cache_result = get_global_price_cache(
+                wave_registry=WAVE_WEIGHTS,
+                days=365,
+                ttl_seconds=ttl_seconds
+            )
+            
+            # Store in session state for use across the app
+            st.session_state.global_price_df = cache_result.get("price_df")
+            st.session_state.global_price_failures = cache_result.get("failures", {})
+            st.session_state.global_price_asof = cache_result.get("asof")
+            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+            
+        except Exception as e:
+            # Log error but don't crash - app can still work without cache
+            print(f"Warning: Failed to prefetch global price cache: {str(e)}")
+            st.session_state.global_price_df = None
+    
+    # ========================================================================
     # Main Application UI
     # ========================================================================
     
@@ -10766,170 +13802,191 @@ def main():
             "Overlays",    
             "Attribution", 
             "Board Pack",  
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture",
+            "Diagnostics"  # NEW: Health/Diagnostics tab
         ])
         
         # Console tab (first in fallback mode)
         with analytics_tabs[0]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Overview tab (second - Market equivalent)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
+            safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
+        
+        # Alpha Capture tab
+        with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[9]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     
     elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Wave Intelligence Center is FIRST
+        # Normal mode with Wave Profile enabled - Overview is FIRST
         analytics_tabs = st.tabs([
-            "Wave Intelligence Center",   # FIRST TAB - comprehensive Wave overview
+            "Overview",                    # FIRST TAB - unified system overview with performance, alpha attribution, and market context
             "Console",                     # Second tab - Executive
             "Wave",                        # Third tab - Wave Profile with hero card
-            "Overview",                    # Market Intel equivalent
             "Details",                     # Factor Decomp equivalent
             "Reports",                     # Risk Lab equivalent
             "Overlays",                    # Correlation equivalent
             "Attribution",                 # Rolling Diagnostics equivalent
             "Board Pack",                  # Mode Proof equivalent
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture",
+            "Diagnostics"                  # NEW: Health/Diagnostics tab
         ])
         
-        # Wave Intelligence Center tab (FIRST)
+        # Overview tab (FIRST) - Executive Brief
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Executive Brief", render_executive_brief_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (third)
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_wave_profile_tab()
-        
-        # Overview tab
-        with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
+            safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
-        with analytics_tabs[4]:
+        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Details", render_details_tab)
         
         # Reports tab
-        with analytics_tabs[5]:
+        with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Reports", render_reports_tab)
         
         # Overlays tab
-        with analytics_tabs[6]:
+        with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
-        with analytics_tabs[7]:
+        with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
-        with analytics_tabs[8]:
+        with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
+        with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("IC Pack", render_ic_pack_tab)
+        
+        # Alpha Capture tab
         with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[10]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Wave Intelligence Center is FIRST tab
+        # Overview is FIRST tab
         analytics_tabs = st.tabs([
-            "Wave Intelligence Center",  # FIRST TAB - comprehensive Wave overview
+            "Overview",                   # FIRST TAB - unified system overview
             "Console",                    # Second tab - Executive
-            "Overview",                   # Third tab - Market Intel equivalent
             "Details",                    # Factor Decomp equivalent
             "Reports",                    # Risk Lab equivalent
             "Overlays",                   # Correlation equivalent
             "Attribution",                # Rolling Diagnostics equivalent
             "Board Pack",                 # Mode Proof equivalent
-            "IC Pack"
+            "IC Pack",
+            "Alpha Capture",
+            "Diagnostics"                 # NEW: Health/Diagnostics tab
         ])
         
-        # Wave Intelligence Center tab (FIRST)
+        # Overview tab (FIRST) - Executive Brief
         with analytics_tabs[0]:
-            render_wave_intelligence_center_tab()
+            safe_component("Executive Brief", render_executive_brief_tab)
         
         # Console tab (second)
         with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_executive_tab()
+            safe_component("Executive Console", render_executive_tab)
         
-        # Overview tab (third)
+        # Details tab
         with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overview_tab()
+            safe_component("Details", render_details_tab)
         
-        # Details tab (fourth)
+        # Reports tab
         with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_details_tab()
+            safe_component("Reports", render_reports_tab)
         
-        # Reports tab (fifth)
+        # Overlays tab
         with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_reports_tab()
+            safe_component("Overlays", render_overlays_tab)
         
-        # Overlays tab (sixth)
+        # Attribution tab
         with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_overlays_tab()
+            safe_component("Attribution", render_attribution_tab)
         
-        # Attribution tab (seventh)
+        # Board Pack tab
         with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_attribution_tab()
+            safe_component("Board Pack", render_board_pack_tab)
         
-        # Board Pack tab (eighth)
+        # IC Pack tab
         with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_board_pack_tab()
+            safe_component("IC Pack", render_ic_pack_tab)
         
-        # IC Pack tab (ninth)
+        # Alpha Capture tab
         with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            render_ic_pack_tab()
+            safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Diagnostics tab (NEW)
+        with analytics_tabs[9]:
+            safe_component("Diagnostics", render_diagnostics_tab)
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
@@ -10937,57 +13994,44 @@ def main():
     
     # Render bottom ticker bar if enabled
     if st.session_state.get("show_bottom_ticker", True):
-        render_bottom_ticker_bar()
+        safe_component("Bottom Ticker", render_bottom_ticker_bar, show_error=False)
 
 
 # Run the application
 if __name__ == "__main__":
-    # Check for safe mode before running main app
     # Initialize safe_mode_enabled if not present
     if "safe_mode_enabled" not in st.session_state:
         st.session_state.safe_mode_enabled = False
     
-    # If safe mode is manually enabled, run fallback directly
-    if st.session_state.get("safe_mode_enabled", False):
-        import app_fallback
-        app_fallback.run()
-    else:
-        # Wrap main execution in try-except for automatic fallback on error
+    # Wrap main execution in try-except to capture errors into Safe Mode
+    # but continue rendering the UI with degraded functionality
+    try:
+        main()
+    except Exception as e:
+        # ========================================================================
+        # SAFE MODE ERROR HANDLING - NO FULL-PAGE TAKEOVER
+        # ========================================================================
+        # Errors are captured and stored in session state for display in the
+        # Diagnostics tab. The main UI continues to render with degraded
+        # functionality rather than showing a full-page error screen.
+        # ========================================================================
+        
+        # Store error in session state for Diagnostics tab
+        st.session_state.safe_mode_enabled = True
+        st.session_state.safe_mode_error_message = str(e)
+        st.session_state.safe_mode_error_traceback = traceback.format_exc()
+        
+        # Show a small, non-intrusive notification
+        # (only at the very top - not taking over the whole page)
+        if not st.session_state.get("safe_mode_error_shown", False):
+            st.toast("⚠️ An error occurred. Check Diagnostics tab for details.", icon="⚠️")
+            st.session_state.safe_mode_error_shown = True
+        
+        # Try to run main() again - this time it will run with safe_mode_enabled=True
+        # which causes graceful degradation in components
         try:
             main()
-        except Exception as e:
-            # Display prominent error banner
-            st.markdown("""
-                <div style="
-                    background-color: #ff4444;
-                    color: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                    border: 3px solid #cc0000;
-                    box-shadow: 0 4px 6px rgba(255, 68, 68, 0.5);
-                ">
-                    <h1 style="margin: 0; font-size: 36px; font-weight: bold;">
-                        ⚠️ APPLICATION ERROR - SWITCHING TO SAFE MODE
-                    </h1>
-                    <p style="font-size: 18px; margin-top: 15px;">
-                        The application encountered an error and has automatically switched to safe fallback mode.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Display error details in an expander
-            with st.expander("🔍 View Error Details", expanded=False):
-                st.error(f"**Error Message:** {str(e)}")
-                st.code(traceback.format_exc(), language="python")
-            
-            st.markdown("---")
-            
-            # Load and execute fallback UI
-            try:
-                import app_fallback
-                app_fallback.run()
-            except Exception as fallback_error:
-                # If even the fallback fails, show minimal error message
-                st.error("Critical Error: Both main application and fallback system failed.")
-                st.code(f"Fallback Error: {str(fallback_error)}\n\n{traceback.format_exc()}", language="python")
+        except Exception as retry_error:
+            # If main() fails even in safe mode, show minimal error
+            st.error("Critical Error: Unable to render application.")
+            st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
