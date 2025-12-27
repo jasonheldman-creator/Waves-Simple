@@ -7804,8 +7804,9 @@ def render_wave_intelligence_center_tab():
     # WAVE READINESS REPORT (Collapsible)
     # ========================================================================
     with st.expander("🔍 Wave Readiness Report", expanded=False):
-        st.markdown("### 📋 Wave Data Readiness Diagnostics")
-        st.caption("Comprehensive diagnostics showing which waves are ready for display and why some are not.")
+        st.markdown("### 📋 Wave Data Readiness Diagnostics (Graded Model)")
+        st.caption("All 28 waves displayed with graded readiness: Full, Partial, Operational, or Unavailable. "
+                   "No waves are hidden - transparency in data capabilities and limitations.")
         
         try:
             from analytics_pipeline import generate_wave_readiness_report, DEFAULT_COVERAGE_THRESHOLD
@@ -7814,29 +7815,52 @@ def render_wave_intelligence_center_tab():
             readiness_df = generate_wave_readiness_report(coverage_threshold=DEFAULT_COVERAGE_THRESHOLD)
             
             if not readiness_df.empty:
-                # Show summary metrics
+                # Show summary metrics (graded model)
                 total_waves = len(readiness_df)
-                ready_count = (readiness_df['readiness'] == 'READY').sum()
-                partial_count = (readiness_df['readiness'] == 'NOT_READY (Partial)').sum()
-                not_ready_count = (readiness_df['readiness'] == 'NOT_READY').sum()
+                full_count = (readiness_df['readiness_status'] == 'full').sum()
+                partial_count = (readiness_df['readiness_status'] == 'partial').sum()
+                operational_count = (readiness_df['readiness_status'] == 'operational').sum()
+                unavailable_count = (readiness_df['readiness_status'] == 'unavailable').sum()
+                usable_count = full_count + partial_count + operational_count
                 
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
-                    st.metric("Total Waves", total_waves)
+                    st.metric("Total Waves", total_waves, help="All waves in the registry")
                 with col2:
-                    st.metric("Ready", ready_count, delta=f"{ready_count/total_waves*100:.1f}%")
+                    st.metric("Full", full_count, delta=f"{full_count/total_waves*100:.0f}%", 
+                             help="All analytics available")
                 with col3:
-                    if partial_count > 0:
-                        st.metric("Partial", partial_count)
-                    else:
-                        st.metric("Not Ready", not_ready_count)
+                    st.metric("Partial", partial_count, delta=f"{partial_count/total_waves*100:.0f}%",
+                             help="Basic analytics available")
                 with col4:
-                    avg_coverage = readiness_df['coverage_pct'].mean()
-                    st.metric("Avg Coverage", f"{avg_coverage:.1f}%")
+                    st.metric("Operational", operational_count, delta=f"{operational_count/total_waves*100:.0f}%",
+                             help="Current state display available")
+                with col5:
+                    st.metric("Usable", usable_count, delta=f"{usable_count/total_waves*100:.0f}%",
+                             help="Operational or better", delta_color="normal")
                 
                 st.markdown("---")
                 
-                # Show the full report table
+                # Explanation of graded statuses
+                with st.expander("ℹ️ Understanding Graded Readiness", expanded=False):
+                    st.markdown("""
+                    **Graded Readiness Model:**
+                    
+                    - **🟢 Full**: Complete data (≥95% coverage, ≥365 days) - all analytics including multi-window analysis, alpha attribution
+                    - **🟡 Partial**: Good data (≥90% coverage, ≥30 days) - basic analytics like volatility, correlation
+                    - **🟠 Operational**: Minimal data (≥80% coverage, ≥7 days) - current state and simple returns
+                    - **🔴 Unavailable**: Insufficient data - needs attention, but still visible with diagnostics
+                    
+                    **Key Principles:**
+                    - All 28 waves are always visible (no silent exclusions)
+                    - Transparent diagnostics explain what each wave can/cannot do
+                    - Analytics gracefully degrade based on data availability
+                    - Clear actionable suggestions for improving readiness
+                    """)
+                
+                st.markdown("---")
+                
+                # Show the full report table with graded model columns
                 st.dataframe(
                     readiness_df,
                     use_container_width=True,
@@ -7845,40 +7869,61 @@ def render_wave_intelligence_center_tab():
                     column_config={
                         "wave_id": st.column_config.TextColumn("Wave ID", width="medium"),
                         "wave_name": st.column_config.TextColumn("Wave Name", width="medium"),
-                        "readiness": st.column_config.TextColumn("Status", width="small"),
-                        "reason_category": st.column_config.TextColumn("Reason", width="small"),
+                        "readiness_status": st.column_config.TextColumn("Status", width="small"),
+                        "readiness_summary": st.column_config.TextColumn("Summary", width="large"),
+                        "allowed_analytics": st.column_config.TextColumn("Allowed Analytics", width="medium"),
+                        "blocking_issues": st.column_config.TextColumn("Blocking Issues", width="medium"),
+                        "informational_issues": st.column_config.TextColumn("Limitations", width="medium"),
                         "failing_tickers": st.column_config.TextColumn("Failing Tickers", width="medium"),
                         "coverage_pct": st.column_config.NumberColumn("Coverage %", format="%.1f%%", width="small"),
-                        "required_window_days": st.column_config.NumberColumn("Req. Days", width="small"),
-                        "available_window_days": st.column_config.NumberColumn("Avail. Days", width="small"),
-                        "start_date": st.column_config.TextColumn("Start Date", width="small"),
-                        "end_date": st.column_config.TextColumn("End Date", width="small"),
-                        "suggested_fix": st.column_config.TextColumn("Suggested Fix", width="large"),
+                        "available_window_days": st.column_config.NumberColumn("Days", width="small"),
+                        "suggested_actions": st.column_config.TextColumn("Suggested Actions", width="large"),
                     }
                 )
                 
                 # Download button
                 csv = readiness_df.to_csv(index=False)
                 st.download_button(
-                    label="📥 Download Readiness Report as CSV",
+                    label="📥 Download Graded Readiness Report as CSV",
                     data=csv,
-                    file_name=f"wave_readiness_report_{latest_timestamp}.csv",
+                    file_name=f"wave_readiness_report_graded_{latest_timestamp}.csv",
                     mime="text/csv"
                 )
                 
-                # Show reason breakdown
-                st.markdown("#### Failure Reason Breakdown")
-                reason_counts = readiness_df['reason_category'].value_counts()
-                reason_df = pd.DataFrame({
-                    'Reason Category': reason_counts.index,
-                    'Count': reason_counts.values
+                # Show readiness breakdown
+                st.markdown("#### Readiness Level Distribution")
+                status_counts = readiness_df['readiness_status'].value_counts()
+                status_df = pd.DataFrame({
+                    'Readiness Level': status_counts.index,
+                    'Count': status_counts.values,
+                    'Percentage': (status_counts.values / total_waves * 100).round(1)
                 })
-                reason_df = reason_df[reason_df['Reason Category'] != 'READY']  # Exclude READY
                 
-                if not reason_df.empty:
-                    st.dataframe(reason_df, use_container_width=True, hide_index=True)
-                else:
-                    st.success("All waves are ready! ✓")
+                st.dataframe(status_df, use_container_width=True, hide_index=True)
+                
+                # Show issues breakdown for unavailable waves
+                if unavailable_count > 0:
+                    st.markdown(f"#### Blocking Issues for Unavailable Waves ({unavailable_count})")
+                    unavailable_df = readiness_df[readiness_df['readiness_status'] == 'unavailable']
+                    issues_list = []
+                    for issues in unavailable_df['blocking_issues']:
+                        if issues:
+                            issues_list.extend([i.strip() for i in issues.split(',')])
+                    
+                    if issues_list:
+                        from collections import Counter
+                        issue_counts = Counter(issues_list)
+                        issue_df = pd.DataFrame({
+                            'Issue': list(issue_counts.keys()),
+                            'Count': list(issue_counts.values())
+                        }).sort_values('Count', ascending=False)
+                        
+                        st.dataframe(issue_df, use_container_width=True, hide_index=True)
+                
+                if usable_count == total_waves:
+                    st.success(f"🎉 All {total_waves} waves are usable (operational or better)! ✓")
+                elif usable_count > 0:
+                    st.info(f"✓ {usable_count} of {total_waves} waves are usable with varying capabilities")
                     
             else:
                 st.info("No readiness data available")
@@ -9623,95 +9668,141 @@ def render_all_waves_system_view(all_metrics):
         st.divider()
         
         # ========================================================================
-        # SECTION B: Data Readiness Status
+        # SECTION B: Data Readiness Status (Graded Model)
         # ========================================================================
-        st.markdown("### 📋 Data Readiness Status")
-        st.caption("Detailed readiness diagnostics for all 28 active waves")
+        st.markdown("### 📋 Data Readiness Status (Graded Model)")
+        st.caption("All 28 waves displayed with graded readiness: Full, Partial, Operational, or Unavailable")
         
-        # NEW: Use analytics_pipeline for detailed file-based diagnostics
+        # Use analytics_pipeline for graded readiness diagnostics
         try:
-            from analytics_pipeline import compute_data_ready_status
+            from analytics_pipeline import compute_data_ready_status, generate_wave_readiness_report
             from waves_engine import get_all_wave_ids
             
             # Get all wave IDs
             all_wave_ids = get_all_wave_ids()
             
-            # Compute detailed status for each wave
+            # Get graded readiness report
+            readiness_df = generate_wave_readiness_report()
+            
+            # Count by graded status
+            full_count = (readiness_df['readiness_status'] == 'full').sum()
+            partial_count = (readiness_df['readiness_status'] == 'partial').sum()
+            operational_count = (readiness_df['readiness_status'] == 'operational').sum()
+            unavailable_count = (readiness_df['readiness_status'] == 'unavailable').sum()
+            usable_count = full_count + partial_count + operational_count
+            
+            # Summary metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric(
+                    "🟢 Full",
+                    full_count,
+                    delta=f"{full_count/len(all_wave_ids)*100:.0f}%",
+                    help="Complete data for all analytics"
+                )
+            with col2:
+                st.metric(
+                    "🟡 Partial",
+                    partial_count,
+                    delta=f"{partial_count/len(all_wave_ids)*100:.0f}%",
+                    help="Basic analytics available"
+                )
+            with col3:
+                st.metric(
+                    "🟠 Operational",
+                    operational_count,
+                    delta=f"{operational_count/len(all_wave_ids)*100:.0f}%",
+                    help="Current state display"
+                )
+            with col4:
+                st.metric(
+                    "🔴 Unavailable",
+                    unavailable_count,
+                    delta=f"{unavailable_count/len(all_wave_ids)*100:.0f}%",
+                    help="Needs attention"
+                )
+            with col5:
+                st.metric(
+                    "✓ Usable",
+                    usable_count,
+                    delta=f"{usable_count/len(all_wave_ids)*100:.0f}%",
+                    help="Operational or better",
+                    delta_color="normal"
+                )
+            
+            st.divider()
+            
+            # Build detailed status table with graded readiness
             detailed_status_data = []
-            ready_count = 0
-            degraded_count = 0
-            missing_count = 0
             
             for wave_id in sorted(all_wave_ids):
                 diagnostics = compute_data_ready_status(wave_id)
                 
-                # Map reason code to status category and display
-                reason_code = diagnostics['reason']
-                if diagnostics['is_ready']:
-                    status_display = "✅ Ready"
-                    status_category = "Ready"
-                    ready_count += 1
-                elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
-                    status_display = "⚠️ Degraded"
-                    status_category = "Degraded"
-                    degraded_count += 1
-                else:
-                    status_display = "❌ Missing Inputs"
-                    status_category = "Missing"
-                    missing_count += 1
+                # Get graded status
+                readiness_status = diagnostics['readiness_status']
                 
-                # Add check details for transparency
-                checks = diagnostics['checks']
-                check_summary = []
-                if checks['has_weights']:
-                    check_summary.append("✓ Weights")
-                if checks['has_prices']:
-                    check_summary.append("✓ Prices")
-                if checks['has_benchmark']:
-                    check_summary.append("✓ Benchmark")
-                if checks['has_nav']:
-                    check_summary.append("✓ NAV")
-                if checks['is_fresh']:
-                    check_summary.append("✓ Fresh")
-                if checks['has_sufficient_history']:
-                    check_summary.append(f"✓ History")
+                # Map status to display
+                status_icons = {
+                    'full': '🟢',
+                    'partial': '🟡',
+                    'operational': '🟠',
+                    'unavailable': '🔴'
+                }
+                status_labels = {
+                    'full': 'Full',
+                    'partial': 'Partial',
+                    'operational': 'Operational',
+                    'unavailable': 'Unavailable'
+                }
+                
+                status_icon = status_icons.get(readiness_status, '❓')
+                status_label = status_labels.get(readiness_status, 'Unknown')
+                status_display = f"{status_icon} {status_label}"
+                
+                # Get allowed analytics
+                allowed = diagnostics['allowed_analytics']
+                analytics_summary = []
+                if allowed.get('current_pricing'):
+                    analytics_summary.append("Pricing")
+                if allowed.get('simple_returns'):
+                    analytics_summary.append("Returns")
+                if allowed.get('volatility_metrics'):
+                    analytics_summary.append("Volatility")
+                if allowed.get('multi_window_returns'):
+                    analytics_summary.append("Multi-Window")
+                if allowed.get('alpha_attribution'):
+                    analytics_summary.append("Alpha")
+                
+                analytics_display = ', '.join(analytics_summary) if analytics_summary else 'None'
+                
+                # Get issues
+                blocking = ', '.join(diagnostics['blocking_issues']) if diagnostics['blocking_issues'] else ''
+                informational = ', '.join(diagnostics['informational_issues'][:2]) if diagnostics['informational_issues'] else ''
                 
                 # Format missing tickers for display
                 missing_tickers_display = ', '.join(diagnostics['missing_tickers'][:3])
                 if len(diagnostics['missing_tickers']) > 3:
                     missing_tickers_display += f" (+{len(diagnostics['missing_tickers']) - 3} more)"
                 
-                # Format missing benchmark tickers
-                missing_benchmark_display = ', '.join(diagnostics['missing_benchmark_tickers'][:3])
-                if len(diagnostics['missing_benchmark_tickers']) > 3:
-                    missing_benchmark_display += f" (+{len(diagnostics['missing_benchmark_tickers']) - 3} more)"
+                # Get coverage percentage
+                coverage_pct = diagnostics.get('coverage_pct', 0.0)
+                
+                # Get suggested actions
+                actions = diagnostics.get('suggested_actions', [])
+                action_display = actions[0] if actions else ''
                 
                 detailed_status_data.append({
                     'Wave ID': wave_id,
                     'Display Name': diagnostics['display_name'],
                     'Status': status_display,
-                    'Reason': reason_code,
-                    'Reason Codes': ', '.join(diagnostics['reason_codes']),
-                    'Details': diagnostics['details'],
-                    'Checks': ' | '.join(check_summary) if check_summary else 'No checks passed',
-                    'Missing Tickers': missing_tickers_display,
-                    'Missing Benchmarks': missing_benchmark_display,
-                    'Source': diagnostics['source_used'],
-                    'History Window': f"{diagnostics['history_window_used']['start'] or 'N/A'} to {diagnostics['history_window_used']['end'] or 'N/A'}",
+                    'Allowed Analytics': analytics_display,
+                    'Coverage %': f"{coverage_pct:.1f}%",
+                    'Blocking Issues': blocking or 'None',
+                    'Limitations': informational or 'None',
+                    'Missing Tickers': missing_tickers_display or 'None',
+                    'Suggested Action': action_display or 'No action needed',
+                    'Summary': diagnostics.get('readiness_summary', diagnostics.get('details', ''))
                 })
-            
-            # Display summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Waves", len(all_wave_ids), help="Total waves in the registry")
-            with col2:
-                st.metric("Ready", ready_count, help="Waves with all checks passed")
-            with col3:
-                st.metric("Degraded", degraded_count, help="Waves with stale or insufficient data")
-            with col4:
-                st.metric("Missing Inputs", missing_count, help="Waves with missing configuration or data files")
-            
-            st.markdown("---")
             
             # Display detailed status table
             if detailed_status_data:
@@ -9720,26 +9811,23 @@ def render_all_waves_system_view(all_metrics):
                 # Add filtering option
                 filter_option = st.selectbox(
                     "Filter by Status:",
-                    options=["All", "Ready", "Degraded", "Missing"],
+                    options=["All", "Full", "Partial", "Operational", "Unavailable"],
                     index=0,
-                    help="Filter the table by wave status"
+                    help="Filter the table by graded readiness status"
                 )
                 
                 # Apply filter
                 if filter_option != "All":
-                    # Match against the emoji-prefixed status display
-                    # Ready: ✅, Degraded: ⚠️, Missing: ❌
-                    if filter_option == "Ready":
+                    status_icons_map = {
+                        'Full': '🟢',
+                        'Partial': '🟡',
+                        'Operational': '🟠',
+                        'Unavailable': '🔴'
+                    }
+                    icon = status_icons_map.get(filter_option, '')
+                    if icon:
                         df_detailed_status = df_detailed_status[
-                            df_detailed_status['Status'].str.contains("✅", case=False, na=False)
-                        ]
-                    elif filter_option == "Degraded":
-                        df_detailed_status = df_detailed_status[
-                            df_detailed_status['Status'].str.contains("⚠️", case=False, na=False)
-                        ]
-                    elif filter_option == "Missing":
-                        df_detailed_status = df_detailed_status[
-                            df_detailed_status['Status'].str.contains("❌", case=False, na=False)
+                            df_detailed_status['Status'].str.contains(icon, case=False, na=False)
                         ]
                 
                 st.dataframe(
@@ -9755,24 +9843,20 @@ def render_all_waves_system_view(all_metrics):
                     # Download CSV
                     csv = df_detailed_status.to_csv(index=False)
                     st.download_button(
-                        label="📥 Download Readiness Report as CSV",
+                        label="📥 Download Graded Readiness Report as CSV",
                         data=csv,
-                        file_name=f"wave_readiness_diagnostics_{datetime.now().strftime('%Y%m%d')}.csv",
+                        file_name=f"wave_readiness_graded_{datetime.now().strftime('%Y%m%d')}.csv",
                         mime="text/csv"
                     )
                 
                 with col2:
-                    # Download JSON with full diagnostics
-                    import json
-                    from analytics_pipeline import generate_readiness_report_json
-                    
-                    json_report = generate_readiness_report_json()
-                    json_str = json.dumps(json_report, indent=2)
+                    # Download full report
+                    csv_full = readiness_df.to_csv(index=False)
                     st.download_button(
-                        label="📥 Download Full Diagnostics as JSON",
-                        data=json_str,
-                        file_name=f"wave_diagnostics_full_{datetime.now().strftime('%Y%m%d')}.json",
-                        mime="application/json"
+                        label="📥 Download Full Readiness Data as CSV",
+                        data=csv_full,
+                        file_name=f"wave_readiness_full_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
                     )
                 
                 # Individual wave detailed viewer
