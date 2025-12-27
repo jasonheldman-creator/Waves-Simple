@@ -47,6 +47,9 @@ logs/
 # Streamlit
 .streamlit/
 
+# Application backups
+backup/app_last_good_*.py
+
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Cache file
 data/events_cache.json
 

@@ -7196,12 +7196,13 @@ def render_executive_brief_tab():
     
     This is the FIRST tab (Overview) and provides:
     - Mission Control Header: "WAVES Intelligence™"
+    - Executive Summary: Highlights of top performers and waves requiring attention
+    - Comprehensive Performance Table: All waves with Current, 30D, 60D, 365D returns and alphas
     - Market Snapshot: Market Regime, VIX Gate Status, Rates, SPY/QQQ, Liquidity
     - Wave System Snapshot: System Return, Alpha, Win Rate, Risk State
     - What's Strong/What's Weak: Top/Bottom 5 Waves by Alpha (30D)
     - Why: Compact narrative paragraph on the current regime
     - What to Do: Action panel (e.g., today's actions, watchlist)
-    - Performance Table (Collapsed): Full waves table ranked by Alpha
     
     NO DIAGNOSTICS CONTENT - All diagnostics moved to Diagnostics tab.
     """
@@ -7228,7 +7229,176 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # SECTION 1: MARKET SNAPSHOT
+        # SECTION 1: EXECUTIVE SUMMARY
+        # ========================================================================
+        st.markdown("### 📋 Executive Summary")
+        
+        try:
+            # Get all waves data for multi-timeframe analysis
+            timeframes = [1, 30, 60, 365]
+            all_waves_df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+            
+            if not all_waves_df.empty and '30D_Alpha' in all_waves_df.columns:
+                # Sort by 30D Alpha to identify top and bottom performers
+                sorted_df = all_waves_df.sort_values('30D_Alpha', ascending=False)
+                sorted_df_clean = sorted_df.dropna(subset=['30D_Alpha'])
+                
+                # Identify top performers (top 3 with valid data)
+                top_performers = sorted_df_clean.head(3)
+                
+                # Identify waves requiring attention (bottom 3 with valid data)
+                bottom_performers = sorted_df_clean.tail(3)
+                
+                # Get system statistics
+                stats_30d = get_system_statistics(timeframe_days=30)
+                mc_data = get_mission_control_data()
+                
+                # Build executive summary narrative
+                summary_parts = []
+                
+                # Market context
+                market_regime = mc_data.get('market_regime', 'Unknown') if mc_data else 'Unknown'
+                vix_gate = mc_data.get('vix_gate_status', 'Unknown') if mc_data else 'Unknown'
+                
+                if market_regime != 'Unknown':
+                    summary_parts.append(f"**Market Regime:** {market_regime}")
+                if vix_gate != 'Unknown':
+                    summary_parts.append(f"**VIX Status:** {vix_gate}")
+                
+                # Top performers section
+                if len(top_performers) > 0:
+                    top_text = "**Top Performers:** "
+                    top_names = []
+                    for idx, row in top_performers.iterrows():
+                        wave_name = row['Wave']
+                        alpha_30d = row.get('30D_Alpha')
+                        if pd.notna(alpha_30d):
+                            top_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                    if top_names:
+                        top_text += ", ".join(top_names)
+                        summary_parts.append(top_text)
+                
+                # Waves requiring attention section
+                if len(bottom_performers) > 0:
+                    bottom_text = "**Requiring Attention:** "
+                    bottom_names = []
+                    for idx, row in bottom_performers.iterrows():
+                        wave_name = row['Wave']
+                        alpha_30d = row.get('30D_Alpha')
+                        if pd.notna(alpha_30d):
+                            bottom_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                    if bottom_names:
+                        bottom_text += ", ".join(bottom_names)
+                        summary_parts.append(bottom_text)
+                
+                # System-level insights
+                if stats_30d:
+                    avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                    win_rate = stats_30d.get('pct_positive_alpha', 0.0)
+                    
+                    if win_rate >= 70 and avg_alpha > 0.005:
+                        insight = "**Overall Impact:** Strong performance across the system with broad-based positive momentum."
+                    elif win_rate >= 55:
+                        insight = "**Overall Impact:** Mixed performance with selective opportunities in leading waves."
+                    elif win_rate >= 40:
+                        insight = "**Overall Impact:** Divergent performance across waves; focus on differentiated positioning."
+                    else:
+                        insight = "**Overall Impact:** Defensive positioning warranted given weak breadth and negative alpha trends."
+                    
+                    summary_parts.append(insight)
+                
+                # Display summary
+                if summary_parts:
+                    summary_text = " | ".join(summary_parts)
+                    st.info(summary_text)
+                else:
+                    st.info("Executive summary unavailable - insufficient data.")
+            else:
+                st.info("Executive summary unavailable - no wave data available.")
+        
+        except Exception as e:
+            st.info("Executive summary unavailable - data loading error.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES
+        # ========================================================================
+        st.markdown("### 📊 Comprehensive Performance Table - All Waves")
+        st.caption("Multi-timeframe returns and alpha for all waves (sorted by 30D Alpha, descending)")
+        
+        try:
+            # Get multi-timeframe data for all waves
+            timeframes = [1, 30, 60, 365]
+            df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+            
+            if not df.empty:
+                # Sort by 30D Alpha (descending), handling NaN values
+                if '30D_Alpha' in df.columns:
+                    df = df.sort_values('30D_Alpha', ascending=False, na_position='last')
+                
+                # Create formatted display dataframe
+                display_df = pd.DataFrame()
+                display_df['Wave Name'] = df['Wave']
+                
+                # Add columns for each timeframe with graceful missing data handling
+                for days in timeframes:
+                    # Determine label
+                    if days == 1:
+                        period_label = "Current"
+                    else:
+                        period_label = f"{days}D"
+                    
+                    wave_col = f'{days}D_Wave'
+                    bm_col = f'{days}D_BM'
+                    alpha_col = f'{days}D_Alpha'
+                    
+                    # Wave Return column
+                    if wave_col in df.columns:
+                        display_df[f'{period_label} Return'] = df[wave_col].apply(
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                        )
+                    else:
+                        display_df[f'{period_label} Return'] = "Unavailable"
+                    
+                    # Alpha column
+                    if alpha_col in df.columns:
+                        display_df[f'{period_label} Alpha'] = df[alpha_col].apply(
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                        )
+                    else:
+                        display_df[f'{period_label} Alpha'] = "Unavailable"
+                
+                # Display the table
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=500
+                )
+                
+                # Download button for raw data
+                csv = df.to_csv(index=False)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                st.download_button(
+                    label="📥 Download Performance Data as CSV",
+                    data=csv,
+                    file_name=f"waves_comprehensive_performance_{timestamp}.csv",
+                    mime="text/csv",
+                    key=k("ExecutiveBrief", "download_comprehensive_performance")
+                )
+            else:
+                st.info("No wave performance data available")
+        
+        except Exception as e:
+            st.error(f"Error generating comprehensive performance table: {str(e)}")
+            if st.session_state.get("debug_mode", False):
+                st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 3: MARKET SNAPSHOT
         # ========================================================================
         st.markdown("### 🌐 Market Snapshot")
         
@@ -7276,7 +7446,7 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION 2: WAVE SYSTEM SNAPSHOT
+        # SECTION 4: WAVE SYSTEM SNAPSHOT
         # ========================================================================
         st.markdown("### 📊 Wave System Snapshot")
         
@@ -7359,7 +7529,7 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION 3: WHAT'S STRONG / WHAT'S WEAK
+        # SECTION 5: WHAT'S STRONG / WHAT'S WEAK
         # ========================================================================
         st.markdown("### 📈📉 What's Strong / What's Weak")
         st.caption("Top/Bottom 5 Waves by 30-Day Alpha")
@@ -7419,7 +7589,7 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION 4: WHY - Compact Narrative
+        # SECTION 6: WHY - Compact Narrative
         # ========================================================================
         st.markdown("### 💡 Why - Current Regime Narrative")
         
@@ -7488,7 +7658,7 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION 5: WHAT TO DO - Action Panel
+        # SECTION 7: WHAT TO DO - Action Panel
         # ========================================================================
         st.markdown("### 🎯 What To Do - Action Panel")
         
@@ -7530,70 +7700,6 @@ def render_executive_brief_tab():
             st.info("Action recommendations unavailable")
         
         st.divider()
-        
-        # ========================================================================
-        # SECTION 6: FULL PERFORMANCE TABLE (COLLAPSED)
-        # ========================================================================
-        with st.expander("📈 Full Performance Table - All Waves (Click to Expand)", expanded=False):
-            try:
-                # Get all waves
-                waves = get_available_waves()
-                
-                if waves:
-                    # Build performance table
-                    performance_data = []
-                    
-                    for wave_name in waves:
-                        wave_data = get_wave_data_filtered(wave_name=wave_name, days=30)
-                        
-                        if wave_data is not None and len(wave_data) > 0:
-                            wave_return = wave_data['portfolio_return'].sum() if 'portfolio_return' in wave_data.columns else 0.0
-                            benchmark_return = wave_data['benchmark_return'].sum() if 'benchmark_return' in wave_data.columns else 0.0
-                            alpha = wave_return - benchmark_return
-                            
-                            performance_data.append({
-                                'Wave Name': wave_name,
-                                '30D Return': wave_return,
-                                '30D Alpha': alpha
-                            })
-                    
-                    if performance_data:
-                        # Create DataFrame
-                        df_performance = pd.DataFrame(performance_data)
-                        
-                        # Sort by 30D Alpha (descending)
-                        df_performance = df_performance.sort_values('30D Alpha', ascending=False)
-                        
-                        # Format for display
-                        df_display = df_performance.copy()
-                        df_display['30D Return'] = df_display['30D Return'].apply(lambda x: f"{x:+.2%}")
-                        df_display['30D Alpha'] = df_display['30D Alpha'].apply(lambda x: f"{x:+.2%}")
-                        
-                        # Display table
-                        st.dataframe(
-                            df_display,
-                            use_container_width=True,
-                            hide_index=True,
-                            height=400
-                        )
-                        
-                        # Add download button
-                        csv = df_performance.to_csv(index=False)
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        st.download_button(
-                            label="📥 Download Performance Data as CSV",
-                            data=csv,
-                            file_name=f"waves_performance_{timestamp}.csv",
-                            mime="text/csv",
-                            key=k("ExecutiveBrief", "download_performance")
-                        )
-                    else:
-                        st.info("No performance data available for display")
-                else:
-                    st.info("No waves available")
-            
-            except Exception as e:
-                st.error(f"Unable to load performance table: {str(e)}")
     
     except Exception as e:
         # Top-level error handler - prevent Safe Mode trigger
