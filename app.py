@@ -6332,17 +6332,25 @@ def render_sidebar_info():
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
     # ========================================================================
-    # NEW: Force Build Data for All Waves Button
+    # NEW: Force Build Data for All Waves Button (Enhanced with Diagnostics)
     # ========================================================================
     if st.sidebar.button(
         "🔨 Force Build Data for All Waves",
         key="force_build_all_waves_button",
         use_container_width=True,
-        help="Trigger price prefetch and update readiness statuses for all waves"
+        help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
     ):
         try:
             # Show progress indicator
             with st.spinner("Prefetching prices for all waves..."):
+                # Clear diagnostics tracker
+                try:
+                    from helpers.ticker_diagnostics import get_diagnostics_tracker
+                    tracker = get_diagnostics_tracker()
+                    tracker.clear()
+                except ImportError:
+                    pass
+                
                 # Set force rebuild flag
                 st.session_state.force_price_cache_rebuild = True
                 
@@ -6370,6 +6378,16 @@ def render_sidebar_info():
                     failure_count = len(cache_result.get("failures", {}))
                     
                     st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                    
+                    # Generate and export diagnostics report if there are failures
+                    if failure_count > 0:
+                        try:
+                            from helpers.ticker_diagnostics import get_diagnostics_tracker
+                            tracker = get_diagnostics_tracker()
+                            report_path = tracker.export_to_csv()
+                            st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
+                        except Exception:
+                            pass
                 else:
                     st.sidebar.warning("⚠️ Data cache system not available")
                 
