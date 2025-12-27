@@ -13295,6 +13295,113 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 4.5: Wave Readiness States (STAGE 4)
+    # ========================================================================
+    st.subheader("🎯 Wave Readiness States")
+    st.caption("Stage 4: Safe Analytics Coverage with Degraded States")
+    
+    # Get wave universe
+    wave_universe = st.session_state.get("wave_universe", {})
+    registry_waves = wave_universe.get("waves", [])
+    
+    if registry_waves:
+        # Get readiness info for all waves
+        wave_history = safe_load_wave_history()
+        price_df = st.session_state.get("global_price_df")
+        
+        readiness_data = []
+        ready_count = 0
+        degraded_count = 0
+        limited_count = 0
+        missing_count = 0
+        
+        # Analyze each wave
+        for wave_id in sorted(registry_waves):
+            try:
+                readiness_info = is_wave_data_ready(wave_id, wave_history, wave_universe, price_df)
+                
+                status = readiness_info['status']
+                ready_bool = readiness_info['ready_bool']
+                coverage_pct = readiness_info['coverage_pct']
+                days_of_history = readiness_info['days_of_history']
+                failed_tickers = readiness_info['failed_tickers_count']
+                reason = readiness_info['reason']
+                
+                # Count by status
+                if not ready_bool:
+                    missing_count += 1
+                    status_icon = "❌"
+                elif status == "Ready":
+                    ready_count += 1
+                    status_icon = "✅"
+                elif status == "Degraded":
+                    degraded_count += 1
+                    status_icon = "⚠️"
+                else:  # Limited History
+                    limited_count += 1
+                    status_icon = "🟡"
+                
+                readiness_data.append({
+                    "Wave ID": wave_id,
+                    "Status": f"{status_icon} {status}",
+                    "Coverage": f"{coverage_pct:.1f}%",
+                    "Days": days_of_history,
+                    "Failed Tickers": failed_tickers,
+                    "Reason": reason[:50] + "..." if len(reason) > 50 else reason
+                })
+                
+            except Exception as e:
+                missing_count += 1
+                readiness_data.append({
+                    "Wave ID": wave_id,
+                    "Status": "❌ Error",
+                    "Coverage": "0.0%",
+                    "Days": 0,
+                    "Failed Tickers": 0,
+                    "Reason": f"Error: {str(e)[:40]}"
+                })
+        
+        # Display summary metrics
+        total_waves = len(registry_waves)
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Total Waves", total_waves)
+        with col2:
+            st.metric("✅ Ready", ready_count, delta=f"{100*ready_count/total_waves:.0f}%")
+        with col3:
+            st.metric("⚠️ Degraded", degraded_count, delta=f"{100*degraded_count/total_waves:.0f}%")
+        with col4:
+            st.metric("🟡 Limited", limited_count, delta=f"{100*limited_count/total_waves:.0f}%")
+        with col5:
+            st.metric("❌ Missing", missing_count, delta=f"{100*missing_count/total_waves:.0f}%")
+        
+        # Display detailed table
+        st.markdown("#### Detailed Readiness Report")
+        df_readiness = pd.DataFrame(readiness_data)
+        st.dataframe(df_readiness, use_container_width=True, hide_index=True)
+        
+        # Show legend
+        with st.expander("ℹ️ Status Legend", expanded=False):
+            st.markdown("""
+            **Wave Readiness States:**
+            - ✅ **Ready**: All data available, full analytics possible
+            - ⚠️ **Degraded**: Partial data available, some tickers/benchmarks missing
+            - 🟡 **Limited History**: Less than ideal history but computable
+            - ❌ **Missing**: Wave not enabled or critical data missing
+            
+            **Coverage**: Percentage of expected data available (100% = full coverage)
+            
+            **Days**: Number of days of historical data available
+            
+            **Failed Tickers**: Number of tickers that failed to load
+            """)
+    else:
+        st.warning("No waves available in registry.")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 5: Module Availability
     # ========================================================================
     st.subheader("📦 Module Availability")

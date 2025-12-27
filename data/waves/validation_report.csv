@@ -1,4 +1,29 @@
 wave_id,display_name,status,prices_ok,benchmark_ok,positions_ok,trades_ok,nav_ok,issue_count
-sp500_wave,S&P 500 Wave,pass,True,True,True,True,True,0
-income_wave,Income Wave,pass,True,True,True,True,True,0
+ai_cloud_megacap_wave,AI & Cloud MegaCap Wave,pass,True,True,True,True,True,0
+clean_transit_infrastructure_wave,Clean Transit-Infrastructure Wave,pass,True,True,True,True,True,0
+crypto_ai_growth_wave,Crypto AI Growth Wave,pass,True,True,True,True,True,0
+crypto_broad_growth_wave,Crypto Broad Growth Wave,pass,True,True,True,True,True,0
+crypto_defi_growth_wave,Crypto DeFi Growth Wave,pass,True,True,True,True,True,0
+crypto_income_wave,Crypto Income Wave,pass,True,True,True,True,True,0
+crypto_l1_growth_wave,Crypto L1 Growth Wave,pass,True,True,True,True,True,0
+crypto_l2_growth_wave,Crypto L2 Growth Wave,pass,True,True,True,True,True,0
+demas_fund_wave,Demas Fund Wave,pass,True,True,True,True,True,0
+ev_infrastructure_wave,EV & Infrastructure Wave,pass,True,True,True,True,True,0
+future_energy_ev_wave,Future Energy & EV Wave,pass,True,True,True,True,True,0
+future_power_energy_wave,Future Power & Energy Wave,pass,True,True,True,True,True,0
 gold_wave,Gold Wave,pass,True,True,True,True,True,0
+income_wave,Income Wave,pass,True,True,True,True,True,0
+infinity_multi_asset_growth_wave,Infinity Multi-Asset Growth Wave,pass,True,True,True,True,True,0
+next_gen_compute_semis_wave,Next-Gen Compute & Semis Wave,pass,True,True,True,True,True,0
+quantum_computing_wave,Quantum Computing Wave,pass,True,True,True,True,True,0
+russell_3000_wave,Russell 3000 Wave,pass,True,True,True,True,True,0
+small_cap_growth_wave,Small Cap Growth Wave,pass,True,True,True,True,True,0
+small_to_mid_cap_growth_wave,Small to Mid Cap Growth Wave,pass,True,True,True,True,True,0
+smartsafe_tax_free_money_market_wave,SmartSafe Tax-Free Money Market Wave,pass,True,True,True,True,True,0
+smartsafe_treasury_cash_wave,SmartSafe Treasury Cash Wave,pass,True,True,True,True,True,0
+sp500_wave,S&P 500 Wave,pass,True,True,True,True,True,0
+us_megacap_core_wave,US MegaCap Core Wave,pass,True,True,True,True,True,0
+us_mid_small_growth_semis_wave,US Mid/Small Growth & Semis Wave,pass,True,True,True,True,True,0
+us_small_cap_disruptors_wave,US Small-Cap Disruptors Wave,pass,True,True,True,True,True,0
+vector_muni_ladder_wave,Vector Muni Ladder Wave,pass,True,True,True,True,True,0
+vector_treasury_ladder_wave,Vector Treasury Ladder Wave,pass,True,True,True,True,True,0

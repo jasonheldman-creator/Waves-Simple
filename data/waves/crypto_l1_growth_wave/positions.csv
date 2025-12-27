@@ -1,0 +1,9 @@
+ticker,weight,description,exposure,cash,safe_fraction
+ETH-USD,0.3,Ethereum,0.3,0.0,0.0
+SOL-USD,0.2,Solana,0.2,0.0,0.0
+AVAX-USD,0.12,Avalanche,0.12,0.0,0.0
+ADA-USD,0.1,Cardano,0.1,0.0,0.0
+DOT-USD,0.1,Polkadot,0.1,0.0,0.0
+NEAR-USD,0.08,NEAR Protocol,0.08,0.0,0.0
+APT-USD,0.05,Aptos,0.05,0.0,0.0
+ATOM-USD,0.05,Cosmos,0.05,0.0,0.0
