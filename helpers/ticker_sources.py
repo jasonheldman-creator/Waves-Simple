@@ -15,6 +15,7 @@ import streamlit as st
 try:
     from .circuit_breaker import get_circuit_breaker
     from .persistent_cache import get_persistent_cache
+    from .resilient_call import call_with_retry
     RESILIENCE_AVAILABLE = True
 except ImportError:
     RESILIENCE_AVAILABLE = False
@@ -106,6 +107,7 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
 def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]:
     """
     Internal function to fetch ticker price data from yfinance.
+    Enhanced with retry logic.
     
     Args:
         ticker: Stock ticker symbol
@@ -115,42 +117,98 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
     """
     import yfinance as yf
     
-    stock = yf.Ticker(ticker)
-    
-    # Get current data
-    info = stock.info
-    
-    if info and 'currentPrice' in info:
-        current_price = info.get('currentPrice')
-        previous_close = info.get('previousClose')
+    # Use retry logic if available
+    if RESILIENCE_AVAILABLE:
+        from .resilient_call import call_with_retry
         
-        if current_price and previous_close:
-            change_pct = ((current_price - previous_close) / previous_close) * 100
+        def fetch_attempt():
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            if info and 'currentPrice' in info:
+                current_price = info.get('currentPrice')
+                previous_close = info.get('previousClose')
+                
+                if current_price and previous_close:
+                    change_pct = ((current_price - previous_close) / previous_close) * 100
+                    return {
+                        'price': current_price,
+                        'change_pct': change_pct,
+                        'success': True
+                    }
+            
+            # Fallback: Try history method
+            hist = stock.history(period='2d')
+            if not hist.empty and len(hist) >= 2:
+                current_price = hist['Close'].iloc[-1]
+                previous_price = hist['Close'].iloc[-2]
+                change_pct = ((current_price - previous_price) / previous_price) * 100
+                
+                return {
+                    'price': current_price,
+                    'change_pct': change_pct,
+                    'success': True
+                }
+            
+            # If we can't get data, return failure
+            return {
+                'price': None,
+                'change_pct': None,
+                'success': False
+            }
+        
+        # Call with retry (max 2 retries, fast backoff for UI responsiveness)
+        success, result, error = call_with_retry(
+            fetch_attempt,
+            max_retries=2,
+            base_delay=0.5,
+            max_delay=2.0
+        )
+        
+        if success and result:
+            return result
+        else:
+            return {
+                'price': None,
+                'change_pct': None,
+                'success': False
+            }
+    else:
+        # Direct call without retry
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        if info and 'currentPrice' in info:
+            current_price = info.get('currentPrice')
+            previous_close = info.get('previousClose')
+            
+            if current_price and previous_close:
+                change_pct = ((current_price - previous_close) / previous_close) * 100
+                return {
+                    'price': current_price,
+                    'change_pct': change_pct,
+                    'success': True
+                }
+        
+        # Fallback: Try history method
+        hist = stock.history(period='2d')
+        if not hist.empty and len(hist) >= 2:
+            current_price = hist['Close'].iloc[-1]
+            previous_price = hist['Close'].iloc[-2]
+            change_pct = ((current_price - previous_price) / previous_price) * 100
+            
             return {
                 'price': current_price,
                 'change_pct': change_pct,
                 'success': True
             }
-    
-    # Fallback: Try history method
-    hist = stock.history(period='2d')
-    if not hist.empty and len(hist) >= 2:
-        current_price = hist['Close'].iloc[-1]
-        previous_price = hist['Close'].iloc[-2]
-        change_pct = ((current_price - previous_price) / previous_price) * 100
         
+        # If we can't get data, return failure
         return {
-            'price': current_price,
-            'change_pct': change_pct,
-            'success': True
+            'price': None,
+            'change_pct': None,
+            'success': False
         }
-    
-    # If we can't get change, just return failure
-    return {
-        'price': None,
-        'change_pct': None,
-        'success': False
-    }
 
 
 @st.cache_data(ttl=300)
