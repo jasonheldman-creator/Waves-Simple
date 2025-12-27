@@ -38,20 +38,34 @@ def test_compute_data_ready_status_all_waves():
     for wave_id in wave_ids:
         result = compute_data_ready_status(wave_id)
         
-        # Validate result structure
+        # Validate result structure (enhanced for new fields)
         assert 'wave_id' in result, f"Missing wave_id in result for {wave_id}"
         assert 'display_name' in result, f"Missing display_name in result for {wave_id}"
         assert 'is_ready' in result, f"Missing is_ready in result for {wave_id}"
         assert 'reason' in result, f"Missing reason in result for {wave_id}"
+        assert 'reason_codes' in result, f"Missing reason_codes in result for {wave_id}"
         assert 'details' in result, f"Missing details in result for {wave_id}"
         assert 'checks' in result, f"Missing checks in result for {wave_id}"
+        assert 'missing_tickers' in result, f"Missing missing_tickers in result for {wave_id}"
+        assert 'missing_benchmark_tickers' in result, f"Missing missing_benchmark_tickers in result for {wave_id}"
+        assert 'missing_dates' in result, f"Missing missing_dates in result for {wave_id}"
+        assert 'history_window_used' in result, f"Missing history_window_used in result for {wave_id}"
+        assert 'source_used' in result, f"Missing source_used in result for {wave_id}"
+        assert 'exception' in result, f"Missing exception in result for {wave_id}"
+        
+        # Validate types
+        assert isinstance(result['reason_codes'], list), f"reason_codes should be a list for {wave_id}"
+        assert isinstance(result['missing_tickers'], list), f"missing_tickers should be a list for {wave_id}"
+        assert isinstance(result['missing_benchmark_tickers'], list), f"missing_benchmark_tickers should be a list for {wave_id}"
+        assert isinstance(result['missing_dates'], dict), f"missing_dates should be a dict for {wave_id}"
+        assert isinstance(result['history_window_used'], dict), f"history_window_used should be a dict for {wave_id}"
         
         # Categorize results
         if result['is_ready']:
             ready_waves.append(wave_id)
         else:
             reason = result['reason']
-            if reason == 'MISSING_PRICES':
+            if reason == 'MISSING_PRICES' or 'MISSING_PRICE' in result['reason_codes']:
                 missing_prices.append(wave_id)
             elif reason == 'MISSING_BENCHMARK':
                 missing_benchmark.append(wave_id)
@@ -82,12 +96,16 @@ def test_compute_data_ready_status_all_waves():
             result = compute_data_ready_status(wave_id)
             print(f"  ✓ {wave_id}: {result['details']}")
     
-    # Show sample of not-ready waves
+    # Show sample of not-ready waves with enhanced diagnostics
     if missing_prices:
         print(f"\nSAMPLE MISSING PRICES ({min(3, len(missing_prices))} of {len(missing_prices)}):")
         for wave_id in missing_prices[:3]:
             result = compute_data_ready_status(wave_id)
             print(f"  ✗ {wave_id}: {result['details']}")
+            print(f"     Reason codes: {result['reason_codes']}")
+            if result['missing_tickers']:
+                print(f"     Missing tickers: {result['missing_tickers'][:5]}{'...' if len(result['missing_tickers']) > 5 else ''}")
+            print(f"     Source: {result['source_used']}")
     
     print("\n✓ All tests passed!")
     return True
@@ -103,12 +121,17 @@ def test_reason_codes():
         'READY',
         'MISSING_WEIGHTS',
         'MISSING_PRICES',
+        'MISSING_PRICE',  # Individual ticker missing
         'MISSING_BENCHMARK',
         'MISSING_NAV',
         'STALE_DATA',
         'INSUFFICIENT_HISTORY',
         'WAVE_NOT_FOUND',
-        'DATA_READ_ERROR'
+        'DATA_READ_ERROR',
+        'UNSUPPORTED_TICKER',
+        'DELISTED_TICKER',
+        'API_FAILURE',
+        'NAN_SERIES'
     ]
     
     wave_ids = get_all_wave_ids()
@@ -117,8 +140,11 @@ def test_reason_codes():
     for wave_id in wave_ids:
         result = compute_data_ready_status(wave_id)
         observed_reasons.add(result['reason'])
+        # Also check reason_codes list
+        for code in result['reason_codes']:
+            observed_reasons.add(code)
     
-    print(f"Expected reason codes: {expected_reason_codes}")
+    print(f"Expected reason codes: {sorted(expected_reason_codes)}")
     print(f"Observed reason codes: {sorted(observed_reasons)}")
     
     # All observed reasons should be in expected list
@@ -188,6 +214,42 @@ def test_ready_waves_have_all_checks():
     return True
 
 
+def test_diagnostic_report_generation():
+    """Test that diagnostic report generation functions work."""
+    print("\n" + "=" * 80)
+    print("TEST: Diagnostic report generation")
+    print("=" * 80)
+    
+    from analytics_pipeline import generate_readiness_report_dataframe, generate_readiness_report_json
+    
+    # Test DataFrame generation
+    df = generate_readiness_report_dataframe()
+    assert not df.empty, "DataFrame should not be empty"
+    assert 'wave_id' in df.columns, "DataFrame should have wave_id column"
+    assert 'is_ready' in df.columns, "DataFrame should have is_ready column"
+    assert 'reason_codes' in df.columns, "DataFrame should have reason_codes column"
+    assert 'missing_tickers' in df.columns, "DataFrame should have missing_tickers column"
+    assert 'source_used' in df.columns, "DataFrame should have source_used column"
+    
+    print(f"✓ Generated DataFrame with {len(df)} rows")
+    print(f"  Columns: {', '.join(df.columns)}")
+    
+    # Test JSON generation
+    json_report = generate_readiness_report_json()
+    assert 'summary' in json_report, "JSON report should have summary"
+    assert 'waves' in json_report, "JSON report should have waves"
+    assert 'total_waves' in json_report['summary'], "Summary should have total_waves"
+    assert 'ready_count' in json_report['summary'], "Summary should have ready_count"
+    
+    print(f"✓ Generated JSON report")
+    print(f"  Total waves: {json_report['summary']['total_waves']}")
+    print(f"  Ready: {json_report['summary']['ready_count']}")
+    print(f"  Degraded: {json_report['summary']['degraded_count']}")
+    print(f"  Missing: {json_report['summary']['missing_count']}")
+    
+    return True
+
+
 def main():
     """Run all tests."""
     print("\n" + "=" * 80)
@@ -201,6 +263,7 @@ def main():
         test_reason_codes()
         test_checks_structure()
         test_ready_waves_have_all_checks()
+        test_diagnostic_report_generation()
         
         print("\n" + "=" * 80)
         print("ALL TESTS PASSED ✓")

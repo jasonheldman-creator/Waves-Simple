@@ -84,6 +84,50 @@ def get_trading_days_back(days: int) -> datetime:
     return datetime.now() - timedelta(days=calendar_days)
 
 
+def _log_readiness_result(result: Dict[str, Any]) -> None:
+    """
+    Log readiness evaluation result in a structured format.
+    
+    Args:
+        result: Readiness diagnostic dictionary
+    """
+    import logging
+    
+    logger = logging.getLogger('analytics_pipeline')
+    
+    wave_id = result.get('wave_id', 'UNKNOWN')
+    ready = result.get('is_ready', False)
+    reason_codes = result.get('reason_codes', [])
+    missing_tickers = result.get('missing_tickers', [])
+    missing_benchmark_tickers = result.get('missing_benchmark_tickers', [])
+    exception = result.get('exception', None)
+    
+    # Build log message
+    log_parts = [
+        f"[DATA_READY]",
+        f"wave_id={wave_id}",
+        f"ready={str(ready).lower()}",
+        f"reasons={reason_codes}",
+    ]
+    
+    if missing_tickers:
+        log_parts.append(f"missing_tickers={missing_tickers}")
+    
+    if missing_benchmark_tickers:
+        log_parts.append(f"missing_benchmark_tickers={missing_benchmark_tickers}")
+    
+    if exception:
+        log_parts.append(f"exception=\"{exception}\"")
+    
+    log_message = " ".join(log_parts)
+    
+    if ready:
+        logger.info(log_message)
+    else:
+        logger.warning(log_message)
+
+
+
 # ------------------------------------------------------------
 # Ticker & Benchmark Resolution
 # ------------------------------------------------------------
@@ -730,7 +774,7 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
 
 def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     """
-    Compute comprehensive data readiness status for a wave.
+    Compute comprehensive data readiness status for a wave with detailed diagnostics.
     
     This function provides detailed diagnostics about why a wave may not be ready,
     enabling operators to quickly identify and resolve data pipeline issues.
@@ -744,7 +788,8 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
             'wave_id': str,
             'display_name': str,
             'is_ready': bool,
-            'reason': str,  # Failure reason code or success message
+            'reason': str,  # Primary failure reason code or "READY"
+            'reason_codes': List[str],  # All applicable reason codes
             'details': str,  # Human-readable explanation
             'checks': {
                 'has_weights': bool,
@@ -753,7 +798,13 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
                 'has_nav': bool,
                 'is_fresh': bool,
                 'has_sufficient_history': bool,
-            }
+            },
+            'missing_tickers': List[str],  # Tickers with no price data
+            'missing_benchmark_tickers': List[str],  # Benchmark tickers missing
+            'missing_dates': Dict[str, str],  # {'earliest': ..., 'latest': ...}
+            'history_window_used': Dict[str, str],  # {'start': ..., 'end': ...}
+            'source_used': str,  # e.g., "yfinance", "cached", "none"
+            'exception': str  # Exception message if applicable
         }
     
     Reason Codes:
@@ -765,15 +816,22 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         - "STALE_DATA": Data is older than 5 days
         - "INSUFFICIENT_HISTORY": Less than minimum required trading days
         - "WAVE_NOT_FOUND": Wave ID not in registry
+        - "UNSUPPORTED_TICKER": Ticker not available from data source
+        - "DELISTED_TICKER": Ticker appears to be delisted
+        - "API_FAILURE": Data source API failure
+        - "NAN_SERIES": Price series contains NaN values
+        - "DATA_READ_ERROR": Error reading data files
     """
     from datetime import datetime, timezone
+    import logging
     
-    # Initialize response
+    # Initialize response with enhanced diagnostic fields
     result = {
         'wave_id': wave_id,
         'display_name': get_display_name_from_wave_id(wave_id) or wave_id,
         'is_ready': False,
         'reason': 'UNKNOWN',
+        'reason_codes': [],
         'details': '',
         'checks': {
             'has_weights': False,
@@ -782,20 +840,31 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
             'has_nav': False,
             'is_fresh': False,
             'has_sufficient_history': False,
-        }
+        },
+        'missing_tickers': [],
+        'missing_benchmark_tickers': [],
+        'missing_dates': {'earliest': None, 'latest': None},
+        'history_window_used': {'start': None, 'end': None},
+        'source_used': 'none',
+        'exception': None
     }
     
     # Check 1: Wave exists in registry
     all_wave_ids = get_all_wave_ids()
     if wave_id not in all_wave_ids:
         result['reason'] = 'WAVE_NOT_FOUND'
+        result['reason_codes'].append('WAVE_NOT_FOUND')
         result['details'] = f"Wave ID '{wave_id}' is not registered in WAVE_ID_REGISTRY"
+        _log_readiness_result(result)
         return result
     
     # Check 2: Has weights/holdings defined
-    if wave_id not in WAVE_WEIGHTS and result['display_name'] not in WAVE_WEIGHTS:
+    tickers = resolve_wave_tickers(wave_id)
+    if not tickers:
         result['reason'] = 'MISSING_WEIGHTS'
+        result['reason_codes'].append('MISSING_WEIGHTS')
         result['details'] = f"No holdings defined in WAVE_WEIGHTS for '{wave_id}'"
+        _log_readiness_result(result)
         return result
     
     result['checks']['has_weights'] = True
@@ -803,20 +872,32 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     # Get wave analytics directory
     wave_dir = get_wave_analytics_dir(wave_id)
     
+    # Get benchmark tickers for diagnostics
+    benchmark_specs = resolve_wave_benchmarks(wave_id)
+    benchmark_tickers = [ticker for ticker, _ in benchmark_specs]
+    
     # Check 3: Has price data
     prices_path = os.path.join(wave_dir, 'prices.csv')
     if not os.path.exists(prices_path):
         result['reason'] = 'MISSING_PRICES'
+        result['reason_codes'].append('MISSING_PRICES')
         result['details'] = f"Price data file not found at {prices_path}"
+        result['missing_tickers'] = tickers  # All tickers are missing
+        result['source_used'] = 'none'
+        _log_readiness_result(result)
         return result
     
     result['checks']['has_prices'] = True
+    result['source_used'] = 'cached'  # Data exists in files
     
     # Check 4: Has benchmark data
     benchmark_path = os.path.join(wave_dir, 'benchmark_prices.csv')
     if not os.path.exists(benchmark_path):
         result['reason'] = 'MISSING_BENCHMARK'
+        result['reason_codes'].append('MISSING_BENCHMARK')
         result['details'] = f"Benchmark price data file not found at {benchmark_path}"
+        result['missing_benchmark_tickers'] = benchmark_tickers
+        _log_readiness_result(result)
         return result
     
     result['checks']['has_benchmark'] = True
@@ -825,53 +906,222 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     nav_path = os.path.join(wave_dir, 'nav.csv')
     if not os.path.exists(nav_path):
         result['reason'] = 'MISSING_NAV'
+        result['reason_codes'].append('MISSING_NAV')
         result['details'] = f"NAV calculation file not found at {nav_path}"
+        _log_readiness_result(result)
         return result
     
     result['checks']['has_nav'] = True
     
-    # Check 6: Data freshness and history length
+    # Check 6: Data freshness, history length, and completeness
     try:
         prices_df = pd.read_csv(prices_path, index_col=0, parse_dates=True)
         
         if prices_df.empty:
             result['reason'] = 'INSUFFICIENT_HISTORY'
+            result['reason_codes'].append('INSUFFICIENT_HISTORY')
             result['details'] = "Price data file is empty"
+            _log_readiness_result(result)
             return result
+        
+        # Record history window
+        first_date = prices_df.index[0]
+        last_date = prices_df.index[-1]
+        result['history_window_used'] = {
+            'start': first_date.strftime('%Y-%m-%d'),
+            'end': last_date.strftime('%Y-%m-%d')
+        }
+        
+        # Check for missing tickers
+        available_tickers = set(prices_df.columns)
+        expected_tickers = set(tickers)
+        missing = list(expected_tickers - available_tickers)
+        if missing:
+            result['missing_tickers'] = missing
+            result['reason_codes'].append('MISSING_PRICE')
+            # Check if any tickers have all NaN values
+            for ticker in available_tickers:
+                if prices_df[ticker].isna().all():
+                    if ticker not in result['missing_tickers']:
+                        result['missing_tickers'].append(ticker)
+                    if 'NAN_SERIES' not in result['reason_codes']:
+                        result['reason_codes'].append('NAN_SERIES')
+        
+        # Check benchmark completeness
+        try:
+            benchmark_df = pd.read_csv(benchmark_path, index_col=0, parse_dates=True)
+            available_benchmark_tickers = set(benchmark_df.columns)
+            expected_benchmark_tickers = set(benchmark_tickers)
+            missing_benchmarks = list(expected_benchmark_tickers - available_benchmark_tickers)
+            if missing_benchmarks:
+                result['missing_benchmark_tickers'] = missing_benchmarks
+                result['reason_codes'].append('MISSING_BENCHMARK')
+        except Exception as e:
+            result['missing_benchmark_tickers'] = benchmark_tickers
+            result['reason_codes'].append('MISSING_BENCHMARK')
         
         # Check history length
         num_days = len(prices_df)
         if num_days < MIN_REQUIRED_TRADING_DAYS:
             result['reason'] = 'INSUFFICIENT_HISTORY'
+            result['reason_codes'].append('INSUFFICIENT_HISTORY')
             result['details'] = f"Only {num_days} days of history, need at least {MIN_REQUIRED_TRADING_DAYS}"
+            result['missing_dates'] = {
+                'earliest': first_date.strftime('%Y-%m-%d'),
+                'latest': last_date.strftime('%Y-%m-%d')
+            }
+            _log_readiness_result(result)
             return result
         
         result['checks']['has_sufficient_history'] = True
         
         # Check data freshness
-        last_date = prices_df.index[-1]
         # Convert to timezone-aware if needed for comparison
         now = datetime.now(timezone.utc) if hasattr(last_date, 'tz') and last_date.tz else datetime.now()
         days_old = (now - last_date).days
         
         if days_old > 5:
             result['reason'] = 'STALE_DATA'
+            result['reason_codes'].append('STALE_DATA')
             result['details'] = f"Data is {days_old} days old (last: {last_date.date()})"
+            result['missing_dates'] = {
+                'earliest': last_date.strftime('%Y-%m-%d'),
+                'latest': now.strftime('%Y-%m-%d')
+            }
+            _log_readiness_result(result)
             return result
         
         result['checks']['is_fresh'] = True
         
-        # All checks passed!
-        result['is_ready'] = True
-        result['reason'] = 'READY'
-        result['details'] = f"All checks passed. {num_days} days of fresh data (last: {last_date.date()})"
+        # All checks passed or minor issues only!
+        if result['reason_codes']:
+            # Has some non-critical issues but still usable
+            result['is_ready'] = False
+            result['reason'] = result['reason_codes'][0]  # Use first issue as primary reason
+            result['details'] = f"Data available but with issues: {', '.join(result['reason_codes'])}"
+        else:
+            # Perfect - all checks passed
+            result['is_ready'] = True
+            result['reason'] = 'READY'
+            result['reason_codes'] = ['READY']
+            result['details'] = f"All checks passed. {num_days} days of fresh data (last: {last_date.date()})"
+        
+        _log_readiness_result(result)
         
     except Exception as e:
         result['reason'] = 'DATA_READ_ERROR'
+        result['reason_codes'].append('DATA_READ_ERROR')
         result['details'] = f"Error reading price data: {str(e)}"
+        result['exception'] = str(e)
+        _log_readiness_result(result)
         return result
     
     return result
+
+
+def generate_readiness_report_dataframe(wave_ids: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Generate a pandas DataFrame summarizing readiness status for all waves.
+    
+    Args:
+        wave_ids: Optional list of wave_ids to include. If None, includes all waves.
+        
+    Returns:
+        DataFrame with columns:
+        - wave_id
+        - display_name
+        - is_ready
+        - reason
+        - reason_codes
+        - missing_tickers_count
+        - missing_benchmark_tickers_count
+        - history_start
+        - history_end
+        - source_used
+        - has_exception
+    """
+    if wave_ids is None:
+        wave_ids = get_all_wave_ids()
+    
+    records = []
+    for wave_id in wave_ids:
+        diagnostics = compute_data_ready_status(wave_id)
+        
+        records.append({
+            'wave_id': diagnostics['wave_id'],
+            'display_name': diagnostics['display_name'],
+            'is_ready': diagnostics['is_ready'],
+            'reason': diagnostics['reason'],
+            'reason_codes': ', '.join(diagnostics['reason_codes']),
+            'details': diagnostics['details'],
+            'missing_tickers_count': len(diagnostics['missing_tickers']),
+            'missing_tickers': ', '.join(diagnostics['missing_tickers']) if diagnostics['missing_tickers'] else '',
+            'missing_benchmark_tickers_count': len(diagnostics['missing_benchmark_tickers']),
+            'missing_benchmark_tickers': ', '.join(diagnostics['missing_benchmark_tickers']) if diagnostics['missing_benchmark_tickers'] else '',
+            'history_start': diagnostics['history_window_used']['start'],
+            'history_end': diagnostics['history_window_used']['end'],
+            'source_used': diagnostics['source_used'],
+            'has_exception': diagnostics['exception'] is not None,
+            'exception': diagnostics['exception'] or '',
+        })
+    
+    return pd.DataFrame(records)
+
+
+def generate_readiness_report_json(wave_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Generate a JSON-serializable dictionary of readiness diagnostics for all waves.
+    
+    Args:
+        wave_ids: Optional list of wave_ids to include. If None, includes all waves.
+        
+    Returns:
+        Dictionary mapping wave_id to full diagnostic results:
+        {
+            'summary': {
+                'total_waves': int,
+                'ready_count': int,
+                'degraded_count': int,
+                'missing_count': int
+            },
+            'waves': {
+                'wave_id_1': { ... full diagnostics ... },
+                'wave_id_2': { ... full diagnostics ... },
+                ...
+            }
+        }
+    """
+    import json
+    
+    if wave_ids is None:
+        wave_ids = get_all_wave_ids()
+    
+    waves_data = {}
+    ready_count = 0
+    degraded_count = 0
+    missing_count = 0
+    
+    for wave_id in wave_ids:
+        diagnostics = compute_data_ready_status(wave_id)
+        waves_data[wave_id] = diagnostics
+        
+        if diagnostics['is_ready']:
+            ready_count += 1
+        elif diagnostics['reason'] in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
+            degraded_count += 1
+        else:
+            missing_count += 1
+    
+    return {
+        'summary': {
+            'total_waves': len(wave_ids),
+            'ready_count': ready_count,
+            'degraded_count': degraded_count,
+            'missing_count': missing_count,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        },
+        'waves': waves_data
+    }
 
 
 # ------------------------------------------------------------
