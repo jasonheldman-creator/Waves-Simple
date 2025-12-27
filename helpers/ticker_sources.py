@@ -158,11 +158,12 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)  # Increased TTL to 10 minutes to reduce API stress
 def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
     """
     Get current price and daily % change for a ticker using yfinance.
     Enhanced with circuit breaker and persistent cache for resilience.
+    Increased TTL and improved caching to reduce provider stress.
     
     Args:
         ticker: Stock ticker symbol
@@ -177,7 +178,7 @@ def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
         'success': False
     }
     
-    # Try persistent cache first if available
+    # Try persistent cache first if available (with longer TTL)
     if RESILIENCE_AVAILABLE:
         try:
             cache = get_persistent_cache()
@@ -191,17 +192,17 @@ def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
     # Try to fetch with circuit breaker protection
     if RESILIENCE_AVAILABLE:
         try:
-            # Get circuit breaker for yfinance
-            cb = get_circuit_breaker("yfinance_ticker", failure_threshold=3, recovery_timeout=30)
+            # Get circuit breaker for yfinance with higher threshold
+            cb = get_circuit_breaker("yfinance_ticker", failure_threshold=5, recovery_timeout=60)
             
             # Call through circuit breaker
             success, result, error = cb.call(_fetch_ticker_price_data_internal, ticker)
             
             if success and result:
-                # Cache successful result
+                # Cache successful result with longer TTL
                 try:
                     cache = get_persistent_cache()
-                    cache.set(f"ticker_price:{ticker}", result, ttl=300)
+                    cache.set(f"ticker_price:{ticker}", result, ttl=600)
                 except Exception:
                     pass
                 return result

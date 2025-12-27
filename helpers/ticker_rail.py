@@ -3,7 +3,7 @@ V3 ADD-ON: Bottom Ticker (Institutional Rail) - Rendering Logic
 Main logic for ticker aggregation and HTML rendering.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Any
 import streamlit as st
 from .ticker_sources import (
     get_wave_holdings_tickers,
@@ -142,6 +142,7 @@ def build_ticker_universe(
     """
     Build the complete ticker universe from all sources.
     Enhanced with partial data handling - continues with available data even if some tickers fail.
+    Added batching with delays to reduce stress on data providers.
     
     Args:
         max_tickers: Maximum unique tickers from holdings
@@ -151,6 +152,8 @@ def build_ticker_universe(
     Returns:
         List of formatted ticker items
     """
+    import time
+    
     ticker_items = []
     successful_tickers = []
     failed_count = 0
@@ -168,7 +171,11 @@ def build_ticker_universe(
         
         # Format each ticker with price and % change
         # Continue even if some tickers fail
-        for ticker in display_tickers:
+        # Add batching to reduce stress on API
+        batch_size = 5
+        batch_delay = 0.5  # 0.5 seconds between batches
+        
+        for i, ticker in enumerate(display_tickers):
             try:
                 ticker_item = format_ticker_item(ticker, include_earnings=False)
                 # Only add if we got meaningful data (not just "--")
@@ -181,6 +188,10 @@ def build_ticker_universe(
                 # Skip this ticker and continue
                 failed_count += 1
                 continue
+            
+            # Add delay between batches to reduce API stress
+            if (i + 1) % batch_size == 0 and i < len(display_tickers) - 1:
+                time.sleep(batch_delay)
         
         # Add a few earnings highlights (first 3 successful tickers)
         for ticker in successful_tickers[:3]:
@@ -324,13 +335,31 @@ def render_bottom_ticker_v3(
     """
     Main function to render the V3 bottom ticker bar.
     Handles all aggregation, formatting, and rendering with graceful degradation.
+    Enhanced with throttling to prevent excessive API calls during auto-refresh.
     
     Args:
         max_tickers: Maximum unique tickers from holdings
         top_n_per_wave: Top holdings per wave
         sample_size: Number of tickers to display in rotation
     """
+    from datetime import datetime, timedelta
+    
+    # Throttle ticker updates to once per 5 minutes minimum
+    # This prevents overloading during auto-refresh cycles
+    TICKER_UPDATE_INTERVAL = timedelta(minutes=5)
+    
     try:
+        # Check last update time from session state
+        last_update = st.session_state.get('ticker_last_update', None)
+        now = datetime.now()
+        
+        # If we updated recently, use cached ticker items
+        if last_update and (now - last_update) < TICKER_UPDATE_INTERVAL:
+            cached_html = st.session_state.get('ticker_cached_html', None)
+            if cached_html:
+                st.markdown(cached_html, unsafe_allow_html=True)
+                return
+        
         # Update cache in background (non-blocking)
         try:
             update_cache_with_current_data()
@@ -346,6 +375,10 @@ def render_bottom_ticker_v3(
         
         # Generate HTML
         ticker_html = render_ticker_rail_html(ticker_items)
+        
+        # Cache the result in session state
+        st.session_state.ticker_last_update = now
+        st.session_state.ticker_cached_html = ticker_html
         
         # Render to Streamlit
         st.markdown(ticker_html, unsafe_allow_html=True)

@@ -6440,22 +6440,30 @@ def render_sidebar_info():
                 if len(price_df) > 0:
                     st.session_state["last_good_prices"] = price_df
                     st.session_state["last_price_fetch_time"] = datetime.now()
-                
-                # Optional: Save to disk (parquet format for fast loading)
-                try:
-                    cache_dir = os.path.join(os.path.dirname(__file__), 'data')
-                    os.makedirs(cache_dir, exist_ok=True)
-                    cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
-                    price_df.to_parquet(cache_file)
-                    st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
-                except Exception as disk_error:
-                    # Disk save failed, but memory cache still works
-                    st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
-                    st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
-                
-                st.rerun()
+                    
+                    # Optional: Save to disk (parquet format for fast loading)
+                    try:
+                        cache_dir = os.path.join(os.path.dirname(__file__), 'data')
+                        os.makedirs(cache_dir, exist_ok=True)
+                        cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
+                        price_df.to_parquet(cache_file)
+                        st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
+                    except Exception as disk_error:
+                        # Disk save failed, but memory cache still works
+                        st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
+                        st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
+                    
+                    # Show failure summary if any
+                    if failures:
+                        st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
+                else:
+                    st.sidebar.warning("⚠️ No price data was fetched. Please try again.")
+                    if failures:
+                        st.sidebar.error(f"Failures: {len(failures)} tickers failed to fetch")
+                        
         except Exception as e:
-            st.sidebar.error(f"Error warming cache: {str(e)}")
+            st.sidebar.error(f"❌ Error warming cache: {str(e)}")
+            # Don't crash - let user continue working
     
     st.sidebar.markdown("---")
     
