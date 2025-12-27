@@ -3,7 +3,7 @@ V3 ADD-ON: Bottom Ticker (Institutional Rail) - Rendering Logic
 Main logic for ticker aggregation and HTML rendering.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Any
 import streamlit as st
 from .ticker_sources import (
     get_wave_holdings_tickers,
@@ -142,6 +142,7 @@ def build_ticker_universe(
     """
     Build the complete ticker universe from all sources.
     Enhanced with partial data handling - continues with available data even if some tickers fail.
+    Added batching with delays to reduce stress on data providers.
     
     Args:
         max_tickers: Maximum unique tickers from holdings
@@ -151,6 +152,8 @@ def build_ticker_universe(
     Returns:
         List of formatted ticker items
     """
+    import time
+    
     ticker_items = []
     successful_tickers = []
     failed_count = 0
@@ -168,7 +171,11 @@ def build_ticker_universe(
         
         # Format each ticker with price and % change
         # Continue even if some tickers fail
-        for ticker in display_tickers:
+        # Add batching to reduce stress on API
+        batch_size = 5
+        batch_delay = 0.5  # 0.5 seconds between batches
+        
+        for i, ticker in enumerate(display_tickers):
             try:
                 ticker_item = format_ticker_item(ticker, include_earnings=False)
                 # Only add if we got meaningful data (not just "--")
@@ -181,6 +188,10 @@ def build_ticker_universe(
                 # Skip this ticker and continue
                 failed_count += 1
                 continue
+            
+            # Add delay between batches to reduce API stress
+            if (i + 1) % batch_size == 0 and i < len(display_tickers) - 1:
+                time.sleep(batch_delay)
         
         # Add a few earnings highlights (first 3 successful tickers)
         for ticker in successful_tickers[:3]:
