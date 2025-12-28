@@ -2470,8 +2470,11 @@ def _compute_core(
 
     # Use provided price_df if available, otherwise download
     failed_tickers = {}
+    # Get wave_id for diagnostics tracking
+    wave_id = get_wave_id_from_display_name(wave_name)
+    
     if price_df is None:
-        price_df, failed_tickers = _download_history(all_tickers, days=days)
+        price_df, failed_tickers = _download_history(all_tickers, days=days, wave_id=wave_id, wave_name=wave_name)
     else:
         # Filter to needed tickers and ensure we have the data
         available_tickers = [t for t in all_tickers if t in price_df.columns]
@@ -2479,7 +2482,7 @@ def _compute_core(
             price_df = price_df[available_tickers].copy()
         else:
             # Fallback to download if no tickers are available in provided price_df
-            price_df, failed_tickers = _download_history(all_tickers, days=days)
+            price_df, failed_tickers = _download_history(all_tickers, days=days, wave_id=wave_id, wave_name=wave_name)
     
     if price_df.empty:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
