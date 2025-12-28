@@ -1172,6 +1172,9 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     """
     Fetch, deduplicate, and return canonical wave universe data.
     
+    UPDATED: Now uses waves_engine.get_all_waves_universe() as the SINGLE SOURCE OF TRUTH.
+    All 28 waves from the registry will be included - NO SILENT FILTERING.
+    
     Uses wave list from waves_engine or falls back to static list.
     Caches result in session state for performance.
     
@@ -1181,9 +1184,9 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         
     Returns:
         Dictionary with:
-        - waves: Deduplicated list of wave names
+        - waves: Deduplicated list of wave names (28 waves from registry)
         - removed_duplicates: List of removed duplicates
-        - source: Data source ("engine", "fallback")
+        - source: Data source ("registry", "engine", "fallback")
         - timestamp: Current timestamp for tracking
         - enabled_flags: Dictionary mapping wave names to enabled status (default True)
     """
@@ -1198,18 +1201,31 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
     source = "fallback"
     
     try:
-        # Try to get waves from engine (single source of truth)
-        if WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
+        # PRIORITY 1: Use get_all_waves_universe() from waves_engine (single source of truth)
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                from waves_engine import get_all_waves_universe
+                universe_data = get_all_waves_universe()
+                wave_list = universe_data['waves']
+                source = universe_data['source']  # Should be "wave_registry"
+            except (ImportError, AttributeError):
+                # Fall through to legacy methods
+                pass
+        
+        # PRIORITY 2: Try to get waves from engine_get_all_waves (legacy)
+        if not wave_list and WAVES_ENGINE_AVAILABLE and engine_get_all_waves is not None:
             wave_list = engine_get_all_waves()
             source = "engine"
-        elif WAVE_WEIGHTS:
+        elif not wave_list and WAVE_WEIGHTS:
             # Fallback: directly access WAVE_WEIGHTS
             wave_list = sorted(list(WAVE_WEIGHTS.keys()))
             source = "engine"
-    except Exception:
-        pass
+    except Exception as e:
+        import traceback
+        print(f"Warning: Error getting waves from engine: {e}")
+        traceback.print_exc()
     
-    # If engine unavailable, use fallback static list
+    # If engine unavailable, use fallback static list (should never happen)
     if not wave_list:
         # Fallback: combine INCLUDED_EQUITY_WAVES with other known waves
         wave_list = list(INCLUDED_EQUITY_WAVES)
@@ -1217,7 +1233,7 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         wave_list.append(CSE_WAVE_NAME)
         source = "fallback"
     
-    # Add Russell 3000 Wave if not already present
+    # Add Russell 3000 Wave if not already present (defensive - should be in registry)
     if "Russell 3000 Wave" not in wave_list:
         wave_list.append("Russell 3000 Wave")
     
@@ -2106,22 +2122,35 @@ def get_wave_status_map(_wave_universe_version=1):
     return status_map
 
 
-def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None, use_analytics_pipeline=False) -> tuple[bool, str, str]:
+def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, price_df=None, use_analytics_pipeline=True) -> tuple[bool, str, str]:
     """
-    Check if a wave is data-ready with explicit criteria.
-    UPDATED: More lenient to support partial data availability.
+    Check if a wave is data-ready with GRADED READINESS MODEL.
+    
+    UPDATED: Now uses graded readiness by default (operational/partial/full/unavailable).
+    Returns True for operational, partial, and full status - only unavailable returns False.
+    
+    BREAKING CHANGE (v2.0): The default value for `use_analytics_pipeline` changed from 
+    False to True. This enables graded readiness by default. If you need legacy behavior,
+    explicitly set `use_analytics_pipeline=False`.
     
     Args:
         wave_id: Wave identifier
         wave_history_df: Optional wave history DataFrame (will load if not provided)
         wave_universe: Optional wave universe dict (will load if not provided)
         price_df: Optional cached price DataFrame for NAV computation
-        use_analytics_pipeline: If True, use analytics_pipeline.compute_data_ready_status for detailed diagnostics
+        use_analytics_pipeline: If True (default), use analytics_pipeline.compute_data_ready_status 
+                                for graded diagnostics. Set to False for legacy behavior.
     
     Returns:
         Tuple of (is_ready: bool, status: str, reason: str)
         
-    Statuses:
+    Statuses (Graded):
+        - "Full": All analytics available
+        - "Partial": Basic analytics available, some limitations
+        - "Operational": Current pricing available, minimal analytics
+        - "Unavailable": Critical data missing, cannot display
+        
+    Legacy Statuses (if analytics_pipeline unavailable or use_analytics_pipeline=False):
         - "Ready": All criteria met (including partial data)
         - "Missing Inputs": Missing holdings/benchmark/registry fields
         - "Degraded (Rate Limited)": yfinance limit/download failure
@@ -2129,30 +2158,37 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         - "Error (Computation)": NAV metrics exception
     """
     try:
-        # NEW: Optionally use analytics pipeline for detailed file-based diagnostics
+        # PRIORITY: Use analytics pipeline for graded readiness (file-based, comprehensive)
         if use_analytics_pipeline:
             try:
                 from analytics_pipeline import compute_data_ready_status
                 diagnostics = compute_data_ready_status(wave_id)
                 
-                # Map analytics pipeline status to app.py status format
-                if diagnostics['is_ready']:
-                    return True, "Ready", diagnostics['details']
-                else:
-                    reason_code = diagnostics['reason']
-                    if reason_code in ['MISSING_WEIGHTS', 'WAVE_NOT_FOUND']:
-                        return False, "Missing Inputs", diagnostics['details']
-                    elif reason_code in ['STALE_DATA', 'INSUFFICIENT_HISTORY']:
-                        return False, "Degraded (Partial Data)", diagnostics['details']
-                    elif reason_code in ['MISSING_PRICES', 'MISSING_BENCHMARK', 'MISSING_NAV']:
-                        return False, "Missing Inputs", diagnostics['details']
-                    else:
-                        return False, "Error (Computation)", diagnostics['details']
+                # Map graded readiness status to binary ready/not-ready
+                readiness_status = diagnostics.get('readiness_status', 'unavailable')
+                
+                if readiness_status == 'full':
+                    return True, "Full", diagnostics.get('details', 'All analytics available')
+                elif readiness_status == 'partial':
+                    return True, "Partial", diagnostics.get('details', 'Basic analytics available')
+                elif readiness_status == 'operational':
+                    return True, "Operational", diagnostics.get('details', 'Current pricing available')
+                else:  # unavailable
+                    # Construct detailed reason from blocking issues
+                    blocking = diagnostics.get('blocking_issues', [])
+                    reason = '; '.join(blocking) if blocking else diagnostics.get('details', 'Unavailable')
+                    return False, "Unavailable", reason
+                    
             except ImportError:
                 # Fall through to legacy logic if analytics_pipeline not available
                 pass
+            except Exception as e:
+                # Log error but fall through to legacy logic
+                import traceback
+                print(f"Warning: Error in analytics_pipeline.compute_data_ready_status for {wave_id}: {e}")
+                traceback.print_exc()
         
-        # LEGACY: Lenient runtime-based checks (original logic)
+        # LEGACY: Lenient runtime-based checks (original logic - kept for backward compatibility)
         # Load universe if not provided
         if wave_universe is None:
             wave_universe_version = st.session_state.get("wave_universe_version", 1)
@@ -2161,19 +2197,19 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         # Check 1: Wave is enabled
         enabled_flags = wave_universe.get("enabled_flags", {})
         if not enabled_flags.get(wave_id, True):
-            return False, "Missing Inputs", "Wave is not enabled"
+            return False, "Unavailable", "Wave is not enabled"
         
         # Check 2: Wave exists in registry
         all_waves = wave_universe.get("waves", [])
         if wave_id not in all_waves:
-            return False, "Missing Inputs", "Wave not found in registry"
+            return False, "Unavailable", "Wave not found in registry"
         
         # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
         if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
             if wave_id not in WAVE_WEIGHTS:
-                return False, "Missing Inputs", "No holdings defined in WAVE_WEIGHTS"
+                return False, "Unavailable", "No holdings defined in WAVE_WEIGHTS"
         else:
-            return False, "Missing Inputs", "Wave engine not available"
+            return False, "Unavailable", "Wave engine not available"
         
         # Check 4: Price data availability
         # Use cached price_df if provided, otherwise try to get from session state
@@ -2188,13 +2224,13 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
             
             if wave_history_df is None or 'wave' not in wave_history_df.columns:
                 # CHANGED: Don't fail immediately - wave might still work with fresh data
-                # Return degraded status but allow rendering
-                return True, "Ready", "No cached data, will fetch fresh"
+                # Return operational status but allow rendering
+                return True, "Operational", "No cached data, will fetch fresh"
             
             wave_data = wave_history_df[wave_history_df['wave'] == wave_id]
             if len(wave_data) == 0:
                 # CHANGED: Don't fail - wave might work with fresh data
-                return True, "Ready", "No historical cache, will fetch fresh"
+                return True, "Operational", "No historical cache, will fetch fresh"
             
             # Check for sufficient days in wave history
             if 'date' not in wave_data.columns:
@@ -9809,6 +9845,80 @@ def render_all_waves_system_view(all_metrics):
         # ========================================================================
         st.markdown("### 📋 Data Readiness Status (Graded Model)")
         st.caption("All 28 waves displayed with graded readiness: Full, Partial, Operational, or Unavailable")
+        
+        # Add diagnostic summary panel
+        try:
+            from analytics_pipeline import get_wave_readiness_diagnostic_summary
+            
+            # Get comprehensive diagnostic summary
+            diag_summary = get_wave_readiness_diagnostic_summary()
+            
+            # Display diagnostic summary in an info box
+            with st.expander("🔍 Diagnostic Summary - Root Cause Analysis", expanded=False):
+                st.markdown("**Wave Universe Source Verification:**")
+                st.info(f"✓ Wave universe sourced from: **{diag_summary['wave_universe_source']}** (canonical registry)")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Total Waves in Registry",
+                        diag_summary['total_waves_in_registry'],
+                        help="Total waves defined in the canonical registry"
+                    )
+                with col2:
+                    st.metric(
+                        "Total Waves Rendered",
+                        diag_summary['total_waves_rendered'],
+                        delta="✓ Complete" if diag_summary['is_complete'] else f"⚠ Missing {diag_summary['total_waves_in_registry'] - diag_summary['total_waves_rendered']}",
+                        delta_color="normal" if diag_summary['is_complete'] else "inverse",
+                        help="Number of waves successfully rendered on this page"
+                    )
+                with col3:
+                    usable = sum([
+                        diag_summary['readiness_by_status'].get('full', 0),
+                        diag_summary['readiness_by_status'].get('partial', 0),
+                        diag_summary['readiness_by_status'].get('operational', 0)
+                    ])
+                    st.metric(
+                        "Usable Waves",
+                        usable,
+                        delta=f"{usable/diag_summary['total_waves_in_registry']*100:.0f}%",
+                        help="Waves that are operational or better"
+                    )
+                
+                # Show warnings if any
+                if diag_summary['warnings']:
+                    st.warning("⚠️ **Warnings:**")
+                    for warning in diag_summary['warnings']:
+                        st.markdown(f"- {warning}")
+                
+                # Show unavailable waves with blocking reasons
+                if diag_summary['unavailable_waves_detail']:
+                    st.markdown(f"**Unavailable Waves ({len(diag_summary['unavailable_waves_detail'])}):**")
+                    st.caption("Top 1-3 blocking reasons for each unavailable wave")
+                    
+                    unavail_data = []
+                    for wave_detail in diag_summary['unavailable_waves_detail'][:10]:  # Show first 10
+                        reasons = wave_detail['top_blocking_reasons']
+                        reasons_str = '; '.join(reasons) if reasons else 'Unknown'
+                        action = wave_detail['suggested_actions'][0] if wave_detail['suggested_actions'] else 'No action'
+                        
+                        unavail_data.append({
+                            'Wave': wave_detail['display_name'],
+                            'Coverage': f"{wave_detail['coverage_pct']:.1f}%",
+                            'Blocking Reasons': reasons_str,
+                            'Suggested Action': action
+                        })
+                    
+                    if unavail_data:
+                        df_unavail = pd.DataFrame(unavail_data)
+                        st.dataframe(df_unavail, use_container_width=True, hide_index=True)
+                        
+                        if len(diag_summary['unavailable_waves_detail']) > 10:
+                            st.caption(f"... and {len(diag_summary['unavailable_waves_detail']) - 10} more (see full table below)")
+                
+        except Exception as e:
+            st.warning(f"Could not load diagnostic summary: {str(e)}")
         
         # Use analytics_pipeline for graded readiness diagnostics
         try:

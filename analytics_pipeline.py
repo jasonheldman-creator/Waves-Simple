@@ -63,6 +63,7 @@ except ImportError:
 # Import from waves_engine
 from waves_engine import (
     get_all_wave_ids,
+    get_all_waves_universe,
     get_display_name_from_wave_id,
     WAVE_WEIGHTS,
     BENCHMARK_WEIGHTS_STATIC,
@@ -1837,6 +1838,110 @@ def print_readiness_report(coverage_threshold: float = DEFAULT_COVERAGE_THRESHOL
     print("=" * 100)
     print()
 
+
+def get_wave_readiness_diagnostic_summary() -> Dict[str, Any]:
+    """
+    Get a comprehensive diagnostic summary of wave readiness for debugging.
+    
+    This function provides immediate visibility into:
+    - Total waves in the registry
+    - Total waves rendered (should be 28)
+    - Count by readiness_status (full/partial/operational/unavailable)
+    - Top 1-3 blocking reasons for each unavailable wave
+    - Verification that wave universe was sourced from registry
+    
+    Returns:
+        Dictionary with diagnostic information:
+        {
+            'total_waves_in_registry': int,
+            'total_waves_rendered': int,
+            'readiness_by_status': {
+                'full': int,
+                'partial': int,
+                'operational': int,
+                'unavailable': int
+            },
+            'unavailable_waves_detail': List[Dict],
+            'wave_universe_source': str,
+            'is_complete': bool,  # True if all 28 waves present
+            'warnings': List[str]
+        }
+    
+    Example:
+        >>> diagnostics = get_wave_readiness_diagnostic_summary()
+        >>> print(f"Total waves: {diagnostics['total_waves_rendered']}/28")
+        >>> print(f"Operational+: {diagnostics['readiness_by_status']['operational']}")
+    """
+    # Get wave universe from canonical source (already imported at module level)
+    universe = get_all_waves_universe()
+    total_in_registry = universe['count']
+    wave_ids = universe['wave_ids']
+    
+    # Initialize result
+    result = {
+        'total_waves_in_registry': total_in_registry,
+        'total_waves_rendered': 0,
+        'readiness_by_status': {
+            'full': 0,
+            'partial': 0,
+            'operational': 0,
+            'unavailable': 0
+        },
+        'unavailable_waves_detail': [],
+        'wave_universe_source': universe['source'],
+        'is_complete': False,
+        'warnings': []
+    }
+    
+    # Check each wave
+    for wave_id in wave_ids:
+        try:
+            status = compute_data_ready_status(wave_id)
+            result['total_waves_rendered'] += 1
+            
+            # Count by status
+            readiness_status = status.get('readiness_status', 'unavailable')
+            if readiness_status in result['readiness_by_status']:
+                result['readiness_by_status'][readiness_status] += 1
+            
+            # Track unavailable waves in detail
+            if readiness_status == 'unavailable':
+                blocking_issues = status.get('blocking_issues', [])
+                missing_tickers = status.get('missing_tickers', [])
+                
+                # Get top 3 blocking reasons
+                reasons = []
+                if blocking_issues:
+                    reasons.extend(blocking_issues[:3])
+                if missing_tickers and len(reasons) < 3:
+                    reasons.append(f"{len(missing_tickers)} tickers missing")
+                
+                result['unavailable_waves_detail'].append({
+                    'wave_id': wave_id,
+                    'display_name': status.get('display_name', wave_id),
+                    'top_blocking_reasons': reasons[:3],
+                    'coverage_pct': status.get('coverage_pct', 0.0),
+                    'suggested_actions': status.get('suggested_actions', [])[:1]  # Top 1 action
+                })
+        
+        except Exception as e:
+            result['warnings'].append(f"Error checking {wave_id}: {str(e)}")
+    
+    # Validate completeness
+    result['is_complete'] = (result['total_waves_rendered'] == total_in_registry == 28)
+    
+    # Add warnings if incomplete
+    if result['total_waves_rendered'] < total_in_registry:
+        result['warnings'].append(
+            f"Only {result['total_waves_rendered']} of {total_in_registry} waves rendered"
+        )
+    
+    if total_in_registry != 28:
+        result['warnings'].append(
+            f"Registry contains {total_in_registry} waves, expected 28"
+        )
+    
+    return result
 
 
 # ------------------------------------------------------------
