@@ -92,13 +92,17 @@ MAX_RETRIES = 3  # Maximum retry attempts for any single operation
 MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
 # Graded Readiness Thresholds
-MIN_DAYS_OPERATIONAL = 7      # Minimum for current state display
-MIN_DAYS_PARTIAL = 30         # Minimum for basic analytics
-MIN_DAYS_FULL = 365           # Required for full multi-window analytics
-MIN_COVERAGE_OPERATIONAL = 0.80  # 80% coverage for operational
-MIN_COVERAGE_PARTIAL = 0.90      # 90% coverage for partial
-MIN_COVERAGE_FULL = 0.95         # 95% coverage for full
-MAX_DAYS_STALE = 5            # Maximum age in days before data considered stale
+# These thresholds balance usability with data quality
+# - Operational: Enough data to show current state (basic display)
+# - Partial: Enough data for basic analytics (trends, simple returns)
+# - Full: Enough data for all analytics (multi-window, correlations, alpha)
+MIN_DAYS_OPERATIONAL = 1      # Minimum for current state display (lenient to show something)
+MIN_DAYS_PARTIAL = 7          # Minimum for basic analytics (1 week of data)
+MIN_DAYS_FULL = 365           # Required for full multi-window analytics (1 year of data)
+MIN_COVERAGE_OPERATIONAL = 0.50  # 50% coverage for operational (allows partial data display)
+MIN_COVERAGE_PARTIAL = 0.70      # 70% coverage for partial (reasonably complete data)
+MIN_COVERAGE_FULL = 0.90         # 90% coverage for full (near-complete data)
+MAX_DAYS_STALE = 7            # Maximum age in days before data considered stale
 
 
 # ------------------------------------------------------------
@@ -2137,6 +2141,36 @@ def run_daily_analytics_pipeline(
     validation_summary.to_csv(validation_path, index=False)
     print(f"Validation report saved to: {validation_path}")
     print()
+    
+    # Export failed tickers diagnostics if available
+    if DIAGNOSTICS_AVAILABLE:
+        try:
+            from helpers.ticker_diagnostics import get_diagnostics_tracker
+            tracker = get_diagnostics_tracker()
+            
+            # Export to CSV with standard filename
+            reports_dir = "reports"
+            os.makedirs(reports_dir, exist_ok=True)
+            csv_path = tracker.export_to_csv(filename="failed_tickers_report.csv")
+            
+            # Get summary stats
+            stats = tracker.get_summary_stats()
+            print("=" * 70)
+            print("Ticker Failure Diagnostics")
+            print("=" * 70)
+            print(f"Total failed ticker attempts: {stats['total_failures']}")
+            print(f"Unique failed tickers: {stats['unique_tickers']}")
+            print(f"Fatal failures: {stats['fatal_count']}")
+            print(f"Non-fatal failures: {stats['non_fatal_count']}")
+            if stats['by_type']:
+                print("\nFailure breakdown by type:")
+                for ftype, count in stats['by_type'].items():
+                    print(f"  - {ftype}: {count}")
+            print(f"\nDetailed report saved to: {csv_path}")
+            print("=" * 70)
+            print()
+        except Exception as e:
+            print(f"Warning: Could not export ticker diagnostics: {e}")
     
     # Print summary
     print("=" * 70)

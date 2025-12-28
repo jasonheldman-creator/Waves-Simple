@@ -110,6 +110,56 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
 
+# Ticker normalization and aliases
+# Maps known ticker variants to their canonical form for yfinance
+TICKER_ALIASES: Dict[str, str] = {
+    # Berkshire Hathaway Class B
+    "BRK.B": "BRK-B",
+    "BRK/B": "BRK-B",
+    "BRKB": "BRK-B",
+    
+    # Brown-Forman Class B
+    "BF.B": "BF-B",
+    "BF/B": "BF-B",
+    "BFB": "BF-B",
+    
+    # Crypto tickers - ensure USD pairs for yfinance
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "ADA": "ADA-USD",
+    "DOT": "DOT-USD",
+    "AVAX": "AVAX-USD",
+    "MATIC": "MATIC-USD",
+    "UNI": "UNI-USD",
+    "LINK": "LINK-USD",
+    "AAVE": "AAVE-USD",
+    "MKR": "MKR-USD",
+    "SNX": "SNX-USD",
+    "CRV": "CRV-USD",
+    "COMP": "COMP-USD",
+    "XRP": "XRP-USD",
+    "BNB": "BNB-USD",
+    "ATOM": "ATOM-USD",
+    "NEAR": "NEAR-USD",
+    "APT": "APT-USD",
+    "ARB": "ARB-USD",
+    "OP": "OP-USD",
+    "IMX": "IMX-USD",
+    "MNT": "MNT-USD",
+    "STX": "STX-USD",
+    "ICP": "ICP-USD",
+    "FET": "FET-USD",
+    "OCEAN": "OCEAN-USD",
+    "AGIX": "AGIX-USD",
+    "RENDER": "RENDER-USD",
+    "TAO": "TAO-USD",
+    "INJ": "INJ-USD",
+    "LDO": "LDO-USD",
+    "CAKE": "CAKE-USD",
+    "stETH": "stETH-USD",
+}
+
 # Crypto-specific overlay configurations
 # These are DISTINCT from equity VIX-based overlays
 
@@ -1166,6 +1216,13 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
 def _normalize_ticker(ticker: str) -> str:
     """
     Normalize ticker symbol to handle common formatting issues.
+    Uses TICKER_ALIASES for known symbol variants.
+    
+    Normalization order:
+    1. Convert to uppercase and strip whitespace
+    2. Check TICKER_ALIASES for exact match
+    3. Replace dots with hyphens (for remaining edge cases)
+    4. Check TICKER_ALIASES again (for dot-replaced variants)
     
     Args:
         ticker: Original ticker symbol
@@ -1179,8 +1236,18 @@ def _normalize_ticker(ticker: str) -> str:
     # Convert to uppercase and strip whitespace
     normalized = ticker.strip().upper()
     
-    # Replace dots with hyphens (e.g., BRK.B → BRK-B)
-    normalized = normalized.replace('.', '-')
+    # Check if ticker has a known alias (highest priority)
+    if normalized in TICKER_ALIASES:
+        return TICKER_ALIASES[normalized]
+    
+    # Replace dots with hyphens for tickers not in aliases
+    # This handles edge cases where the ticker isn't pre-defined
+    if '.' in normalized:
+        normalized = normalized.replace('.', '-')
+        
+        # Check again after dot replacement
+        if normalized in TICKER_ALIASES:
+            return TICKER_ALIASES[normalized]
     
     return normalized
 
