@@ -57,7 +57,7 @@ def check_data_files() -> Tuple[bool, str]:
     parent_dir = os.path.dirname(base_dir)
     
     critical_files = [
-        'data/master_universe.csv',
+        'ticker_master_clean.csv',  # Canonical ticker file (NEW)
         'wave_config.csv',
     ]
     
@@ -70,6 +70,56 @@ def check_data_files() -> Tuple[bool, str]:
     if missing_files:
         return False, f"Missing files: {', '.join(missing_files)}"
     return True, "All critical data files present"
+
+
+def check_ticker_master_file() -> Tuple[bool, str]:
+    """
+    Validate the ticker master file.
+    
+    Checks:
+    - File exists
+    - File is readable
+    - Contains expected columns
+    - No duplicate tickers
+    - Row count meets expectations
+    """
+    import os
+    import pandas as pd
+    
+    base_dir = os.path.dirname(__file__)
+    parent_dir = os.path.dirname(base_dir)
+    ticker_file = os.path.join(parent_dir, 'ticker_master_clean.csv')
+    
+    # Check file exists
+    if not os.path.exists(ticker_file):
+        return False, "ticker_master_clean.csv not found"
+    
+    try:
+        # Read file
+        df = pd.read_csv(ticker_file)
+        
+        # Check for required columns
+        required_cols = ['ticker']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            return False, f"Missing columns: {', '.join(missing_cols)}"
+        
+        # Check for duplicates
+        duplicates = df[df['ticker'].duplicated()]
+        if not duplicates.empty:
+            dup_tickers = duplicates['ticker'].tolist()
+            return False, f"Duplicate tickers found: {dup_tickers[:5]}"
+        
+        # Check row count (should have at least 50 tickers from waves)
+        ticker_count = len(df)
+        if ticker_count < 50:
+            return False, f"Only {ticker_count} tickers (expected 50+)"
+        
+        # All checks passed
+        return True, f"{ticker_count} validated tickers loaded"
+        
+    except Exception as e:
+        return False, f"Error reading ticker file: {str(e)}"
 
 
 def check_imports() -> Tuple[bool, str]:
@@ -145,6 +195,7 @@ def run_startup_validation(show_progress: bool = True) -> Dict[str, any]:
     """
     checks = [
         ReadinessCheck("Data Files", check_data_files, critical=True),
+        ReadinessCheck("Ticker Master File", check_ticker_master_file, critical=True),
         ReadinessCheck("Python Packages", check_imports, critical=True),
         ReadinessCheck("Helper Modules", check_helpers_available, critical=True),
         ReadinessCheck("Waves Engine", check_waves_engine, critical=True),
