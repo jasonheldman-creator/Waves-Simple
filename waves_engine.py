@@ -1168,8 +1168,7 @@ def _download_history(tickers: list[str], days: int) -> Tuple[pd.DataFrame, Dict
     
     if yf is None:
         print("Error: yfinance is not available in this environment.")
-        for ticker in tickers:
-            failures[ticker] = "yfinance not available"
+        failures = {ticker: "yfinance not available" for ticker in tickers}
         return pd.DataFrame(), failures
     
     lookback_days = days + 260

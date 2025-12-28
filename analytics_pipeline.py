@@ -2126,7 +2126,7 @@ def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFra
     Returns:
         DataFrame with snapshot data
     """
-    from waves_engine import compute_history_nav, get_all_wave_ids, get_display_name_from_wave_id
+    from waves_engine import compute_history_nav
     
     print("=" * 70)
     print("Generating Live Snapshot")
@@ -2143,12 +2143,14 @@ def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFra
             readiness = compute_data_ready_status(wave_id)
             
             # Initialize row
+            # Use readiness_status for both readiness and data_regime for now
+            # In future, data_regime could incorporate market regime (VIX, trend, etc.)
             row = {
                 'wave_id': wave_id,
                 'wave_name': wave_name,
                 'readiness_status': readiness.get('readiness_status', 'unavailable'),
                 'coverage_pct': readiness.get('coverage_pct', 0.0),
-                'data_regime': readiness.get('readiness_status', 'unavailable'),
+                'data_regime': readiness.get('readiness_status', 'unavailable'),  # Placeholder for future market regime
             }
             
             # Try to compute returns for each timeframe
@@ -2237,7 +2239,6 @@ def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -
     
     # Return placeholder snapshot with minimal data
     print(f"Warning: Snapshot file not found, generating fallback data")
-    from waves_engine import get_all_wave_ids, get_display_name_from_wave_id
     
     rows = []
     for wave_id in get_all_wave_ids():
@@ -2247,7 +2248,7 @@ def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -
             'wave_name': wave_name,
             'readiness_status': 'unavailable',
             'coverage_pct': 0.0,
-            'data_regime': 'no_data',
+            'data_regime': 'no_data',  # Distinct value for fallback case
             'wave_return_1d': np.nan,
             'bm_return_1d': np.nan,
             'alpha_1d': np.nan,

@@ -8076,8 +8076,7 @@ def render_wave_intelligence_center_tab():
                     st.metric("Usable", usable_count, delta=f"{usable_count/total_waves*100:.0f}%",
                              help="Operational or better", delta_color="normal")
                 
-                # Show last refresh timestamp
-                from datetime import datetime
+                # Show last refresh timestamp (using module-level datetime import)
                 st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
                 
                 st.markdown("---")
