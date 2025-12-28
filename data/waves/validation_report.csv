@@ -1,29 +1,3 @@
 wave_id,display_name,status,prices_ok,benchmark_ok,positions_ok,trades_ok,nav_ok,issue_count
-ai_cloud_megacap_wave,AI & Cloud MegaCap Wave,fail,False,False,True,True,True,2
-clean_transit_infrastructure_wave,Clean Transit-Infrastructure Wave,fail,False,False,True,True,True,2
-crypto_ai_growth_wave,Crypto AI Growth Wave,fail,False,False,True,True,True,2
-crypto_broad_growth_wave,Crypto Broad Growth Wave,fail,False,False,True,True,True,2
-crypto_defi_growth_wave,Crypto DeFi Growth Wave,fail,False,False,True,True,True,2
-crypto_income_wave,Crypto Income Wave,fail,False,False,True,True,True,2
-crypto_l1_growth_wave,Crypto L1 Growth Wave,fail,False,False,True,True,True,2
-crypto_l2_growth_wave,Crypto L2 Growth Wave,fail,False,False,True,True,True,2
-demas_fund_wave,Demas Fund Wave,fail,False,False,True,True,True,2
-ev_infrastructure_wave,EV & Infrastructure Wave,fail,False,False,True,True,True,2
-future_energy_ev_wave,Future Energy & EV Wave,fail,False,False,True,True,True,2
-future_power_energy_wave,Future Power & Energy Wave,fail,False,False,True,True,True,2
-gold_wave,Gold Wave,pass,True,True,True,True,True,0
-income_wave,Income Wave,pass,True,True,True,True,True,0
-infinity_multi_asset_growth_wave,Infinity Multi-Asset Growth Wave,fail,False,False,True,True,True,2
-next_gen_compute_semis_wave,Next-Gen Compute & Semis Wave,fail,False,False,True,True,True,2
-quantum_computing_wave,Quantum Computing Wave,fail,False,False,True,True,True,2
-russell_3000_wave,Russell 3000 Wave,fail,False,False,True,True,True,2
-small_cap_growth_wave,Small Cap Growth Wave,fail,False,False,True,True,True,2
-small_to_mid_cap_growth_wave,Small to Mid Cap Growth Wave,fail,False,False,True,True,True,2
-smartsafe_tax_free_money_market_wave,SmartSafe Tax-Free Money Market Wave,fail,False,False,True,True,True,2
-smartsafe_treasury_cash_wave,SmartSafe Treasury Cash Wave,fail,False,False,True,True,True,2
-sp500_wave,S&P 500 Wave,pass,True,True,True,True,True,0
-us_megacap_core_wave,US MegaCap Core Wave,fail,False,False,True,True,True,2
-us_mid_small_growth_semis_wave,US Mid/Small Growth & Semis Wave,fail,False,False,True,True,True,2
-us_small_cap_disruptors_wave,US Small-Cap Disruptors Wave,fail,False,False,True,True,True,2
-vector_muni_ladder_wave,Vector Muni Ladder Wave,fail,False,False,True,True,True,2
-vector_treasury_ladder_wave,Vector Treasury Ladder Wave,fail,False,False,True,True,True,2
+us_megacap_core_wave,US MegaCap Core Wave,pass,True,True,True,True,True,0
+crypto_broad_growth_wave,Crypto Broad Growth Wave,pass,True,True,True,True,True,0
