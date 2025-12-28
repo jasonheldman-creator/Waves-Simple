@@ -6398,6 +6398,120 @@ def render_sidebar_info():
             st.sidebar.error(f"Error building data: {str(e)}")
     
     # ========================================================================
+    # NEW: Rebuild Wave CSV + Clear Cache Button
+    # ========================================================================
+    if st.sidebar.button(
+        "📋 Rebuild Wave CSV + Clear Cache",
+        key="rebuild_wave_csv_button",
+        use_container_width=True,
+        help="Rebuild wave registry CSV from canonical source and clear all cached data"
+    ):
+        try:
+            # Show progress indicator
+            with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
+                # Import wave registry manager
+                from wave_registry_manager import rebuild_wave_registry_csv
+                
+                # Rebuild the CSV
+                rebuild_result = rebuild_wave_registry_csv(force=True)
+                
+                if rebuild_result['success']:
+                    st.sidebar.success(f"✅ Wave CSV rebuilt with {rebuild_result['waves_written']} waves")
+                    
+                    # Clear all cached data
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    
+                    # Clear wave-related session state
+                    keys_to_clear = [
+                        "wave_universe",
+                        "waves_list",
+                        "universe_cache",
+                        "wave_history_cache",
+                        "last_compute_ts",
+                        "alpha_proof_result",
+                        "alpha_proof_wave",
+                        "attrib_result",
+                        "global_price_df",
+                        "global_price_failures",
+                        "global_price_asof"
+                    ]
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    
+                    # Force rebuild price cache
+                    st.session_state.force_price_cache_rebuild = True
+                    
+                    # Rebuild global price cache
+                    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
+                        try:
+                            cache_result = get_global_price_cache(
+                                wave_registry=WAVE_WEIGHTS,
+                                days=365,
+                                ttl_seconds=1  # Force immediate rebuild
+                            )
+                            
+                            # Update session state with new cache
+                            st.session_state.global_price_df = cache_result.get("price_df")
+                            st.session_state.global_price_failures = cache_result.get("failures", {})
+                            st.session_state.global_price_asof = cache_result.get("asof")
+                            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                            
+                            # Get summary statistics
+                            waves_total = rebuild_result['waves_written']
+                            success_count = cache_result.get("success_count", 0)
+                            failures = cache_result.get("failures", {})
+                            tickers_failed_count = len(failures)
+                            
+                            # Display summary
+                            st.sidebar.info(f"""
+**Rebuild Summary:**
+- Total Waves: {waves_total}
+- Waves Loaded: {waves_total}
+- Tickers Success: {success_count}
+- Tickers Failed: {tickers_failed_count}
+                            """)
+                            
+                            # Show failed tickers if any
+                            if tickers_failed_count > 0:
+                                st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
+                                
+                                # Build failed ticker table
+                                failed_ticker_data = []
+                                for ticker, error in failures.items():
+                                    # Find which waves use this ticker
+                                    impacted_waves = []
+                                    for wave_name, holdings in WAVE_WEIGHTS.items():
+                                        if any(h.ticker == ticker for h in holdings):
+                                            impacted_waves.append(wave_name)
+                                    
+                                    failed_ticker_data.append({
+                                        'Ticker': ticker,
+                                        'Error': str(error)[:50],  # Truncate long errors
+                                        'Impacted Waves': len(impacted_waves)
+                                    })
+                                
+                                if failed_ticker_data:
+                                    failed_df = pd.DataFrame(failed_ticker_data)
+                                    st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
+                        except Exception as cache_error:
+                            st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
+                    
+                    # Increment version to force reload
+                    if "wave_universe_version" not in st.session_state:
+                        st.session_state.wave_universe_version = 1
+                    st.session_state.wave_universe_version += 1
+                    
+                    # Trigger rerun
+                    st.rerun()
+                else:
+                    st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
+        except Exception as e:
+            st.sidebar.error(f"❌ Error rebuilding wave CSV: {str(e)}")
+    
+    # ========================================================================
     # NEW: Data Refresh TTL Selector
     # ========================================================================
     st.sidebar.markdown("### 🕐 Data Refresh Settings")
@@ -13880,6 +13994,28 @@ def main():
     Main application entry point - Executive Layer v2.
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
+    # ========================================================================
+    # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
+    # ========================================================================
+    
+    # Validate wave registry CSV on startup (only once per session)
+    if "wave_registry_validated" not in st.session_state:
+        try:
+            from wave_registry_manager import auto_heal_wave_registry
+            
+            # Auto-heal will validate and rebuild if necessary
+            healed = auto_heal_wave_registry()
+            
+            if healed:
+                print("✅ Wave registry CSV validated successfully")
+            else:
+                print("⚠️ Wave registry CSV validation/rebuild failed - some waves may not load")
+            
+            st.session_state.wave_registry_validated = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not validate wave registry CSV: {e}")
+            st.session_state.wave_registry_validated = False
+    
     # ========================================================================
     # Wave Readiness Report - Log on startup
     # ========================================================================
