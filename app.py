@@ -14376,6 +14376,10 @@ def render_bottom_ticker_bar():
 # SECTION 7.5: WAVE OVERVIEW (NEW) TAB - COMPREHENSIVE ALL-WAVES VIEW
 # ============================================================================
 
+# Constants for Wave Overview (New) tab
+MIN_BETA_CALCULATION_POINTS = 10  # Minimum data points required for beta calculation
+ERROR_MESSAGE_MAX_LENGTH = 50  # Maximum length for error messages in diagnostics
+
 def get_comprehensive_wave_data_all_28():
     """
     Get comprehensive data for all 28 waves without filtering.
@@ -14515,7 +14519,7 @@ def get_comprehensive_wave_data_all_28():
                             
                             # Remove NaN values
                             mask = ~np.isnan(wave_returns) & ~np.isnan(benchmark_returns)
-                            if mask.sum() > 10:  # Need at least 10 data points
+                            if mask.sum() > MIN_BETA_CALCULATION_POINTS:  # Need sufficient data points
                                 wave_returns_clean = wave_returns[mask]
                                 benchmark_returns_clean = benchmark_returns[mask]
                                 
@@ -14585,7 +14589,7 @@ def get_comprehensive_wave_data_all_28():
                     
             except Exception as e:
                 # Even if individual wave processing fails, keep the row with diagnostic info
-                wave_info['primary_failure_reason'] = f"Error: {str(e)[:50]}"
+                wave_info['primary_failure_reason'] = f"Error: {str(e)[:ERROR_MESSAGE_MAX_LENGTH]}"
             
             wave_data_list.append(wave_info)
         
