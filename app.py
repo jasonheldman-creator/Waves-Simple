@@ -2190,9 +2190,18 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
     """
     Check if a wave is data-ready with GRADED READINESS MODEL.
     
-    CRITICAL UPDATE (28/28 Rendering): This function ALWAYS returns True to ensure all 28 waves 
-    are rendered. Waves with missing data are marked as "Degraded" or "Unavailable" but still 
-    return is_ready=True to prevent rendering blockers.
+    CRITICAL UPDATE (28/28 Rendering Enforcement): This function ALWAYS returns True to ensure 
+    all 28 waves are rendered. Waves with missing data are marked as "Degraded" or "Unavailable" 
+    but still return is_ready=True to prevent rendering blockers.
+    
+    BREAKING CHANGE: Prior to this update, this function could return False for unavailable waves,
+    which would hide them from the UI. Now all waves are always visible with diagnostic information.
+    
+    Downstream Impact:
+    - UI components can safely assume all waves are included
+    - Rendering logic no longer needs to check is_ready before displaying waves
+    - Analytics should check the status field to determine which operations are allowed
+    - Existing code that filters on is_ready=True will now include all waves (intended behavior)
     
     Args:
         wave_id: Wave identifier
@@ -2232,7 +2241,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
                 elif readiness_status == 'operational':
                     return True, "Operational", diagnostics.get('details', 'Current pricing available')
                 else:  # unavailable
-                    # CHANGED: Return True instead of False - wave still renders with diagnostics
+                    # Return True to ensure wave is always rendered - no blockers
                     blocking = diagnostics.get('blocking_issues', [])
                     reason = '; '.join(blocking) if blocking else diagnostics.get('details', 'Data unavailable')
                     return True, "Unavailable", reason
@@ -2255,22 +2264,22 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         # Check 1: Wave is enabled
         enabled_flags = wave_universe.get("enabled_flags", {})
         if not enabled_flags.get(wave_id, True):
-            # CHANGED: Return True instead of False - wave still visible even if disabled
+            # Return True to ensure wave is rendered - degraded but visible
             return True, "Degraded", "Wave is not enabled"
         
         # Check 2: Wave exists in registry
         all_waves = wave_universe.get("waves", [])
         if wave_id not in all_waves:
-            # CHANGED: Return True instead of False - wave still visible with diagnostic
+            # Return True to ensure wave is rendered with diagnostics
             return True, "Unavailable", "Wave not found in registry"
         
         # Check 3: Holdings/weights input is present (check WAVE_WEIGHTS)
         if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
             if wave_id not in WAVE_WEIGHTS:
-                # CHANGED: Return True instead of False - wave still visible with diagnostic
+                # Return True to ensure wave is rendered with diagnostics
                 return True, "Unavailable", "No holdings defined in WAVE_WEIGHTS"
         else:
-            # CHANGED: Return True instead of False - wave still visible with diagnostic
+            # Return True to ensure wave is rendered even if engine unavailable
             return True, "Degraded", "Wave engine not available"
         
         # Check 4: Price data availability
@@ -7558,7 +7567,7 @@ def render_executive_brief_tab():
                     )
                 
                 # Show timestamp
-                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 st.caption(f"📅 Last checked: {timestamp}")
                 
                 # Show ticker failure summary if available

@@ -34,12 +34,16 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 try:
     import yfinance as yf
@@ -257,14 +261,14 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 # Price Data Fetching with Retry Logic
 # ------------------------------------------------------------
 
-def _retry_with_backoff(func, *args, max_retries: int = None, initial_delay: float = 1.0, **kwargs):
+def _retry_with_backoff(func, *args, max_retries: int = MAX_RETRIES, initial_delay: float = 1.0, **kwargs):
     """
     Retry a function with exponential backoff.
     
     Args:
         func: Function to retry
         *args: Positional arguments for func
-        max_retries: Maximum number of retry attempts (defaults to MAX_RETRIES constant)
+        max_retries: Maximum number of retry attempts (defaults to MAX_RETRIES=3)
         initial_delay: Initial delay in seconds
         **kwargs: Keyword arguments for func
         
@@ -274,9 +278,6 @@ def _retry_with_backoff(func, *args, max_retries: int = None, initial_delay: flo
     Raises:
         Last exception if all retries fail
     """
-    if max_retries is None:
-        max_retries = MAX_RETRIES
-    
     delay = initial_delay
     last_exception = None
     
@@ -564,7 +565,10 @@ def _fetch_prices_individually(
     
     # CIRCUIT BREAKER: Limit individual ticker fetches to prevent infinite loops
     if len(tickers) > MAX_INDIVIDUAL_TICKER_FETCHES:
-        print(f"Warning: Too many tickers ({len(tickers)}) for individual fetching. Limiting to {MAX_INDIVIDUAL_TICKER_FETCHES}")
+        logger.warning(
+            f"Too many tickers ({len(tickers)}) for individual fetching. "
+            f"Limiting to {MAX_INDIVIDUAL_TICKER_FETCHES}"
+        )
         # Take first MAX_INDIVIDUAL_TICKER_FETCHES tickers, mark rest as failed
         for ticker in tickers[MAX_INDIVIDUAL_TICKER_FETCHES:]:
             failures[ticker] = f"Exceeded max individual ticker fetch limit ({MAX_INDIVIDUAL_TICKER_FETCHES})"
