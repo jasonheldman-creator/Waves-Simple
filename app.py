@@ -7490,80 +7490,200 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # SECTION 0.5: QUICK DIAGNOSTICS PANEL (28/28 Status)
+        # SNAPSHOT LEDGER INTEGRATION - Load snapshot for 28/28 coverage
+        # ========================================================================
+        snapshot_df = None
+        snapshot_metadata = None
+        
+        try:
+            from snapshot_ledger import load_snapshot, get_snapshot_metadata, generate_snapshot
+            
+            # Load snapshot (from cache or generate if needed)
+            snapshot_df = load_snapshot(force_refresh=False)
+            snapshot_metadata = get_snapshot_metadata()
+        except ImportError:
+            st.warning("⚠️ Snapshot Ledger module not available. Using fallback data.")
+        except Exception as e:
+            st.warning(f"⚠️ Snapshot Ledger error: {str(e)}")
+        
+        # ========================================================================
+        # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
+        # ========================================================================
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        with col1:
+            st.markdown("### 📊 Live Snapshot Overview")
+            st.caption("28/28 Waves with live metrics - Powered by Wave Snapshot Ledger")
+        
+        with col2:
+            # Show snapshot metadata
+            if snapshot_metadata and snapshot_metadata.get("exists"):
+                age_hours = snapshot_metadata.get('age_hours', 0)
+                age_str = f"{age_hours:.1f}h ago" if age_hours is not None else "N/A"
+                is_stale = snapshot_metadata.get('is_stale', True)
+                status_icon = "🟢" if not is_stale else "🟡"
+                st.metric("Last Snapshot", age_str, delta=status_icon, help="Snapshot freshness indicator")
+            else:
+                st.metric("Last Snapshot", "Not Generated", help="Click Force Refresh to generate")
+        
+        with col3:
+            # Force refresh button with runtime guard
+            if st.button("🔄 Force Refresh", help="Regenerate snapshot (max 5 min)", use_container_width=True, key=k("ExecutiveBrief", "force_refresh_snapshot")):
+                with st.spinner("Regenerating snapshot..."):
+                    try:
+                        # Get global price cache for faster generation
+                        price_df = st.session_state.get("global_price_df")
+                        from snapshot_ledger import generate_snapshot
+                        snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=300, price_df=price_df)
+                        st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Snapshot refresh failed: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 0.5: QUICK DIAGNOSTICS PANEL (28/28 Status from Snapshot)
         # ========================================================================
         with st.expander("🔍 Quick Diagnostics - Wave Rendering Status", expanded=False):
             try:
-                # Get diagnostics for all 28 waves
-                diagnostics = compute_wave_universe_diagnostics()
-                wave_statuses = diagnostics.get('wave_statuses', {})
-                total_waves = diagnostics.get('universe_count', 28)
+                # Use snapshot data if available, otherwise fall back to diagnostics
+                if snapshot_df is not None and not snapshot_df.empty:
+                    total_waves = len(snapshot_df)
+                    
+                    # Count by Data_Regime_Tag from snapshot
+                    status_breakdown = {
+                        "Full": (snapshot_df["Data_Regime_Tag"] == "Full").sum(),
+                        "Partial": (snapshot_df["Data_Regime_Tag"] == "Partial").sum(),
+                        "Operational": (snapshot_df["Data_Regime_Tag"] == "Operational").sum(),
+                        "Degraded": 0,  # Snapshot uses "Operational" instead
+                        "Unavailable": (snapshot_df["Data_Regime_Tag"] == "Unavailable").sum()
+                    }
+                    
+                    # Count populated vs degraded waves (populated = non-NaN returns)
+                    populated_count = snapshot_df["Return_30D"].notna().sum()
+                    degraded_count = total_waves - populated_count
+                    
+                    # Count broken tickers
+                    broken_tickers_count = 0
+                    try:
+                        from helpers.ticker_diagnostics import get_diagnostics_tracker
+                        tracker = get_diagnostics_tracker()
+                        if tracker:
+                            broken_tickers_count = len(tracker.get_all_failed_tickers())
+                    except:
+                        pass
+                else:
+                    # Fallback to diagnostics
+                    diagnostics = compute_wave_universe_diagnostics()
+                    wave_statuses = diagnostics.get('wave_statuses', {})
+                    total_waves = diagnostics.get('universe_count', 28)
+                    
+                    # Count by readiness status
+                    status_breakdown = {
+                        "Full": 0,
+                        "Partial": 0,
+                        "Operational": 0,
+                        "Degraded": 0,
+                        "Unavailable": 0
+                    }
+                    
+                    for wave, info in wave_statuses.items():
+                        status = info['status']
+                        if status in ["Full", "Ready"]:
+                            status_breakdown["Full"] += 1
+                        elif status == "Partial":
+                            status_breakdown["Partial"] += 1
+                        elif status == "Operational":
+                            status_breakdown["Operational"] += 1
+                        elif status in ["Degraded", "Degraded (Rate Limited)", "Degraded (Partial Data)"]:
+                            status_breakdown["Degraded"] += 1
+                        else:
+                            status_breakdown["Unavailable"] += 1
+                    
+                    populated_count = status_breakdown["Full"] + status_breakdown["Partial"]
+                    degraded_count = status_breakdown["Degraded"] + status_breakdown["Unavailable"]
+                    
+                    broken_tickers_count = 0
+                    try:
+                        from helpers.ticker_diagnostics import get_diagnostics_tracker
+                        tracker = get_diagnostics_tracker()
+                        if tracker:
+                            broken_tickers_count = len(tracker.get_all_failed_tickers())
+                    except:
+                        pass
                 
-                # Count by readiness status
-                status_breakdown = {
-                    "Full": 0,
-                    "Partial": 0,
-                    "Operational": 0,
-                    "Degraded": 0,
-                    "Unavailable": 0
-                }
-                
-                for wave, info in wave_statuses.items():
-                    status = info['status']
-                    if status in ["Full", "Ready"]:
-                        status_breakdown["Full"] += 1
-                    elif status == "Partial":
-                        status_breakdown["Partial"] += 1
-                    elif status == "Operational":
-                        status_breakdown["Operational"] += 1
-                    elif status in ["Degraded", "Degraded (Rate Limited)", "Degraded (Partial Data)"]:
-                        status_breakdown["Degraded"] += 1
-                    else:
-                        status_breakdown["Unavailable"] += 1
-                
-                # Display metrics
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                # Display metrics - 4 key metrics as per requirements
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric(
                         label="Total Waves",
-                        value=f"{total_waves}/28",
-                        help="All 28 waves always rendered"
+                        value=f"{total_waves}",
+                        help="All waves in registry (guaranteed 28)"
                     )
                 
                 with col2:
+                    st.metric(
+                        label="Populated Waves",
+                        value=populated_count,
+                        delta=f"{populated_count/total_waves*100:.0f}%" if total_waves > 0 else "N/A",
+                        help="Waves with valid performance data"
+                    )
+                
+                with col3:
+                    st.metric(
+                        label="Degraded Waves",
+                        value=degraded_count,
+                        delta=f"{degraded_count/total_waves*100:.0f}%" if total_waves > 0 else "N/A",
+                        help="Waves with limited or no data"
+                    )
+                
+                with col4:
+                    st.metric(
+                        label="Broken Tickers",
+                        value=broken_tickers_count,
+                        help="Tickers that failed to download"
+                    )
+                
+                # Show detailed breakdown
+                st.divider()
+                st.markdown("**Data Quality Breakdown:**")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
                     st.metric(
                         label="🟢 Full",
                         value=status_breakdown["Full"],
                         help="All analytics available"
                     )
                 
-                with col3:
+                with col2:
                     st.metric(
                         label="🔵 Partial",
                         value=status_breakdown["Partial"],
                         help="Basic analytics available"
                     )
                 
-                with col4:
+                with col3:
                     st.metric(
                         label="🟡 Operational",
                         value=status_breakdown["Operational"],
                         help="Current pricing only"
                     )
                 
-                with col5:
+                with col4:
                     st.metric(
                         label="🟠 Degraded",
                         value=status_breakdown["Degraded"],
                         help="Limited data, still visible"
                     )
                 
-                with col6:
+                with col5:
                     st.metric(
                         label="🔴 Unavailable",
                         value=status_breakdown["Unavailable"],
-                        help="Diagnostics only, no data"
+                        help="No data, fallback mode"
                     )
                 
                 # Show timestamp
@@ -7571,33 +7691,23 @@ def render_executive_brief_tab():
                 st.caption(f"📅 Last checked: {timestamp}")
                 
                 # Show ticker failure summary if available
-                try:
-                    from helpers.ticker_diagnostics import get_diagnostics_tracker
-                    tracker = get_diagnostics_tracker()
-                    if tracker:
-                        failed_tickers_count = len(tracker.get_all_failed_tickers())
-                        if failed_tickers_count > 0:
-                            st.warning(f"⚠️ {failed_tickers_count} ticker(s) failed to download - waves still visible with available data")
-                except:
-                    pass
+                if broken_tickers_count > 0:
+                    st.warning(f"⚠️ {broken_tickers_count} ticker(s) failed to download - waves still visible with available data")
                     
             except Exception as e:
                 st.warning(f"Diagnostics panel temporarily unavailable: {str(e)}")
     
         # ========================================================================
-        # SECTION 1: EXECUTIVE SUMMARY
+        # SECTION 1: EXECUTIVE SUMMARY (FROM SNAPSHOT)
         # ========================================================================
         st.markdown("### 📋 Executive Summary")
         
         try:
-            # Get all waves data for multi-timeframe analysis
-            timeframes = [1, 30, 60, 365]
-            all_waves_df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
-            
-            if not all_waves_df.empty and '30D_Alpha' in all_waves_df.columns:
+            # Use snapshot data if available, otherwise fallback to original method
+            if snapshot_df is not None and not snapshot_df.empty:
                 # Sort by 30D Alpha to identify top and bottom performers
-                sorted_df = all_waves_df.sort_values('30D_Alpha', ascending=False)
-                sorted_df_clean = sorted_df.dropna(subset=['30D_Alpha'])
+                sorted_df = snapshot_df.sort_values('Alpha_30D', ascending=False, na_position='last')
+                sorted_df_clean = sorted_df.dropna(subset=['Alpha_30D'])
                 
                 # Identify top performers (top 3 with valid data)
                 top_performers = sorted_df_clean.head(3)
@@ -7605,72 +7715,158 @@ def render_executive_brief_tab():
                 # Identify waves requiring attention (bottom 3 with valid data)
                 bottom_performers = sorted_df_clean.tail(3)
                 
-                # Get system statistics
-                stats_30d = get_system_statistics(timeframe_days=30)
-                mc_data = get_mission_control_data()
+                # Calculate system statistics from snapshot
+                valid_alpha_30d = snapshot_df['Alpha_30D'].dropna()
+                valid_return_30d = snapshot_df['Return_30D'].dropna()
                 
-                # Build executive summary narrative
-                summary_parts = []
-                
-                # Market context
-                market_regime = mc_data.get('market_regime', 'Unknown') if mc_data else 'Unknown'
-                vix_gate = mc_data.get('vix_gate_status', 'Unknown') if mc_data else 'Unknown'
-                
-                if market_regime != 'Unknown':
-                    summary_parts.append(f"**Market Regime:** {market_regime}")
-                if vix_gate != 'Unknown':
-                    summary_parts.append(f"**VIX Status:** {vix_gate}")
-                
-                # Top performers section
-                if len(top_performers) > 0:
-                    top_text = "**Top Performers:** "
-                    top_names = []
-                    for idx, row in top_performers.iterrows():
-                        wave_name = row['Wave']
-                        alpha_30d = row.get('30D_Alpha')
-                        if pd.notna(alpha_30d):
-                            top_names.append(f"{wave_name} ({alpha_30d:+.2%})")
-                    if top_names:
-                        top_text += ", ".join(top_names)
-                        summary_parts.append(top_text)
-                
-                # Waves requiring attention section
-                if len(bottom_performers) > 0:
-                    bottom_text = "**Requiring Attention:** "
-                    bottom_names = []
-                    for idx, row in bottom_performers.iterrows():
-                        wave_name = row['Wave']
-                        alpha_30d = row.get('30D_Alpha')
-                        if pd.notna(alpha_30d):
-                            bottom_names.append(f"{wave_name} ({alpha_30d:+.2%})")
-                    if bottom_names:
-                        bottom_text += ", ".join(bottom_names)
-                        summary_parts.append(bottom_text)
-                
-                # System-level insights
-                if stats_30d:
-                    avg_alpha = stats_30d.get('avg_alpha', 0.0)
-                    win_rate = stats_30d.get('pct_positive_alpha', 0.0)
+                if len(valid_alpha_30d) > 0:
+                    system_alpha_30d = valid_alpha_30d.mean()
+                    system_return_30d = valid_return_30d.mean() if len(valid_return_30d) > 0 else 0.0
+                    win_rate_30d = (valid_alpha_30d > 0).sum() / len(valid_alpha_30d) * 100
                     
-                    if win_rate >= 70 and avg_alpha > 0.005:
+                    # Get market context
+                    mc_data = get_mission_control_data()
+                    
+                    # Build executive summary narrative
+                    summary_parts = []
+                    
+                    # Market context
+                    market_regime = mc_data.get('market_regime', 'Unknown') if mc_data else 'Unknown'
+                    vix_gate = mc_data.get('vix_gate_status', 'Unknown') if mc_data else 'Unknown'
+                    
+                    if market_regime != 'Unknown':
+                        summary_parts.append(f"**Market Regime:** {market_regime}")
+                    if vix_gate != 'Unknown':
+                        summary_parts.append(f"**VIX Status:** {vix_gate}")
+                    
+                    # Top performers section
+                    if len(top_performers) > 0:
+                        top_text = "**Top Performers:** "
+                        top_names = []
+                        for idx, row in top_performers.iterrows():
+                            wave_name = row['Wave']
+                            alpha_30d = row.get('Alpha_30D')
+                            if pd.notna(alpha_30d):
+                                top_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                        if top_names:
+                            top_text += ", ".join(top_names)
+                            summary_parts.append(top_text)
+                    
+                    # Waves requiring attention section
+                    if len(bottom_performers) > 0:
+                        bottom_text = "**Requiring Attention:** "
+                        bottom_names = []
+                        for idx, row in bottom_performers.iterrows():
+                            wave_name = row['Wave']
+                            alpha_30d = row.get('Alpha_30D')
+                            if pd.notna(alpha_30d):
+                                bottom_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                        if bottom_names:
+                            bottom_text += ", ".join(bottom_names)
+                            summary_parts.append(bottom_text)
+                    
+                    # System-level insights
+                    if win_rate_30d >= 70 and system_alpha_30d > 0.005:
                         insight = "**Overall Impact:** Strong performance across the system with broad-based positive momentum."
-                    elif win_rate >= 55:
+                    elif win_rate_30d >= 55:
                         insight = "**Overall Impact:** Mixed performance with selective opportunities in leading waves."
-                    elif win_rate >= 40:
+                    elif win_rate_30d >= 40:
                         insight = "**Overall Impact:** Divergent performance across waves; focus on differentiated positioning."
                     else:
                         insight = "**Overall Impact:** Defensive positioning warranted given weak breadth and negative alpha trends."
                     
                     summary_parts.append(insight)
-                
-                # Display summary
-                if summary_parts:
-                    summary_text = " | ".join(summary_parts)
-                    st.info(summary_text)
+                    
+                    # Display summary
+                    if summary_parts:
+                        summary_text = " | ".join(summary_parts)
+                        st.info(summary_text)
+                    else:
+                        st.info("Executive summary unavailable - insufficient data.")
                 else:
-                    st.info("Executive summary unavailable - insufficient data.")
+                    st.info("Executive summary unavailable - no valid alpha data in snapshot.")
             else:
-                st.info("Executive summary unavailable - no wave data available.")
+                # Fallback to original method
+                timeframes = [1, 30, 60, 365]
+                all_waves_df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+                
+                if not all_waves_df.empty and '30D_Alpha' in all_waves_df.columns:
+                    # Sort by 30D Alpha to identify top and bottom performers
+                    sorted_df = all_waves_df.sort_values('30D_Alpha', ascending=False)
+                    sorted_df_clean = sorted_df.dropna(subset=['30D_Alpha'])
+                    
+                    # Identify top performers (top 3 with valid data)
+                    top_performers = sorted_df_clean.head(3)
+                    
+                    # Identify waves requiring attention (bottom 3 with valid data)
+                    bottom_performers = sorted_df_clean.tail(3)
+                    
+                    # Get system statistics
+                    stats_30d = get_system_statistics(timeframe_days=30)
+                    mc_data = get_mission_control_data()
+                    
+                    # Build executive summary narrative
+                    summary_parts = []
+                    
+                    # Market context
+                    market_regime = mc_data.get('market_regime', 'Unknown') if mc_data else 'Unknown'
+                    vix_gate = mc_data.get('vix_gate_status', 'Unknown') if mc_data else 'Unknown'
+                    
+                    if market_regime != 'Unknown':
+                        summary_parts.append(f"**Market Regime:** {market_regime}")
+                    if vix_gate != 'Unknown':
+                        summary_parts.append(f"**VIX Status:** {vix_gate}")
+                    
+                    # Top performers section
+                    if len(top_performers) > 0:
+                        top_text = "**Top Performers:** "
+                        top_names = []
+                        for idx, row in top_performers.iterrows():
+                            wave_name = row['Wave']
+                            alpha_30d = row.get('30D_Alpha')
+                            if pd.notna(alpha_30d):
+                                top_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                        if top_names:
+                            top_text += ", ".join(top_names)
+                            summary_parts.append(top_text)
+                    
+                    # Waves requiring attention section
+                    if len(bottom_performers) > 0:
+                        bottom_text = "**Requiring Attention:** "
+                        bottom_names = []
+                        for idx, row in bottom_performers.iterrows():
+                            wave_name = row['Wave']
+                            alpha_30d = row.get('30D_Alpha')
+                            if pd.notna(alpha_30d):
+                                bottom_names.append(f"{wave_name} ({alpha_30d:+.2%})")
+                        if bottom_names:
+                            bottom_text += ", ".join(bottom_names)
+                            summary_parts.append(bottom_text)
+                    
+                    # System-level insights
+                    if stats_30d:
+                        avg_alpha = stats_30d.get('avg_alpha', 0.0)
+                        win_rate = stats_30d.get('pct_positive_alpha', 0.0)
+                        
+                        if win_rate >= 70 and avg_alpha > 0.005:
+                            insight = "**Overall Impact:** Strong performance across the system with broad-based positive momentum."
+                        elif win_rate >= 55:
+                            insight = "**Overall Impact:** Mixed performance with selective opportunities in leading waves."
+                        elif win_rate >= 40:
+                            insight = "**Overall Impact:** Divergent performance across waves; focus on differentiated positioning."
+                        else:
+                            insight = "**Overall Impact:** Defensive positioning warranted given weak breadth and negative alpha trends."
+                        
+                        summary_parts.append(insight)
+                    
+                    # Display summary
+                    if summary_parts:
+                        summary_text = " | ".join(summary_parts)
+                        st.info(summary_text)
+                    else:
+                        st.info("Executive summary unavailable - insufficient data.")
+                else:
+                    st.info("Executive summary unavailable - no wave data available.")
         
         except Exception as e:
             st.info("Executive summary unavailable - data loading error.")
@@ -7678,52 +7874,62 @@ def render_executive_brief_tab():
         st.divider()
         
         # ========================================================================
-        # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES
+        # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES (FROM SNAPSHOT)
         # ========================================================================
         st.markdown("### 📊 Comprehensive Performance Table - All Waves")
-        st.caption("Multi-timeframe returns and alpha for all waves (sorted by 30D Alpha, descending)")
+        st.caption("Multi-timeframe returns and alpha for all waves from Live Snapshot (sorted by 30D Alpha, descending)")
         
         try:
-            # Get multi-timeframe data for all waves
-            timeframes = [1, 30, 60, 365]
-            df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
-            
-            if not df.empty:
+            # Use snapshot data if available, otherwise fallback to original method
+            if snapshot_df is not None and not snapshot_df.empty:
+                df = snapshot_df.copy()
+                
                 # Sort by 30D Alpha (descending), handling NaN values
-                if '30D_Alpha' in df.columns:
-                    df = df.sort_values('30D_Alpha', ascending=False, na_position='last')
+                if 'Alpha_30D' in df.columns:
+                    df = df.sort_values('Alpha_30D', ascending=False, na_position='last')
                 
                 # Create formatted display dataframe
                 display_df = pd.DataFrame()
                 display_df['Wave Name'] = df['Wave']
                 
-                # Add columns for each timeframe with graceful missing data handling
-                for days in timeframes:
-                    # Determine label
-                    if days == 1:
-                        period_label = "Current"
-                    else:
-                        period_label = f"{days}D"
-                    
-                    wave_col = f'{days}D_Wave'
-                    bm_col = f'{days}D_BM'
-                    alpha_col = f'{days}D_Alpha'
+                # Add Exposure and Cash columns
+                if 'Exposure' in df.columns:
+                    display_df['Exposure'] = df['Exposure'].apply(
+                        lambda x: f"{x:.2f}" if pd.notna(x) else "N/A"
+                    )
+                
+                if 'CashPercent' in df.columns:
+                    display_df['Cash%'] = df['CashPercent'].apply(
+                        lambda x: f"{x*100:.1f}%" if pd.notna(x) else "N/A"
+                    )
+                
+                # Add columns for each timeframe (1D, 30D, 60D, 365D)
+                timeframes = [
+                    ('1D', 'Current'),
+                    ('30D', '30D'),
+                    ('60D', '60D'),
+                    ('365D', '365D')
+                ]
+                
+                for tf_suffix, period_label in timeframes:
+                    wave_col = f'Return_{tf_suffix}'
+                    alpha_col = f'Alpha_{tf_suffix}'
                     
                     # Wave Return column
                     if wave_col in df.columns:
                         display_df[f'{period_label} Return'] = df[wave_col].apply(
-                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
                         )
                     else:
-                        display_df[f'{period_label} Return'] = "Unavailable"
+                        display_df[f'{period_label} Return'] = "N/A"
                     
                     # Alpha column
                     if alpha_col in df.columns:
                         display_df[f'{period_label} Alpha'] = df[alpha_col].apply(
-                            lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                            lambda x: f"{x:+.2%}" if pd.notna(x) else "N/A"
                         )
                     else:
-                        display_df[f'{period_label} Alpha'] = "Unavailable"
+                        display_df[f'{period_label} Alpha'] = "N/A"
                 
                 # Display the table
                 st.dataframe(
@@ -7733,18 +7939,78 @@ def render_executive_brief_tab():
                     height=500
                 )
                 
-                # Download button for raw data
+                # Download button for raw snapshot data
                 csv = df.to_csv(index=False)
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 st.download_button(
-                    label="📥 Download Performance Data as CSV",
+                    label="📥 Download Snapshot Data as CSV",
                     data=csv,
-                    file_name=f"waves_comprehensive_performance_{timestamp}.csv",
+                    file_name=f"waves_snapshot_{timestamp}.csv",
                     mime="text/csv",
-                    key=k("ExecutiveBrief", "download_comprehensive_performance")
+                    key=k("ExecutiveBrief", "download_snapshot_data")
                 )
             else:
-                st.info("No wave performance data available")
+                # Fallback to original method if snapshot not available
+                timeframes = [1, 30, 60, 365]
+                df = get_all_waves_multi_timeframe_data(timeframes=timeframes)
+                
+                if not df.empty:
+                    # Sort by 30D Alpha (descending), handling NaN values
+                    if '30D_Alpha' in df.columns:
+                        df = df.sort_values('30D_Alpha', ascending=False, na_position='last')
+                    
+                    # Create formatted display dataframe
+                    display_df = pd.DataFrame()
+                    display_df['Wave Name'] = df['Wave']
+                    
+                    # Add columns for each timeframe with graceful missing data handling
+                    for days in timeframes:
+                        # Determine label
+                        if days == 1:
+                            period_label = "Current"
+                        else:
+                            period_label = f"{days}D"
+                        
+                        wave_col = f'{days}D_Wave'
+                        bm_col = f'{days}D_BM'
+                        alpha_col = f'{days}D_Alpha'
+                        
+                        # Wave Return column
+                        if wave_col in df.columns:
+                            display_df[f'{period_label} Return'] = df[wave_col].apply(
+                                lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                            )
+                        else:
+                            display_df[f'{period_label} Return'] = "Unavailable"
+                        
+                        # Alpha column
+                        if alpha_col in df.columns:
+                            display_df[f'{period_label} Alpha'] = df[alpha_col].apply(
+                                lambda x: f"{x:+.2%}" if pd.notna(x) else "Unavailable"
+                            )
+                        else:
+                            display_df[f'{period_label} Alpha'] = "Unavailable"
+                    
+                    # Display the table
+                    st.dataframe(
+                        display_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=500
+                    )
+                    
+                    # Download button for raw data
+                    csv = df.to_csv(index=False)
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    st.download_button(
+                        label="📥 Download Performance Data as CSV",
+                        data=csv,
+                        file_name=f"waves_comprehensive_performance_{timestamp}.csv",
+                        mime="text/csv",
+                        key=k("ExecutiveBrief", "download_comprehensive_performance")
+                    )
+                else:
+                    st.info("No wave performance data available")
         
         except Exception as e:
             st.error(f"Error generating comprehensive performance table: {str(e)}")
