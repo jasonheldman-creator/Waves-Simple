@@ -8076,6 +8076,10 @@ def render_wave_intelligence_center_tab():
                     st.metric("Usable", usable_count, delta=f"{usable_count/total_waves*100:.0f}%",
                              help="Operational or better", delta_color="normal")
                 
+                # Show last refresh timestamp
+                from datetime import datetime
+                st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                
                 st.markdown("---")
                 
                 # Explanation of graded statuses with dynamic thresholds
@@ -8169,6 +8173,92 @@ def render_wave_intelligence_center_tab():
             st.warning("Wave Readiness Report requires analytics_pipeline module")
         except Exception as e:
             st.error(f"Error generating Wave Readiness Report: {str(e)}")
+            if st.session_state.get("debug_mode", False):
+                st.exception(e)
+    
+    # ========================================================================
+    # BROKEN TICKERS DIAGNOSTIC
+    # ========================================================================
+    with st.expander("🔧 Broken Tickers Diagnostic", expanded=False):
+        st.markdown("### 🚨 Ticker Failure Report")
+        st.caption("Consolidated view of all failed tickers across waves. "
+                   "Helps identify systematic issues like delisted stocks or API problems.")
+        
+        try:
+            from analytics_pipeline import get_broken_tickers_report
+            
+            broken_report = get_broken_tickers_report()
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Broken Tickers", broken_report['total_broken'], 
+                         help="Unique tickers that fail across any wave")
+            with col2:
+                st.metric("Waves Affected", broken_report['total_waves_with_failures'],
+                         help="Number of waves with at least one failing ticker")
+            with col3:
+                if broken_report['most_common_failures']:
+                    worst_ticker, fail_count = broken_report['most_common_failures'][0]
+                    st.metric("Most Problematic Ticker", f"{worst_ticker} ({fail_count} waves)",
+                             help="Ticker failing in the most waves")
+                else:
+                    st.metric("Most Problematic Ticker", "None", help="No failures detected")
+            
+            st.markdown("---")
+            
+            if broken_report['total_broken'] > 0:
+                # Show top failing tickers
+                st.markdown("#### Top Failing Tickers (by number of affected waves)")
+                top_failures = broken_report['most_common_failures'][:20]  # Top 20
+                
+                failure_df = pd.DataFrame([
+                    {'Ticker': ticker, 'Waves Affected': count}
+                    for ticker, count in top_failures
+                ])
+                
+                st.dataframe(
+                    failure_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=300
+                )
+                
+                # Show breakdown by wave
+                st.markdown("#### Failures by Wave")
+                wave_breakdown = []
+                for wave_id, tickers in broken_report['broken_by_wave'].items():
+                    from waves_engine import get_display_name_from_wave_id
+                    wave_name = get_display_name_from_wave_id(wave_id)
+                    wave_breakdown.append({
+                        'Wave': wave_name,
+                        'Failed Tickers Count': len(tickers),
+                        'Failed Tickers': ', '.join(tickers[:5]) + ('...' if len(tickers) > 5 else '')
+                    })
+                
+                wave_breakdown_df = pd.DataFrame(wave_breakdown).sort_values('Failed Tickers Count', ascending=False)
+                
+                st.dataframe(
+                    wave_breakdown_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=300
+                )
+                
+                # Suggested actions
+                st.markdown("#### 💡 Suggested Actions")
+                st.markdown("""
+                - **High-frequency failures**: Review tickers failing in multiple waves - may be delisted or have ticker changes
+                - **Wave-specific failures**: Check wave-specific issues in individual wave diagnostics
+                - **API issues**: If many tickers fail, check yfinance API status or rate limits
+                - **Ticker normalization**: Ensure ticker symbols match yfinance format (e.g., BRK-B not BRK.B)
+                """)
+                
+            else:
+                st.success("🎉 No broken tickers detected! All ticker data is loading successfully.")
+        
+        except Exception as e:
+            st.error(f"Error generating broken tickers report: {str(e)}")
             if st.session_state.get("debug_mode", False):
                 st.exception(e)
     
