@@ -1185,6 +1185,20 @@ def _normalize_ticker(ticker: str) -> str:
     return normalized
 
 
+def _is_rate_limit_error(error: Exception) -> bool:
+    """
+    Check if an error is a rate limit error.
+    
+    Args:
+        error: Exception to check
+        
+    Returns:
+        True if error is rate-limit related
+    """
+    error_str = str(error).lower()
+    return any(keyword in error_str for keyword in ['rate limit', 'too many requests', '429', 'quota'])
+
+
 def _retry_with_backoff(func, max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
     """
     Retry a function with exponential backoff.
@@ -1211,8 +1225,7 @@ def _retry_with_backoff(func, max_retries: int = 3, initial_delay: float = 1.0, 
             last_exception = e
             
             # Check if it's a rate limit error (don't retry immediately)
-            error_str = str(e).lower()
-            if any(keyword in error_str for keyword in ['rate limit', 'too many requests', '429', 'quota']):
+            if _is_rate_limit_error(e):
                 delay = max(delay * 2, 5.0)  # Longer delay for rate limits
             
             if attempt < max_retries - 1:
@@ -1289,7 +1302,7 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     """
     Download historical price data with per-ticker isolation and graceful error handling.
     
-    Enhanced Features (v17.2):
+    Enhanced Features:
     - Retry logic with exponential backoff for transient failures
     - Ticker normalization (e.g., BRK.B → BRK-B) to handle common issues
     - Diagnostics tracking with categorized failure types
@@ -1339,11 +1352,9 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
         return pd.DataFrame(), failures
     
     # Normalize tickers before fetching
-    original_to_normalized = {}
     normalized_tickers = []
     for ticker in tickers:
         normalized = _normalize_ticker(ticker)
-        original_to_normalized[ticker] = normalized
         normalized_tickers.append(normalized)
     
     # Remove duplicates while preserving order
@@ -1433,7 +1444,7 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
         print(f"Warning: yfinance batch download failed, trying individual tickers: {str(e)}")
         
         # Check if this is a rate limit error
-        if any(keyword in str(e).lower() for keyword in ['rate limit', 'too many requests', '429', 'quota']):
+        if _is_rate_limit_error(e):
             # Add a delay before trying individual downloads
             time.sleep(5.0)
         
@@ -1444,7 +1455,7 @@ def _download_history_individually(tickers: list[str], start, end, wave_id: Opti
     """
     Download price data one ticker at a time for maximum resilience.
     
-    Enhanced Features (v17.2):
+    Enhanced Features:
     - Retry logic with exponential backoff for each ticker
     - Batch delays to prevent API rate limiting
     - Diagnostics tracking for all failure types
@@ -1522,7 +1533,7 @@ def _download_history_individually(tickers: list[str], start, end, wave_id: Opti
                 # Track in diagnostics
                 if tracker:
                     failure_type, suggested_fix = categorize_error(error_msg, ticker)
-                    is_fatal = (failure_type.value in ["SYMBOL_INVALID", "PROVIDER_EMPTY"]) if hasattr(failure_type, 'value') else True
+                    is_fatal = failure_type.value in ["SYMBOL_INVALID", "PROVIDER_EMPTY"]
                     report = FailedTickerReport(
                         ticker_original=ticker,
                         ticker_normalized=ticker,  # Already normalized
@@ -1570,7 +1581,7 @@ def _download_history_individually(tickers: list[str], start, end, wave_id: Opti
             if tracker:
                 failure_type, suggested_fix = categorize_error(error_msg, ticker)
                 # Determine if this is a fatal error
-                is_fatal = (failure_type.value not in ["RATE_LIMIT", "NETWORK_TIMEOUT"]) if hasattr(failure_type, 'value') else True
+                is_fatal = failure_type.value not in ["RATE_LIMIT", "NETWORK_TIMEOUT"]
                 report = FailedTickerReport(
                     ticker_original=ticker,
                     ticker_normalized=ticker,  # Already normalized
