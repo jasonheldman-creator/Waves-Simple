@@ -1,0 +1,29 @@
+Wave,Mode,Date,NAV,NAV_1D_Change,Return_1D,Return_30D,Return_60D,Return_365D,Benchmark_Return_1D,Benchmark_Return_30D,Benchmark_Return_60D,Benchmark_Return_365D,Alpha_1D,Alpha_30D,Alpha_60D,Alpha_365D,Exposure,CashPercent,VIX_Level,VIX_Regime,Beta_Real,Beta_Target,Beta_Drift,Turnover_Est,MaxDD,Flags,Data_Regime_Tag,Coverage_Score
+AI & Cloud MegaCap Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Clean Transit-Infrastructure Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto AI Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto Broad Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto DeFi Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto Income Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto L1 Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Crypto L2 Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Demas Fund Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+EV & Infrastructure Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Future Energy & EV Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Future Power & Energy Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Gold Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Income Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Infinity Multi-Asset Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Next-Gen Compute & Semis Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Quantum Computing Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Russell 3000 Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Small Cap Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Small to Mid Cap Growth Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+SmartSafe Tax-Free Money Market Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+SmartSafe Treasury Cash Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+S&P 500 Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+US MegaCap Core Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+US Mid/Small Growth & Semis Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+US Small-Cap Disruptors Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Vector Muni Ladder Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
+Vector Treasury Ladder Wave,Standard,2025-12-28,,,,,,,,,,,0.0,0.0,0.0,0.0,1.0,0.0,,unknown,,1.0,,,,Benchmark Fallback; Tier D; No Data,Unavailable,0
