@@ -34,12 +34,16 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 try:
     import yfinance as yf
@@ -60,6 +64,13 @@ try:
 except ImportError:
     DIAGNOSTICS_AVAILABLE = False
 
+# Import circuit breaker
+try:
+    from helpers.circuit_breaker import get_circuit_breaker
+    CIRCUIT_BREAKER_AVAILABLE = True
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+
 # Import from waves_engine
 from waves_engine import (
     get_all_wave_ids,
@@ -75,6 +86,10 @@ TRADING_DAYS_PER_YEAR = 252
 DEFAULT_LOOKBACK_DAYS = 14  # Fetch 14 days to ensure 7+ trading days
 MIN_REQUIRED_TRADING_DAYS = 7
 ANALYTICS_BASE_DIR = "data/waves"
+
+# Circuit breaker constants to prevent infinite retries
+MAX_RETRIES = 3  # Maximum retry attempts for any single operation
+MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
 # Graded Readiness Thresholds
 MIN_DAYS_OPERATIONAL = 7      # Minimum for current state display
@@ -246,14 +261,14 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 # Price Data Fetching with Retry Logic
 # ------------------------------------------------------------
 
-def _retry_with_backoff(func, *args, max_retries: int = 3, initial_delay: float = 1.0, **kwargs):
+def _retry_with_backoff(func, *args, max_retries: int = MAX_RETRIES, initial_delay: float = 1.0, **kwargs):
     """
     Retry a function with exponential backoff.
     
     Args:
         func: Function to retry
         *args: Positional arguments for func
-        max_retries: Maximum number of retry attempts
+        max_retries: Maximum number of retry attempts (defaults to MAX_RETRIES=3)
         initial_delay: Initial delay in seconds
         **kwargs: Keyword arguments for func
         
@@ -367,6 +382,17 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
     tickers_to_fetch = list(set(normalized_tickers))
     
     # Try batch download first with retry logic, then fall back to individual ticker fetching on failure
+    # Use circuit breaker to prevent excessive retries if yfinance is down
+    circuit_breaker = None
+    if CIRCUIT_BREAKER_AVAILABLE:
+        # Get or create circuit breaker for yfinance
+        circuit_breaker = get_circuit_breaker(
+            'yfinance_batch',
+            failure_threshold=5,  # Open circuit after 5 failures
+            recovery_timeout=60,  # Wait 60 seconds before trying again
+            success_threshold=2   # Need 2 successes to close circuit
+        )
+    
     try:
         def _batch_download():
             return yf.download(
@@ -378,8 +404,16 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
                 group_by='ticker',
             )
         
-        # Use retry with backoff for batch download
-        data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
+        # Try with circuit breaker if available
+        if circuit_breaker:
+            success, data, error = circuit_breaker.call(_batch_download)
+            if not success:
+                # Circuit is open or call failed, fall back to individual fetching
+                print(f"Circuit breaker prevented batch download or call failed: {error}")
+                return _fetch_prices_individually(tickers_to_fetch, start_date, end_date, failures, wave_id, wave_name)
+        else:
+            # Use retry with backoff for batch download
+            data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
         
         if data.empty:
             print(f"Warning: No data returned from yfinance for {tickers_to_fetch}")
@@ -513,7 +547,7 @@ def _fetch_prices_individually(
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
     Fetch prices one ticker at a time for maximum resilience.
-    Enhanced with retry logic and diagnostics tracking.
+    Enhanced with retry logic, diagnostics tracking, and circuit breaker to prevent infinite loops.
     
     Args:
         tickers: List of ticker symbols
@@ -528,6 +562,17 @@ def _fetch_prices_individually(
     """
     if not YFINANCE_AVAILABLE:
         return pd.DataFrame(), failures
+    
+    # CIRCUIT BREAKER: Limit individual ticker fetches to prevent infinite loops
+    if len(tickers) > MAX_INDIVIDUAL_TICKER_FETCHES:
+        logger.warning(
+            f"Too many tickers ({len(tickers)}) for individual fetching. "
+            f"Limiting to {MAX_INDIVIDUAL_TICKER_FETCHES}"
+        )
+        # Take first MAX_INDIVIDUAL_TICKER_FETCHES tickers, mark rest as failed
+        for ticker in tickers[MAX_INDIVIDUAL_TICKER_FETCHES:]:
+            failures[ticker] = f"Exceeded max individual ticker fetch limit ({MAX_INDIVIDUAL_TICKER_FETCHES})"
+        tickers = tickers[:MAX_INDIVIDUAL_TICKER_FETCHES]
     
     # Get diagnostics tracker if available
     tracker = get_diagnostics_tracker() if DIAGNOSTICS_AVAILABLE else None
