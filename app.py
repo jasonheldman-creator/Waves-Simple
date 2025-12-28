@@ -14373,6 +14373,450 @@ def render_bottom_ticker_bar():
 
 
 # ============================================================================
+# SECTION 7.5: WAVE OVERVIEW (NEW) TAB - COMPREHENSIVE ALL-WAVES VIEW
+# ============================================================================
+
+def get_comprehensive_wave_data_all_28():
+    """
+    Get comprehensive data for all 28 waves without filtering.
+    
+    Returns data for every wave in the registry regardless of data availability,
+    ensuring graceful degradation with clear diagnostics.
+    
+    Returns:
+        List of dictionaries, one per wave, with all requested fields
+    """
+    try:
+        # Get all 28 waves from the canonical registry
+        from waves_engine import get_all_waves, get_all_wave_ids, get_display_name_from_wave_id
+        
+        all_waves = get_all_waves()  # Get display names
+        
+        # Initialize result list
+        wave_data_list = []
+        
+        for wave_name in all_waves:
+            wave_info = {
+                'wave_name': wave_name,
+                'mode': '',  # Will populate from registry if available
+                'benchmark_name': '',
+                'data_status': 'Unavailable',
+                'last_data_date': None,
+                'data_age_days': None,
+                'return_1d': None,
+                'return_30d': None,
+                'return_60d': None,
+                'return_365d': None,
+                'benchmark_return_1d': None,
+                'benchmark_return_30d': None,
+                'benchmark_return_60d': None,
+                'benchmark_return_365d': None,
+                'alpha_1d': None,
+                'alpha_30d': None,
+                'alpha_60d': None,
+                'alpha_365d': None,
+                'beta': None,
+                'max_drawdown': None,
+                'failed_tickers_count': 0,
+                'primary_failure_reason': ''
+            }
+            
+            try:
+                # Get wave data for multiple timeframes
+                timeframes = [1, 30, 60, 365]
+                
+                # Try to get mode from wave registry
+                try:
+                    from waves_engine import WAVE_WEIGHTS, get_wave_id_from_display_name
+                    wave_id = get_wave_id_from_display_name(wave_name)
+                    if wave_id:
+                        # Mode is not stored in registry, leave blank as per requirements
+                        pass
+                except:
+                    pass
+                
+                # Try to get benchmark name
+                try:
+                    wave_data_1d = get_wave_data_filtered(wave_name=wave_name, days=1)
+                    if wave_data_1d is not None and len(wave_data_1d) > 0 and 'benchmark_ticker' in wave_data_1d.columns:
+                        benchmark_ticker = wave_data_1d['benchmark_ticker'].iloc[0]
+                        if pd.notna(benchmark_ticker):
+                            wave_info['benchmark_name'] = str(benchmark_ticker)
+                except:
+                    pass
+                
+                # Get data readiness status
+                try:
+                    from analytics_pipeline import compute_data_ready_status
+                    from waves_engine import get_wave_id_from_display_name
+                    
+                    wave_id = get_wave_id_from_display_name(wave_name)
+                    if wave_id:
+                        status_result = compute_data_ready_status(wave_id)
+                        readiness_status = status_result.get('readiness_status', 'unavailable')
+                        
+                        # Map readiness status to data status
+                        status_map = {
+                            'full': 'Full',
+                            'partial': 'Partial',
+                            'operational': 'Operational',
+                            'unavailable': 'Unavailable'
+                        }
+                        wave_info['data_status'] = status_map.get(readiness_status.lower(), 'Unavailable')
+                except:
+                    pass
+                
+                # Get last data date and calculate data age
+                try:
+                    wave_data_recent = get_wave_data_filtered(wave_name=wave_name, days=365)
+                    if wave_data_recent is not None and len(wave_data_recent) > 0:
+                        if 'date' in wave_data_recent.columns:
+                            last_date = pd.to_datetime(wave_data_recent['date']).max()
+                            wave_info['last_data_date'] = last_date.strftime('%Y-%m-%d')
+                            
+                            # Calculate data age in days
+                            today = datetime.now()
+                            data_age = (today - last_date).days
+                            wave_info['data_age_days'] = data_age
+                except:
+                    pass
+                
+                # Get returns, benchmark returns, and alpha for each timeframe
+                for days in timeframes:
+                    try:
+                        wave_data = get_wave_data_filtered(wave_name=wave_name, days=days)
+                        
+                        if wave_data is not None and len(wave_data) > 0:
+                            # Calculate wave return
+                            if 'portfolio_return' in wave_data.columns:
+                                wave_return = wave_data['portfolio_return'].sum()
+                                wave_info[f'return_{days}d'] = wave_return
+                            
+                            # Calculate benchmark return
+                            if 'benchmark_return' in wave_data.columns:
+                                benchmark_return = wave_data['benchmark_return'].sum()
+                                wave_info[f'benchmark_return_{days}d'] = benchmark_return
+                            
+                            # Calculate alpha (wave - benchmark)
+                            if wave_info[f'return_{days}d'] is not None and wave_info[f'benchmark_return_{days}d'] is not None:
+                                alpha = wave_info[f'return_{days}d'] - wave_info[f'benchmark_return_{days}d']
+                                wave_info[f'alpha_{days}d'] = alpha
+                    except:
+                        continue
+                
+                # Get beta if available
+                try:
+                    wave_data_365 = get_wave_data_filtered(wave_name=wave_name, days=365)
+                    if wave_data_365 is not None and len(wave_data_365) > 0:
+                        if 'portfolio_return' in wave_data_365.columns and 'benchmark_return' in wave_data_365.columns:
+                            # Calculate beta using linear regression
+                            wave_returns = wave_data_365['portfolio_return'].values
+                            benchmark_returns = wave_data_365['benchmark_return'].values
+                            
+                            # Remove NaN values
+                            mask = ~np.isnan(wave_returns) & ~np.isnan(benchmark_returns)
+                            if mask.sum() > 10:  # Need at least 10 data points
+                                wave_returns_clean = wave_returns[mask]
+                                benchmark_returns_clean = benchmark_returns[mask]
+                                
+                                # Calculate beta using covariance
+                                covariance = np.cov(wave_returns_clean, benchmark_returns_clean)[0, 1]
+                                benchmark_variance = np.var(benchmark_returns_clean)
+                                
+                                if benchmark_variance > 0:
+                                    beta = covariance / benchmark_variance
+                                    wave_info['beta'] = beta
+                except:
+                    pass
+                
+                # Get max drawdown if available
+                try:
+                    wave_data_365 = get_wave_data_filtered(wave_name=wave_name, days=365)
+                    if wave_data_365 is not None and len(wave_data_365) > 0:
+                        if 'portfolio_return' in wave_data_365.columns:
+                            # Calculate cumulative returns
+                            cumulative_returns = (1 + wave_data_365['portfolio_return']).cumprod()
+                            
+                            # Calculate running maximum
+                            running_max = cumulative_returns.expanding().max()
+                            
+                            # Calculate drawdown
+                            drawdown = (cumulative_returns - running_max) / running_max
+                            
+                            # Get maximum drawdown (most negative value)
+                            max_dd = drawdown.min()
+                            wave_info['max_drawdown'] = max_dd
+                except:
+                    pass
+                
+                # Get failed tickers count and primary failure reason
+                try:
+                    from helpers.ticker_diagnostics import get_diagnostics_tracker
+                    tracker = get_diagnostics_tracker()
+                    
+                    if tracker:
+                        # Get wave holdings to check for failures
+                        from waves_engine import WAVE_WEIGHTS, get_wave_id_from_display_name
+                        wave_id = get_wave_id_from_display_name(wave_name)
+                        
+                        if wave_id and wave_id in WAVE_WEIGHTS:
+                            holdings = WAVE_WEIGHTS[wave_id]
+                            wave_tickers = [h.ticker for h in holdings]
+                            
+                            # Count failed tickers for this wave
+                            all_failed = tracker.get_all_failed_tickers()
+                            wave_failed = [t for t in wave_tickers if t in all_failed]
+                            wave_info['failed_tickers_count'] = len(wave_failed)
+                            
+                            # Get primary failure reason (most common)
+                            if wave_failed:
+                                failure_reasons = []
+                                for ticker in wave_failed:
+                                    reports = tracker.get_ticker_failures(ticker)
+                                    if reports:
+                                        failure_reasons.extend([r.failure_type.value for r in reports])
+                                
+                                if failure_reasons:
+                                    from collections import Counter
+                                    most_common = Counter(failure_reasons).most_common(1)
+                                    if most_common:
+                                        wave_info['primary_failure_reason'] = most_common[0][0]
+                except:
+                    pass
+                    
+            except Exception as e:
+                # Even if individual wave processing fails, keep the row with diagnostic info
+                wave_info['primary_failure_reason'] = f"Error: {str(e)[:50]}"
+            
+            wave_data_list.append(wave_info)
+        
+        return wave_data_list
+        
+    except Exception as e:
+        # Return empty list if catastrophic failure, but log it
+        print(f"Error in get_comprehensive_wave_data_all_28: {e}")
+        return []
+
+
+def render_wave_overview_new_tab():
+    """
+    Render the new Wave Overview tab with comprehensive all-waves view.
+    
+    This tab provides:
+    - All 28 waves always rendered in a table
+    - Mandatory columns: Wave Name, Mode, Benchmark, Data Status, Last Data Date, Data Age
+    - Performance columns: Returns (1D, 30D, 60D, 365D) for Wave, Benchmark, and Alpha
+    - Risk/Diagnostics columns: Beta, Max Drawdown, Failed Tickers Count, Primary Failure Reason
+    - Optional readiness filter (show all waves by default)
+    - Diagnostics section below table
+    """
+    try:
+        st.header("🌊 Wave Overview (New)")
+        st.caption("Comprehensive view of all 28 waves with performance, diagnostics, and graceful degradation")
+        
+        # ========================================================================
+        # READINESS FILTER (OPTIONAL)
+        # ========================================================================
+        st.markdown("### ⚙️ Filters")
+        
+        show_all_waves = st.checkbox(
+            "✅ Show all waves (including degraded)",
+            value=True,
+            help="When enabled, shows all 28 waves regardless of data status. When disabled, shows only Full and Partial waves."
+        )
+        
+        st.divider()
+        
+        # ========================================================================
+        # ALL WAVES OVERVIEW TABLE
+        # ========================================================================
+        st.markdown("### 📊 All Waves Overview Table")
+        st.caption("Complete performance and diagnostics for all waves in the registry")
+        
+        # Get comprehensive data for all 28 waves
+        wave_data_list = get_comprehensive_wave_data_all_28()
+        
+        if not wave_data_list:
+            st.error("Unable to load wave data. Please check system diagnostics.")
+            return
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(wave_data_list)
+        
+        # Apply readiness filter if needed
+        if not show_all_waves:
+            df = df[df['data_status'].isin(['Full', 'Partial'])]
+        
+        # Format the display DataFrame
+        display_df = pd.DataFrame()
+        
+        # Core Columns
+        display_df['Wave Name'] = df['wave_name']
+        display_df['Mode'] = df['mode']
+        display_df['Benchmark'] = df['benchmark_name']
+        display_df['Data Status'] = df['data_status']
+        display_df['Last Data Date'] = df['last_data_date']
+        display_df['Data Age (days)'] = df['data_age_days']
+        
+        # Performance Columns - Returns
+        display_df['Return 1D'] = df['return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Return 30D'] = df['return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Return 60D'] = df['return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Return 365D'] = df['return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        
+        # Performance Columns - Benchmark Returns
+        display_df['BM Return 1D'] = df['benchmark_return_1d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['BM Return 30D'] = df['benchmark_return_30d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['BM Return 60D'] = df['benchmark_return_60d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['BM Return 365D'] = df['benchmark_return_365d'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        
+        # Performance Columns - Alpha
+        display_df['Alpha 1D'] = df['alpha_1d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        display_df['Alpha 30D'] = df['alpha_30d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        display_df['Alpha 60D'] = df['alpha_60d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        display_df['Alpha 365D'] = df['alpha_365d'].apply(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        
+        # Risk/Diagnostics Columns
+        display_df['Beta'] = df['beta'].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "—")
+        display_df['Max Drawdown'] = df['max_drawdown'].apply(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        display_df['Failed Tickers'] = df['failed_tickers_count']
+        display_df['Primary Failure Reason'] = df['primary_failure_reason']
+        
+        # Display the table
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=600,
+            hide_index=True
+        )
+        
+        # Show row count
+        st.caption(f"📊 Displaying {len(display_df)} of 28 total waves")
+        
+        st.divider()
+        
+        # ========================================================================
+        # DIAGNOSTICS SECTION
+        # ========================================================================
+        with st.expander("🔍 Diagnostics (New Overview)", expanded=False):
+            st.markdown("#### System Diagnostics")
+            
+            # Total waves count
+            total_waves = len(wave_data_list)
+            
+            # Count by readiness status
+            status_counts = df['data_status'].value_counts().to_dict()
+            full_count = status_counts.get('Full', 0)
+            partial_count = status_counts.get('Partial', 0)
+            operational_count = status_counts.get('Operational', 0)
+            unavailable_count = status_counts.get('Unavailable', 0)
+            
+            # Display metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric(
+                    label="Total Waves",
+                    value=f"{total_waves}/28",
+                    help="All waves from the canonical registry"
+                )
+            
+            with col2:
+                st.metric(
+                    label="🟢 Full",
+                    value=full_count,
+                    help="Complete data, all analytics available"
+                )
+            
+            with col3:
+                st.metric(
+                    label="🔵 Partial",
+                    value=partial_count,
+                    help="Some history, basic analytics available"
+                )
+            
+            with col4:
+                st.metric(
+                    label="🟡 Operational",
+                    value=operational_count,
+                    help="Current pricing only, limited history"
+                )
+            
+            with col5:
+                st.metric(
+                    label="🔴 Unavailable",
+                    value=unavailable_count,
+                    help="No data available, diagnostics only"
+                )
+            
+            st.divider()
+            
+            # Total failed tickers
+            total_failed_tickers = df['failed_tickers_count'].sum()
+            st.metric(
+                label="Total Failed Tickers",
+                value=int(total_failed_tickers),
+                help="Total number of tickers that failed to download across all waves"
+            )
+            
+            # Top 10 failed tickers globally
+            try:
+                from helpers.ticker_diagnostics import get_diagnostics_tracker
+                tracker = get_diagnostics_tracker()
+                
+                if tracker:
+                    all_failed_tickers = tracker.get_all_failed_tickers()
+                    
+                    if all_failed_tickers:
+                        st.markdown("#### Top 10 Failed Tickers Globally")
+                        
+                        # Count failures per ticker across all waves
+                        ticker_failure_counts = {}
+                        for ticker in all_failed_tickers:
+                            reports = tracker.get_ticker_failures(ticker)
+                            ticker_failure_counts[ticker] = len(reports)
+                        
+                        # Sort by failure count
+                        sorted_tickers = sorted(ticker_failure_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                        
+                        if sorted_tickers:
+                            failure_df = pd.DataFrame(sorted_tickers, columns=['Ticker', 'Failure Count'])
+                            st.dataframe(failure_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No failed tickers to display")
+                    else:
+                        st.info("No failed tickers found")
+            except Exception as e:
+                st.warning(f"Unable to load failed tickers: {str(e)}")
+            
+            st.divider()
+            
+            # Top 10 waves with highest number of failures
+            st.markdown("#### Top 10 Waves with Most Failed Tickers")
+            
+            waves_with_failures = df[df['failed_tickers_count'] > 0].copy()
+            waves_with_failures = waves_with_failures.sort_values('failed_tickers_count', ascending=False).head(10)
+            
+            if len(waves_with_failures) > 0:
+                failure_waves_df = pd.DataFrame({
+                    'Wave Name': waves_with_failures['wave_name'],
+                    'Failed Tickers Count': waves_with_failures['failed_tickers_count'],
+                    'Primary Failure Reason': waves_with_failures['primary_failure_reason']
+                })
+                st.dataframe(failure_waves_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No waves with failed tickers")
+            
+            # Timestamp
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            st.caption(f"📅 Diagnostics generated at: {timestamp}")
+    
+    except Exception as e:
+        st.error(f"Error rendering Wave Overview (New) tab: {str(e)}")
+        st.exception(e)
+
+
+# ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
@@ -14641,7 +15085,8 @@ def main():
             "Board Pack",  
             "IC Pack",
             "Alpha Capture",
-            "Diagnostics"  # NEW: Health/Diagnostics tab
+            "Diagnostics",  # Health/Diagnostics tab
+            "Wave Overview (New)"  # NEW: Comprehensive all-waves overview
         ])
         
         # Console tab (first in fallback mode)
@@ -14692,6 +15137,10 @@ def main():
         # Diagnostics tab (NEW)
         with analytics_tabs[9]:
             safe_component("Diagnostics", render_diagnostics_tab)
+        
+        # Wave Overview (New) tab
+        with analytics_tabs[10]:
+            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
         # Normal mode with Wave Profile enabled - Overview is FIRST
@@ -14706,7 +15155,8 @@ def main():
             "Board Pack",                  # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
-            "Diagnostics"                  # NEW: Health/Diagnostics tab
+            "Diagnostics",                 # Health/Diagnostics tab
+            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
         
         # Overview tab (FIRST) - Executive Brief
@@ -14761,6 +15211,10 @@ def main():
         # Diagnostics tab (NEW)
         with analytics_tabs[10]:
             safe_component("Diagnostics", render_diagnostics_tab)
+        
+        # Wave Overview (New) tab
+        with analytics_tabs[11]:
+            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
         # Overview is FIRST tab
@@ -14774,7 +15228,8 @@ def main():
             "Board Pack",                 # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
-            "Diagnostics"                 # NEW: Health/Diagnostics tab
+            "Diagnostics",                # Health/Diagnostics tab
+            "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
         
         # Overview tab (FIRST) - Executive Brief
@@ -14824,6 +15279,10 @@ def main():
         # Diagnostics tab (NEW)
         with analytics_tabs[9]:
             safe_component("Diagnostics", render_diagnostics_tab)
+        
+        # Wave Overview (New) tab
+        with analytics_tabs[10]:
+            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
     # Bottom Ticker Bar Rendering
