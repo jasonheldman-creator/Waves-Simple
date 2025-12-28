@@ -9957,12 +9957,105 @@ def render_overview_tab():
     - System View: Platform-wide summaries, rankings, attribution, narratives
     - Individual Wave View: Wave-specific metrics, attribution, narratives
     - Data readiness status for all waves
+    - WAVE SNAPSHOT LEDGER for 28/28 coverage
     
     Reuses existing data pipelines for consistency with Wave cards.
     """
     try:
         st.header("📊 Platform Overview")
         st.caption("Executive-level intelligence across all waves")
+        
+        # ========================================================================
+        # WAVE SNAPSHOT LEDGER - New: 28/28 Coverage Section
+        # ========================================================================
+        try:
+            from snapshot_ledger import load_snapshot, get_snapshot_metadata, generate_snapshot
+            
+            # Snapshot controls in columns
+            col1, col2, col3 = st.columns([3, 1, 1])
+            
+            with col1:
+                st.markdown("### 📊 Wave Snapshot Ledger")
+                st.caption("28/28 Waves with best-available metrics - Tiered fallback ensures complete coverage")
+            
+            with col2:
+                # Show snapshot metadata
+                metadata = get_snapshot_metadata()
+                if metadata["exists"]:
+                    age_str = f"{metadata['age_hours']:.1f}h ago" if metadata["age_hours"] is not None else "N/A"
+                    status_icon = "🟢" if not metadata["is_stale"] else "🟡"
+                    st.metric("Last Snapshot", age_str, delta=status_icon)
+                else:
+                    st.metric("Last Snapshot", "Not Generated")
+            
+            with col3:
+                # Force refresh button with runtime guard
+                if st.button("🔄 Force Refresh", help="Regenerate snapshot (max 5 min)", use_container_width=True):
+                    with st.spinner("Regenerating snapshot..."):
+                        try:
+                            # Get global price cache for faster generation
+                            price_df = st.session_state.get("global_price_df")
+                            snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=300, price_df=price_df)
+                            st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Snapshot refresh failed: {str(e)}")
+            
+            # Load snapshot
+            snapshot_df = load_snapshot(force_refresh=False)
+            
+            if snapshot_df is not None and not snapshot_df.empty:
+                # Display snapshot table
+                with st.expander("📋 Full Snapshot Table (28/28 Waves)", expanded=True):
+                    # Format numeric columns for display
+                    display_df = snapshot_df.copy()
+                    
+                    # Format percentage columns
+                    pct_cols = [col for col in display_df.columns if "Return" in col or "Alpha" in col or "Percent" in col]
+                    for col in pct_cols:
+                        if col in display_df.columns:
+                            display_df[col] = display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A")
+                    
+                    # Format numeric columns
+                    num_cols = ["NAV", "NAV_1D_Change", "Exposure", "VIX_Level", "Beta_Real", "Beta_Target", "Beta_Drift", "Turnover_Est", "MaxDD"]
+                    for col in num_cols:
+                        if col in display_df.columns:
+                            display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+                    
+                    # Display table with all columns
+                    st.dataframe(display_df, use_container_width=True, hide_index=True, height=600)
+                
+                # Summary statistics
+                st.markdown("#### 📈 Snapshot Summary")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    full_count = (snapshot_df["Data_Regime_Tag"] == "Full").sum()
+                    st.metric("🟢 Full Data", full_count, delta=f"{full_count/len(snapshot_df)*100:.0f}%")
+                
+                with col2:
+                    partial_count = (snapshot_df["Data_Regime_Tag"] == "Partial").sum()
+                    st.metric("🟡 Partial Data", partial_count, delta=f"{partial_count/len(snapshot_df)*100:.0f}%")
+                
+                with col3:
+                    operational_count = (snapshot_df["Data_Regime_Tag"] == "Operational").sum()
+                    st.metric("🟠 Operational", operational_count, delta=f"{operational_count/len(snapshot_df)*100:.0f}%")
+                
+                with col4:
+                    unavailable_count = (snapshot_df["Data_Regime_Tag"] == "Unavailable").sum()
+                    st.metric("🔴 Unavailable", unavailable_count, delta=f"{unavailable_count/len(snapshot_df)*100:.0f}%")
+                
+                st.divider()
+            else:
+                st.warning("⚠️ Snapshot not available. Click 'Force Refresh' to generate.")
+                st.divider()
+        
+        except ImportError:
+            st.info("📊 Snapshot Ledger module not available. Showing standard overview...")
+        except Exception as e:
+            st.warning(f"⚠️ Snapshot Ledger error: {str(e)}")
+            with st.expander("🔍 Snapshot Error Details"):
+                st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
         
         # ========================================================================
         # WAVE LENS SELECTOR - Top of page
