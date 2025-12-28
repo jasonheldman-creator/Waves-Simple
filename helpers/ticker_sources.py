@@ -28,7 +28,10 @@ except ImportError:
 @st.cache_data(ttl=300)
 def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) -> List[str]:
     """
-    Extract holdings from wave position files to create ticker universe.
+    Extract holdings from canonical ticker master file.
+    
+    This function now uses the verified ticker_master_clean.csv as the
+    single source of truth for all ticker references.
     
     Args:
         max_tickers: Maximum number of unique tickers to return
@@ -39,13 +42,26 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
     """
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
-        ticker_set: Set[str] = set()
         
-        # List of wave position files to check
+        # PRIMARY SOURCE: ticker_master_clean.csv (canonical ticker list)
+        ticker_master_path = os.path.join(base_dir, 'ticker_master_clean.csv')
+        if os.path.exists(ticker_master_path):
+            try:
+                df = pd.read_csv(ticker_master_path)
+                if 'ticker' in df.columns:
+                    # Get all tickers from master file
+                    tickers = df['ticker'].dropna().tolist()
+                    # Limit to max_tickers if specified
+                    return tickers[:max_tickers] if max_tickers else tickers
+            except Exception as e:
+                # Log error but continue to fallback
+                print(f"Warning: Error reading ticker_master_clean.csv: {e}")
+        
+        # FALLBACK 1: Try wave position files
+        ticker_set: Set[str] = set()
         wave_files = [
             'Growth_Wave_positions_20251206.csv',
             'SP500_Wave_positions_20251206.csv',
-            # Add more wave position files as they become available
         ]
         
         for wave_file in wave_files:
@@ -55,45 +71,22 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                     df = pd.read_csv(file_path)
                     
                     if 'Ticker' in df.columns:
-                        # Get unique tickers (since files have duplicates)
                         unique_tickers = df['Ticker'].dropna().unique()
                         
-                        # Get top N tickers by weight if available
                         if 'TargetWeight' in df.columns:
                             wave_df = df.drop_duplicates(subset=['Ticker'])
                             top_tickers = wave_df.nlargest(top_n_per_wave, 'TargetWeight')['Ticker'].tolist()
                             ticker_set.update(top_tickers)
                         else:
-                            # Just take first N unique tickers
                             ticker_set.update(list(unique_tickers[:top_n_per_wave]))
-                        
             except Exception:
-                # Skip this wave file if there's an error
                 continue
         
-        # Fallback to Master_Stock_Sheet if no wave holdings found
-        if len(ticker_set) == 0:
-            try:
-                master_sheet_path = os.path.join(base_dir, 'Master_Stock_Sheet.csv')
-                if os.path.exists(master_sheet_path):
-                    df = pd.read_csv(master_sheet_path)
-                    if 'Ticker' in df.columns:
-                        if 'Weight' in df.columns:
-                            top_tickers = df.nlargest(top_n_per_wave * 2, 'Weight')['Ticker'].dropna().tolist()
-                            ticker_set.update(top_tickers)
-                        else:
-                            ticker_set.update(df['Ticker'].dropna().head(top_n_per_wave * 2).tolist())
-            except Exception:
-                pass
+        if ticker_set:
+            return list(ticker_set)[:max_tickers]
         
-        # Final fallback: default array
-        if len(ticker_set) == 0:
-            ticker_set = {'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ'}
-        
-        # Convert to list and limit to max_tickers
-        ticker_list = list(ticker_set)[:max_tickers]
-        
-        return ticker_list
+        # FALLBACK 2: Default ticker array
+        return ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ']
         
     except Exception:
         # Ultimate fallback
