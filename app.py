@@ -7584,7 +7584,6 @@ def render_executive_brief_tab():
             except Exception as e:
                 st.warning(f"Diagnostics panel temporarily unavailable: {str(e)}")
     
-    try:
         # ========================================================================
         # SECTION 1: EXECUTIVE SUMMARY
         # ========================================================================
