@@ -63,8 +63,10 @@ except ImportError:
 
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
+WAVE_HISTORY_FILE = "wave_history.csv"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
+MAX_SNAPSHOT_RUNTIME_SECONDS = 300  # Maximum runtime for snapshot generation
 
 # Timeframes for return calculation
 TIMEFRAMES = {
@@ -308,6 +310,63 @@ def _compute_exposure_and_cash(
     return exposure, cash_percent
 
 
+def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.DataFrame]:
+    """
+    Load wave history directly from wave_history.csv file.
+    
+    This is a fallback method when compute_history_nav fails due to network issues.
+    
+    Note: NAV calculation starts from an arbitrary base of 100 and compounds returns.
+    This is suitable for computing relative performance metrics (returns, alpha) but not
+    absolute NAV values.
+    
+    Args:
+        wave_id: Wave identifier
+        days: Number of days of history to load
+        
+    Returns:
+        DataFrame with columns: date, portfolio_return, benchmark_return, or None if not available
+    """
+    try:
+        if not os.path.exists(WAVE_HISTORY_FILE):
+            return None
+        
+        # Read wave history
+        df = pd.read_csv(WAVE_HISTORY_FILE)
+        
+        # Filter to this wave
+        wave_df = df[df["wave_id"] == wave_id].copy()
+        
+        if wave_df.empty:
+            return None
+        
+        # Convert date to datetime
+        wave_df["date"] = pd.to_datetime(wave_df["date"])
+        
+        # Sort by date
+        wave_df = wave_df.sort_values("date")
+        
+        # Take most recent N days
+        if days > 0 and len(wave_df) > days:
+            wave_df = wave_df.tail(days)
+        
+        # Compute cumulative NAV from returns (starting at 100)
+        wave_df["wave_nav"] = (1 + wave_df["portfolio_return"]).cumprod() * 100
+        wave_df["bm_nav"] = (1 + wave_df["benchmark_return"]).cumprod() * 100
+        
+        # Rename for compatibility
+        wave_df = wave_df.rename(columns={
+            "portfolio_return": "wave_ret",
+            "benchmark_return": "bm_ret"
+        })
+        
+        return wave_df[["date", "wave_nav", "bm_nav", "wave_ret", "bm_ret"]]
+        
+    except Exception as e:
+        print(f"Failed to load wave history from CSV for {wave_id}: {e}")
+        return None
+
+
 def _build_snapshot_row_tier_a(
     wave_id: str,
     wave_name: str,
@@ -318,6 +377,7 @@ def _build_snapshot_row_tier_a(
     Tier A: Use engine-provided Wave NAV and Benchmark NAV series.
     
     This is the preferred method when full history is available.
+    First tries compute_history_nav, then falls back to wave_history.csv.
     
     Args:
         wave_id: Wave identifier
@@ -329,8 +389,17 @@ def _build_snapshot_row_tier_a(
         Snapshot row dictionary, or None if not available
     """
     try:
-        # Attempt to compute full history
-        hist_df = compute_history_nav(wave_name, mode=mode, days=365, price_df=price_df)
+        # Try Method 1: Use compute_history_nav (may fail if no network)
+        hist_df = None
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                hist_df = compute_history_nav(wave_name, mode=mode, days=365, price_df=price_df)
+            except Exception as e:
+                print(f"compute_history_nav failed for {wave_name}: {e}")
+        
+        # Try Method 2: Fall back to wave_history.csv
+        if hist_df is None or hist_df.empty or len(hist_df) < 7:
+            hist_df = _load_wave_history_from_csv(wave_id, days=365)
         
         if hist_df is None or hist_df.empty or len(hist_df) < 7:
             # Not enough data for Tier A
@@ -449,6 +518,7 @@ def _build_snapshot_row_tier_b(
     Tier B: Compute returns from recent NAV points (7-30 days).
     
     Used when full history is unavailable but some NAV data exists.
+    First tries compute_history_nav, then falls back to wave_history.csv.
     
     Args:
         wave_id: Wave identifier
@@ -460,8 +530,17 @@ def _build_snapshot_row_tier_b(
         Snapshot row dictionary, or None if not available
     """
     try:
-        # Try to get limited history
-        hist_df = compute_history_nav(wave_name, mode=mode, days=60, price_df=price_df)
+        # Try Method 1: Use compute_history_nav (may fail if no network)
+        hist_df = None
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                hist_df = compute_history_nav(wave_name, mode=mode, days=60, price_df=price_df)
+            except Exception as e:
+                print(f"compute_history_nav failed for {wave_name}: {e}")
+        
+        # Try Method 2: Fall back to wave_history.csv
+        if hist_df is None or hist_df.empty or len(hist_df) < 1:
+            hist_df = _load_wave_history_from_csv(wave_id, days=60)
         
         if hist_df is None or hist_df.empty or len(hist_df) < 1:
             return None
