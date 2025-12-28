@@ -9841,6 +9841,80 @@ def render_all_waves_system_view(all_metrics):
         st.markdown("### 📋 Data Readiness Status (Graded Model)")
         st.caption("All 28 waves displayed with graded readiness: Full, Partial, Operational, or Unavailable")
         
+        # Add diagnostic summary panel
+        try:
+            from analytics_pipeline import get_wave_readiness_diagnostic_summary
+            
+            # Get comprehensive diagnostic summary
+            diag_summary = get_wave_readiness_diagnostic_summary()
+            
+            # Display diagnostic summary in an info box
+            with st.expander("🔍 Diagnostic Summary - Root Cause Analysis", expanded=False):
+                st.markdown("**Wave Universe Source Verification:**")
+                st.info(f"✓ Wave universe sourced from: **{diag_summary['wave_universe_source']}** (canonical registry)")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Total Waves in Registry",
+                        diag_summary['total_waves_in_registry'],
+                        help="Total waves defined in the canonical registry"
+                    )
+                with col2:
+                    st.metric(
+                        "Total Waves Rendered",
+                        diag_summary['total_waves_rendered'],
+                        delta="✓ Complete" if diag_summary['is_complete'] else f"⚠ Missing {diag_summary['total_waves_in_registry'] - diag_summary['total_waves_rendered']}",
+                        delta_color="normal" if diag_summary['is_complete'] else "inverse",
+                        help="Number of waves successfully rendered on this page"
+                    )
+                with col3:
+                    usable = sum([
+                        diag_summary['readiness_by_status'].get('full', 0),
+                        diag_summary['readiness_by_status'].get('partial', 0),
+                        diag_summary['readiness_by_status'].get('operational', 0)
+                    ])
+                    st.metric(
+                        "Usable Waves",
+                        usable,
+                        delta=f"{usable/diag_summary['total_waves_in_registry']*100:.0f}%",
+                        help="Waves that are operational or better"
+                    )
+                
+                # Show warnings if any
+                if diag_summary['warnings']:
+                    st.warning("⚠️ **Warnings:**")
+                    for warning in diag_summary['warnings']:
+                        st.markdown(f"- {warning}")
+                
+                # Show unavailable waves with blocking reasons
+                if diag_summary['unavailable_waves_detail']:
+                    st.markdown(f"**Unavailable Waves ({len(diag_summary['unavailable_waves_detail'])}):**")
+                    st.caption("Top 1-3 blocking reasons for each unavailable wave")
+                    
+                    unavail_data = []
+                    for wave_detail in diag_summary['unavailable_waves_detail'][:10]:  # Show first 10
+                        reasons = wave_detail['top_blocking_reasons']
+                        reasons_str = '; '.join(reasons) if reasons else 'Unknown'
+                        action = wave_detail['suggested_actions'][0] if wave_detail['suggested_actions'] else 'No action'
+                        
+                        unavail_data.append({
+                            'Wave': wave_detail['display_name'],
+                            'Coverage': f"{wave_detail['coverage_pct']:.1f}%",
+                            'Blocking Reasons': reasons_str,
+                            'Suggested Action': action
+                        })
+                    
+                    if unavail_data:
+                        df_unavail = pd.DataFrame(unavail_data)
+                        st.dataframe(df_unavail, use_container_width=True, hide_index=True)
+                        
+                        if len(diag_summary['unavailable_waves_detail']) > 10:
+                            st.caption(f"... and {len(diag_summary['unavailable_waves_detail']) - 10} more (see full table below)")
+                
+        except Exception as e:
+            st.warning(f"Could not load diagnostic summary: {str(e)}")
+        
         # Use analytics_pipeline for graded readiness diagnostics
         try:
             from analytics_pipeline import compute_data_ready_status, generate_wave_readiness_report
