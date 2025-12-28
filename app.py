@@ -14563,20 +14563,19 @@ def get_comprehensive_wave_data_all_28():
                             holdings = WAVE_WEIGHTS[wave_id]
                             wave_tickers = [h.ticker for h in holdings]
                             
+                            # Get all failures and extract unique tickers
+                            all_failures = tracker.get_all_failures()
+                            failed_tickers = set([f.ticker_original for f in all_failures])
+                            
                             # Count failed tickers for this wave
-                            all_failed = tracker.get_all_failed_tickers()
-                            wave_failed = [t for t in wave_tickers if t in all_failed]
+                            wave_failed = [t for t in wave_tickers if t in failed_tickers]
                             wave_info['failed_tickers_count'] = len(wave_failed)
                             
-                            # Get primary failure reason (most common)
+                            # Get primary failure reason (most common) for this wave
                             if wave_failed:
-                                failure_reasons = []
-                                for ticker in wave_failed:
-                                    reports = tracker.get_ticker_failures(ticker)
-                                    if reports:
-                                        failure_reasons.extend([r.failure_type.value for r in reports])
-                                
-                                if failure_reasons:
+                                wave_failures = [f for f in all_failures if f.ticker_original in wave_failed]
+                                if wave_failures:
+                                    failure_reasons = [f.failure_type.value for f in wave_failures]
                                     from collections import Counter
                                     most_common = Counter(failure_reasons).most_common(1)
                                     if most_common:
@@ -14765,16 +14764,18 @@ def render_wave_overview_new_tab():
                 tracker = get_diagnostics_tracker()
                 
                 if tracker:
-                    all_failed_tickers = tracker.get_all_failed_tickers()
+                    all_failures = tracker.get_all_failures()
                     
-                    if all_failed_tickers:
+                    if all_failures:
                         st.markdown("#### Top 10 Failed Tickers Globally")
                         
-                        # Count failures per ticker across all waves
+                        # Count failures per ticker
                         ticker_failure_counts = {}
-                        for ticker in all_failed_tickers:
-                            reports = tracker.get_ticker_failures(ticker)
-                            ticker_failure_counts[ticker] = len(reports)
+                        for failure in all_failures:
+                            ticker = failure.ticker_original
+                            if ticker not in ticker_failure_counts:
+                                ticker_failure_counts[ticker] = 0
+                            ticker_failure_counts[ticker] += 1
                         
                         # Sort by failure count
                         sorted_tickers = sorted(ticker_failure_counts.items(), key=lambda x: x[1], reverse=True)[:10]
