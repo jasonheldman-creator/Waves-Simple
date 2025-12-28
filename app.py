@@ -10065,8 +10065,17 @@ def render_ticker_failure_diagnostics_panel():
             with col2:
                 st.metric("Failed Ticker Attempts", stats['total_failures'])
             with col3:
-                failure_rate = (stats['total_failures'] / total_tickers_attempted * 100) if total_tickers_attempted > 0 else 0
-                st.metric("Failure Rate", f"{failure_rate:.1f}%")
+                # Handle edge cases for failure rate calculation
+                if total_tickers_attempted == 0 and stats['total_failures'] == 0:
+                    # No attempts yet - show N/A
+                    st.metric("Failure Rate", "N/A")
+                elif total_tickers_attempted == 0 and stats['total_failures'] > 0:
+                    # Inconsistent state - show warning
+                    st.metric("Failure Rate", "Error", delta="⚠️ Inconsistent state", delta_color="inverse")
+                else:
+                    # Normal case
+                    failure_rate = (stats['total_failures'] / total_tickers_attempted * 100)
+                    st.metric("Failure Rate", f"{failure_rate:.1f}%")
             
             st.divider()
             
@@ -10131,6 +10140,7 @@ def render_ticker_failure_diagnostics_panel():
             st.caption("Wave-level view showing ticker coverage and readiness status")
             
             wave_data = []
+            failed_waves = []
             for wave_id in all_wave_ids:
                 try:
                     display_name = get_display_name_from_wave_id(wave_id) or wave_id
@@ -10157,14 +10167,24 @@ def render_ticker_failure_diagnostics_panel():
                         'Coverage': f"{diagnostics.get('coverage_pct', 0):.1f}%"
                     })
                 except Exception as e:
-                    # Skip waves that fail to load
-                    pass
+                    # Track waves that failed to load for debugging
+                    failed_waves.append((wave_id, str(e)))
             
             if wave_data:
                 df_waves = pd.DataFrame(wave_data)
                 # Sort by failure rate descending
                 df_waves = df_waves.sort_values('Failure Rate', ascending=False)
                 st.dataframe(df_waves, use_container_width=True, hide_index=True, height=min(400, len(df_waves) * 35 + 38))
+                
+                # Show warning if some waves failed to load
+                if failed_waves:
+                    st.caption(f"⚠️ {len(failed_waves)} wave(s) failed to load and are not shown in the table")
+            else:
+                st.warning("⚠️ Could not load wave data for analysis")
+                if failed_waves:
+                    st.caption("Failed waves:")
+                    for wave_id, error in failed_waves[:5]:  # Show first 5
+                        st.caption(f"  - {wave_id}: {error[:100]}")
             
             st.divider()
             

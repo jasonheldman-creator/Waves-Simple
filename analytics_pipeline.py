@@ -92,13 +92,17 @@ MAX_RETRIES = 3  # Maximum retry attempts for any single operation
 MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
 # Graded Readiness Thresholds
-MIN_DAYS_OPERATIONAL = 1      # Minimum for current state display (reduced from 7 to allow even 1 day)
-MIN_DAYS_PARTIAL = 7          # Minimum for basic analytics (reduced from 30)
-MIN_DAYS_FULL = 365           # Required for full multi-window analytics
-MIN_COVERAGE_OPERATIONAL = 0.50  # 50% coverage for operational (reduced from 80%)
-MIN_COVERAGE_PARTIAL = 0.70      # 70% coverage for partial (reduced from 90%)
-MIN_COVERAGE_FULL = 0.90         # 90% coverage for full (reduced from 95%)
-MAX_DAYS_STALE = 7            # Maximum age in days before data considered stale (increased from 5)
+# These thresholds balance usability with data quality
+# - Operational: Enough data to show current state (basic display)
+# - Partial: Enough data for basic analytics (trends, simple returns)
+# - Full: Enough data for all analytics (multi-window, correlations, alpha)
+MIN_DAYS_OPERATIONAL = 1      # Minimum for current state display (lenient to show something)
+MIN_DAYS_PARTIAL = 7          # Minimum for basic analytics (1 week of data)
+MIN_DAYS_FULL = 365           # Required for full multi-window analytics (1 year of data)
+MIN_COVERAGE_OPERATIONAL = 0.50  # 50% coverage for operational (allows partial data display)
+MIN_COVERAGE_PARTIAL = 0.70      # 70% coverage for partial (reasonably complete data)
+MIN_COVERAGE_FULL = 0.90         # 90% coverage for full (near-complete data)
+MAX_DAYS_STALE = 7            # Maximum age in days before data considered stale
 
 
 # ------------------------------------------------------------

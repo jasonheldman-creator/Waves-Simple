@@ -1218,6 +1218,12 @@ def _normalize_ticker(ticker: str) -> str:
     Normalize ticker symbol to handle common formatting issues.
     Uses TICKER_ALIASES for known symbol variants.
     
+    Normalization order:
+    1. Convert to uppercase and strip whitespace
+    2. Check TICKER_ALIASES for exact match
+    3. Replace dots with hyphens (for remaining edge cases)
+    4. Check TICKER_ALIASES again (for dot-replaced variants)
+    
     Args:
         ticker: Original ticker symbol
         
@@ -1230,16 +1236,18 @@ def _normalize_ticker(ticker: str) -> str:
     # Convert to uppercase and strip whitespace
     normalized = ticker.strip().upper()
     
-    # Check if ticker has a known alias
+    # Check if ticker has a known alias (highest priority)
     if normalized in TICKER_ALIASES:
         return TICKER_ALIASES[normalized]
     
-    # Replace dots with hyphens (e.g., BRK.B → BRK-B) for any ticker not in aliases
-    normalized = normalized.replace('.', '-')
-    
-    # Check again after dot replacement
-    if normalized in TICKER_ALIASES:
-        return TICKER_ALIASES[normalized]
+    # Replace dots with hyphens for tickers not in aliases
+    # This handles edge cases where the ticker isn't pre-defined
+    if '.' in normalized:
+        normalized = normalized.replace('.', '-')
+        
+        # Check again after dot replacement
+        if normalized in TICKER_ALIASES:
+            return TICKER_ALIASES[normalized]
     
     return normalized
 
