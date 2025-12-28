@@ -62,6 +62,64 @@ python seed_wave_history.py --dry-run
 
 For detailed documentation, see [SEEDING_DOCUMENTATION.md](SEEDING_DOCUMENTATION.md)
 
+## Build Version Tracking
+
+The application displays build/version stamps in the UI to help verify which version is currently deployed.
+
+### Streamlit App (app.py)
+
+The Streamlit application displays a build banner at the top of the page showing:
+- **Git SHA**: Short commit hash (automatically detected from Git)
+- **Date**: Current date
+- **Branch**: Current Git branch
+
+**Format:** `WAVES BUILD: {short_git_sha} | {date} | {branch}`
+
+### Next.js Site (site/)
+
+The Next.js marketing site displays a build ID in the footer.
+
+### Setting BUILD_ID for Deployment
+
+For deployments where Git is not available (e.g., containerized environments), set the `BUILD_ID` environment variable:
+
+**Streamlit App:**
+```bash
+# Set BUILD_ID before running the app
+export BUILD_ID="v1.2.3-abc123"
+streamlit run app.py
+```
+
+**Next.js Site:**
+```bash
+# Set NEXT_PUBLIC_BUILD_ID before building
+export NEXT_PUBLIC_BUILD_ID="v1.2.3-abc123"
+cd site
+npm run build
+npm run start
+```
+
+**Docker/Container Deployments:**
+```dockerfile
+# In your Dockerfile or docker-compose.yml
+ENV BUILD_ID="v1.2.3-abc123"
+ENV NEXT_PUBLIC_BUILD_ID="v1.2.3-abc123"
+```
+
+**CI/CD Pipelines:**
+```yaml
+# GitHub Actions example
+env:
+  BUILD_ID: ${{ github.sha }}
+  NEXT_PUBLIC_BUILD_ID: ${{ github.sha }}
+```
+
+**Vercel Deployment:**
+- For the Next.js site, add `NEXT_PUBLIC_BUILD_ID` as an environment variable in your Vercel project settings
+- The value can use Vercel system environment variables: `VERCEL_GIT_COMMIT_SHA`
+
+This ensures that when a PR is deployed, users can immediately verify that their changes are live by checking the build stamp in the UI.
+
 ## Key Features
 
 ### Analytics Components

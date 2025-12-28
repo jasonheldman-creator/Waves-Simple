@@ -2,6 +2,7 @@ import Link from "next/link";
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
+  const buildId = process.env.NEXT_PUBLIC_BUILD_ID || 'dev';
 
   return (
     <footer className="border-t border-gray-800 bg-black">
@@ -89,6 +90,9 @@ export default function Footer() {
           </p>
           <p className="text-center text-sm text-gray-400">
             &copy; {currentYear} WAVES Intelligence. All rights reserved.
+          </p>
+          <p className="text-center text-xs text-gray-500 mt-2 font-mono">
+            Build: {buildId}
           </p>
         </div>
       </div>
