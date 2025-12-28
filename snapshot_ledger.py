@@ -689,13 +689,27 @@ def generate_snapshot(
     # Get all wave IDs
     if not WAVES_ENGINE_AVAILABLE:
         print("✗ Waves engine not available")
+        # Return empty DataFrame with proper columns
+        return pd.DataFrame(columns=[
+            "Wave", "Mode", "Date", "NAV", "NAV_1D_Change",
+            "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+            "Benchmark_Return_1D", "Benchmark_Return_30D", "Benchmark_Return_60D", "Benchmark_Return_365D",
+            "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+            "Exposure", "CashPercent", "VIX_Level", "VIX_Regime",
+            "Beta_Real", "Beta_Target", "Beta_Drift", "Turnover_Est", "MaxDD",
+            "Flags", "Data_Regime_Tag", "Coverage_Score"
+        ])
+    
+    try:
+        all_wave_ids = get_all_wave_ids()
+    except Exception as e:
+        print(f"✗ Failed to get wave IDs: {e}")
         return pd.DataFrame()
     
-    all_wave_ids = get_all_wave_ids()
     print(f"✓ Found {len(all_wave_ids)} waves in registry")
     
     # Get global price cache if available
-    if price_df is None and DATA_CACHE_AVAILABLE:
+    if price_df is None and DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE:
         try:
             cache_result = get_global_price_cache(wave_registry=WAVE_WEIGHTS, days=365, ttl_seconds=7200)
             price_df = cache_result.get("price_df")
@@ -714,7 +728,11 @@ def generate_snapshot(
             print(f"⚠ Max runtime ({max_runtime_seconds}s) exceeded, using fallback for remaining waves")
             # Use Tier D for remaining waves
             for remaining_wave_id in all_wave_ids[len(snapshot_rows):]:
-                remaining_wave_name = get_display_name_from_wave_id(remaining_wave_id)
+                try:
+                    remaining_wave_name = get_display_name_from_wave_id(remaining_wave_id)
+                except Exception:
+                    # Fallback: use wave_id as name if function fails
+                    remaining_wave_name = remaining_wave_id
                 row = _build_snapshot_row_tier_d(remaining_wave_id, remaining_wave_name, "Standard", price_df)
                 snapshot_rows.append(row)
                 tier_stats["D"] += 1
@@ -770,7 +788,10 @@ def generate_snapshot(
     
     # Persist snapshot
     try:
-        os.makedirs(os.path.dirname(SNAPSHOT_FILE), exist_ok=True)
+        # Create directory if needed (handle case where dirname is empty)
+        dirname = os.path.dirname(SNAPSHOT_FILE)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         snapshot_df.to_csv(SNAPSHOT_FILE, index=False)
         print(f"✓ Snapshot saved to {SNAPSHOT_FILE}")
     except Exception as e:
