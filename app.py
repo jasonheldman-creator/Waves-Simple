@@ -563,6 +563,66 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
+# ============================================================================
+# BUILD/VERSION STAMP - Display build info for verification
+# ============================================================================
+
+def get_build_info():
+    """
+    Get build information for display in UI.
+    Returns: dict with 'sha', 'date', 'branch' keys
+    """
+    build_info = {
+        'sha': 'unknown',
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'branch': 'unknown'
+    }
+    
+    try:
+        # Try to get Git SHA (short version)
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            build_info['sha'] = result.stdout.strip()
+        else:
+            # Fallback to BUILD_ID environment variable
+            build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
+    except:
+        # Fallback to BUILD_ID environment variable
+        build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
+    
+    try:
+        # Get current branch
+        result = subprocess.run(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            build_info['branch'] = result.stdout.strip()
+    except:
+        pass
+    
+    return build_info
+
+# Display build stamp banner
+build_info = get_build_info()
+st.markdown(
+    f"""
+    <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
+        <span style="color: #888; font-size: 12px; font-family: monospace;">
+            WAVES BUILD: {build_info['sha']} | {build_info['date']} | {build_info['branch']}
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 # Cache keys for wave universe management
 WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
 
