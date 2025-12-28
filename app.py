@@ -571,6 +571,10 @@ def get_build_info():
     """
     Get build information for display in UI.
     Returns: dict with 'sha', 'date', 'branch' keys
+    
+    Note: Uses inline Git commands here since this runs at module load time,
+    before the helper functions (get_git_commit_hash, get_git_branch_name) 
+    are defined later in the file.
     """
     build_info = {
         'sha': 'unknown',
