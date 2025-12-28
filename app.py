@@ -10021,6 +10021,176 @@ def render_overview_tab():
             st.code(f"Error: {str(e)}\n\n{traceback.format_exc()}", language="python")
 
 
+def render_ticker_failure_diagnostics_panel():
+    """
+    Render a collapsible panel showing ticker failure root cause analysis.
+    
+    Displays:
+    - Summary: Total tickers attempted, failed, failure rate
+    - Detailed table of top 50 failed tickers with asset_type, failure_reason, example waves
+    - Table by wave showing num_tickers, num_failed, failure_rate, readiness_status
+    """
+    try:
+        from helpers.ticker_diagnostics import get_diagnostics_tracker
+        from analytics_pipeline import compute_data_ready_status, resolve_wave_tickers
+        from waves_engine import get_all_wave_ids, get_display_name_from_wave_id
+        
+        tracker = get_diagnostics_tracker()
+        failures = tracker.get_all_failures()
+        stats = tracker.get_summary_stats()
+        
+        with st.expander("🔍 Ticker Failure Root Cause Analysis", expanded=False):
+            if not failures:
+                st.info("✅ No ticker failures recorded. All tickers loaded successfully!")
+                return
+            
+            # ====================================================================
+            # SUMMARY SECTION
+            # ====================================================================
+            st.markdown("#### 📊 Summary")
+            
+            # Calculate total tickers attempted (approximate from wave definitions)
+            all_wave_ids = get_all_wave_ids()
+            total_tickers_attempted = 0
+            for wave_id in all_wave_ids:
+                try:
+                    tickers = resolve_wave_tickers(wave_id)
+                    total_tickers_attempted += len(tickers) if tickers else 0
+                except:
+                    pass
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Ticker Attempts", total_tickers_attempted)
+            with col2:
+                st.metric("Failed Ticker Attempts", stats['total_failures'])
+            with col3:
+                failure_rate = (stats['total_failures'] / total_tickers_attempted * 100) if total_tickers_attempted > 0 else 0
+                st.metric("Failure Rate", f"{failure_rate:.1f}%")
+            
+            st.divider()
+            
+            # ====================================================================
+            # DETAILED TABLE: TOP 50 FAILED TICKERS
+            # ====================================================================
+            st.markdown("#### 📋 Top 50 Failed Tickers")
+            st.caption("Detailed view of ticker failures with asset type, failure reason, and affected waves")
+            
+            # Prepare data for table
+            ticker_details = []
+            seen_tickers = set()
+            
+            for report in failures[:50]:  # Top 50
+                if report.ticker_original in seen_tickers:
+                    continue
+                seen_tickers.add(report.ticker_original)
+                
+                # Determine asset type
+                ticker = report.ticker_original
+                if '-USD' in ticker or ticker in ['BTC', 'ETH', 'SOL']:
+                    asset_type = 'Crypto'
+                elif ticker in ['SPY', 'QQQ', 'IWM', 'VTI', 'VOO', 'IWV', 'VTWO', 'IJH', 'VBK', 'IWO', 'IWP', 'MDY', 'SMH', 'ARKK']:
+                    asset_type = 'ETF'
+                elif ticker.startswith('^'):
+                    asset_type = 'Index'
+                else:
+                    asset_type = 'Equity'
+                
+                # Get affected waves (limit to first 3)
+                affected_waves = []
+                for r in failures:
+                    if r.ticker_original == ticker and r.wave_name:
+                        if r.wave_name not in affected_waves:
+                            affected_waves.append(r.wave_name)
+                        if len(affected_waves) >= 3:
+                            break
+                
+                example_waves = ', '.join(affected_waves[:3])
+                if len(affected_waves) > 3:
+                    example_waves += f' (+{len(affected_waves) - 3} more)'
+                
+                ticker_details.append({
+                    'Ticker': report.ticker_original,
+                    'Normalized': report.ticker_normalized,
+                    'Asset Type': asset_type,
+                    'Failure Reason': report.failure_type.value,
+                    'Example Wave(s)': example_waves or 'N/A',
+                    'Fatal': '❌' if report.is_fatal else '⚠️'
+                })
+            
+            if ticker_details:
+                df_tickers = pd.DataFrame(ticker_details)
+                st.dataframe(df_tickers, use_container_width=True, hide_index=True, height=min(400, len(df_tickers) * 35 + 38))
+            
+            st.divider()
+            
+            # ====================================================================
+            # TABLE BY WAVE
+            # ====================================================================
+            st.markdown("#### 🌊 Failure Analysis by Wave")
+            st.caption("Wave-level view showing ticker coverage and readiness status")
+            
+            wave_data = []
+            for wave_id in all_wave_ids:
+                try:
+                    display_name = get_display_name_from_wave_id(wave_id) or wave_id
+                    tickers = resolve_wave_tickers(wave_id)
+                    num_tickers = len(tickers) if tickers else 0
+                    
+                    # Count failures for this wave
+                    wave_failures = [f for f in failures if f.wave_id == wave_id]
+                    failed_tickers = set(f.ticker_original for f in wave_failures)
+                    num_failed = len(failed_tickers)
+                    
+                    wave_failure_rate = (num_failed / num_tickers * 100) if num_tickers > 0 else 0
+                    
+                    # Get readiness status
+                    diagnostics = compute_data_ready_status(wave_id)
+                    readiness_status = diagnostics.get('readiness_status', 'unknown').capitalize()
+                    
+                    wave_data.append({
+                        'Wave Name': display_name,
+                        'Total Tickers': num_tickers,
+                        'Failed': num_failed,
+                        'Failure Rate': f"{wave_failure_rate:.1f}%",
+                        'Readiness': readiness_status,
+                        'Coverage': f"{diagnostics.get('coverage_pct', 0):.1f}%"
+                    })
+                except Exception as e:
+                    # Skip waves that fail to load
+                    pass
+            
+            if wave_data:
+                df_waves = pd.DataFrame(wave_data)
+                # Sort by failure rate descending
+                df_waves = df_waves.sort_values('Failure Rate', ascending=False)
+                st.dataframe(df_waves, use_container_width=True, hide_index=True, height=min(400, len(df_waves) * 35 + 38))
+            
+            st.divider()
+            
+            # ====================================================================
+            # EXPORT INFO
+            # ====================================================================
+            st.markdown("#### 💾 Export Information")
+            st.info("""
+            **Detailed CSV Report:** A comprehensive `failed_tickers_report.csv` file is automatically generated 
+            when the analytics pipeline runs. This file includes:
+            - Ticker symbol (original and normalized)
+            - Wave ID and name
+            - Source used for price fetch
+            - Failure type and error message
+            - First/last seen timestamps
+            - Suggested fixes
+            
+            **Location:** `reports/failed_tickers_report.csv`
+            """)
+            
+    except ImportError:
+        st.warning("⚠️ Ticker diagnostics module not available. Install required dependencies.")
+    except Exception as e:
+        st.error(f"Error loading ticker diagnostics: {str(e)}")
+
+
 def render_all_waves_system_view(all_metrics):
     """
     Render the All Waves (System View) - System-level intelligence only.
@@ -10114,6 +10284,13 @@ def render_all_waves_system_view(all_metrics):
                     st.metric(label="Last Updated", value="N/A")
         else:
             st.info("📊 Insufficient data for platform snapshot")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION A.5: Ticker Failure Diagnostics
+        # ========================================================================
+        render_ticker_failure_diagnostics_panel()
         
         st.divider()
         

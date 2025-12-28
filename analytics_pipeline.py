@@ -2138,6 +2138,36 @@ def run_daily_analytics_pipeline(
     print(f"Validation report saved to: {validation_path}")
     print()
     
+    # Export failed tickers diagnostics if available
+    if DIAGNOSTICS_AVAILABLE:
+        try:
+            from helpers.ticker_diagnostics import get_diagnostics_tracker
+            tracker = get_diagnostics_tracker()
+            
+            # Export to CSV with standard filename
+            reports_dir = "reports"
+            os.makedirs(reports_dir, exist_ok=True)
+            csv_path = tracker.export_to_csv(filename="failed_tickers_report.csv")
+            
+            # Get summary stats
+            stats = tracker.get_summary_stats()
+            print("=" * 70)
+            print("Ticker Failure Diagnostics")
+            print("=" * 70)
+            print(f"Total failed ticker attempts: {stats['total_failures']}")
+            print(f"Unique failed tickers: {stats['unique_tickers']}")
+            print(f"Fatal failures: {stats['fatal_count']}")
+            print(f"Non-fatal failures: {stats['non_fatal_count']}")
+            if stats['by_type']:
+                print("\nFailure breakdown by type:")
+                for ftype, count in stats['by_type'].items():
+                    print(f"  - {ftype}: {count}")
+            print(f"\nDetailed report saved to: {csv_path}")
+            print("=" * 70)
+            print()
+        except Exception as e:
+            print(f"Warning: Could not export ticker diagnostics: {e}")
+    
     # Print summary
     print("=" * 70)
     print("Pipeline Summary")
