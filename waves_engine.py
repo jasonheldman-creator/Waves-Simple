@@ -1003,6 +1003,39 @@ def get_all_wave_ids() -> list[str]:
     return sorted(WAVE_ID_REGISTRY.keys())
 
 
+def get_all_waves_universe() -> dict:
+    """
+    Get the complete wave universe from the canonical registry.
+    
+    This is the SINGLE SOURCE OF TRUTH for all waves in the system.
+    All parts of the application MUST use this function instead of ad-hoc lists.
+    
+    Returns:
+        Dictionary containing:
+        - 'waves': List of all wave display names (28 total)
+        - 'wave_ids': List of all canonical wave_ids (28 total)
+        - 'count': Total number of waves
+        - 'source': Source identifier ('wave_registry')
+        - 'version': Registry version for cache busting
+    
+    Example:
+        >>> universe = get_all_waves_universe()
+        >>> print(f"Total waves: {universe['count']}")
+        >>> for wave in universe['waves']:
+        ...     print(wave)
+    """
+    waves = sorted(WAVE_WEIGHTS.keys())
+    wave_ids = sorted(WAVE_ID_REGISTRY.keys())
+    
+    return {
+        'waves': waves,
+        'wave_ids': wave_ids,
+        'count': len(waves),
+        'source': 'wave_registry',
+        'version': 1  # Increment when registry structure changes
+    }
+
+
 def get_wave_id_from_display_name(display_name: str) -> Optional[str]:
     """
     Convert display_name to wave_id.
