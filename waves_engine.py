@@ -1148,7 +1148,7 @@ def _normalize_weights(holdings: List[Holding]) -> pd.Series:
     return df.set_index("ticker")["weight"]
 
 
-def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
+def _download_history(tickers: list[str], days: int) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
     Download historical price data with per-ticker isolation and graceful error handling.
     
@@ -1158,10 +1158,19 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
     - Try/except wrapper to handle rate limits and API errors
     - Falls back to individual ticker fetching if batch fails
     - Returns partial data instead of failing completely
+    
+    Returns:
+        Tuple of (prices_df, failures_dict):
+        - prices_df: DataFrame with dates as index and tickers as columns
+        - failures_dict: Dict mapping failed tickers to error reasons
     """
+    failures = {}
+    
     if yf is None:
         print("Error: yfinance is not available in this environment.")
-        return pd.DataFrame()
+        for ticker in tickers:
+            failures[ticker] = "yfinance not available"
+        return pd.DataFrame(), failures
     
     lookback_days = days + 260
     end = datetime.utcnow().date()
@@ -1202,7 +1211,13 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
             print(f"Warning: No price data after normalization, trying individual tickers")
             return _download_history_individually(tickers, start, end)
         
-        return data
+        # Track which tickers failed in batch download
+        available_tickers = set(data.columns)
+        for ticker in tickers:
+            if ticker not in available_tickers:
+                failures[ticker] = "Not in batch result"
+        
+        return data, failures
         
     except Exception as e:
         # Graceful degradation on rate limits or other errors
@@ -1211,7 +1226,7 @@ def _download_history(tickers: list[str], days: int) -> pd.DataFrame:
         return _download_history_individually(tickers, start, end)
 
 
-def _download_history_individually(tickers: list[str], start, end) -> pd.DataFrame:
+def _download_history_individually(tickers: list[str], start, end) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
     Download price data one ticker at a time for maximum resilience.
     
@@ -1221,13 +1236,16 @@ def _download_history_individually(tickers: list[str], start, end) -> pd.DataFra
         end: End date
         
     Returns:
-        DataFrame with available ticker data (may be partial)
+        Tuple of (prices_df, failures_dict):
+        - prices_df: DataFrame with dates as index and tickers as columns
+        - failures_dict: Dict mapping failed tickers to error reasons
     """
     if yf is None:
-        return pd.DataFrame()
+        failures = {ticker: "yfinance not available" for ticker in tickers}
+        return pd.DataFrame(), failures
     
     all_prices = {}
-    failures = []
+    failures = {}
     
     for ticker in tickers:
         try:
@@ -1241,7 +1259,7 @@ def _download_history_individually(tickers: list[str], start, end) -> pd.DataFra
             )
             
             if data is None or data.empty:
-                failures.append(ticker)
+                failures[ticker] = "Empty data returned"
                 continue
             
             if 'Close' in data.columns:
@@ -1249,25 +1267,25 @@ def _download_history_individually(tickers: list[str], start, end) -> pd.DataFra
             elif 'Adj Close' in data.columns:
                 all_prices[ticker] = data['Adj Close']
             else:
-                failures.append(ticker)
+                failures[ticker] = "No Close column"
                 
         except Exception as e:
-            failures.append(ticker)
+            failures[ticker] = f"Download error: {str(e)}"
             continue
     
     if failures:
-        print(f"Warning: {len(failures)} ticker(s) failed to download: {failures[:5]}{'...' if len(failures) > 5 else ''}")
+        print(f"Warning: {len(failures)} ticker(s) failed to download: {list(failures.keys())[:5]}{'...' if len(failures) > 5 else ''}")
     
     if not all_prices:
         print("Error: No tickers successfully downloaded")
-        return pd.DataFrame()
+        return pd.DataFrame(), failures
     
     # Build DataFrame
     prices_df = pd.DataFrame(all_prices)
     prices_df = prices_df.sort_index().ffill().bfill()
     
     print(f"Successfully downloaded {len(all_prices)}/{len(tickers)} tickers")
-    return prices_df
+    return prices_df, failures
 
 
 def _map_sector_name(raw_sector: str | None) -> str:
@@ -2137,8 +2155,9 @@ def _compute_core(
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
 
     # Use provided price_df if available, otherwise download
+    failed_tickers = {}
     if price_df is None:
-        price_df = _download_history(all_tickers, days=days)
+        price_df, failed_tickers = _download_history(all_tickers, days=days)
     else:
         # Filter to needed tickers and ensure we have the data
         available_tickers = [t for t in all_tickers if t in price_df.columns]
@@ -2146,7 +2165,7 @@ def _compute_core(
             price_df = price_df[available_tickers].copy()
         else:
             # Fallback to download if no tickers are available in provided price_df
-            price_df = _download_history(all_tickers, days=days)
+            price_df, failed_tickers = _download_history(all_tickers, days=days)
     
     if price_df.empty:
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)

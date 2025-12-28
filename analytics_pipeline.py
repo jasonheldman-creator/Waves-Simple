@@ -2114,6 +2114,209 @@ def run_daily_analytics_pipeline(
     }
 
 
+def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFrame:
+    """
+    Generate a comprehensive snapshot of all waves with returns, alpha, and diagnostics.
+    
+    This provides a single-file snapshot suitable for API endpoints or quick data access.
+    
+    Args:
+        output_path: Path to save the snapshot CSV
+        
+    Returns:
+        DataFrame with snapshot data
+    """
+    from waves_engine import compute_history_nav, get_all_wave_ids, get_display_name_from_wave_id
+    
+    print("=" * 70)
+    print("Generating Live Snapshot")
+    print("=" * 70)
+    
+    snapshot_rows = []
+    timeframes = [1, 30, 60, 365]
+    
+    for wave_id in get_all_wave_ids():
+        wave_name = get_display_name_from_wave_id(wave_id)
+        
+        try:
+            # Get readiness status
+            readiness = compute_data_ready_status(wave_id)
+            
+            # Initialize row
+            row = {
+                'wave_id': wave_id,
+                'wave_name': wave_name,
+                'readiness_status': readiness.get('readiness_status', 'unavailable'),
+                'coverage_pct': readiness.get('coverage_pct', 0.0),
+                'data_regime': readiness.get('readiness_status', 'unavailable'),
+            }
+            
+            # Try to compute returns for each timeframe
+            for days in timeframes:
+                try:
+                    nav_df = compute_history_nav(wave_name, mode="Standard", days=days, include_diagnostics=False)
+                    
+                    if not nav_df.empty and len(nav_df) >= 2:
+                        # Calculate returns
+                        wave_return = (nav_df['wave_nav'].iloc[-1] / nav_df['wave_nav'].iloc[0] - 1) if 'wave_nav' in nav_df.columns else np.nan
+                        bm_return = (nav_df['bm_nav'].iloc[-1] / nav_df['bm_nav'].iloc[0] - 1) if 'bm_nav' in nav_df.columns else np.nan
+                        alpha = wave_return - bm_return if not np.isnan(wave_return) and not np.isnan(bm_return) else np.nan
+                        
+                        row[f'wave_return_{days}d'] = wave_return
+                        row[f'bm_return_{days}d'] = bm_return
+                        row[f'alpha_{days}d'] = alpha
+                    else:
+                        row[f'wave_return_{days}d'] = np.nan
+                        row[f'bm_return_{days}d'] = np.nan
+                        row[f'alpha_{days}d'] = np.nan
+                        
+                except Exception as e:
+                    print(f"  Warning: Could not compute {days}d returns for {wave_name}: {str(e)}")
+                    row[f'wave_return_{days}d'] = np.nan
+                    row[f'bm_return_{days}d'] = np.nan
+                    row[f'alpha_{days}d'] = np.nan
+            
+            # Add exposure/cash if available (placeholder for now)
+            row['exposure'] = np.nan
+            row['cash_pct'] = np.nan
+            
+            snapshot_rows.append(row)
+            print(f"  ✓ {wave_name}")
+            
+        except Exception as e:
+            print(f"  ✗ Error processing {wave_name}: {str(e)}")
+            # Add minimal row with error info
+            snapshot_rows.append({
+                'wave_id': wave_id,
+                'wave_name': wave_name,
+                'readiness_status': 'error',
+                'coverage_pct': 0.0,
+                'data_regime': 'error',
+                **{f'wave_return_{days}d': np.nan for days in timeframes},
+                **{f'bm_return_{days}d': np.nan for days in timeframes},
+                **{f'alpha_{days}d': np.nan for days in timeframes},
+                'exposure': np.nan,
+                'cash_pct': np.nan,
+            })
+    
+    # Create DataFrame
+    snapshot_df = pd.DataFrame(snapshot_rows)
+    
+    # Save to CSV
+    snapshot_df.to_csv(output_path, index=False)
+    print(f"\n✓ Live snapshot saved to: {output_path}")
+    print(f"  Total waves: {len(snapshot_df)}")
+    print(f"  Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    return snapshot_df
+
+
+def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -> pd.DataFrame:
+    """
+    Load live snapshot CSV with fallback to placeholder data.
+    
+    Args:
+        path: Path to snapshot CSV file
+        fallback: If True, return placeholder data if file doesn't exist
+        
+    Returns:
+        DataFrame with snapshot data
+    """
+    import os
+    
+    if os.path.exists(path):
+        try:
+            return pd.read_csv(path)
+        except Exception as e:
+            print(f"Warning: Could not load snapshot from {path}: {str(e)}")
+            if not fallback:
+                raise
+    
+    if not fallback:
+        raise FileNotFoundError(f"Snapshot file not found: {path}")
+    
+    # Return placeholder snapshot with minimal data
+    print(f"Warning: Snapshot file not found, generating fallback data")
+    from waves_engine import get_all_wave_ids, get_display_name_from_wave_id
+    
+    rows = []
+    for wave_id in get_all_wave_ids():
+        wave_name = get_display_name_from_wave_id(wave_id)
+        rows.append({
+            'wave_id': wave_id,
+            'wave_name': wave_name,
+            'readiness_status': 'unavailable',
+            'coverage_pct': 0.0,
+            'data_regime': 'no_data',
+            'wave_return_1d': np.nan,
+            'bm_return_1d': np.nan,
+            'alpha_1d': np.nan,
+            'wave_return_30d': np.nan,
+            'bm_return_30d': np.nan,
+            'alpha_30d': np.nan,
+            'wave_return_60d': np.nan,
+            'bm_return_60d': np.nan,
+            'alpha_60d': np.nan,
+            'wave_return_365d': np.nan,
+            'bm_return_365d': np.nan,
+            'alpha_365d': np.nan,
+            'exposure': np.nan,
+            'cash_pct': np.nan,
+        })
+    
+    return pd.DataFrame(rows)
+
+
+def get_broken_tickers_report() -> Dict[str, Any]:
+    """
+    Get a comprehensive report of all broken/failed tickers across all waves.
+    
+    This consolidates ticker failures to help identify systematic issues
+    (e.g., delisted tickers, API problems).
+    
+    Returns:
+        Dictionary with:
+        - total_broken: int - total count of unique broken tickers
+        - broken_by_wave: Dict[str, List[str]] - mapping of wave_id to failed tickers
+        - ticker_failure_counts: Dict[str, int] - how many waves each ticker fails in
+        - most_common_failures: List[Tuple[str, int]] - tickers failing in most waves
+    """
+    broken_by_wave = {}
+    ticker_waves = {}  # ticker -> list of waves it fails in
+    
+    for wave_id in get_all_wave_ids():
+        try:
+            status = compute_data_ready_status(wave_id)
+            missing_tickers = status.get('missing_tickers', [])
+            
+            if missing_tickers:
+                broken_by_wave[wave_id] = missing_tickers
+                
+                # Track which waves each ticker fails in
+                for ticker in missing_tickers:
+                    if ticker not in ticker_waves:
+                        ticker_waves[ticker] = []
+                    ticker_waves[ticker].append(wave_id)
+                    
+        except Exception as e:
+            print(f"Warning: Could not check {wave_id}: {str(e)}")
+            continue
+    
+    # Count failures per ticker
+    ticker_failure_counts = {ticker: len(waves) for ticker, waves in ticker_waves.items()}
+    
+    # Sort by failure count (descending)
+    most_common_failures = sorted(ticker_failure_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    return {
+        'total_broken': len(ticker_waves),
+        'broken_by_wave': broken_by_wave,
+        'ticker_failure_counts': ticker_failure_counts,
+        'most_common_failures': most_common_failures,
+        'total_waves_with_failures': len(broken_by_wave),
+    }
+
+
 # ------------------------------------------------------------
 # Command-line interface
 # ------------------------------------------------------------
