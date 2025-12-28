@@ -173,8 +173,8 @@ class TestSnapshotLedger:
         print(f"✓ Waves with Cash% data: {cash_populated}")
         
         # These should always be populated (from VIX ladder logic)
-        assert exposure_populated >= 28, "All waves should have Exposure"
-        assert cash_populated >= 28, "All waves should have Cash%"
+        assert exposure_populated == 28, "All waves should have Exposure"
+        assert cash_populated == 28, "All waves should have Cash%"
     
     def test_tiered_fallback(self):
         """Test that tiered fallback is working correctly."""

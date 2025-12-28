@@ -137,6 +137,9 @@ PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
 # Safe asset tickers for overlays (cash, treasuries, etc.)
 SAFE_ASSET_TICKERS = ["^IRX", "^FVX", "^TNX", "SHY", "IEF", "TLT", "BIL"]
 
+# Snapshot Ledger maximum runtime (seconds) - prevents infinite hangs
+SNAPSHOT_MAX_RUNTIME_SECONDS = 300
+
 # ============================================================================
 # DECISION ATTRIBUTION ENGINE - Observable Components Decomposition
 # ============================================================================
@@ -7534,7 +7537,7 @@ def render_executive_brief_tab():
                         # Get global price cache for faster generation
                         price_df = st.session_state.get("global_price_df")
                         from snapshot_ledger import generate_snapshot
-                        snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=300, price_df=price_df)
+                        snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=SNAPSHOT_MAX_RUNTIME_SECONDS, price_df=price_df)
                         st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
                         st.rerun()
                     except Exception as e:
@@ -7571,7 +7574,7 @@ def render_executive_brief_tab():
                         tracker = get_diagnostics_tracker()
                         if tracker:
                             broken_tickers_count = len(tracker.get_all_failed_tickers())
-                    except:
+                    except (ImportError, AttributeError):
                         pass
                 else:
                     # Fallback to diagnostics
@@ -7610,7 +7613,7 @@ def render_executive_brief_tab():
                         tracker = get_diagnostics_tracker()
                         if tracker:
                             broken_tickers_count = len(tracker.get_all_failed_tickers())
-                    except:
+                    except (ImportError, AttributeError):
                         pass
                 
                 # Display metrics - 4 key metrics as per requirements
@@ -10261,7 +10264,7 @@ def render_overview_tab():
                         try:
                             # Get global price cache for faster generation
                             price_df = st.session_state.get("global_price_df")
-                            snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=300, price_df=price_df)
+                            snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=SNAPSHOT_MAX_RUNTIME_SECONDS, price_df=price_df)
                             st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
                             st.rerun()
                         except Exception as e:

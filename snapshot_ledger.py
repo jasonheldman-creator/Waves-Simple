@@ -63,8 +63,10 @@ except ImportError:
 
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
+WAVE_HISTORY_FILE = "wave_history.csv"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
+MAX_SNAPSHOT_RUNTIME_SECONDS = 300  # Maximum runtime for snapshot generation
 
 # Timeframes for return calculation
 TIMEFRAMES = {
@@ -314,6 +316,10 @@ def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.Da
     
     This is a fallback method when compute_history_nav fails due to network issues.
     
+    Note: NAV calculation starts from an arbitrary base of 100 and compounds returns.
+    This is suitable for computing relative performance metrics (returns, alpha) but not
+    absolute NAV values.
+    
     Args:
         wave_id: Wave identifier
         days: Number of days of history to load
@@ -322,12 +328,11 @@ def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.Da
         DataFrame with columns: date, portfolio_return, benchmark_return, or None if not available
     """
     try:
-        wave_history_path = "wave_history.csv"
-        if not os.path.exists(wave_history_path):
+        if not os.path.exists(WAVE_HISTORY_FILE):
             return None
         
         # Read wave history
-        df = pd.read_csv(wave_history_path)
+        df = pd.read_csv(WAVE_HISTORY_FILE)
         
         # Filter to this wave
         wave_df = df[df["wave_id"] == wave_id].copy()
