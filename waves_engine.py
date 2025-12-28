@@ -1018,6 +1018,9 @@ def get_all_waves_universe() -> dict:
         - 'source': Source identifier ('wave_registry')
         - 'version': Registry version for cache busting
     
+    Raises:
+        ValueError: If WAVE_WEIGHTS and WAVE_ID_REGISTRY are inconsistent
+    
     Example:
         >>> universe = get_all_waves_universe()
         >>> print(f"Total waves: {universe['count']}")
@@ -1027,10 +1030,19 @@ def get_all_waves_universe() -> dict:
     waves = sorted(WAVE_WEIGHTS.keys())
     wave_ids = sorted(WAVE_ID_REGISTRY.keys())
     
+    # Validate consistency between registries
+    if len(waves) != len(wave_ids):
+        warnings = validate_wave_id_registry()
+        raise ValueError(
+            f"Inconsistent registry state: WAVE_WEIGHTS has {len(waves)} waves "
+            f"but WAVE_ID_REGISTRY has {len(wave_ids)} wave_ids. "
+            f"Validation warnings: {warnings}"
+        )
+    
     return {
         'waves': waves,
         'wave_ids': wave_ids,
-        'count': len(waves),
+        'count': len(wave_ids),  # Use wave_ids count for consistency
         'source': 'wave_registry',
         'version': 1  # Increment when registry structure changes
     }

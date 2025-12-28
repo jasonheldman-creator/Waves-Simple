@@ -2129,12 +2129,17 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
     UPDATED: Now uses graded readiness by default (operational/partial/full/unavailable).
     Returns True for operational, partial, and full status - only unavailable returns False.
     
+    BREAKING CHANGE (v2.0): The default value for `use_analytics_pipeline` changed from 
+    False to True. This enables graded readiness by default. If you need legacy behavior,
+    explicitly set `use_analytics_pipeline=False`.
+    
     Args:
         wave_id: Wave identifier
         wave_history_df: Optional wave history DataFrame (will load if not provided)
         wave_universe: Optional wave universe dict (will load if not provided)
         price_df: Optional cached price DataFrame for NAV computation
-        use_analytics_pipeline: If True (default), use analytics_pipeline.compute_data_ready_status for graded diagnostics
+        use_analytics_pipeline: If True (default), use analytics_pipeline.compute_data_ready_status 
+                                for graded diagnostics. Set to False for legacy behavior.
     
     Returns:
         Tuple of (is_ready: bool, status: str, reason: str)
@@ -2145,7 +2150,7 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
         - "Operational": Current pricing available, minimal analytics
         - "Unavailable": Critical data missing, cannot display
         
-    Legacy Statuses (if analytics_pipeline unavailable):
+    Legacy Statuses (if analytics_pipeline unavailable or use_analytics_pipeline=False):
         - "Ready": All criteria met (including partial data)
         - "Missing Inputs": Missing holdings/benchmark/registry fields
         - "Degraded (Rate Limited)": yfinance limit/download failure

@@ -1872,9 +1872,7 @@ def get_wave_readiness_diagnostic_summary() -> Dict[str, Any]:
         >>> print(f"Total waves: {diagnostics['total_waves_rendered']}/28")
         >>> print(f"Operational+: {diagnostics['readiness_by_status']['operational']}")
     """
-    from waves_engine import get_all_waves_universe
-    
-    # Get wave universe from canonical source
+    # Get wave universe from canonical source (already imported at module level)
     universe = get_all_waves_universe()
     total_in_registry = universe['count']
     wave_ids = universe['wave_ids']
