@@ -1,0 +1,583 @@
+{
+  "timestamp": "2025-12-29T14:42:35.689855",
+  "summary": {
+    "total_waves": 30,
+    "waves_with_full_coverage": 30,
+    "waves_with_partial_coverage": 0,
+    "waves_with_no_coverage": 0,
+    "total_unique_tickers_required": 122,
+    "tickers_available": 122,
+    "tickers_missing": 0,
+    "overall_coverage_percentage": 100.0
+  },
+  "missing_tickers_by_category": {
+    "crypto": [],
+    "equity": [],
+    "etf": [],
+    "other": []
+  },
+  "wave_coverage": {
+    "AI & Cloud MegaCap Wave": {
+      "total_tickers_required": 11,
+      "tickers_available": 11,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ADBE",
+        "AMD",
+        "AVGO",
+        "CRM",
+        "GOOGL",
+        "INTC",
+        "META",
+        "MSFT",
+        "NVDA",
+        "ORCL",
+        "QQQ"
+      ],
+      "benchmark": "QQQ",
+      "benchmark_available": true
+    },
+    "Clean Transit-Infrastructure Wave": {
+      "total_tickers_required": 11,
+      "tickers_available": 11,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "CAT",
+        "CHPT",
+        "F",
+        "GM",
+        "ICLN",
+        "LCID",
+        "PAVE",
+        "RIVN",
+        "TSLA",
+        "UNP",
+        "XLI"
+      ],
+      "benchmark": "ICLN",
+      "benchmark_available": true
+    },
+    "Crypto AI Growth Wave": {
+      "total_tickers_required": 7,
+      "tickers_available": 7,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AGIX-USD",
+        "BTC-USD",
+        "FET-USD",
+        "ICP-USD",
+        "OCEAN-USD",
+        "RENDER-USD",
+        "TAO-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Crypto Broad Growth Wave": {
+      "total_tickers_required": 8,
+      "tickers_available": 8,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ADA-USD",
+        "AVAX-USD",
+        "BNB-USD",
+        "BTC-USD",
+        "DOT-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "XRP-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Crypto DeFi Growth Wave": {
+      "total_tickers_required": 9,
+      "tickers_available": 9,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AAVE-USD",
+        "BTC-USD",
+        "COMP-USD",
+        "CRV-USD",
+        "INJ-USD",
+        "LINK-USD",
+        "MKR-USD",
+        "SNX-USD",
+        "UNI-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Crypto Income Wave": {
+      "total_tickers_required": 9,
+      "tickers_available": 9,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AAVE-USD",
+        "BTC-USD",
+        "CAKE-USD",
+        "CRV-USD",
+        "ETH-USD",
+        "LDO-USD",
+        "MKR-USD",
+        "STETH-USD",
+        "UNI-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Crypto L1 Growth Wave": {
+      "total_tickers_required": 9,
+      "tickers_available": 9,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ADA-USD",
+        "APT-USD",
+        "ATOM-USD",
+        "AVAX-USD",
+        "BTC-USD",
+        "DOT-USD",
+        "ETH-USD",
+        "NEAR-USD",
+        "SOL-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Crypto L2 Growth Wave": {
+      "total_tickers_required": 7,
+      "tickers_available": 7,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ARB-USD",
+        "BTC-USD",
+        "IMX-USD",
+        "MATIC-USD",
+        "MNT-USD",
+        "OP-USD",
+        "STX-USD"
+      ],
+      "benchmark": "BTC-USD",
+      "benchmark_available": true
+    },
+    "Demas Fund Wave": {
+      "total_tickers_required": 11,
+      "tickers_available": 11,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "BRK-B",
+        "CVX",
+        "JNJ",
+        "JPM",
+        "KO",
+        "PG",
+        "SPY",
+        "UNH",
+        "VTV",
+        "WMT",
+        "XOM"
+      ],
+      "benchmark": "SPY",
+      "benchmark_available": true
+    },
+    "EV & Infrastructure Wave": {
+      "total_tickers_required": 10,
+      "tickers_available": 10,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "CAT",
+        "F",
+        "GM",
+        "MLM",
+        "NIO",
+        "PAVE",
+        "TSLA",
+        "UNP",
+        "VMC",
+        "XLI"
+      ],
+      "benchmark": "XLI",
+      "benchmark_available": true
+    },
+    "Future Energy & EV Wave": {
+      "total_tickers_required": 10,
+      "tickers_available": 10,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "BP",
+        "CVX",
+        "ENPH",
+        "FSLR",
+        "ICLN",
+        "NEE",
+        "PLUG",
+        "RUN",
+        "TSLA",
+        "XLE"
+      ],
+      "benchmark": "XLE",
+      "benchmark_available": true
+    },
+    "Future Power & Energy Wave": {
+      "total_tickers_required": 10,
+      "tickers_available": 10,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "BE",
+        "ENPH",
+        "FSLR",
+        "ICLN",
+        "NEE",
+        "PLUG",
+        "RUN",
+        "SEDG",
+        "TAN",
+        "XLE"
+      ],
+      "benchmark": "XLE",
+      "benchmark_available": true
+    },
+    "Gold Wave": {
+      "total_tickers_required": 2,
+      "tickers_available": 2,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "GLD",
+        "IAU"
+      ],
+      "benchmark": "GLD",
+      "benchmark_available": true
+    },
+    "Income Wave": {
+      "total_tickers_required": 6,
+      "tickers_available": 6,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AGG",
+        "DVY",
+        "HDV",
+        "NOBL",
+        "SCHD",
+        "VYM"
+      ],
+      "benchmark": "AGG",
+      "benchmark_available": true
+    },
+    "Infinity Multi-Asset Growth Wave": {
+      "total_tickers_required": 9,
+      "tickers_available": 9,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "BTC-USD",
+        "ETH-USD",
+        "ICLN",
+        "IWO",
+        "PAVE",
+        "QQQ",
+        "SMH",
+        "SPY",
+        "VGT"
+      ],
+      "benchmark": "SPY",
+      "benchmark_available": true
+    },
+    "Next-Gen Compute & Semis Wave": {
+      "total_tickers_required": 11,
+      "tickers_available": 11,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ADBE",
+        "AMZN",
+        "GOOGL",
+        "IBM",
+        "INTC",
+        "MSFT",
+        "NVDA",
+        "QCOM",
+        "QQQ",
+        "SNOW",
+        "TSM"
+      ],
+      "benchmark": "QQQ",
+      "benchmark_available": true
+    },
+    "Quantum Computing Wave": {
+      "total_tickers_required": 9,
+      "tickers_available": 9,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AMD",
+        "GOOGL",
+        "IBM",
+        "IONQ",
+        "MSFT",
+        "NVDA",
+        "QBTS",
+        "QQQ",
+        "RGTI"
+      ],
+      "benchmark": "QQQ",
+      "benchmark_available": true
+    },
+    "Russell 3000 Wave": {
+      "total_tickers_required": 1,
+      "tickers_available": 1,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "IWV"
+      ],
+      "benchmark": "IWV",
+      "benchmark_available": true
+    },
+    "S&P 500 Wave": {
+      "total_tickers_required": 1,
+      "tickers_available": 1,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "SPY"
+      ],
+      "benchmark": "SPY",
+      "benchmark_available": true
+    },
+    "Small Cap Growth Wave": {
+      "total_tickers_required": 5,
+      "tickers_available": 5,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "IJH",
+        "IWM",
+        "IWO",
+        "VBK",
+        "VTWO"
+      ],
+      "benchmark": "IWM",
+      "benchmark_available": true
+    },
+    "Small to Mid Cap Growth Wave": {
+      "total_tickers_required": 5,
+      "tickers_available": 5,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "IJH",
+        "IWO",
+        "IWP",
+        "MDY",
+        "VBK"
+      ],
+      "benchmark": "IJH",
+      "benchmark_available": true
+    },
+    "SmartSafe Tax-Free Money Market Wave": {
+      "total_tickers_required": 3,
+      "tickers_available": 3,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "MUB",
+        "SHM",
+        "SUB"
+      ],
+      "benchmark": "SUB",
+      "benchmark_available": true
+    },
+    "SmartSafe Treasury Cash Wave": {
+      "total_tickers_required": 2,
+      "tickers_available": 2,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "BIL",
+        "SGOV"
+      ],
+      "benchmark": "BIL",
+      "benchmark_available": true
+    },
+    "US MegaCap Core Wave": {
+      "total_tickers_required": 11,
+      "tickers_available": 11,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AAPL",
+        "AMZN",
+        "BRK-B",
+        "GOOGL",
+        "JPM",
+        "META",
+        "MSFT",
+        "NVDA",
+        "SPY",
+        "UNH",
+        "XOM"
+      ],
+      "benchmark": "SPY",
+      "benchmark_available": true
+    },
+    "US Mid/Small Growth & Semis Wave": {
+      "total_tickers_required": 5,
+      "tickers_available": 5,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "IJH",
+        "IWO",
+        "IWP",
+        "MDY",
+        "SMH"
+      ],
+      "benchmark": "IJH",
+      "benchmark_available": true
+    },
+    "US Small-Cap Disruptors Wave": {
+      "total_tickers_required": 7,
+      "tickers_available": 7,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "ARKK",
+        "DDOG",
+        "IWM",
+        "IWO",
+        "NET",
+        "VBK",
+        "ZS"
+      ],
+      "benchmark": "IWM",
+      "benchmark_available": true
+    },
+    "Vector Muni Ladder Wave": {
+      "total_tickers_required": 5,
+      "tickers_available": 5,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "HYD",
+        "MUB",
+        "SHM",
+        "SUB",
+        "TFI"
+      ],
+      "benchmark": "MUB",
+      "benchmark_available": true
+    },
+    "Vector Treasury Ladder Wave": {
+      "total_tickers_required": 6,
+      "tickers_available": 6,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "AGG",
+        "BIL",
+        "IEF",
+        "LQD",
+        "SHY",
+        "TLT"
+      ],
+      "benchmark": "AGG",
+      "benchmark_available": true
+    },
+    "Growth Wave": {
+      "total_tickers_required": 1,
+      "tickers_available": 1,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "QQQ"
+      ],
+      "benchmark": "QQQ",
+      "benchmark_available": true
+    },
+    "Small-Mid Cap Growth Wave": {
+      "total_tickers_required": 1,
+      "tickers_available": 1,
+      "tickers_missing": 0,
+      "coverage_percentage": 100.0,
+      "history_days": 499,
+      "missing_ticker_list": [],
+      "available_ticker_list": [
+        "IJH"
+      ],
+      "benchmark": "IJH",
+      "benchmark_available": true
+    }
+  }
+}
