@@ -104,6 +104,12 @@ MIN_COVERAGE_PARTIAL = 0.70      # 70% coverage for partial (reasonably complete
 MIN_COVERAGE_FULL = 0.90         # 90% coverage for full (near-complete data)
 MAX_DAYS_STALE = 7            # Maximum age in days before data considered stale
 
+# Analytics-Ready Thresholds
+# These thresholds gate advanced analytics that require high-quality data
+# - Analytics-ready means sufficient coverage and history for reliable analytics
+MIN_COVERAGE_FOR_ANALYTICS = 0.85  # 85% coverage required for analytics
+MIN_DAYS_FOR_ANALYTICS = 30        # 30 days minimum for analytics
+
 
 # ------------------------------------------------------------
 # Utility Functions
@@ -1185,6 +1191,7 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         'display_name': get_display_name_from_wave_id(wave_id) or wave_id,
         'readiness_status': 'unavailable',
         'is_ready': False,  # Deprecated but kept for compatibility
+        'analytics_ready': False,  # New: indicates sufficient coverage and history for analytics
         'readiness_reasons': [],
         'allowed_analytics': {
             'current_pricing': False,
@@ -1214,7 +1221,10 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
         },
         'missing_tickers': [],
         'missing_benchmark_tickers': [],
+        'stale_tickers': [],  # New: tickers with stale data (age > 7 days)
         'coverage_pct': 0.0,
+        'history_days': 0,  # New: number of days of history
+        'stale_days_max': 0,  # New: maximum age of stale data in days
         'missing_dates': {'earliest': None, 'latest': None},
         'history_window_used': {'start': None, 'end': None},
         'source_used': 'none',
@@ -1357,6 +1367,7 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
             'start': first_date.strftime('%Y-%m-%d'),
             'end': last_date.strftime('%Y-%m-%d')
         }
+        result['history_days'] = num_days
         
         # Check for missing tickers and calculate coverage
         available_tickers = set(prices_df.columns)
@@ -1371,6 +1382,25 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
                 if 'NAN_SERIES' not in result['reason_codes']:
                     result['reason_codes'].append('NAN_SERIES')
                     result['informational_issues'].append('NAN_SERIES')
+        
+        # Check for stale tickers (age > 7 days)
+        stale_tickers = []
+        max_stale_days = 0
+        for ticker in available_tickers.intersection(expected_tickers):
+            if not prices_df[ticker].isna().all():
+                # Get the last valid date for this ticker
+                ticker_data = prices_df[ticker].dropna()
+                if not ticker_data.empty:
+                    ticker_last_date = ticker_data.index[-1]
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc) if hasattr(ticker_last_date, 'tz') and ticker_last_date.tz else datetime.now()
+                    ticker_days_old = (now - ticker_last_date).days
+                    if ticker_days_old > MAX_DAYS_STALE:
+                        stale_tickers.append(ticker)
+                        max_stale_days = max(max_stale_days, ticker_days_old)
+        
+        result['stale_tickers'] = stale_tickers
+        result['stale_days_max'] = max_stale_days
         
         result['missing_tickers'] = missing
         available_count = total_tickers - len(missing)
@@ -1466,6 +1496,26 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
                     result['reason'] = 'READY'
                     result['reason_codes'] = ['READY'] + result['reason_codes']
                     result['details'] = f'All checks passed. {num_days} days of fresh data with {coverage_pct:.1f}% coverage'
+        
+        # Compute analytics_ready flag
+        # Analytics are ready when coverage >= MIN_COVERAGE_FOR_ANALYTICS and history >= MIN_DAYS_FOR_ANALYTICS
+        result['analytics_ready'] = (
+            (coverage_pct / 100.0) >= MIN_COVERAGE_FOR_ANALYTICS and 
+            num_days >= MIN_DAYS_FOR_ANALYTICS
+        )
+        
+        if not result['analytics_ready'] and result['is_ready']:
+            # Wave is ready for rendering but not for analytics
+            if (coverage_pct / 100.0) < MIN_COVERAGE_FOR_ANALYTICS:
+                result['informational_issues'].append('ANALYTICS_LIMITED_COVERAGE')
+                result['readiness_reasons'].append(
+                    f'Analytics limited: coverage {coverage_pct:.1f}% (need {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}% for full analytics)'
+                )
+            if num_days < MIN_DAYS_FOR_ANALYTICS:
+                result['informational_issues'].append('ANALYTICS_LIMITED_HISTORY')
+                result['readiness_reasons'].append(
+                    f'Analytics limited: {num_days} days history (need {MIN_DAYS_FOR_ANALYTICS} days for full analytics)'
+                )
         
         else:
             # Below operational threshold
