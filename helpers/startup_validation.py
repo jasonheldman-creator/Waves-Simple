@@ -229,6 +229,39 @@ def check_resilience_features() -> Tuple[bool, str]:
         return False, "Resilience features not available (non-critical)"
 
 
+def check_basket_integrity() -> Tuple[bool, str]:
+    """
+    Check basket integrity (non-critical but important).
+    
+    This validates:
+    - All waves have weight definitions
+    - All tickers exist in universal basket
+    - Benchmark definitions are valid
+    - Weight sums are reasonable
+    
+    Returns True with warnings if issues found (non-blocking).
+    """
+    try:
+        from helpers.basket_integrity import validate_basket_integrity
+        
+        report = validate_basket_integrity()
+        
+        # Count issues by severity
+        critical_count = sum(1 for i in report.issues if i.severity == 'critical')
+        warning_count = sum(1 for i in report.issues if i.severity == 'warning')
+        
+        if critical_count > 0:
+            # Return false for critical issues but don't block startup
+            return False, f"Basket integrity: {critical_count} critical issues, {warning_count} warnings (see logs)"
+        elif warning_count > 0:
+            return True, f"Basket integrity: {warning_count} warnings (see logs)"
+        else:
+            return True, "Basket integrity: all validations passed"
+    except Exception as e:
+        # Non-blocking error
+        return True, f"Basket integrity check skipped: {str(e)}"
+
+
 def run_startup_validation(show_progress: bool = True) -> Dict[str, any]:
     """
     Run all startup validation checks.
@@ -245,6 +278,7 @@ def run_startup_validation(show_progress: bool = True) -> Dict[str, any]:
         ReadinessCheck("Python Packages", check_imports, critical=True),
         ReadinessCheck("Helper Modules", check_helpers_available, critical=True),
         ReadinessCheck("Waves Engine", check_waves_engine, critical=True),
+        ReadinessCheck("Basket Integrity", check_basket_integrity, critical=False),
         ReadinessCheck("Resilience Features", check_resilience_features, critical=False),
     ]
     
