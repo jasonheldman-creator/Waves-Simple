@@ -255,3 +255,148 @@ def render_compact_health_indicator():
         
     except Exception:
         st.info("ℹ️ Health status unavailable")
+
+
+def render_data_readiness_panel():
+    """
+    Render data readiness metrics panel showing wave operational status.
+    """
+    st.subheader("🌊 Data Readiness")
+    st.caption("Historical price data coverage and wave operational status")
+    
+    try:
+        import pandas as pd
+        from datetime import datetime, timedelta
+        
+        # Check if prices.csv exists
+        prices_path = 'data/prices.csv'
+        if not os.path.exists(prices_path):
+            st.warning("⚠️ No price data found. Run: `python scripts/enable_full_data.py`")
+            return
+        
+        # Load prices data with error handling
+        try:
+            df = pd.read_csv(prices_path)
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')  # Convert invalid dates to NaT
+        except Exception as e:
+            st.error(f"❌ Error loading price data: {str(e)}")
+            return
+        
+        # Load universe
+        universe_path = 'universal_universe.csv'
+        if not os.path.exists(universe_path):
+            st.error("❌ Universe file not found")
+            return
+        
+        universe = pd.read_csv(universe_path)
+        universe = universe[universe['status'] == 'active']
+        all_tickers = universe['ticker'].unique().tolist()
+        
+        # Analyze coverage
+        tickers_in_prices = df['ticker'].unique().tolist()
+        missing_tickers = sorted(list(set(all_tickers) - set(tickers_in_prices)))
+        
+        coverage_pct = (len(tickers_in_prices) / len(all_tickers) * 100) if all_tickers else 0
+        
+        # Display summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Tickers", len(all_tickers))
+        
+        with col2:
+            st.metric("With Data", len(tickers_in_prices))
+        
+        with col3:
+            status_emoji = "🟢" if coverage_pct >= 95 else "🟡" if coverage_pct >= 80 else "🔴"
+            st.metric("Coverage", f"{status_emoji} {coverage_pct:.1f}%")
+        
+        with col4:
+            days = (df['date'].max() - df['date'].min()).days if not df.empty else 0
+            st.metric("Days of History", days)
+        
+        # Operational status
+        st.markdown("---")
+        if coverage_pct >= 95:
+            st.success("🟢 **STATUS: FULLY OPERATIONAL** - All waves ready")
+        elif coverage_pct >= 80:
+            st.warning("🟡 **STATUS: MOSTLY OPERATIONAL** - Some data missing")
+        elif coverage_pct >= 50:
+            st.warning("🟠 **STATUS: PARTIALLY OPERATIONAL** - Significant gaps")
+        else:
+            st.error("🔴 **STATUS: LIMITED OPERATIONAL** - Major data gaps")
+        
+        # Wave-level analysis
+        if 'index_membership' in universe.columns:
+            st.markdown("### Wave Operational Status")
+            
+            # Extract unique wave names
+            waves = set()
+            for idx_mem in universe['index_membership'].dropna():
+                for wave in str(idx_mem).split(','):
+                    wave = wave.strip()
+                    if wave.startswith('WAVE_'):
+                        waves.add(wave)
+            
+            waves = sorted(list(waves))
+            
+            if waves:
+                wave_readiness = []
+                for wave in waves:
+                    wave_tickers = universe[
+                        universe['index_membership'].str.contains(wave, case=False, na=False)
+                    ]['ticker'].unique().tolist()
+                    
+                    wave_tickers_with_data = [t for t in wave_tickers if t in tickers_in_prices]
+                    wave_coverage = (len(wave_tickers_with_data) / len(wave_tickers) * 100) if wave_tickers else 0
+                    
+                    wave_readiness.append({
+                        'wave': wave.replace('WAVE_', '').replace('_', ' ').title(),
+                        'total': len(wave_tickers),
+                        'with_data': len(wave_tickers_with_data),
+                        'coverage': wave_coverage
+                    })
+                
+                # Count operational waves
+                operational_count = sum(1 for w in wave_readiness if w['coverage'] == 100)
+                total_waves = len(wave_readiness)
+                
+                st.info(f"📊 **{operational_count}/{total_waves} waves fully operational**")
+                
+                # Show incomplete waves in expander
+                incomplete = [w for w in wave_readiness if w['coverage'] < 100]
+                if incomplete:
+                    with st.expander(f"⚠️ Waves with incomplete data ({len(incomplete)})"):
+                        for w in incomplete:
+                            status = "🟢" if w['coverage'] >= 80 else "🟡" if w['coverage'] >= 50 else "🔴"
+                            st.text(f"{status} {w['wave']}: {w['with_data']}/{w['total']} ({w['coverage']:.0f}%)")
+                
+                # Show operational waves
+                complete = [w for w in wave_readiness if w['coverage'] == 100]
+                if complete:
+                    with st.expander(f"✅ Fully operational waves ({len(complete)})"):
+                        for w in complete:
+                            st.text(f"🟢 {w['wave']}: {w['total']}/{w['total']} (100%)")
+        
+        # Missing tickers section
+        if missing_tickers:
+            st.markdown("---")
+            with st.expander(f"❌ Missing tickers ({len(missing_tickers)})"):
+                st.text(", ".join(missing_tickers[:50]))
+                if len(missing_tickers) > 50:
+                    st.caption(f"... and {len(missing_tickers) - 50} more")
+        
+        # Action buttons
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Refresh Data", key="refresh_data_btn"):
+                st.info("Run: `python scripts/enable_full_data.py` to fetch latest data")
+        
+        with col2:
+            if st.button("📊 Full Analysis", key="full_analysis_btn"):
+                st.info("Run: `python scripts/analyze_data_readiness.py` for detailed report")
+    
+    except Exception as e:
+        st.error(f"❌ Error displaying data readiness: {str(e)}")
