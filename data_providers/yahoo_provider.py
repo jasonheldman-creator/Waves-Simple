@@ -47,16 +47,13 @@ class YahooProvider(BaseProvider):
             
             # Convert to canonical format
             df = pd.DataFrame({
-                'date': hist.index,
+                'date': hist.index,  # Already DateTimeIndex
                 'ticker': ticker,
                 'close': hist['Close'].values
             })
             
             # Reset index to make date a column
             df = df.reset_index(drop=True)
-            
-            # Ensure date is datetime type
-            df['date'] = pd.to_datetime(df['date'])
             
             return df
             

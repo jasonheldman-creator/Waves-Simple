@@ -274,9 +274,13 @@ def render_data_readiness_panel():
             st.warning("⚠️ No price data found. Run: `python scripts/enable_full_data.py`")
             return
         
-        # Load prices data
-        df = pd.read_csv(prices_path)
-        df['date'] = pd.to_datetime(df['date'])
+        # Load prices data with error handling
+        try:
+            df = pd.read_csv(prices_path)
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')  # Convert invalid dates to NaT
+        except Exception as e:
+            st.error(f"❌ Error loading price data: {str(e)}")
+            return
         
         # Load universe
         universe_path = 'universal_universe.csv'

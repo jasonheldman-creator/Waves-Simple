@@ -58,8 +58,16 @@ def analyze_data_readiness():
     print(f"Coverage:                 {coverage_pct:.1f}%")
     
     print(f"\nTotal data points:        {len(df):,}")
-    print(f"Date range:               {df['date'].min().date()} to {df['date'].max().date()}")
-    print(f"Days of history:          {(df['date'].max() - df['date'].min()).days}")
+    
+    # Get date range (handle NaT values)
+    min_date = df['date'].min()
+    max_date = df['date'].max()
+    if pd.notna(min_date) and pd.notna(max_date):
+        print(f"Date range:               {min_date.date()} to {max_date.date()}")
+        print(f"Days of history:          {(max_date - min_date).days}")
+    else:
+        print(f"Date range:               N/A")
+        print(f"Days of history:          N/A")
     
     # Check for stale data
     cutoff_date = datetime.now() - timedelta(days=7)
@@ -69,7 +77,8 @@ def analyze_data_readiness():
         ticker_df = df[df['ticker'] == ticker]
         if not ticker_df.empty:
             latest_date = ticker_df['date'].max()
-            if latest_date < cutoff_date:
+            # Handle NaT values
+            if pd.notna(latest_date) and latest_date < cutoff_date:
                 days_old = (datetime.now() - latest_date).days
                 stale_tickers.append((ticker, latest_date.date(), days_old))
     

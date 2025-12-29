@@ -252,7 +252,9 @@ def generate_readiness_summary(df: pd.DataFrame, tickers: List[str]) -> Dict:
     if not df.empty:
         min_date = df['date'].min()
         max_date = df['date'].max()
-        summary['date_range'] = f"{min_date.date()} to {max_date.date()}"
+        # Handle NaT values
+        if pd.notna(min_date) and pd.notna(max_date):
+            summary['date_range'] = f"{min_date.date()} to {max_date.date()}"
     
     return summary
 
@@ -314,7 +316,8 @@ def generate_diagnostic_files(tickers: List[str], df: pd.DataFrame) -> None:
             ticker_df = df[df['ticker'] == ticker]
             if not ticker_df.empty:
                 latest_date = ticker_df['date'].max()
-                if latest_date < cutoff_date:
+                # Handle NaT values
+                if pd.notna(latest_date) and latest_date < cutoff_date:
                     stale.append({
                         'ticker': ticker,
                         'latest_date': latest_date.date(),
