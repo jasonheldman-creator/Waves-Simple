@@ -1,8 +1,8 @@
 """
 Test suite for Wave Data Ready pipeline and Wave Readiness Report.
 
-Tests the compute_data_ready_status function with graded readiness model
-and generate_wave_readiness_report.
+Tests the compute_data_ready_status function with graded readiness model,
+analytics_ready flag, and generate_wave_readiness_report.
 """
 
 import os
@@ -17,9 +17,113 @@ from analytics_pipeline import (
     compute_data_ready_status,
     generate_wave_readiness_report,
     print_readiness_report,
-    DEFAULT_COVERAGE_THRESHOLD
+    DEFAULT_COVERAGE_THRESHOLD,
+    MIN_COVERAGE_FOR_ANALYTICS,
+    MIN_DAYS_FOR_ANALYTICS
 )
 from waves_engine import get_all_wave_ids
+
+
+def test_analytics_ready_flag():
+    """Test that analytics_ready flag is computed correctly."""
+    print("=" * 80)
+    print("TEST: Analytics Ready Flag")
+    print("=" * 80)
+    
+    wave_ids = get_all_wave_ids()
+    analytics_ready_count = 0
+    analytics_limited_count = 0
+    
+    for wave_id in wave_ids[:10]:  # Test first 10 waves
+        result = compute_data_ready_status(wave_id)
+        
+        # Check that analytics_ready field exists
+        assert 'analytics_ready' in result, f"Missing analytics_ready field for {wave_id}"
+        assert isinstance(result['analytics_ready'], bool), f"analytics_ready should be bool for {wave_id}"
+        
+        # Verify the logic
+        coverage_pct = result.get('coverage_pct', 0)
+        history_days = result.get('history_days', 0)
+        
+        expected_analytics_ready = (
+            (coverage_pct / 100.0) >= MIN_COVERAGE_FOR_ANALYTICS and
+            history_days >= MIN_DAYS_FOR_ANALYTICS
+        )
+        
+        assert result['analytics_ready'] == expected_analytics_ready, \
+            f"analytics_ready mismatch for {wave_id}: got {result['analytics_ready']}, expected {expected_analytics_ready}"
+        
+        if result['analytics_ready']:
+            analytics_ready_count += 1
+        else:
+            analytics_limited_count += 1
+        
+        # If analytics_ready is False and wave is ready, should have informational issues
+        if not result['analytics_ready'] and result['is_ready']:
+            issues = result.get('informational_issues', [])
+            assert any('ANALYTICS_LIMITED' in issue for issue in issues), \
+                f"Expected ANALYTICS_LIMITED issue for {wave_id} when analytics_ready=False"
+    
+    print(f"✓ Analytics ready flag validated for 10 waves")
+    print(f"  Analytics ready: {analytics_ready_count}")
+    print(f"  Analytics limited: {analytics_limited_count}")
+    print(f"  Thresholds: Coverage ≥{MIN_COVERAGE_FOR_ANALYTICS*100:.0f}%, History ≥{MIN_DAYS_FOR_ANALYTICS} days")
+    
+    return True
+
+
+def test_stale_tickers_detection():
+    """Test that stale tickers are detected correctly."""
+    print("\n" + "=" * 80)
+    print("TEST: Stale Tickers Detection")
+    print("=" * 80)
+    
+    wave_ids = get_all_wave_ids()
+    waves_with_stale = 0
+    
+    for wave_id in wave_ids[:10]:  # Test first 10 waves
+        result = compute_data_ready_status(wave_id)
+        
+        # Check that stale_tickers field exists
+        assert 'stale_tickers' in result, f"Missing stale_tickers field for {wave_id}"
+        assert isinstance(result['stale_tickers'], list), f"stale_tickers should be list for {wave_id}"
+        
+        # Check that stale_days_max field exists
+        assert 'stale_days_max' in result, f"Missing stale_days_max field for {wave_id}"
+        assert isinstance(result['stale_days_max'], (int, float)), f"stale_days_max should be numeric for {wave_id}"
+        
+        if result['stale_tickers']:
+            waves_with_stale += 1
+            print(f"  {wave_id}: {len(result['stale_tickers'])} stale ticker(s), max age: {result['stale_days_max']} days")
+    
+    print(f"\n✓ Stale ticker detection validated for 10 waves")
+    print(f"  Waves with stale data: {waves_with_stale}")
+    
+    return True
+
+
+def test_history_days_field():
+    """Test that history_days field is populated correctly."""
+    print("\n" + "=" * 80)
+    print("TEST: History Days Field")
+    print("=" * 80)
+    
+    wave_ids = get_all_wave_ids()
+    
+    for wave_id in wave_ids[:10]:  # Test first 10 waves
+        result = compute_data_ready_status(wave_id)
+        
+        # Check that history_days field exists
+        assert 'history_days' in result, f"Missing history_days field for {wave_id}"
+        assert isinstance(result['history_days'], (int, float)), f"history_days should be numeric for {wave_id}"
+        assert result['history_days'] >= 0, f"history_days should be non-negative for {wave_id}"
+        
+        if result['history_days'] > 0:
+            print(f"  {wave_id}: {result['history_days']} days of history")
+    
+    print(f"\n✓ History days field validated for 10 waves")
+    
+    return True
 
 
 def test_generate_wave_readiness_report():
@@ -460,6 +564,11 @@ def main():
     print("=" * 80)
     
     try:
+        # Run new tests for analytics_ready flag and related fields
+        test_analytics_ready_flag()
+        test_stale_tickers_detection()
+        test_history_days_field()
+        
         # Run core tests
         test_compute_data_ready_status_all_waves()
         test_generate_wave_readiness_report()
@@ -476,7 +585,7 @@ def main():
         # as they test the old binary model
         
         print("\n" + "=" * 80)
-        print("ALL TESTS PASSED ✓ (Graded Readiness Model)")
+        print("ALL TESTS PASSED ✓ (Graded Readiness Model with Analytics Ready)")
         print("=" * 80)
         return 0
         
