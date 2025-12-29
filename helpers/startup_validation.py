@@ -57,8 +57,13 @@ def check_data_files() -> Tuple[bool, str]:
     parent_dir = os.path.dirname(base_dir)
     
     critical_files = [
-        'ticker_master_clean.csv',  # Canonical ticker file (NEW)
+        'universal_universe.csv',  # CANONICAL ticker universe (PRIMARY - REQUIRED)
         'wave_config.csv',
+    ]
+    
+    # Non-critical but useful files (warnings only)
+    legacy_files = [
+        'ticker_master_clean.csv',  # Legacy ticker file (DEPRECATED - fallback only)
     ]
     
     missing_files = []
@@ -68,13 +73,24 @@ def check_data_files() -> Tuple[bool, str]:
             missing_files.append(file_path)
     
     if missing_files:
-        return False, f"Missing files: {', '.join(missing_files)}"
+        return False, f"Missing critical files: {', '.join(missing_files)}"
+    
+    # Check legacy files (non-blocking)
+    missing_legacy = []
+    for file_path in legacy_files:
+        full_path = os.path.join(parent_dir, file_path)
+        if not os.path.exists(full_path):
+            missing_legacy.append(file_path)
+    
+    if missing_legacy:
+        return True, f"Critical files present (legacy files missing: {', '.join(missing_legacy)})"
+    
     return True, "All critical data files present"
 
 
-def check_ticker_master_file() -> Tuple[bool, str]:
+def check_universal_universe() -> Tuple[bool, str]:
     """
-    Validate the ticker master file.
+    Validate the universal universe file (PRIMARY ticker source).
     
     Checks:
     - File exists
@@ -82,27 +98,28 @@ def check_ticker_master_file() -> Tuple[bool, str]:
     - Contains expected columns
     - No duplicate tickers
     - Row count meets expectations
+    - Contains active tickers
     """
     import os
     import pandas as pd
     
     base_dir = os.path.dirname(__file__)
     parent_dir = os.path.dirname(base_dir)
-    ticker_file = os.path.join(parent_dir, 'ticker_master_clean.csv')
+    universe_file = os.path.join(parent_dir, 'universal_universe.csv')
     
     # Check file exists
-    if not os.path.exists(ticker_file):
-        return False, "ticker_master_clean.csv not found"
+    if not os.path.exists(universe_file):
+        return False, "universal_universe.csv not found - run build_universal_universe.py"
     
     try:
         # Read file
-        df = pd.read_csv(ticker_file)
+        df = pd.read_csv(universe_file)
         
         # Check for required columns
-        required_cols = ['ticker']
+        required_cols = ['ticker', 'asset_class', 'status']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            return False, f"Missing columns: {', '.join(missing_cols)}"
+            return False, f"Missing required columns: {', '.join(missing_cols)}"
         
         # Check for duplicates
         duplicates = df[df['ticker'].duplicated()]
@@ -110,16 +127,24 @@ def check_ticker_master_file() -> Tuple[bool, str]:
             dup_tickers = duplicates['ticker'].tolist()
             return False, f"Duplicate tickers found: {dup_tickers[:5]}"
         
-        # Check row count (should have at least 50 tickers from waves)
+        # Check row count (should have at least 100 tickers)
         ticker_count = len(df)
-        if ticker_count < 50:
-            return False, f"Only {ticker_count} tickers (expected 50+)"
+        if ticker_count < 100:
+            return False, f"Only {ticker_count} tickers (expected 100+)"
+        
+        # Check for active tickers
+        active_count = len(df[df['status'] == 'active'])
+        if active_count < 50:
+            return False, f"Only {active_count} active tickers (expected 50+)"
+        
+        # Check asset class distribution
+        asset_classes = df['asset_class'].value_counts().to_dict()
         
         # All checks passed
-        return True, f"{ticker_count} validated tickers loaded"
+        return True, f"{active_count} active tickers ({', '.join([f'{k}:{v}' for k,v in list(asset_classes.items())[:3]])})"
         
     except Exception as e:
-        return False, f"Error reading ticker file: {str(e)}"
+        return False, f"Error reading universal universe: {str(e)}"
 
 
 def check_imports() -> Tuple[bool, str]:
@@ -161,13 +186,34 @@ def check_helpers_available() -> Tuple[bool, str]:
         return False, f"Helper import failed: {str(e)}"
 
 
+def check_wave_universe_alignment() -> Tuple[bool, str]:
+    """
+    Check that all Wave definitions align with universal universe.
+    Uses graceful degradation - always returns True but reports issues.
+    """
+    try:
+        # Import validation function
+        import sys
+        import os
+        parent_dir = os.path.dirname(os.path.dirname(__file__))
+        sys.path.insert(0, parent_dir)
+        
+        from validate_wave_universe import check_wave_universe_alignment as validate_alignment
+        return validate_alignment()
+    except Exception as e:
+        # Non-blocking error
+        return True, f"Wave validation skipped: {str(e)}"
+
+
 def check_waves_engine() -> Tuple[bool, str]:
     """Check if waves engine is available."""
     try:
         from waves_engine import get_all_waves
         waves = get_all_waves()
         if waves and len(waves) > 0:
-            return True, f"Waves engine ready ({len(waves)} waves)"
+            # Also run universe alignment check
+            alignment_ok, alignment_msg = check_wave_universe_alignment()
+            return True, f"Waves engine ready ({len(waves)} waves) - {alignment_msg}"
         return False, "Waves engine returned no waves"
     except Exception as e:
         return False, f"Waves engine error: {str(e)}"
@@ -195,7 +241,7 @@ def run_startup_validation(show_progress: bool = True) -> Dict[str, any]:
     """
     checks = [
         ReadinessCheck("Data Files", check_data_files, critical=True),
-        ReadinessCheck("Ticker Master File", check_ticker_master_file, critical=True),
+        ReadinessCheck("Universal Universe", check_universal_universe, critical=True),
         ReadinessCheck("Python Packages", check_imports, critical=True),
         ReadinessCheck("Helper Modules", check_helpers_available, critical=True),
         ReadinessCheck("Waves Engine", check_waves_engine, critical=True),

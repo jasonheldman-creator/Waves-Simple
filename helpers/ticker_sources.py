@@ -28,14 +28,14 @@ except ImportError:
 @st.cache_data(ttl=300)
 def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) -> List[str]:
     """
-    Extract holdings from canonical ticker master file.
+    Extract holdings from canonical universal universe file.
     
-    This function now uses the verified ticker_master_clean.csv as the
-    single source of truth for all ticker references.
+    This function now uses universal_universe.csv as the SINGLE SOURCE OF TRUTH
+    for all ticker references across the platform.
     
     Args:
         max_tickers: Maximum number of unique tickers to return
-        top_n_per_wave: Number of top holdings to extract per wave
+        top_n_per_wave: Number of top holdings to extract per wave (for display)
     
     Returns:
         List of unique ticker symbols (up to max_tickers)
@@ -43,21 +43,54 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
         
-        # PRIMARY SOURCE: ticker_master_clean.csv (canonical ticker list)
+        # PRIMARY SOURCE: universal_universe.csv (CANONICAL)
+        universe_path = os.path.join(base_dir, 'universal_universe.csv')
+        if os.path.exists(universe_path):
+            try:
+                df = pd.read_csv(universe_path)
+                
+                # Filter to active tickers only
+                df = df[df['status'] == 'active']
+                
+                if 'ticker' in df.columns:
+                    # Prioritize tickers from Wave definitions
+                    # (those with WAVE_ in index_membership)
+                    wave_tickers = df[
+                        df['index_membership'].str.contains('WAVE_', case=False, na=False)
+                    ]['ticker'].dropna().unique().tolist()
+                    
+                    # If we have wave tickers, prefer those
+                    if wave_tickers:
+                        tickers = wave_tickers[:max_tickers] if max_tickers else wave_tickers
+                        print(f"✓ Loaded {len(tickers)} tickers from universal universe (Wave-prioritized)")
+                        return tickers
+                    
+                    # Otherwise, return all active tickers
+                    all_tickers = df['ticker'].dropna().unique().tolist()
+                    tickers = all_tickers[:max_tickers] if max_tickers else all_tickers
+                    print(f"✓ Loaded {len(tickers)} tickers from universal universe")
+                    return tickers
+                    
+            except Exception as e:
+                # Log error but continue to fallback
+                print(f"⚠ Warning: Error reading universal_universe.csv: {e}")
+        else:
+            print(f"⚠ Warning: universal_universe.csv not found at {universe_path}")
+        
+        # FALLBACK 1: ticker_master_clean.csv (DEPRECATED - legacy support)
         ticker_master_path = os.path.join(base_dir, 'ticker_master_clean.csv')
         if os.path.exists(ticker_master_path):
             try:
                 df = pd.read_csv(ticker_master_path)
                 if 'ticker' in df.columns:
-                    # Get all tickers from master file
                     tickers = df['ticker'].dropna().tolist()
-                    # Limit to max_tickers if specified
-                    return tickers[:max_tickers] if max_tickers else tickers
+                    tickers = tickers[:max_tickers] if max_tickers else tickers
+                    print(f"⚠ Fallback: Loaded {len(tickers)} tickers from ticker_master_clean.csv (DEPRECATED)")
+                    return tickers
             except Exception as e:
-                # Log error but continue to fallback
-                print(f"Warning: Error reading ticker_master_clean.csv: {e}")
+                print(f"⚠ Warning: Error reading ticker_master_clean.csv: {e}")
         
-        # FALLBACK 1: Try wave position files
+        # FALLBACK 2: Try wave position files (LEGACY)
         ticker_set: Set[str] = set()
         wave_files = [
             'Growth_Wave_positions_20251206.csv',
@@ -83,10 +116,14 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                 continue
         
         if ticker_set:
-            return list(ticker_set)[:max_tickers]
+            tickers = list(ticker_set)[:max_tickers]
+            print(f"⚠ Fallback: Loaded {len(tickers)} tickers from wave position files (LEGACY)")
+            return tickers
         
-        # FALLBACK 2: Default ticker array
-        return ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ']
+        # FALLBACK 3: Default ticker array (LAST RESORT)
+        default_tickers = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ']
+        print(f"⚠ Last resort: Using default ticker array ({len(default_tickers)} tickers)")
+        return default_tickers
         
     except Exception:
         # Ultimate fallback

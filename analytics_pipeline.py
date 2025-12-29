@@ -209,11 +209,14 @@ def resolve_wave_tickers(wave_id: str) -> List[str]:
     """
     Resolve all tickers for a given wave_id from WAVE_WEIGHTS with normalization.
     
+    IMPORTANT: All tickers are validated against universal_universe.csv.
+    Invalid tickers are logged but do not block wave rendering (graceful degradation).
+    
     Args:
         wave_id: The wave identifier
         
     Returns:
-        List of normalized ticker symbols
+        List of normalized ticker symbols (validated against universal universe)
     """
     display_name = get_display_name_from_wave_id(wave_id)
     if not display_name:
@@ -230,7 +233,32 @@ def resolve_wave_tickers(wave_id: str) -> List[str]:
         elif isinstance(holding, str):
             tickers.append(normalize_ticker(holding))
     
-    return list(set(tickers))  # Remove duplicates
+    # Remove duplicates
+    unique_tickers = list(set(tickers))
+    
+    # Validate against universal universe (graceful degradation)
+    try:
+        from helpers.universal_universe import get_tickers_for_wave_with_degradation
+        validated_tickers, degradation_report = get_tickers_for_wave_with_degradation(
+            unique_tickers, 
+            wave_name=display_name
+        )
+        
+        # Log degradation if any
+        if degradation_report:
+            logger.warning(
+                f"Wave '{wave_id}' degraded: {len(validated_tickers)}/{len(unique_tickers)} "
+                f"tickers validated. Missing: {list(degradation_report.keys())[:5]}"
+            )
+        
+        # Return validated tickers (even if empty - let caller handle)
+        # Empty list means all tickers are invalid, which is a valid state for graceful degradation
+        return validated_tickers
+        
+    except Exception as e:
+        # If validation fails, log and continue with all tickers (fail-safe)
+        logger.warning(f"Could not validate tickers against universal universe: {e}")
+        return unique_tickers
 
 
 def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
