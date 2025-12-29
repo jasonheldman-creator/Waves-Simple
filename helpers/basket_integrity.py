@@ -34,6 +34,10 @@ UNIVERSAL_UNIVERSE_PATH = REPO_ROOT / "universal_universe.csv"
 WAVE_WEIGHTS_PATH = REPO_ROOT / "wave_weights.csv"
 WAVE_CONFIG_PATH = REPO_ROOT / "wave_config.csv"
 
+# Validation thresholds
+MAX_WEIGHT_SUM_THRESHOLD = 1.01  # Maximum allowed weight sum (allowing minor rounding errors)
+SMARTSAFE_WEIGHT_THRESHOLD = 0.99  # Threshold below which SmartSafe gating is considered active
+
 
 class BasketIntegrityIssue:
     """Represents a basket integrity issue"""
@@ -295,21 +299,21 @@ def validate_weight_sums(report: BasketIntegrityReport, weights_df: pd.DataFrame
     Validate weight sums for all waves.
     
     Note: Weights < 1.0 are allowed (remainder allocated to SmartSafe).
-    Weights > 1.0 or significantly < 0.0 are errors.
+    Weights > MAX_WEIGHT_SUM_THRESHOLD or < 0.0 are errors.
     """
     weight_sums = weights_df.groupby('wave')['weight'].sum()
     
     # Allow for SmartSafe gating (weights can be < 1.0, even as low as 0.45)
-    # Flag if weights > 1.01 or < 0.0
-    problem_weights = weight_sums[(weight_sums > 1.01) | (weight_sums < 0.0)]
-    low_weights = weight_sums[(weight_sums >= 0.0) & (weight_sums < 0.99)]
+    # Flag if weights > MAX_WEIGHT_SUM_THRESHOLD or < 0.0
+    problem_weights = weight_sums[(weight_sums > MAX_WEIGHT_SUM_THRESHOLD) | (weight_sums < 0.0)]
+    low_weights = weight_sums[(weight_sums >= 0.0) & (weight_sums < SMARTSAFE_WEIGHT_THRESHOLD)]
     
     if len(problem_weights) > 0:
         details = {wave: float(sum_val) for wave, sum_val in problem_weights.items()}
         report.add_issue(
             "weight_sums",
             "critical",
-            f"{len(problem_weights)} waves have invalid weight sums (>1.01 or <0.0)",
+            f"{len(problem_weights)} waves have invalid weight sums (>{MAX_WEIGHT_SUM_THRESHOLD} or <0.0)",
             {"problem_waves": details}
         )
     
@@ -318,7 +322,7 @@ def validate_weight_sums(report: BasketIntegrityReport, weights_df: pd.DataFrame
         report.add_issue(
             "weight_sums",
             "info",
-            f"{len(low_weights)} waves have weights < 0.99 (SmartSafe gating active)",
+            f"{len(low_weights)} waves have weights < {SMARTSAFE_WEIGHT_THRESHOLD} (SmartSafe gating active)",
             {"waves_with_smartsafe": details}
         )
     
