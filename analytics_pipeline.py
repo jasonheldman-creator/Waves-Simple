@@ -251,8 +251,9 @@ def resolve_wave_tickers(wave_id: str) -> List[str]:
                 f"tickers validated. Missing: {list(degradation_report.keys())[:5]}"
             )
         
-        # Return validated tickers (gracefully degraded)
-        return validated_tickers if validated_tickers else unique_tickers
+        # Return validated tickers (even if empty - let caller handle)
+        # Empty list means all tickers are invalid, which is a valid state for graceful degradation
+        return validated_tickers
         
     except Exception as e:
         # If validation fails, log and continue with all tickers (fail-safe)

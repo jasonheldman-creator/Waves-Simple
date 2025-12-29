@@ -57,21 +57,34 @@ def check_data_files() -> Tuple[bool, str]:
     parent_dir = os.path.dirname(base_dir)
     
     critical_files = [
-        'universal_universe.csv',  # CANONICAL ticker universe (PRIMARY)
-        'ticker_master_clean.csv',  # Legacy ticker file (DEPRECATED - to be removed)
+        'universal_universe.csv',  # CANONICAL ticker universe (PRIMARY - REQUIRED)
         'wave_config.csv',
+    ]
+    
+    # Non-critical but useful files (warnings only)
+    legacy_files = [
+        'ticker_master_clean.csv',  # Legacy ticker file (DEPRECATED - fallback only)
     ]
     
     missing_files = []
     for file_path in critical_files:
         full_path = os.path.join(parent_dir, file_path)
         if not os.path.exists(full_path):
-            # universal_universe.csv is required, others are warnings
-            if file_path == 'universal_universe.csv':
-                missing_files.append(file_path)
+            missing_files.append(file_path)
     
     if missing_files:
         return False, f"Missing critical files: {', '.join(missing_files)}"
+    
+    # Check legacy files (non-blocking)
+    missing_legacy = []
+    for file_path in legacy_files:
+        full_path = os.path.join(parent_dir, file_path)
+        if not os.path.exists(full_path):
+            missing_legacy.append(file_path)
+    
+    if missing_legacy:
+        return True, f"Critical files present (legacy files missing: {', '.join(missing_legacy)})"
+    
     return True, "All critical data files present"
 
 

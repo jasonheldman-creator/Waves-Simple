@@ -66,6 +66,25 @@ BATCH_SIZE = 50  # Validate tickers in batches to avoid rate limits
 BATCH_DELAY_SECONDS = 1  # Delay between batches
 
 
+def normalize_index_tag(text: str) -> str:
+    """
+    Normalize text to create consistent index membership tags.
+    
+    Args:
+        text: Text to normalize (e.g., "S&P 500 Wave", "Russell 3000")
+    
+    Returns:
+        Normalized tag (e.g., "SP500_WAVE", "RUSSELL_3000")
+    """
+    # Remove special characters except alphanumeric, spaces, hyphens
+    import re
+    cleaned = re.sub(r'[^a-zA-Z0-9\s\-]', '', text)
+    # Replace spaces and hyphens with underscores
+    normalized = cleaned.replace(' ', '_').replace('-', '_')
+    # Convert to uppercase
+    return normalized.upper()
+
+
 def get_wave_tickers() -> Dict[str, List[str]]:
     """
     Extract all tickers currently used in Wave definitions.
@@ -218,46 +237,46 @@ def categorize_crypto(symbol: str, name: str) -> str:
     name_lower = name.lower()
     
     # Store of Value / Settlement
-    if symbol_upper in ["BTC", "BCH", "BSV", "LTC"]:
+    if symbol_upper in {"BTC", "BCH", "BSV", "LTC"}:
         return "Store of Value"
     
     # Smart Contract Platforms (Layer 1)
-    l1_symbols = ["ETH", "SOL", "ADA", "AVAX", "DOT", "NEAR", "ALGO", "XTZ", "FTM",
-                  "EGLD", "ONE", "CSPR", "TON", "TRX", "SUI", "HBAR", "ETC", "KAS", "APT", "ZIL"]
+    l1_symbols = {"ETH", "SOL", "ADA", "AVAX", "DOT", "NEAR", "ALGO", "XTZ", "FTM",
+                  "EGLD", "ONE", "CSPR", "TON", "TRX", "SUI", "HBAR", "ETC", "KAS", "APT", "ZIL"}
     if symbol_upper in l1_symbols:
         return "Smart Contract Platform"
     
     # Scaling Solutions (Layer 2)
-    l2_symbols = ["MATIC", "POL", "ARB", "OP", "MNT", "STX", "LRC", "IMX"]
+    l2_symbols = {"MATIC", "POL", "ARB", "OP", "MNT", "STX", "LRC", "IMX"}
     if symbol_upper in l2_symbols:
         return "Layer 2 Scaling"
     
     # DeFi
-    defi_symbols = ["UNI", "AAVE", "MKR", "SNX", "CRV", "COMP", "SUSHI", "YFI", "BAL",
-                    "CAKE", "1INCH", "ALPHA", "DYDX", "GMX"]
+    defi_symbols = {"UNI", "AAVE", "MKR", "SNX", "CRV", "COMP", "SUSHI", "YFI", "BAL",
+                    "CAKE", "1INCH", "ALPHA", "DYDX", "GMX"}
     if symbol_upper in defi_symbols or "defi" in name_lower:
         return "DeFi"
     
     # Oracles
-    if symbol_upper in ["LINK", "BAND", "TRB", "API3"]:
+    if symbol_upper in {"LINK", "BAND", "TRB", "API3"}:
         return "Oracle"
     
     # Stablecoins
-    if symbol_upper in ["USDT", "USDC", "BUSD", "DAI", "TUSD", "USDP", "GUSD", "USDD", "FRAX"]:
+    if symbol_upper in {"USDT", "USDC", "BUSD", "DAI", "TUSD", "USDP", "GUSD", "USDD", "FRAX"}:
         return "Stablecoin"
     
     # Exchange Tokens
-    if symbol_upper in ["BNB", "CRO", "FTT", "HT", "OKB", "KCS", "LEO"]:
+    if symbol_upper in {"BNB", "CRO", "FTT", "HT", "OKB", "KCS", "LEO"}:
         return "Exchange Token"
     
     # Gaming / Metaverse
-    gaming_symbols = ["MANA", "SAND", "AXS", "GALA", "ENJ", "IMX", "THETA", "ROSE",
-                      "WAXP", "ALICE", "TLM", "ILV"]
+    gaming_symbols = {"MANA", "SAND", "AXS", "GALA", "ENJ", "IMX", "THETA", "ROSE",
+                      "WAXP", "ALICE", "TLM", "ILV"}
     if symbol_upper in gaming_symbols or "gaming" in name_lower or "metaverse" in name_lower:
         return "Gaming/Metaverse"
     
     # Payments
-    payment_symbols = ["XRP", "XLM", "DOGE", "SHIB", "XMR", "DASH", "CELO"]
+    payment_symbols = {"XRP", "XLM", "DOGE", "SHIB", "XMR", "DASH", "CELO"}
     if symbol_upper in payment_symbols:
         return "Payment"
     
@@ -639,7 +658,7 @@ def main():
                 'ticker': ticker,
                 'name': '',  # Will be filled if available from other sources
                 'asset_class': asset_class,
-                'index_membership': f'WAVE_{wave_name.replace(" ", "_").upper()}',
+                'index_membership': f'WAVE_{normalize_index_tag(wave_name)}',
                 'sector': sector,
                 'market_cap_bucket': 'N/A'
             })

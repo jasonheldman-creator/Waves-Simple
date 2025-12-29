@@ -8,11 +8,13 @@ It is called during app startup to ensure data governance.
 import os
 import sys
 import warnings
+from pathlib import Path
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Repository root directory
+REPO_ROOT = Path(__file__).parent
+UNIVERSE_PATH = REPO_ROOT / "universal_universe.csv"
 
 
 def validate_waves_against_universe(verbose: bool = False) -> Dict[str, any]:
@@ -52,11 +54,7 @@ def validate_waves_against_universe(verbose: bool = False) -> Dict[str, any]:
     
     try:
         import pandas as pd
-        universe_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'universal_universe.csv'
-        )
-        universe_df = pd.read_csv(universe_path)
+        universe_df = pd.read_csv(str(UNIVERSE_PATH))
         universe_tickers = set(universe_df['ticker'].str.upper().values)
     except Exception as e:
         return {
