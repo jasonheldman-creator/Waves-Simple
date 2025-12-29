@@ -72,8 +72,8 @@ print(f"All return is_ready=True: {all_ready}")
 print()
 
 if all_ready:
-    print("✓ SUCCESS: All 28 waves will render in UI")
+    print(f"✓ SUCCESS: All {len(statuses)} waves will render in UI")
     sys.exit(0)
 else:
-    print("✗ FAILURE: Some waves may not render - check is_ready values")
+    print(f"✗ FAILURE: Some waves may not render - check is_ready values")
     sys.exit(1)

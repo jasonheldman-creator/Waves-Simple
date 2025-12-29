@@ -30,6 +30,7 @@ from waves_engine import (
     WAVE_WEIGHTS,
     WAVE_ID_REGISTRY,
     BENCHMARK_WEIGHTS_STATIC,
+    DISPLAY_NAME_TO_WAVE_ID,
 )
 
 # Import analytics pipeline
@@ -193,7 +194,6 @@ def verify_wave_universe() -> WaveUniverseReport:
     weights_names = set(WAVE_WEIGHTS.keys())
     
     # Convert weights display names to wave_ids for comparison
-    from waves_engine import DISPLAY_NAME_TO_WAVE_ID
     weights_ids = set()
     for display_name in weights_names:
         wave_id = DISPLAY_NAME_TO_WAVE_ID.get(display_name)

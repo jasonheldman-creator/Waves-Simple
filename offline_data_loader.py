@@ -21,6 +21,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
+# Constants
+INITIAL_NAV_VALUE = 100.0  # Starting NAV value for portfolio calculations
+SHARES_MULTIPLIER = 100  # Multiplier for converting weights to arbitrary share counts
+
 # Import from waves_engine
 from waves_engine import (
     get_all_wave_ids,
@@ -139,8 +143,8 @@ def compute_simple_nav(prices_df: pd.DataFrame, holdings: List[Holding]) -> pd.D
         return pd.DataFrame(columns=['nav'], index=prices_df.index)
     
     # Compute weighted returns
-    # Initialize NAV at 100
-    nav_series = pd.Series(100.0, index=prices_df.index)
+    # Initialize NAV at starting value
+    nav_series = pd.Series(INITIAL_NAV_VALUE, index=prices_df.index)
     
     # Compute daily returns for each ticker
     returns_df = prices_df[list(weights.keys())].pct_change()
@@ -151,7 +155,7 @@ def compute_simple_nav(prices_df: pd.DataFrame, holdings: List[Holding]) -> pd.D
         portfolio_returns += returns_df[ticker].fillna(0) * weight
     
     # Compound returns to get NAV
-    nav_series = (1 + portfolio_returns).cumprod() * 100.0
+    nav_series = (1 + portfolio_returns).cumprod() * INITIAL_NAV_VALUE
     
     return pd.DataFrame({'nav': nav_series})
 
@@ -226,7 +230,7 @@ def populate_wave_data(wave_id: str, df_wide: pd.DataFrame, overwrite: bool = Fa
         for holding in holdings:
             positions_data.append({
                 'ticker': holding.ticker,
-                'shares': 100 * holding.weight,  # Arbitrary shares for weight
+                'shares': SHARES_MULTIPLIER * holding.weight,  # Arbitrary shares for weight
                 'weight': holding.weight,
                 'name': holding.name or holding.ticker
             })
