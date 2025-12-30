@@ -68,8 +68,16 @@ try:
 except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
+# Import governance metadata
+try:
+    from governance_metadata import create_snapshot_metadata, generate_snapshot_id
+    GOVERNANCE_METADATA_AVAILABLE = True
+except ImportError:
+    GOVERNANCE_METADATA_AVAILABLE = False
+
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
+SNAPSHOT_METADATA_FILE = "data/snapshot_metadata.json"
 BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
 WAVE_HISTORY_FILE = "wave_history.csv"
 TRADING_DAYS_PER_YEAR = 252
@@ -932,7 +940,8 @@ def generate_broken_tickers_artifact() -> pd.DataFrame:
 def generate_snapshot(
     force_refresh: bool = False,
     max_runtime_seconds: int = 300,
-    price_df: Optional[pd.DataFrame] = None
+    price_df: Optional[pd.DataFrame] = None,
+    generation_reason: str = 'auto'
 ) -> pd.DataFrame:
     """
     Generate daily snapshot for all 28 Waves.
@@ -943,6 +952,7 @@ def generate_snapshot(
         force_refresh: If True, ignore cached snapshot
         max_runtime_seconds: Maximum time to spend generating snapshot
         price_df: Optional pre-fetched price DataFrame
+        generation_reason: Reason for generation ('auto', 'manual', 'fallback')
         
     Returns:
         DataFrame with snapshot data for all waves
@@ -1079,6 +1089,28 @@ def generate_snapshot(
             os.makedirs(dirname, exist_ok=True)
         snapshot_df.to_csv(SNAPSHOT_FILE, index=False)
         print(f"✓ Snapshot saved to {SNAPSHOT_FILE}")
+        
+        # Generate and save metadata
+        if GOVERNANCE_METADATA_AVAILABLE:
+            try:
+                import json
+                metadata = create_snapshot_metadata(
+                    snapshot_df=snapshot_df,
+                    generation_reason=generation_reason
+                )
+                
+                # Save metadata to JSON file
+                with open(SNAPSHOT_METADATA_FILE, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                print(f"✓ Snapshot metadata saved to {SNAPSHOT_METADATA_FILE}")
+                print(f"  Snapshot ID: {metadata['snapshot_id']}")
+                print(f"  Snapshot Hash: {metadata['snapshot_hash']}")
+                print(f"  Generation Reason: {metadata['generation_reason']}")
+                print(f"  Data Regime: {metadata['data_regime']}")
+            except Exception as e:
+                print(f"⚠ Failed to save snapshot metadata (non-fatal): {e}")
+        
     except Exception as e:
         print(f"✗ Failed to save snapshot: {e}")
     
@@ -1146,7 +1178,7 @@ def get_snapshot_metadata() -> Dict[str, Any]:
     Get metadata about the current snapshot.
     
     Returns:
-        Dictionary with snapshot metadata
+        Dictionary with snapshot metadata (includes governance metadata if available)
     """
     metadata = {
         "exists": False,
@@ -1157,6 +1189,26 @@ def get_snapshot_metadata() -> Dict[str, Any]:
     }
     
     try:
+        # First try to load the metadata JSON file (new format)
+        if GOVERNANCE_METADATA_AVAILABLE and os.path.exists(SNAPSHOT_METADATA_FILE):
+            import json
+            with open(SNAPSHOT_METADATA_FILE, 'r') as f:
+                governance_metadata = json.load(f)
+                # Merge governance metadata into result
+                metadata.update(governance_metadata)
+                metadata["exists"] = True
+                
+                # Calculate age from timestamp
+                if 'timestamp' in governance_metadata:
+                    from datetime import datetime
+                    snapshot_time = datetime.fromisoformat(governance_metadata['timestamp'])
+                    age_seconds = (datetime.now() - snapshot_time).total_seconds()
+                    metadata["age_hours"] = age_seconds / 3600
+                    metadata["is_stale"] = metadata["age_hours"] > MAX_SNAPSHOT_AGE_HOURS
+                
+                return metadata
+        
+        # Fallback to old method using file stats
         if os.path.exists(SNAPSHOT_FILE):
             metadata["exists"] = True
             
@@ -1173,7 +1225,7 @@ def get_snapshot_metadata() -> Dict[str, Any]:
             snapshot_df = pd.read_csv(SNAPSHOT_FILE)
             metadata["wave_count"] = len(snapshot_df)
     
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Error reading snapshot metadata: {e}")
     
     return metadata

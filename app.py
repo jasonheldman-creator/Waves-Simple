@@ -15163,6 +15163,279 @@ def get_fed_decision_info():
         return {'next_date': None, 'current_rate': None}
 
 
+# ============================================================================
+# SECTION 7.4B: GOVERNANCE & AUDIT TAB
+# ============================================================================
+
+def render_governance_audit_tab():
+    """
+    Render the Governance & Audit tab.
+    
+    This tab provides comprehensive governance and audit information including:
+    - Platform version and Git commit hash
+    - Snapshot build timestamp and metadata
+    - Data regime (LIVE/SANDBOX/HYBRID)
+    - Wave registry version
+    - Benchmark registry version
+    - Safe Mode status
+    - Last successful full snapshot
+    - Count of degraded/partial waves
+    - Count of broken tickers
+    
+    The panel is read-only and always loads properly.
+    """
+    st.markdown("# 🛡️ Governance & Audit")
+    st.markdown("### Transparency and accountability layer for system state and data provenance")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: System Identification
+    # ========================================================================
+    st.subheader("🔍 System Identification")
+    
+    try:
+        from governance_metadata import get_current_governance_info
+        gov_info = get_current_governance_info()
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            platform_version = gov_info.get('platform_version', 'unknown')
+            st.metric(
+                "Platform Version",
+                platform_version,
+                help="Git commit hash of the current software version"
+            )
+            
+            git_branch = gov_info.get('git_branch', 'unknown')
+            st.metric(
+                "Git Branch",
+                git_branch,
+                help="Current Git branch"
+            )
+        
+        with col2:
+            snapshot_time = gov_info.get('snapshot_timestamp')
+            if snapshot_time:
+                if isinstance(snapshot_time, str):
+                    snapshot_display = snapshot_time
+                else:
+                    snapshot_display = snapshot_time.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                snapshot_display = 'Not available'
+            
+            st.metric(
+                "Snapshot Build Time",
+                snapshot_display,
+                help="Timestamp of the last successful snapshot generation"
+            )
+        
+        with col3:
+            data_regime = gov_info.get('data_regime', 'UNKNOWN')
+            
+            # Color-code based on regime
+            if data_regime == 'LIVE':
+                regime_color = '🟢'
+            elif data_regime == 'SANDBOX':
+                regime_color = '🟡'
+            elif data_regime == 'HYBRID':
+                regime_color = '🟠'
+            else:
+                regime_color = '⚪'
+            
+            st.metric(
+                "Data Regime",
+                f"{regime_color} {data_regime}",
+                help="LIVE = >80% full data | HYBRID = mixed data | SANDBOX = >70% partial/unavailable"
+            )
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 2: Registry Versions
+        # ========================================================================
+        st.subheader("📋 Registry Versions")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            wave_registry_version = gov_info.get('wave_registry_version', 'unknown')
+            st.metric(
+                "Wave Registry Version",
+                wave_registry_version,
+                help="Version identifier for the wave registry configuration"
+            )
+        
+        with col2:
+            benchmark_version = gov_info.get('benchmark_registry_version', 'unknown')
+            st.metric(
+                "Benchmark Registry Version",
+                benchmark_version,
+                help="Version identifier for the benchmark configuration"
+            )
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: System Status
+        # ========================================================================
+        st.subheader("⚙️ System Status")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            safe_mode = gov_info.get('safe_mode_status', 'UNKNOWN')
+            safe_mode_display = f"{'🔴' if safe_mode == 'ON' else '🟢'} {safe_mode}"
+            st.metric(
+                "Safe Mode",
+                safe_mode_display,
+                help="Whether Safe Mode is currently active"
+            )
+        
+        with col2:
+            total_waves = gov_info.get('total_wave_count', 0)
+            st.metric(
+                "Total Waves",
+                total_waves,
+                help="Total number of waves in the registry"
+            )
+        
+        with col3:
+            degraded_count = gov_info.get('degraded_wave_count', 0)
+            degraded_pct = (degraded_count / total_waves * 100) if total_waves > 0 else 0
+            st.metric(
+                "Degraded Waves",
+                f"{degraded_count} ({degraded_pct:.1f}%)",
+                help="Number of waves with partial or unavailable data"
+            )
+        
+        with col4:
+            broken_tickers = gov_info.get('broken_ticker_count', 0)
+            st.metric(
+                "Broken Tickers",
+                broken_tickers,
+                help="Number of tickers that failed to load or have data issues"
+            )
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 4: Snapshot Metadata (if available)
+        # ========================================================================
+        st.subheader("📸 Current Snapshot Metadata")
+        
+        try:
+            from snapshot_ledger import get_snapshot_metadata
+            snapshot_metadata = get_snapshot_metadata()
+            
+            if snapshot_metadata.get('exists'):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Snapshot ID (if available)
+                    snapshot_id = snapshot_metadata.get('snapshot_id', 'N/A')
+                    st.text_input(
+                        "Snapshot ID",
+                        snapshot_id,
+                        disabled=True,
+                        help="Unique identifier for this snapshot (immutable)"
+                    )
+                    
+                    # Generation reason (if available)
+                    generation_reason = snapshot_metadata.get('generation_reason', 'N/A')
+                    st.text_input(
+                        "Generation Reason",
+                        generation_reason,
+                        disabled=True,
+                        help="Reason for snapshot generation (auto/manual/fallback)"
+                    )
+                
+                with col2:
+                    # Snapshot hash (if available)
+                    snapshot_hash = snapshot_metadata.get('snapshot_hash', 'N/A')
+                    st.text_input(
+                        "Snapshot Hash",
+                        snapshot_hash,
+                        disabled=True,
+                        help="Content hash for snapshot integrity verification"
+                    )
+                    
+                    # Age
+                    age_hours = snapshot_metadata.get('age_hours', 0)
+                    is_stale = snapshot_metadata.get('is_stale', True)
+                    age_display = f"{age_hours:.1f}h {'(STALE)' if is_stale else '(FRESH)'}"
+                    st.text_input(
+                        "Snapshot Age",
+                        age_display,
+                        disabled=True,
+                        help="Time since snapshot was last generated"
+                    )
+                
+                # Show full metadata in expander
+                with st.expander("🔍 View Full Snapshot Metadata", expanded=False):
+                    st.json(snapshot_metadata)
+            else:
+                st.warning("⚠️ No snapshot metadata available. Snapshot may not have been generated yet.")
+                
+                if st.button("🔄 Generate Snapshot Now", help="Manually trigger snapshot generation"):
+                    with st.spinner("Generating snapshot..."):
+                        try:
+                            from snapshot_ledger import generate_snapshot
+                            generate_snapshot(force_refresh=True, generation_reason='manual')
+                            st.success("✅ Snapshot generated successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to generate snapshot: {str(e)}")
+                            with st.expander("🔍 View Error Details"):
+                                st.code(traceback.format_exc(), language="python")
+        
+        except Exception as e:
+            st.error(f"⚠️ Error loading snapshot metadata: {str(e)}")
+            with st.expander("🔍 View Error Details"):
+                st.code(traceback.format_exc(), language="python")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 5: Governance Notes
+        # ========================================================================
+        st.subheader("📝 Governance Notes")
+        
+        st.info("""
+        **What am I looking at?**
+        
+        This Governance & Audit panel provides complete transparency into the state 
+        of your Waves-Simple application:
+        
+        - **Platform Version**: Identifies the exact software version running
+        - **Data Regime**: Shows whether you're looking at live, sandbox, or hybrid data
+        - **Registry Versions**: Tracks changes to wave and benchmark configurations
+        - **System Status**: Monitors safe mode, degraded waves, and broken tickers
+        - **Snapshot Metadata**: Provides immutable identification and provenance tracking
+        
+        **Key Benefits:**
+        - Answer "What am I looking at?" in 10 seconds
+        - No ambiguity about data state or provenance
+        - Every metric traceable to a specific snapshot
+        - Immutable snapshots prevent silent data overwrites
+        
+        **For Managers:** Understand system health at a glance  
+        **For Investors:** Verify data quality and regime  
+        **For Developers:** Debug issues with precise version tracking
+        """)
+        
+    except Exception as e:
+        st.error(f"⚠️ Error rendering Governance & Audit tab: {str(e)}")
+        st.warning("The Governance & Audit panel could not load properly. Some modules may not be available.")
+        with st.expander("🔍 View Error Details"):
+            st.code(traceback.format_exc(), language="python")
+
+
+# ============================================================================
+# SECTION 7.5: DIAGNOSTICS TAB
+# ============================================================================
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -16309,6 +16582,7 @@ def main():
             "Board Pack",  
             "IC Pack",
             "Alpha Capture",
+            "Governance & Audit",  # NEW: Governance and transparency layer
             "Diagnostics",  # Health/Diagnostics tab
             "Wave Overview (New)"  # NEW: Comprehensive all-waves overview
         ])
@@ -16358,12 +16632,16 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Diagnostics tab (NEW)
+        # Governance & Audit tab (NEW)
         with analytics_tabs[9]:
+            safe_component("Governance & Audit", render_governance_audit_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[10]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[10]:
+        with analytics_tabs[11]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -16379,6 +16657,7 @@ def main():
             "Board Pack",                  # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
+            "Governance & Audit",          # NEW: Governance and transparency layer
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
@@ -16432,12 +16711,16 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Diagnostics tab (NEW)
+        # Governance & Audit tab (NEW)
         with analytics_tabs[10]:
+            safe_component("Governance & Audit", render_governance_audit_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[11]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[11]:
+        with analytics_tabs[12]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -16452,6 +16735,7 @@ def main():
             "Board Pack",                 # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
+            "Governance & Audit",         # NEW: Governance and transparency layer
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
@@ -16500,12 +16784,16 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Diagnostics tab (NEW)
+        # Governance & Audit tab (NEW)
         with analytics_tabs[9]:
+            safe_component("Governance & Audit", render_governance_audit_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[10]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[10]:
+        with analytics_tabs[11]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
