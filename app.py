@@ -16345,6 +16345,72 @@ def main():
             st.session_state.wave_registry_validated = False
     
     # ========================================================================
+    # Wave Universe Validation - Verify 28 Waves (ROUND 7 Phase 1)
+    # ========================================================================
+    
+    # Validate that we have exactly 28 waves on startup
+    if "wave_universe_validated" not in st.session_state:
+        try:
+            from waves_engine import get_all_waves_universe
+            
+            universe = get_all_waves_universe()
+            expected_count = 28
+            actual_count = universe.get('count', 0)
+            
+            if actual_count != expected_count:
+                # Store validation failure in session state
+                st.session_state.wave_universe_validation_failed = True
+                st.session_state.wave_universe_discrepancy = f"Expected {expected_count} waves, found {actual_count}"
+                print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
+            else:
+                st.session_state.wave_universe_validation_failed = False
+                print(f"✅ Wave Universe Validated: {actual_count} waves")
+            
+            st.session_state.wave_universe_validated = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not validate wave universe: {e}")
+            st.session_state.wave_universe_validation_failed = False
+    
+    # ========================================================================
+    # Snapshot Auto-Build and Staleness Management (ROUND 7 Phase 3)
+    # ========================================================================
+    
+    # Ensure snapshot exists and is fresh on startup (only once per session)
+    if "snapshot_validated" not in st.session_state:
+        try:
+            from analytics_pipeline import ensure_live_snapshot_exists
+            
+            snapshot_status = ensure_live_snapshot_exists(
+                path="data/live_snapshot.csv",
+                max_age_minutes=15,
+                force_rebuild=False
+            )
+            
+            # Store status in session state for diagnostics
+            st.session_state.snapshot_exists = snapshot_status.get('exists', False)
+            st.session_state.snapshot_fresh = snapshot_status.get('fresh', False)
+            st.session_state.snapshot_age_minutes = snapshot_status.get('age_minutes')
+            st.session_state.snapshot_rebuilt = snapshot_status.get('rebuilt', False)
+            st.session_state.snapshot_error = snapshot_status.get('error')
+            st.session_state.snapshot_stale_fallback = snapshot_status.get('stale_fallback', False)
+            
+            # Log status
+            if snapshot_status.get('error'):
+                print(f"⚠️ Snapshot validation warning: {snapshot_status.get('error')}")
+                if snapshot_status.get('stale_fallback'):
+                    print(f"   Using stale snapshot (age: {snapshot_status.get('age_minutes', 'N/A')} min)")
+            elif snapshot_status.get('rebuilt'):
+                print(f"✅ Snapshot rebuilt successfully")
+            elif snapshot_status.get('fresh'):
+                print(f"✅ Snapshot is fresh (age: {snapshot_status.get('age_minutes', 0):.1f} min)")
+            
+            st.session_state.snapshot_validated = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not validate snapshot: {e}")
+            st.session_state.snapshot_validated = False
+            st.session_state.snapshot_exists = False
+    
+    # ========================================================================
     # Wave Readiness Report - Log on startup
     # ========================================================================
     
@@ -16561,6 +16627,14 @@ def main():
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
+    
+    # ========================================================================
+    # ROUND 7 Phase 1: Wave Universe Validation Banner
+    # ========================================================================
+    # Display warning banner if wave universe validation failed
+    if st.session_state.get("wave_universe_validation_failed", False):
+        discrepancy = st.session_state.get("wave_universe_discrepancy", "Unknown discrepancy")
+        st.error(f"🔴 **Wave Universe Validation Failed:** {discrepancy}")
     
     # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
     # Use session state to check both the error flag and if safe mode is enabled
