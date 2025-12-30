@@ -87,7 +87,17 @@ DEFAULT_LOOKBACK_DAYS = 14  # Fetch 14 days to ensure 7+ trading days
 MIN_REQUIRED_TRADING_DAYS = 7
 ANALYTICS_BASE_DIR = "data/waves"
 
-# Circuit breaker constants to prevent infinite retries
+# ========================================================================
+# ROUND 7 Phase 4: Circuit Breaker Constants
+# ========================================================================
+# These constants enforce bounded execution times and prevent infinite loops
+# in batch processing, pipeline operations, and ticker downloads.
+MAX_BATCH_RETRIES = 2              # Maximum retries for batch operations
+MAX_TICKER_RETRIES = 1             # Maximum retries for individual ticker fetches
+MAX_TOTAL_TICKERS_PER_RUN = 250    # Maximum tickers to process in one run
+MAX_WAVE_COMPUTE_SECONDS = 8       # Maximum seconds for single wave computation
+
+# Legacy constants (maintained for backward compatibility)
 MAX_RETRIES = 3  # Maximum retry attempts for any single operation
 MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
@@ -2271,6 +2281,206 @@ def run_daily_analytics_pipeline(
     }
 
 
+def resolve_wave_metrics(wave_id: str, mode: str = "Standard") -> Dict[str, Any]:
+    """
+    ROUND 7 Phase 2: Dual-Source Metrics Resolution
+    
+    Resolve wave metrics using a three-tier fallback approach:
+    1. Primary: Attempt computation from analytics pipeline
+    2. Secondary: Fallback to live_snapshot.csv metrics
+    3. Tertiary: Supply degraded metrics with N/As but keep row visible
+    
+    This ensures no wave is ever missing from displays due to data issues.
+    
+    Args:
+        wave_id: Canonical wave identifier (e.g., "sp500_wave")
+        mode: Operating mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
+        
+    Returns:
+        Dictionary containing:
+        - source: 'pipeline' | 'snapshot' | 'degraded'
+        - wave_id: Canonical wave identifier
+        - display_name: Human-readable wave name
+        - mode: Operating mode
+        
+        Returns (1D, 30D, 60D, 365D):
+        - return_1d, return_30d, return_60d, return_365d
+        - benchmark_return_1d, benchmark_return_30d, benchmark_return_60d, benchmark_return_365d
+        
+        Alphas (1D, 30D, 60D, 365D):
+        - alpha_1d, alpha_30d, alpha_60d, alpha_365d
+        
+        Exposure & Cash:
+        - exposure_pct: Current exposure percentage
+        - cash_pct: Current cash percentage
+        
+        Readiness & Coverage:
+        - readiness_status: 'full' | 'partial' | 'operational' | 'unavailable'
+        - coverage_pct: Data coverage percentage
+        - coverage_score: Numerical coverage score
+        
+        Core Data Flags:
+        - has_prices: Boolean - wave prices available
+        - has_benchmark: Boolean - benchmark prices available
+        - has_nav: Boolean - NAV history available
+        
+        Alerts:
+        - alerts: List of alert messages
+        - degradation_cause: Reason for degraded metrics (if applicable)
+    """
+    from waves_engine import compute_history_nav
+    
+    display_name = get_display_name_from_wave_id(wave_id)
+    if not display_name:
+        display_name = wave_id
+    
+    # Initialize default degraded metrics
+    metrics = {
+        'source': 'degraded',
+        'wave_id': wave_id,
+        'display_name': display_name,
+        'mode': mode,
+        
+        # Returns
+        'return_1d': None,
+        'return_30d': None,
+        'return_60d': None,
+        'return_365d': None,
+        
+        # Benchmark returns
+        'benchmark_return_1d': None,
+        'benchmark_return_30d': None,
+        'benchmark_return_60d': None,
+        'benchmark_return_365d': None,
+        
+        # Alphas
+        'alpha_1d': None,
+        'alpha_30d': None,
+        'alpha_60d': None,
+        'alpha_365d': None,
+        
+        # Exposure & Cash
+        'exposure_pct': 1.0,  # Default to 100% exposure
+        'cash_pct': 0.0,      # Default to 0% cash
+        
+        # Readiness & Coverage
+        'readiness_status': 'unavailable',
+        'coverage_pct': 0.0,
+        'coverage_score': 0,
+        
+        # Core Data Flags
+        'has_prices': False,
+        'has_benchmark': False,
+        'has_nav': False,
+        
+        # Alerts
+        'alerts': [],
+        'degradation_cause': 'No data available from any source'
+    }
+    
+    # ========================================================================
+    # Tier 1: Attempt Primary Pipeline Computation
+    # ========================================================================
+    try:
+        # Get readiness status first
+        readiness = compute_data_ready_status(wave_id)
+        metrics['readiness_status'] = readiness.get('readiness_status', 'unavailable')
+        metrics['coverage_pct'] = readiness.get('coverage_pct', 0.0)
+        metrics['coverage_score'] = readiness.get('coverage_score', 0)
+        metrics['has_prices'] = readiness.get('has_prices', False)
+        metrics['has_benchmark'] = readiness.get('has_benchmark', False)
+        metrics['has_nav'] = readiness.get('has_nav', False)
+        
+        # Compute returns for each timeframe
+        timeframes = {'1d': 1, '30d': 30, '60d': 60, '365d': 365}
+        pipeline_success = False
+        
+        for label, days in timeframes.items():
+            try:
+                nav_df = compute_history_nav(display_name, mode=mode, days=days, include_diagnostics=False)
+                
+                if not nav_df.empty and len(nav_df) >= 2:
+                    # Calculate returns
+                    if 'wave_nav' in nav_df.columns:
+                        wave_return = (nav_df['wave_nav'].iloc[-1] / nav_df['wave_nav'].iloc[0] - 1)
+                        metrics[f'return_{label}'] = float(wave_return)
+                        pipeline_success = True
+                    
+                    if 'bm_nav' in nav_df.columns:
+                        bm_return = (nav_df['bm_nav'].iloc[-1] / nav_df['bm_nav'].iloc[0] - 1)
+                        metrics[f'benchmark_return_{label}'] = float(bm_return)
+                    
+                    # Calculate alpha
+                    if metrics[f'return_{label}'] is not None and metrics[f'benchmark_return_{label}'] is not None:
+                        metrics[f'alpha_{label}'] = metrics[f'return_{label}'] - metrics[f'benchmark_return_{label}']
+                    
+                    # Get exposure/cash from last row
+                    if 'exposure' in nav_df.columns:
+                        metrics['exposure_pct'] = float(nav_df['exposure'].iloc[-1])
+                    if 'safe_fraction' in nav_df.columns:
+                        metrics['cash_pct'] = float(nav_df['safe_fraction'].iloc[-1])
+                        
+            except Exception as e:
+                # Continue to next timeframe on error
+                pass
+        
+        if pipeline_success:
+            metrics['source'] = 'pipeline'
+            metrics['degradation_cause'] = None
+            return metrics
+            
+    except Exception as e:
+        metrics['alerts'].append(f"Pipeline computation failed: {str(e)}")
+    
+    # ========================================================================
+    # Tier 2: Fallback to live_snapshot.csv
+    # ========================================================================
+    try:
+        snapshot_df = load_live_snapshot(fallback=False)
+        
+        if snapshot_df is not None and not snapshot_df.empty:
+            # Try to find wave in snapshot
+            wave_row = snapshot_df[snapshot_df['wave_id'] == wave_id]
+            
+            if not wave_row.empty:
+                row = wave_row.iloc[0]
+                
+                # Extract returns
+                for timeframe in ['1d', '30d', '60d', '365d']:
+                    if f'wave_return_{timeframe}' in row and pd.notna(row[f'wave_return_{timeframe}']):
+                        metrics[f'return_{timeframe}'] = float(row[f'wave_return_{timeframe}'])
+                    if f'bm_return_{timeframe}' in row and pd.notna(row[f'bm_return_{timeframe}']):
+                        metrics[f'benchmark_return_{timeframe}'] = float(row[f'bm_return_{timeframe}'])
+                    if f'alpha_{timeframe}' in row and pd.notna(row[f'alpha_{timeframe}']):
+                        metrics[f'alpha_{timeframe}'] = float(row[f'alpha_{timeframe}'])
+                
+                # Extract readiness info
+                if 'readiness_status' in row and pd.notna(row['readiness_status']):
+                    metrics['readiness_status'] = str(row['readiness_status'])
+                if 'coverage_pct' in row and pd.notna(row['coverage_pct']):
+                    metrics['coverage_pct'] = float(row['coverage_pct'])
+                
+                # Extract exposure/cash if available
+                if 'exposure' in row and pd.notna(row['exposure']):
+                    metrics['exposure_pct'] = float(row['exposure'])
+                if 'cash_pct' in row and pd.notna(row['cash_pct']):
+                    metrics['cash_pct'] = float(row['cash_pct'])
+                
+                metrics['source'] = 'snapshot'
+                metrics['degradation_cause'] = 'Using cached snapshot data'
+                metrics['alerts'].append('Metrics loaded from snapshot fallback')
+                return metrics
+                
+    except Exception as e:
+        metrics['alerts'].append(f"Snapshot fallback failed: {str(e)}")
+    
+    # ========================================================================
+    # Tier 3: Return Degraded Metrics (ensures row always visible)
+    # ========================================================================
+    metrics['alerts'].append('No data available - displaying degraded metrics')
+    return metrics
+
+
 def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFrame:
     """
     Generate a comprehensive snapshot of all waves with returns, alpha, and diagnostics.
@@ -2368,6 +2578,97 @@ def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFra
     print(f"  Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     return snapshot_df
+
+
+def ensure_live_snapshot_exists(
+    path: str = "data/live_snapshot.csv",
+    max_age_minutes: int = 15,
+    force_rebuild: bool = False
+) -> Dict[str, Any]:
+    """
+    ROUND 7 Phase 3: Snapshot Auto-Build and Staleness Management
+    
+    Ensure live_snapshot.csv exists and is fresh. Rebuilds if:
+    - File doesn't exist
+    - File is older than max_age_minutes
+    - force_rebuild is True
+    
+    Handles generation failures gracefully with warnings.
+    
+    Args:
+        path: Path to snapshot CSV file
+        max_age_minutes: Maximum age in minutes before rebuild (default: 15)
+        force_rebuild: Force rebuild regardless of age
+        
+    Returns:
+        Dictionary with:
+        - exists: bool - whether snapshot exists
+        - fresh: bool - whether snapshot is fresh (within max_age_minutes)
+        - age_minutes: float - age of snapshot in minutes
+        - rebuilt: bool - whether snapshot was rebuilt
+        - error: str - error message if rebuild failed
+        - stale_fallback: bool - using stale snapshot due to rebuild failure
+    """
+    import os
+    from datetime import datetime, timedelta
+    
+    result = {
+        'exists': False,
+        'fresh': False,
+        'age_minutes': None,
+        'rebuilt': False,
+        'error': None,
+        'stale_fallback': False
+    }
+    
+    # Check if file exists
+    if os.path.exists(path):
+        result['exists'] = True
+        
+        # Get file age
+        file_time = datetime.fromtimestamp(os.path.getmtime(path))
+        age = datetime.now() - file_time
+        age_minutes = age.total_seconds() / 60
+        result['age_minutes'] = age_minutes
+        
+        # Check if fresh
+        if age_minutes <= max_age_minutes:
+            result['fresh'] = True
+        
+        # Decide if rebuild needed
+        needs_rebuild = force_rebuild or not result['fresh']
+    else:
+        # File doesn't exist - must build
+        needs_rebuild = True
+        result['age_minutes'] = float('inf')
+    
+    # Rebuild if needed
+    if needs_rebuild:
+        try:
+            print(f"{'Rebuilding' if result['exists'] else 'Building'} snapshot (age: {result.get('age_minutes', 'N/A')} min)...")
+            snapshot_df = generate_live_snapshot(output_path=path)
+            
+            if snapshot_df is not None and not snapshot_df.empty:
+                result['rebuilt'] = True
+                result['exists'] = True
+                result['fresh'] = True
+                result['age_minutes'] = 0.0
+                print(f"✓ Snapshot {'rebuilt' if result['exists'] else 'built'} successfully")
+            else:
+                result['error'] = "Snapshot generation returned empty DataFrame"
+                
+        except Exception as e:
+            result['error'] = str(e)
+            print(f"✗ Snapshot generation failed: {str(e)}")
+            
+            # If we have a stale snapshot, use it as fallback
+            if result['exists']:
+                result['stale_fallback'] = True
+                print(f"⚠️ Using stale snapshot as fallback (age: {result['age_minutes']:.1f} min)")
+            else:
+                print("⚠️ No snapshot available - application may have degraded functionality")
+    
+    return result
 
 
 def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -> pd.DataFrame:
