@@ -35,6 +35,65 @@ import pandas as pd
 import numpy as np
 
 
+# Readiness status icon mapping
+READINESS_ICONS = {
+    'full': '🟢',
+    'partial': '🟡',
+    'operational': '🟠',
+    'unavailable': '🔴',
+}
+
+
+# Column mapping from TruthFrame to legacy snapshot format
+# Used for backward compatibility during migration
+TRUTHFRAME_TO_SNAPSHOT_COLUMNS = {
+    'wave_id': 'Wave_ID',
+    'display_name': 'Wave',
+    'mode': 'Mode',
+    'readiness_status': 'Data_Regime_Tag',
+    'coverage_pct': 'Coverage_Score',
+    'return_1d': 'Return_1D',
+    'return_30d': 'Return_30D',
+    'return_60d': 'Return_60D',
+    'return_365d': 'Return_365D',
+    'alpha_1d': 'Alpha_1D',
+    'alpha_30d': 'Alpha_30D',
+    'alpha_60d': 'Alpha_60D',
+    'alpha_365d': 'Alpha_365D',
+    'benchmark_return_1d': 'Benchmark_Return_1D',
+    'benchmark_return_30d': 'Benchmark_Return_30D',
+    'benchmark_return_60d': 'Benchmark_Return_60D',
+    'benchmark_return_365d': 'Benchmark_Return_365D',
+    'exposure_pct': 'Exposure',
+    'cash_pct': 'CashPercent',
+    'beta_real': 'Beta_Real',
+    'beta_target': 'Beta_Target',
+    'beta_drift': 'Beta_Drift',
+    'turnover_est': 'Turnover_Est',
+    'drawdown_60d': 'MaxDD',
+    'alert_badges': 'Flags',
+    'last_snapshot_ts': 'Date',
+}
+
+
+def convert_truthframe_to_snapshot_format(truth_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert TruthFrame to legacy snapshot format for backward compatibility.
+    
+    This is a temporary helper for tabs that haven't been fully migrated yet.
+    
+    Args:
+        truth_df: TruthFrame DataFrame
+        
+    Returns:
+        DataFrame in legacy snapshot format
+    """
+    if truth_df is None or truth_df.empty:
+        return pd.DataFrame()
+    
+    return truth_df.rename(columns=TRUTHFRAME_TO_SNAPSHOT_COLUMNS)
+
+
 def get_wave_metric(
     truth_df: pd.DataFrame,
     wave_id: str,
@@ -436,15 +495,26 @@ def get_readiness_summary(
             'total': 0
         }
     
-    status_counts = truth_df['readiness_status'].value_counts().to_dict()
+    # Normalize status to lowercase for consistent counting
+    normalized_status = truth_df['readiness_status'].str.lower()
+    status_counts = normalized_status.value_counts().to_dict()
     
     return {
-        'full': status_counts.get('full', 0) + status_counts.get('Full', 0),
-        'partial': status_counts.get('partial', 0) + status_counts.get('Partial', 0),
-        'operational': status_counts.get('operational', 0) + status_counts.get('Operational', 0),
-        'unavailable': status_counts.get('unavailable', 0) + status_counts.get('Unavailable', 0),
+        'full': status_counts.get('full', 0),
+        'partial': status_counts.get('partial', 0),
+        'operational': status_counts.get('operational', 0),
+        'unavailable': status_counts.get('unavailable', 0),
         'total': len(truth_df)
     }
+
+
+# Readiness status icon mapping
+READINESS_ICONS = {
+    'full': '🟢',
+    'partial': '🟡',
+    'operational': '🟠',
+    'unavailable': '🔴',
+}
 
 
 def format_readiness_badge(
@@ -461,18 +531,10 @@ def format_readiness_badge(
     Returns:
         Formatted badge string
     """
-    icons = {
-        'full': '🟢',
-        'Full': '🟢',
-        'partial': '🟡',
-        'Partial': '🟡',
-        'operational': '🟠',
-        'Operational': '🟠',
-        'unavailable': '🔴',
-        'Unavailable': '🔴',
-    }
+    # Normalize to lowercase for lookup
+    status_lower = str(readiness_status).lower()
     
-    icon = icons.get(readiness_status, '⚪')
+    icon = READINESS_ICONS.get(status_lower, '⚪')
     status_text = str(readiness_status).title()
     
     if coverage_pct is not None and not np.isnan(coverage_pct):

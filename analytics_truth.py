@@ -274,19 +274,16 @@ def _map_snapshot_to_truth_frame(snapshot_df: pd.DataFrame) -> pd.DataFrame:
     
     # Add data_regime_tag based on readiness_status
     # Map the Data_Regime_Tag values to our canonical format
+    DATA_REGIME_MAP = {
+        'full': 'LIVE',
+        'partial': 'HYBRID',
+        'operational': 'SANDBOX',
+    }
+    
     if 'readiness_status' in mapped_df.columns:
-        def map_data_regime(status):
-            status_lower = str(status).lower() if pd.notna(status) else 'unavailable'
-            if status_lower == 'full':
-                return 'LIVE'
-            elif status_lower == 'partial':
-                return 'HYBRID'
-            elif status_lower == 'operational':
-                return 'SANDBOX'
-            else:
-                return 'UNAVAILABLE'
-        
-        mapped_df['data_regime_tag'] = mapped_df['readiness_status'].apply(map_data_regime)
+        mapped_df['data_regime_tag'] = mapped_df['readiness_status'].apply(
+            lambda status: DATA_REGIME_MAP.get(str(status).lower(), 'UNAVAILABLE')
+        )
     else:
         mapped_df['data_regime_tag'] = 'UNAVAILABLE'
     
@@ -326,8 +323,8 @@ def _map_snapshot_to_truth_frame(snapshot_df: pd.DataFrame) -> pd.DataFrame:
         # Update truth_df with available data from mapped_df
         for col in truth_columns:
             if col in mapped_df.columns and col != 'wave_id':
-                # Use fillna instead of combine_first to avoid FutureWarning
-                truth_df[col] = truth_df[col].fillna(mapped_df[col])
+                # Use .loc for explicit DataFrame updates
+                truth_df.loc[truth_df.index.isin(mapped_df.index), col] = mapped_df.loc[mapped_df.index.isin(truth_df.index), col]
         
         truth_df = truth_df.reset_index()
     

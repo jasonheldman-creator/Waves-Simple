@@ -7559,6 +7559,7 @@ def render_executive_brief_tab():
         
         try:
             from analytics_truth import get_truth_frame
+            from truth_frame_helpers import convert_truthframe_to_snapshot_format
             from snapshot_ledger import get_snapshot_metadata
             
             # Get TruthFrame (respects Safe Mode)
@@ -7566,34 +7567,7 @@ def render_executive_brief_tab():
             truth_df = get_truth_frame(safe_mode=safe_mode)
             
             # Convert to snapshot_df format for backward compatibility
-            snapshot_df = truth_df.rename(columns={
-                'wave_id': 'Wave_ID',
-                'display_name': 'Wave',
-                'mode': 'Mode',
-                'readiness_status': 'Data_Regime_Tag',
-                'coverage_pct': 'Coverage_Score',
-                'return_1d': 'Return_1D',
-                'return_30d': 'Return_30D',
-                'return_60d': 'Return_60D',
-                'return_365d': 'Return_365D',
-                'alpha_1d': 'Alpha_1D',
-                'alpha_30d': 'Alpha_30D',
-                'alpha_60d': 'Alpha_60D',
-                'alpha_365d': 'Alpha_365D',
-                'benchmark_return_1d': 'Benchmark_Return_1D',
-                'benchmark_return_30d': 'Benchmark_Return_30D',
-                'benchmark_return_60d': 'Benchmark_Return_60D',
-                'benchmark_return_365d': 'Benchmark_Return_365D',
-                'exposure_pct': 'Exposure',
-                'cash_pct': 'CashPercent',
-                'beta_real': 'Beta_Real',
-                'beta_target': 'Beta_Target',
-                'beta_drift': 'Beta_Drift',
-                'turnover_est': 'Turnover_Est',
-                'drawdown_60d': 'MaxDD',
-                'alert_badges': 'Flags',
-                'last_snapshot_ts': 'Date',
-            })
+            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
             
             snapshot_metadata = get_snapshot_metadata()
         except ImportError:
@@ -10586,7 +10560,8 @@ def render_overview_tab():
         # ========================================================================
         try:
             from analytics_truth import get_truth_frame
-            from snapshot_ledger import get_snapshot_metadata, generate_snapshot
+            from truth_frame_helpers import convert_truthframe_to_snapshot_format
+            from snapshot_ledger import get_snapshot_metadata
             
             # Snapshot controls in columns
             col1, col2, col3 = st.columns([3, 1, 1])
@@ -10631,37 +10606,8 @@ def render_overview_tab():
             safe_mode = st.session_state.get("safe_mode_enabled", False)
             truth_df = get_truth_frame(safe_mode=safe_mode)
             
-            # Map TruthFrame columns to snapshot_df columns for backward compatibility
-            # This allows existing code to work with TruthFrame
-            snapshot_df = truth_df.copy()
-            snapshot_df = snapshot_df.rename(columns={
-                'wave_id': 'Wave_ID',
-                'display_name': 'Wave',
-                'mode': 'Mode',
-                'readiness_status': 'Data_Regime_Tag',
-                'coverage_pct': 'Coverage_Score',
-                'return_1d': 'Return_1D',
-                'return_30d': 'Return_30D',
-                'return_60d': 'Return_60D',
-                'return_365d': 'Return_365D',
-                'alpha_1d': 'Alpha_1D',
-                'alpha_30d': 'Alpha_30D',
-                'alpha_60d': 'Alpha_60D',
-                'alpha_365d': 'Alpha_365D',
-                'benchmark_return_1d': 'Benchmark_Return_1D',
-                'benchmark_return_30d': 'Benchmark_Return_30D',
-                'benchmark_return_60d': 'Benchmark_Return_60D',
-                'benchmark_return_365d': 'Benchmark_Return_365D',
-                'exposure_pct': 'Exposure',
-                'cash_pct': 'CashPercent',
-                'beta_real': 'Beta_Real',
-                'beta_target': 'Beta_Target',
-                'beta_drift': 'Beta_Drift',
-                'turnover_est': 'Turnover_Est',
-                'drawdown_60d': 'MaxDD',
-                'alert_badges': 'Flags',
-                'last_snapshot_ts': 'Date',
-            })
+            # Convert to snapshot_df format for backward compatibility
+            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
             
             if snapshot_df is not None and not snapshot_df.empty:
                 # Display snapshot table
