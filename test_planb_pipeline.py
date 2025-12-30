@@ -12,7 +12,6 @@ Tests:
 """
 
 import os
-import sys
 import pytest
 import pandas as pd
 from datetime import datetime, timedelta
@@ -128,7 +127,6 @@ class TestSnapshotBuilding:
         # CRITICAL: Must always return 28 rows
         assert len(snapshot) == 28
         
-        print(f"✅ Snapshot returned {len(snapshot)} rows (expected 28)")
     
     def test_build_planb_snapshot_has_required_columns(self):
         """Test that snapshot has all required columns."""
@@ -148,7 +146,6 @@ class TestSnapshotBuilding:
         for col in required_columns:
             assert col in snapshot.columns, f"Missing column: {col}"
         
-        print(f"✅ Snapshot has all {len(required_columns)} required columns")
     
     def test_build_planb_snapshot_with_empty_data(self):
         """Test snapshot building with empty data files (all UNAVAILABLE)."""
@@ -168,7 +165,6 @@ class TestSnapshotBuilding:
         for idx, row in snapshot.iterrows():
             assert row['reason'] != '', f"Row {idx} missing reason"
         
-        print(f"✅ Empty data correctly returns 28 UNAVAILABLE rows")
     
     def test_build_planb_snapshot_timestamps(self):
         """Test that snapshot includes timestamps."""
@@ -183,7 +179,6 @@ class TestSnapshotBuilding:
             age = (datetime.now() - ts).total_seconds()
             assert age < 60, f"Timestamp too old: {age} seconds"
         
-        print(f"✅ All timestamps are recent")
 
 
 class TestStatusFlags:
@@ -197,7 +192,6 @@ class TestStatusFlags:
         for idx, row in snapshot.iterrows():
             assert row['status'] in [STATUS_FULL, STATUS_PARTIAL, STATUS_UNAVAILABLE]
         
-        print(f"✅ Status flags are valid")
     
     def test_default_values_for_unavailable(self):
         """Test that UNAVAILABLE rows have appropriate default values."""
@@ -213,7 +207,6 @@ class TestStatusFlags:
             # NAV and returns should be None/NaN
             assert pd.isna(row['nav_latest']) or row['nav_latest'] is None
         
-        print(f"✅ UNAVAILABLE rows have correct defaults")
 
 
 class TestCalculationFunctions:
@@ -332,7 +325,6 @@ class TestDiagnostics:
         assert 'missing_files' in diagnostics
         assert 'file_info' in diagnostics
         
-        print(f"✅ Diagnostics returned successfully")
     
     def test_check_planb_files(self):
         """Test file existence check."""
@@ -346,7 +338,6 @@ class TestDiagnostics:
         # After ensure_planb_files, all should exist
         assert all(file_status.values())
         
-        print(f"✅ File check returned correct status")
 
 
 class TestGracefulDegradation:
@@ -368,7 +359,6 @@ class TestGracefulDegradation:
         # Should still return 28 rows
         assert len(snapshot) == 28
         
-        print(f"✅ Snapshot built in {elapsed:.2f} seconds (no blocking)")
     
     def test_no_ticker_dependencies(self):
         """Test that Plan B pipeline has no live ticker dependencies."""
@@ -380,7 +370,6 @@ class TestGracefulDegradation:
         # Should succeed without fetching tickers
         assert len(snapshot) == 28
         
-        print(f"✅ No live ticker dependencies detected")
 
 
 def run_tests():

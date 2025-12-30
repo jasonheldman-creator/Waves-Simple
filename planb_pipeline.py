@@ -565,6 +565,24 @@ def generate_alerts(row: Dict[str, Any]) -> List[str]:
     return alerts
 
 
+def get_benchmark_ticker(wave_id: str, display_name: str) -> str:
+    """
+    Get benchmark ticker for a wave.
+    
+    Args:
+        wave_id: Wave identifier
+        display_name: Display name of the wave
+        
+    Returns:
+        Benchmark ticker symbol (defaults to 'SPY' if not found)
+    """
+    # Try to get from BENCHMARK_WEIGHTS_STATIC using display_name
+    # (this is how the static registry is keyed in waves_engine)
+    benchmark = BENCHMARK_WEIGHTS_STATIC.get(display_name, 'SPY')
+    
+    return benchmark
+
+
 def build_planb_snapshot(days: int = 365) -> pd.DataFrame:
     """
     Build canonical Plan B snapshot for all 28 waves.
@@ -608,8 +626,34 @@ def build_planb_snapshot(days: int = 365) -> pd.DataFrame:
     
     # Get all wave IDs from registry
     if not WAVES_ENGINE_AVAILABLE:
-        # Fallback: create empty snapshot
-        return pd.DataFrame()
+        # Fallback: create 28 empty rows to maintain the contract
+        # Use a hardcoded list of wave IDs as fallback
+        fallback_wave_ids = [
+            f'wave_{i}' for i in range(1, 29)
+        ]
+        
+        results = []
+        snapshot_timestamp = datetime.now()
+        
+        for i, wave_id in enumerate(fallback_wave_ids):
+            row = {
+                'wave_id': wave_id,
+                'display_name': f'Wave {i+1}',
+                'mode': 'Standard',
+                'timestamp': snapshot_timestamp,
+                'nav_latest': None,
+                'return_1d': None, 'return_30d': None, 'return_60d': None, 'return_365d': None,
+                'bm_return_1d': None, 'bm_return_30d': None, 'bm_return_60d': None, 'bm_return_365d': None,
+                'alpha_1d': None, 'alpha_30d': None, 'alpha_60d': None, 'alpha_365d': None,
+                'exposure_pct': 100.0, 'cash_pct': 0.0,
+                'beta_est': None, 'vol_365d': None, 'maxdd_365d': None, 'turnover_30d': None,
+                'alerts': ['Waves engine unavailable'],
+                'status': STATUS_UNAVAILABLE,
+                'reason': 'Waves engine module not available'
+            }
+            results.append(row)
+        
+        return pd.DataFrame(results)
     
     all_wave_ids = get_all_wave_ids()
     
@@ -695,8 +739,8 @@ def build_planb_snapshot(days: int = 365) -> pd.DataFrame:
         
         # Calculate benchmark returns
         try:
-            # Get benchmark ticker for this wave
-            benchmark_ticker = BENCHMARK_WEIGHTS_STATIC.get(display_name, 'SPY')
+            # Get benchmark ticker for this wave using helper function
+            benchmark_ticker = get_benchmark_ticker(wave_id, display_name)
             
             if not prices_df.empty and benchmark_ticker in prices_df.columns:
                 bm_series = prices_df[benchmark_ticker].dropna()
@@ -743,7 +787,8 @@ def build_planb_snapshot(days: int = 365) -> pd.DataFrame:
         # Calculate beta
         try:
             wave_nav = nav_df[nav_df['wave_id'] == wave_id].copy()
-            benchmark_ticker = BENCHMARK_WEIGHTS_STATIC.get(display_name, 'SPY')
+            # Use helper function for consistent benchmark lookup
+            benchmark_ticker = get_benchmark_ticker(wave_id, display_name)
             
             if not wave_nav.empty and not prices_df.empty:
                 wave_nav = wave_nav.sort_values('date').set_index('date')
