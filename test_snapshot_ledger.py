@@ -334,7 +334,8 @@ class TestSnapshotLedger:
             for idx, row in broken_df.head(3).iterrows():
                 print(f"  - {row['ticker_original']}: {row['failure_type']}")
                 print(f"    Impacted waves: {row['impacted_waves']}")
-                print(f"    Suggested fix: {row['suggested_fix'][:50]}...")
+                suggested_fix = str(row['suggested_fix']) if pd.notna(row['suggested_fix']) else "N/A"
+                print(f"    Suggested fix: {suggested_fix[:50]}...")
     
     def test_snapshot_and_broken_tickers_together(self):
         """Test that generate_snapshot produces both artifacts."""
