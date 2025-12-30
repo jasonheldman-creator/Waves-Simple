@@ -21,6 +21,7 @@ from typing import Dict, List, Set, Optional, Any, Tuple
 import time
 import json
 import os
+import logging
 
 import numpy as np
 import pandas as pd
@@ -2563,16 +2564,55 @@ def _compute_core(
             price_df, failed_tickers = _download_history(all_tickers, days=days, wave_id=wave_id, wave_name=wave_name)
     
     if price_df.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        # Return empty result with coverage metadata
+        result = pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 0.0,
+            "bm_coverage_pct": 0.0,
+            "wave_tickers_expected": len(wave_weights),
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": len(bm_weights),
+            "bm_tickers_available": 0,
+            "failed_tickers": failed_tickers,
+        }
+        return result
     if len(price_df) > days:
         price_df = price_df.iloc[-days:]
 
     ret_df = price_df.pct_change().fillna(0.0)
 
+    # Compute coverage for wave holdings
+    wave_tickers_expected = set(wave_weights.index)
+    wave_tickers_available = wave_tickers_expected.intersection(price_df.columns)
+    wave_coverage_pct = (len(wave_tickers_available) / len(wave_tickers_expected) * 100.0) if len(wave_tickers_expected) > 0 else 0.0
+    
+    # Reweight wave holdings proportionally if some tickers are missing
     wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
+    wave_weights_sum = wave_weights_aligned.sum()
+    if wave_weights_sum > 0:
+        # Normalize to sum to 1.0 using only available tickers
+        wave_weights_aligned = wave_weights_aligned / wave_weights_sum
+    
+    # Compute coverage for benchmark holdings
+    bm_tickers_expected = set(bm_weights.index)
+    bm_tickers_available = bm_tickers_expected.intersection(price_df.columns)
+    bm_coverage_pct = (len(bm_tickers_available) / len(bm_tickers_expected) * 100.0) if len(bm_tickers_expected) > 0 else 0.0
+    
+    # Reweight benchmark holdings proportionally if some tickers are missing
     bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
+    bm_weights_sum = bm_weights_aligned.sum()
+    if bm_weights_sum > 0:
+        # Normalize to sum to 1.0 using only available tickers
+        bm_weights_aligned = bm_weights_aligned / bm_weights_sum
 
-    bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    # Compute benchmark returns (graceful degradation)
+    if bm_weights_sum > 0:
+        bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    else:
+        # All benchmark components failed - set to None/NaN
+        bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+        logger = logging.getLogger(__name__)
+        logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 
     # Base index for regime detection
     if base_index_ticker in price_df.columns:
@@ -3196,6 +3236,17 @@ def _compute_core(
     )
     out.index.name = "Date"
 
+    # Add coverage metadata to all results
+    out.attrs["coverage"] = {
+        "wave_coverage_pct": round(wave_coverage_pct, 2),
+        "bm_coverage_pct": round(bm_coverage_pct, 2),
+        "wave_tickers_expected": len(wave_tickers_expected),
+        "wave_tickers_available": len(wave_tickers_available),
+        "bm_tickers_expected": len(bm_tickers_expected),
+        "bm_tickers_available": len(bm_tickers_available),
+        "failed_tickers": failed_tickers,
+    }
+
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
         out.attrs["diagnostics"] = diag_df
@@ -3234,7 +3285,18 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
         print(f"Error in compute_history_nav for {wave_name}: {str(e)}")
         import traceback
         traceback.print_exc()
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        # Return empty DataFrame with coverage metadata indicating complete failure
+        result = pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 0.0,
+            "bm_coverage_pct": 0.0,
+            "wave_tickers_expected": 0,
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": 0,
+            "bm_tickers_available": 0,
+            "failed_tickers": {},
+        }
+        return result
 
 
 def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
