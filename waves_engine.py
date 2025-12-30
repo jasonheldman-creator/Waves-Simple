@@ -2610,7 +2610,9 @@ def _compute_core(
     else:
         # All benchmark components failed - set to None/NaN
         bm_ret_series = pd.Series(np.nan, index=ret_df.index)
-        print(f"Warning: All benchmark components failed for {wave_name}, benchmark returns set to NaN")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 
     # Base index for regime detection
     if base_index_ticker in price_df.columns:

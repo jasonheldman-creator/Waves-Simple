@@ -153,7 +153,7 @@ def test_partial_coverage_computation():
         
         for ticker in available_tickers:
             # Random walk prices
-            np.random.seed(hash(ticker) % 2**32)
+            np.random.seed(abs(hash(ticker)))  # Use abs for cross-platform compatibility
             returns = np.random.normal(0.001, 0.02, size=len(dates))
             prices = 100 * (1 + returns).cumprod()
             price_data[ticker] = prices
