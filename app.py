@@ -10588,10 +10588,54 @@ def render_overview_tab():
                     # Format numeric columns for display
                     display_df = snapshot_df.copy()
                     
+                    # Add Coverage % column (from Coverage_Score)
+                    if "Coverage_Score" in display_df.columns:
+                        display_df["Coverage %"] = display_df["Coverage_Score"].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else "N/A")
+                    
+                    # Add Alert Badge column based on flags and status
+                    def get_alert_badge(row):
+                        alerts = []
+                        if row.get("Data_Regime_Tag") == "Unavailable":
+                            alerts.append("🔴 No Data")
+                        elif row.get("Data_Regime_Tag") == "Operational":
+                            alerts.append("🟠 Limited")
+                        
+                        flags = row.get("Flags", "")
+                        if isinstance(flags, str):
+                            if "Tier D" in flags or "No Data" in flags:
+                                alerts.append("⚠️ Fallback")
+                            elif "Tier B" in flags or "Limited History" in flags:
+                                alerts.append("⚡ Partial")
+                        
+                        coverage = row.get("Coverage_Score", 100)
+                        if pd.notna(coverage) and coverage < 50:
+                            alerts.append("📉 Low Coverage")
+                        
+                        return " ".join(alerts) if alerts else "✓"
+                    
+                    display_df["Alert"] = display_df.apply(get_alert_badge, axis=1)
+                    
+                    # Add Readiness column with icon and coverage
+                    def format_readiness(row):
+                        status = row.get("Data_Regime_Tag", "Unknown")
+                        coverage = row.get("Coverage_Score", 0)
+                        
+                        icons = {
+                            "Full": "🟢",
+                            "Partial": "🟡",
+                            "Operational": "🟠",
+                            "Unavailable": "🔴"
+                        }
+                        
+                        icon = icons.get(status, "⚪")
+                        return f"{icon} {status} ({coverage:.0f}%)" if pd.notna(coverage) else f"{icon} {status}"
+                    
+                    display_df["Readiness"] = display_df.apply(format_readiness, axis=1)
+                    
                     # Format percentage columns
                     pct_cols = [col for col in display_df.columns if "Return" in col or "Alpha" in col or "Percent" in col]
                     for col in pct_cols:
-                        if col in display_df.columns:
+                        if col in display_df.columns and col != "Coverage %":  # Skip Coverage % as it's already formatted
                             display_df[col] = display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A")
                     
                     # Format numeric columns
@@ -10600,8 +10644,19 @@ def render_overview_tab():
                         if col in display_df.columns:
                             display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
                     
-                    # Display table with all columns
-                    st.dataframe(display_df, use_container_width=True, hide_index=True, height=600)
+                    # Select key columns to display (avoid overwhelming the table)
+                    key_columns = [
+                        "Wave_ID", "Wave", "Category", "Readiness", "Alert",
+                        "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+                        "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+                        "Exposure", "CashPercent", "Coverage %"
+                    ]
+                    
+                    # Only include columns that exist
+                    display_columns = [col for col in key_columns if col in display_df.columns]
+                    
+                    # Display table with selected columns
+                    st.dataframe(display_df[display_columns], use_container_width=True, hide_index=True, height=600)
                 
                 # Summary statistics
                 st.markdown("#### 📈 Snapshot Summary")

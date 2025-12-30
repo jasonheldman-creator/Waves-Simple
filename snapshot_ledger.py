@@ -485,9 +485,24 @@ def _build_snapshot_row_tier_a(
         
         flags_str = "; ".join(flags) if flags else "OK"
         
+        # Get category from registry
+        category = "Unknown"
+        try:
+            from helpers.wave_registry_validator import load_wave_registry
+            registry = load_wave_registry()
+            if registry and "waves" in registry:
+                for wave_entry in registry["waves"]:
+                    if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
+                        category = wave_entry.get("category", "Unknown")
+                        break
+        except:
+            pass
+        
         # Build row
         row = {
+            "Wave_ID": wave_id,
             "Wave": wave_name,
+            "Category": category,
             "Mode": mode,
             "Date": datetime.now().strftime("%Y-%m-%d"),
             "NAV": current_nav,
@@ -608,9 +623,24 @@ def _build_snapshot_row_tier_b(
         
         flags_str = "; ".join(flags)
         
+        # Get category from registry
+        category = "Unknown"
+        try:
+            from helpers.wave_registry_validator import load_wave_registry
+            registry = load_wave_registry()
+            if registry and "waves" in registry:
+                for wave_entry in registry["waves"]:
+                    if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
+                        category = wave_entry.get("category", "Unknown")
+                        break
+        except:
+            pass
+        
         # Build row
         row = {
+            "Wave_ID": wave_id,
             "Wave": wave_name,
+            "Category": category,
             "Mode": mode,
             "Date": datetime.now().strftime("%Y-%m-%d"),
             "NAV": current_nav,
@@ -704,9 +734,24 @@ def _build_snapshot_row_tier_d(
     bm_returns = {f"Benchmark_Return_{label}": float("nan") for label in TIMEFRAMES.keys()}
     alphas = {f"Alpha_{label}": 0.0 for label in TIMEFRAMES.keys()}  # Alpha = 0 in fallback
     
+    # Get category from registry
+    category = "Unknown"
+    try:
+        from helpers.wave_registry_validator import load_wave_registry
+        registry = load_wave_registry()
+        if registry and "waves" in registry:
+            for wave_entry in registry["waves"]:
+                if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
+                    category = wave_entry.get("category", "Unknown")
+                    break
+    except:
+        pass
+    
     # Build row with fallback values
     row = {
+        "Wave_ID": wave_id,
         "Wave": wave_name,
+        "Category": category,
         "Mode": mode,
         "Date": datetime.now().strftime("%Y-%m-%d"),
         "NAV": float("nan"),
