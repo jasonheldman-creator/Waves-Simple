@@ -292,9 +292,9 @@ def generate_snapshot_id() -> str:
     Generate a unique snapshot ID (UUID).
     
     Returns:
-        UUID string in format 'snap-{uuid}'
+        UUID string in format 'snap-{uuid}' using 16 hex characters for better uniqueness
     """
-    return f"snap-{uuid.uuid4().hex[:12]}"
+    return f"snap-{uuid.uuid4().hex[:16]}"
 
 
 def create_snapshot_metadata(

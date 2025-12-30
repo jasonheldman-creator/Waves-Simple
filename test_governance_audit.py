@@ -98,7 +98,7 @@ class TestSnapshotImmutability(unittest.TestCase):
         # Check format
         for snap_id in ids:
             self.assertTrue(snap_id.startswith('snap-'), "Snapshot ID should start with 'snap-'")
-            self.assertEqual(len(snap_id), 17, "Snapshot ID should be 17 characters (snap- + 12 hex)")
+            self.assertEqual(len(snap_id), 21, "Snapshot ID should be 21 characters (snap- + 16 hex)")
     
     def test_snapshot_hash_consistency(self):
         """Test that identical DataFrames produce identical hashes"""
