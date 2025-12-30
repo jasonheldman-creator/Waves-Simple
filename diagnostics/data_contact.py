@@ -6,7 +6,7 @@ Date Created: 2025-12-30
 """
 
 # Placeholder class for sim artifacts
-define class SimArtifacts:
+class SimArtifacts:
     """
     A class to define simulation artifacts.
     """
@@ -14,7 +14,7 @@ define class SimArtifacts:
         pass  # Placeholder for initialization logic
 
 # Placeholder class for snapshot artifacts
-define class SnapshotArtifacts:
+class SnapshotArtifacts:
     """
     A class to define snapshot artifacts.
     """
@@ -22,7 +22,7 @@ define class SnapshotArtifacts:
         pass  # Placeholder for initialization logic
 
 # Placeholder class for definition artifacts
-define class DefinitionArtifacts:
+class DefinitionArtifacts:
     """
     A class to define definition artifacts.
     """
