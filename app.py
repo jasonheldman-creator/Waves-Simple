@@ -8463,6 +8463,122 @@ def render_wave_intelligence_center_tab():
     st.divider()
     
     # ========================================================================
+    # COVERAGE AND DATA QUALITY SUMMARY (NEW)
+    # ========================================================================
+    st.markdown("### 📊 Coverage & Data Quality Summary")
+    st.caption("Comprehensive view of wave data coverage and ticker health across the system")
+    
+    try:
+        from analytics_pipeline import generate_wave_readiness_report, get_broken_tickers_report
+        
+        # Get coverage data
+        readiness_df = generate_wave_readiness_report()
+        broken_report = get_broken_tickers_report()
+        
+        if not readiness_df.empty:
+            # Calculate coverage statistics
+            total_waves = len(readiness_df)
+            avg_coverage = readiness_df['coverage_pct'].mean() if 'coverage_pct' in readiness_df.columns else 0.0
+            min_coverage = readiness_df['coverage_pct'].min() if 'coverage_pct' in readiness_df.columns else 0.0
+            max_coverage = readiness_df['coverage_pct'].max() if 'coverage_pct' in readiness_df.columns else 0.0
+            
+            # Display key metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric("Total Waves", total_waves, help="Total number of waves in the system (should be 28)")
+            
+            with col2:
+                st.metric("Avg Coverage", f"{avg_coverage:.1f}%", 
+                         help="Average ticker coverage across all waves")
+            
+            with col3:
+                st.metric("Lowest Coverage", f"{min_coverage:.1f}%",
+                         help="Minimum ticker coverage among all waves")
+            
+            with col4:
+                st.metric("Failed Tickers", broken_report['total_broken'],
+                         help="Total unique tickers that failed to download")
+            
+            with col5:
+                st.metric("Waves w/ Failures", f"{broken_report['total_waves_with_failures']}/28",
+                         help="Number of waves affected by ticker failures")
+            
+            # Show coverage distribution chart
+            if 'coverage_pct' in readiness_df.columns and len(readiness_df) > 0:
+                st.markdown("#### Coverage Distribution by Wave")
+                
+                # Create coverage distribution chart
+                coverage_chart_data = readiness_df[['wave_name', 'coverage_pct']].copy()
+                coverage_chart_data = coverage_chart_data.sort_values('coverage_pct', ascending=False)
+                
+                fig = go.Figure()
+                
+                # Color by coverage level
+                colors = []
+                for cov in coverage_chart_data['coverage_pct']:
+                    if cov >= 90:
+                        colors.append('#28a745')  # Green
+                    elif cov >= 70:
+                        colors.append('#ffc107')  # Yellow
+                    elif cov >= 50:
+                        colors.append('#fd7e14')  # Orange
+                    else:
+                        colors.append('#dc3545')  # Red
+                
+                fig.add_trace(go.Bar(
+                    x=coverage_chart_data['wave_name'],
+                    y=coverage_chart_data['coverage_pct'],
+                    marker_color=colors,
+                    text=coverage_chart_data['coverage_pct'].apply(lambda x: f"{x:.1f}%"),
+                    textposition='outside',
+                    hovertemplate='<b>%{x}</b><br>Coverage: %{y:.1f}%<extra></extra>'
+                ))
+                
+                fig.update_layout(
+                    title="Wave Ticker Coverage (%)",
+                    xaxis_title="",
+                    yaxis_title="Coverage %",
+                    yaxis_range=[0, 105],
+                    height=400,
+                    showlegend=False,
+                    xaxis={'tickangle': -45}
+                )
+                
+                safe_plotly_chart(fig, use_container_width=True, key="coverage_distribution_chart")
+            
+            # Show top 10 most impactful failed tickers
+            if broken_report['total_broken'] > 0:
+                st.markdown("#### Top 10 Most Impactful Failed Tickers")
+                st.caption("Tickers that affect the most waves")
+                
+                top_failures = broken_report['most_common_failures'][:10]
+                failure_data = []
+                for ticker, count in top_failures:
+                    failure_data.append({
+                        "Ticker": ticker,
+                        "Waves Affected": count,
+                        "Impact %": f"{(count/total_waves)*100:.1f}%"
+                    })
+                
+                if failure_data:
+                    df_failures = pd.DataFrame(failure_data)
+                    st.dataframe(df_failures, use_container_width=True, hide_index=True)
+                    
+                    st.info("💡 Click the '🚨 Broken Tickers Report' button in the Command Center for detailed diagnostics")
+            else:
+                st.success("✅ No failed tickers! All waves have complete ticker coverage.")
+        else:
+            st.warning("Coverage data not available")
+            
+    except Exception as e:
+        st.error(f"Error generating coverage summary: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+    
+    st.divider()
+    
+    # ========================================================================
     # WAVE READINESS REPORT (Collapsible)
     # ========================================================================
     with st.expander("🔍 Wave Readiness Report", expanded=False):
@@ -9043,6 +9159,107 @@ def render_executive_tab():
                 st.dataframe(movers_display, use_container_width=True, hide_index=True)
         else:
             st.info("Data unavailable")
+    
+    # Add Broken Tickers diagnostic button
+    st.markdown("---")
+    st.markdown("#### 🔧 Diagnostics & Data Quality")
+    
+    col_diag1, col_diag2, col_diag3 = st.columns(3)
+    
+    with col_diag1:
+        if st.button("🚨 Broken Tickers Report", use_container_width=True, help="View tickers that failed to download and their failure reasons"):
+            # Import function from analytics_pipeline
+            try:
+                from analytics_pipeline import get_broken_tickers_report
+                from helpers.ticker_diagnostics import get_diagnostics_tracker
+                
+                report = get_broken_tickers_report()
+                
+                st.markdown("### 🚨 Broken Tickers Report")
+                st.markdown(f"**Total Broken Tickers:** {report['total_broken']}")
+                st.markdown(f"**Waves with Failures:** {report['total_waves_with_failures']}/28")
+                
+                if report['total_broken'] > 0:
+                    # Show most common failures
+                    st.markdown("#### Top 10 Most Impactful Tickers")
+                    st.markdown("*These tickers fail in the most waves*")
+                    
+                    top_failures = report['most_common_failures'][:10]
+                    failure_data = []
+                    for ticker, count in top_failures:
+                        failure_data.append({
+                            "Ticker": ticker,
+                            "Waves Affected": count,
+                            "Impact %": f"{(count/28)*100:.1f}%"
+                        })
+                    
+                    if failure_data:
+                        df_failures = pd.DataFrame(failure_data)
+                        st.dataframe(df_failures, use_container_width=True, hide_index=True)
+                    
+                    # Show failures by wave
+                    st.markdown("#### Failures by Wave")
+                    
+                    for wave_id, failed_tickers in sorted(report['broken_by_wave'].items()):
+                        try:
+                            from waves_engine import get_display_name_from_wave_id
+                            wave_name = get_display_name_from_wave_id(wave_id) or wave_id
+                        except:
+                            wave_name = wave_id
+                        
+                        with st.expander(f"{wave_name} ({len(failed_tickers)} failures)"):
+                            st.write(", ".join(sorted(failed_tickers)))
+                    
+                    # Show diagnostics from tracker if available
+                    try:
+                        tracker = get_diagnostics_tracker()
+                        all_failures = tracker.get_all_failures()
+                        
+                        if all_failures:
+                            st.markdown("#### Detailed Failure Analysis")
+                            
+                            # Group by failure type
+                            from collections import defaultdict
+                            by_type = defaultdict(list)
+                            
+                            for failure in all_failures:
+                                by_type[failure.failure_type.value].append(failure)
+                            
+                            for failure_type, failures in sorted(by_type.items()):
+                                with st.expander(f"{failure_type} ({len(failures)} tickers)"):
+                                    for f in failures[:10]:  # Show first 10
+                                        st.markdown(f"**{f.ticker_original}** ({f.wave_name or 'Unknown Wave'})")
+                                        st.markdown(f"- Error: {f.error_message}")
+                                        if f.suggested_fix:
+                                            st.markdown(f"- 💡 Suggested Fix: {f.suggested_fix}")
+                                    
+                                    if len(failures) > 10:
+                                        st.markdown(f"*... and {len(failures) - 10} more*")
+                    except Exception as e:
+                        st.warning(f"Could not load detailed diagnostics: {str(e)}")
+                    
+                    # Recommended actions
+                    st.markdown("#### 💡 Recommended Actions")
+                    st.markdown("""
+                    1. **Invalid/Delisted Tickers**: Remove from wave configuration or find replacement
+                    2. **Normalization Issues**: Check ticker format (e.g., BRK.B → BRK-B)
+                    3. **Rate Limits**: Wait and retry, or implement throttling
+                    4. **Network Issues**: Check connectivity, retry later
+                    5. **Empty Responses**: Ticker may be valid but have no historical data
+                    """)
+                else:
+                    st.success("✅ No broken tickers found! All waves have complete data coverage.")
+                    
+            except Exception as e:
+                st.error(f"Error generating broken tickers report: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+    
+    with col_diag2:
+        st.info("Coverage Stats\n\n*Coming soon*", icon="📊")
+    
+    with col_diag3:
+        st.info("Data Freshness\n\n*Coming soon*", icon="⏱️")
     
     st.divider()
     

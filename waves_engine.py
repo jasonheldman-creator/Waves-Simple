@@ -2569,10 +2569,37 @@ def _compute_core(
 
     ret_df = price_df.pct_change().fillna(0.0)
 
+    # Compute coverage for wave holdings
+    wave_tickers_expected = set(wave_weights.index)
+    wave_tickers_available = wave_tickers_expected.intersection(price_df.columns)
+    wave_coverage_pct = (len(wave_tickers_available) / len(wave_tickers_expected) * 100.0) if len(wave_tickers_expected) > 0 else 0.0
+    
+    # Reweight wave holdings proportionally if some tickers are missing
     wave_weights_aligned = wave_weights.reindex(price_df.columns).fillna(0.0)
+    wave_weights_sum = wave_weights_aligned.sum()
+    if wave_weights_sum > 0:
+        # Normalize to sum to 1.0 using only available tickers
+        wave_weights_aligned = wave_weights_aligned / wave_weights_sum
+    
+    # Compute coverage for benchmark holdings
+    bm_tickers_expected = set(bm_weights.index)
+    bm_tickers_available = bm_tickers_expected.intersection(price_df.columns)
+    bm_coverage_pct = (len(bm_tickers_available) / len(bm_tickers_expected) * 100.0) if len(bm_tickers_expected) > 0 else 0.0
+    
+    # Reweight benchmark holdings proportionally if some tickers are missing
     bm_weights_aligned = bm_weights.reindex(price_df.columns).fillna(0.0)
+    bm_weights_sum = bm_weights_aligned.sum()
+    if bm_weights_sum > 0:
+        # Normalize to sum to 1.0 using only available tickers
+        bm_weights_aligned = bm_weights_aligned / bm_weights_sum
 
-    bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    # Compute benchmark returns (graceful degradation)
+    if bm_weights_sum > 0:
+        bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    else:
+        # All benchmark components failed - set to None/NaN
+        bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+        print(f"Warning: All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 
     # Base index for regime detection
     if base_index_ticker in price_df.columns:
@@ -3195,6 +3222,17 @@ def _compute_core(
         {"wave_nav": wave_nav, "bm_nav": bm_nav, "wave_ret": wave_ret_series, "bm_ret": bm_ret_series}
     )
     out.index.name = "Date"
+
+    # Add coverage metadata to all results
+    out.attrs["coverage"] = {
+        "wave_coverage_pct": round(wave_coverage_pct, 2),
+        "bm_coverage_pct": round(bm_coverage_pct, 2),
+        "wave_tickers_expected": len(wave_tickers_expected),
+        "wave_tickers_available": len(wave_tickers_available),
+        "bm_tickers_expected": len(bm_tickers_expected),
+        "bm_tickers_available": len(bm_tickers_available),
+        "failed_tickers": failed_tickers,
+    }
 
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
