@@ -7552,21 +7552,28 @@ def render_executive_brief_tab():
     
     try:
         # ========================================================================
-        # SNAPSHOT LEDGER INTEGRATION - Load snapshot for 28/28 coverage
+        # TRUTHFRAME INTEGRATION - Load TruthFrame for 28/28 coverage
         # ========================================================================
         snapshot_df = None
         snapshot_metadata = None
         
         try:
-            from snapshot_ledger import load_snapshot, get_snapshot_metadata, generate_snapshot
+            from analytics_truth import get_truth_frame
+            from truth_frame_helpers import convert_truthframe_to_snapshot_format
+            from snapshot_ledger import get_snapshot_metadata
             
-            # Load snapshot (from cache or generate if needed)
-            snapshot_df = load_snapshot(force_refresh=False)
+            # Get TruthFrame (respects Safe Mode)
+            safe_mode = st.session_state.get("safe_mode_enabled", False)
+            truth_df = get_truth_frame(safe_mode=safe_mode)
+            
+            # Convert to snapshot_df format for backward compatibility
+            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
+            
             snapshot_metadata = get_snapshot_metadata()
         except ImportError:
-            st.warning("⚠️ Snapshot Ledger module not available. Using fallback data.")
+            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
         except Exception as e:
-            st.warning(f"⚠️ Snapshot Ledger error: {str(e)}")
+            st.warning(f"⚠️ TruthFrame error: {str(e)}")
         
         # ========================================================================
         # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
@@ -7574,8 +7581,8 @@ def render_executive_brief_tab():
         col1, col2, col3 = st.columns([3, 1, 1])
         
         with col1:
-            st.markdown("### 📊 Live Snapshot Overview")
-            st.caption("28/28 Waves with live metrics - Powered by Wave Snapshot Ledger")
+            st.markdown("### 📊 Live TruthFrame Overview")
+            st.caption("28/28 Waves with live metrics - Canonical single source of truth")
         
         with col2:
             # Show snapshot metadata
@@ -7590,17 +7597,22 @@ def render_executive_brief_tab():
         
         with col3:
             # Force refresh button with runtime guard
-            if st.button("🔄 Force Refresh", help="Regenerate snapshot (max 5 min)", use_container_width=True, key=k("ExecutiveBrief", "force_refresh_snapshot")):
-                with st.spinner("Regenerating snapshot..."):
+            if st.button("🔄 Force Refresh", help="Regenerate TruthFrame (max 5 min)", use_container_width=True, key=k("ExecutiveBrief", "force_refresh_truthframe")):
+                with st.spinner("Regenerating TruthFrame..."):
                     try:
-                        # Get global price cache for faster generation
-                        price_df = st.session_state.get("global_price_df")
-                        from snapshot_ledger import generate_snapshot
-                        snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=SNAPSHOT_MAX_RUNTIME_SECONDS, price_df=price_df)
-                        st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
-                        st.rerun()
+                        safe_mode = st.session_state.get("safe_mode_enabled", False)
+                        
+                        if safe_mode:
+                            st.warning("⚠️ Cannot refresh in Safe Mode. Disable Safe Mode to regenerate.")
+                        else:
+                            # Get global price cache for faster generation
+                            price_df = st.session_state.get("global_price_df")
+                            from analytics_truth import get_truth_frame
+                            truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
+                            st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
+                            st.rerun()
                     except Exception as e:
-                        st.error(f"Snapshot refresh failed: {str(e)}")
+                        st.error(f"TruthFrame refresh failed: {str(e)}")
         
         st.divider()
         
@@ -10544,43 +10556,58 @@ def render_overview_tab():
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
         
         # ========================================================================
-        # WAVE SNAPSHOT LEDGER - New: 28/28 Coverage Section
+        # TRUTHFRAME - Canonical Data Source for All Waves
         # ========================================================================
         try:
-            from snapshot_ledger import load_snapshot, get_snapshot_metadata, generate_snapshot
+            from analytics_truth import get_truth_frame
+            from truth_frame_helpers import convert_truthframe_to_snapshot_format
+            from snapshot_ledger import get_snapshot_metadata
             
             # Snapshot controls in columns
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col1:
-                st.markdown("### 📊 Wave Snapshot Ledger")
-                st.caption("28/28 Waves with best-available metrics - Tiered fallback ensures complete coverage")
+                st.markdown("### 📊 Wave TruthFrame (28/28)")
+                st.caption("Canonical single source of truth - All waves with best-available metrics")
             
             with col2:
                 # Show snapshot metadata
-                metadata = get_snapshot_metadata()
-                if metadata["exists"]:
-                    age_str = f"{metadata['age_hours']:.1f}h ago" if metadata["age_hours"] is not None else "N/A"
-                    status_icon = "🟢" if not metadata["is_stale"] else "🟡"
-                    st.metric("Last Snapshot", age_str, delta=status_icon)
-                else:
-                    st.metric("Last Snapshot", "Not Generated")
+                try:
+                    metadata = get_snapshot_metadata()
+                    if metadata["exists"]:
+                        age_str = f"{metadata['age_hours']:.1f}h ago" if metadata["age_hours"] is not None else "N/A"
+                        status_icon = "🟢" if not metadata["is_stale"] else "🟡"
+                        st.metric("Last Snapshot", age_str, delta=status_icon)
+                    else:
+                        st.metric("Last Snapshot", "Not Generated")
+                except Exception:
+                    st.metric("Last Snapshot", "N/A")
             
             with col3:
                 # Force refresh button with runtime guard
-                if st.button("🔄 Force Refresh", help="Regenerate snapshot (max 5 min)", use_container_width=True):
-                    with st.spinner("Regenerating snapshot..."):
+                if st.button("🔄 Force Refresh", help="Regenerate TruthFrame (max 5 min)", use_container_width=True):
+                    with st.spinner("Regenerating TruthFrame..."):
                         try:
-                            # Get global price cache for faster generation
-                            price_df = st.session_state.get("global_price_df")
-                            snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=SNAPSHOT_MAX_RUNTIME_SECONDS, price_df=price_df)
-                            st.success(f"✓ Snapshot refreshed: {len(snapshot_df)} waves")
-                            st.rerun()
+                            # Get safe mode status
+                            safe_mode = st.session_state.get("safe_mode_enabled", False)
+                            
+                            if safe_mode:
+                                st.warning("⚠️ Cannot refresh in Safe Mode. Disable Safe Mode to regenerate.")
+                            else:
+                                # Get global price cache for faster generation
+                                price_df = st.session_state.get("global_price_df")
+                                truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
+                                st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
+                                st.rerun()
                         except Exception as e:
-                            st.error(f"Snapshot refresh failed: {str(e)}")
+                            st.error(f"TruthFrame refresh failed: {str(e)}")
             
-            # Load snapshot
-            snapshot_df = load_snapshot(force_refresh=False)
+            # Load TruthFrame (respects Safe Mode)
+            safe_mode = st.session_state.get("safe_mode_enabled", False)
+            truth_df = get_truth_frame(safe_mode=safe_mode)
+            
+            # Convert to snapshot_df format for backward compatibility
+            snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
             
             if snapshot_df is not None and not snapshot_df.empty:
                 # Display snapshot table
