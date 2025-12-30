@@ -1,30 +1,14 @@
 {
-  "timestamp": "2025-12-30T08:25:25.659037",
-  "snapshot_build_time": "2025-12-30 08:25:25",
-  "waves_processed": 3,
+  "timestamp": "2025-12-30T10:46:02.550750",
+  "snapshot_build_time": "2025-12-30 10:46:02",
+  "waves_processed": 28,
   "status_counts": {
-    "Full": 1,
-    "Partial": 1,
-    "Operational": 1,
-    "Unavailable": 0
+    "Full": 6,
+    "Partial": 17,
+    "Operational": 0,
+    "Unavailable": 5
   },
-  "top_failure_reasons": [
-    {
-      "reason": "No data available",
-      "count": 5
-    },
-    {
-      "reason": "API timeout",
-      "count": 3
-    },
-    {
-      "reason": "Invalid ticker",
-      "count": 2
-    }
-  ],
-  "broken_tickers": [
-    "BAD-DATA",
-    "INVALID-TICKER"
-  ],
-  "summary": "3 waves processed, 1 Full (33%), 1 Partial (33%), 1 Operational (33%), 0 Unavailable (0%), 2 broken tickers"
+  "top_failure_reasons": [],
+  "broken_tickers": [],
+  "summary": "28 waves processed, 6 Full (21%), 17 Partial (61%), 0 Operational (0%), 5 Unavailable (18%)"
 }
