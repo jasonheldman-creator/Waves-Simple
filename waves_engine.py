@@ -21,6 +21,7 @@ from typing import Dict, List, Set, Optional, Any, Tuple
 import time
 import json
 import os
+import logging
 
 import numpy as np
 import pandas as pd
@@ -2610,7 +2611,6 @@ def _compute_core(
     else:
         # All benchmark components failed - set to None/NaN
         bm_ret_series = pd.Series(np.nan, index=ret_df.index)
-        import logging
         logger = logging.getLogger(__name__)
         logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 

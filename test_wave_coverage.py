@@ -12,6 +12,7 @@ Tests the following key features:
 import os
 import sys
 from datetime import datetime, timedelta
+import hashlib
 import pandas as pd
 import numpy as np
 
@@ -152,8 +153,9 @@ def test_partial_coverage_computation():
         price_data = {}
         
         for ticker in available_tickers:
-            # Random walk prices
-            np.random.seed(abs(hash(ticker)))  # Use abs for cross-platform compatibility
+            # Random walk prices with deterministic seed
+            seed = int(hashlib.md5(ticker.encode()).hexdigest()[:8], 16)
+            np.random.seed(seed)
             returns = np.random.normal(0.001, 0.02, size=len(dates))
             prices = 100 * (1 + returns).cumprod()
             price_data[ticker] = prices

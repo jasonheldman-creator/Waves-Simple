@@ -20,6 +20,7 @@ import streamlit as st
 import subprocess
 import os
 import traceback
+import logging
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -8572,7 +8573,6 @@ def render_wave_intelligence_center_tab():
             st.warning("Coverage data not available")
             
     except Exception as e:
-        import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Error generating coverage summary: {str(e)}", exc_info=True)
         st.error(f"Error generating coverage summary: {str(e)}")
@@ -9253,7 +9253,6 @@ def render_executive_tab():
                     st.success("✅ No broken tickers found! All waves have complete data coverage.")
                     
             except Exception as e:
-                import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error generating broken tickers report: {str(e)}", exc_info=True)
                 st.error(f"Error generating broken tickers report: {str(e)}")
