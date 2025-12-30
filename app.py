@@ -15645,6 +15645,280 @@ def render_wave_monitor_tab():
             st.code(traceback.format_exc(), language="python")
 
 
+def render_planb_monitor_tab():
+    """
+    Render the Plan B Monitor tab.
+    
+    This tab provides:
+    - Canonical metrics table for all 28 waves
+    - Completely decoupled from live ticker dependencies
+    - Graceful degradation with status flags
+    - Wave selector with diagnostics
+    - No blockers or indefinite retries
+    """
+    try:
+        from planb_pipeline import build_planb_snapshot, get_planb_diagnostics, check_planb_files
+        
+        st.markdown("# 📊 Plan B Monitor")
+        st.markdown("### Canonical Metrics - Fully Decoupled Analytics")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 1: Status Banner
+        # ========================================================================
+        
+        # Check file status
+        file_status = check_planb_files()
+        all_files_exist = all(file_status.values())
+        
+        if not all_files_exist:
+            missing_files = [k for k, v in file_status.items() if not v]
+            st.warning(f"⚠️ **Plan B Data Incomplete:** Missing files: {', '.join(missing_files)}.csv - All waves marked UNAVAILABLE until data is populated.")
+        
+        # ========================================================================
+        # SECTION 2: Snapshot Controls
+        # ========================================================================
+        
+        st.subheader("⚙️ Snapshot Controls")
+        
+        col1, col2, col3 = st.columns([2, 2, 3])
+        
+        with col1:
+            # Days selector
+            days_options = [30, 60, 90, 180, 365]
+            selected_days = st.selectbox("History Window", days_options, index=4, help="Number of days of history to use for calculations")
+        
+        with col2:
+            # Refresh button
+            if st.button("🔄 Refresh Snapshot", help="Rebuild the Plan B snapshot with current data"):
+                st.session_state.planb_snapshot_cache_bust = datetime.now()
+                st.rerun()
+        
+        with col3:
+            # Timestamp display
+            snapshot_timestamp = st.session_state.get('planb_snapshot_timestamp', datetime.now())
+            st.info(f"📅 Snapshot Age: {(datetime.now() - snapshot_timestamp).total_seconds() / 60:.1f} minutes")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: Build Snapshot
+        # ========================================================================
+        
+        with st.spinner("Building Plan B snapshot..."):
+            snapshot_df = build_planb_snapshot(days=selected_days)
+            st.session_state.planb_snapshot_timestamp = datetime.now()
+        
+        # ========================================================================
+        # SECTION 4: Summary Metrics
+        # ========================================================================
+        
+        st.subheader("📈 Summary Metrics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            status_counts = snapshot_df['status'].value_counts()
+            full_count = status_counts.get('FULL', 0)
+            st.metric("FULL Status", f"{full_count}/28", delta=None, help="Waves with complete data")
+        
+        with col2:
+            partial_count = status_counts.get('PARTIAL', 0)
+            st.metric("PARTIAL Status", f"{partial_count}/28", delta=None, help="Waves with partial data")
+        
+        with col3:
+            unavailable_count = status_counts.get('UNAVAILABLE', 0)
+            st.metric("UNAVAILABLE", f"{unavailable_count}/28", delta=None, help="Waves with no data")
+        
+        with col4:
+            # Count waves with alerts
+            alerts_count = snapshot_df['alerts'].apply(lambda x: len(x) > 0).sum()
+            st.metric("Alerts", f"{alerts_count}", delta=None, help="Waves with active alerts")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 5: Dynamic Table View
+        # ========================================================================
+        
+        st.subheader("📊 All Waves Snapshot (28 Waves)")
+        
+        # Prepare display DataFrame
+        display_df = snapshot_df.copy()
+        
+        # Format percentage columns
+        pct_cols = [
+            'return_1d', 'return_30d', 'return_60d', 'return_365d',
+            'bm_return_1d', 'bm_return_30d', 'bm_return_60d', 'bm_return_365d',
+            'alpha_1d', 'alpha_30d', 'alpha_60d', 'alpha_365d',
+            'exposure_pct', 'cash_pct', 'vol_365d', 'maxdd_365d', 'turnover_30d'
+        ]
+        
+        for col in pct_cols:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(
+                    lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A"
+                )
+        
+        # Format beta
+        if 'beta_est' in display_df.columns:
+            display_df['beta_est'] = display_df['beta_est'].apply(
+                lambda x: f"{x:.2f}" if pd.notna(x) else "N/A"
+            )
+        
+        # Format NAV
+        if 'nav_latest' in display_df.columns:
+            display_df['nav_latest'] = display_df['nav_latest'].apply(
+                lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
+            )
+        
+        # Format alerts
+        if 'alerts' in display_df.columns:
+            display_df['alerts'] = display_df['alerts'].apply(
+                lambda x: f"{len(x)} alerts" if len(x) > 0 else "✅"
+            )
+        
+        # Select columns for display
+        display_columns = [
+            'display_name', 'status', 'nav_latest',
+            'return_1d', 'return_30d', 'return_365d',
+            'alpha_1d', 'alpha_30d', 'alpha_365d',
+            'exposure_pct', 'cash_pct', 'beta_est',
+            'vol_365d', 'maxdd_365d', 'alerts'
+        ]
+        
+        # Filter to available columns
+        display_columns = [c for c in display_columns if c in display_df.columns]
+        
+        # Show table with color coding
+        st.dataframe(
+            display_df[display_columns],
+            use_container_width=True,
+            hide_index=True,
+            height=600
+        )
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 6: Wave Selector with Diagnostics
+        # ========================================================================
+        
+        st.subheader("🔍 Wave Diagnostics")
+        
+        # Wave selector
+        selected_wave_name = st.selectbox(
+            "Select Wave for Detailed Diagnostics",
+            options=snapshot_df['display_name'].tolist(),
+            help="Choose a wave to view detailed diagnostics"
+        )
+        
+        # Get selected wave data
+        wave_data = snapshot_df[snapshot_df['display_name'] == selected_wave_name].iloc[0]
+        
+        # Display diagnostics in expandable section
+        with st.expander(f"📋 Diagnostics for {selected_wave_name}", expanded=True):
+            
+            # Status and reason
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                status = wave_data['status']
+                status_color = {
+                    'FULL': '🟢',
+                    'PARTIAL': '🟡',
+                    'UNAVAILABLE': '🔴'
+                }.get(status, '⚪')
+                
+                st.markdown(f"**Status:** {status_color} {status}")
+                st.markdown(f"**Wave ID:** `{wave_data['wave_id']}`")
+                st.markdown(f"**Mode:** {wave_data['mode']}")
+            
+            with col2:
+                st.markdown(f"**Latest NAV:** {display_df[display_df['display_name'] == selected_wave_name]['nav_latest'].iloc[0]}")
+                st.markdown(f"**365D Return:** {display_df[display_df['display_name'] == selected_wave_name]['return_365d'].iloc[0]}")
+                st.markdown(f"**365D Alpha:** {display_df[display_df['display_name'] == selected_wave_name]['alpha_365d'].iloc[0]}")
+            
+            # Reason for degradation
+            if wave_data['reason']:
+                st.warning(f"**Degradation Reason:** {wave_data['reason']}")
+            
+            # Alerts
+            if len(wave_data['alerts']) > 0:
+                st.error("**Active Alerts:**")
+                for alert in wave_data['alerts']:
+                    st.markdown(f"- {alert}")
+            else:
+                st.success("✅ No active alerts")
+            
+            # Detailed metrics
+            st.markdown("---")
+            st.markdown("**Detailed Metrics:**")
+            
+            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            
+            with metrics_col1:
+                st.markdown("**Returns:**")
+                st.markdown(f"- 1D: {display_df[display_df['display_name'] == selected_wave_name]['return_1d'].iloc[0]}")
+                st.markdown(f"- 30D: {display_df[display_df['display_name'] == selected_wave_name]['return_30d'].iloc[0]}")
+                st.markdown(f"- 60D: {display_df[display_df['display_name'] == selected_wave_name]['return_60d'].iloc[0]}")
+                st.markdown(f"- 365D: {display_df[display_df['display_name'] == selected_wave_name]['return_365d'].iloc[0]}")
+            
+            with metrics_col2:
+                st.markdown("**Alpha vs Benchmark:**")
+                st.markdown(f"- 1D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_1d'].iloc[0]}")
+                st.markdown(f"- 30D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_30d'].iloc[0]}")
+                st.markdown(f"- 60D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_60d'].iloc[0]}")
+                st.markdown(f"- 365D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_365d'].iloc[0]}")
+            
+            with metrics_col3:
+                st.markdown("**Risk Metrics:**")
+                st.markdown(f"- Beta: {display_df[display_df['display_name'] == selected_wave_name]['beta_est'].iloc[0]}")
+                st.markdown(f"- Volatility: {display_df[display_df['display_name'] == selected_wave_name]['vol_365d'].iloc[0]}")
+                st.markdown(f"- Max Drawdown: {display_df[display_df['display_name'] == selected_wave_name]['maxdd_365d'].iloc[0]}")
+                st.markdown(f"- Exposure: {display_df[display_df['display_name'] == selected_wave_name]['exposure_pct'].iloc[0]}")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 7: System Diagnostics
+        # ========================================================================
+        
+        st.subheader("🔧 System Diagnostics")
+        
+        diagnostics = get_planb_diagnostics()
+        
+        with st.expander("📋 View System Diagnostics", expanded=False):
+            st.markdown(f"**Timestamp:** {diagnostics['timestamp']}")
+            st.markdown(f"**All Files Exist:** {'✅ Yes' if diagnostics['all_files_exist'] else '❌ No'}")
+            
+            if diagnostics['missing_files']:
+                st.warning(f"**Missing Files:** {', '.join(diagnostics['missing_files'])}")
+            
+            st.markdown("---")
+            st.markdown("**File Information:**")
+            
+            for file_key, file_info in diagnostics.get('file_info', {}).items():
+                if file_info.get('exists'):
+                    if 'error' in file_info:
+                        st.error(f"- **{file_key}.csv:** Error loading - {file_info['error']}")
+                    else:
+                        st.markdown(f"- **{file_key}.csv:** {file_info.get('row_count', 0)} rows, {file_info.get('size_bytes', 0)} bytes")
+                else:
+                    st.error(f"- **{file_key}.csv:** ❌ Missing")
+    
+    except ImportError:
+        st.error("⚠️ **Plan B Monitor Unavailable:** The `planb_pipeline` module is not available.")
+        st.info("To enable this feature, ensure `planb_pipeline.py` is present in the application directory.")
+    
+    except Exception as e:
+        st.error(f"Error rendering Plan B Monitor tab: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -17053,6 +17327,7 @@ def main():
             "IC Pack",
             "Alpha Capture",
             "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Governance & Audit",      # NEW: Governance and transparency layer
             "Diagnostics",             # Health/Diagnostics tab
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
@@ -17107,16 +17382,20 @@ def main():
         with analytics_tabs[9]:
             safe_component("Wave Monitor", render_wave_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
         with analytics_tabs[10]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[11]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[11]:
+        with analytics_tabs[12]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -17133,6 +17412,7 @@ def main():
             "IC Pack",
             "Alpha Capture",
             "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
@@ -17191,16 +17471,20 @@ def main():
         with analytics_tabs[10]:
             safe_component("Wave Monitor", render_wave_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
         with analytics_tabs[11]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -17216,6 +17500,7 @@ def main():
             "IC Pack",
             "Alpha Capture",
             "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
@@ -17269,16 +17554,20 @@ def main():
         with analytics_tabs[9]:
             safe_component("Wave Monitor", render_wave_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
         with analytics_tabs[10]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[11]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[11]:
+        with analytics_tabs[12]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
