@@ -2563,7 +2563,18 @@ def _compute_core(
             price_df, failed_tickers = _download_history(all_tickers, days=days, wave_id=wave_id, wave_name=wave_name)
     
     if price_df.empty:
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        # Return empty result with coverage metadata
+        result = pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 0.0,
+            "bm_coverage_pct": 0.0,
+            "wave_tickers_expected": len(wave_weights),
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": len(bm_weights),
+            "bm_tickers_available": 0,
+            "failed_tickers": failed_tickers,
+        }
+        return result
     if len(price_df) > days:
         price_df = price_df.iloc[-days:]
 
@@ -3272,7 +3283,18 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
         print(f"Error in compute_history_nav for {wave_name}: {str(e)}")
         import traceback
         traceback.print_exc()
-        return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        # Return empty DataFrame with coverage metadata indicating complete failure
+        result = pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 0.0,
+            "bm_coverage_pct": 0.0,
+            "wave_tickers_expected": 0,
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": 0,
+            "bm_tickers_available": 0,
+            "failed_tickers": {},
+        }
+        return result
 
 
 def simulate_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, overrides: Optional[Dict[str, Any]] = None, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
