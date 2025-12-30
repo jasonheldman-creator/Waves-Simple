@@ -1,0 +1,287 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-12-30",
+  "total_waves": 28,
+  "waves": [
+    {
+      "wave_id": "ai_cloud_megacap_wave",
+      "display_name": "AI & Cloud MegaCap Wave",
+      "category": "Equity",
+      "benchmark_ticker": "QQQ",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "clean_transit_infrastructure_wave",
+      "display_name": "Clean Transit-Infrastructure Wave",
+      "category": "Equity",
+      "benchmark_ticker": "PAVE",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_ai_growth_wave",
+      "display_name": "Crypto AI Growth Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "TAO-USD",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_broad_growth_wave",
+      "display_name": "Crypto Broad Growth Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "BTC-USD",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_defi_growth_wave",
+      "display_name": "Crypto DeFi Growth Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "UNI-USD",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_income_wave",
+      "display_name": "Crypto Income Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "ETH-USD",
+      "mode": "Standard",
+      "beta_target": 0.8,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_l1_growth_wave",
+      "display_name": "Crypto L1 Growth Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "ETH-USD",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "crypto_l2_growth_wave",
+      "display_name": "Crypto L2 Growth Wave",
+      "category": "Crypto",
+      "benchmark_ticker": "MATIC-USD",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "demas_fund_wave",
+      "display_name": "Demas Fund Wave",
+      "category": "Equity",
+      "benchmark_ticker": "SPY",
+      "mode": "Standard",
+      "beta_target": 0.85,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "ev_infrastructure_wave",
+      "display_name": "EV & Infrastructure Wave",
+      "category": "Equity",
+      "benchmark_ticker": "PAVE",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "future_energy_ev_wave",
+      "display_name": "Future Energy & EV Wave",
+      "category": "Equity",
+      "benchmark_ticker": "XLE",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "future_power_energy_wave",
+      "display_name": "Future Power & Energy Wave",
+      "category": "Equity",
+      "benchmark_ticker": "ICLN",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "gold_wave",
+      "display_name": "Gold Wave",
+      "category": "Commodity",
+      "benchmark_ticker": "GLD",
+      "mode": "Standard",
+      "beta_target": 0.5,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "income_wave",
+      "display_name": "Income Wave",
+      "category": "Fixed Income",
+      "benchmark_ticker": "VYM",
+      "mode": "Standard",
+      "beta_target": 0.6,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "infinity_multi_asset_growth_wave",
+      "display_name": "Infinity Multi-Asset Growth Wave",
+      "category": "Equity",
+      "benchmark_ticker": "SPY",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "next_gen_compute_semis_wave",
+      "display_name": "Next-Gen Compute & Semis Wave",
+      "category": "Equity",
+      "benchmark_ticker": "QQQ",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "quantum_computing_wave",
+      "display_name": "Quantum Computing Wave",
+      "category": "Equity",
+      "benchmark_ticker": "QQQ",
+      "mode": "Private Logic",
+      "beta_target": 1.0,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "russell_3000_wave",
+      "display_name": "Russell 3000 Wave",
+      "category": "Equity",
+      "benchmark_ticker": "IWV",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "small_cap_growth_wave",
+      "display_name": "Small Cap Growth Wave",
+      "category": "Equity",
+      "benchmark_ticker": "IWO",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "small_to_mid_cap_growth_wave",
+      "display_name": "Small to Mid Cap Growth Wave",
+      "category": "Equity",
+      "benchmark_ticker": "IWP",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "smartsafe_tax_free_money_market_wave",
+      "display_name": "SmartSafe Tax-Free Money Market Wave",
+      "category": "Fixed Income",
+      "benchmark_ticker": "SUB",
+      "mode": "Standard",
+      "beta_target": 0.3,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "smartsafe_treasury_cash_wave",
+      "display_name": "SmartSafe Treasury Cash Wave",
+      "category": "Fixed Income",
+      "benchmark_ticker": "BIL",
+      "mode": "Standard",
+      "beta_target": 0.3,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "sp500_wave",
+      "display_name": "S&P 500 Wave",
+      "category": "Equity",
+      "benchmark_ticker": "SPY",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "us_megacap_core_wave",
+      "display_name": "US MegaCap Core Wave",
+      "category": "Equity",
+      "benchmark_ticker": "SPY",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "us_mid_small_growth_semis_wave",
+      "display_name": "US Mid/Small Growth & Semis Wave",
+      "category": "Equity",
+      "benchmark_ticker": "IWP",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "us_small_cap_disruptors_wave",
+      "display_name": "US Small-Cap Disruptors Wave",
+      "category": "Equity",
+      "benchmark_ticker": "IWO",
+      "mode": "Standard",
+      "beta_target": 0.9,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "vector_muni_ladder_wave",
+      "display_name": "Vector Muni Ladder Wave",
+      "category": "Fixed Income",
+      "benchmark_ticker": "SUB",
+      "mode": "Standard",
+      "beta_target": 0.6,
+      "tag": "LIVE",
+      "enabled": true
+    },
+    {
+      "wave_id": "vector_treasury_ladder_wave",
+      "display_name": "Vector Treasury Ladder Wave",
+      "category": "Fixed Income",
+      "benchmark_ticker": "BIL",
+      "mode": "Standard",
+      "beta_target": 0.6,
+      "tag": "LIVE",
+      "enabled": true
+    }
+  ]
+}

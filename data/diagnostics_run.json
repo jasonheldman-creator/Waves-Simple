@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-12-30T08:25:25.659037",
+  "snapshot_build_time": "2025-12-30 08:25:25",
+  "waves_processed": 3,
+  "status_counts": {
+    "Full": 1,
+    "Partial": 1,
+    "Operational": 1,
+    "Unavailable": 0
+  },
+  "top_failure_reasons": [
+    {
+      "reason": "No data available",
+      "count": 5
+    },
+    {
+      "reason": "API timeout",
+      "count": 3
+    },
+    {
+      "reason": "Invalid ticker",
+      "count": 2
+    }
+  ],
+  "broken_tickers": [
+    "BAD-DATA",
+    "INVALID-TICKER"
+  ],
+  "summary": "3 waves processed, 1 Full (33%), 1 Partial (33%), 1 Operational (33%), 0 Unavailable (0%), 2 broken tickers"
+}

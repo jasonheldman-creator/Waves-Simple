@@ -95,6 +95,27 @@ except ImportError:
     MAX_CONSECUTIVE_ERRORS = 3
     STATUS_FORMAT = {"enabled": "🟢 ON", "disabled": "🔴 OFF", "paused": "🟡 PAUSED", "error": "⚠️ ERROR"}
 
+# Import wave registry validator
+try:
+    from helpers.wave_registry_validator import validate_wave_registry, load_wave_registry, get_enabled_waves
+    WAVE_REGISTRY_VALIDATOR_AVAILABLE = True
+except ImportError:
+    WAVE_REGISTRY_VALIDATOR_AVAILABLE = False
+
+# Import executive summary generator
+try:
+    from helpers.executive_summary import generate_executive_summary
+    EXECUTIVE_SUMMARY_AVAILABLE = True
+except ImportError:
+    EXECUTIVE_SUMMARY_AVAILABLE = False
+
+# Import diagnostics artifact loader
+try:
+    from helpers.diagnostics_artifact import load_diagnostics_artifact
+    DIAGNOSTICS_ARTIFACT_AVAILABLE = True
+except ImportError:
+    DIAGNOSTICS_ARTIFACT_AVAILABLE = False
+
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
 # ============================================================================
@@ -10492,6 +10513,37 @@ def render_overview_tab():
         st.caption("Executive-level intelligence across all waves")
         
         # ========================================================================
+        # WAVE REGISTRY VALIDATOR - Diagnostics Panel
+        # ========================================================================
+        if WAVE_REGISTRY_VALIDATOR_AVAILABLE:
+            try:
+                # Run validation
+                validation_result = validate_wave_registry(
+                    registry_path="config/wave_registry.json",
+                    wave_weights=WAVE_WEIGHTS if WAVES_ENGINE_AVAILABLE else None
+                )
+                
+                # Display validation status
+                if not validation_result.is_valid:
+                    # Show errors prominently
+                    st.error(f"⚠️ Wave Registry Validation Failed: {validation_result.error_count} errors, {validation_result.warning_count} warnings")
+                    
+                    with st.expander("🔍 Registry Validation Report", expanded=True):
+                        st.code(validation_result.get_detailed_report(), language="text")
+                elif validation_result.warning_count > 0:
+                    # Show warnings in collapsible panel
+                    st.warning(f"⚠️ Wave Registry: {validation_result.warning_count} warnings (registry is valid)")
+                    
+                    with st.expander("🔍 Registry Validation Report", expanded=False):
+                        st.code(validation_result.get_detailed_report(), language="text")
+                else:
+                    # Show success in collapsible panel
+                    with st.expander("✓ Wave Registry Validation: Passed", expanded=False):
+                        st.code(validation_result.get_detailed_report(), language="text")
+            except Exception as e:
+                st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
+        
+        # ========================================================================
         # WAVE SNAPSHOT LEDGER - New: 28/28 Coverage Section
         # ========================================================================
         try:
@@ -10536,10 +10588,54 @@ def render_overview_tab():
                     # Format numeric columns for display
                     display_df = snapshot_df.copy()
                     
+                    # Add Coverage % column (from Coverage_Score)
+                    if "Coverage_Score" in display_df.columns:
+                        display_df["Coverage %"] = display_df["Coverage_Score"].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else "N/A")
+                    
+                    # Add Alert Badge column based on flags and status
+                    def get_alert_badge(row):
+                        alerts = []
+                        if row.get("Data_Regime_Tag") == "Unavailable":
+                            alerts.append("🔴 No Data")
+                        elif row.get("Data_Regime_Tag") == "Operational":
+                            alerts.append("🟠 Limited")
+                        
+                        flags = row.get("Flags", "")
+                        if isinstance(flags, str):
+                            if "Tier D" in flags or "No Data" in flags:
+                                alerts.append("⚠️ Fallback")
+                            elif "Tier B" in flags or "Limited History" in flags:
+                                alerts.append("⚡ Partial")
+                        
+                        coverage = row.get("Coverage_Score", 100)
+                        if pd.notna(coverage) and coverage < 50:
+                            alerts.append("📉 Low Coverage")
+                        
+                        return " ".join(alerts) if alerts else "✓"
+                    
+                    display_df["Alert"] = display_df.apply(get_alert_badge, axis=1)
+                    
+                    # Add Readiness column with icon and coverage
+                    def format_readiness(row):
+                        status = row.get("Data_Regime_Tag", "Unknown")
+                        coverage = row.get("Coverage_Score", 0)
+                        
+                        icons = {
+                            "Full": "🟢",
+                            "Partial": "🟡",
+                            "Operational": "🟠",
+                            "Unavailable": "🔴"
+                        }
+                        
+                        icon = icons.get(status, "⚪")
+                        return f"{icon} {status} ({coverage:.0f}%)" if pd.notna(coverage) else f"{icon} {status}"
+                    
+                    display_df["Readiness"] = display_df.apply(format_readiness, axis=1)
+                    
                     # Format percentage columns
                     pct_cols = [col for col in display_df.columns if "Return" in col or "Alpha" in col or "Percent" in col]
                     for col in pct_cols:
-                        if col in display_df.columns:
+                        if col in display_df.columns and col != "Coverage %":  # Skip Coverage % as it's already formatted
                             display_df[col] = display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A")
                     
                     # Format numeric columns
@@ -10548,8 +10644,19 @@ def render_overview_tab():
                         if col in display_df.columns:
                             display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
                     
-                    # Display table with all columns
-                    st.dataframe(display_df, use_container_width=True, hide_index=True, height=600)
+                    # Select key columns to display (avoid overwhelming the table)
+                    key_columns = [
+                        "Wave_ID", "Wave", "Category", "Readiness", "Alert",
+                        "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+                        "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+                        "Exposure", "CashPercent", "Coverage %"
+                    ]
+                    
+                    # Only include columns that exist
+                    display_columns = [col for col in key_columns if col in display_df.columns]
+                    
+                    # Display table with selected columns
+                    st.dataframe(display_df[display_columns], use_container_width=True, hide_index=True, height=600)
                 
                 # Summary statistics
                 st.markdown("#### 📈 Snapshot Summary")
@@ -10570,6 +10677,54 @@ def render_overview_tab():
                 with col4:
                     unavailable_count = (snapshot_df["Data_Regime_Tag"] == "Unavailable").sum()
                     st.metric("🔴 Unavailable", unavailable_count, delta=f"{unavailable_count/len(snapshot_df)*100:.0f}%")
+                
+                st.divider()
+                
+                # ================================================================
+                # EXECUTIVE SUMMARY NARRATIVE
+                # ================================================================
+                if EXECUTIVE_SUMMARY_AVAILABLE:
+                    try:
+                        # Get market data for context
+                        market_data = {}
+                        try:
+                            # Try to get VIX, SPY, QQQ from snapshot or fetch
+                            import yfinance as yf
+                            
+                            # Get VIX from snapshot if available
+                            if "VIX_Level" in snapshot_df.columns:
+                                vix_values = snapshot_df["VIX_Level"].dropna()
+                                if not vix_values.empty:
+                                    market_data["VIX"] = vix_values.iloc[0]
+                            
+                            # Try to fetch SPY and QQQ 1D returns
+                            try:
+                                spy = yf.Ticker("SPY")
+                                spy_hist = spy.history(period="5d")
+                                if len(spy_hist) >= 2:
+                                    market_data["SPY_1D"] = (spy_hist["Close"].iloc[-1] / spy_hist["Close"].iloc[-2] - 1)
+                            except:
+                                pass
+                            
+                            try:
+                                qqq = yf.Ticker("QQQ")
+                                qqq_hist = qqq.history(period="5d")
+                                if len(qqq_hist) >= 2:
+                                    market_data["QQQ_1D"] = (qqq_hist["Close"].iloc[-1] / qqq_hist["Close"].iloc[-2] - 1)
+                            except:
+                                pass
+                        except:
+                            pass
+                        
+                        # Generate executive summary
+                        summary_text = generate_executive_summary(snapshot_df, market_data)
+                        
+                        # Display executive summary
+                        st.markdown("---")
+                        st.markdown(summary_text)
+                        st.markdown("---")
+                    except Exception as e:
+                        st.warning(f"⚠️ Failed to generate executive summary: {str(e)}")
                 
                 st.divider()
             else:
