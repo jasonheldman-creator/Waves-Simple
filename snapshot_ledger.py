@@ -61,6 +61,13 @@ try:
 except ImportError:
     DATA_CACHE_AVAILABLE = False
 
+# Import diagnostics artifact generator
+try:
+    from helpers.diagnostics_artifact import generate_diagnostics_artifact, extract_diagnostics_from_snapshot
+    DIAGNOSTICS_ARTIFACT_AVAILABLE = True
+except ImportError:
+    DIAGNOSTICS_ARTIFACT_AVAILABLE = False
+
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
 BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
@@ -1035,6 +1042,22 @@ def generate_snapshot(
         generate_broken_tickers_artifact()
     except Exception as e:
         print(f"⚠ Failed to generate broken tickers artifact (non-fatal): {e}")
+    
+    # Generate diagnostics artifact
+    if DIAGNOSTICS_ARTIFACT_AVAILABLE:
+        try:
+            broken_tickers, failure_reasons = extract_diagnostics_from_snapshot(
+                snapshot_df, 
+                broken_tickers_path=BROKEN_TICKERS_FILE
+            )
+            diagnostics = generate_diagnostics_artifact(
+                snapshot_df=snapshot_df,
+                broken_tickers=broken_tickers,
+                failure_reasons=failure_reasons
+            )
+            print(f"✓ Diagnostics artifact generated: {diagnostics.get('summary', 'N/A')}")
+        except Exception as e:
+            print(f"⚠ Failed to generate diagnostics artifact (non-fatal): {e}")
     
     return snapshot_df
 
