@@ -15436,6 +15436,489 @@ def render_governance_audit_tab():
 # SECTION 7.5: DIAGNOSTICS TAB
 # ============================================================================
 
+def render_wave_monitor_tab():
+    """
+    ROUND 7 Phase 5: Wave Monitor Tab
+    
+    Render the Wave Monitor tab with:
+    - Dropdown to choose individual waves
+    - Context strip showing wave name, readiness, exposure, cash
+    - Static metrics table with returns, alphas, coverage
+    - Toggle between "Show ALL vs Operational"
+    
+    This tab ensures meaningful rendering even with no live data downloads.
+    """
+    st.markdown("# 🌊 Wave Monitor")
+    st.markdown("### Individual Wave Analytics and Diagnostics")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: Wave Selector
+    # ========================================================================
+    from waves_engine import get_all_waves_universe, get_wave_id_from_display_name
+    from analytics_pipeline import resolve_wave_metrics
+    
+    try:
+        universe = get_all_waves_universe()
+        all_waves = universe.get('waves', [])
+        
+        # Filter toggle
+        col_toggle1, col_toggle2 = st.columns([3, 1])
+        
+        with col_toggle2:
+            show_all = st.checkbox("Show All Waves", value=True, key="wave_monitor_show_all")
+        
+        # If not showing all, filter to operational+ waves only
+        if not show_all:
+            # Get wave statuses
+            operational_waves = []
+            for wave_name in all_waves:
+                wave_id = get_wave_id_from_display_name(wave_name)
+                if wave_id:
+                    metrics = resolve_wave_metrics(wave_id, mode="Standard")
+                    readiness = metrics.get('readiness_status', 'unavailable')
+                    if readiness in ['operational', 'partial', 'full']:
+                        operational_waves.append(wave_name)
+            waves_to_show = operational_waves if operational_waves else all_waves
+        else:
+            waves_to_show = all_waves
+        
+        with col_toggle1:
+            selected_wave = st.selectbox(
+                "Select Wave",
+                options=waves_to_show,
+                key="wave_monitor_selected_wave",
+                help=f"Showing {len(waves_to_show)} of {len(all_waves)} waves"
+            )
+        
+        if not selected_wave:
+            st.info("Please select a wave to view its metrics.")
+            return
+        
+        # Get wave_id and metrics
+        wave_id = get_wave_id_from_display_name(selected_wave)
+        if not wave_id:
+            st.error(f"Could not find wave_id for {selected_wave}")
+            return
+        
+        metrics = resolve_wave_metrics(wave_id, mode="Standard")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 2: Context Strip
+        # ========================================================================
+        st.subheader("📊 Wave Context")
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("Wave", selected_wave.replace(" Wave", ""))
+        
+        with col2:
+            readiness = metrics.get('readiness_status', 'unavailable')
+            readiness_emoji = {
+                'full': '🟢',
+                'partial': '🟡',
+                'operational': '🟠',
+                'unavailable': '🔴'
+            }.get(readiness, '⚪')
+            st.metric("Readiness", f"{readiness_emoji} {readiness.title()}")
+        
+        with col3:
+            exposure = metrics.get('exposure_pct', 1.0)
+            exposure_pct = exposure * 100 if exposure is not None else 100.0
+            st.metric("Exposure", f"{exposure_pct:.1f}%")
+        
+        with col4:
+            cash = metrics.get('cash_pct', 0.0)
+            cash_pct = cash * 100 if cash is not None else 0.0
+            st.metric("Cash", f"{cash_pct:.1f}%")
+        
+        with col5:
+            # Show snapshot timestamp if available
+            snapshot_age = st.session_state.get('snapshot_age_minutes')
+            if snapshot_age is not None and snapshot_age < 60:
+                freshness_text = f"{snapshot_age:.0f}m"
+            elif snapshot_age is not None and snapshot_age < 1440:
+                freshness_text = f"{snapshot_age/60:.1f}h"
+            else:
+                freshness_text = "Stale"
+            st.metric("Data Age", freshness_text)
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: Returns & Alpha Table
+        # ========================================================================
+        st.subheader("📈 Returns & Alpha Analysis")
+        
+        # Build metrics table
+        timeframes = [
+            ('1D', '1d'),
+            ('30D', '30d'),
+            ('60D', '60d'),
+            ('365D', '365d')
+        ]
+        
+        table_data = []
+        for label, key in timeframes:
+            wave_return = metrics.get(f'return_{key}')
+            bm_return = metrics.get(f'benchmark_return_{key}')
+            alpha = metrics.get(f'alpha_{key}')
+            
+            # Format values
+            wave_return_str = f"{wave_return*100:.2f}%" if wave_return is not None else "N/A"
+            bm_return_str = f"{bm_return*100:.2f}%" if bm_return is not None else "N/A"
+            alpha_str = f"{alpha*100:.2f}%" if alpha is not None else "N/A"
+            
+            table_data.append({
+                'Timeframe': label,
+                'Wave Return': wave_return_str,
+                'Benchmark Return': bm_return_str,
+                'Alpha': alpha_str
+            })
+        
+        import pandas as pd
+        metrics_df = pd.DataFrame(table_data)
+        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 4: Coverage & Readiness Diagnostics
+        # ========================================================================
+        st.subheader("🔍 Coverage & Readiness Diagnostics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            coverage_pct = metrics.get('coverage_pct', 0.0)
+            st.metric("Coverage %", f"{coverage_pct:.1f}%")
+        
+        with col2:
+            coverage_score = metrics.get('coverage_score', 0)
+            st.metric("Coverage Score", coverage_score)
+        
+        with col3:
+            has_prices = metrics.get('has_prices', False)
+            prices_status = "✅ Yes" if has_prices else "❌ No"
+            st.metric("Has Prices", prices_status)
+        
+        with col4:
+            has_benchmark = metrics.get('has_benchmark', False)
+            benchmark_status = "✅ Yes" if has_benchmark else "❌ No"
+            st.metric("Has Benchmark", benchmark_status)
+        
+        # ========================================================================
+        # SECTION 5: Alerts & Degradation Info
+        # ========================================================================
+        alerts = metrics.get('alerts', [])
+        degradation_cause = metrics.get('degradation_cause')
+        source = metrics.get('source', 'unknown')
+        
+        if alerts or degradation_cause:
+            st.markdown("---")
+            st.subheader("⚠️ Alerts & Diagnostics")
+            
+            # Show data source
+            source_emoji = {
+                'pipeline': '🟢',
+                'snapshot': '🟡',
+                'degraded': '🔴'
+            }.get(source, '⚪')
+            st.info(f"**Data Source:** {source_emoji} {source.title()}")
+            
+            if degradation_cause:
+                st.warning(f"**Degradation Cause:** {degradation_cause}")
+            
+            if alerts:
+                with st.expander(f"📋 View Alerts ({len(alerts)})", expanded=False):
+                    for i, alert in enumerate(alerts, 1):
+                        st.text(f"{i}. {alert}")
+        
+    except Exception as e:
+        st.error(f"Error rendering Wave Monitor tab: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+
+
+def render_planb_monitor_tab():
+    """
+    Render the Plan B Monitor tab.
+    
+    This tab provides:
+    - Canonical metrics table for all 28 waves
+    - Completely decoupled from live ticker dependencies
+    - Graceful degradation with status flags
+    - Wave selector with diagnostics
+    - No blockers or indefinite retries
+    """
+    try:
+        from planb_pipeline import build_planb_snapshot, get_planb_diagnostics, check_planb_files
+        
+        st.markdown("# 📊 Plan B Monitor")
+        st.markdown("### Canonical Metrics - Fully Decoupled Analytics")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 1: Status Banner
+        # ========================================================================
+        
+        # Check file status
+        file_status = check_planb_files()
+        all_files_exist = all(file_status.values())
+        
+        if not all_files_exist:
+            missing_files = [k for k, v in file_status.items() if not v]
+            st.warning(f"⚠️ **Plan B Data Incomplete:** Missing files: {', '.join(missing_files)}.csv - All waves marked UNAVAILABLE until data is populated.")
+        
+        # ========================================================================
+        # SECTION 2: Snapshot Controls
+        # ========================================================================
+        
+        st.subheader("⚙️ Snapshot Controls")
+        
+        col1, col2, col3 = st.columns([2, 2, 3])
+        
+        with col1:
+            # Days selector
+            days_options = [30, 60, 90, 180, 365]
+            selected_days = st.selectbox("History Window", days_options, index=4, help="Number of days of history to use for calculations")
+        
+        with col2:
+            # Refresh button
+            if st.button("🔄 Refresh Snapshot", help="Rebuild the Plan B snapshot with current data"):
+                st.session_state.planb_snapshot_cache_bust = datetime.now()
+                st.rerun()
+        
+        with col3:
+            # Timestamp display
+            snapshot_timestamp = st.session_state.get('planb_snapshot_timestamp', datetime.now())
+            st.info(f"📅 Snapshot Age: {(datetime.now() - snapshot_timestamp).total_seconds() / 60:.1f} minutes")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: Build Snapshot
+        # ========================================================================
+        
+        with st.spinner("Building Plan B snapshot..."):
+            snapshot_df = build_planb_snapshot(days=selected_days)
+            st.session_state.planb_snapshot_timestamp = datetime.now()
+        
+        # ========================================================================
+        # SECTION 4: Summary Metrics
+        # ========================================================================
+        
+        st.subheader("📈 Summary Metrics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            status_counts = snapshot_df['status'].value_counts()
+            full_count = status_counts.get('FULL', 0)
+            st.metric("FULL Status", f"{full_count}/28", delta=None, help="Waves with complete data")
+        
+        with col2:
+            partial_count = status_counts.get('PARTIAL', 0)
+            st.metric("PARTIAL Status", f"{partial_count}/28", delta=None, help="Waves with partial data")
+        
+        with col3:
+            unavailable_count = status_counts.get('UNAVAILABLE', 0)
+            st.metric("UNAVAILABLE", f"{unavailable_count}/28", delta=None, help="Waves with no data")
+        
+        with col4:
+            # Count waves with alerts
+            alerts_count = snapshot_df['alerts'].apply(lambda x: len(x) > 0).sum()
+            st.metric("Alerts", f"{alerts_count}", delta=None, help="Waves with active alerts")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 5: Dynamic Table View
+        # ========================================================================
+        
+        st.subheader("📊 All Waves Snapshot (28 Waves)")
+        
+        # Prepare display DataFrame
+        display_df = snapshot_df.copy()
+        
+        # Format percentage columns
+        pct_cols = [
+            'return_1d', 'return_30d', 'return_60d', 'return_365d',
+            'bm_return_1d', 'bm_return_30d', 'bm_return_60d', 'bm_return_365d',
+            'alpha_1d', 'alpha_30d', 'alpha_60d', 'alpha_365d',
+            'exposure_pct', 'cash_pct', 'vol_365d', 'maxdd_365d', 'turnover_30d'
+        ]
+        
+        for col in pct_cols:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(
+                    lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A"
+                )
+        
+        # Format beta
+        if 'beta_est' in display_df.columns:
+            display_df['beta_est'] = display_df['beta_est'].apply(
+                lambda x: f"{x:.2f}" if pd.notna(x) else "N/A"
+            )
+        
+        # Format NAV
+        if 'nav_latest' in display_df.columns:
+            display_df['nav_latest'] = display_df['nav_latest'].apply(
+                lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
+            )
+        
+        # Format alerts
+        if 'alerts' in display_df.columns:
+            display_df['alerts'] = display_df['alerts'].apply(
+                lambda x: f"{len(x)} alerts" if len(x) > 0 else "✅"
+            )
+        
+        # Select columns for display
+        display_columns = [
+            'display_name', 'status', 'nav_latest',
+            'return_1d', 'return_30d', 'return_365d',
+            'alpha_1d', 'alpha_30d', 'alpha_365d',
+            'exposure_pct', 'cash_pct', 'beta_est',
+            'vol_365d', 'maxdd_365d', 'alerts'
+        ]
+        
+        # Filter to available columns
+        display_columns = [c for c in display_columns if c in display_df.columns]
+        
+        # Show table with color coding
+        st.dataframe(
+            display_df[display_columns],
+            use_container_width=True,
+            hide_index=True,
+            height=600
+        )
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 6: Wave Selector with Diagnostics
+        # ========================================================================
+        
+        st.subheader("🔍 Wave Diagnostics")
+        
+        # Wave selector
+        selected_wave_name = st.selectbox(
+            "Select Wave for Detailed Diagnostics",
+            options=snapshot_df['display_name'].tolist(),
+            help="Choose a wave to view detailed diagnostics"
+        )
+        
+        # Get selected wave data
+        wave_data = snapshot_df[snapshot_df['display_name'] == selected_wave_name].iloc[0]
+        
+        # Display diagnostics in expandable section
+        with st.expander(f"📋 Diagnostics for {selected_wave_name}", expanded=True):
+            
+            # Status and reason
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                status = wave_data['status']
+                status_color = {
+                    'FULL': '🟢',
+                    'PARTIAL': '🟡',
+                    'UNAVAILABLE': '🔴'
+                }.get(status, '⚪')
+                
+                st.markdown(f"**Status:** {status_color} {status}")
+                st.markdown(f"**Wave ID:** `{wave_data['wave_id']}`")
+                st.markdown(f"**Mode:** {wave_data['mode']}")
+            
+            with col2:
+                st.markdown(f"**Latest NAV:** {display_df[display_df['display_name'] == selected_wave_name]['nav_latest'].iloc[0]}")
+                st.markdown(f"**365D Return:** {display_df[display_df['display_name'] == selected_wave_name]['return_365d'].iloc[0]}")
+                st.markdown(f"**365D Alpha:** {display_df[display_df['display_name'] == selected_wave_name]['alpha_365d'].iloc[0]}")
+            
+            # Reason for degradation
+            if wave_data['reason']:
+                st.warning(f"**Degradation Reason:** {wave_data['reason']}")
+            
+            # Alerts
+            if len(wave_data['alerts']) > 0:
+                st.error("**Active Alerts:**")
+                for alert in wave_data['alerts']:
+                    st.markdown(f"- {alert}")
+            else:
+                st.success("✅ No active alerts")
+            
+            # Detailed metrics
+            st.markdown("---")
+            st.markdown("**Detailed Metrics:**")
+            
+            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            
+            with metrics_col1:
+                st.markdown("**Returns:**")
+                st.markdown(f"- 1D: {display_df[display_df['display_name'] == selected_wave_name]['return_1d'].iloc[0]}")
+                st.markdown(f"- 30D: {display_df[display_df['display_name'] == selected_wave_name]['return_30d'].iloc[0]}")
+                st.markdown(f"- 60D: {display_df[display_df['display_name'] == selected_wave_name]['return_60d'].iloc[0]}")
+                st.markdown(f"- 365D: {display_df[display_df['display_name'] == selected_wave_name]['return_365d'].iloc[0]}")
+            
+            with metrics_col2:
+                st.markdown("**Alpha vs Benchmark:**")
+                st.markdown(f"- 1D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_1d'].iloc[0]}")
+                st.markdown(f"- 30D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_30d'].iloc[0]}")
+                st.markdown(f"- 60D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_60d'].iloc[0]}")
+                st.markdown(f"- 365D: {display_df[display_df['display_name'] == selected_wave_name]['alpha_365d'].iloc[0]}")
+            
+            with metrics_col3:
+                st.markdown("**Risk Metrics:**")
+                st.markdown(f"- Beta: {display_df[display_df['display_name'] == selected_wave_name]['beta_est'].iloc[0]}")
+                st.markdown(f"- Volatility: {display_df[display_df['display_name'] == selected_wave_name]['vol_365d'].iloc[0]}")
+                st.markdown(f"- Max Drawdown: {display_df[display_df['display_name'] == selected_wave_name]['maxdd_365d'].iloc[0]}")
+                st.markdown(f"- Exposure: {display_df[display_df['display_name'] == selected_wave_name]['exposure_pct'].iloc[0]}")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 7: System Diagnostics
+        # ========================================================================
+        
+        st.subheader("🔧 System Diagnostics")
+        
+        diagnostics = get_planb_diagnostics()
+        
+        with st.expander("📋 View System Diagnostics", expanded=False):
+            st.markdown(f"**Timestamp:** {diagnostics['timestamp']}")
+            st.markdown(f"**All Files Exist:** {'✅ Yes' if diagnostics['all_files_exist'] else '❌ No'}")
+            
+            if diagnostics['missing_files']:
+                st.warning(f"**Missing Files:** {', '.join(diagnostics['missing_files'])}")
+            
+            st.markdown("---")
+            st.markdown("**File Information:**")
+            
+            for file_key, file_info in diagnostics.get('file_info', {}).items():
+                if file_info.get('exists'):
+                    if 'error' in file_info:
+                        st.error(f"- **{file_key}.csv:** Error loading - {file_info['error']}")
+                    else:
+                        st.markdown(f"- **{file_key}.csv:** {file_info.get('row_count', 0)} rows, {file_info.get('size_bytes', 0)} bytes")
+                else:
+                    st.error(f"- **{file_key}.csv:** ❌ Missing")
+    
+    except ImportError:
+        st.error("⚠️ **Plan B Monitor Unavailable:** The `planb_pipeline` module is not available.")
+        st.info("To enable this feature, ensure `planb_pipeline.py` is present in the application directory.")
+    
+    except Exception as e:
+        st.error(f"Error rendering Plan B Monitor tab: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -15706,6 +16189,193 @@ def render_diagnostics_tab():
         st.info(f"**Last Successful Refresh:** {time_since_refresh.total_seconds():.0f} seconds ago")
     else:
         st.warning("**Last Successful Refresh:** Unknown")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 6.5: ROUND 7 Phase 6 - Enhanced Diagnostics
+    # ========================================================================
+    st.subheader("🔍 ROUND 7 Enhanced Diagnostics")
+    
+    with st.expander("📊 Snapshot Diagnostics", expanded=False):
+        st.markdown("### Snapshot Health & Freshness")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            snapshot_exists = st.session_state.get('snapshot_exists', False)
+            exists_status = "✅ Yes" if snapshot_exists else "❌ No"
+            st.metric("Snapshot Exists", exists_status)
+        
+        with col2:
+            snapshot_fresh = st.session_state.get('snapshot_fresh', False)
+            fresh_status = "🟢 Fresh" if snapshot_fresh else "🔴 Stale"
+            st.metric("Snapshot Fresh", fresh_status)
+        
+        with col3:
+            snapshot_age = st.session_state.get('snapshot_age_minutes')
+            if snapshot_age is not None:
+                if snapshot_age < 60:
+                    age_str = f"{snapshot_age:.0f}m"
+                elif snapshot_age < 1440:
+                    age_str = f"{snapshot_age/60:.1f}h"
+                else:
+                    age_str = f"{snapshot_age/1440:.1f}d"
+            else:
+                age_str = "N/A"
+            st.metric("Snapshot Age", age_str)
+        
+        # Snapshot rebuild status
+        if st.session_state.get('snapshot_rebuilt', False):
+            st.success("✅ Snapshot was rebuilt on startup")
+        
+        # Snapshot error
+        snapshot_error = st.session_state.get('snapshot_error')
+        if snapshot_error:
+            st.error(f"⚠️ Snapshot Error: {snapshot_error}")
+        
+        # Snapshot stale fallback
+        if st.session_state.get('snapshot_stale_fallback', False):
+            st.warning("⚠️ Using stale snapshot due to rebuild failure")
+    
+    with st.expander("🌊 Broken Wave Diagnostics", expanded=False):
+        st.markdown("### Waves with Data Issues")
+        
+        try:
+            from analytics_pipeline import get_broken_tickers_report, resolve_wave_metrics
+            from waves_engine import get_all_wave_ids, get_display_name_from_wave_id
+            
+            # Get all waves and check their status
+            broken_waves = []
+            degraded_waves = []
+            operational_waves = []
+            
+            for wave_id in get_all_wave_ids():
+                metrics = resolve_wave_metrics(wave_id, mode="Standard")
+                wave_name = get_display_name_from_wave_id(wave_id) or wave_id
+                readiness = metrics.get('readiness_status', 'unavailable')
+                source = metrics.get('source', 'unknown')
+                coverage = metrics.get('coverage_pct', 0.0)
+                
+                if readiness == 'unavailable':
+                    broken_waves.append({
+                        'Wave': wave_name,
+                        'Readiness': readiness,
+                        'Coverage': f"{coverage:.1f}%",
+                        'Source': source
+                    })
+                elif source == 'degraded':
+                    degraded_waves.append({
+                        'Wave': wave_name,
+                        'Readiness': readiness,
+                        'Coverage': f"{coverage:.1f}%",
+                        'Source': source
+                    })
+                elif readiness in ['operational', 'partial']:
+                    operational_waves.append({
+                        'Wave': wave_name,
+                        'Readiness': readiness,
+                        'Coverage': f"{coverage:.1f}%",
+                        'Source': source
+                    })
+            
+            # Display summaries
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Unavailable Waves", len(broken_waves))
+            with col2:
+                st.metric("Degraded Waves", len(degraded_waves))
+            with col3:
+                st.metric("Operational Waves", len(operational_waves))
+            
+            # Show broken waves
+            if broken_waves:
+                st.markdown("#### ❌ Unavailable Waves")
+                st.dataframe(pd.DataFrame(broken_waves), use_container_width=True, hide_index=True)
+            
+            # Show degraded waves
+            if degraded_waves:
+                st.markdown("#### ⚠️ Degraded Waves")
+                st.dataframe(pd.DataFrame(degraded_waves), use_container_width=True, hide_index=True)
+                
+        except Exception as e:
+            st.error(f"Error checking wave diagnostics: {str(e)}")
+    
+    with st.expander("🔄 Circuit Breaker Status", expanded=False):
+        st.markdown("### Retry Limits & Timeouts")
+        
+        try:
+            from analytics_pipeline import (
+                MAX_BATCH_RETRIES,
+                MAX_TICKER_RETRIES,
+                MAX_TOTAL_TICKERS_PER_RUN,
+                MAX_WAVE_COMPUTE_SECONDS
+            )
+            
+            limits = [
+                {"Parameter": "Max Batch Retries", "Value": MAX_BATCH_RETRIES},
+                {"Parameter": "Max Ticker Retries", "Value": MAX_TICKER_RETRIES},
+                {"Parameter": "Max Total Tickers Per Run", "Value": MAX_TOTAL_TICKERS_PER_RUN},
+                {"Parameter": "Max Wave Compute Seconds", "Value": MAX_WAVE_COMPUTE_SECONDS},
+            ]
+            
+            st.dataframe(pd.DataFrame(limits), use_container_width=True, hide_index=True)
+            st.info("These limits prevent infinite loops and ensure bounded execution times.")
+            
+        except Exception as e:
+            st.error(f"Error loading circuit breaker constants: {str(e)}")
+    
+    with st.expander("📋 Snapshot Validation Checklist", expanded=False):
+        st.markdown("### Snapshot Quality Checks")
+        
+        checklist = []
+        
+        # Check 1: Snapshot exists
+        snapshot_exists = st.session_state.get('snapshot_exists', False)
+        checklist.append({
+            "Check": "Snapshot file exists",
+            "Status": "✅ Pass" if snapshot_exists else "❌ Fail"
+        })
+        
+        # Check 2: Snapshot is fresh
+        snapshot_fresh = st.session_state.get('snapshot_fresh', False)
+        checklist.append({
+            "Check": "Snapshot is fresh (<15 min)",
+            "Status": "✅ Pass" if snapshot_fresh else "⚠️ Warning"
+        })
+        
+        # Check 3: No snapshot errors
+        snapshot_error = st.session_state.get('snapshot_error')
+        checklist.append({
+            "Check": "No generation errors",
+            "Status": "✅ Pass" if not snapshot_error else "❌ Fail"
+        })
+        
+        # Check 4: Not using stale fallback
+        stale_fallback = st.session_state.get('snapshot_stale_fallback', False)
+        checklist.append({
+            "Check": "Not using stale fallback",
+            "Status": "✅ Pass" if not stale_fallback else "⚠️ Warning"
+        })
+        
+        # Check 5: Snapshot data completeness
+        try:
+            from analytics_pipeline import load_live_snapshot
+            snapshot_df = load_live_snapshot(fallback=False)
+            if snapshot_df is not None:
+                row_count = len(snapshot_df)
+                complete = row_count == 28
+                checklist.append({
+                    "Check": f"Snapshot has 28 rows (actual: {row_count})",
+                    "Status": "✅ Pass" if complete else "⚠️ Warning"
+                })
+        except Exception:
+            checklist.append({
+                "Check": "Snapshot has 28 rows",
+                "Status": "❌ Fail"
+            })
+        
+        st.dataframe(pd.DataFrame(checklist), use_container_width=True, hide_index=True)
     
     st.markdown("---")
     
@@ -16345,6 +17015,72 @@ def main():
             st.session_state.wave_registry_validated = False
     
     # ========================================================================
+    # Wave Universe Validation - Verify 28 Waves (ROUND 7 Phase 1)
+    # ========================================================================
+    
+    # Validate that we have exactly 28 waves on startup
+    if "wave_universe_validated" not in st.session_state:
+        try:
+            from waves_engine import get_all_waves_universe
+            
+            universe = get_all_waves_universe()
+            expected_count = 28
+            actual_count = universe.get('count', 0)
+            
+            if actual_count != expected_count:
+                # Store validation failure in session state
+                st.session_state.wave_universe_validation_failed = True
+                st.session_state.wave_universe_discrepancy = f"Expected {expected_count} waves, found {actual_count}"
+                print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
+            else:
+                st.session_state.wave_universe_validation_failed = False
+                print(f"✅ Wave Universe Validated: {actual_count} waves")
+            
+            st.session_state.wave_universe_validated = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not validate wave universe: {e}")
+            st.session_state.wave_universe_validation_failed = False
+    
+    # ========================================================================
+    # Snapshot Auto-Build and Staleness Management (ROUND 7 Phase 3)
+    # ========================================================================
+    
+    # Ensure snapshot exists and is fresh on startup (only once per session)
+    if "snapshot_validated" not in st.session_state:
+        try:
+            from analytics_pipeline import ensure_live_snapshot_exists
+            
+            snapshot_status = ensure_live_snapshot_exists(
+                path="data/live_snapshot.csv",
+                max_age_minutes=15,
+                force_rebuild=False
+            )
+            
+            # Store status in session state for diagnostics
+            st.session_state.snapshot_exists = snapshot_status.get('exists', False)
+            st.session_state.snapshot_fresh = snapshot_status.get('fresh', False)
+            st.session_state.snapshot_age_minutes = snapshot_status.get('age_minutes')
+            st.session_state.snapshot_rebuilt = snapshot_status.get('rebuilt', False)
+            st.session_state.snapshot_error = snapshot_status.get('error')
+            st.session_state.snapshot_stale_fallback = snapshot_status.get('stale_fallback', False)
+            
+            # Log status
+            if snapshot_status.get('error'):
+                print(f"⚠️ Snapshot validation warning: {snapshot_status.get('error')}")
+                if snapshot_status.get('stale_fallback'):
+                    print(f"   Using stale snapshot (age: {snapshot_status.get('age_minutes', 'N/A')} min)")
+            elif snapshot_status.get('rebuilt'):
+                print(f"✅ Snapshot rebuilt successfully")
+            elif snapshot_status.get('fresh'):
+                print(f"✅ Snapshot is fresh (age: {snapshot_status.get('age_minutes', 0):.1f} min)")
+            
+            st.session_state.snapshot_validated = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not validate snapshot: {e}")
+            st.session_state.snapshot_validated = False
+            st.session_state.snapshot_exists = False
+    
+    # ========================================================================
     # Wave Readiness Report - Log on startup
     # ========================================================================
     
@@ -16562,6 +17298,14 @@ def main():
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
+    # ========================================================================
+    # ROUND 7 Phase 1: Wave Universe Validation Banner
+    # ========================================================================
+    # Display warning banner if wave universe validation failed
+    if st.session_state.get("wave_universe_validation_failed", False):
+        discrepancy = st.session_state.get("wave_universe_discrepancy", "Unknown discrepancy")
+        st.error(f"🔴 **Wave Universe Validation Failed:** {discrepancy}")
+    
     # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
     # Use session state to check both the error flag and if safe mode is enabled
     wave_ic_has_errors = st.session_state.get("wave_ic_has_errors", False)
@@ -16582,9 +17326,11 @@ def main():
             "Board Pack",  
             "IC Pack",
             "Alpha Capture",
-            "Governance & Audit",  # NEW: Governance and transparency layer
-            "Diagnostics",  # Health/Diagnostics tab
-            "Wave Overview (New)"  # NEW: Comprehensive all-waves overview
+            "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Governance & Audit",      # NEW: Governance and transparency layer
+            "Diagnostics",             # Health/Diagnostics tab
+            "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
         
         # Console tab (first in fallback mode)
@@ -16632,16 +17378,24 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
         with analytics_tabs[9]:
+            safe_component("Wave Monitor", render_wave_monitor_tab)
+        
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
+        with analytics_tabs[10]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[11]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[10]:
+        with analytics_tabs[12]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[11]:
+        with analytics_tabs[13]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -16657,6 +17411,8 @@ def main():
             "Board Pack",                  # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
+            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
@@ -16711,16 +17467,24 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
         with analytics_tabs[10]:
+            safe_component("Wave Monitor", render_wave_monitor_tab)
+        
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
+        with analytics_tabs[11]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[11]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[12]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -16735,6 +17499,8 @@ def main():
             "Board Pack",                 # Mode Proof equivalent
             "IC Pack",
             "Alpha Capture",
+            "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
@@ -16784,16 +17550,24 @@ def main():
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
         with analytics_tabs[9]:
+            safe_component("Wave Monitor", render_wave_monitor_tab)
+        
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
+        with analytics_tabs[10]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[11]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[10]:
+        with analytics_tabs[12]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[11]:
+        with analytics_tabs[13]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
