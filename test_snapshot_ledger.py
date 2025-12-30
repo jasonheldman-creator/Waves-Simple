@@ -25,11 +25,13 @@ from snapshot_ledger import (
     generate_snapshot,
     load_snapshot,
     get_snapshot_metadata,
+    generate_broken_tickers_artifact,
     _safe_return,
     _compute_beta,
     _compute_max_drawdown,
     _load_wave_history_from_csv,
     SNAPSHOT_FILE,
+    BROKEN_TICKERS_FILE,
     TIMEFRAMES,
 )
 
@@ -289,6 +291,77 @@ class TestSnapshotLedger:
         tier_d_count = (snapshot_df["Data_Regime_Tag"] == "Unavailable").sum()
         print(f"✓ Tier D fallback waves with 5s timeout: {tier_d_count}")
         print(f"✓ System remained responsive and produced complete snapshot")
+    
+    def test_broken_tickers_artifact(self):
+        """Test that broken_tickers.csv artifact is generated."""
+        print("\n" + "="*80)
+        print("TEST: Broken tickers artifact generation")
+        print("="*80)
+        
+        # Generate broken tickers artifact
+        broken_df = generate_broken_tickers_artifact()
+        
+        # Validate artifact was created
+        assert os.path.exists(BROKEN_TICKERS_FILE), f"Broken tickers file not found: {BROKEN_TICKERS_FILE}"
+        print(f"✓ Broken tickers artifact created at {BROKEN_TICKERS_FILE}")
+        
+        # Validate DataFrame has correct columns
+        expected_columns = [
+            "ticker_original",
+            "ticker_normalized",
+            "failure_type",
+            "error_message",
+            "impacted_waves",
+            "suggested_fix",
+            "first_seen",
+            "last_seen",
+            "is_fatal"
+        ]
+        
+        for col in expected_columns:
+            assert col in broken_df.columns, f"Missing expected column: {col}"
+        
+        print(f"✓ All {len(expected_columns)} expected columns present")
+        print(f"✓ Total broken tickers: {len(broken_df)}")
+        
+        # Validate file can be read
+        loaded_df = pd.read_csv(BROKEN_TICKERS_FILE)
+        print(f"✓ Artifact loaded successfully from disk")
+        
+        # If there are broken tickers, validate structure
+        if not broken_df.empty:
+            print("\nSample broken tickers:")
+            for idx, row in broken_df.head(3).iterrows():
+                print(f"  - {row['ticker_original']}: {row['failure_type']}")
+                print(f"    Impacted waves: {row['impacted_waves']}")
+                suggested_fix = str(row['suggested_fix']) if pd.notna(row['suggested_fix']) else "N/A"
+                print(f"    Suggested fix: {suggested_fix[:50]}...")
+    
+    def test_snapshot_and_broken_tickers_together(self):
+        """Test that generate_snapshot produces both artifacts."""
+        print("\n" + "="*80)
+        print("TEST: Snapshot generation produces both artifacts")
+        print("="*80)
+        
+        # Generate snapshot (which should also generate broken_tickers)
+        snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=30)
+        
+        # Validate both files exist
+        assert os.path.exists(SNAPSHOT_FILE), f"Snapshot file not found: {SNAPSHOT_FILE}"
+        assert os.path.exists(BROKEN_TICKERS_FILE), f"Broken tickers file not found: {BROKEN_TICKERS_FILE}"
+        
+        print(f"✓ Snapshot artifact exists: {SNAPSHOT_FILE}")
+        print(f"✓ Broken tickers artifact exists: {BROKEN_TICKERS_FILE}")
+        
+        # Load both
+        snapshot_loaded = pd.read_csv(SNAPSHOT_FILE)
+        broken_loaded = pd.read_csv(BROKEN_TICKERS_FILE)
+        
+        assert len(snapshot_loaded) == 28, f"Expected 28 waves in snapshot, got {len(snapshot_loaded)}"
+        
+        print(f"✓ Snapshot has {len(snapshot_loaded)} waves")
+        print(f"✓ Broken tickers has {len(broken_loaded)} entries")
+        print(f"✓ Both artifacts generated successfully in single operation")
 
 
 def run_all_tests():
@@ -309,6 +382,8 @@ def run_all_tests():
         ("Helper functions", test_suite.test_helper_functions),
         ("wave_history.csv fallback", test_suite.test_wave_history_csv_fallback),
         ("Timeout guard", test_suite.test_timeout_guard),
+        ("Broken tickers artifact", test_suite.test_broken_tickers_artifact),
+        ("Snapshot and broken tickers together", test_suite.test_snapshot_and_broken_tickers_together),
     ]
     
     passed = 0

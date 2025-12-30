@@ -63,6 +63,7 @@ except ImportError:
 
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
+BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
 WAVE_HISTORY_FILE = "wave_history.csv"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
@@ -723,6 +724,159 @@ def _build_snapshot_row_tier_d(
     return row
 
 
+def generate_broken_tickers_artifact() -> pd.DataFrame:
+    """
+    Generate broken_tickers.csv artifact with all failed tickers.
+    
+    This captures comprehensive diagnostics for all failed tickers including:
+    - Ticker symbol (original and normalized)
+    - Failure type and reason
+    - Impacted waves
+    - Suggested remediation actions
+    
+    Returns:
+        DataFrame with broken ticker information
+    """
+    print("\n" + "=" * 80)
+    print("GENERATING BROKEN TICKERS ARTIFACT")
+    print("=" * 80)
+    
+    broken_tickers_rows = []
+    
+    # Try to get diagnostics tracker
+    if not DIAGNOSTICS_AVAILABLE:
+        print("⚠ Diagnostics tracker not available, creating empty artifact")
+        broken_df = pd.DataFrame(columns=[
+            "ticker_original",
+            "ticker_normalized", 
+            "failure_type",
+            "error_message",
+            "impacted_waves",
+            "suggested_fix",
+            "first_seen",
+            "last_seen",
+            "is_fatal"
+        ])
+    else:
+        try:
+            tracker = get_diagnostics_tracker()
+            all_failures = tracker.get_all_failures()
+            
+            if not all_failures:
+                print("✓ No failed tickers recorded")
+                broken_df = pd.DataFrame(columns=[
+                    "ticker_original",
+                    "ticker_normalized",
+                    "failure_type",
+                    "error_message",
+                    "impacted_waves",
+                    "suggested_fix",
+                    "first_seen",
+                    "last_seen",
+                    "is_fatal"
+                ])
+            else:
+                print(f"✓ Found {len(all_failures)} failed ticker records")
+                
+                # Group failures by ticker to consolidate impacted waves
+                ticker_map = {}
+                for failure in all_failures:
+                    ticker_key = failure.ticker_original
+                    
+                    if ticker_key not in ticker_map:
+                        ticker_map[ticker_key] = {
+                            "ticker_original": failure.ticker_original,
+                            "ticker_normalized": failure.ticker_normalized,
+                            "failure_type": failure.failure_type.value,
+                            "error_message": failure.error_message,
+                            "impacted_waves": [],
+                            "suggested_fix": failure.suggested_fix,
+                            "first_seen": failure.first_seen,
+                            "last_seen": failure.last_seen,
+                            "is_fatal": failure.is_fatal
+                        }
+                    
+                    # Add wave to impacted waves list
+                    if failure.wave_name and failure.wave_name not in ticker_map[ticker_key]["impacted_waves"]:
+                        ticker_map[ticker_key]["impacted_waves"].append(failure.wave_name)
+                    
+                    # Update last_seen if newer
+                    if failure.last_seen and (
+                        ticker_map[ticker_key]["last_seen"] is None or 
+                        failure.last_seen > ticker_map[ticker_key]["last_seen"]
+                    ):
+                        ticker_map[ticker_key]["last_seen"] = failure.last_seen
+                
+                # Convert to rows
+                for ticker_data in ticker_map.values():
+                    # Format impacted waves as comma-separated string
+                    impacted_waves_str = ", ".join(ticker_data["impacted_waves"]) if ticker_data["impacted_waves"] else "N/A"
+                    
+                    # Format timestamps
+                    first_seen_str = ticker_data["first_seen"].isoformat() if ticker_data["first_seen"] else ""
+                    last_seen_str = ticker_data["last_seen"].isoformat() if ticker_data["last_seen"] else ""
+                    
+                    broken_tickers_rows.append({
+                        "ticker_original": ticker_data["ticker_original"],
+                        "ticker_normalized": ticker_data["ticker_normalized"],
+                        "failure_type": ticker_data["failure_type"],
+                        "error_message": ticker_data["error_message"],
+                        "impacted_waves": impacted_waves_str,
+                        "suggested_fix": ticker_data["suggested_fix"],
+                        "first_seen": first_seen_str,
+                        "last_seen": last_seen_str,
+                        "is_fatal": ticker_data["is_fatal"]
+                    })
+                
+                broken_df = pd.DataFrame(broken_tickers_rows)
+                
+                # Sort by number of impacted waves (descending) and ticker name
+                broken_df["impact_count"] = broken_df["impacted_waves"].apply(
+                    lambda x: len(x.split(", ")) if x != "N/A" else 0
+                )
+                broken_df = broken_df.sort_values(["impact_count", "ticker_original"], ascending=[False, True])
+                broken_df = broken_df.drop(columns=["impact_count"])
+                
+                print(f"✓ Consolidated into {len(broken_df)} unique failed tickers")
+                
+                # Print summary by failure type
+                if not broken_df.empty:
+                    print("\nFailure Type Breakdown:")
+                    for failure_type, count in broken_df["failure_type"].value_counts().items():
+                        print(f"  {failure_type}: {count}")
+        
+        except Exception as e:
+            print(f"✗ Error generating broken tickers artifact: {e}")
+            broken_df = pd.DataFrame(columns=[
+                "ticker_original",
+                "ticker_normalized",
+                "failure_type",
+                "error_message",
+                "impacted_waves",
+                "suggested_fix",
+                "first_seen",
+                "last_seen",
+                "is_fatal"
+            ])
+    
+    # Persist to CSV
+    try:
+        # Create directory if needed
+        dirname = os.path.dirname(BROKEN_TICKERS_FILE)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        
+        broken_df.to_csv(BROKEN_TICKERS_FILE, index=False)
+        print(f"✓ Broken tickers artifact saved to {BROKEN_TICKERS_FILE}")
+        print(f"✓ Total broken tickers: {len(broken_df)}")
+    except Exception as e:
+        print(f"✗ Failed to save broken tickers artifact: {e}")
+    
+    print("=" * 80)
+    
+    return broken_df
+
+
 def generate_snapshot(
     force_refresh: bool = False,
     max_runtime_seconds: int = 300,
@@ -875,6 +1029,12 @@ def generate_snapshot(
         print(f"✓ Snapshot saved to {SNAPSHOT_FILE}")
     except Exception as e:
         print(f"✗ Failed to save snapshot: {e}")
+    
+    # Generate broken tickers artifact
+    try:
+        generate_broken_tickers_artifact()
+    except Exception as e:
+        print(f"⚠ Failed to generate broken tickers artifact (non-fatal): {e}")
     
     return snapshot_df
 
