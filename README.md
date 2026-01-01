@@ -138,6 +138,76 @@ This ensures that when a PR is deployed, users can immediately verify that their
 - **Real Data Integration**: Seamless transition from synthetic to real market data
 - **Backward Compatibility**: Supports legacy data formats
 
+### Plan B Proxy Analytics System
+
+The **Wave Intelligence (Plan B)** system provides a parallel analytics pipeline that uses proxy tickers to deliver consistent analytics for all 28 waves, independent of individual wave ticker health.
+
+#### Overview
+
+- **Purpose**: Ensure all 28 waves always show analytics, even when specific wave tickers are broken or unavailable
+- **Approach**: Use proxy ETFs and representative tickers as stand-ins for wave performance
+- **Location**: Accessible via the "Wave Intelligence (Plan B)" tab in the UI
+
+#### Proxy Registry
+
+The proxy registry is the single source of truth for proxy ticker assignments:
+
+**File**: `config/wave_proxy_registry.csv`
+
+**Schema**:
+- `wave_id`: Unique wave identifier
+- `display_name`: Human-readable wave name
+- `category`: Wave category (Equity, Crypto, Fixed Income, Commodity)
+- `primary_proxy_ticker`: Primary proxy ticker (e.g., SPY, QQQ, MSFT)
+- `secondary_proxy_ticker`: Fallback proxy ticker if primary fails
+- `benchmark_ticker`: Benchmark ticker for alpha calculations
+- `enabled`: Whether the wave is enabled (true/false)
+
+**Validation**: Run `python -c "from helpers.proxy_registry_validator import validate_proxy_registry; print(validate_proxy_registry()['report'])"`
+
+#### Updating the Proxy Registry
+
+To update proxy tickers for a wave:
+
+1. Edit `config/wave_proxy_registry.csv`
+2. Update the `primary_proxy_ticker`, `secondary_proxy_ticker`, or `benchmark_ticker` for the target wave
+3. Save the file
+4. Run validation: `python -c "from helpers.proxy_registry_validator import validate_proxy_registry; print(validate_proxy_registry()['report'])"`
+5. Rebuild the snapshot from the UI or via CLI: `python -c "from planb_proxy_pipeline import build_proxy_snapshot; build_proxy_snapshot()"`
+
+#### Snapshot Files
+
+The proxy pipeline generates and maintains the following files:
+
+- **`site/data/live_proxy_snapshot.csv`**: Latest proxy analytics for all 28 waves
+  - Contains returns (1D, 30D, 60D, 365D)
+  - Contains alpha calculations vs. benchmarks
+  - Contains confidence labels (FULL, PARTIAL, UNAVAILABLE)
+  
+- **`planb_diagnostics_run.json`**: Diagnostics from the last pipeline run
+  - Timestamp and parameters
+  - Success/failure counts
+  - Detailed ticker failure information
+
+#### Using the Plan B System
+
+1. **UI Access**: Navigate to "Wave Intelligence (Plan B)" tab
+2. **Wave Selection**: Use dropdown to select a wave
+3. **View Analytics**: See proxy returns, alpha, and diagnostics
+4. **Universe View**: See summary table for all 28 waves
+5. **Rebuild Snapshot**: Click "🔄 Rebuild Snapshot" to fetch latest data
+6. **Download Data**: Click "📥 Download CSV" to export snapshot
+
+#### Pipeline Features
+
+- **MAX_RETRIES=2**: Each ticker fetch is retried up to 2 times on failure
+- **Graceful Degradation**: Returns UNAVAILABLE status when data cannot be fetched
+- **No Hanging**: Pipeline completes within bounded time, logs all failures
+- **Confidence Labels**:
+  - `FULL`: Primary proxy and benchmark data available
+  - `PARTIAL`: Secondary proxy used (primary failed), benchmark available
+  - `UNAVAILABLE`: No proxy data available
+
 ## Testing
 
 ### Run Validation Tests
