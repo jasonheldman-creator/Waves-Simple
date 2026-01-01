@@ -34,7 +34,8 @@ export default function WaveCards({ waves }: WaveCardsProps) {
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
-        const response = await fetch("/api/live_snapshot.csv");
+        const csvUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL || "/api/live_snapshot.csv";
+        const response = await fetch(csvUrl);
         const csvText = await response.text();
         
         // Parse CSV data
