@@ -30,6 +30,8 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+from threading import Thread
+import time
 
 import numpy as np
 import pandas as pd
@@ -50,11 +52,15 @@ except ImportError:
     get_enabled_proxy_waves = None
 
 # Constants
-MAX_RETRIES = 2
+MAX_RETRIES = 2  # Total retries for entire build
+MAX_RETRIES_PER_TICKER = 1  # Retry per individual ticker
+TICKER_TIMEOUT_SECONDS = 15  # Hard timeout per ticker fetch
+BUILD_TIMEOUT_SECONDS = 15  # Wall-clock limit for entire build
 TRADING_DAYS_PER_YEAR = 252
-OUTPUT_SNAPSHOT_PATH = "site/data/live_proxy_snapshot.csv"
-DIAGNOSTICS_PATH = "planb_diagnostics_run.json"
+OUTPUT_SNAPSHOT_PATH = "data/live_proxy_snapshot.csv"  # Moved to stable data/ directory
+DIAGNOSTICS_PATH = "data/planb_diagnostics_run.json"  # Moved to stable data/ directory
 FRESHNESS_THRESHOLD_MINUTES = 60  # Consider snapshot fresh if less than 60 minutes old
+BUILD_LOCK_MINUTES = 2  # Minimum time between build attempts
 
 # Confidence labels
 CONFIDENCE_FULL = "FULL"
@@ -77,14 +83,17 @@ def ensure_output_directory() -> bool:
         return False
 
 
-def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RETRIES) -> Optional[pd.DataFrame]:
+def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RETRIES_PER_TICKER) -> Optional[pd.DataFrame]:
     """
     Fetch daily prices for a ticker with retry logic.
+    
+    Note: Per-ticker timeout is handled at the yfinance library level.
+    Wall-clock timeout for the entire build is enforced in build_proxy_snapshot.
     
     Args:
         ticker: Ticker symbol
         days: Number of days of history to fetch
-        max_retries: Maximum number of retry attempts
+        max_retries: Maximum number of retry attempts (default: 1)
         
     Returns:
         DataFrame with price history, or None if failed
@@ -95,6 +104,7 @@ def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RET
     for attempt in range(max_retries + 1):
         try:
             # Fetch data from yfinance
+            # yfinance has built-in timeouts, typically around 30 seconds
             ticker_obj = yf.Ticker(ticker)
             df = ticker_obj.history(start=start_date, end=end_date, auto_adjust=True)
             
@@ -205,16 +215,20 @@ def determine_confidence_label(primary_available: bool, secondary_available: boo
         return CONFIDENCE_UNAVAILABLE
 
 
-def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
+def build_proxy_snapshot(days: int = 365, enforce_timeout: bool = True) -> pd.DataFrame:
     """
     Build proxy analytics snapshot for all 28 waves.
     
     Args:
         days: Number of days of price history to fetch
+        enforce_timeout: If True, enforce BUILD_TIMEOUT_SECONDS wall-clock limit
         
     Returns:
         DataFrame with proxy analytics for all waves
     """
+    # Record start time for wall-clock timeout
+    build_start_time = datetime.now()
+    
     # Validate proxy registry
     if not PROXY_VALIDATOR_AVAILABLE:
         print("⚠️ Proxy validator not available - cannot build snapshot")
@@ -235,6 +249,7 @@ def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
         return pd.DataFrame()
     
     print(f"\n🔄 Building proxy snapshot for {len(waves)} waves (fetching {days} days of data)...")
+    print(f"⏱️  Wall-clock timeout: {BUILD_TIMEOUT_SECONDS}s")
     
     # Track diagnostics
     diagnostics = {
@@ -243,14 +258,27 @@ def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
         'total_waves': len(waves),
         'successful_fetches': 0,
         'failed_fetches': 0,
+        'timeout_exceeded': False,
+        'build_duration_seconds': 0,
         'ticker_failures': [],
         'wave_results': []
     }
     
     # Build snapshot rows
     snapshot_rows = []
+    timeout_exceeded = False
     
     for i, wave in enumerate(waves, 1):
+        # Check wall-clock timeout
+        if enforce_timeout:
+            elapsed = (datetime.now() - build_start_time).total_seconds()
+            if elapsed > BUILD_TIMEOUT_SECONDS:
+                print(f"\n⏱️  ⚠️ WALL-CLOCK TIMEOUT EXCEEDED ({elapsed:.1f}s > {BUILD_TIMEOUT_SECONDS}s)")
+                print(f"   Processed {i-1}/{len(waves)} waves. Stopping build and saving diagnostics...")
+                timeout_exceeded = True
+                diagnostics['timeout_exceeded'] = True
+                break
+        
         wave_id = wave.get('wave_id', '')
         display_name = wave.get('display_name', '')
         category = wave.get('category', '')
@@ -261,7 +289,7 @@ def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
         print(f"\n[{i}/{len(waves)}] {display_name} ({wave_id})")
         print(f"  Primary: {primary_ticker}, Secondary: {secondary_ticker}, Benchmark: {benchmark_ticker}")
         
-        # Fetch prices
+        # Fetch prices (only proxy and benchmark tickers, NOT holdings)
         primary_prices = None
         secondary_prices = None
         benchmark_prices = None
@@ -350,16 +378,53 @@ def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
     # Create DataFrame
     snapshot_df = pd.DataFrame(snapshot_rows)
     
-    # Persist to CSV
+    # Calculate build duration
+    build_duration = (datetime.now() - build_start_time).total_seconds()
+    diagnostics['build_duration_seconds'] = build_duration
+    
+    # Handle timeout case - try to load previous snapshot if available
+    if timeout_exceeded and snapshot_df.empty:
+        print(f"\n⚠️ Timeout exceeded and no data collected. Attempting to load previous snapshot...")
+        try:
+            prev_snapshot = load_proxy_snapshot()
+            if not prev_snapshot.empty:
+                print(f"✅ Loaded previous snapshot with {len(prev_snapshot)} waves")
+                snapshot_df = prev_snapshot
+                diagnostics['fallback_to_previous'] = True
+            else:
+                print(f"❌ No previous snapshot available")
+                diagnostics['fallback_to_previous'] = False
+        except Exception as e:
+            print(f"❌ Failed to load previous snapshot: {e}")
+            diagnostics['fallback_to_previous'] = False
+    
+    # Persist to CSV with error handling
     try:
         ensure_output_directory()
         snapshot_df.to_csv(OUTPUT_SNAPSHOT_PATH, index=False)
         print(f"\n✅ Snapshot saved to {OUTPUT_SNAPSHOT_PATH}")
+        diagnostics['snapshot_saved'] = True
     except Exception as e:
         print(f"\n⚠️ Failed to save snapshot: {e}")
+        print(f"   Attempting to load previous snapshot as fallback...")
+        diagnostics['snapshot_saved'] = False
+        diagnostics['save_error'] = str(e)
+        
+        # Try to load previous snapshot
+        try:
+            prev_snapshot = load_proxy_snapshot()
+            if not prev_snapshot.empty:
+                print(f"✅ Loaded previous snapshot with {len(prev_snapshot)} waves")
+                snapshot_df = prev_snapshot
+                diagnostics['fallback_to_previous'] = True
+        except Exception as fallback_error:
+            print(f"❌ Failed to load previous snapshot: {fallback_error}")
+            diagnostics['fallback_to_previous'] = False
     
-    # Persist diagnostics
+    # Persist diagnostics with error handling
     try:
+        # Ensure data directory exists
+        Path(os.path.dirname(DIAGNOSTICS_PATH)).mkdir(parents=True, exist_ok=True)
         with open(DIAGNOSTICS_PATH, 'w') as f:
             json.dump(diagnostics, f, indent=2)
         print(f"✅ Diagnostics saved to {DIAGNOSTICS_PATH}")
@@ -369,9 +434,13 @@ def build_proxy_snapshot(days: int = 365) -> pd.DataFrame:
     # Print summary
     print(f"\n📊 SNAPSHOT SUMMARY:")
     print(f"   • Total waves: {len(snapshot_df)}")
-    print(f"   • FULL confidence: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_FULL])}")
-    print(f"   • PARTIAL confidence: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_PARTIAL])}")
-    print(f"   • UNAVAILABLE: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_UNAVAILABLE])}")
+    if not snapshot_df.empty:
+        print(f"   • FULL confidence: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_FULL])}")
+        print(f"   • PARTIAL confidence: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_PARTIAL])}")
+        print(f"   • UNAVAILABLE: {len(snapshot_df[snapshot_df['confidence'] == CONFIDENCE_UNAVAILABLE])}")
+    print(f"   • Build duration: {build_duration:.1f}s")
+    if timeout_exceeded:
+        print(f"   • ⚠️ Wall-clock timeout exceeded")
     
     return snapshot_df
 
@@ -416,7 +485,8 @@ def get_snapshot_freshness(path: Optional[str] = None) -> Dict:
         return {
             'exists': False,
             'age_minutes': None,
-            'fresh': False
+            'fresh': False,
+            'stale': False
         }
     
     try:
@@ -426,17 +496,79 @@ def get_snapshot_freshness(path: Optional[str] = None) -> Dict:
         
         # Consider fresh if less than FRESHNESS_THRESHOLD_MINUTES old
         fresh = age_minutes < FRESHNESS_THRESHOLD_MINUTES
+        stale = age_minutes >= FRESHNESS_THRESHOLD_MINUTES
         
         return {
             'exists': True,
             'modified_at': mod_time.isoformat(),
             'age_minutes': age_minutes,
-            'fresh': fresh
+            'fresh': fresh,
+            'stale': stale
         }
     except Exception as e:
         print(f"Error checking snapshot freshness: {e}")
         return {
             'exists': True,
             'age_minutes': None,
-            'fresh': False
+            'fresh': False,
+            'stale': True
         }
+
+
+def should_trigger_build(session_state: Optional[Dict] = None) -> Tuple[bool, str]:
+    """
+    Determine if a snapshot build should be triggered based on conditions.
+    
+    Build is triggered only if:
+    1. Snapshot file does not exist, OR
+    2. Snapshot is stale (beyond FRESHNESS_THRESHOLD_MINUTES), OR
+    3. User explicitly requested rebuild
+    
+    Build is suppressed if:
+    - A build was attempted within BUILD_LOCK_MINUTES
+    
+    Args:
+        session_state: Optional Streamlit session state dict
+        
+    Returns:
+        Tuple of (should_build: bool, reason: str)
+    """
+    # Check if snapshot exists and freshness
+    freshness = get_snapshot_freshness()
+    
+    # Check build lock (if session_state provided)
+    if session_state is not None:
+        last_build_time = session_state.get('planb_last_build_attempt')
+        if last_build_time is not None:
+            minutes_since_last = (datetime.now() - last_build_time).total_seconds() / 60
+            if minutes_since_last < BUILD_LOCK_MINUTES:
+                return False, f"Build suppressed: Last attempt {minutes_since_last:.1f}m ago (< {BUILD_LOCK_MINUTES}m lock)"
+    
+    # Condition 1: Snapshot doesn't exist
+    if not freshness['exists']:
+        return True, "Snapshot does not exist"
+    
+    # Condition 2: Snapshot is stale
+    if freshness.get('stale', False):
+        return True, f"Snapshot is stale ({freshness['age_minutes']:.1f}m old)"
+    
+    # Otherwise, don't build
+    return False, f"Snapshot is fresh ({freshness['age_minutes']:.1f}m old)"
+
+
+def load_diagnostics() -> Dict:
+    """
+    Load diagnostics from the most recent build.
+    
+    Returns:
+        Dictionary with diagnostics, or empty dict if not found
+    """
+    if not os.path.exists(DIAGNOSTICS_PATH):
+        return {}
+    
+    try:
+        with open(DIAGNOSTICS_PATH, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading diagnostics: {e}")
+        return {}

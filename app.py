@@ -15925,16 +15925,23 @@ def render_wave_intelligence_planb_tab():
     
     This tab provides:
     - Proxy-based analytics for all 28 waves
+    - Safe Mode toggle for snapshot-only rendering
+    - Build control with 2-minute lock
+    - Diagnostics box
+    - Snapshot-first rendering (no blocking)
     - Wave selector dropdown
     - Wave Identity fact sheet with proxy returns and diagnostics
     - Universe Table with general stats for all waves
-    - Freshness banner
-    - Snapshot rebuild and download buttons
-    
-    This is a parallel system that does not depend on fixing broken tickers.
     """
     try:
-        from planb_proxy_pipeline import load_proxy_snapshot, get_snapshot_freshness, build_proxy_snapshot
+        from planb_proxy_pipeline import (
+            load_proxy_snapshot, 
+            get_snapshot_freshness, 
+            build_proxy_snapshot,
+            should_trigger_build,
+            load_diagnostics,
+            BUILD_LOCK_MINUTES
+        )
         from helpers.proxy_registry_validator import validate_proxy_registry, get_enabled_proxy_waves
         
         st.markdown("# 📊 Wave Intelligence (Plan B)")
@@ -15943,41 +15950,122 @@ def render_wave_intelligence_planb_tab():
         st.markdown("---")
         
         # ========================================================================
-        # SECTION 1: Freshness Banner
+        # SECTION 0: Initialize Session State
         # ========================================================================
         
-        freshness = get_snapshot_freshness()
+        # Initialize session state variables for build control
+        if 'planb_build_in_progress' not in st.session_state:
+            st.session_state.planb_build_in_progress = False
         
-        if freshness['exists']:
-            age_min = freshness.get('age_minutes', 0)
-            if freshness['fresh']:
-                st.success(f"✅ **Snapshot is Fresh** - Updated {age_min:.1f} minutes ago")
+        if 'planb_last_build_attempt' not in st.session_state:
+            st.session_state.planb_last_build_attempt = None
+        
+        if 'planb_safe_mode' not in st.session_state:
+            st.session_state.planb_safe_mode = False
+        
+        # ========================================================================
+        # SECTION 1: Load Snapshot First (Snapshot-First Rendering)
+        # ========================================================================
+        
+        # ALWAYS load existing snapshot first for immediate rendering
+        snapshot_df = load_proxy_snapshot()
+        freshness = get_snapshot_freshness()
+        diagnostics = load_diagnostics()
+        
+        # ========================================================================
+        # SECTION 2: Diagnostics Box
+        # ========================================================================
+        
+        st.subheader("📋 Snapshot Diagnostics")
+        
+        diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
+        
+        with diag_col1:
+            if freshness['exists']:
+                age_min = freshness.get('age_minutes', 0)
+                st.metric("Snapshot Age", f"{age_min:.1f}m")
             else:
-                st.warning(f"⚠️ **Snapshot is Stale** - Updated {age_min:.1f} minutes ago (consider rebuilding)")
-        else:
-            st.error("❌ **Snapshot Not Found** - Click 'Rebuild Snapshot' to create")
+                st.metric("Snapshot Age", "N/A")
+        
+        with diag_col2:
+            if freshness['exists']:
+                status = "🟢 Fresh" if freshness['fresh'] else "🟡 Stale"
+                st.metric("Freshness", status)
+            else:
+                st.metric("Freshness", "🔴 Missing")
+        
+        with diag_col3:
+            if diagnostics:
+                build_status = "✅ Success" if diagnostics.get('snapshot_saved', False) else "⚠️ Partial"
+                if diagnostics.get('timeout_exceeded', False):
+                    build_status = "⏱️ Timeout"
+                st.metric("Last Build", build_status)
+            else:
+                st.metric("Last Build", "N/A")
+        
+        with diag_col4:
+            if diagnostics:
+                failed_count = diagnostics.get('failed_fetches', 0)
+                st.metric("Failed Tickers", failed_count)
+            else:
+                st.metric("Failed Tickers", "N/A")
+        
+        # Build lock status
+        if st.session_state.planb_last_build_attempt:
+            minutes_since = (datetime.now() - st.session_state.planb_last_build_attempt).total_seconds() / 60
+            if minutes_since < BUILD_LOCK_MINUTES:
+                st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {BUILD_LOCK_MINUTES - minutes_since:.1f}m more.")
         
         st.markdown("---")
         
         # ========================================================================
-        # SECTION 2: Action Buttons
+        # SECTION 3: Safe Mode & Action Buttons
         # ========================================================================
         
-        col1, col2, col3 = st.columns([2, 2, 3])
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 3])
         
         with col1:
-            if st.button("🔄 Rebuild Snapshot", help="Fetch latest proxy data and rebuild snapshot"):
-                with st.spinner("Rebuilding proxy snapshot..."):
-                    try:
-                        snapshot_df = build_proxy_snapshot(days=365)
-                        st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to rebuild snapshot: {str(e)}")
+            # Safe Mode Toggle
+            safe_mode = st.checkbox(
+                "🛡️ Safe Mode (Snapshot Only)",
+                value=st.session_state.planb_safe_mode,
+                help="When enabled, prevents all online fetches and only renders from the latest snapshot"
+            )
+            st.session_state.planb_safe_mode = safe_mode
         
         with col2:
+            # Rebuild button (disabled in Safe Mode)
+            rebuild_disabled = safe_mode or st.session_state.planb_build_in_progress
+            
+            if st.button("🔄 Rebuild Snapshot Now", disabled=rebuild_disabled, help="Fetch latest proxy data and rebuild snapshot (disabled in Safe Mode)"):
+                # Check if build should be triggered
+                should_build, reason = should_trigger_build(st.session_state)
+                
+                if not should_build:
+                    st.warning(f"⚠️ **Plan B snapshot build suppressed to prevent loops.**")
+                    st.info(f"Reason: {reason}")
+                else:
+                    # Mark build in progress
+                    st.session_state.planb_build_in_progress = True
+                    st.session_state.planb_last_build_attempt = datetime.now()
+                    
+                    with st.spinner("Rebuilding proxy snapshot (max 15s timeout)..."):
+                        try:
+                            snapshot_df = build_proxy_snapshot(days=365, enforce_timeout=True)
+                            
+                            if not snapshot_df.empty:
+                                st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
+                            else:
+                                st.warning(f"⚠️ Build completed but returned empty snapshot")
+                            
+                            st.session_state.planb_build_in_progress = False
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to rebuild snapshot: {str(e)}")
+                            st.session_state.planb_build_in_progress = False
+        
+        with col3:
             # Download button
-            snapshot_df = load_proxy_snapshot()
             if not snapshot_df.empty:
                 csv_data = snapshot_df.to_csv(index=False)
                 st.download_button(
@@ -15988,7 +16076,7 @@ def render_wave_intelligence_planb_tab():
                     help="Download the current proxy snapshot as CSV"
                 )
         
-        with col3:
+        with col4:
             # Registry validation status
             validation = validate_proxy_registry(strict=False)
             if validation['valid']:
@@ -15996,16 +16084,19 @@ def render_wave_intelligence_planb_tab():
             else:
                 st.warning(f"⚠️ Registry: {validation['enabled_count']}/28 waves (degraded)")
         
+        # Safe Mode banner
+        if safe_mode:
+            st.info("🛡️ **Safe Mode Active:** Rendering from snapshot only. No online fetches will be performed.")
+        
         st.markdown("---")
         
         # ========================================================================
-        # SECTION 3: Load Snapshot
+        # SECTION 4: Check if snapshot is available
         # ========================================================================
         
-        snapshot_df = load_proxy_snapshot()
-        
         if snapshot_df.empty:
-            st.warning("⚠️ No proxy snapshot available. Click 'Rebuild Snapshot' to generate.")
+            st.warning("⚠️ No proxy snapshot available. Click 'Rebuild Snapshot Now' to generate.")
+            st.info("The snapshot is required to display the 28-Wave Universe Table and individual wave analytics.")
             return
         
         # ========================================================================
