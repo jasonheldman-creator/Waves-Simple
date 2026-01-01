@@ -17,7 +17,7 @@ SAMPLE_TICKERS = [
 ]
 
 # Configuration
-MAX_DISPLAY_TICKERS = 15  # Maximum number of tickers to show in warning
+MAX_DISPLAY_TICKERS = 15  # Maximum number of missing tickers to show in warning message
 
 # User controls
 if st.button("Fetch Price Data"):
@@ -84,12 +84,14 @@ if st.button("Fetch Price Data"):
         st.subheader("Successfully Loaded Tickers")
         summary_data = []
         for ticker, df in successful_data.items():
+            # Safely get last close price (should always exist due to validation)
+            last_close = df['Close'].dropna().iloc[-1] if not df['Close'].dropna().empty else 0
             summary_data.append({
                 "Ticker": ticker,
                 "Rows": len(df),
                 "First Date": df.index[0].strftime("%Y-%m-%d"),
                 "Last Date": df.index[-1].strftime("%Y-%m-%d"),
-                "Last Close": f"${df['Close'].iloc[-1]:.2f}"
+                "Last Close": f"${last_close:.2f}"
             })
         st.dataframe(pd.DataFrame(summary_data))
     
