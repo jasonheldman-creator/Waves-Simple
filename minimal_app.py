@@ -22,6 +22,7 @@ Requirements:
 import streamlit as st
 import pandas as pd
 import os
+import traceback
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -38,6 +39,21 @@ MAX_CONSECUTIVE_ERRORS = 3
 # ============================================================================
 # DATA LOADING
 # ============================================================================
+
+def format_percentage(value):
+    """
+    Format a decimal value as a percentage string.
+    
+    Args:
+        value: Numeric value (e.g., 0.05 for 5%)
+        
+    Returns:
+        str: Formatted percentage string (e.g., "5.00%") or "N/A"
+    """
+    if pd.notna(value):
+        return f"{value*100:.2f}%"
+    return "N/A"
+
 
 @st.cache_data(ttl=CACHE_TTL)
 def load_snapshot_data():
@@ -169,9 +185,9 @@ def render_overview_tab(df):
     
     for col in percentage_columns:
         if col in display_df.columns:
-            display_df[col] = display_df[col].apply(
-                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
-            )
+            # Vectorized percentage formatting
+            display_df[col] = (display_df[col] * 100).round(2).astype(str) + '%'
+            display_df[col] = display_df[col].replace('nan%', 'N/A')
     
     # Display the table
     st.dataframe(
@@ -263,19 +279,19 @@ def render_single_wave_tab(df):
     
     with col1:
         ret_1d = wave_info.get('Return_1D', None)
-        st.metric("1D", f"{ret_1d*100:.2f}%" if pd.notna(ret_1d) else "N/A")
+        st.metric("1D", format_percentage(ret_1d))
     
     with col2:
         ret_30d = wave_info.get('Return_30D', None)
-        st.metric("30D", f"{ret_30d*100:.2f}%" if pd.notna(ret_30d) else "N/A")
+        st.metric("30D", format_percentage(ret_30d))
     
     with col3:
         ret_60d = wave_info.get('Return_60D', None)
-        st.metric("60D", f"{ret_60d*100:.2f}%" if pd.notna(ret_60d) else "N/A")
+        st.metric("60D", format_percentage(ret_60d))
     
     with col4:
         ret_365d = wave_info.get('Return_365D', None)
-        st.metric("365D", f"{ret_365d*100:.2f}%" if pd.notna(ret_365d) else "N/A")
+        st.metric("365D", format_percentage(ret_365d))
     
     # Alpha section
     st.markdown("---")
@@ -285,19 +301,19 @@ def render_single_wave_tab(df):
     
     with col1:
         alpha_1d = wave_info.get('Alpha_1D', None)
-        st.metric("1D", f"{alpha_1d*100:.2f}%" if pd.notna(alpha_1d) else "N/A")
+        st.metric("1D", format_percentage(alpha_1d))
     
     with col2:
         alpha_30d = wave_info.get('Alpha_30D', None)
-        st.metric("30D", f"{alpha_30d*100:.2f}%" if pd.notna(alpha_30d) else "N/A")
+        st.metric("30D", format_percentage(alpha_30d))
     
     with col3:
         alpha_60d = wave_info.get('Alpha_60D', None)
-        st.metric("60D", f"{alpha_60d*100:.2f}%" if pd.notna(alpha_60d) else "N/A")
+        st.metric("60D", format_percentage(alpha_60d))
     
     with col4:
         alpha_365d = wave_info.get('Alpha_365D', None)
-        st.metric("365D", f"{alpha_365d*100:.2f}%" if pd.notna(alpha_365d) else "N/A")
+        st.metric("365D", format_percentage(alpha_365d))
     
     # Additional information
     if 'Flags' in wave_info and pd.notna(wave_info['Flags']):
@@ -504,7 +520,6 @@ def main():
         
         # Show error details in expander
         with st.expander("Error Details"):
-            import traceback
             st.code(traceback.format_exc())
         
         # Don't continue if there's an error
