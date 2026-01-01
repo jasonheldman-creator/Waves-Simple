@@ -7669,7 +7669,7 @@ def render_executive_brief_tab():
             
             # Debug trace marker
             if st.session_state.get("debug_mode", False):
-                st.caption("🔍 Trace: Entering engine compute (get_truth_frame)")
+                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
             
             # Get TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
@@ -10713,7 +10713,7 @@ def render_overview_tab():
             
             # Debug trace marker
             if st.session_state.get("debug_mode", False):
-                st.caption("🔍 Trace: Entering engine compute (get_truth_frame)")
+                st.caption("🔍 Trace: Entering engine compute (Overview - get_truth_frame)")
             
             # Load TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
@@ -17805,6 +17805,7 @@ def main():
     
     # HARD-DISABLE auto-refresh when Safe Mode is ON
     # This prevents any background refresh, sleeps, or automatic reruns
+    # Note: Default to True (disabled) is intentional - Safe Mode defaults ON for stability
     if st.session_state.get("safe_mode_no_fetch", True):
         # Auto-refresh is completely disabled in Safe Mode
         # Debug trace marker

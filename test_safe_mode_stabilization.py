@@ -165,16 +165,16 @@ def test_auto_refresh_disabled_in_safe_mode():
     session_state["auto_refresh_paused"] = False
     
     # Auto-refresh should be skipped when Safe Mode is ON
-    should_refresh = session_state.get("safe_mode_no_fetch", True)
+    is_safe_mode_on = session_state.get("safe_mode_no_fetch", True)
     
     # If safe_mode_no_fetch is True, auto-refresh should not run
-    assert should_refresh == True, "safe_mode_no_fetch should be True"
+    assert is_safe_mode_on == True, "safe_mode_no_fetch should be True"
     print("   ✅ Auto-refresh is gated by Safe Mode flag")
     
     # Test with Safe Mode OFF
     session_state["safe_mode_no_fetch"] = False
-    should_refresh = session_state.get("safe_mode_no_fetch", True)
-    assert should_refresh == False, "safe_mode_no_fetch should be False when Safe Mode is OFF"
+    is_safe_mode_on = session_state.get("safe_mode_no_fetch", True)
+    assert is_safe_mode_on == False, "safe_mode_no_fetch should be False when Safe Mode is OFF"
     print("   ✅ Auto-refresh can run when Safe Mode is OFF")
 
 
