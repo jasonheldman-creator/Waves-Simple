@@ -27,10 +27,11 @@ Usage:
 import os
 import json
 import warnings
-import signal
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+from threading import Thread
+import time
 
 import numpy as np
 import pandas as pd
@@ -67,16 +68,6 @@ CONFIDENCE_PARTIAL = "PARTIAL"
 CONFIDENCE_UNAVAILABLE = "UNAVAILABLE"
 
 
-class TimeoutException(Exception):
-    """Exception raised when a fetch operation times out."""
-    pass
-
-
-def timeout_handler(signum, frame):
-    """Signal handler for timeout."""
-    raise TimeoutException("Ticker fetch timed out")
-
-
 def ensure_output_directory() -> bool:
     """
     Ensure output directory exists.
@@ -92,15 +83,17 @@ def ensure_output_directory() -> bool:
         return False
 
 
-def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RETRIES_PER_TICKER, timeout: int = TICKER_TIMEOUT_SECONDS) -> Optional[pd.DataFrame]:
+def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RETRIES_PER_TICKER) -> Optional[pd.DataFrame]:
     """
-    Fetch daily prices for a ticker with retry logic and timeout.
+    Fetch daily prices for a ticker with retry logic.
+    
+    Note: Per-ticker timeout is handled at the yfinance library level.
+    Wall-clock timeout for the entire build is enforced in build_proxy_snapshot.
     
     Args:
         ticker: Ticker symbol
         days: Number of days of history to fetch
         max_retries: Maximum number of retry attempts (default: 1)
-        timeout: Timeout in seconds for each fetch attempt (default: 15)
         
     Returns:
         DataFrame with price history, or None if failed
@@ -110,65 +103,24 @@ def fetch_ticker_prices(ticker: str, days: int = 365, max_retries: int = MAX_RET
     
     for attempt in range(max_retries + 1):
         try:
-            # Set up timeout alarm (Unix-like systems only)
-            # Note: signal.alarm doesn't work on Windows
-            old_handler = None
-            try:
-                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(timeout)
-            except (AttributeError, ValueError):
-                # signal.SIGALRM not available on Windows - skip timeout
-                pass
+            # Fetch data from yfinance
+            # yfinance has built-in timeouts, typically around 30 seconds
+            ticker_obj = yf.Ticker(ticker)
+            df = ticker_obj.history(start=start_date, end=end_date, auto_adjust=True)
             
-            try:
-                # Fetch data from yfinance
-                ticker_obj = yf.Ticker(ticker)
-                df = ticker_obj.history(start=start_date, end=end_date, auto_adjust=True)
-                
-                # Cancel alarm
-                try:
-                    signal.alarm(0)
-                    if old_handler is not None:
-                        signal.signal(signal.SIGALRM, old_handler)
-                except (AttributeError, ValueError):
-                    pass
-                
-                # Check if we got data
-                if df.empty:
-                    if attempt < max_retries:
-                        print(f"  Retry {attempt + 1}/{max_retries} for {ticker} (empty data)")
-                        continue
-                    else:
-                        print(f"  Failed to fetch {ticker}: No data returned after {max_retries} retries")
-                        return None
-                
-                # Return only Close prices
-                return df[['Close']].copy()
-                
-            except TimeoutException:
-                # Cancel alarm
-                try:
-                    signal.alarm(0)
-                    if old_handler is not None:
-                        signal.signal(signal.SIGALRM, old_handler)
-                except (AttributeError, ValueError):
-                    pass
-                
+            # Check if we got data
+            if df.empty:
                 if attempt < max_retries:
-                    print(f"  Retry {attempt + 1}/{max_retries} for {ticker} (timeout after {timeout}s)")
+                    print(f"  Retry {attempt + 1}/{max_retries} for {ticker} (empty data)")
+                    continue
                 else:
-                    print(f"  Failed to fetch {ticker}: Timed out after {timeout}s")
-                return None
+                    print(f"  Failed to fetch {ticker}: No data returned after {max_retries} retries")
+                    return None
+            
+            # Return only Close prices
+            return df[['Close']].copy()
             
         except Exception as e:
-            # Make sure to cancel alarm on any exception
-            try:
-                signal.alarm(0)
-                if old_handler is not None:
-                    signal.signal(signal.SIGALRM, old_handler)
-            except (AttributeError, ValueError):
-                pass
-            
             if attempt < max_retries:
                 print(f"  Retry {attempt + 1}/{max_retries} for {ticker}: {str(e)}")
             else:

@@ -15939,7 +15939,8 @@ def render_wave_intelligence_planb_tab():
             get_snapshot_freshness, 
             build_proxy_snapshot,
             should_trigger_build,
-            load_diagnostics
+            load_diagnostics,
+            BUILD_LOCK_MINUTES
         )
         from helpers.proxy_registry_validator import validate_proxy_registry, get_enabled_proxy_waves
         
@@ -16012,8 +16013,8 @@ def render_wave_intelligence_planb_tab():
         # Build lock status
         if st.session_state.planb_last_build_attempt:
             minutes_since = (datetime.now() - st.session_state.planb_last_build_attempt).total_seconds() / 60
-            if minutes_since < 2:  # BUILD_LOCK_MINUTES
-                st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {2 - minutes_since:.1f}m more.")
+            if minutes_since < BUILD_LOCK_MINUTES:
+                st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {BUILD_LOCK_MINUTES - minutes_since:.1f}m more.")
         
         st.markdown("---")
         
