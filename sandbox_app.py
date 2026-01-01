@@ -16,6 +16,9 @@ SAMPLE_TICKERS = [
     "INVALID-TICKER"  # Definitely invalid
 ]
 
+# Configuration
+MAX_DISPLAY_TICKERS = 15  # Maximum number of tickers to show in warning
+
 # User controls
 if st.button("Fetch Price Data"):
     st.info("Starting price data fetch...")
@@ -35,13 +38,8 @@ if st.button("Fetch Price Data"):
         try:
             st.write(f"Processing {ticker}...")
             
-            # Download data with exception handling
-            try:
-                data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-            except Exception as e:
-                st.write(f"  ⚠️ Download failed for {ticker}: {str(e)}")
-                missing_tickers.append(ticker)
-                continue
+            # Download data
+            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
             
             # Validate the returned dataframe is not empty
             if data is None or data.empty:
@@ -76,9 +74,9 @@ if st.button("Fetch Price Data"):
     
     # Show warning for missing tickers
     if missing_tickers:
-        display_tickers = missing_tickers[:15]
+        display_tickers = missing_tickers[:MAX_DISPLAY_TICKERS]
         ticker_list = ', '.join(display_tickers)
-        suffix = " ..." if len(missing_tickers) > 15 else ""
+        suffix = " ..." if len(missing_tickers) > MAX_DISPLAY_TICKERS else ""
         st.warning(f"Skipped unavailable tickers: {ticker_list}{suffix}")
     
     # Display summary table
