@@ -21,6 +21,7 @@ import subprocess
 import os
 import traceback
 import logging
+import time
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -115,6 +116,44 @@ try:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = True
 except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
+
+# ============================================================================
+# RUN TRACE - Track script execution and prevent infinite rerun loops
+# ============================================================================
+
+# Initialize run sequence counter and timing
+if "run_seq" not in st.session_state:
+    st.session_state.run_seq = 0
+    st.session_state.last_run_time = datetime.now()
+    st.session_state.last_trigger = "initial_load"
+    st.session_state.buttons_clicked = []
+    st.session_state.trigger_set_by_rerun = False
+else:
+    # Increment run sequence
+    st.session_state.run_seq += 1
+    
+    # Calculate delta since last run
+    current_time = datetime.now()
+    delta_seconds = (current_time - st.session_state.last_run_time).total_seconds()
+    st.session_state.delta_seconds = delta_seconds
+    st.session_state.last_run_time = current_time
+    
+    # Detect what triggered this run (only if not already set by trigger_rerun)
+    if not st.session_state.get("trigger_set_by_rerun", False):
+        if st.session_state.get("_last_button_clicked"):
+            st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
+            st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
+            st.session_state._last_button_clicked = None
+        elif st.session_state.get("_widget_changed"):
+            st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
+            st.session_state._widget_changed = None
+        elif st.session_state.get("auto_refresh_enabled", False):
+            st.session_state.last_trigger = "auto_refresh"
+        else:
+            st.session_state.last_trigger = "unknown"
+    
+    # Reset the flag after reading
+    st.session_state.trigger_set_by_rerun = False
 
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
@@ -587,6 +626,12 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 # ============================================================================
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+
+# ============================================================================
+# WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
+# ============================================================================
+# Record start time immediately after page config for watchdog
+WATCHDOG_START_TIME = time.time()
 
 # ============================================================================
 # BUILD/VERSION STAMP - Display build info for verification
@@ -1802,6 +1847,77 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
         return None
 
 
+def should_allow_compute(operation_name: str, force: bool = False) -> tuple[bool, str]:
+    """
+    Check if a compute-intensive operation should be allowed to run.
+    
+    This implements a global compute lock to prevent duplicate heavy operations
+    during the same session or run.
+    
+    Args:
+        operation_name: Unique name for the operation (e.g., "fetch_prices", "build_snapshot")
+        force: If True, bypass the lock check (used for explicit user actions)
+        
+    Returns:
+        Tuple of (should_run: bool, reason: str)
+    """
+    # Force always wins - check this FIRST
+    if force:
+        return True, "Force flag enabled - bypassing all locks"
+    
+    # Check global compute lock
+    if st.session_state.get("compute_lock", False):
+        reason = st.session_state.get("compute_lock_reason", "Global compute lock is set")
+        return False, reason
+    
+    # Check if this operation was already done this session
+    operations_done = st.session_state.get("compute_operations_done", set())
+    if operation_name in operations_done:
+        return False, f"Operation '{operation_name}' already completed this session"
+    
+    # Operation is allowed
+    return True, "Operation allowed"
+
+
+def mark_compute_done(operation_name: str, success: bool = True):
+    """
+    Mark a compute operation as complete.
+    
+    Args:
+        operation_name: Name of the operation that completed
+        success: Whether the operation succeeded
+    """
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
+    
+    st.session_state.compute_operations_done.add(operation_name)
+    
+    # Set compute lock if this was a heavy operation and succeeded
+    if success and operation_name in ["fetch_prices", "build_snapshot", "warm_cache"]:
+        st.session_state.compute_lock = True
+        st.session_state.compute_lock_reason = f"Locked after '{operation_name}' completed successfully"
+
+
+def trigger_rerun(trigger_name: str):
+    """
+    Trigger a Streamlit rerun with a labeled trigger for diagnostics.
+    
+    Args:
+        trigger_name: Name/description of what triggered the rerun (e.g., "rebuild_snapshot", "change_wave")
+    """
+    # Update last_trigger in session state
+    st.session_state.last_trigger = trigger_name
+    
+    # Set flag to prevent overwriting by detection logic
+    st.session_state.trigger_set_by_rerun = True
+    
+    # Mark user interaction detected
+    st.session_state.user_interaction_detected = True
+    
+    # Trigger the rerun
+    st.rerun()
+
+
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
@@ -2554,7 +2670,8 @@ def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
                     per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
             
             # Pause between batches (random to avoid patterns)
-            if batch_idx < num_batches - 1:
+            # Only pause if Safe Mode is OFF (prevents delays during safe mode)
+            if batch_idx < num_batches - 1 and not st.session_state.get("safe_mode_no_fetch", True):
                 pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
                 print(f"Pausing {pause_duration:.2f}s before next batch...")
                 time.sleep(pause_duration)
@@ -4198,8 +4315,11 @@ def render_wave_universe_truth_panel():
                 # Set force reload flag
                 st.session_state["force_reload_universe"] = True
                 
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
                 st.success("✅ Universe reload queued - refreshing...")
-                st.rerun()
+                trigger_rerun("force_reload_universe")
             except Exception as e:
                 st.error(f"❌ Reload failed: {str(e)}")
     
@@ -4224,8 +4344,11 @@ def render_wave_universe_truth_panel():
                     st.session_state.wave_universe_version = 1
                 st.session_state.wave_universe_version += 1
                 
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
                 st.success("✅ Cache cleared - recomputing...")
-                st.rerun()
+                trigger_rerun("clear_cache_recompute")
             except Exception as e:
                 st.error(f"❌ Cache clear failed: {str(e)}")
     
@@ -6408,6 +6531,38 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Debug Mode: Allow Continuous Reruns
+    # ========================================================================
+    st.sidebar.markdown("### 🐛 Debug Mode")
+    
+    # Allow Continuous Reruns checkbox (default OFF)
+    allow_continuous_reruns = st.sidebar.checkbox(
+        "Allow Continuous Reruns (Debug)",
+        value=st.session_state.get("allow_continuous_reruns", False),
+        key="allow_continuous_reruns_toggle",
+        help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+    )
+    st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+    
+    if not allow_continuous_reruns:
+        st.sidebar.warning("⚠️ Loop Trap Active - Max 2 runs")
+    else:
+        st.sidebar.info("🔄 Continuous reruns enabled")
+    
+    # Reset Compute Lock button (for diagnostics)
+    if st.sidebar.button(
+        "Reset Compute Lock",
+        key="reset_compute_lock_button",
+        use_container_width=True,
+        help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+    ):
+        st.session_state["compute_lock"] = False
+        st.session_state["compute_lock_reason"] = None
+        st.sidebar.success("✅ Compute lock reset")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Manual Snapshot Rebuild Buttons
     # ========================================================================
     st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
@@ -6437,9 +6592,11 @@ def render_sidebar_info():
             if snapshot_df is not None and not snapshot_df.empty:
                 st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
                 # Reset run guard counter on successful rebuild
-                st.session_state.run_guard_counter = 0
+                st.session_state.run_count = 0
                 st.session_state.loop_detected = False
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("rebuild_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
         except Exception as e:
@@ -6472,9 +6629,11 @@ def render_sidebar_info():
             if proxy_df is not None and not proxy_df.empty:
                 st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
                 # Reset run guard counter on successful rebuild
-                st.session_state.run_guard_counter = 0
+                st.session_state.run_count = 0
                 st.session_state.loop_detected = False
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("rebuild_proxy_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
         except Exception as e:
@@ -6550,8 +6709,11 @@ def render_sidebar_info():
             # Set force reload flag
             st.session_state["force_reload_universe"] = True
             
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            
             # Trigger immediate rerun
-            st.rerun()
+            trigger_rerun("force_reload_waves")
         except Exception as e:
             st.sidebar.warning(f"Force reload unavailable: {str(e)}")
     
@@ -6590,8 +6752,11 @@ def render_sidebar_info():
             # Show success message
             st.sidebar.success("✅ Cache cleared successfully!")
             
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            
             # Trigger rerun
-            st.rerun()
+            trigger_rerun("force_reload_data_clear_cache")
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
@@ -6657,7 +6822,9 @@ def render_sidebar_info():
                 
                 # Force reload diagnostics
                 st.cache_data.clear()
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("force_build_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error building data: {str(e)}")
     
@@ -6769,7 +6936,9 @@ def render_sidebar_info():
                     st.session_state.wave_universe_version += 1
                     
                     # Trigger rerun
-                    st.rerun()
+                    # Mark user interaction
+                    st.session_state.user_interaction_detected = True
+                    trigger_rerun("rebuild_wave_csv")
                 else:
                     st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
         except Exception as e:
@@ -6854,7 +7023,9 @@ def render_sidebar_info():
             st.cache_data.clear()
             
             st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("activate_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error activating waves: {str(e)}")
     
@@ -6867,6 +7038,10 @@ def render_sidebar_info():
         use_container_width=True,
         help="Prefetch and cache price data to ensure fast startup (optional)"
     ):
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.caption("🔍 Trace: Entering warm cache")
+        
         try:
             with st.spinner("Warming cache with price data..."):
                 # Prefetch prices
@@ -7203,7 +7378,9 @@ def render_sidebar_info():
                 st.session_state["force_reload_universe"] = True
                 
                 st.success("Wave universe cache cleared. Reloading...")
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("clear_wave_universe_cache")
             except Exception as e:
                 st.warning(f"Force reload unavailable: {str(e)}")
         
@@ -7214,7 +7391,7 @@ def render_sidebar_info():
             key="hard_rerun_button",
             use_container_width=True
         ):
-            st.rerun()
+            trigger_rerun("hard_rerun_button")
         
         # Force Reload + Clear Cache + Rerun Button (Enhanced)
         if st.button(
@@ -7246,7 +7423,9 @@ def render_sidebar_info():
                 get_canonical_wave_universe(force_reload=True)
                 
                 st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("force_clear_wave_reload")
             except Exception as e:
                 st.warning(f"⚠️ Force reload failed: {str(e)}")
     
@@ -7656,6 +7835,10 @@ def render_executive_brief_tab():
             from truth_frame_helpers import convert_truthframe_to_snapshot_format
             from snapshot_ledger import get_snapshot_metadata
             
+            # Debug trace marker
+            if st.session_state.get("debug_mode", False):
+                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
+            
             # Get TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
             truth_df = get_truth_frame(safe_mode=safe_mode)
@@ -7704,7 +7887,9 @@ def render_executive_brief_tab():
                             from analytics_truth import get_truth_frame
                             truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
                             st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
-                            st.rerun()
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("truthframe_refresh")
                     except Exception as e:
                         st.error(f"TruthFrame refresh failed: {str(e)}")
         
@@ -10692,9 +10877,13 @@ def render_overview_tab():
                                 price_df = st.session_state.get("global_price_df")
                                 truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
                                 st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
-                                st.rerun()
+                                trigger_rerun("truthframe_force_refresh")
                         except Exception as e:
                             st.error(f"TruthFrame refresh failed: {str(e)}")
+            
+            # Debug trace marker
+            if st.session_state.get("debug_mode", False):
+                st.caption("🔍 Trace: Entering engine compute (Overview - get_truth_frame)")
             
             # Load TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
@@ -13887,7 +14076,9 @@ def render_board_pack_tab():
             
             st.success("✅ Cache cleared and data reloaded!")
             st.info("Please click 'Generate Board Pack' again to create PDF with fresh data.")
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("boardpack_snapshot_refresh")
     
     # Footer
     st.markdown("---")
@@ -15478,7 +15669,9 @@ def render_governance_audit_tab():
                             from snapshot_ledger import generate_snapshot
                             generate_snapshot(force_refresh=True, generation_reason='manual')
                             st.success("✅ Snapshot generated successfully!")
-                            st.rerun()
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("planb_snapshot_generated")
                         except Exception as e:
                             st.error(f"❌ Failed to generate snapshot: {str(e)}")
                             with st.expander("🔍 View Error Details"):
@@ -15787,7 +15980,9 @@ def render_planb_monitor_tab():
             # Refresh button
             if st.button("🔄 Refresh Snapshot", help="Rebuild the Plan B snapshot with current data"):
                 st.session_state.planb_snapshot_cache_bust = datetime.now()
-                st.rerun()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                trigger_rerun("planb_snapshot_cache_bust")
         
         with col3:
             # Timestamp display
@@ -16170,7 +16365,9 @@ def render_wave_intelligence_planb_tab():
                             st.warning(f"⚠️ Build completed but returned empty snapshot")
                         
                         st.session_state.planb_build_in_progress = False
-                        st.rerun()
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("planb_build_complete")
                     except Exception as e:
                         st.error(f"Failed to rebuild snapshot: {str(e)}")
                         st.session_state.planb_build_in_progress = False
@@ -16522,7 +16719,9 @@ def render_diagnostics_tab():
                 del st.session_state.safe_mode_error_message
             if "safe_mode_error_traceback" in st.session_state:
                 del st.session_state.safe_mode_error_traceback
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("clear_safe_mode_error")
     else:
         st.success("**Safe Mode is not active.** The application is running normally.")
         
@@ -16557,7 +16756,9 @@ def render_diagnostics_tab():
         if st.button("🗑️ Clear Error History", help="Clear all logged component errors"):
             st.session_state.component_errors = []
             st.success("Error history cleared.")
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("clear_error_history")
     else:
         st.success("**No component errors logged.** All components are functioning normally.")
     
@@ -16917,7 +17118,9 @@ def render_diagnostics_tab():
             st.session_state.wave_universe_version = st.session_state.get("wave_universe_version", 1) + 1
             st.session_state.force_reload_universe = True
             st.success("Wave universe reload triggered. Refreshing...")
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
         if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
@@ -16926,7 +17129,9 @@ def render_diagnostics_tab():
                 if key not in ["safe_mode_enabled", "session_start_time"]:
                     del st.session_state[key]
             st.success("Cache cleared. Refreshing...")
-            st.rerun()
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            trigger_rerun("diagnostics_clear_cache")
     
     st.markdown("---")
     
@@ -17510,6 +17715,326 @@ def render_wave_overview_new_tab():
 
 
 # ============================================================================
+# SECTION 7.5: OVERVIEW (CLEAN) TAB - Demo-Ready First Screen
+# ============================================================================
+
+def render_overview_clean_tab():
+    """
+    Render the clean Overview tab - Demo-ready first screen.
+    
+    This tab provides:
+    - Clean, professional first impression
+    - Top summary box with key insights
+    - 28 waves performance table (always renders all waves)
+    - NO debug/system content (moved to Diagnostics Admin section at bottom)
+    - Data sources: live_snapshot.csv → live_proxy_snapshot.csv → placeholder
+    """
+    try:
+        # ========================================================================
+        # LOAD DATA - Try live_snapshot.csv, fallback to live_proxy_snapshot.csv
+        # ========================================================================
+        import os
+        import pandas as pd
+        
+        snapshot_df = None
+        data_source = None
+        
+        # Try live_snapshot.csv first
+        live_snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(live_snapshot_path):
+            try:
+                snapshot_df = pd.read_csv(live_snapshot_path)
+                data_source = "Live Snapshot"
+            except Exception as e:
+                print(f"Warning: Failed to load live_snapshot.csv: {e}")
+        
+        # Fallback to live_proxy_snapshot.csv (Plan B)
+        if snapshot_df is None or snapshot_df.empty:
+            proxy_snapshot_path = "data/live_proxy_snapshot.csv"
+            if os.path.exists(proxy_snapshot_path):
+                try:
+                    snapshot_df = pd.read_csv(proxy_snapshot_path)
+                    data_source = "Proxy Snapshot (Plan B)"
+                except Exception as e:
+                    print(f"Warning: Failed to load live_proxy_snapshot.csv: {e}")
+        
+        # Get all 28 waves from wave engine
+        all_waves = []
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                from waves_engine import get_all_waves_universe
+                universe = get_all_waves_universe()
+                all_waves = universe.get('waves', [])
+            except Exception as e:
+                print(f"Warning: Failed to get wave universe: {e}")
+        
+        # If we don't have waves list, create placeholder for 28 waves
+        if not all_waves:
+            all_waves = [f"Wave {i+1}" for i in range(28)]
+        
+        # Ensure we have exactly 28 waves
+        if len(all_waves) != 28:
+            print(f"Warning: Expected 28 waves, got {len(all_waves)}")
+        
+        # ========================================================================
+        # HEADER
+        # ========================================================================
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            border: 2px solid #00d9ff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        ">
+            <h1 style="color: #00d9ff; margin: 0; font-size: 32px;">
+                🌊 WAVES Intelligence™
+            </h1>
+            <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 16px;">
+                Clean Overview Dashboard
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # ========================================================================
+        # TOP SUMMARY BOX
+        # ========================================================================
+        st.markdown("### 📊 Executive Summary")
+        
+        # Calculate summary metrics
+        top_performers = []
+        waves_needing_attention = []
+        market_regime = "Unknown"
+        
+        if snapshot_df is not None and not snapshot_df.empty:
+            # Top performers today (by 1D Return)
+            try:
+                valid_returns = snapshot_df[snapshot_df['Return_1D'].notna()].copy()
+                if not valid_returns.empty:
+                    valid_returns = valid_returns.sort_values('Return_1D', ascending=False)
+                    top_3 = valid_returns.head(3)
+                    for _, row in top_3.iterrows():
+                        wave_name = row.get('Wave', 'Unknown')
+                        ret_1d = row.get('Return_1D', 0) * 100
+                        top_performers.append(f"{wave_name} ({ret_1d:.0f}%)")
+            except Exception as e:
+                print(f"Warning: Failed to calculate top performers: {e}")
+            
+            # Waves needing attention (negative 30D Alpha or unavailable)
+            try:
+                # Check for negative 30D alpha
+                needs_attention = snapshot_df[
+                    (snapshot_df['Alpha_30D'].notna()) & 
+                    (snapshot_df['Alpha_30D'] < -0.05)  # More than -5% alpha
+                ].copy()
+                
+                # Also check for unavailable waves
+                unavailable = snapshot_df[
+                    (snapshot_df['Return_1D'].isna()) | 
+                    (snapshot_df['Flags'].str.contains('No Data|Unavailable', case=False, na=False))
+                ]
+                
+                attention_waves = pd.concat([needs_attention, unavailable]).drop_duplicates(subset=['Wave'])
+                
+                if not attention_waves.empty:
+                    for _, row in attention_waves.head(3).iterrows():
+                        wave_name = row.get('Wave', 'Unknown')
+                        waves_needing_attention.append(wave_name)
+            except Exception as e:
+                print(f"Warning: Failed to calculate waves needing attention: {e}")
+            
+            # Market regime (from VIX_Regime column or VIX_Level)
+            try:
+                vix_regime = snapshot_df['VIX_Regime'].mode().iloc[0] if 'VIX_Regime' in snapshot_df.columns else 'unknown'
+                if vix_regime and vix_regime != 'unknown':
+                    market_regime = vix_regime.title()
+                else:
+                    # Fallback: check VIX level
+                    if 'VIX_Level' in snapshot_df.columns:
+                        avg_vix = snapshot_df['VIX_Level'].mean()
+                        if pd.notna(avg_vix):
+                            if avg_vix < 15:
+                                market_regime = "Low Volatility"
+                            elif avg_vix < 25:
+                                market_regime = "Normal"
+                            else:
+                                market_regime = "Elevated Volatility"
+            except Exception as e:
+                print(f"Warning: Failed to determine market regime: {e}")
+        
+        # Display summary in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("#### 🏆 Top Outperformers Today")
+            if top_performers:
+                for performer in top_performers:
+                    st.markdown(f"• {performer}")
+            else:
+                st.info("No data available")
+        
+        with col2:
+            st.markdown("#### ⚠️ Waves Needing Attention")
+            if waves_needing_attention:
+                for wave in waves_needing_attention:
+                    st.markdown(f"• {wave}")
+            else:
+                st.success("All waves performing well")
+        
+        with col3:
+            st.markdown("#### 📈 Market Regime")
+            st.markdown(f"**{market_regime}**")
+            
+            # Add SPY/QQQ/VIX metrics if available
+            try:
+                if snapshot_df is not None and not snapshot_df.empty:
+                    spy_wave = snapshot_df[snapshot_df['Wave'].str.contains('S&P 500', case=False, na=False)]
+                    if not spy_wave.empty:
+                        spy_ret = spy_wave.iloc[0].get('Return_1D', 0) * 100
+                        st.caption(f"SPY: {spy_ret:+.1f}%")
+            except:
+                pass
+        
+        st.divider()
+        
+        # ========================================================================
+        # 28 WAVES PERFORMANCE TABLE
+        # ========================================================================
+        st.markdown("### 📋 28 Waves Performance Overview")
+        st.caption(f"Data Source: {data_source if data_source else 'No data available - showing placeholders'}")
+        
+        # Build display table with all 28 waves
+        table_data = []
+        
+        for wave_name in all_waves:
+            row_data = {
+                'Wave': wave_name,
+                '1D Return': 'N/A',
+                '30D': 'N/A',
+                '60D': 'N/A',
+                '365D': 'N/A',
+                '1D Alpha': 'N/A',
+                '30D Alpha': 'N/A',
+                '60D Alpha': 'N/A',
+                '365D Alpha': 'N/A',
+                'Status/Confidence': 'Unavailable'
+            }
+            
+            # Try to fill in data from snapshot
+            if snapshot_df is not None and not snapshot_df.empty:
+                wave_row = snapshot_df[snapshot_df['Wave'] == wave_name]
+                
+                if not wave_row.empty:
+                    wave_row = wave_row.iloc[0]
+                    
+                    # Format returns as percentages without decimals
+                    for col, label in [
+                        ('Return_1D', '1D Return'),
+                        ('Return_30D', '30D'),
+                        ('Return_60D', '60D'),
+                        ('Return_365D', '365D'),
+                        ('Alpha_1D', '1D Alpha'),
+                        ('Alpha_30D', '30D Alpha'),
+                        ('Alpha_60D', '60D Alpha'),
+                        ('Alpha_365D', '365D Alpha')
+                    ]:
+                        if col in wave_row.index and pd.notna(wave_row[col]):
+                            val = wave_row[col] * 100
+                            row_data[label] = f"{val:+.0f}%"
+                    
+                    # Determine status/confidence
+                    flags = wave_row.get('Flags', '')
+                    coverage = wave_row.get('Coverage_Score', 0)
+                    
+                    if pd.isna(wave_row.get('Return_1D')):
+                        row_data['Status/Confidence'] = 'Unavailable'
+                    elif 'Proxy' in str(flags) or data_source == 'Proxy Snapshot (Plan B)':
+                        row_data['Status/Confidence'] = 'Proxy (Plan B)'
+                    elif coverage >= 90:
+                        row_data['Status/Confidence'] = 'Full'
+                    elif coverage >= 50:
+                        row_data['Status/Confidence'] = 'Operational'
+                    else:
+                        row_data['Status/Confidence'] = 'Partial'
+            
+            table_data.append(row_data)
+        
+        # Create and display dataframe
+        display_df = pd.DataFrame(table_data)
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            height=800  # Show more rows at once
+        )
+        
+        st.divider()
+        
+        # ========================================================================
+        # DIAGNOSTICS (ADMIN) - Expandable section at bottom
+        # ========================================================================
+        with st.expander("🔧 Diagnostics (Admin)", expanded=False):
+            st.markdown("#### System Diagnostics")
+            
+            # Run ID and trigger info
+            run_id = st.session_state.get("run_id", 0)
+            run_trigger = st.session_state.get("run_trigger", "unknown")
+            run_seq = st.session_state.get("run_seq", 0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Run ID", run_id)
+                st.metric("Run Sequence", run_seq)
+            
+            with col2:
+                st.metric("Trigger", run_trigger)
+                safe_mode = st.session_state.get("safe_mode_no_fetch", True)
+                st.metric("Safe Mode", "ON" if safe_mode else "OFF")
+            
+            with col3:
+                loop_detected = st.session_state.get("loop_detected", False)
+                st.metric("Loop Detected", "YES" if loop_detected else "NO")
+                
+                # Snapshot age
+                try:
+                    if os.path.exists(live_snapshot_path):
+                        mtime = os.path.getmtime(live_snapshot_path)
+                        age_hours = (datetime.now().timestamp() - mtime) / 3600
+                        st.metric("Snapshot Age", f"{age_hours:.1f}h")
+                    else:
+                        st.metric("Snapshot Age", "N/A")
+                except:
+                    st.metric("Snapshot Age", "Error")
+            
+            # System status details
+            st.markdown("#### System Status Details")
+            
+            status_info = {
+                "Safe Mode (No Fetch)": "ON" if st.session_state.get("safe_mode_no_fetch", True) else "OFF",
+                "Loop Trap Active": "YES" if st.session_state.get("loop_trap_should_engage", False) else "NO",
+                "Allow Continuous Reruns": "YES" if st.session_state.get("allow_continuous_reruns", False) else "NO",
+                "Auto Refresh Enabled": "YES" if st.session_state.get("auto_refresh_enabled", False) else "NO",
+                "Compute Lock": "LOCKED" if st.session_state.get("compute_lock", False) else "UNLOCKED"
+            }
+            
+            for key, value in status_info.items():
+                st.text(f"{key}: {value}")
+            
+            # Recent buttons clicked
+            buttons_clicked = st.session_state.get("buttons_clicked", [])
+            if buttons_clicked:
+                st.markdown("#### Recent Button Clicks")
+                st.text(", ".join(buttons_clicked[-5:]))
+    
+    except Exception as e:
+        st.error(f"Error rendering Overview (Clean) tab: {str(e)}")
+        if st.session_state.get("debug_mode", False):
+            st.exception(e)
+
+
+# ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
@@ -17531,20 +18056,31 @@ def main():
         st.session_state.loop_detected = False
     
     # ========================================================================
-    # STEP 1: Run Guard Counter (Hard Circuit Breaker)
+    # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
     # ========================================================================
     
-    # Initialize run_guard_counter if not present
-    if "run_guard_counter" not in st.session_state:
-        st.session_state.run_guard_counter = 0
+    # Initialize run_count if not present (tracks consecutive runs without user action)
+    if "run_count" not in st.session_state:
+        st.session_state.run_count = 0
     
-    # Increment run guard counter
-    st.session_state.run_guard_counter += 1
+    # Initialize user_interaction_detected flag
+    if "user_interaction_detected" not in st.session_state:
+        st.session_state.user_interaction_detected = False
     
-    # Check run guard threshold
-    if st.session_state.run_guard_counter > 3:
+    # Reset run_count if user interaction was detected in previous run
+    if st.session_state.user_interaction_detected:
+        st.session_state.run_count = 0
+        st.session_state.user_interaction_detected = False
+    
+    # Increment run_count
+    st.session_state.run_count += 1
+    
+    # Check run_count threshold (max 3 iterations without user action)
+    if st.session_state.run_count > 3:
         st.session_state.loop_detected = True
-        st.warning("⚠️ **Run Guard triggered — preventing infinite loop**")
+        st.error("⚠️ **LOOP DETECTION: Automatic execution halted**")
+        st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
+        st.info("Please refresh the page manually or click a button to continue.")
         st.stop()
     
     # ========================================================================
@@ -17555,25 +18091,89 @@ def main():
     if "run_id" not in st.session_state:
         st.session_state.run_id = 0
         st.session_state.run_trigger = "initial_load"
+        st.session_state.initial_load_complete = False
     else:
         st.session_state.run_id += 1
+        
         # Determine what triggered this rerun
         if st.session_state.get("_last_button_clicked"):
             st.session_state.run_trigger = f"button: {st.session_state._last_button_clicked}"
             st.session_state._last_button_clicked = None
-        elif st.session_state.get("auto_refresh_enabled"):
+            st.session_state.user_interaction_detected = True  # Mark user interaction
+        elif st.session_state.get("_widget_interaction"):
+            st.session_state.run_trigger = "widget_interaction"
+            st.session_state._widget_interaction = False
+            st.session_state.user_interaction_detected = True  # Mark user interaction
+        elif st.session_state.get("auto_refresh_enabled") and not st.session_state.get("safe_mode_no_fetch", True):
             st.session_state.run_trigger = "auto_refresh"
+            # Auto-refresh does NOT count as user interaction
         else:
             st.session_state.run_trigger = "user_interaction"
+            st.session_state.user_interaction_detected = True  # Mark user interaction
     
-    # Display run diagnostics at the very top
-    st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
+    # ONE RUN ONLY latch: After initial load, require user interaction for any computations
+    st.session_state.one_run_only_block = (
+        st.session_state.initial_load_complete and 
+        not st.session_state.user_interaction_detected
+    )
+    if st.session_state.run_trigger == "initial_load":
+        st.session_state.initial_load_complete = True
+    
+    # Display run diagnostics at the very top (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
     
     # ========================================================================
-    # STEP 3: Top Banner with Status Information
+    # STEP 2.5: Run Trace Banner & Safety Latch
     # ========================================================================
     
-    # Get snapshot timestamp if available
+    # Calculate run trace values (but don't display unless debug mode)
+    run_seq = st.session_state.get("run_seq", 0)
+    delta_seconds = st.session_state.get("delta_seconds", 0.0)
+    last_trigger = st.session_state.get("last_trigger", "unknown")
+    buttons_clicked = st.session_state.get("buttons_clicked", [])
+    
+    # Format buttons clicked
+    buttons_str = ", ".join(buttons_clicked[-3:]) if buttons_clicked else "None"
+    
+    # Display banner (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        st.info(f"""
+**🔄 RUN TRACE**  
+• **Run #:** {run_seq}  
+• **Delta:** {delta_seconds:.2f}s  
+• **Last Trigger:** {last_trigger}  
+• **Recent Buttons:** {buttons_str}
+""")
+    
+    # Safety Latch: STOP after 2 runs unless debug mode enabled
+    # Initialize debug mode checkbox state
+    if "allow_continuous_reruns" not in st.session_state:
+        st.session_state.allow_continuous_reruns = False
+    
+    # Check if we should engage the loop trap
+    # Note: We check this AFTER the sidebar is rendered so users can toggle the checkbox
+    st.session_state.loop_trap_should_engage = (
+        run_seq >= 2 and not st.session_state.allow_continuous_reruns
+    )
+    
+    # Display warning if loop trap will engage (only in debug mode)
+    if st.session_state.loop_trap_should_engage and st.session_state.get("debug_mode", False):
+        st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
+        st.warning(f"""
+The application has completed {run_seq} runs. To prevent infinite loops, 
+further automatic reruns are blocked.
+
+**To continue:**
+1. Enable "Allow Continuous Reruns (Debug)" in the sidebar, or
+2. Refresh the page manually
+""")
+    
+    # ========================================================================
+    # STEP 3: Top Banner with Status Information (Moved to Debug Mode)
+    # ========================================================================
+    
+    # Get snapshot timestamp if available (for debug display later)
     snapshot_timestamp = "Unknown"
     try:
         import os
@@ -17585,16 +18185,63 @@ def main():
     except Exception:
         pass
     
-    # Display status banner
-    safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
-    loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
-    
-    st.info(f"""
+    # Display status banner (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
+        loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
+        
+        st.info(f"""
 **System Status**  
 • **Safe Mode:** {safe_mode_status}  
 • **Loop Detected:** {loop_status}  
 • **Last Snapshot:** {snapshot_timestamp}
 """)
+    
+    # ========================================================================
+    # STALE SNAPSHOT BANNER - Display warning if snapshots are stale (debug mode only)
+    # ========================================================================
+    if st.session_state.get("debug_mode", False):
+        try:
+            from helpers.compute_gate import check_stale_snapshot
+            
+            # Check main snapshot
+            live_snapshot_path = "data/live_snapshot.csv"
+            is_stale, age_minutes = check_stale_snapshot(
+                live_snapshot_path,
+                st.session_state,
+                build_key="engine_snapshot"
+            )
+            
+            if is_stale and age_minutes != float('inf'):
+                # Snapshot exists but is stale
+                age_hours = age_minutes / 60
+                st.warning(f"""
+⚠️ **Stale Snapshot Detected**  
+The live snapshot is {age_hours:.1f} hours old (threshold: 1 hour).  
+Click a rebuild button in the sidebar to refresh the data.
+""")
+            elif not os.path.exists(live_snapshot_path):
+                # Snapshot is missing
+                st.warning("""
+⚠️ **Snapshot Missing**  
+No live snapshot found. Click a rebuild button in the sidebar to generate data.
+""")
+        except Exception as e:
+            # Silently fail if stale check fails
+            pass
+    
+    # ========================================================================
+    # WALL-CLOCK WATCHDOG - Enforce 3-second timeout in Safe Mode
+    # ========================================================================
+    elapsed_time = time.time() - WATCHDOG_START_TIME
+    if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
+        st.error("⏱️ **Safe Mode watchdog stopped long-running execution.** (Exceeded 3-second timeout)")
+        st.info("Turn OFF Safe Mode to enable full functionality, or use manual buttons to trigger specific operations.")
+        st.stop()
+    
+    # Debug trace: Mark that we passed the watchdog
+    if st.session_state.get("debug_mode", False):
+        st.caption(f"🔍 Trace: Passed watchdog check (elapsed: {elapsed_time:.2f}s)")
     
     # ========================================================================
     # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
@@ -17646,8 +18293,25 @@ def main():
             st.session_state.wave_universe_validation_failed = False
     
     # ========================================================================
+    # Global Compute Lock - Prevent duplicate heavy computations
+    # ========================================================================
+    
+    # Initialize compute lock if not present
+    if "compute_lock" not in st.session_state:
+        st.session_state.compute_lock = False
+        st.session_state.compute_lock_reason = None
+    
+    # Initialize compute operations tracker
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
+    
+    # ========================================================================
     # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
     # ========================================================================
+    
+    # Debug trace marker
+    if st.session_state.get("debug_mode", False):
+        st.caption("🔍 Trace: Entering snapshot build section")
     
     # SAFE MODE: Skip auto-build entirely when Safe Mode is ON
     # Only validate if snapshot exists, but never trigger builds
@@ -17767,8 +18431,24 @@ def main():
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
+    # HARD-DISABLE auto-refresh when Safe Mode is ON or auto-refresh is explicitly disabled
+    # Auto-refresh is now OFF by default to prevent infinite reruns
+    # Users must explicitly enable it and disable Safe Mode
+    if st.session_state.get("safe_mode_no_fetch", True) or not st.session_state.get("auto_refresh_enabled", False):
+        # Auto-refresh is completely disabled
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            if st.session_state.get("safe_mode_no_fetch", True):
+                st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
+            else:
+                st.caption("🔍 Trace: Auto-refresh disabled (Flag OFF)")
+        pass  # Skip all auto-refresh logic
     # Check if auto-refresh is enabled, not paused, and supported
-    if st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
+    elif not st.session_state.get("auto_refresh_paused", False):
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            st.caption("🔍 Trace: Entering refresh block")
+        
         try:
             # Try using streamlit-autorefresh if available
             from streamlit_autorefresh import st_autorefresh
@@ -17802,7 +18482,7 @@ def main():
             # If neither is available, auto-refresh is disabled (silent fail)
         except Exception as e:
             # Error during auto-refresh - handle according to config
-            st.session_state.auto_refresh_error_count += 1
+            st.session_state.auto_refresh_error_count = st.session_state.get("auto_refresh_error_count", 0) + 1
             st.session_state.auto_refresh_error_message = str(e)
             
             # Auto-pause if enabled and error threshold reached
@@ -17857,29 +18537,42 @@ def main():
         st.session_state.force_price_cache_rebuild = False
     
     # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
+    # Use compute lock to prevent duplicate fetches
     if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-        try:
-            # Get TTL from session state
-            ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
-            
-            # Prefetch prices once (cached with TTL)
-            cache_result = get_global_price_cache(
-                wave_registry=WAVE_WEIGHTS,
-                days=365,
-                ttl_seconds=ttl_seconds
-            )
-            
-            # Store in session state for use across the app
-            st.session_state.global_price_df = cache_result.get("price_df")
-            st.session_state.global_price_failures = cache_result.get("failures", {})
-            st.session_state.global_price_asof = cache_result.get("asof")
-            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-            
-        except Exception as e:
-            # Log error but don't crash - app can still work without cache
-            print(f"Warning: Failed to prefetch global price cache: {str(e)}")
-            st.session_state.global_price_df = None
+        # Check compute lock
+        should_fetch, reason = should_allow_compute("fetch_prices")
+        
+        if should_fetch:
+            try:
+                # Get TTL from session state
+                ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
+                
+                # Prefetch prices once (cached with TTL)
+                cache_result = get_global_price_cache(
+                    wave_registry=WAVE_WEIGHTS,
+                    days=365,
+                    ttl_seconds=ttl_seconds
+                )
+                
+                # Store in session state for use across the app
+                st.session_state.global_price_df = cache_result.get("price_df")
+                st.session_state.global_price_failures = cache_result.get("failures", {})
+                st.session_state.global_price_asof = cache_result.get("asof")
+                st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                
+                # Mark operation as done
+                mark_compute_done("fetch_prices", success=True)
+                
+            except Exception as e:
+                # Log error but don't crash - app can still work without cache
+                print(f"Warning: Failed to prefetch global price cache: {str(e)}")
+                st.session_state.global_price_df = None
+                mark_compute_done("fetch_prices", success=False)
+        else:
+            # Compute lock prevented fetch
+            if st.session_state.get("debug_mode", False):
+                print(f"Price fetch blocked: {reason}")
     
     # ========================================================================
     # Main Application UI
@@ -17904,6 +18597,11 @@ def main():
     # Render sidebar
     render_sidebar_info()
     
+    # NOW enforce the loop trap AFTER sidebar is rendered
+    # This allows users to see and toggle the "Allow Continuous Reruns" checkbox
+    if st.session_state.get("loop_trap_should_engage", False):
+        st.stop()
+    
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
     
@@ -17926,8 +18624,9 @@ def main():
         st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
         
         analytics_tabs = st.tabs([
-            "Console",     # Core functionality
-            "Overview",    # Market tab equivalent
+            "Overview (Clean)",        # NEW: FIRST TAB - Clean demo-ready overview
+            "Console",                 # Core functionality
+            "Overview",                # Market tab equivalent
             "Details",     
             "Reports",     
             "Overlays",    
@@ -17943,109 +18642,19 @@ def main():
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
         
-        # Console tab (first in fallback mode)
+        # Overview (Clean) tab (FIRST)
         with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Console tab
+        with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
-        # Overview tab (second - Market equivalent)
-        with analytics_tabs[1]:
+        # Overview tab
+        with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Overview", render_overview_tab)
-        
-        # Details tab
-        with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[9]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[10]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[11]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[12]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[13]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[14]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Overview is FIRST
-        analytics_tabs = st.tabs([
-            "Overview",                    # FIRST TAB - unified system overview with performance, alpha attribution, and market context
-            "Console",                     # Second tab - Executive
-            "Wave",                        # Third tab - Wave Profile with hero card
-            "Details",                     # Factor Decomp equivalent
-            "Reports",                     # Risk Lab equivalent
-            "Overlays",                    # Correlation equivalent
-            "Attribution",                 # Rolling Diagnostics equivalent
-            "Board Pack",                  # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Governance & Audit",          # NEW: Governance and transparency layer
-            "Diagnostics",                 # Health/Diagnostics tab
-            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Overview tab (FIRST) - Executive Brief
-        with analytics_tabs[0]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (second)
-        with analytics_tabs[1]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Wave Profile tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[3]:
@@ -18105,12 +18714,112 @@ def main():
         # Wave Overview (New) tab
         with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
+    
+    elif ENABLE_WAVE_PROFILE:
+        # Normal mode with Wave Profile enabled - Overview (Clean) is FIRST
+        analytics_tabs = st.tabs([
+            "Overview (Clean)",            # NEW: FIRST TAB - Clean demo-ready overview
+            "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
+            "Console",                     # Third tab - Executive
+            "Wave",                        # Fourth tab - Wave Profile with hero card
+            "Details",                     # Factor Decomp equivalent
+            "Reports",                     # Risk Lab equivalent
+            "Overlays",                    # Correlation equivalent
+            "Attribution",                 # Rolling Diagnostics equivalent
+            "Board Pack",                  # Mode Proof equivalent
+            "IC Pack",
+            "Alpha Capture",
+            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
+            "Governance & Audit",          # NEW: Governance and transparency layer
+            "Diagnostics",                 # Health/Diagnostics tab
+            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
+        ])
+        
+        # Overview (Clean) tab (FIRST)
+        with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Overview tab (second) - Executive Brief
+        with analytics_tabs[1]:
+            safe_component("Executive Brief", render_executive_brief_tab)
+        
+        # Console tab (third)
+        with analytics_tabs[2]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Executive Console", render_executive_tab)
+        
+        # Wave Profile tab (fourth)
+        with analytics_tabs[3]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Wave Profile", render_wave_intelligence_center_tab)
+        
+        # Details tab
+        with analytics_tabs[4]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Details", render_details_tab)
+        
+        # Reports tab
+        with analytics_tabs[5]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Reports", render_reports_tab)
+        
+        # Overlays tab
+        with analytics_tabs[6]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Overlays", render_overlays_tab)
+        
+        # Attribution tab
+        with analytics_tabs[7]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Attribution", render_attribution_tab)
+        
+        # Board Pack tab
+        with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Board Pack", render_board_pack_tab)
+        
+        # IC Pack tab
+        with analytics_tabs[9]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("IC Pack", render_ic_pack_tab)
+        
+        # Alpha Capture tab
+        with analytics_tabs[10]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
+        with analytics_tabs[11]:
+            safe_component("Wave Monitor", render_wave_monitor_tab)
+        
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
+        with analytics_tabs[12]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
+        with analytics_tabs[13]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[14]:
+            safe_component("Governance & Audit", render_governance_audit_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
+            safe_component("Diagnostics", render_diagnostics_tab)
+        
+        # Wave Overview (New) tab
+        with analytics_tabs[16]:
+            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Overview is FIRST tab
+        # Overview (Clean) is FIRST tab
         analytics_tabs = st.tabs([
-            "Overview",                   # FIRST TAB - unified system overview
-            "Console",                    # Second tab - Executive
+            "Overview (Clean)",           # NEW: FIRST TAB - Clean demo-ready overview
+            "Overview",                   # Second tab - unified system overview
+            "Console",                    # Third tab - Executive
             "Details",                    # Factor Decomp equivalent
             "Reports",                    # Risk Lab equivalent
             "Overlays",                   # Correlation equivalent
@@ -18126,72 +18835,76 @@ def main():
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview tab (FIRST) - Executive Brief
+        # Overview (Clean) tab (FIRST)
         with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Overview tab (second) - Executive Brief
+        with analytics_tabs[1]:
             safe_component("Executive Brief", render_executive_brief_tab)
         
-        # Console tab (second)
-        with analytics_tabs[1]:
+        # Console tab (third)
+        with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
         # Details tab
-        with analytics_tabs[2]:
+        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Details", render_details_tab)
         
         # Reports tab
-        with analytics_tabs[3]:
+        with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
-        with analytics_tabs[4]:
+        with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
-        with analytics_tabs[5]:
+        with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
-        with analytics_tabs[6]:
+        with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
-        with analytics_tabs[7]:
+        with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
-        with analytics_tabs[8]:
+        with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[9]:
+        with analytics_tabs[10]:
             safe_component("Wave Monitor", render_wave_monitor_tab)
         
         # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[10]:
+        with analytics_tabs[11]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
         # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[11]:
+        with analytics_tabs[12]:
             safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
         
         # Governance & Audit tab (NEW)
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[14]:
+        with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
