@@ -40,6 +40,9 @@ def should_allow_build(
     
     This is the central gate that prevents infinite rebuild loops.
     
+    IMPORTANT: Auto-rebuilds on stale snapshots are DISABLED.
+    Only explicit user actions trigger rebuilds.
+    
     Args:
         snapshot_path: Path to the snapshot file (e.g., "data/live_snapshot.csv")
         session_state: Streamlit session_state dict (if available)
@@ -64,6 +67,14 @@ def should_allow_build(
         return False, "SAFE DEMO MODE active - all builds suppressed"
     
     # ========================================================================
+    # STEP 3: ONE RUN ONLY Check - Prevent background operations after initial load
+    # ========================================================================
+    if session_state is not None and session_state.get("one_run_only_block", False):
+        # Only allow builds if explicit button click
+        if not explicit_button_click:
+            return False, "ONE RUN ONLY latch active - user interaction required"
+    
+    # ========================================================================
     # Rule 1: Explicit user action always allowed
     # ========================================================================
     if explicit_button_click:
@@ -85,32 +96,27 @@ def should_allow_build(
         last_build_run = session_state.get(f"{build_key}_last_build_run_id")
         if last_build_run is not None and last_build_run == current_run_id:
             return False, f"Build already completed this run (run_id: {current_run_id})"
-        
-        # Check cooldown period
-        last_build_time = session_state.get(f"{build_key}_last_build_attempt")
-        if last_build_time is not None:
-            minutes_since_last = (datetime.now() - last_build_time).total_seconds() / 60
-            if minutes_since_last < BUILD_COOLDOWN_MINUTES:
-                return False, f"Build cooldown active: {minutes_since_last:.1f}m elapsed (need {BUILD_COOLDOWN_MINUTES}m)"
     
     # ========================================================================
     # Check snapshot status
     # ========================================================================
     snapshot_exists = os.path.exists(snapshot_path)
     
-    # Rule 2: Snapshot doesn't exist - allow build
+    # Rule 2: Snapshot doesn't exist - DO NOT auto-build, require user action
+    # This prevents automatic rebuilds on missing snapshots
     if not snapshot_exists:
-        if session_state is not None:
-            _record_build_attempt(session_state, build_key)
-        return True, "Snapshot does not exist"
+        return False, "Snapshot missing - manual rebuild required"
     
-    # Rule 3: Snapshot is stale - allow build
+    # Rule 3: Snapshot is stale - DO NOT auto-build, just mark as stale
+    # This prevents automatic rebuilds on stale snapshots
     try:
         snapshot_age_minutes = _get_file_age_minutes(snapshot_path)
         if snapshot_age_minutes > SNAPSHOT_STALE_THRESHOLD_MINUTES:
+            # Mark snapshot as stale in session state for banner display
             if session_state is not None:
-                _record_build_attempt(session_state, build_key)
-            return True, f"Snapshot is stale ({snapshot_age_minutes:.1f}m old, threshold: {SNAPSHOT_STALE_THRESHOLD_MINUTES}m)"
+                session_state[f"{build_key}_snapshot_stale"] = True
+                session_state[f"{build_key}_snapshot_age_minutes"] = snapshot_age_minutes
+            return False, f"Snapshot is stale ({snapshot_age_minutes:.1f}m old) - manual rebuild required"
     except Exception as e:
         logger.warning(f"Error checking snapshot age: {e}")
     
@@ -171,3 +177,37 @@ def _get_file_age_minutes(file_path: str) -> float:
     file_time = datetime.fromtimestamp(mtime_timestamp)
     age_seconds = (datetime.now() - file_time).total_seconds()
     return age_seconds / 60
+
+
+def check_stale_snapshot(
+    snapshot_path: str,
+    session_state: Optional[Dict] = None,
+    build_key: str = "default"
+) -> Tuple[bool, float]:
+    """
+    Check if a snapshot is stale and return status.
+    
+    Args:
+        snapshot_path: Path to the snapshot file
+        session_state: Streamlit session_state dict (if available)
+        build_key: Unique key for this build operation
+        
+    Returns:
+        Tuple of (is_stale: bool, age_minutes: float)
+    """
+    if not os.path.exists(snapshot_path):
+        return True, float('inf')
+    
+    try:
+        age_minutes = _get_file_age_minutes(snapshot_path)
+        is_stale = age_minutes > SNAPSHOT_STALE_THRESHOLD_MINUTES
+        
+        # Update session state
+        if session_state is not None:
+            session_state[f"{build_key}_snapshot_stale"] = is_stale
+            session_state[f"{build_key}_snapshot_age_minutes"] = age_minutes
+        
+        return is_stale, age_minutes
+    except Exception as e:
+        logger.warning(f"Error checking snapshot staleness: {e}")
+        return False, 0.0

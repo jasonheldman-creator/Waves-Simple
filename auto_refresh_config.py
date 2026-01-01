@@ -20,8 +20,8 @@ Design Principles:
 # AUTO-REFRESH SETTINGS
 # ============================================================================
 
-# Default auto-refresh state (True = enabled by default)
-DEFAULT_AUTO_REFRESH_ENABLED = True
+# Default auto-refresh state (False = disabled by default to prevent infinite reruns)
+DEFAULT_AUTO_REFRESH_ENABLED = False
 
 # Default refresh interval in milliseconds (60000ms = 1 minute)
 DEFAULT_REFRESH_INTERVAL_MS = 60000
