@@ -43,22 +43,22 @@ def test_run_guard_counter():
     
     # Initialize
     if "run_guard_counter" not in session_state:
-        session_state.run_guard_counter = 0
+        session_state["run_guard_counter"] = 0
     
     # Simulate 3 runs
     for i in range(3):
-        session_state.run_guard_counter += 1
-        print(f"   Run {i+1}: counter = {session_state.run_guard_counter}")
-        assert session_state.run_guard_counter <= 3, "Counter should not exceed 3"
+        session_state["run_guard_counter"] += 1
+        print(f"   Run {i+1}: counter = {session_state['run_guard_counter']}")
+        assert session_state["run_guard_counter"] <= 3, "Counter should not exceed 3"
     
     # Check threshold
-    should_stop = session_state.run_guard_counter > 3
+    should_stop = session_state["run_guard_counter"] > 3
     assert should_stop == False, "Should not trigger at count 3"
     print("   ✅ Run Guard does not trigger at count 3")
     
     # One more run
-    session_state.run_guard_counter += 1
-    should_stop = session_state.run_guard_counter > 3
+    session_state["run_guard_counter"] += 1
+    should_stop = session_state["run_guard_counter"] > 3
     assert should_stop == True, "Should trigger at count 4"
     print("   ✅ Run Guard triggers at count 4")
 
@@ -137,17 +137,17 @@ def test_loop_detection_flag():
     
     # Initialize
     if "loop_detected" not in session_state:
-        session_state.loop_detected = False
+        session_state["loop_detected"] = False
     
-    assert session_state.loop_detected == False, "loop_detected should default to False"
+    assert session_state["loop_detected"] == False, "loop_detected should default to False"
     print("   ✅ loop_detected defaults to False")
     
     # Simulate loop detection
-    session_state.run_guard_counter = 5
-    if session_state.run_guard_counter > 3:
-        session_state.loop_detected = True
+    session_state["run_guard_counter"] = 5
+    if session_state["run_guard_counter"] > 3:
+        session_state["loop_detected"] = True
     
-    assert session_state.loop_detected == True, "loop_detected should be True when counter > 3"
+    assert session_state["loop_detected"] == True, "loop_detected should be True when counter > 3"
     print("   ✅ loop_detected set to True when threshold exceeded")
 
 
