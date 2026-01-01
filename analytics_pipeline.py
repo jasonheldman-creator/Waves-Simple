@@ -98,7 +98,8 @@ MAX_TOTAL_TICKERS_PER_RUN = 250    # Maximum tickers to process in one run
 MAX_WAVE_COMPUTE_SECONDS = 8       # Maximum seconds for single wave computation
 
 # Legacy constants (maintained for backward compatibility)
-MAX_RETRIES = 3  # Maximum retry attempts for any single operation
+# STEP 4: Hard Circuit Breakers - Reduced from 3 to 2 to prevent infinite loops
+MAX_RETRIES = 2  # Maximum retry attempts for any single operation (REDUCED from 3)
 MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
 # Graded Readiness Thresholds
@@ -309,14 +310,15 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 # Price Data Fetching with Retry Logic
 # ------------------------------------------------------------
 
-def _retry_with_backoff(func, *args, max_retries: int = MAX_RETRIES, initial_delay: float = 1.0, **kwargs):
+def _retry_with_backoff(func, *args, max_retries: int = MAX_BATCH_RETRIES, initial_delay: float = 1.0, **kwargs):
     """
     Retry a function with exponential backoff.
+    STEP 4: Hard Circuit Breaker - defaults to MAX_BATCH_RETRIES (currently 2)
     
     Args:
         func: Function to retry
         *args: Positional arguments for func
-        max_retries: Maximum number of retry attempts (defaults to MAX_RETRIES=3)
+        max_retries: Maximum number of retry attempts (defaults to MAX_BATCH_RETRIES, currently 2)
         initial_delay: Initial delay in seconds
         **kwargs: Keyword arguments for func
         
@@ -443,6 +445,7 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
     
     try:
         def _batch_download():
+            # STEP 7: Add timeout to network calls (15 seconds per request)
             return yf.download(
                 tickers=tickers_to_fetch,
                 start=start_date.strftime('%Y-%m-%d'),
@@ -450,6 +453,7 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
                 auto_adjust=True,
                 progress=False,
                 group_by='ticker',
+                timeout=15  # 15 second timeout per request
             )
         
         # Try with circuit breaker if available
@@ -635,16 +639,18 @@ def _fetch_prices_individually(
     for i, ticker in enumerate(tickers):
         try:
             def _download_single():
+                # STEP 7: Add timeout to network calls (15 seconds per request)
                 return yf.download(
                     tickers=ticker,
                     start=start_date.strftime('%Y-%m-%d'),
                     end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
                     auto_adjust=True,
                     progress=False,
+                    timeout=15  # 15 second timeout per request
                 )
             
-            # Use retry with backoff
-            data = _retry_with_backoff(_download_single, max_retries=3, initial_delay=1.0)
+            # STEP 4: Use MAX_TICKER_RETRIES (1) instead of hardcoded 3
+            data = _retry_with_backoff(_download_single, max_retries=MAX_TICKER_RETRIES, initial_delay=1.0)
             
             if data.empty:
                 error_msg = "Empty data returned"
@@ -2481,19 +2487,30 @@ def resolve_wave_metrics(wave_id: str, mode: str = "Standard") -> Dict[str, Any]
     return metrics
 
 
-def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFrame:
+def generate_live_snapshot(
+    output_path: str = "live_snapshot.csv",
+    session_state: Optional[Dict] = None
+) -> pd.DataFrame:
     """
     Generate a comprehensive snapshot of all waves with returns, alpha, and diagnostics.
+    STEP 2 & 3: Integrated with SAFE DEMO MODE and Compute Gate
     
     This provides a single-file snapshot suitable for API endpoints or quick data access.
     
     Args:
         output_path: Path to save the snapshot CSV
+        session_state: Streamlit session_state for SAFE DEMO MODE check
         
     Returns:
         DataFrame with snapshot data
     """
     from waves_engine import compute_history_nav
+    
+    # STEP 2: Check SAFE DEMO MODE - should never be called if mode is active
+    if session_state is not None and session_state.get("safe_demo_mode", False):
+        print("⚠️ SAFE DEMO MODE active - generate_live_snapshot should not be called")
+        # Return empty placeholder
+        return pd.DataFrame()
     
     print("=" * 70)
     print("Generating Live Snapshot")
@@ -2523,7 +2540,13 @@ def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFra
             # Try to compute returns for each timeframe
             for days in timeframes:
                 try:
-                    nav_df = compute_history_nav(wave_name, mode="Standard", days=days, include_diagnostics=False)
+                    nav_df = compute_history_nav(
+                        wave_name, 
+                        mode="Standard", 
+                        days=days, 
+                        include_diagnostics=False,
+                        session_state=session_state
+                    )
                     
                     if not nav_df.empty and len(nav_df) >= 2:
                         # Calculate returns
@@ -2583,15 +2606,18 @@ def generate_live_snapshot(output_path: str = "live_snapshot.csv") -> pd.DataFra
 def ensure_live_snapshot_exists(
     path: str = "data/live_snapshot.csv",
     max_age_minutes: int = 15,
-    force_rebuild: bool = False
+    force_rebuild: bool = False,
+    session_state: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
     ROUND 7 Phase 3: Snapshot Auto-Build and Staleness Management
+    STEP 3: Integrated with Compute Gate Mechanism
     
     Ensure live_snapshot.csv exists and is fresh. Rebuilds if:
     - File doesn't exist
     - File is older than max_age_minutes
     - force_rebuild is True
+    - Compute gate allows the build
     
     Handles generation failures gracefully with warnings.
     
@@ -2599,6 +2625,7 @@ def ensure_live_snapshot_exists(
         path: Path to snapshot CSV file
         max_age_minutes: Maximum age in minutes before rebuild (default: 15)
         force_rebuild: Force rebuild regardless of age
+        session_state: Streamlit session_state for compute gate integration
         
     Returns:
         Dictionary with:
@@ -2608,9 +2635,18 @@ def ensure_live_snapshot_exists(
         - rebuilt: bool - whether snapshot was rebuilt
         - error: str - error message if rebuild failed
         - stale_fallback: bool - using stale snapshot due to rebuild failure
+        - build_suppressed: bool - build was suppressed by compute gate
+        - suppression_reason: str - reason for build suppression
     """
     import os
     from datetime import datetime, timedelta
+    
+    # Import compute gate
+    try:
+        from helpers.compute_gate import should_allow_build, mark_build_complete
+        COMPUTE_GATE_AVAILABLE = True
+    except ImportError:
+        COMPUTE_GATE_AVAILABLE = False
     
     result = {
         'exists': False,
@@ -2618,7 +2654,9 @@ def ensure_live_snapshot_exists(
         'age_minutes': None,
         'rebuilt': False,
         'error': None,
-        'stale_fallback': False
+        'stale_fallback': False,
+        'build_suppressed': False,
+        'suppression_reason': None
     }
     
     # Check if file exists
@@ -2644,9 +2682,30 @@ def ensure_live_snapshot_exists(
     
     # Rebuild if needed
     if needs_rebuild:
+        # Check compute gate before building
+        if COMPUTE_GATE_AVAILABLE and session_state is not None:
+            should_build, reason = should_allow_build(
+                snapshot_path=path,
+                session_state=session_state,
+                build_key="engine_snapshot",
+                explicit_button_click=force_rebuild
+            )
+            
+            if not should_build:
+                result['build_suppressed'] = True
+                result['suppression_reason'] = reason
+                print(f"⏸️ Snapshot build suppressed: {reason}")
+                
+                # If we have an existing (stale) snapshot, use it
+                if result['exists']:
+                    result['stale_fallback'] = True
+                    print(f"   Using stale snapshot as fallback (age: {result['age_minutes']:.1f} min)")
+                
+                return result
+        
         try:
             print(f"{'Rebuilding' if result['exists'] else 'Building'} snapshot (age: {result.get('age_minutes', 'N/A')} min)...")
-            snapshot_df = generate_live_snapshot(output_path=path)
+            snapshot_df = generate_live_snapshot(output_path=path, session_state=session_state)
             
             if snapshot_df is not None and not snapshot_df.empty:
                 result['rebuilt'] = True
@@ -2654,12 +2713,24 @@ def ensure_live_snapshot_exists(
                 result['fresh'] = True
                 result['age_minutes'] = 0.0
                 print(f"✓ Snapshot {'rebuilt' if result['exists'] else 'built'} successfully")
+                
+                # Mark build as complete
+                if COMPUTE_GATE_AVAILABLE and session_state is not None:
+                    mark_build_complete(session_state, "engine_snapshot", success=True)
             else:
                 result['error'] = "Snapshot generation returned empty DataFrame"
+                
+                # Mark build as complete but failed
+                if COMPUTE_GATE_AVAILABLE and session_state is not None:
+                    mark_build_complete(session_state, "engine_snapshot", success=False)
                 
         except Exception as e:
             result['error'] = str(e)
             print(f"✗ Snapshot generation failed: {str(e)}")
+            
+            # Mark build as complete but failed
+            if COMPUTE_GATE_AVAILABLE and session_state is not None:
+                mark_build_complete(session_state, "engine_snapshot", success=False)
             
             # If we have a stale snapshot, use it as fallback
             if result['exists']:

@@ -6418,6 +6418,20 @@ def render_sidebar_info():
     )
     st.session_state["debug_mode"] = debug_mode_ui
     
+    # ========================================================================
+    # STEP 2: SAFE DEMO MODE - Global Kill Switch (Infinite Loop Prevention)
+    # ========================================================================
+    safe_demo_mode_ui = st.sidebar.checkbox(
+        "🛡️ SAFE DEMO MODE (NO NETWORK / NO ENGINE RECOMPUTE)",
+        value=st.session_state.get("safe_demo_mode", False),
+        key="safe_demo_mode_toggle",
+        help="When ON: Prevents all network calls, yfinance downloads, and compute operations. Renders from cached snapshots only."
+    )
+    st.session_state["safe_demo_mode"] = safe_demo_mode_ui
+    
+    if safe_demo_mode_ui:
+        st.sidebar.info("🛡️ SAFE DEMO MODE ACTIVE - Using cached data only")
+    
     st.sidebar.markdown("---")
     
     # ========================================================================
@@ -16016,6 +16030,22 @@ def render_wave_intelligence_planb_tab():
             if minutes_since < BUILD_LOCK_MINUTES:
                 st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {BUILD_LOCK_MINUTES - minutes_since:.1f}m more.")
         
+        # STEP 6: Show build in progress / suppressed status
+        try:
+            from helpers.compute_gate import get_build_diagnostics
+            
+            planb_diag = get_build_diagnostics(st.session_state, "planb_snapshot")
+            engine_diag = get_build_diagnostics(st.session_state, "engine_snapshot")
+            
+            if planb_diag.get('build_in_progress', False):
+                st.info("🔄 **Plan B Build Running** - Please wait...")
+            elif engine_diag.get('build_in_progress', False):
+                st.info("🔄 **Engine Build Running** - Please wait...")
+            elif st.session_state.get('safe_demo_mode', False):
+                st.success("🛡️ **SAFE DEMO MODE** - All builds suppressed")
+        except ImportError:
+            pass
+        
         st.markdown("---")
         
         # ========================================================================
@@ -16038,31 +16068,32 @@ def render_wave_intelligence_planb_tab():
             rebuild_disabled = safe_mode or st.session_state.planb_build_in_progress
             
             if st.button("🔄 Rebuild Snapshot Now", disabled=rebuild_disabled, help="Fetch latest proxy data and rebuild snapshot (disabled in Safe Mode)"):
-                # Check if build should be triggered
-                should_build, reason = should_trigger_build(st.session_state)
+                # Mark button click for run tracking
+                st.session_state._last_button_clicked = "planb_rebuild"
                 
-                if not should_build:
-                    st.warning(f"⚠️ **Plan B snapshot build suppressed to prevent loops.**")
-                    st.info(f"Reason: {reason}")
-                else:
-                    # Mark build in progress
-                    st.session_state.planb_build_in_progress = True
-                    st.session_state.planb_last_build_attempt = datetime.now()
-                    
-                    with st.spinner("Rebuilding proxy snapshot (max 15s timeout)..."):
-                        try:
-                            snapshot_df = build_proxy_snapshot(days=365, enforce_timeout=True)
-                            
-                            if not snapshot_df.empty:
-                                st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
-                            else:
-                                st.warning(f"⚠️ Build completed but returned empty snapshot")
-                            
-                            st.session_state.planb_build_in_progress = False
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to rebuild snapshot: {str(e)}")
-                            st.session_state.planb_build_in_progress = False
+                # Mark build in progress
+                st.session_state.planb_build_in_progress = True
+                st.session_state.planb_last_build_attempt = datetime.now()
+                
+                with st.spinner("Rebuilding proxy snapshot (max 15s timeout)..."):
+                    try:
+                        snapshot_df = build_proxy_snapshot(
+                            days=365, 
+                            enforce_timeout=True,
+                            session_state=st.session_state,
+                            explicit_button_click=True  # User explicitly clicked button
+                        )
+                        
+                        if not snapshot_df.empty:
+                            st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
+                        else:
+                            st.warning(f"⚠️ Build completed but returned empty snapshot")
+                        
+                        st.session_state.planb_build_in_progress = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to rebuild snapshot: {str(e)}")
+                        st.session_state.planb_build_in_progress = False
         
         with col3:
             # Download button
@@ -16087,6 +16118,62 @@ def render_wave_intelligence_planb_tab():
         # Safe Mode banner
         if safe_mode:
             st.info("🛡️ **Safe Mode Active:** Rendering from snapshot only. No online fetches will be performed.")
+        
+        # ========================================================================
+        # STEP 8: Diagnostics - Why is it rerunning?
+        # ========================================================================
+        with st.expander("🔍 Diagnostics: Why is it rerunning?", expanded=False):
+            st.markdown("### Rerun & Build Diagnostics")
+            
+            # Import compute gate for diagnostics
+            try:
+                from helpers.compute_gate import get_build_diagnostics
+                
+                diag_col1, diag_col2 = st.columns(2)
+                
+                with diag_col1:
+                    st.markdown("#### App Rerun Status")
+                    st.markdown(f"**Run ID:** {st.session_state.get('run_id', 'N/A')}")
+                    st.markdown(f"**Trigger:** {st.session_state.get('run_trigger', 'unknown')}")
+                    st.markdown(f"**SAFE DEMO MODE:** {'🟢 ON' if st.session_state.get('safe_demo_mode', False) else '🔴 OFF'}")
+                    st.markdown(f"**Plan B Safe Mode:** {'🟢 ON' if safe_mode else '🔴 OFF'}")
+                
+                with diag_col2:
+                    st.markdown("#### Plan B Build Status")
+                    planb_diag = get_build_diagnostics(st.session_state, "planb_snapshot")
+                    
+                    st.markdown(f"**Build In Progress:** {planb_diag.get('build_in_progress', False)}")
+                    st.markdown(f"**Last Build Attempt:** {planb_diag.get('last_build_attempt', 'Never')}")
+                    st.markdown(f"**Last Build Success:** {planb_diag.get('last_build_success', 'N/A')}")
+                    st.markdown(f"**Minutes Since Last:** {planb_diag.get('minutes_since_last_attempt', 'N/A')}")
+                    st.markdown(f"**Last Build Run ID:** {planb_diag.get('last_build_run_id', 'N/A')}")
+                
+                # Engine build diagnostics
+                st.markdown("#### Engine Build Status")
+                engine_diag = get_build_diagnostics(st.session_state, "engine_snapshot")
+                
+                diag_col3, diag_col4 = st.columns(2)
+                
+                with diag_col3:
+                    st.markdown(f"**Build In Progress:** {engine_diag.get('build_in_progress', False)}")
+                    st.markdown(f"**Last Build Attempt:** {engine_diag.get('last_build_attempt', 'Never')}")
+                    st.markdown(f"**Last Build Success:** {engine_diag.get('last_build_success', 'N/A')}")
+                
+                with diag_col4:
+                    st.markdown(f"**Minutes Since Last:** {engine_diag.get('minutes_since_last_attempt', 'N/A')}")
+                    st.markdown(f"**Last Build Run ID:** {engine_diag.get('last_build_run_id', 'N/A')}")
+                
+                # Show ticker counts from diagnostics
+                if diagnostics:
+                    st.markdown("#### Last Build Summary")
+                    st.markdown(f"**Total Waves Processed:** {diagnostics.get('total_waves', 'N/A')}")
+                    st.markdown(f"**Successful Fetches:** {diagnostics.get('successful_fetches', 'N/A')}")
+                    st.markdown(f"**Failed Fetches:** {diagnostics.get('failed_fetches', 'N/A')}")
+                    st.markdown(f"**Build Duration:** {diagnostics.get('build_duration_seconds', 'N/A')}s")
+                    st.markdown(f"**Timeout Exceeded:** {diagnostics.get('timeout_exceeded', False)}")
+                
+            except ImportError:
+                st.warning("Compute gate diagnostics not available")
         
         st.markdown("---")
         
@@ -17352,6 +17439,28 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # STEP 1: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
+    # ========================================================================
+    
+    # Initialize run_id counter if not present
+    if "run_id" not in st.session_state:
+        st.session_state.run_id = 0
+        st.session_state.run_trigger = "initial_load"
+    else:
+        st.session_state.run_id += 1
+        # Determine what triggered this rerun
+        if st.session_state.get("_last_button_clicked"):
+            st.session_state.run_trigger = f"button: {st.session_state._last_button_clicked}"
+            st.session_state._last_button_clicked = None
+        elif st.session_state.get("auto_refresh_enabled"):
+            st.session_state.run_trigger = "auto_refresh"
+        else:
+            st.session_state.run_trigger = "user_interaction"
+    
+    # Display run diagnostics at the very top
+    st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
+    
+    # ========================================================================
     # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
     # ========================================================================
     
@@ -17412,7 +17521,8 @@ def main():
             snapshot_status = ensure_live_snapshot_exists(
                 path="data/live_snapshot.csv",
                 max_age_minutes=15,
-                force_rebuild=False
+                force_rebuild=False,
+                session_state=st.session_state  # Pass session_state for compute gate
             )
             
             # Store status in session state for diagnostics
@@ -17422,9 +17532,13 @@ def main():
             st.session_state.snapshot_rebuilt = snapshot_status.get('rebuilt', False)
             st.session_state.snapshot_error = snapshot_status.get('error')
             st.session_state.snapshot_stale_fallback = snapshot_status.get('stale_fallback', False)
+            st.session_state.snapshot_build_suppressed = snapshot_status.get('build_suppressed', False)
+            st.session_state.snapshot_suppression_reason = snapshot_status.get('suppression_reason')
             
             # Log status
-            if snapshot_status.get('error'):
+            if snapshot_status.get('build_suppressed'):
+                print(f"⏸️ Snapshot build suppressed: {snapshot_status.get('suppression_reason')}")
+            elif snapshot_status.get('error'):
                 print(f"⚠️ Snapshot validation warning: {snapshot_status.get('error')}")
                 if snapshot_status.get('stale_fallback'):
                     print(f"   Using stale snapshot (age: {snapshot_status.get('age_minutes', 'N/A')} min)")
