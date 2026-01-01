@@ -6425,10 +6425,13 @@ def render_sidebar_info():
             
             st.sidebar.info("⏳ Building snapshot...")
             
-            # Temporarily disable safe mode for this operation
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
             snapshot_df = generate_live_snapshot(
                 output_path="data/live_snapshot.csv",
-                session_state=st.session_state
+                session_state=temp_session_state
             )
             
             if snapshot_df is not None and not snapshot_df.empty:
@@ -6455,8 +6458,16 @@ def render_sidebar_info():
             
             st.sidebar.info("⏳ Building proxy snapshot...")
             
-            # Build proxy snapshot with retry limits
-            proxy_df = build_proxy_snapshot(days=365)
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
+            # Build proxy snapshot with explicit button click flag
+            proxy_df = build_proxy_snapshot(
+                days=365,
+                session_state=temp_session_state,
+                explicit_button_click=True
+            )
             
             if proxy_df is not None and not proxy_df.empty:
                 st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
