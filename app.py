@@ -15919,6 +15919,274 @@ def render_planb_monitor_tab():
             st.code(traceback.format_exc(), language="python")
 
 
+def render_wave_intelligence_planb_tab():
+    """
+    Render the Wave Intelligence (Plan B) tab.
+    
+    This tab provides:
+    - Proxy-based analytics for all 28 waves
+    - Wave selector dropdown
+    - Wave Identity fact sheet with proxy returns and diagnostics
+    - Universe Table with general stats for all waves
+    - Freshness banner
+    - Snapshot rebuild and download buttons
+    
+    This is a parallel system that does not depend on fixing broken tickers.
+    """
+    try:
+        from planb_proxy_pipeline import load_proxy_snapshot, get_snapshot_freshness, build_proxy_snapshot
+        from helpers.proxy_registry_validator import validate_proxy_registry, get_enabled_proxy_waves
+        
+        st.markdown("# 📊 Wave Intelligence (Plan B)")
+        st.markdown("### Proxy-Based Analytics - Consistent Data for All 28 Waves")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 1: Freshness Banner
+        # ========================================================================
+        
+        freshness = get_snapshot_freshness()
+        
+        if freshness['exists']:
+            age_min = freshness.get('age_minutes', 0)
+            if freshness['fresh']:
+                st.success(f"✅ **Snapshot is Fresh** - Updated {age_min:.1f} minutes ago")
+            else:
+                st.warning(f"⚠️ **Snapshot is Stale** - Updated {age_min:.1f} minutes ago (consider rebuilding)")
+        else:
+            st.error("❌ **Snapshot Not Found** - Click 'Rebuild Snapshot' to create")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 2: Action Buttons
+        # ========================================================================
+        
+        col1, col2, col3 = st.columns([2, 2, 3])
+        
+        with col1:
+            if st.button("🔄 Rebuild Snapshot", help="Fetch latest proxy data and rebuild snapshot"):
+                with st.spinner("Rebuilding proxy snapshot..."):
+                    try:
+                        snapshot_df = build_proxy_snapshot(days=365)
+                        st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to rebuild snapshot: {str(e)}")
+        
+        with col2:
+            # Download button
+            snapshot_df = load_proxy_snapshot()
+            if not snapshot_df.empty:
+                csv_data = snapshot_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"wave_proxy_snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    help="Download the current proxy snapshot as CSV"
+                )
+        
+        with col3:
+            # Registry validation status
+            validation = validate_proxy_registry(strict=False)
+            if validation['valid']:
+                st.info(f"✅ Registry: {validation['enabled_count']}/28 waves enabled")
+            else:
+                st.warning(f"⚠️ Registry: {validation['enabled_count']}/28 waves (degraded)")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: Load Snapshot
+        # ========================================================================
+        
+        snapshot_df = load_proxy_snapshot()
+        
+        if snapshot_df.empty:
+            st.warning("⚠️ No proxy snapshot available. Click 'Rebuild Snapshot' to generate.")
+            return
+        
+        # ========================================================================
+        # SECTION 4: Wave Selector
+        # ========================================================================
+        
+        st.subheader("🎯 Wave Selector")
+        
+        # Get list of waves
+        wave_options = snapshot_df['display_name'].tolist()
+        wave_ids = snapshot_df['wave_id'].tolist()
+        
+        # Create wave selector
+        selected_wave_name = st.selectbox(
+            "Select Wave",
+            wave_options,
+            index=0,
+            help="Choose a wave to view detailed proxy analytics"
+        )
+        
+        # Get selected wave data
+        selected_wave_idx = wave_options.index(selected_wave_name)
+        selected_wave_id = wave_ids[selected_wave_idx]
+        selected_wave_data = snapshot_df[snapshot_df['wave_id'] == selected_wave_id].iloc[0]
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 5: Wave Identity Fact Sheet
+        # ========================================================================
+        
+        st.subheader("📋 Wave Identity")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown(f"**Wave Name:** {selected_wave_data['display_name']}")
+            st.markdown(f"**Wave ID:** `{selected_wave_data['wave_id']}`")
+            st.markdown(f"**Category:** {selected_wave_data['category']}")
+        
+        with col2:
+            st.markdown(f"**Proxy Ticker:** {selected_wave_data['proxy_ticker']}")
+            st.markdown(f"**Benchmark:** {selected_wave_data['benchmark_ticker']}")
+            confidence = selected_wave_data['confidence']
+            confidence_emoji = "🟢" if confidence == "FULL" else "🟡" if confidence == "PARTIAL" else "🔴"
+            st.markdown(f"**Confidence:** {confidence_emoji} {confidence}")
+        
+        with col3:
+            # Returns summary
+            ret_1d = selected_wave_data['return_1D']
+            ret_30d = selected_wave_data['return_30D']
+            ret_365d = selected_wave_data['return_365D']
+            
+            if pd.notna(ret_1d):
+                st.metric("1D Return", f"{ret_1d*100:.2f}%")
+            else:
+                st.metric("1D Return", "N/A")
+            
+            if pd.notna(ret_30d):
+                st.metric("30D Return", f"{ret_30d*100:.2f}%")
+            else:
+                st.metric("30D Return", "N/A")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 6: Proxy Returns & Diagnostics
+        # ========================================================================
+        
+        st.subheader("📈 Proxy Returns & Alpha")
+        
+        # Create returns table
+        returns_data = {
+            'Period': ['1 Day', '30 Days', '60 Days', '365 Days'],
+            'Proxy Return': [
+                f"{selected_wave_data['return_1D']*100:.2f}%" if pd.notna(selected_wave_data['return_1D']) else "N/A",
+                f"{selected_wave_data['return_30D']*100:.2f}%" if pd.notna(selected_wave_data['return_30D']) else "N/A",
+                f"{selected_wave_data['return_60D']*100:.2f}%" if pd.notna(selected_wave_data['return_60D']) else "N/A",
+                f"{selected_wave_data['return_365D']*100:.2f}%" if pd.notna(selected_wave_data['return_365D']) else "N/A"
+            ],
+            'Benchmark Return': [
+                f"{selected_wave_data['benchmark_1D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_1D']) else "N/A",
+                f"{selected_wave_data['benchmark_30D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_30D']) else "N/A",
+                f"{selected_wave_data['benchmark_60D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_60D']) else "N/A",
+                f"{selected_wave_data['benchmark_365D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_365D']) else "N/A"
+            ],
+            'Alpha': [
+                f"{selected_wave_data['alpha_1D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_1D']) else "N/A",
+                f"{selected_wave_data['alpha_30D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_30D']) else "N/A",
+                f"{selected_wave_data['alpha_60D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_60D']) else "N/A",
+                f"{selected_wave_data['alpha_365D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_365D']) else "N/A"
+            ]
+        }
+        
+        returns_df = pd.DataFrame(returns_data)
+        st.dataframe(returns_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 7: Universe Table - All Waves
+        # ========================================================================
+        
+        st.subheader("🌐 Universe Table - All 28 Waves")
+        
+        # Prepare display table
+        display_df = snapshot_df.copy()
+        
+        # Format percentage columns
+        for col in ['return_1D', 'return_30D', 'return_60D', 'return_365D']:
+            display_df[col] = display_df[col].apply(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            )
+        
+        # Select columns for display
+        universe_table = display_df[[
+            'display_name',
+            'category',
+            'proxy_ticker',
+            'confidence',
+            'return_1D',
+            'return_30D',
+            'return_60D',
+            'return_365D'
+        ]].copy()
+        
+        # Rename columns
+        universe_table.columns = [
+            'Wave Name',
+            'Category',
+            'Proxy',
+            'Confidence',
+            '1D Return',
+            '30D Return',
+            '60D Return',
+            '365D Return'
+        ]
+        
+        # Display table
+        st.dataframe(universe_table, use_container_width=True, hide_index=True)
+        
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            full_count = len(snapshot_df[snapshot_df['confidence'] == 'FULL'])
+            st.metric("FULL Confidence", f"{full_count}/28")
+        
+        with col2:
+            partial_count = len(snapshot_df[snapshot_df['confidence'] == 'PARTIAL'])
+            st.metric("PARTIAL Confidence", f"{partial_count}/28")
+        
+        with col3:
+            unavail_count = len(snapshot_df[snapshot_df['confidence'] == 'UNAVAILABLE'])
+            st.metric("UNAVAILABLE", f"{unavail_count}/28")
+        
+        with col4:
+            # Average 30D return (only for available data)
+            valid_30d = snapshot_df[pd.notna(snapshot_df['return_30D'])]['return_30D']
+            if len(valid_30d) > 0:
+                avg_30d = valid_30d.mean()
+                st.metric("Avg 30D Return", f"{avg_30d*100:.2f}%")
+            else:
+                st.metric("Avg 30D Return", "N/A")
+        
+        # Timestamp
+        st.caption(f"📅 Snapshot generated at: {freshness.get('modified_at', 'Unknown')}")
+    
+    except ImportError as e:
+        st.error("⚠️ **Wave Intelligence (Plan B) Unavailable:** Required modules are not available.")
+        st.info("To enable this feature, ensure `planb_proxy_pipeline.py` and proxy registry validator are present.")
+        with st.expander("View Error Details", expanded=False):
+            st.code(str(e), language="python")
+    
+    except Exception as e:
+        st.error(f"Error rendering Wave Intelligence (Plan B) tab: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -17328,6 +17596,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",      # NEW: Governance and transparency layer
             "Diagnostics",             # Health/Diagnostics tab
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
@@ -17386,16 +17655,20 @@ def main():
         with analytics_tabs[10]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[11]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -17413,6 +17686,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
@@ -17475,16 +17749,20 @@ def main():
         with analytics_tabs[11]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[12]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[14]:
+        with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -17501,6 +17779,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
@@ -17558,16 +17837,20 @@ def main():
         with analytics_tabs[10]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[11]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================

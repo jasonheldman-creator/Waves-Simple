@@ -1,0 +1,29 @@
+wave_id,display_name,category,primary_proxy_ticker,secondary_proxy_ticker,benchmark_ticker,enabled
+ai_cloud_megacap_wave,AI & Cloud MegaCap Wave,Equity,MSFT,GOOGL,QQQ,true
+clean_transit_infrastructure_wave,Clean Transit-Infrastructure Wave,Equity,PAVE,ICLN,PAVE,true
+crypto_ai_growth_wave,Crypto AI Growth Wave,Crypto,TAO-USD,FET-USD,BTC-USD,true
+crypto_broad_growth_wave,Crypto Broad Growth Wave,Crypto,BTC-USD,ETH-USD,BTC-USD,true
+crypto_defi_growth_wave,Crypto DeFi Growth Wave,Crypto,UNI-USD,AAVE-USD,ETH-USD,true
+crypto_income_wave,Crypto Income Wave,Crypto,ETH-USD,BTC-USD,ETH-USD,true
+crypto_l1_growth_wave,Crypto L1 Growth Wave,Crypto,ETH-USD,SOL-USD,ETH-USD,true
+crypto_l2_growth_wave,Crypto L2 Growth Wave,Crypto,MATIC-USD,ARB-USD,ETH-USD,true
+demas_fund_wave,Demas Fund Wave,Equity,SPY,QQQ,SPY,true
+ev_infrastructure_wave,EV & Infrastructure Wave,Equity,TSLA,PAVE,PAVE,true
+future_energy_ev_wave,Future Energy & EV Wave,Equity,XLE,TSLA,XLE,true
+future_power_energy_wave,Future Power & Energy Wave,Equity,ICLN,TAN,ICLN,true
+gold_wave,Gold Wave,Commodity,GLD,IAU,GLD,true
+income_wave,Income Wave,Fixed Income,VYM,SCHD,VYM,true
+infinity_multi_asset_growth_wave,Infinity Multi-Asset Growth Wave,Equity,SPY,QQQ,SPY,true
+next_gen_compute_semis_wave,Next-Gen Compute & Semis Wave,Equity,NVDA,AMD,QQQ,true
+quantum_computing_wave,Quantum Computing Wave,Equity,QTUM,IONQ,QQQ,true
+russell_3000_wave,Russell 3000 Wave,Equity,IWV,VTI,IWV,true
+small_cap_growth_wave,Small Cap Growth Wave,Equity,IWO,VBK,IWO,true
+small_to_mid_cap_growth_wave,Small to Mid Cap Growth Wave,Equity,IWP,IJH,IWP,true
+smartsafe_tax_free_money_market_wave,SmartSafe Tax-Free Money Market Wave,Fixed Income,SUB,MUB,SUB,true
+smartsafe_treasury_cash_wave,SmartSafe Treasury Cash Wave,Fixed Income,BIL,SHV,BIL,true
+sp500_wave,S&P 500 Wave,Equity,SPY,VOO,SPY,true
+us_megacap_core_wave,US MegaCap Core Wave,Equity,SPY,QQQ,SPY,true
+us_mid_small_growth_semis_wave,US Mid/Small Growth & Semis Wave,Equity,IWP,SOXX,IWP,true
+us_small_cap_disruptors_wave,US Small-Cap Disruptors Wave,Equity,IWO,VBR,IWO,true
+vector_muni_ladder_wave,Vector Muni Ladder Wave,Fixed Income,SUB,MUB,SUB,true
+vector_treasury_ladder_wave,Vector Treasury Ladder Wave,Fixed Income,BIL,SHV,BIL,true
