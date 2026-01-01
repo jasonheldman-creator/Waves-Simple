@@ -2420,6 +2420,13 @@ def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
         - price_df: DataFrame with dates as index and tickers as columns
         - per_ticker_failures: Dict mapping failed tickers to error reasons
     """
+    # ========================================================================
+    # Safe Mode Check - Prevent external data fetching
+    # ========================================================================
+    if st.session_state.get("safe_mode_no_fetch", True):
+        print("⏸️ Safe Mode active - skipping price prefetch")
+        return pd.DataFrame(), {"safe_mode": "Price fetching disabled in Safe Mode"}
+    
     import time
     import random
     
@@ -6382,6 +6389,100 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
+    # NEW: Safe Mode Switch (Default ON)
+    # ========================================================================
+    st.sidebar.markdown("### 🛡️ Safe Mode")
+    
+    # Safe Mode (No Fetch / No Compute) - Default ON
+    safe_mode_no_fetch = st.sidebar.checkbox(
+        "Safe Mode (No Fetch / No Compute)",
+        value=st.session_state.get("safe_mode_no_fetch", True),
+        key="safe_mode_no_fetch_toggle",
+        help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
+    )
+    st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
+    
+    if safe_mode_no_fetch:
+        st.sidebar.info("🛡️ SAFE MODE ACTIVE - No external data calls")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Manual Snapshot Rebuild Buttons
+    # ========================================================================
+    st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
+    
+    # Main Snapshot Rebuild Button
+    if st.sidebar.button(
+        "Rebuild Snapshot Now (Manual)",
+        key="manual_rebuild_snapshot_button",
+        use_container_width=True,
+        disabled=safe_mode_no_fetch,
+        help="Manually rebuild the main snapshot. Safe Mode must be OFF."
+    ):
+        try:
+            from analytics_pipeline import generate_live_snapshot
+            
+            st.sidebar.info("⏳ Building snapshot...")
+            
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
+            snapshot_df = generate_live_snapshot(
+                output_path="data/live_snapshot.csv",
+                session_state=temp_session_state
+            )
+            
+            if snapshot_df is not None and not snapshot_df.empty:
+                st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
+                # Reset run guard counter on successful rebuild
+                st.session_state.run_guard_counter = 0
+                st.session_state.loop_detected = False
+                st.rerun()
+            else:
+                st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
+        except Exception as e:
+            st.sidebar.error(f"❌ Snapshot rebuild failed: {str(e)}")
+    
+    # Proxy Snapshot Rebuild Button
+    if st.sidebar.button(
+        "Rebuild Proxy Snapshot Now (Manual)",
+        key="manual_rebuild_proxy_snapshot_button",
+        use_container_width=True,
+        disabled=safe_mode_no_fetch,
+        help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
+    ):
+        try:
+            from planb_proxy_pipeline import build_proxy_snapshot
+            
+            st.sidebar.info("⏳ Building proxy snapshot...")
+            
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
+            # Build proxy snapshot with explicit button click flag
+            proxy_df = build_proxy_snapshot(
+                days=365,
+                session_state=temp_session_state,
+                explicit_button_click=True
+            )
+            
+            if proxy_df is not None and not proxy_df.empty:
+                st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
+                # Reset run guard counter on successful rebuild
+                st.session_state.run_guard_counter = 0
+                st.session_state.loop_detected = False
+                st.rerun()
+            else:
+                st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
+        except Exception as e:
+            st.sidebar.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Feature Toggles - Wave Intelligence Center
     # ========================================================================
     st.sidebar.markdown("### ⚙️ Feature Settings")
@@ -6417,13 +6518,6 @@ def render_sidebar_info():
         help="Show detailed error messages and diagnostics when components fail (default: OFF)"
     )
     st.session_state["debug_mode"] = debug_mode_ui
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Old Safe Mode Toggle (Deprecated - kept for backwards compatibility)
-    # ========================================================================
-    # Note: The old safe mode toggle is now replaced by the feature settings above
     
     st.sidebar.markdown("---")
     
@@ -15919,6 +16013,438 @@ def render_planb_monitor_tab():
             st.code(traceback.format_exc(), language="python")
 
 
+def render_wave_intelligence_planb_tab():
+    """
+    Render the Wave Intelligence (Plan B) tab.
+    
+    This tab provides:
+    - Proxy-based analytics for all 28 waves
+    - Safe Mode toggle for snapshot-only rendering
+    - Build control with 2-minute lock
+    - Diagnostics box
+    - Snapshot-first rendering (no blocking)
+    - Wave selector dropdown
+    - Wave Identity fact sheet with proxy returns and diagnostics
+    - Universe Table with general stats for all waves
+    """
+    try:
+        from planb_proxy_pipeline import (
+            load_proxy_snapshot, 
+            get_snapshot_freshness, 
+            build_proxy_snapshot,
+            should_trigger_build,
+            load_diagnostics,
+            BUILD_LOCK_MINUTES
+        )
+        from helpers.proxy_registry_validator import validate_proxy_registry, get_enabled_proxy_waves
+        
+        st.markdown("# 📊 Wave Intelligence (Plan B)")
+        st.markdown("### Proxy-Based Analytics - Consistent Data for All 28 Waves")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 0: Initialize Session State
+        # ========================================================================
+        
+        # Initialize session state variables for build control
+        if 'planb_build_in_progress' not in st.session_state:
+            st.session_state.planb_build_in_progress = False
+        
+        if 'planb_last_build_attempt' not in st.session_state:
+            st.session_state.planb_last_build_attempt = None
+        
+        if 'planb_safe_mode' not in st.session_state:
+            st.session_state.planb_safe_mode = False
+        
+        # ========================================================================
+        # SECTION 1: Load Snapshot First (Snapshot-First Rendering)
+        # ========================================================================
+        
+        # ALWAYS load existing snapshot first for immediate rendering
+        snapshot_df = load_proxy_snapshot()
+        freshness = get_snapshot_freshness()
+        diagnostics = load_diagnostics()
+        
+        # ========================================================================
+        # SECTION 2: Diagnostics Box
+        # ========================================================================
+        
+        st.subheader("📋 Snapshot Diagnostics")
+        
+        diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
+        
+        with diag_col1:
+            if freshness['exists']:
+                age_min = freshness.get('age_minutes', 0)
+                st.metric("Snapshot Age", f"{age_min:.1f}m")
+            else:
+                st.metric("Snapshot Age", "N/A")
+        
+        with diag_col2:
+            if freshness['exists']:
+                status = "🟢 Fresh" if freshness['fresh'] else "🟡 Stale"
+                st.metric("Freshness", status)
+            else:
+                st.metric("Freshness", "🔴 Missing")
+        
+        with diag_col3:
+            if diagnostics:
+                build_status = "✅ Success" if diagnostics.get('snapshot_saved', False) else "⚠️ Partial"
+                if diagnostics.get('timeout_exceeded', False):
+                    build_status = "⏱️ Timeout"
+                st.metric("Last Build", build_status)
+            else:
+                st.metric("Last Build", "N/A")
+        
+        with diag_col4:
+            if diagnostics:
+                failed_count = diagnostics.get('failed_fetches', 0)
+                st.metric("Failed Tickers", failed_count)
+            else:
+                st.metric("Failed Tickers", "N/A")
+        
+        # Build lock status
+        if st.session_state.planb_last_build_attempt:
+            minutes_since = (datetime.now() - st.session_state.planb_last_build_attempt).total_seconds() / 60
+            if minutes_since < BUILD_LOCK_MINUTES:
+                st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {BUILD_LOCK_MINUTES - minutes_since:.1f}m more.")
+        
+        # STEP 6: Show build in progress / suppressed status
+        try:
+            from helpers.compute_gate import get_build_diagnostics
+            
+            planb_diag = get_build_diagnostics(st.session_state, "planb_snapshot")
+            engine_diag = get_build_diagnostics(st.session_state, "engine_snapshot")
+            
+            if planb_diag.get('build_in_progress', False):
+                st.info("🔄 **Plan B Build Running** - Please wait...")
+            elif engine_diag.get('build_in_progress', False):
+                st.info("🔄 **Engine Build Running** - Please wait...")
+            elif st.session_state.get('safe_demo_mode', False):
+                st.success("🛡️ **SAFE DEMO MODE** - All builds suppressed")
+        except ImportError:
+            pass
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 3: Safe Mode & Action Buttons
+        # ========================================================================
+        
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 3])
+        
+        with col1:
+            # Safe Mode Toggle
+            safe_mode = st.checkbox(
+                "🛡️ Safe Mode (Snapshot Only)",
+                value=st.session_state.planb_safe_mode,
+                help="When enabled, prevents all online fetches and only renders from the latest snapshot"
+            )
+            st.session_state.planb_safe_mode = safe_mode
+        
+        with col2:
+            # Rebuild button (disabled in Safe Mode)
+            rebuild_disabled = safe_mode or st.session_state.planb_build_in_progress
+            
+            if st.button("🔄 Rebuild Snapshot Now", disabled=rebuild_disabled, help="Fetch latest proxy data and rebuild snapshot (disabled in Safe Mode)"):
+                # Mark button click for run tracking
+                st.session_state._last_button_clicked = "planb_rebuild"
+                
+                # Mark build in progress
+                st.session_state.planb_build_in_progress = True
+                st.session_state.planb_last_build_attempt = datetime.now()
+                
+                with st.spinner("Rebuilding proxy snapshot (max 15s timeout)..."):
+                    try:
+                        snapshot_df = build_proxy_snapshot(
+                            days=365, 
+                            enforce_timeout=True,
+                            session_state=st.session_state,
+                            explicit_button_click=True  # User explicitly clicked button
+                        )
+                        
+                        if not snapshot_df.empty:
+                            st.success(f"✅ Snapshot rebuilt with {len(snapshot_df)} waves")
+                        else:
+                            st.warning(f"⚠️ Build completed but returned empty snapshot")
+                        
+                        st.session_state.planb_build_in_progress = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to rebuild snapshot: {str(e)}")
+                        st.session_state.planb_build_in_progress = False
+        
+        with col3:
+            # Download button
+            if not snapshot_df.empty:
+                csv_data = snapshot_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"wave_proxy_snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    help="Download the current proxy snapshot as CSV"
+                )
+        
+        with col4:
+            # Registry validation status
+            validation = validate_proxy_registry(strict=False)
+            if validation['valid']:
+                st.info(f"✅ Registry: {validation['enabled_count']}/28 waves enabled")
+            else:
+                st.warning(f"⚠️ Registry: {validation['enabled_count']}/28 waves (degraded)")
+        
+        # Safe Mode banner
+        if safe_mode:
+            st.info("🛡️ **Safe Mode Active:** Rendering from snapshot only. No online fetches will be performed.")
+        
+        # ========================================================================
+        # STEP 8: Diagnostics - Why is it rerunning?
+        # ========================================================================
+        with st.expander("🔍 Diagnostics: Why is it rerunning?", expanded=False):
+            st.markdown("### Rerun & Build Diagnostics")
+            
+            # Import compute gate for diagnostics
+            try:
+                from helpers.compute_gate import get_build_diagnostics
+                
+                diag_col1, diag_col2 = st.columns(2)
+                
+                with diag_col1:
+                    st.markdown("#### App Rerun Status")
+                    st.markdown(f"**Run ID:** {st.session_state.get('run_id', 'N/A')}")
+                    st.markdown(f"**Trigger:** {st.session_state.get('run_trigger', 'unknown')}")
+                    st.markdown(f"**SAFE DEMO MODE:** {'🟢 ON' if st.session_state.get('safe_demo_mode', False) else '🔴 OFF'}")
+                    st.markdown(f"**Plan B Safe Mode:** {'🟢 ON' if safe_mode else '🔴 OFF'}")
+                
+                with diag_col2:
+                    st.markdown("#### Plan B Build Status")
+                    planb_diag = get_build_diagnostics(st.session_state, "planb_snapshot")
+                    
+                    st.markdown(f"**Build In Progress:** {planb_diag.get('build_in_progress', False)}")
+                    st.markdown(f"**Last Build Attempt:** {planb_diag.get('last_build_attempt', 'Never')}")
+                    st.markdown(f"**Last Build Success:** {planb_diag.get('last_build_success', 'N/A')}")
+                    st.markdown(f"**Minutes Since Last:** {planb_diag.get('minutes_since_last_attempt', 'N/A')}")
+                    st.markdown(f"**Last Build Run ID:** {planb_diag.get('last_build_run_id', 'N/A')}")
+                
+                # Engine build diagnostics
+                st.markdown("#### Engine Build Status")
+                engine_diag = get_build_diagnostics(st.session_state, "engine_snapshot")
+                
+                diag_col3, diag_col4 = st.columns(2)
+                
+                with diag_col3:
+                    st.markdown(f"**Build In Progress:** {engine_diag.get('build_in_progress', False)}")
+                    st.markdown(f"**Last Build Attempt:** {engine_diag.get('last_build_attempt', 'Never')}")
+                    st.markdown(f"**Last Build Success:** {engine_diag.get('last_build_success', 'N/A')}")
+                
+                with diag_col4:
+                    st.markdown(f"**Minutes Since Last:** {engine_diag.get('minutes_since_last_attempt', 'N/A')}")
+                    st.markdown(f"**Last Build Run ID:** {engine_diag.get('last_build_run_id', 'N/A')}")
+                
+                # Show ticker counts from diagnostics
+                if diagnostics:
+                    st.markdown("#### Last Build Summary")
+                    st.markdown(f"**Total Waves Processed:** {diagnostics.get('total_waves', 'N/A')}")
+                    st.markdown(f"**Successful Fetches:** {diagnostics.get('successful_fetches', 'N/A')}")
+                    st.markdown(f"**Failed Fetches:** {diagnostics.get('failed_fetches', 'N/A')}")
+                    st.markdown(f"**Build Duration:** {diagnostics.get('build_duration_seconds', 'N/A')}s")
+                    st.markdown(f"**Timeout Exceeded:** {diagnostics.get('timeout_exceeded', False)}")
+                
+            except ImportError:
+                st.warning("Compute gate diagnostics not available")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 4: Check if snapshot is available
+        # ========================================================================
+        
+        if snapshot_df.empty:
+            st.warning("⚠️ No proxy snapshot available. Click 'Rebuild Snapshot Now' to generate.")
+            st.info("The snapshot is required to display the 28-Wave Universe Table and individual wave analytics.")
+            return
+        
+        # ========================================================================
+        # SECTION 4: Wave Selector
+        # ========================================================================
+        
+        st.subheader("🎯 Wave Selector")
+        
+        # Get list of waves
+        wave_options = snapshot_df['display_name'].tolist()
+        wave_ids = snapshot_df['wave_id'].tolist()
+        
+        # Create wave selector
+        selected_wave_name = st.selectbox(
+            "Select Wave",
+            wave_options,
+            index=0,
+            help="Choose a wave to view detailed proxy analytics"
+        )
+        
+        # Get selected wave data
+        selected_wave_idx = wave_options.index(selected_wave_name)
+        selected_wave_id = wave_ids[selected_wave_idx]
+        selected_wave_data = snapshot_df[snapshot_df['wave_id'] == selected_wave_id].iloc[0]
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 5: Wave Identity Fact Sheet
+        # ========================================================================
+        
+        st.subheader("📋 Wave Identity")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown(f"**Wave Name:** {selected_wave_data['display_name']}")
+            st.markdown(f"**Wave ID:** `{selected_wave_data['wave_id']}`")
+            st.markdown(f"**Category:** {selected_wave_data['category']}")
+        
+        with col2:
+            st.markdown(f"**Proxy Ticker:** {selected_wave_data['proxy_ticker']}")
+            st.markdown(f"**Benchmark:** {selected_wave_data['benchmark_ticker']}")
+            confidence = selected_wave_data['confidence']
+            confidence_emoji = "🟢" if confidence == "FULL" else "🟡" if confidence == "PARTIAL" else "🔴"
+            st.markdown(f"**Confidence:** {confidence_emoji} {confidence}")
+        
+        with col3:
+            # Returns summary
+            ret_1d = selected_wave_data['return_1D']
+            ret_30d = selected_wave_data['return_30D']
+            ret_365d = selected_wave_data['return_365D']
+            
+            if pd.notna(ret_1d):
+                st.metric("1D Return", f"{ret_1d*100:.2f}%")
+            else:
+                st.metric("1D Return", "N/A")
+            
+            if pd.notna(ret_30d):
+                st.metric("30D Return", f"{ret_30d*100:.2f}%")
+            else:
+                st.metric("30D Return", "N/A")
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 6: Proxy Returns & Diagnostics
+        # ========================================================================
+        
+        st.subheader("📈 Proxy Returns & Alpha")
+        
+        # Create returns table
+        returns_data = {
+            'Period': ['1 Day', '30 Days', '60 Days', '365 Days'],
+            'Proxy Return': [
+                f"{selected_wave_data['return_1D']*100:.2f}%" if pd.notna(selected_wave_data['return_1D']) else "N/A",
+                f"{selected_wave_data['return_30D']*100:.2f}%" if pd.notna(selected_wave_data['return_30D']) else "N/A",
+                f"{selected_wave_data['return_60D']*100:.2f}%" if pd.notna(selected_wave_data['return_60D']) else "N/A",
+                f"{selected_wave_data['return_365D']*100:.2f}%" if pd.notna(selected_wave_data['return_365D']) else "N/A"
+            ],
+            'Benchmark Return': [
+                f"{selected_wave_data['benchmark_1D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_1D']) else "N/A",
+                f"{selected_wave_data['benchmark_30D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_30D']) else "N/A",
+                f"{selected_wave_data['benchmark_60D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_60D']) else "N/A",
+                f"{selected_wave_data['benchmark_365D']*100:.2f}%" if pd.notna(selected_wave_data['benchmark_365D']) else "N/A"
+            ],
+            'Alpha': [
+                f"{selected_wave_data['alpha_1D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_1D']) else "N/A",
+                f"{selected_wave_data['alpha_30D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_30D']) else "N/A",
+                f"{selected_wave_data['alpha_60D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_60D']) else "N/A",
+                f"{selected_wave_data['alpha_365D']*100:.2f}%" if pd.notna(selected_wave_data['alpha_365D']) else "N/A"
+            ]
+        }
+        
+        returns_df = pd.DataFrame(returns_data)
+        st.dataframe(returns_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        # ========================================================================
+        # SECTION 7: Universe Table - All Waves
+        # ========================================================================
+        
+        st.subheader("🌐 Universe Table - All 28 Waves")
+        
+        # Prepare display table
+        display_df = snapshot_df.copy()
+        
+        # Format percentage columns
+        for col in ['return_1D', 'return_30D', 'return_60D', 'return_365D']:
+            display_df[col] = display_df[col].apply(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            )
+        
+        # Select columns for display
+        universe_table = display_df[[
+            'display_name',
+            'category',
+            'proxy_ticker',
+            'confidence',
+            'return_1D',
+            'return_30D',
+            'return_60D',
+            'return_365D'
+        ]].copy()
+        
+        # Rename columns
+        universe_table.columns = [
+            'Wave Name',
+            'Category',
+            'Proxy',
+            'Confidence',
+            '1D Return',
+            '30D Return',
+            '60D Return',
+            '365D Return'
+        ]
+        
+        # Display table
+        st.dataframe(universe_table, use_container_width=True, hide_index=True)
+        
+        # Summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            full_count = len(snapshot_df[snapshot_df['confidence'] == 'FULL'])
+            st.metric("FULL Confidence", f"{full_count}/28")
+        
+        with col2:
+            partial_count = len(snapshot_df[snapshot_df['confidence'] == 'PARTIAL'])
+            st.metric("PARTIAL Confidence", f"{partial_count}/28")
+        
+        with col3:
+            unavail_count = len(snapshot_df[snapshot_df['confidence'] == 'UNAVAILABLE'])
+            st.metric("UNAVAILABLE", f"{unavail_count}/28")
+        
+        with col4:
+            # Average 30D return (only for available data)
+            valid_30d = snapshot_df[pd.notna(snapshot_df['return_30D'])]['return_30D']
+            if len(valid_30d) > 0:
+                avg_30d = valid_30d.mean()
+                st.metric("Avg 30D Return", f"{avg_30d*100:.2f}%")
+            else:
+                st.metric("Avg 30D Return", "N/A")
+        
+        # Timestamp
+        st.caption(f"📅 Snapshot generated at: {freshness.get('modified_at', 'Unknown')}")
+    
+    except ImportError as e:
+        st.error("⚠️ **Wave Intelligence (Plan B) Unavailable:** Required modules are not available.")
+        st.info("To enable this feature, ensure `planb_proxy_pipeline.py` and proxy registry validator are present.")
+        with st.expander("View Error Details", expanded=False):
+            st.code(str(e), language="python")
+    
+    except Exception as e:
+        st.error(f"Error rendering Wave Intelligence (Plan B) tab: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -16993,6 +17519,84 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # STEP 0: Initialize Safe Mode (Default ON)
+    # ========================================================================
+    
+    # Initialize Safe Mode flag (default: ON for stability)
+    if "safe_mode_no_fetch" not in st.session_state:
+        st.session_state.safe_mode_no_fetch = True  # Default to ON
+    
+    # Initialize loop detection flag
+    if "loop_detected" not in st.session_state:
+        st.session_state.loop_detected = False
+    
+    # ========================================================================
+    # STEP 1: Run Guard Counter (Hard Circuit Breaker)
+    # ========================================================================
+    
+    # Initialize run_guard_counter if not present
+    if "run_guard_counter" not in st.session_state:
+        st.session_state.run_guard_counter = 0
+    
+    # Increment run guard counter
+    st.session_state.run_guard_counter += 1
+    
+    # Check run guard threshold
+    if st.session_state.run_guard_counter > 3:
+        st.session_state.loop_detected = True
+        st.warning("⚠️ **Run Guard triggered — preventing infinite loop**")
+        st.stop()
+    
+    # ========================================================================
+    # STEP 2: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
+    # ========================================================================
+    
+    # Initialize run_id counter if not present
+    if "run_id" not in st.session_state:
+        st.session_state.run_id = 0
+        st.session_state.run_trigger = "initial_load"
+    else:
+        st.session_state.run_id += 1
+        # Determine what triggered this rerun
+        if st.session_state.get("_last_button_clicked"):
+            st.session_state.run_trigger = f"button: {st.session_state._last_button_clicked}"
+            st.session_state._last_button_clicked = None
+        elif st.session_state.get("auto_refresh_enabled"):
+            st.session_state.run_trigger = "auto_refresh"
+        else:
+            st.session_state.run_trigger = "user_interaction"
+    
+    # Display run diagnostics at the very top
+    st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
+    
+    # ========================================================================
+    # STEP 3: Top Banner with Status Information
+    # ========================================================================
+    
+    # Get snapshot timestamp if available
+    snapshot_timestamp = "Unknown"
+    try:
+        import os
+        from datetime import datetime
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            mtime = os.path.getmtime(snapshot_path)
+            snapshot_timestamp = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    
+    # Display status banner
+    safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
+    loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
+    
+    st.info(f"""
+**System Status**  
+• **Safe Mode:** {safe_mode_status}  
+• **Loop Detected:** {loop_status}  
+• **Last Snapshot:** {snapshot_timestamp}
+""")
+    
+    # ========================================================================
     # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
     # ========================================================================
     
@@ -17042,43 +17646,48 @@ def main():
             st.session_state.wave_universe_validation_failed = False
     
     # ========================================================================
-    # Snapshot Auto-Build and Staleness Management (ROUND 7 Phase 3)
+    # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
     # ========================================================================
     
-    # Ensure snapshot exists and is fresh on startup (only once per session)
+    # SAFE MODE: Skip auto-build entirely when Safe Mode is ON
+    # Only validate if snapshot exists, but never trigger builds
     if "snapshot_validated" not in st.session_state:
-        try:
-            from analytics_pipeline import ensure_live_snapshot_exists
-            
-            snapshot_status = ensure_live_snapshot_exists(
-                path="data/live_snapshot.csv",
-                max_age_minutes=15,
-                force_rebuild=False
-            )
-            
-            # Store status in session state for diagnostics
-            st.session_state.snapshot_exists = snapshot_status.get('exists', False)
-            st.session_state.snapshot_fresh = snapshot_status.get('fresh', False)
-            st.session_state.snapshot_age_minutes = snapshot_status.get('age_minutes')
-            st.session_state.snapshot_rebuilt = snapshot_status.get('rebuilt', False)
-            st.session_state.snapshot_error = snapshot_status.get('error')
-            st.session_state.snapshot_stale_fallback = snapshot_status.get('stale_fallback', False)
-            
-            # Log status
-            if snapshot_status.get('error'):
-                print(f"⚠️ Snapshot validation warning: {snapshot_status.get('error')}")
-                if snapshot_status.get('stale_fallback'):
-                    print(f"   Using stale snapshot (age: {snapshot_status.get('age_minutes', 'N/A')} min)")
-            elif snapshot_status.get('rebuilt'):
-                print(f"✅ Snapshot rebuilt successfully")
-            elif snapshot_status.get('fresh'):
-                print(f"✅ Snapshot is fresh (age: {snapshot_status.get('age_minutes', 0):.1f} min)")
-            
-            st.session_state.snapshot_validated = True
-        except Exception as e:
-            print(f"⚠️ Warning: Could not validate snapshot: {e}")
-            st.session_state.snapshot_validated = False
+        st.session_state.snapshot_validated = True  # Mark as validated to prevent re-entry
+        
+        # Check if snapshot exists without building
+        import os
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            try:
+                from datetime import datetime
+                mtime = os.path.getmtime(snapshot_path)
+                age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60
+                
+                st.session_state.snapshot_exists = True
+                st.session_state.snapshot_fresh = age_minutes <= 15
+                st.session_state.snapshot_age_minutes = age_minutes
+                st.session_state.snapshot_rebuilt = False
+                st.session_state.snapshot_error = None
+                st.session_state.snapshot_stale_fallback = False
+                st.session_state.snapshot_build_suppressed = True
+                st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
+                
+                print(f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min) - Safe Mode prevents auto-rebuild")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not check snapshot age: {e}")
+                st.session_state.snapshot_exists = True
+                st.session_state.snapshot_fresh = False
+        else:
             st.session_state.snapshot_exists = False
+            st.session_state.snapshot_fresh = False
+            st.session_state.snapshot_age_minutes = None
+            st.session_state.snapshot_rebuilt = False
+            st.session_state.snapshot_error = "Snapshot does not exist"
+            st.session_state.snapshot_stale_fallback = False
+            st.session_state.snapshot_build_suppressed = True
+            st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
+            
+            print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
     
     # ========================================================================
     # Wave Readiness Report - Log on startup
@@ -17328,6 +17937,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",            # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",      # NEW: Governance and transparency layer
             "Diagnostics",             # Health/Diagnostics tab
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
@@ -17386,16 +17996,20 @@ def main():
         with analytics_tabs[10]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[11]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -17413,6 +18027,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",          # NEW: Governance and transparency layer
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
@@ -17475,16 +18090,20 @@ def main():
         with analytics_tabs[11]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[12]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[14]:
+        with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -17501,6 +18120,7 @@ def main():
             "Alpha Capture",
             "Wave Monitor",               # NEW: ROUND 7 Phase 5 - Individual wave analytics
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",         # NEW: Governance and transparency layer
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
@@ -17558,16 +18178,20 @@ def main():
         with analytics_tabs[10]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
-        # Governance & Audit tab (NEW)
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
         with analytics_tabs[11]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[12]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================

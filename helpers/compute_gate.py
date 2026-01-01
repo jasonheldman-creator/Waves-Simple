@@ -50,7 +50,15 @@ def should_allow_build(
         Tuple of (should_build: bool, reason: str)
     """
     # ========================================================================
-    # STEP 2: SAFE DEMO MODE Check - Global Kill Switch
+    # STEP 1: Safe Mode Check - Global Kill Switch (NEW)
+    # ========================================================================
+    if session_state is not None and session_state.get("safe_mode_no_fetch", True):
+        # Only allow builds if explicit button click
+        if not explicit_button_click:
+            return False, "Safe Mode active - all auto-builds suppressed"
+    
+    # ========================================================================
+    # STEP 2: SAFE DEMO MODE Check - Global Kill Switch (LEGACY)
     # ========================================================================
     if session_state is not None and session_state.get("safe_demo_mode", False):
         return False, "SAFE DEMO MODE active - all builds suppressed"

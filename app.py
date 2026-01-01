@@ -2420,6 +2420,13 @@ def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
         - price_df: DataFrame with dates as index and tickers as columns
         - per_ticker_failures: Dict mapping failed tickers to error reasons
     """
+    # ========================================================================
+    # Safe Mode Check - Prevent external data fetching
+    # ========================================================================
+    if st.session_state.get("safe_mode_no_fetch", True):
+        print("⏸️ Safe Mode active - skipping price prefetch")
+        return pd.DataFrame(), {"safe_mode": "Price fetching disabled in Safe Mode"}
+    
     import time
     import random
     
@@ -6382,6 +6389,100 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
+    # NEW: Safe Mode Switch (Default ON)
+    # ========================================================================
+    st.sidebar.markdown("### 🛡️ Safe Mode")
+    
+    # Safe Mode (No Fetch / No Compute) - Default ON
+    safe_mode_no_fetch = st.sidebar.checkbox(
+        "Safe Mode (No Fetch / No Compute)",
+        value=st.session_state.get("safe_mode_no_fetch", True),
+        key="safe_mode_no_fetch_toggle",
+        help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
+    )
+    st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
+    
+    if safe_mode_no_fetch:
+        st.sidebar.info("🛡️ SAFE MODE ACTIVE - No external data calls")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Manual Snapshot Rebuild Buttons
+    # ========================================================================
+    st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
+    
+    # Main Snapshot Rebuild Button
+    if st.sidebar.button(
+        "Rebuild Snapshot Now (Manual)",
+        key="manual_rebuild_snapshot_button",
+        use_container_width=True,
+        disabled=safe_mode_no_fetch,
+        help="Manually rebuild the main snapshot. Safe Mode must be OFF."
+    ):
+        try:
+            from analytics_pipeline import generate_live_snapshot
+            
+            st.sidebar.info("⏳ Building snapshot...")
+            
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
+            snapshot_df = generate_live_snapshot(
+                output_path="data/live_snapshot.csv",
+                session_state=temp_session_state
+            )
+            
+            if snapshot_df is not None and not snapshot_df.empty:
+                st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
+                # Reset run guard counter on successful rebuild
+                st.session_state.run_guard_counter = 0
+                st.session_state.loop_detected = False
+                st.rerun()
+            else:
+                st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
+        except Exception as e:
+            st.sidebar.error(f"❌ Snapshot rebuild failed: {str(e)}")
+    
+    # Proxy Snapshot Rebuild Button
+    if st.sidebar.button(
+        "Rebuild Proxy Snapshot Now (Manual)",
+        key="manual_rebuild_proxy_snapshot_button",
+        use_container_width=True,
+        disabled=safe_mode_no_fetch,
+        help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
+    ):
+        try:
+            from planb_proxy_pipeline import build_proxy_snapshot
+            
+            st.sidebar.info("⏳ Building proxy snapshot...")
+            
+            # Temporarily allow the build by creating a temporary session state
+            temp_session_state = dict(st.session_state)
+            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+            
+            # Build proxy snapshot with explicit button click flag
+            proxy_df = build_proxy_snapshot(
+                days=365,
+                session_state=temp_session_state,
+                explicit_button_click=True
+            )
+            
+            if proxy_df is not None and not proxy_df.empty:
+                st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
+                # Reset run guard counter on successful rebuild
+                st.session_state.run_guard_counter = 0
+                st.session_state.loop_detected = False
+                st.rerun()
+            else:
+                st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
+        except Exception as e:
+            st.sidebar.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Feature Toggles - Wave Intelligence Center
     # ========================================================================
     st.sidebar.markdown("### ⚙️ Feature Settings")
@@ -6417,27 +6518,6 @@ def render_sidebar_info():
         help="Show detailed error messages and diagnostics when components fail (default: OFF)"
     )
     st.session_state["debug_mode"] = debug_mode_ui
-    
-    # ========================================================================
-    # STEP 2: SAFE DEMO MODE - Global Kill Switch (Infinite Loop Prevention)
-    # ========================================================================
-    safe_demo_mode_ui = st.sidebar.checkbox(
-        "🛡️ SAFE DEMO MODE (NO NETWORK / NO ENGINE RECOMPUTE)",
-        value=st.session_state.get("safe_demo_mode", False),
-        key="safe_demo_mode_toggle",
-        help="When ON: Prevents all network calls, yfinance downloads, and compute operations. Renders from cached snapshots only."
-    )
-    st.session_state["safe_demo_mode"] = safe_demo_mode_ui
-    
-    if safe_demo_mode_ui:
-        st.sidebar.info("🛡️ SAFE DEMO MODE ACTIVE - Using cached data only")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Old Safe Mode Toggle (Deprecated - kept for backwards compatibility)
-    # ========================================================================
-    # Note: The old safe mode toggle is now replaced by the feature settings above
     
     st.sidebar.markdown("---")
     
@@ -17439,7 +17519,36 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
-    # STEP 1: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
+    # STEP 0: Initialize Safe Mode (Default ON)
+    # ========================================================================
+    
+    # Initialize Safe Mode flag (default: ON for stability)
+    if "safe_mode_no_fetch" not in st.session_state:
+        st.session_state.safe_mode_no_fetch = True  # Default to ON
+    
+    # Initialize loop detection flag
+    if "loop_detected" not in st.session_state:
+        st.session_state.loop_detected = False
+    
+    # ========================================================================
+    # STEP 1: Run Guard Counter (Hard Circuit Breaker)
+    # ========================================================================
+    
+    # Initialize run_guard_counter if not present
+    if "run_guard_counter" not in st.session_state:
+        st.session_state.run_guard_counter = 0
+    
+    # Increment run guard counter
+    st.session_state.run_guard_counter += 1
+    
+    # Check run guard threshold
+    if st.session_state.run_guard_counter > 3:
+        st.session_state.loop_detected = True
+        st.warning("⚠️ **Run Guard triggered — preventing infinite loop**")
+        st.stop()
+    
+    # ========================================================================
+    # STEP 2: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
     # ========================================================================
     
     # Initialize run_id counter if not present
@@ -17459,6 +17568,33 @@ def main():
     
     # Display run diagnostics at the very top
     st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
+    
+    # ========================================================================
+    # STEP 3: Top Banner with Status Information
+    # ========================================================================
+    
+    # Get snapshot timestamp if available
+    snapshot_timestamp = "Unknown"
+    try:
+        import os
+        from datetime import datetime
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            mtime = os.path.getmtime(snapshot_path)
+            snapshot_timestamp = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    
+    # Display status banner
+    safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
+    loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
+    
+    st.info(f"""
+**System Status**  
+• **Safe Mode:** {safe_mode_status}  
+• **Loop Detected:** {loop_status}  
+• **Last Snapshot:** {snapshot_timestamp}
+""")
     
     # ========================================================================
     # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
@@ -17510,48 +17646,48 @@ def main():
             st.session_state.wave_universe_validation_failed = False
     
     # ========================================================================
-    # Snapshot Auto-Build and Staleness Management (ROUND 7 Phase 3)
+    # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
     # ========================================================================
     
-    # Ensure snapshot exists and is fresh on startup (only once per session)
+    # SAFE MODE: Skip auto-build entirely when Safe Mode is ON
+    # Only validate if snapshot exists, but never trigger builds
     if "snapshot_validated" not in st.session_state:
-        try:
-            from analytics_pipeline import ensure_live_snapshot_exists
-            
-            snapshot_status = ensure_live_snapshot_exists(
-                path="data/live_snapshot.csv",
-                max_age_minutes=15,
-                force_rebuild=False,
-                session_state=st.session_state  # Pass session_state for compute gate
-            )
-            
-            # Store status in session state for diagnostics
-            st.session_state.snapshot_exists = snapshot_status.get('exists', False)
-            st.session_state.snapshot_fresh = snapshot_status.get('fresh', False)
-            st.session_state.snapshot_age_minutes = snapshot_status.get('age_minutes')
-            st.session_state.snapshot_rebuilt = snapshot_status.get('rebuilt', False)
-            st.session_state.snapshot_error = snapshot_status.get('error')
-            st.session_state.snapshot_stale_fallback = snapshot_status.get('stale_fallback', False)
-            st.session_state.snapshot_build_suppressed = snapshot_status.get('build_suppressed', False)
-            st.session_state.snapshot_suppression_reason = snapshot_status.get('suppression_reason')
-            
-            # Log status
-            if snapshot_status.get('build_suppressed'):
-                print(f"⏸️ Snapshot build suppressed: {snapshot_status.get('suppression_reason')}")
-            elif snapshot_status.get('error'):
-                print(f"⚠️ Snapshot validation warning: {snapshot_status.get('error')}")
-                if snapshot_status.get('stale_fallback'):
-                    print(f"   Using stale snapshot (age: {snapshot_status.get('age_minutes', 'N/A')} min)")
-            elif snapshot_status.get('rebuilt'):
-                print(f"✅ Snapshot rebuilt successfully")
-            elif snapshot_status.get('fresh'):
-                print(f"✅ Snapshot is fresh (age: {snapshot_status.get('age_minutes', 0):.1f} min)")
-            
-            st.session_state.snapshot_validated = True
-        except Exception as e:
-            print(f"⚠️ Warning: Could not validate snapshot: {e}")
-            st.session_state.snapshot_validated = False
+        st.session_state.snapshot_validated = True  # Mark as validated to prevent re-entry
+        
+        # Check if snapshot exists without building
+        import os
+        snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(snapshot_path):
+            try:
+                from datetime import datetime
+                mtime = os.path.getmtime(snapshot_path)
+                age_minutes = (datetime.now() - datetime.fromtimestamp(mtime)).total_seconds() / 60
+                
+                st.session_state.snapshot_exists = True
+                st.session_state.snapshot_fresh = age_minutes <= 15
+                st.session_state.snapshot_age_minutes = age_minutes
+                st.session_state.snapshot_rebuilt = False
+                st.session_state.snapshot_error = None
+                st.session_state.snapshot_stale_fallback = False
+                st.session_state.snapshot_build_suppressed = True
+                st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
+                
+                print(f"ℹ️ Snapshot exists (age: {age_minutes:.1f} min) - Safe Mode prevents auto-rebuild")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not check snapshot age: {e}")
+                st.session_state.snapshot_exists = True
+                st.session_state.snapshot_fresh = False
+        else:
             st.session_state.snapshot_exists = False
+            st.session_state.snapshot_fresh = False
+            st.session_state.snapshot_age_minutes = None
+            st.session_state.snapshot_rebuilt = False
+            st.session_state.snapshot_error = "Snapshot does not exist"
+            st.session_state.snapshot_stale_fallback = False
+            st.session_state.snapshot_build_suppressed = True
+            st.session_state.snapshot_suppression_reason = "Safe Mode enabled - auto-build disabled"
+            
+            print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
     
     # ========================================================================
     # Wave Readiness Report - Log on startup
