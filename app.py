@@ -18200,29 +18200,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.force_price_cache_rebuild = False
     
     # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
+    # Use compute lock to prevent duplicate fetches
     if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-        try:
-            # Get TTL from session state
-            ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
-            
-            # Prefetch prices once (cached with TTL)
-            cache_result = get_global_price_cache(
-                wave_registry=WAVE_WEIGHTS,
-                days=365,
-                ttl_seconds=ttl_seconds
-            )
-            
-            # Store in session state for use across the app
-            st.session_state.global_price_df = cache_result.get("price_df")
-            st.session_state.global_price_failures = cache_result.get("failures", {})
-            st.session_state.global_price_asof = cache_result.get("asof")
-            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-            
-        except Exception as e:
-            # Log error but don't crash - app can still work without cache
-            print(f"Warning: Failed to prefetch global price cache: {str(e)}")
-            st.session_state.global_price_df = None
+        # Check compute lock
+        should_fetch, reason = should_allow_compute("fetch_prices")
+        
+        if should_fetch:
+            try:
+                # Get TTL from session state
+                ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
+                
+                # Prefetch prices once (cached with TTL)
+                cache_result = get_global_price_cache(
+                    wave_registry=WAVE_WEIGHTS,
+                    days=365,
+                    ttl_seconds=ttl_seconds
+                )
+                
+                # Store in session state for use across the app
+                st.session_state.global_price_df = cache_result.get("price_df")
+                st.session_state.global_price_failures = cache_result.get("failures", {})
+                st.session_state.global_price_asof = cache_result.get("asof")
+                st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                
+                # Mark operation as done
+                mark_compute_done("fetch_prices", success=True)
+                
+            except Exception as e:
+                # Log error but don't crash - app can still work without cache
+                print(f"Warning: Failed to prefetch global price cache: {str(e)}")
+                st.session_state.global_price_df = None
+                mark_compute_done("fetch_prices", success=False)
+        else:
+            # Compute lock prevented fetch
+            if st.session_state.get("debug_mode", False):
+                print(f"Price fetch blocked: {reason}")
     
     # ========================================================================
     # Main Application UI
