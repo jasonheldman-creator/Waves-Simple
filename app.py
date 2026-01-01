@@ -17650,13 +17650,12 @@ def main():
             st.session_state.user_interaction_detected = True  # Mark user interaction
     
     # ONE RUN ONLY latch: After initial load, require user interaction for any computations
-    if st.session_state.initial_load_complete and not st.session_state.user_interaction_detected:
-        # Block heavy operations - only allow rendering of cached data
-        st.session_state.one_run_only_block = True
-    else:
-        st.session_state.one_run_only_block = False
-        if st.session_state.run_trigger == "initial_load":
-            st.session_state.initial_load_complete = True
+    st.session_state.one_run_only_block = (
+        st.session_state.initial_load_complete and 
+        not st.session_state.user_interaction_detected
+    )
+    if st.session_state.run_trigger == "initial_load":
+        st.session_state.initial_load_complete = True
     
     # Display run diagnostics at the very top
     st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")

@@ -105,7 +105,7 @@ def should_allow_build(
     # Rule 2: Snapshot doesn't exist - DO NOT auto-build, require user action
     # This prevents automatic rebuilds on missing snapshots
     if not snapshot_exists:
-        return False, "Snapshot missing - manual rebuild required (click button to rebuild)"
+        return False, "Snapshot missing - manual rebuild required"
     
     # Rule 3: Snapshot is stale - DO NOT auto-build, just mark as stale
     # This prevents automatic rebuilds on stale snapshots

@@ -91,11 +91,14 @@ def test_stale_snapshot_no_auto_rebuild():
     from datetime import datetime, timedelta
     
     # Create a temporary file with an old timestamp
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-        temp_path = f.name
-        f.write("test,data\n")
+    # Using delete=False because we need to modify the timestamp
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.csv', text=True)
     
     try:
+        # Write data to the file
+        with os.fdopen(temp_fd, 'w') as f:
+            f.write("test,data\n")
+        
         # Set the file's modification time to 2 hours ago (stale)
         two_hours_ago = (datetime.now() - timedelta(hours=2)).timestamp()
         os.utime(temp_path, (two_hours_ago, two_hours_ago))
@@ -126,9 +129,11 @@ def test_stale_snapshot_no_auto_rebuild():
         print("✅ Stale flag set in session state")
         
     finally:
-        # Cleanup
-        if os.path.exists(temp_path):
+        # Cleanup - remove temp file
+        try:
             os.unlink(temp_path)
+        except OSError:
+            pass  # Ignore errors if file was already deleted
 
 
 def test_missing_snapshot_no_auto_rebuild():
@@ -164,11 +169,14 @@ def test_check_stale_snapshot():
     from datetime import datetime, timedelta
     
     # Create a temporary file with an old timestamp
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-        temp_path = f.name
-        f.write("test,data\n")
+    # Using delete=False because we need to modify the timestamp
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.csv', text=True)
     
     try:
+        # Write data to the file
+        with os.fdopen(temp_fd, 'w') as f:
+            f.write("test,data\n")
+        
         # Set the file's modification time to 2 hours ago (stale)
         two_hours_ago = (datetime.now() - timedelta(hours=2)).timestamp()
         os.utime(temp_path, (two_hours_ago, two_hours_ago))
@@ -195,9 +203,11 @@ def test_check_stale_snapshot():
         print("✅ Session state updated with stale info")
         
     finally:
-        # Cleanup
-        if os.path.exists(temp_path):
+        # Cleanup - remove temp file
+        try:
             os.unlink(temp_path)
+        except OSError:
+            pass  # Ignore errors if file was already deleted
 
 
 def main():
