@@ -2493,20 +2493,26 @@ def generate_live_snapshot(
 ) -> pd.DataFrame:
     """
     Generate a comprehensive snapshot of all waves with returns, alpha, and diagnostics.
-    STEP 2 & 3: Integrated with SAFE DEMO MODE and Compute Gate
+    STEP 2 & 3: Integrated with SAFE MODE and Compute Gate
     
     This provides a single-file snapshot suitable for API endpoints or quick data access.
     
     Args:
         output_path: Path to save the snapshot CSV
-        session_state: Streamlit session_state for SAFE DEMO MODE check
+        session_state: Streamlit session_state for SAFE MODE check
         
     Returns:
         DataFrame with snapshot data
     """
     from waves_engine import compute_history_nav
     
-    # STEP 2: Check SAFE DEMO MODE - should never be called if mode is active
+    # STEP 1: Check Safe Mode (new flag)
+    if session_state is not None and session_state.get("safe_mode_no_fetch", True):
+        print("⚠️ Safe Mode active - generate_live_snapshot should not be called")
+        # Return empty placeholder
+        return pd.DataFrame()
+    
+    # STEP 2: Check SAFE DEMO MODE (legacy)
     if session_state is not None and session_state.get("safe_demo_mode", False):
         print("⚠️ SAFE DEMO MODE active - generate_live_snapshot should not be called")
         # Return empty placeholder

@@ -223,19 +223,33 @@ def build_proxy_snapshot(
 ) -> pd.DataFrame:
     """
     Build proxy analytics snapshot for all 28 waves.
-    STEP 2 & 3: Integrated with SAFE DEMO MODE and Compute Gate
+    STEP 2 & 3: Integrated with SAFE MODE and Compute Gate
     
     Args:
         days: Number of days of price history to fetch
         enforce_timeout: If True, enforce BUILD_TIMEOUT_SECONDS wall-clock limit
-        session_state: Streamlit session_state for SAFE DEMO MODE and compute gate
+        session_state: Streamlit session_state for SAFE MODE and compute gate
         explicit_button_click: True if user explicitly clicked a rebuild button
         
     Returns:
         DataFrame with proxy analytics for all waves
     """
     # ========================================================================
-    # STEP 2: Check SAFE DEMO MODE - Global Kill Switch
+    # STEP 1: Check Safe Mode (new flag)
+    # ========================================================================
+    if session_state is not None and session_state.get("safe_mode_no_fetch", True):
+        print("🛡️ Safe Mode active - proxy snapshot build suppressed")
+        # Load existing snapshot if available
+        if os.path.exists(OUTPUT_SNAPSHOT_PATH):
+            try:
+                print(f"   Loading existing snapshot from {OUTPUT_SNAPSHOT_PATH}")
+                return pd.read_csv(OUTPUT_SNAPSHOT_PATH)
+            except Exception as e:
+                print(f"   Warning: Could not load snapshot: {e}")
+        return pd.DataFrame()
+    
+    # ========================================================================
+    # STEP 2: Check SAFE DEMO MODE (legacy)
     # ========================================================================
     if session_state is not None and session_state.get("safe_demo_mode", False):
         print("🛡️ SAFE DEMO MODE active - proxy snapshot build suppressed")

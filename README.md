@@ -19,6 +19,42 @@ WAVES Intelligence™ - Institutional Console v2
 
 WAVES Intelligence™ provides advanced portfolio analytics, alpha attribution, and decision-making tools for institutional investors. The system tracks multiple investment "waves" with comprehensive performance metrics, risk analysis, and automated reporting.
 
+## Safe Mode
+
+### What is Safe Mode?
+
+Safe Mode is a stability feature that prevents infinite loops and ensures the app becomes interactive quickly. When Safe Mode is ON (default):
+
+- ✅ **No external data fetching** - No calls to yfinance, Alpaca, Coinbase, or other price providers
+- ✅ **No snapshot auto-builds** - Snapshots are never automatically regenerated during page load
+- ✅ **Read-only operation** - The app loads pre-existing snapshot files only
+- ✅ **Fast startup** - App becomes interactive immediately without waiting for data downloads
+
+### How to Use Safe Mode
+
+1. **Safe Mode Toggle** - Located at the top of the sidebar
+   - Default: **ON** (recommended for stability)
+   - Turn OFF only when you need to rebuild snapshots
+
+2. **Manual Snapshot Rebuild** - Use the sidebar buttons to rebuild data:
+   - **"Rebuild Snapshot Now (Manual)"** - Rebuilds the main analytics snapshot
+   - **"Rebuild Proxy Snapshot Now (Manual)"** - Rebuilds the proxy analytics snapshot
+   - Both buttons are only available when Safe Mode is OFF
+
+3. **Run Guard Protection** - Automatically stops the app if it detects an infinite loop
+   - Triggers after 3+ consecutive runs
+   - Shows a warning banner: "Run Guard triggered — preventing infinite loop"
+   - Reset by successfully rebuilding a snapshot
+
+### When to Turn Safe Mode OFF
+
+Turn Safe Mode OFF only when:
+- You need to fetch fresh market data
+- You want to rebuild analytics snapshots
+- You're updating wave configurations and need to regenerate data
+
+**Important:** Always turn Safe Mode back ON after rebuilding to prevent infinite loops.
+
 ## Quick Start
 
 ### Installation
