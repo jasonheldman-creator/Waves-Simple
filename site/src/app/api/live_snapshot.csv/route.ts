@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { readWavesData } from "@/lib/wavesDataReader";
 
+// Force Node.js runtime for file system access
+export const runtime = "nodejs";
+
 /**
  * GET /api/live_snapshot.csv
  * 
