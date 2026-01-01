@@ -17715,6 +17715,331 @@ def render_wave_overview_new_tab():
 
 
 # ============================================================================
+# SECTION 7.5: OVERVIEW (CLEAN) TAB - Demo-Ready First Screen
+# ============================================================================
+
+def render_overview_clean_tab():
+    """
+    Render the clean Overview tab - Demo-ready first screen.
+    
+    This tab provides:
+    - Clean, professional first impression
+    - Top summary box with key insights
+    - 28 waves performance table (always renders all waves)
+    - NO debug/system content (moved to Diagnostics Admin section at bottom)
+    - Data sources: live_snapshot.csv → live_proxy_snapshot.csv → placeholder
+    """
+    try:
+        # ========================================================================
+        # LOAD DATA - Try live_snapshot.csv, fallback to live_proxy_snapshot.csv
+        # ========================================================================
+        import os
+        import pandas as pd
+        
+        snapshot_df = None
+        data_source = None
+        
+        # Try live_snapshot.csv first
+        live_snapshot_path = "data/live_snapshot.csv"
+        if os.path.exists(live_snapshot_path):
+            try:
+                snapshot_df = pd.read_csv(live_snapshot_path)
+                data_source = "Live Snapshot"
+            except Exception as e:
+                print(f"Warning: Failed to load live_snapshot.csv: {e}")
+        
+        # Fallback to live_proxy_snapshot.csv (Plan B)
+        if snapshot_df is None or snapshot_df.empty:
+            proxy_snapshot_path = "data/live_proxy_snapshot.csv"
+            if os.path.exists(proxy_snapshot_path):
+                try:
+                    snapshot_df = pd.read_csv(proxy_snapshot_path)
+                    data_source = "Proxy Snapshot (Plan B)"
+                except Exception as e:
+                    print(f"Warning: Failed to load live_proxy_snapshot.csv: {e}")
+        
+        # Get all 28 waves from wave engine
+        all_waves = []
+        if WAVES_ENGINE_AVAILABLE:
+            try:
+                from waves_engine import get_all_waves_universe
+                universe = get_all_waves_universe()
+                all_waves = universe.get('waves', [])
+            except Exception as e:
+                print(f"Warning: Failed to get wave universe: {e}")
+        
+        # If we don't have waves list, create placeholder for 28 waves
+        if not all_waves:
+            all_waves = [f"Wave {i+1}" for i in range(28)]
+        
+        # Ensure we have exactly 28 waves
+        if len(all_waves) != 28:
+            print(f"Warning: Expected 28 waves, got {len(all_waves)}")
+        
+        # ========================================================================
+        # HEADER
+        # ========================================================================
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            border: 2px solid #00d9ff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        ">
+            <h1 style="color: #00d9ff; margin: 0; font-size: 32px;">
+                🌊 WAVES Intelligence™
+            </h1>
+            <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 16px;">
+                Clean Overview Dashboard
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # ========================================================================
+        # TOP SUMMARY BOX
+        # ========================================================================
+        st.markdown("### 📊 Executive Summary")
+        
+        # Calculate summary metrics
+        top_performers = []
+        waves_needing_attention = []
+        market_regime = "Unknown"
+        
+        if snapshot_df is not None and not snapshot_df.empty:
+            # Top performers today (by 1D Return)
+            try:
+                valid_returns = snapshot_df[snapshot_df['Return_1D'].notna()].copy()
+                if not valid_returns.empty:
+                    valid_returns = valid_returns.sort_values('Return_1D', ascending=False)
+                    top_3 = valid_returns.head(3)
+                    for _, row in top_3.iterrows():
+                        wave_name = row.get('Wave', 'Unknown')
+                        ret_1d = row.get('Return_1D', 0) * 100
+                        top_performers.append(f"{wave_name} ({ret_1d:.0f}%)")
+            except Exception as e:
+                print(f"Warning: Failed to calculate top performers: {e}")
+            
+            # Waves needing attention (negative 30D Alpha or unavailable)
+            try:
+                # Check for negative 30D alpha
+                needs_attention = snapshot_df[
+                    (snapshot_df['Alpha_30D'].notna()) & 
+                    (snapshot_df['Alpha_30D'] < -0.05)  # More than -5% alpha
+                ].copy()
+                
+                # Also check for unavailable waves
+                unavailable = snapshot_df[
+                    (snapshot_df['Return_1D'].isna()) | 
+                    (snapshot_df['Flags'].str.contains('No Data|Unavailable', case=False, na=False))
+                ]
+                
+                attention_waves = pd.concat([needs_attention, unavailable]).drop_duplicates(subset=['Wave'])
+                
+                if not attention_waves.empty:
+                    for _, row in attention_waves.head(3).iterrows():
+                        wave_name = row.get('Wave', 'Unknown')
+                        waves_needing_attention.append(wave_name)
+            except Exception as e:
+                print(f"Warning: Failed to calculate waves needing attention: {e}")
+            
+            # Market regime (from VIX_Regime column or VIX_Level)
+            try:
+                if 'VIX_Regime' in snapshot_df.columns:
+                    vix_mode = snapshot_df['VIX_Regime'].mode()
+                    vix_regime = vix_mode.iloc[0] if len(vix_mode) > 0 else 'unknown'
+                else:
+                    vix_regime = 'unknown'
+                    
+                if vix_regime and vix_regime != 'unknown':
+                    market_regime = vix_regime.title()
+                else:
+                    # Fallback: check VIX level
+                    if 'VIX_Level' in snapshot_df.columns:
+                        avg_vix = snapshot_df['VIX_Level'].mean()
+                        if pd.notna(avg_vix):
+                            if avg_vix < 15:
+                                market_regime = "Low Volatility"
+                            elif avg_vix < 25:
+                                market_regime = "Normal"
+                            else:
+                                market_regime = "Elevated Volatility"
+            except Exception as e:
+                print(f"Warning: Failed to determine market regime: {e}")
+        
+        # Display summary in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("#### 🏆 Top Outperformers Today")
+            if top_performers:
+                for performer in top_performers:
+                    st.markdown(f"• {performer}")
+            else:
+                st.info("No data available")
+        
+        with col2:
+            st.markdown("#### ⚠️ Waves Needing Attention")
+            if waves_needing_attention:
+                for wave in waves_needing_attention:
+                    st.markdown(f"• {wave}")
+            else:
+                st.success("All waves performing well")
+        
+        with col3:
+            st.markdown("#### 📈 Market Regime")
+            st.markdown(f"**{market_regime}**")
+            
+            # Add SPY/QQQ/VIX metrics if available
+            try:
+                if snapshot_df is not None and not snapshot_df.empty:
+                    spy_wave = snapshot_df[snapshot_df['Wave'].str.contains('S&P 500', case=False, na=False)]
+                    if not spy_wave.empty:
+                        spy_ret = spy_wave.iloc[0].get('Return_1D', 0) * 100
+                        st.caption(f"SPY: {spy_ret:+.1f}%")
+            except:
+                pass
+        
+        st.divider()
+        
+        # ========================================================================
+        # 28 WAVES PERFORMANCE TABLE
+        # ========================================================================
+        st.markdown("### 📋 28 Waves Performance Overview")
+        st.caption(f"Data Source: {data_source if data_source else 'No data available - showing placeholders'}")
+        
+        # Build display table with all 28 waves
+        table_data = []
+        
+        for wave_name in all_waves:
+            row_data = {
+                'Wave': wave_name,
+                '1D Return': 'N/A',
+                '30D': 'N/A',
+                '60D': 'N/A',
+                '365D': 'N/A',
+                '1D Alpha': 'N/A',
+                '30D Alpha': 'N/A',
+                '60D Alpha': 'N/A',
+                '365D Alpha': 'N/A',
+                'Status/Confidence': 'Unavailable'
+            }
+            
+            # Try to fill in data from snapshot
+            if snapshot_df is not None and not snapshot_df.empty:
+                wave_row = snapshot_df[snapshot_df['Wave'] == wave_name]
+                
+                if not wave_row.empty:
+                    wave_row = wave_row.iloc[0]
+                    
+                    # Format returns as percentages without decimals
+                    for col, label in [
+                        ('Return_1D', '1D Return'),
+                        ('Return_30D', '30D'),
+                        ('Return_60D', '60D'),
+                        ('Return_365D', '365D'),
+                        ('Alpha_1D', '1D Alpha'),
+                        ('Alpha_30D', '30D Alpha'),
+                        ('Alpha_60D', '60D Alpha'),
+                        ('Alpha_365D', '365D Alpha')
+                    ]:
+                        if col in wave_row.index and pd.notna(wave_row[col]):
+                            val = wave_row[col] * 100
+                            row_data[label] = f"{val:+.0f}%"
+                    
+                    # Determine status/confidence
+                    flags = wave_row.get('Flags', '')
+                    coverage = wave_row.get('Coverage_Score', 0)
+                    
+                    if pd.isna(wave_row.get('Return_1D')):
+                        row_data['Status/Confidence'] = 'Unavailable'
+                    elif 'Proxy' in str(flags) or data_source == 'Proxy Snapshot (Plan B)':
+                        row_data['Status/Confidence'] = 'Proxy (Plan B)'
+                    elif coverage >= 90:
+                        row_data['Status/Confidence'] = 'Full'
+                    elif coverage >= 50:
+                        row_data['Status/Confidence'] = 'Operational'
+                    else:
+                        row_data['Status/Confidence'] = 'Partial'
+            
+            table_data.append(row_data)
+        
+        # Create and display dataframe
+        display_df = pd.DataFrame(table_data)
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            height=800  # Show more rows at once
+        )
+        
+        st.divider()
+        
+        # ========================================================================
+        # DIAGNOSTICS (ADMIN) - Expandable section at bottom
+        # ========================================================================
+        with st.expander("🔧 Diagnostics (Admin)", expanded=False):
+            st.markdown("#### System Diagnostics")
+            
+            # Run ID and trigger info
+            run_id = st.session_state.get("run_id", 0)
+            run_trigger = st.session_state.get("run_trigger", "unknown")
+            run_seq = st.session_state.get("run_seq", 0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Run ID", run_id)
+                st.metric("Run Sequence", run_seq)
+            
+            with col2:
+                st.metric("Trigger", run_trigger)
+                safe_mode = st.session_state.get("safe_mode_no_fetch", True)
+                st.metric("Safe Mode", "ON" if safe_mode else "OFF")
+            
+            with col3:
+                loop_detected = st.session_state.get("loop_detected", False)
+                st.metric("Loop Detected", "YES" if loop_detected else "NO")
+                
+                # Snapshot age
+                try:
+                    if os.path.exists(live_snapshot_path):
+                        mtime = os.path.getmtime(live_snapshot_path)
+                        age_hours = (datetime.now().timestamp() - mtime) / 3600
+                        st.metric("Snapshot Age", f"{age_hours:.1f}h")
+                    else:
+                        st.metric("Snapshot Age", "N/A")
+                except:
+                    st.metric("Snapshot Age", "Error")
+            
+            # System status details
+            st.markdown("#### System Status Details")
+            
+            status_info = {
+                "Safe Mode (No Fetch)": "ON" if st.session_state.get("safe_mode_no_fetch", True) else "OFF",
+                "Loop Trap Active": "YES" if st.session_state.get("loop_trap_should_engage", False) else "NO",
+                "Allow Continuous Reruns": "YES" if st.session_state.get("allow_continuous_reruns", False) else "NO",
+                "Auto Refresh Enabled": "YES" if st.session_state.get("auto_refresh_enabled", False) else "NO",
+                "Compute Lock": "LOCKED" if st.session_state.get("compute_lock", False) else "UNLOCKED"
+            }
+            
+            for key, value in status_info.items():
+                st.text(f"{key}: {value}")
+            
+            # Recent buttons clicked
+            buttons_clicked = st.session_state.get("buttons_clicked", [])
+            if buttons_clicked:
+                st.markdown("#### Recent Button Clicks")
+                st.text(", ".join(buttons_clicked[-5:]))
+    
+    except Exception as e:
+        st.error(f"Error rendering Overview (Clean) tab: {str(e)}")
+        if st.session_state.get("debug_mode", False):
+            st.exception(e)
+
+
+# ============================================================================
 # SECTION 8: MAIN APPLICATION ENTRY POINT
 # ============================================================================
 
@@ -17799,14 +18124,15 @@ def main():
     if st.session_state.run_trigger == "initial_load":
         st.session_state.initial_load_complete = True
     
-    # Display run diagnostics at the very top
-    st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
+    # Display run diagnostics at the very top (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
     
     # ========================================================================
     # STEP 2.5: Run Trace Banner & Safety Latch
     # ========================================================================
     
-    # Display run trace banner at the top
+    # Calculate run trace values (but don't display unless debug mode)
     run_seq = st.session_state.get("run_seq", 0)
     delta_seconds = st.session_state.get("delta_seconds", 0.0)
     last_trigger = st.session_state.get("last_trigger", "unknown")
@@ -17815,8 +18141,9 @@ def main():
     # Format buttons clicked
     buttons_str = ", ".join(buttons_clicked[-3:]) if buttons_clicked else "None"
     
-    # Display banner
-    st.info(f"""
+    # Display banner (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        st.info(f"""
 **🔄 RUN TRACE**  
 • **Run #:** {run_seq}  
 • **Delta:** {delta_seconds:.2f}s  
@@ -17835,8 +18162,8 @@ def main():
         run_seq >= 2 and not st.session_state.allow_continuous_reruns
     )
     
-    # Display warning if loop trap will engage, but don't stop yet
-    if st.session_state.loop_trap_should_engage:
+    # Display warning if loop trap will engage (only in debug mode)
+    if st.session_state.loop_trap_should_engage and st.session_state.get("debug_mode", False):
         st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
         st.warning(f"""
 The application has completed {run_seq} runs. To prevent infinite loops, 
@@ -17848,10 +18175,10 @@ further automatic reruns are blocked.
 """)
     
     # ========================================================================
-    # STEP 3: Top Banner with Status Information
+    # STEP 3: Top Banner with Status Information (Moved to Debug Mode)
     # ========================================================================
     
-    # Get snapshot timestamp if available
+    # Get snapshot timestamp if available (for debug display later)
     snapshot_timestamp = "Unknown"
     try:
         import os
@@ -17863,11 +18190,12 @@ further automatic reruns are blocked.
     except Exception:
         pass
     
-    # Display status banner
-    safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
-    loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
-    
-    st.info(f"""
+    # Display status banner (only in debug mode)
+    if st.session_state.get("debug_mode", False):
+        safe_mode_status = "🔴 ON" if st.session_state.safe_mode_no_fetch else "🟢 OFF"
+        loop_status = "⚠️ YES" if st.session_state.loop_detected else "✅ NO"
+        
+        st.info(f"""
 **System Status**  
 • **Safe Mode:** {safe_mode_status}  
 • **Loop Detected:** {loop_status}  
@@ -17875,36 +18203,37 @@ further automatic reruns are blocked.
 """)
     
     # ========================================================================
-    # STALE SNAPSHOT BANNER - Display warning if snapshots are stale
+    # STALE SNAPSHOT BANNER - Display warning if snapshots are stale (debug mode only)
     # ========================================================================
-    try:
-        from helpers.compute_gate import check_stale_snapshot
-        
-        # Check main snapshot
-        live_snapshot_path = "data/live_snapshot.csv"
-        is_stale, age_minutes = check_stale_snapshot(
-            live_snapshot_path,
-            st.session_state,
-            build_key="engine_snapshot"
-        )
-        
-        if is_stale and age_minutes != float('inf'):
-            # Snapshot exists but is stale
-            age_hours = age_minutes / 60
-            st.warning(f"""
+    if st.session_state.get("debug_mode", False):
+        try:
+            from helpers.compute_gate import check_stale_snapshot
+            
+            # Check main snapshot
+            live_snapshot_path = "data/live_snapshot.csv"
+            is_stale, age_minutes = check_stale_snapshot(
+                live_snapshot_path,
+                st.session_state,
+                build_key="engine_snapshot"
+            )
+            
+            if is_stale and age_minutes != float('inf'):
+                # Snapshot exists but is stale
+                age_hours = age_minutes / 60
+                st.warning(f"""
 ⚠️ **Stale Snapshot Detected**  
 The live snapshot is {age_hours:.1f} hours old (threshold: 1 hour).  
 Click a rebuild button in the sidebar to refresh the data.
 """)
-        elif not os.path.exists(live_snapshot_path):
-            # Snapshot is missing
-            st.warning("""
+            elif not os.path.exists(live_snapshot_path):
+                # Snapshot is missing
+                st.warning("""
 ⚠️ **Snapshot Missing**  
 No live snapshot found. Click a rebuild button in the sidebar to generate data.
 """)
-    except Exception as e:
-        # Silently fail if stale check fails
-        pass
+        except Exception as e:
+            # Silently fail if stale check fails
+            pass
     
     # ========================================================================
     # WALL-CLOCK WATCHDOG - Enforce 3-second timeout in Safe Mode
@@ -18300,8 +18629,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
         
         analytics_tabs = st.tabs([
-            "Console",     # Core functionality
-            "Overview",    # Market tab equivalent
+            "Overview (Clean)",        # NEW: FIRST TAB - Clean demo-ready overview
+            "Console",                 # Core functionality
+            "Overview",                # Market tab equivalent
             "Details",     
             "Reports",     
             "Overlays",    
@@ -18317,109 +18647,19 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
         
-        # Console tab (first in fallback mode)
+        # Overview (Clean) tab (FIRST)
         with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Console tab
+        with analytics_tabs[1]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
-        # Overview tab (second - Market equivalent)
-        with analytics_tabs[1]:
+        # Overview tab
+        with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Overview", render_overview_tab)
-        
-        # Details tab
-        with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Details", render_details_tab)
-        
-        # Reports tab
-        with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Reports", render_reports_tab)
-        
-        # Overlays tab
-        with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Overlays", render_overlays_tab)
-        
-        # Attribution tab
-        with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Attribution", render_attribution_tab)
-        
-        # Board Pack tab
-        with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Board Pack", render_board_pack_tab)
-        
-        # IC Pack tab
-        with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("IC Pack", render_ic_pack_tab)
-        
-        # Alpha Capture tab
-        with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Alpha Capture", render_alpha_capture_tab)
-        
-        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[9]:
-            safe_component("Wave Monitor", render_wave_monitor_tab)
-        
-        # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[10]:
-            safe_component("Plan B Monitor", render_planb_monitor_tab)
-        
-        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[11]:
-            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
-        
-        # Governance & Audit tab (NEW)
-        with analytics_tabs[12]:
-            safe_component("Governance & Audit", render_governance_audit_tab)
-        
-        # Diagnostics tab
-        with analytics_tabs[13]:
-            safe_component("Diagnostics", render_diagnostics_tab)
-        
-        # Wave Overview (New) tab
-        with analytics_tabs[14]:
-            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
-    
-    elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Overview is FIRST
-        analytics_tabs = st.tabs([
-            "Overview",                    # FIRST TAB - unified system overview with performance, alpha attribution, and market context
-            "Console",                     # Second tab - Executive
-            "Wave",                        # Third tab - Wave Profile with hero card
-            "Details",                     # Factor Decomp equivalent
-            "Reports",                     # Risk Lab equivalent
-            "Overlays",                    # Correlation equivalent
-            "Attribution",                 # Rolling Diagnostics equivalent
-            "Board Pack",                  # Mode Proof equivalent
-            "IC Pack",
-            "Alpha Capture",
-            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
-            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
-            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
-            "Governance & Audit",          # NEW: Governance and transparency layer
-            "Diagnostics",                 # Health/Diagnostics tab
-            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
-        ])
-        
-        # Overview tab (FIRST) - Executive Brief
-        with analytics_tabs[0]:
-            safe_component("Executive Brief", render_executive_brief_tab)
-        
-        # Console tab (second)
-        with analytics_tabs[1]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Executive Console", render_executive_tab)
-        
-        # Wave Profile tab (third)
-        with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
-            safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[3]:
@@ -18479,12 +18719,112 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Wave Overview (New) tab
         with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
+    
+    elif ENABLE_WAVE_PROFILE:
+        # Normal mode with Wave Profile enabled - Overview (Clean) is FIRST
+        analytics_tabs = st.tabs([
+            "Overview (Clean)",            # NEW: FIRST TAB - Clean demo-ready overview
+            "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
+            "Console",                     # Third tab - Executive
+            "Wave",                        # Fourth tab - Wave Profile with hero card
+            "Details",                     # Factor Decomp equivalent
+            "Reports",                     # Risk Lab equivalent
+            "Overlays",                    # Correlation equivalent
+            "Attribution",                 # Rolling Diagnostics equivalent
+            "Board Pack",                  # Mode Proof equivalent
+            "IC Pack",
+            "Alpha Capture",
+            "Wave Monitor",                # NEW: ROUND 7 Phase 5 - Individual wave analytics
+            "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
+            "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
+            "Governance & Audit",          # NEW: Governance and transparency layer
+            "Diagnostics",                 # Health/Diagnostics tab
+            "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
+        ])
+        
+        # Overview (Clean) tab (FIRST)
+        with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Overview tab (second) - Executive Brief
+        with analytics_tabs[1]:
+            safe_component("Executive Brief", render_executive_brief_tab)
+        
+        # Console tab (third)
+        with analytics_tabs[2]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Executive Console", render_executive_tab)
+        
+        # Wave Profile tab (fourth)
+        with analytics_tabs[3]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Wave Profile", render_wave_intelligence_center_tab)
+        
+        # Details tab
+        with analytics_tabs[4]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Details", render_details_tab)
+        
+        # Reports tab
+        with analytics_tabs[5]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Reports", render_reports_tab)
+        
+        # Overlays tab
+        with analytics_tabs[6]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Overlays", render_overlays_tab)
+        
+        # Attribution tab
+        with analytics_tabs[7]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Attribution", render_attribution_tab)
+        
+        # Board Pack tab
+        with analytics_tabs[8]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Board Pack", render_board_pack_tab)
+        
+        # IC Pack tab
+        with analytics_tabs[9]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("IC Pack", render_ic_pack_tab)
+        
+        # Alpha Capture tab
+        with analytics_tabs[10]:
+            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            safe_component("Alpha Capture", render_alpha_capture_tab)
+        
+        # Wave Monitor tab (NEW - ROUND 7 Phase 5)
+        with analytics_tabs[11]:
+            safe_component("Wave Monitor", render_wave_monitor_tab)
+        
+        # Plan B Monitor tab (NEW - Plan B canonical metrics)
+        with analytics_tabs[12]:
+            safe_component("Plan B Monitor", render_planb_monitor_tab)
+        
+        # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
+        with analytics_tabs[13]:
+            safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
+        
+        # Governance & Audit tab (NEW)
+        with analytics_tabs[14]:
+            safe_component("Governance & Audit", render_governance_audit_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
+            safe_component("Diagnostics", render_diagnostics_tab)
+        
+        # Wave Overview (New) tab
+        with analytics_tabs[16]:
+            safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Overview is FIRST tab
+        # Overview (Clean) is FIRST tab
         analytics_tabs = st.tabs([
-            "Overview",                   # FIRST TAB - unified system overview
-            "Console",                    # Second tab - Executive
+            "Overview (Clean)",           # NEW: FIRST TAB - Clean demo-ready overview
+            "Overview",                   # Second tab - unified system overview
+            "Console",                    # Third tab - Executive
             "Details",                    # Factor Decomp equivalent
             "Reports",                    # Risk Lab equivalent
             "Overlays",                   # Correlation equivalent
@@ -18500,72 +18840,76 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview tab (FIRST) - Executive Brief
+        # Overview (Clean) tab (FIRST)
         with analytics_tabs[0]:
+            safe_component("Overview (Clean)", render_overview_clean_tab)
+        
+        # Overview tab (second) - Executive Brief
+        with analytics_tabs[1]:
             safe_component("Executive Brief", render_executive_brief_tab)
         
-        # Console tab (second)
-        with analytics_tabs[1]:
+        # Console tab (third)
+        with analytics_tabs[2]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
         # Details tab
-        with analytics_tabs[2]:
+        with analytics_tabs[3]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Details", render_details_tab)
         
         # Reports tab
-        with analytics_tabs[3]:
+        with analytics_tabs[4]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
-        with analytics_tabs[4]:
+        with analytics_tabs[5]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
-        with analytics_tabs[5]:
+        with analytics_tabs[6]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
-        with analytics_tabs[6]:
+        with analytics_tabs[7]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
-        with analytics_tabs[7]:
+        with analytics_tabs[8]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
-        with analytics_tabs[8]:
+        with analytics_tabs[9]:
             render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
-        with analytics_tabs[9]:
+        with analytics_tabs[10]:
             safe_component("Wave Monitor", render_wave_monitor_tab)
         
         # Plan B Monitor tab (NEW - Plan B canonical metrics)
-        with analytics_tabs[10]:
+        with analytics_tabs[11]:
             safe_component("Plan B Monitor", render_planb_monitor_tab)
         
         # Wave Intelligence (Plan B) tab (NEW - Proxy-based analytics)
-        with analytics_tabs[11]:
+        with analytics_tabs[12]:
             safe_component("Wave Intelligence (Plan B)", render_wave_intelligence_planb_tab)
         
         # Governance & Audit tab (NEW)
-        with analytics_tabs[12]:
+        with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
         # Diagnostics tab
-        with analytics_tabs[13]:
+        with analytics_tabs[14]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[14]:
+        with analytics_tabs[15]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
