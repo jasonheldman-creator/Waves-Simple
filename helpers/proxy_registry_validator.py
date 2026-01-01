@@ -128,7 +128,7 @@ def validate_proxy_registry(path: Optional[str] = None, strict: bool = False) ->
             df['enabled'] = df['enabled'].str.lower().isin(['true', '1', 'yes'])
     
     # Count enabled waves
-    enabled_df = df[df['enabled'] == True] if 'enabled' in df.columns else df
+    enabled_df = df[df['enabled']] if 'enabled' in df.columns else df
     enabled_count = len(enabled_df)
     total_count = len(df)
     
@@ -233,7 +233,7 @@ def get_enabled_proxy_waves(path: Optional[str] = None) -> List[Dict]:
             df['enabled'] = df['enabled'].str.lower().isin(['true', '1', 'yes'])
     
     # Filter to enabled waves
-    enabled_df = df[df['enabled'] == True] if 'enabled' in df.columns else df
+    enabled_df = df[df['enabled']] if 'enabled' in df.columns else df
     
     # Convert to list of dicts
     return enabled_df.to_dict('records')

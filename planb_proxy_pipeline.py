@@ -54,6 +54,7 @@ MAX_RETRIES = 2
 TRADING_DAYS_PER_YEAR = 252
 OUTPUT_SNAPSHOT_PATH = "site/data/live_proxy_snapshot.csv"
 DIAGNOSTICS_PATH = "planb_diagnostics_run.json"
+FRESHNESS_THRESHOLD_MINUTES = 60  # Consider snapshot fresh if less than 60 minutes old
 
 # Confidence labels
 CONFIDENCE_FULL = "FULL"
@@ -423,8 +424,8 @@ def get_snapshot_freshness(path: Optional[str] = None) -> Dict:
         mod_time = datetime.fromtimestamp(os.path.getmtime(snapshot_path))
         age_minutes = (datetime.now() - mod_time).total_seconds() / 60
         
-        # Consider fresh if less than 60 minutes old
-        fresh = age_minutes < 60
+        # Consider fresh if less than FRESHNESS_THRESHOLD_MINUTES old
+        fresh = age_minutes < FRESHNESS_THRESHOLD_MINUTES
         
         return {
             'exists': True,
