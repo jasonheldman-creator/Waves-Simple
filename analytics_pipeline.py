@@ -98,7 +98,8 @@ MAX_TOTAL_TICKERS_PER_RUN = 250    # Maximum tickers to process in one run
 MAX_WAVE_COMPUTE_SECONDS = 8       # Maximum seconds for single wave computation
 
 # Legacy constants (maintained for backward compatibility)
-MAX_RETRIES = 3  # Maximum retry attempts for any single operation
+# STEP 4: Hard Circuit Breakers - Reduced from 3 to 2 to prevent infinite loops
+MAX_RETRIES = 2  # Maximum retry attempts for any single operation (REDUCED from 3)
 MAX_INDIVIDUAL_TICKER_FETCHES = 50  # Maximum tickers to fetch individually before aborting
 
 # Graded Readiness Thresholds
@@ -309,14 +310,15 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 # Price Data Fetching with Retry Logic
 # ------------------------------------------------------------
 
-def _retry_with_backoff(func, *args, max_retries: int = MAX_RETRIES, initial_delay: float = 1.0, **kwargs):
+def _retry_with_backoff(func, *args, max_retries: int = MAX_BATCH_RETRIES, initial_delay: float = 1.0, **kwargs):
     """
     Retry a function with exponential backoff.
+    STEP 4: Hard Circuit Breaker - defaults to MAX_BATCH_RETRIES=2
     
     Args:
         func: Function to retry
         *args: Positional arguments for func
-        max_retries: Maximum number of retry attempts (defaults to MAX_RETRIES=3)
+        max_retries: Maximum number of retry attempts (defaults to MAX_BATCH_RETRIES=2)
         initial_delay: Initial delay in seconds
         **kwargs: Keyword arguments for func
         
@@ -443,6 +445,7 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
     
     try:
         def _batch_download():
+            # STEP 7: Add timeout to network calls (15 seconds per request)
             return yf.download(
                 tickers=tickers_to_fetch,
                 start=start_date.strftime('%Y-%m-%d'),
@@ -450,6 +453,7 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
                 auto_adjust=True,
                 progress=False,
                 group_by='ticker',
+                timeout=15  # 15 second timeout per request
             )
         
         # Try with circuit breaker if available
@@ -635,16 +639,18 @@ def _fetch_prices_individually(
     for i, ticker in enumerate(tickers):
         try:
             def _download_single():
+                # STEP 7: Add timeout to network calls (15 seconds per request)
                 return yf.download(
                     tickers=ticker,
                     start=start_date.strftime('%Y-%m-%d'),
                     end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
                     auto_adjust=True,
                     progress=False,
+                    timeout=15  # 15 second timeout per request
                 )
             
-            # Use retry with backoff
-            data = _retry_with_backoff(_download_single, max_retries=3, initial_delay=1.0)
+            # STEP 4: Use MAX_TICKER_RETRIES (1) instead of hardcoded 3
+            data = _retry_with_backoff(_download_single, max_retries=MAX_TICKER_RETRIES, initial_delay=1.0)
             
             if data.empty:
                 error_msg = "Empty data returned"

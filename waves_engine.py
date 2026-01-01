@@ -3262,9 +3262,17 @@ def _compute_core(
 # Baseline API (unchanged behavior)
 # ------------------------------------------------------------
 
-def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365, include_diagnostics: bool = False, price_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+def compute_history_nav(
+    wave_name: str, 
+    mode: str = "Standard", 
+    days: int = 365, 
+    include_diagnostics: bool = False, 
+    price_df: Optional[pd.DataFrame] = None,
+    session_state: Optional[Dict] = None
+) -> pd.DataFrame:
     """
     Baseline (official) engine output with comprehensive error handling.
+    STEP 2: Integrated with SAFE DEMO MODE
     
     Args:
         wave_name: name of the Wave
@@ -3272,12 +3280,29 @@ def compute_history_nav(wave_name: str, mode: str = "Standard", days: int = 365,
         days: history window
         include_diagnostics: if True, include per-day VIX/regime/exposure diagnostics in result.attrs["diagnostics"]
         price_df: Optional pre-fetched price DataFrame (date index, ticker columns). If provided, skips yfinance download.
+        session_state: Optional session state dict for SAFE DEMO MODE check
         
     Returns:
         DataFrame with wave_nav, bm_nav, wave_ret, bm_ret columns.
         If include_diagnostics=True, also includes diagnostics DataFrame in attrs["diagnostics"].
         Returns empty DataFrame on error to prevent crashes.
     """
+    # STEP 2: Check SAFE DEMO MODE - should not compute if mode is active
+    if session_state is not None and session_state.get("safe_demo_mode", False):
+        print(f"🛡️ SAFE DEMO MODE active - compute_history_nav suppressed for {wave_name}")
+        # Return empty DataFrame
+        result = pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 0.0,
+            "bm_coverage_pct": 0.0,
+            "wave_tickers_expected": 0,
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": 0,
+            "bm_tickers_available": 0,
+            "failed_tickers": {},
+        }
+        return result
+    
     try:
         return _compute_core(wave_name=wave_name, mode=mode, days=days, overrides=None, shadow=include_diagnostics, price_df=price_df)
     except Exception as e:
@@ -3699,7 +3724,9 @@ def _log_wave_id_warnings():
         # Silent success - no warnings to log
         pass
 
-# Run validation on import
-_log_wave_id_warnings()
+# STEP 5: Remove Import-Time Execution - Prevent automatic validation on import
+# This validation should be called explicitly when needed, not on import
+# Run validation on import - DISABLED to prevent import-time side effects
+# _log_wave_id_warnings()
 
     
