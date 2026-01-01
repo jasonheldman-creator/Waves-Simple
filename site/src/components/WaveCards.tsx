@@ -1,1 +1,5 @@
-// Updated WaveCards.tsx file with changes
+"use client";
+
+export default function WaveCards() {
+  return null;
+}

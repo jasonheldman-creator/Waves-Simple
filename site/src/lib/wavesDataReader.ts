@@ -5,8 +5,8 @@
 
 import fs from "fs/promises";
 import path from "path";
-import type { WaveMetrics, WaveAlert } from "@/types/waves";
-import type { DataState } from "@/types/market";
+import type { WaveMetrics, WaveAlert } from "../types/waves";
+import type { DataState } from "../types/market";
 
 interface WaveHistoryRow {
   wave_id: string;
