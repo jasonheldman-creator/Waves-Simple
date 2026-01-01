@@ -4205,6 +4205,9 @@ def render_wave_universe_truth_panel():
                 # Set force reload flag
                 st.session_state["force_reload_universe"] = True
                 
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
                 st.success("✅ Universe reload queued - refreshing...")
                 st.rerun()
             except Exception as e:
@@ -4230,6 +4233,9 @@ def render_wave_universe_truth_panel():
                 if "wave_universe_version" not in st.session_state:
                     st.session_state.wave_universe_version = 1
                 st.session_state.wave_universe_version += 1
+                
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 
                 st.success("✅ Cache cleared - recomputing...")
                 st.rerun()
@@ -6444,8 +6450,10 @@ def render_sidebar_info():
             if snapshot_df is not None and not snapshot_df.empty:
                 st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
                 # Reset run guard counter on successful rebuild
-                st.session_state.run_guard_counter = 0
+                st.session_state.run_count = 0
                 st.session_state.loop_detected = False
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
             else:
                 st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
@@ -6479,8 +6487,10 @@ def render_sidebar_info():
             if proxy_df is not None and not proxy_df.empty:
                 st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
                 # Reset run guard counter on successful rebuild
-                st.session_state.run_guard_counter = 0
+                st.session_state.run_count = 0
                 st.session_state.loop_detected = False
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
             else:
                 st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
@@ -6557,6 +6567,9 @@ def render_sidebar_info():
             # Set force reload flag
             st.session_state["force_reload_universe"] = True
             
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
+            
             # Trigger immediate rerun
             st.rerun()
         except Exception as e:
@@ -6596,6 +6609,9 @@ def render_sidebar_info():
             
             # Show success message
             st.sidebar.success("✅ Cache cleared successfully!")
+            
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             
             # Trigger rerun
             st.rerun()
@@ -6664,6 +6680,8 @@ def render_sidebar_info():
                 
                 # Force reload diagnostics
                 st.cache_data.clear()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error building data: {str(e)}")
@@ -6776,6 +6794,8 @@ def render_sidebar_info():
                     st.session_state.wave_universe_version += 1
                     
                     # Trigger rerun
+                    # Mark user interaction
+                    st.session_state.user_interaction_detected = True
                     st.rerun()
                 else:
                     st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
@@ -6861,6 +6881,8 @@ def render_sidebar_info():
             st.cache_data.clear()
             
             st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error activating waves: {str(e)}")
@@ -7214,6 +7236,8 @@ def render_sidebar_info():
                 st.session_state["force_reload_universe"] = True
                 
                 st.success("Wave universe cache cleared. Reloading...")
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
             except Exception as e:
                 st.warning(f"Force reload unavailable: {str(e)}")
@@ -7257,6 +7281,8 @@ def render_sidebar_info():
                 get_canonical_wave_universe(force_reload=True)
                 
                 st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
             except Exception as e:
                 st.warning(f"⚠️ Force reload failed: {str(e)}")
@@ -7719,6 +7745,8 @@ def render_executive_brief_tab():
                             from analytics_truth import get_truth_frame
                             truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
                             st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
                             st.rerun()
                     except Exception as e:
                         st.error(f"TruthFrame refresh failed: {str(e)}")
@@ -13906,6 +13934,8 @@ def render_board_pack_tab():
             
             st.success("✅ Cache cleared and data reloaded!")
             st.info("Please click 'Generate Board Pack' again to create PDF with fresh data.")
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
     
     # Footer
@@ -15497,6 +15527,8 @@ def render_governance_audit_tab():
                             from snapshot_ledger import generate_snapshot
                             generate_snapshot(force_refresh=True, generation_reason='manual')
                             st.success("✅ Snapshot generated successfully!")
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Failed to generate snapshot: {str(e)}")
@@ -15806,6 +15838,8 @@ def render_planb_monitor_tab():
             # Refresh button
             if st.button("🔄 Refresh Snapshot", help="Rebuild the Plan B snapshot with current data"):
                 st.session_state.planb_snapshot_cache_bust = datetime.now()
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
                 st.rerun()
         
         with col3:
@@ -16189,6 +16223,8 @@ def render_wave_intelligence_planb_tab():
                             st.warning(f"⚠️ Build completed but returned empty snapshot")
                         
                         st.session_state.planb_build_in_progress = False
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to rebuild snapshot: {str(e)}")
@@ -16541,6 +16577,8 @@ def render_diagnostics_tab():
                 del st.session_state.safe_mode_error_message
             if "safe_mode_error_traceback" in st.session_state:
                 del st.session_state.safe_mode_error_traceback
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
     else:
         st.success("**Safe Mode is not active.** The application is running normally.")
@@ -16576,6 +16614,8 @@ def render_diagnostics_tab():
         if st.button("🗑️ Clear Error History", help="Clear all logged component errors"):
             st.session_state.component_errors = []
             st.success("Error history cleared.")
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
     else:
         st.success("**No component errors logged.** All components are functioning normally.")
@@ -16936,6 +16976,8 @@ def render_diagnostics_tab():
             st.session_state.wave_universe_version = st.session_state.get("wave_universe_version", 1) + 1
             st.session_state.force_reload_universe = True
             st.success("Wave universe reload triggered. Refreshing...")
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
     
     with col2:
@@ -16945,6 +16987,8 @@ def render_diagnostics_tab():
                 if key not in ["safe_mode_enabled", "session_start_time"]:
                     del st.session_state[key]
             st.success("Cache cleared. Refreshing...")
+            # Mark user interaction
+            st.session_state.user_interaction_detected = True
             st.rerun()
     
     st.markdown("---")
@@ -17550,20 +17594,31 @@ def main():
         st.session_state.loop_detected = False
     
     # ========================================================================
-    # STEP 1: Run Guard Counter (Hard Circuit Breaker)
+    # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
     # ========================================================================
     
-    # Initialize run_guard_counter if not present
-    if "run_guard_counter" not in st.session_state:
-        st.session_state.run_guard_counter = 0
+    # Initialize run_count if not present (tracks consecutive runs without user action)
+    if "run_count" not in st.session_state:
+        st.session_state.run_count = 0
     
-    # Increment run guard counter
-    st.session_state.run_guard_counter += 1
+    # Initialize user_interaction_detected flag
+    if "user_interaction_detected" not in st.session_state:
+        st.session_state.user_interaction_detected = False
     
-    # Check run guard threshold
-    if st.session_state.run_guard_counter > 3:
+    # Reset run_count if user interaction was detected in previous run
+    if st.session_state.user_interaction_detected:
+        st.session_state.run_count = 0
+        st.session_state.user_interaction_detected = False
+    
+    # Increment run_count
+    st.session_state.run_count += 1
+    
+    # Check run_count threshold (max 3 iterations without user action)
+    if st.session_state.run_count > 3:
         st.session_state.loop_detected = True
-        st.warning("⚠️ **Run Guard triggered — preventing infinite loop**")
+        st.error("⚠️ **LOOP DETECTION: Automatic execution halted**")
+        st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
+        st.info("Please refresh the page manually or click a button to continue.")
         st.stop()
     
     # ========================================================================
@@ -17574,16 +17629,34 @@ def main():
     if "run_id" not in st.session_state:
         st.session_state.run_id = 0
         st.session_state.run_trigger = "initial_load"
+        st.session_state.initial_load_complete = False
     else:
         st.session_state.run_id += 1
+        
         # Determine what triggered this rerun
         if st.session_state.get("_last_button_clicked"):
             st.session_state.run_trigger = f"button: {st.session_state._last_button_clicked}"
             st.session_state._last_button_clicked = None
-        elif st.session_state.get("auto_refresh_enabled"):
+            st.session_state.user_interaction_detected = True  # Mark user interaction
+        elif st.session_state.get("_widget_interaction"):
+            st.session_state.run_trigger = "widget_interaction"
+            st.session_state._widget_interaction = False
+            st.session_state.user_interaction_detected = True  # Mark user interaction
+        elif st.session_state.get("auto_refresh_enabled") and not st.session_state.get("safe_mode_no_fetch", True):
             st.session_state.run_trigger = "auto_refresh"
+            # Auto-refresh does NOT count as user interaction
         else:
             st.session_state.run_trigger = "user_interaction"
+            st.session_state.user_interaction_detected = True  # Mark user interaction
+    
+    # ONE RUN ONLY latch: After initial load, require user interaction for any computations
+    if st.session_state.initial_load_complete and not st.session_state.user_interaction_detected:
+        # Block heavy operations - only allow rendering of cached data
+        st.session_state.one_run_only_block = True
+    else:
+        st.session_state.one_run_only_block = False
+        if st.session_state.run_trigger == "initial_load":
+            st.session_state.initial_load_complete = True
     
     # Display run diagnostics at the very top
     st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
@@ -17803,17 +17876,20 @@ def main():
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
-    # HARD-DISABLE auto-refresh when Safe Mode is ON
-    # This prevents any background refresh, sleeps, or automatic reruns
-    # Note: Default to True (disabled) is intentional - Safe Mode defaults ON for stability
-    if st.session_state.get("safe_mode_no_fetch", True):
-        # Auto-refresh is completely disabled in Safe Mode
+    # HARD-DISABLE auto-refresh when Safe Mode is ON or auto-refresh is explicitly disabled
+    # Auto-refresh is now OFF by default to prevent infinite reruns
+    # Users must explicitly enable it and disable Safe Mode
+    if st.session_state.get("safe_mode_no_fetch", True) or not st.session_state.get("auto_refresh_enabled", False):
+        # Auto-refresh is completely disabled
         # Debug trace marker
         if st.session_state.get("debug_mode", False):
-            st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
+            if st.session_state.get("safe_mode_no_fetch", True):
+                st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
+            else:
+                st.caption("🔍 Trace: Auto-refresh disabled (Flag OFF)")
         pass  # Skip all auto-refresh logic
     # Check if auto-refresh is enabled, not paused, and supported
-    elif st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
+    elif not st.session_state.get("auto_refresh_paused", False):
         # Debug trace marker
         if st.session_state.get("debug_mode", False):
             st.caption("🔍 Trace: Entering refresh block")
@@ -17851,7 +17927,7 @@ def main():
             # If neither is available, auto-refresh is disabled (silent fail)
         except Exception as e:
             # Error during auto-refresh - handle according to config
-            st.session_state.auto_refresh_error_count += 1
+            st.session_state.auto_refresh_error_count = st.session_state.get("auto_refresh_error_count", 0) + 1
             st.session_state.auto_refresh_error_message = str(e)
             
             # Auto-pause if enabled and error threshold reached
