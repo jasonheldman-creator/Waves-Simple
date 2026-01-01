@@ -21,6 +21,7 @@ import subprocess
 import os
 import traceback
 import logging
+import time
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -587,6 +588,12 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 # ============================================================================
 
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
+
+# ============================================================================
+# WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
+# ============================================================================
+# Record start time immediately after page config for watchdog
+WATCHDOG_START_TIME = time.time()
 
 # ============================================================================
 # BUILD/VERSION STAMP - Display build info for verification
@@ -6867,6 +6874,10 @@ def render_sidebar_info():
         use_container_width=True,
         help="Prefetch and cache price data to ensure fast startup (optional)"
     ):
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.caption("🔍 Trace: Entering warm cache")
+        
         try:
             with st.spinner("Warming cache with price data..."):
                 # Prefetch prices
@@ -7655,6 +7666,10 @@ def render_executive_brief_tab():
             from analytics_truth import get_truth_frame
             from truth_frame_helpers import convert_truthframe_to_snapshot_format
             from snapshot_ledger import get_snapshot_metadata
+            
+            # Debug trace marker
+            if st.session_state.get("debug_mode", False):
+                st.caption("🔍 Trace: Entering engine compute (ExecutiveBrief - get_truth_frame)")
             
             # Get TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
@@ -10695,6 +10710,10 @@ def render_overview_tab():
                                 st.rerun()
                         except Exception as e:
                             st.error(f"TruthFrame refresh failed: {str(e)}")
+            
+            # Debug trace marker
+            if st.session_state.get("debug_mode", False):
+                st.caption("🔍 Trace: Entering engine compute (Overview - get_truth_frame)")
             
             # Load TruthFrame (respects Safe Mode)
             safe_mode = st.session_state.get("safe_mode_enabled", False)
@@ -17597,6 +17616,19 @@ def main():
 """)
     
     # ========================================================================
+    # WALL-CLOCK WATCHDOG - Enforce 3-second timeout in Safe Mode
+    # ========================================================================
+    elapsed_time = time.time() - WATCHDOG_START_TIME
+    if st.session_state.safe_mode_no_fetch and elapsed_time > 3.0:
+        st.error("⏱️ **Safe Mode watchdog stopped long-running execution.** (Exceeded 3-second timeout)")
+        st.info("Turn OFF Safe Mode to enable full functionality, or use manual buttons to trigger specific operations.")
+        st.stop()
+    
+    # Debug trace: Mark that we passed the watchdog
+    if st.session_state.get("debug_mode", False):
+        st.caption(f"🔍 Trace: Passed watchdog check (elapsed: {elapsed_time:.2f}s)")
+    
+    # ========================================================================
     # Wave Registry CSV Self-Healing - Validate and Auto-Rebuild
     # ========================================================================
     
@@ -17648,6 +17680,10 @@ def main():
     # ========================================================================
     # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
     # ========================================================================
+    
+    # Debug trace marker
+    if st.session_state.get("debug_mode", False):
+        st.caption("🔍 Trace: Entering snapshot build section")
     
     # SAFE MODE: Skip auto-build entirely when Safe Mode is ON
     # Only validate if snapshot exists, but never trigger builds
@@ -17767,8 +17803,21 @@ def main():
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
     
+    # HARD-DISABLE auto-refresh when Safe Mode is ON
+    # This prevents any background refresh, sleeps, or automatic reruns
+    # Note: Default to True (disabled) is intentional - Safe Mode defaults ON for stability
+    if st.session_state.get("safe_mode_no_fetch", True):
+        # Auto-refresh is completely disabled in Safe Mode
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
+        pass  # Skip all auto-refresh logic
     # Check if auto-refresh is enabled, not paused, and supported
-    if st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
+    elif st.session_state.auto_refresh_enabled and not st.session_state.auto_refresh_paused:
+        # Debug trace marker
+        if st.session_state.get("debug_mode", False):
+            st.caption("🔍 Trace: Entering refresh block")
+        
         try:
             # Try using streamlit-autorefresh if available
             from streamlit_autorefresh import st_autorefresh

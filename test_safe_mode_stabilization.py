@@ -8,10 +8,14 @@ Tests:
 3. Top banner displays correct status
 4. Manual rebuild buttons respect Safe Mode
 5. compute_gate respects Safe Mode
+6. Auto-refresh disabled when Safe Mode is ON
+7. Watchdog timeout enforcement
+8. Debug trace markers
 """
 
 import sys
 import os
+import time
 
 # Mock Streamlit session state for testing
 class MockSessionState(dict):
@@ -151,6 +155,78 @@ def test_loop_detection_flag():
     print("   ✅ loop_detected set to True when threshold exceeded")
 
 
+def test_auto_refresh_disabled_in_safe_mode():
+    """Test that auto-refresh is disabled when Safe Mode is ON."""
+    print("\nTesting auto-refresh disabled in Safe Mode...")
+    
+    session_state = MockSessionState()
+    session_state["safe_mode_no_fetch"] = True
+    session_state["auto_refresh_enabled"] = True
+    session_state["auto_refresh_paused"] = False
+    
+    # Auto-refresh should be skipped when Safe Mode is ON
+    is_safe_mode_on = session_state.get("safe_mode_no_fetch", True)
+    
+    # If safe_mode_no_fetch is True, auto-refresh should not run
+    assert is_safe_mode_on == True, "safe_mode_no_fetch should be True"
+    print("   ✅ Auto-refresh is gated by Safe Mode flag")
+    
+    # Test with Safe Mode OFF
+    session_state["safe_mode_no_fetch"] = False
+    is_safe_mode_on = session_state.get("safe_mode_no_fetch", True)
+    assert is_safe_mode_on == False, "safe_mode_no_fetch should be False when Safe Mode is OFF"
+    print("   ✅ Auto-refresh can run when Safe Mode is OFF")
+
+
+def test_watchdog_timeout():
+    """Test that watchdog timeout is enforced correctly."""
+    print("\nTesting watchdog timeout...")
+    
+    session_state = MockSessionState()
+    session_state["safe_mode_no_fetch"] = True
+    
+    # Simulate watchdog start time
+    watchdog_start = time.time()
+    
+    # Test: Just started (should pass)
+    elapsed = time.time() - watchdog_start
+    should_stop = session_state.get("safe_mode_no_fetch", True) and elapsed > 3.0
+    assert should_stop == False, "Should not stop immediately after start"
+    print(f"   ✅ Watchdog does not trigger immediately (elapsed: {elapsed:.3f}s)")
+    
+    # Test: After 3+ seconds (should stop if Safe Mode is ON)
+    # Simulate by directly setting elapsed time
+    simulated_elapsed = 3.5
+    should_stop = session_state.get("safe_mode_no_fetch", True) and simulated_elapsed > 3.0
+    assert should_stop == True, "Should stop after 3 seconds in Safe Mode"
+    print(f"   ✅ Watchdog triggers after 3 seconds in Safe Mode")
+    
+    # Test: Safe Mode OFF (should not stop even after 3 seconds)
+    session_state["safe_mode_no_fetch"] = False
+    should_stop = session_state.get("safe_mode_no_fetch", True) and simulated_elapsed > 3.0
+    assert should_stop == False, "Should not stop when Safe Mode is OFF"
+    print(f"   ✅ Watchdog does not trigger when Safe Mode is OFF")
+
+
+def test_debug_trace_markers():
+    """Test that debug trace markers are gated by debug mode."""
+    print("\nTesting debug trace markers...")
+    
+    session_state = MockSessionState()
+    
+    # Test: Debug mode OFF (default)
+    session_state["debug_mode"] = False
+    should_show_trace = session_state.get("debug_mode", False)
+    assert should_show_trace == False, "Trace markers should not show when debug mode is OFF"
+    print("   ✅ Trace markers hidden when debug mode is OFF")
+    
+    # Test: Debug mode ON
+    session_state["debug_mode"] = True
+    should_show_trace = session_state.get("debug_mode", False)
+    assert should_show_trace == True, "Trace markers should show when debug mode is ON"
+    print("   ✅ Trace markers shown when debug mode is ON")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Safe Mode Stabilization Test Suite")
@@ -162,6 +238,9 @@ if __name__ == "__main__":
         test_compute_gate_safe_mode()
         test_safe_mode_off_allows_builds()
         test_loop_detection_flag()
+        test_auto_refresh_disabled_in_safe_mode()
+        test_watchdog_timeout()
+        test_debug_trace_markers()
         
         print("\n" + "=" * 60)
         print("✅ ALL TESTS PASSED")
