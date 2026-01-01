@@ -61,10 +61,9 @@ def test_demo_script():
     
     print(f"  {check_mark(True)} Demo script exists")
     
-    # Check if executable (on Unix)
-    if hasattr(os, 'access'):
-        is_executable = os.access(script_path, os.X_OK)
-        print(f"  {check_mark(is_executable)} Executable flag set")
+    # Check if executable
+    is_executable = os.access(script_path, os.X_OK)
+    print(f"  {check_mark(is_executable)} Executable flag set")
     
     return True
 

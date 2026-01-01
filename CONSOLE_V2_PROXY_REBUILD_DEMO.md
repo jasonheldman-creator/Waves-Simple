@@ -139,6 +139,8 @@ DEMO COMPLETED SUCCESSFULLY
 | **PARTIAL** | 🔵 | Secondary proxy + benchmark available | Basic analytics with fallback proxy |
 | **UNAVAILABLE** | 🔴 | No proxy data available | Diagnostics only, shows reason |
 
+**Note**: When a wave has UNAVAILABLE confidence, the `proxy_ticker` column will be empty (or NaN) in the snapshot CSV because no proxy data could be fetched. This is expected behavior and indicates that both primary and secondary proxy tickers failed to return data.
+
 ## Safety Features
 
 ### Timeout Protection
@@ -179,8 +181,8 @@ python demo_console_v2_proxy_rebuild.py
 ls -l data/live_proxy_snapshot.csv
 ls -l data/planb_diagnostics_run.json
 
-# Check wave count
-wc -l data/live_proxy_snapshot.csv  # Should show 29 (header + 28 waves)
+# Check wave count (29 lines = 1 header + 28 waves)
+wc -l data/live_proxy_snapshot.csv  # Should show 29
 ```
 
 ### Integration Testing

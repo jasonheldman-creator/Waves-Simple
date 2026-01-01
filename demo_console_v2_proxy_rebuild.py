@@ -214,11 +214,17 @@ def display_wave_analytics():
             print(f"     Proxy: {wave['proxy_ticker']} | Benchmark: {wave['benchmark_ticker']}")
             
             if wave['confidence'] in [CONFIDENCE_FULL, CONFIDENCE_PARTIAL]:
-                # Display returns
-                print(f"     Returns: 1D={wave['return_1D']*100:.2f}% | 30D={wave['return_30D']*100:.2f}% | 365D={wave['return_365D']*100:.2f}%")
+                # Display returns (handle NaN values)
+                ret_1d = wave['return_1D'] * 100 if pd.notna(wave['return_1D']) else 0.0
+                ret_30d = wave['return_30D'] * 100 if pd.notna(wave['return_30D']) else 0.0
+                ret_365d = wave['return_365D'] * 100 if pd.notna(wave['return_365D']) else 0.0
+                print(f"     Returns: 1D={ret_1d:.2f}% | 30D={ret_30d:.2f}% | 365D={ret_365d:.2f}%")
                 
-                # Display alpha
-                print(f"     Alpha:   1D={wave['alpha_1D']*100:.2f}% | 30D={wave['alpha_30D']*100:.2f}% | 365D={wave['alpha_365D']*100:.2f}%")
+                # Display alpha (handle NaN values)
+                alpha_1d = wave['alpha_1D'] * 100 if pd.notna(wave['alpha_1D']) else 0.0
+                alpha_30d = wave['alpha_30D'] * 100 if pd.notna(wave['alpha_30D']) else 0.0
+                alpha_365d = wave['alpha_365D'] * 100 if pd.notna(wave['alpha_365D']) else 0.0
+                print(f"     Alpha:   1D={alpha_1d:.2f}% | 30D={alpha_30d:.2f}% | 365D={alpha_365d:.2f}%")
             else:
                 print(f"     Status: Data unavailable")
     
