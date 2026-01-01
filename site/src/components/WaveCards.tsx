@@ -15,6 +15,7 @@ interface WaveCardData {
 
 /**
  * Simple CSV parser without external dependencies
+ * Handles quoted fields and basic CSV structure
  */
 function parseCSV(csvText: string): WaveCardData[] {
   const lines = csvText.trim().split('\n');
@@ -34,8 +35,13 @@ function parseCSV(csvText: string): WaveCardData[] {
     
     for (let j = 0; j < line.length; j++) {
       const char = line[j];
+      const nextChar = line[j + 1];
       
-      if (char === '"') {
+      if (char === '"' && nextChar === '"' && insideQuotes) {
+        // Handle escaped quote (double quotes within quoted field)
+        currentValue += '"';
+        j++; // Skip next quote
+      } else if (char === '"') {
         insideQuotes = !insideQuotes;
       } else if (char === ',' && !insideQuotes) {
         values.push(currentValue);
@@ -111,7 +117,7 @@ export default function WaveCards() {
           }
 
           setWaveData(dataMap);
-          setDataSource(url === externalUrl ? "external" : "api");
+          setDataSource(externalUrl && url === externalUrl ? "external" : "api");
           
           console.log(`[WaveCards] Successfully loaded ${parsed.length} waves from ${url}`);
           
