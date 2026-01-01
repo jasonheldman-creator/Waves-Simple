@@ -2662,7 +2662,8 @@ def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
                     per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
             
             # Pause between batches (random to avoid patterns)
-            if batch_idx < num_batches - 1:
+            # Only pause if Safe Mode is OFF (prevents delays during safe mode)
+            if batch_idx < num_batches - 1 and not st.session_state.get("safe_mode_no_fetch", True):
                 pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
                 print(f"Pausing {pause_duration:.2f}s before next batch...")
                 time.sleep(pause_duration)
@@ -6704,7 +6705,7 @@ def render_sidebar_info():
             st.session_state.user_interaction_detected = True
             
             # Trigger immediate rerun
-            st.rerun()
+            trigger_rerun("force_reload_waves")
         except Exception as e:
             st.sidebar.warning(f"Force reload unavailable: {str(e)}")
     
@@ -6747,7 +6748,7 @@ def render_sidebar_info():
             st.session_state.user_interaction_detected = True
             
             # Trigger rerun
-            st.rerun()
+            trigger_rerun("force_reload_data_clear_cache")
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
@@ -6815,7 +6816,7 @@ def render_sidebar_info():
                 st.cache_data.clear()
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("force_build_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error building data: {str(e)}")
     
@@ -6929,7 +6930,7 @@ def render_sidebar_info():
                     # Trigger rerun
                     # Mark user interaction
                     st.session_state.user_interaction_detected = True
-                    st.rerun()
+                    trigger_rerun("rebuild_wave_csv")
                 else:
                     st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
         except Exception as e:
@@ -7016,7 +7017,7 @@ def render_sidebar_info():
             st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("activate_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error activating waves: {str(e)}")
     
@@ -7371,7 +7372,7 @@ def render_sidebar_info():
                 st.success("Wave universe cache cleared. Reloading...")
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("clear_wave_universe_cache")
             except Exception as e:
                 st.warning(f"Force reload unavailable: {str(e)}")
         
@@ -7382,7 +7383,7 @@ def render_sidebar_info():
             key="hard_rerun_button",
             use_container_width=True
         ):
-            st.rerun()
+            trigger_rerun("hard_rerun_button")
         
         # Force Reload + Clear Cache + Rerun Button (Enhanced)
         if st.button(
@@ -7416,7 +7417,7 @@ def render_sidebar_info():
                 st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("force_clear_wave_reload")
             except Exception as e:
                 st.warning(f"⚠️ Force reload failed: {str(e)}")
     
@@ -7880,7 +7881,7 @@ def render_executive_brief_tab():
                             st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
-                            st.rerun()
+                            trigger_rerun("truthframe_refresh")
                     except Exception as e:
                         st.error(f"TruthFrame refresh failed: {str(e)}")
         
@@ -10868,7 +10869,7 @@ def render_overview_tab():
                                 price_df = st.session_state.get("global_price_df")
                                 truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
                                 st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
-                                st.rerun()
+                                trigger_rerun("truthframe_force_refresh")
                         except Exception as e:
                             st.error(f"TruthFrame refresh failed: {str(e)}")
             
@@ -14069,7 +14070,7 @@ def render_board_pack_tab():
             st.info("Please click 'Generate Board Pack' again to create PDF with fresh data.")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("boardpack_snapshot_refresh")
     
     # Footer
     st.markdown("---")
@@ -15662,7 +15663,7 @@ def render_governance_audit_tab():
                             st.success("✅ Snapshot generated successfully!")
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
-                            st.rerun()
+                            trigger_rerun("planb_snapshot_generated")
                         except Exception as e:
                             st.error(f"❌ Failed to generate snapshot: {str(e)}")
                             with st.expander("🔍 View Error Details"):
@@ -15973,7 +15974,7 @@ def render_planb_monitor_tab():
                 st.session_state.planb_snapshot_cache_bust = datetime.now()
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("planb_snapshot_cache_bust")
         
         with col3:
             # Timestamp display
@@ -16358,7 +16359,7 @@ def render_wave_intelligence_planb_tab():
                         st.session_state.planb_build_in_progress = False
                         # Mark user interaction
                         st.session_state.user_interaction_detected = True
-                        st.rerun()
+                        trigger_rerun("planb_build_complete")
                     except Exception as e:
                         st.error(f"Failed to rebuild snapshot: {str(e)}")
                         st.session_state.planb_build_in_progress = False
@@ -16712,7 +16713,7 @@ def render_diagnostics_tab():
                 del st.session_state.safe_mode_error_traceback
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("clear_safe_mode_error")
     else:
         st.success("**Safe Mode is not active.** The application is running normally.")
         
@@ -16749,7 +16750,7 @@ def render_diagnostics_tab():
             st.success("Error history cleared.")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("clear_error_history")
     else:
         st.success("**No component errors logged.** All components are functioning normally.")
     
@@ -17111,7 +17112,7 @@ def render_diagnostics_tab():
             st.success("Wave universe reload triggered. Refreshing...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
         if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
@@ -17122,7 +17123,7 @@ def render_diagnostics_tab():
             st.success("Cache cleared. Refreshing...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("diagnostics_clear_cache")
     
     st.markdown("---")
     
