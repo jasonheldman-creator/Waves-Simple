@@ -118,6 +118,39 @@ except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
 # ============================================================================
+# RUN TRACE - Track script execution and prevent infinite rerun loops
+# ============================================================================
+
+# Initialize run sequence counter and timing
+if "run_seq" not in st.session_state:
+    st.session_state.run_seq = 0
+    st.session_state.last_run_time = datetime.now()
+    st.session_state.last_trigger = "initial_load"
+    st.session_state.buttons_clicked = []
+else:
+    # Increment run sequence
+    st.session_state.run_seq += 1
+    
+    # Calculate delta since last run
+    current_time = datetime.now()
+    delta_seconds = (current_time - st.session_state.last_run_time).total_seconds()
+    st.session_state.delta_seconds = delta_seconds
+    st.session_state.last_run_time = current_time
+    
+    # Detect what triggered this run
+    if st.session_state.get("_last_button_clicked"):
+        st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
+        st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
+        st.session_state._last_button_clicked = None
+    elif st.session_state.get("_widget_changed"):
+        st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
+        st.session_state._widget_changed = None
+    elif st.session_state.get("auto_refresh_enabled", False):
+        st.session_state.last_trigger = "auto_refresh"
+    else:
+        st.session_state.last_trigger = "unknown"
+
+# ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
 # ============================================================================
 # Toggle constant to enable/disable the new Wave Profile tab and banner
@@ -1807,6 +1840,74 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
                 st.caption("💡 Enable Debug Mode in sidebar for details")
         
         return None
+
+
+def should_allow_compute(operation_name: str, force: bool = False) -> tuple[bool, str]:
+    """
+    Check if a compute-intensive operation should be allowed to run.
+    
+    This implements a global compute lock to prevent duplicate heavy operations
+    during the same session or run.
+    
+    Args:
+        operation_name: Unique name for the operation (e.g., "fetch_prices", "build_snapshot")
+        force: If True, bypass the lock check (used for explicit user actions)
+        
+    Returns:
+        Tuple of (should_run: bool, reason: str)
+    """
+    # Force always wins
+    if force:
+        return True, "Force flag enabled"
+    
+    # Check global compute lock
+    if st.session_state.get("compute_lock", False):
+        reason = st.session_state.get("compute_lock_reason", "Global compute lock is set")
+        return False, reason
+    
+    # Check if this operation was already done this session
+    operations_done = st.session_state.get("compute_operations_done", set())
+    if operation_name in operations_done:
+        return False, f"Operation '{operation_name}' already completed this session"
+    
+    # Operation is allowed
+    return True, "Operation allowed"
+
+
+def mark_compute_done(operation_name: str, success: bool = True):
+    """
+    Mark a compute operation as complete.
+    
+    Args:
+        operation_name: Name of the operation that completed
+        success: Whether the operation succeeded
+    """
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
+    
+    st.session_state.compute_operations_done.add(operation_name)
+    
+    # Set compute lock if this was a heavy operation and succeeded
+    if success and operation_name in ["fetch_prices", "build_snapshot", "warm_cache"]:
+        st.session_state.compute_lock = True
+        st.session_state.compute_lock_reason = f"Locked after '{operation_name}' completed successfully"
+
+
+def trigger_rerun(trigger_name: str):
+    """
+    Trigger a Streamlit rerun with a labeled trigger for diagnostics.
+    
+    Args:
+        trigger_name: Name/description of what triggered the rerun (e.g., "rebuild_snapshot", "change_wave")
+    """
+    # Update last_trigger in session state
+    st.session_state.last_trigger = trigger_name
+    
+    # Mark user interaction detected
+    st.session_state.user_interaction_detected = True
+    
+    # Trigger the rerun
+    st.rerun()
 
 
 def calculate_wavescore(wave_data):
@@ -4209,7 +4310,7 @@ def render_wave_universe_truth_panel():
                 st.session_state.user_interaction_detected = True
                 
                 st.success("✅ Universe reload queued - refreshing...")
-                st.rerun()
+                trigger_rerun("force_reload_universe")
             except Exception as e:
                 st.error(f"❌ Reload failed: {str(e)}")
     
@@ -4238,7 +4339,7 @@ def render_wave_universe_truth_panel():
                 st.session_state.user_interaction_detected = True
                 
                 st.success("✅ Cache cleared - recomputing...")
-                st.rerun()
+                trigger_rerun("clear_cache_recompute")
             except Exception as e:
                 st.error(f"❌ Cache clear failed: {str(e)}")
     
@@ -6421,6 +6522,38 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Debug Mode: Allow Continuous Reruns
+    # ========================================================================
+    st.sidebar.markdown("### 🐛 Debug Mode")
+    
+    # Allow Continuous Reruns checkbox (default OFF)
+    allow_continuous_reruns = st.sidebar.checkbox(
+        "Allow Continuous Reruns (Debug)",
+        value=st.session_state.get("allow_continuous_reruns", False),
+        key="allow_continuous_reruns_toggle",
+        help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+    )
+    st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+    
+    if not allow_continuous_reruns:
+        st.sidebar.warning("⚠️ Loop Trap Active - Max 2 runs")
+    else:
+        st.sidebar.info("🔄 Continuous reruns enabled")
+    
+    # Reset Compute Lock button (for diagnostics)
+    if st.sidebar.button(
+        "Reset Compute Lock",
+        key="reset_compute_lock_button",
+        use_container_width=True,
+        help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+    ):
+        st.session_state["compute_lock"] = False
+        st.session_state["compute_lock_reason"] = None
+        st.sidebar.success("✅ Compute lock reset")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Manual Snapshot Rebuild Buttons
     # ========================================================================
     st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
@@ -6454,7 +6587,7 @@ def render_sidebar_info():
                 st.session_state.loop_detected = False
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("rebuild_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
         except Exception as e:
@@ -6491,7 +6624,7 @@ def render_sidebar_info():
                 st.session_state.loop_detected = False
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("rebuild_proxy_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
         except Exception as e:
@@ -17661,6 +17794,46 @@ def main():
     st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
     
     # ========================================================================
+    # STEP 2.5: Run Trace Banner & Safety Latch
+    # ========================================================================
+    
+    # Display run trace banner at the top
+    run_seq = st.session_state.get("run_seq", 0)
+    delta_seconds = st.session_state.get("delta_seconds", 0.0)
+    last_trigger = st.session_state.get("last_trigger", "unknown")
+    buttons_clicked = st.session_state.get("buttons_clicked", [])
+    
+    # Format buttons clicked
+    buttons_str = ", ".join(buttons_clicked[-3:]) if buttons_clicked else "None"
+    
+    # Display banner
+    st.info(f"""
+**🔄 RUN TRACE**  
+• **Run #:** {run_seq}  
+• **Delta:** {delta_seconds:.2f}s  
+• **Last Trigger:** {last_trigger}  
+• **Recent Buttons:** {buttons_str}
+""")
+    
+    # Safety Latch: STOP after 2 runs unless debug mode enabled
+    # Initialize debug mode checkbox state
+    if "allow_continuous_reruns" not in st.session_state:
+        st.session_state.allow_continuous_reruns = False
+    
+    # Check if we should engage the loop trap
+    if run_seq >= 2 and not st.session_state.allow_continuous_reruns:
+        st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
+        st.warning(f"""
+The application has completed {run_seq} runs. To prevent infinite loops, 
+further automatic reruns are blocked.
+
+**To continue:**
+1. Enable "Allow Continuous Reruns (Debug)" in the sidebar, or
+2. Refresh the page manually
+""")
+        st.stop()
+    
+    # ========================================================================
     # STEP 3: Top Banner with Status Information
     # ========================================================================
     
@@ -17780,6 +17953,19 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave universe: {e}")
             st.session_state.wave_universe_validation_failed = False
+    
+    # ========================================================================
+    # Global Compute Lock - Prevent duplicate heavy computations
+    # ========================================================================
+    
+    # Initialize compute lock if not present
+    if "compute_lock" not in st.session_state:
+        st.session_state.compute_lock = False
+        st.session_state.compute_lock_reason = None
+    
+    # Initialize compute operations tracker
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
     
     # ========================================================================
     # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
