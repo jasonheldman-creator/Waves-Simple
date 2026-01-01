@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { readWavesData } from "@/lib/wavesDataReader";
 import type { WavesData, WaveAlert } from "@/types/waves";
 
+// Force Node.js runtime for file system access
+export const runtime = "nodejs";
+
 // Cache configuration (60-300 seconds as specified)
 const CACHE_DURATION = 180; // 3 minutes for WAVES data
 
