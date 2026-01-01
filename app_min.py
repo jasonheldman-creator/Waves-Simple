@@ -134,6 +134,11 @@ def render_data_tab():
     if selected_file:
         try:
             # Load and display the selected file
+            # Validate file is in the list to prevent path traversal
+            if selected_file not in data_files:
+                st.error("Invalid file selection")
+                return
+            
             file_path = os.path.join(os.getcwd(), selected_file)
             df = pd.read_csv(file_path)
             
@@ -184,7 +189,7 @@ def render_settings_tab():
         debug_info = {
             "Working Directory": os.getcwd(),
             "Session State Keys": list(st.session_state.keys()) if st.session_state else [],
-            "Environment": "Production" if not show_debug_info else "Debug"
+            "Environment": "Debug" if show_debug_info else "Production"
         }
         st.json(debug_info)
     
