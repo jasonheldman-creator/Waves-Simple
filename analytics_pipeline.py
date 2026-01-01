@@ -313,12 +313,12 @@ def resolve_wave_benchmarks(wave_id: str) -> List[Tuple[str, float]]:
 def _retry_with_backoff(func, *args, max_retries: int = MAX_BATCH_RETRIES, initial_delay: float = 1.0, **kwargs):
     """
     Retry a function with exponential backoff.
-    STEP 4: Hard Circuit Breaker - defaults to MAX_BATCH_RETRIES=2
+    STEP 4: Hard Circuit Breaker - defaults to MAX_BATCH_RETRIES (currently 2)
     
     Args:
         func: Function to retry
         *args: Positional arguments for func
-        max_retries: Maximum number of retry attempts (defaults to MAX_BATCH_RETRIES=2)
+        max_retries: Maximum number of retry attempts (defaults to MAX_BATCH_RETRIES, currently 2)
         initial_delay: Initial delay in seconds
         **kwargs: Keyword arguments for func
         

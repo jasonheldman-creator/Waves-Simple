@@ -157,6 +157,9 @@ def _get_file_age_minutes(file_path: str) -> float:
     if not os.path.exists(file_path):
         return float('inf')
     
-    mtime = os.path.getmtime(file_path)
-    age_seconds = datetime.now().timestamp() - mtime
+    # Use consistent datetime approach with rest of module
+    from datetime import datetime
+    mtime_timestamp = os.path.getmtime(file_path)
+    file_time = datetime.fromtimestamp(mtime_timestamp)
+    age_seconds = (datetime.now() - file_time).total_seconds()
     return age_seconds / 60
