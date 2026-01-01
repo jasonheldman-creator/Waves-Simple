@@ -1,148 +1,68 @@
-# sandbox_app.py
-# WAVES Intelligence™ — Sandbox
-# Small–Mid Cap Value Acceleration Wave (Interactive Mock)
+# Implementation for managing Streamlit auto-refresh with circuit breaker patterns
 
 import streamlit as st
-import pandas as pd
+import time
 import random
 
-st.set_page_config(page_title="WAVES Intelligence™ — Sandbox", layout="wide")
+# Define a simple state for the circuit breaker
+if 'circuit_breaker_state' not in st.session_state:
+    st.session_state['circuit_breaker_state'] = 'CLOSED'
+if 'failure_count' not in st.session_state:
+    st.session_state['failure_count'] = 0
+if 'last_tick_time' not in st.session_state:
+    st.session_state['last_tick_time'] = time.time()
 
-st.title("WAVES Intelligence™ — Sandbox")
-st.caption("Safe testing environment — production app.py untouched ✅")
-st.success("Sandbox loaded successfully.")
+def sanitize_io(input_data):
+    """Sanitize inputs and outputs."""
+    # Here, sanitize the input_data safely (this is a placeholder for real sanitation logic)
+    return input_data
 
-st.markdown("---")
+def circuit_breaker_logic():
+    """Circuit breaker logic to avoid infinite reruns."""
+    if st.session_state['circuit_breaker_state'] == 'OPEN':
+        st.warning("Circuit breaker is OPEN. Auto-refresh is currently paused.")
+        return False
 
-st.subheader("📈 Small–Mid Cap Value Acceleration Wave")
-st.caption("Goal: capture SMID value + acceleration using simple, explainable filters + ranking.")
+    current_time = time.time()
+    time_since_last_tick = current_time - st.session_state['last_tick_time']
 
-# -----------------------------
-# Controls (Jason-friendly)
-# -----------------------------
-with st.expander("🔧 Filters & Construction Controls", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        min_qoq_rev = st.slider("Min QoQ Revenue Growth (%)", 0, 80, 20, 1)
-        min_qoq_eps = st.slider("Min QoQ Earnings Growth (%)", 0, 120, 25, 1)
-    with c2:
-        max_pe = st.slider("Max P/E", 5, 30, 12, 1)
-        max_names = st.slider("Max holdings", 5, 30, 10, 1)
-    with c3:
-        seed = st.number_input("Random seed (stability)", min_value=1, max_value=9999, value=7, step=1)
+    try:
+        # Simulate external data fetching where failure might occur
+        sanitized_data = sanitize_io(random.choice(["valid_data", Exception("Simulated Failure")]))
+        if isinstance(sanitized_data, Exception):
+            raise sanitized_data
 
-st.markdown("")
+        # If successful, reset failure count and record tick time
+        st.session_state['failure_count'] = 0
+        st.session_state['last_tick_time'] = current_time
+        st.success("Data refreshed successfully!")
+        return True
 
-# -----------------------------
-# Mock Universe (still mock but richer)
-# -----------------------------
-rng = random.Random(int(seed))
-tickers = [
-    "ALIT","CNMD","DXLG","HBB","HZO","MLKN","PRTS","RCMT","TUP","VIRC",
-    "SMCI","APLD","GDYN","CLMB","RAMP","SSTK","BLKB","EVCM","ARLO","OSPN",
-    "SGH","CALX","ACLS","KN","CMTL","SAFT","HDSN","LZB","GIII","KTB"
-]
+    except Exception as e:
+        st.session_state['failure_count'] += 1
+        st.error(f"Error during data refresh: {e}")
 
-rows = []
-for t in tickers:
-    rev = round(rng.uniform(5, 60), 1)
-    eps = round(rng.uniform(-10, 120), 1)
-    pe = round(rng.uniform(6, 26), 1)
-    # add a couple “quality/risk” helpers (still mock)
-    ocf = round(rng.uniform(-50, 250), 1)     # $M
-    vol = round(rng.uniform(18, 65), 1)       # %
-    rows.append({
-        "Ticker": t,
-        "QoQ Revenue Growth (%)": rev,
-        "QoQ Earnings Growth (%)": eps,
-        "P/E Ratio": pe,
-        "Operating Cash Flow ($M)": ocf,
-        "Volatility (60D, %)": vol,
-    })
+        # If too many failures in a short time, open the circuit breaker
+        if st.session_state['failure_count'] >= 3 and time_since_last_tick < 10:
+            st.session_state['circuit_breaker_state'] = 'OPEN'
 
-df = pd.DataFrame(rows)
+        return False
 
-# -----------------------------
-# Filter
-# -----------------------------
-filtered = df[
-    (df["QoQ Revenue Growth (%)"] >= min_qoq_rev) &
-    (df["QoQ Earnings Growth (%)"] >= min_qoq_eps) &
-    (df["P/E Ratio"] <= max_pe)
-].copy()
+# Main loop
+if st.session_state['circuit_breaker_state'] == 'OPEN':
+    st.button("Reset Circuit Breaker", on_click=lambda: st.session_state.update({
+        'circuit_breaker_state': 'CLOSED',
+        'failure_count': 0,
+        'last_tick_time': time.time()
+    }))
+else:
+    auto_refresh = st.checkbox("Enable Auto-refresh", value=True)
+    if auto_refresh:
+        st.write("Auto-refresh enabled.")
+        success = circuit_breaker_logic()
+        if success:
+            st.write("Content updated successfully.")
+    else:
+        st.write("Auto-refresh is paused.")
 
-# If nothing passes, show guidance
-if filtered.empty:
-    st.warning("No stocks pass the current filters. Try lowering growth thresholds or increasing Max P/E.")
-    st.dataframe(df, use_container_width=True)
-    st.stop()
-
-# -----------------------------
-# Ranking / Score (explainable)
-# -----------------------------
-# Higher rev + higher eps + lower P/E + positive OCF + lower vol wins
-filtered["RevScore"] = filtered["QoQ Revenue Growth (%)"].rank(pct=True)
-filtered["EpsScore"] = filtered["QoQ Earnings Growth (%)"].rank(pct=True)
-filtered["ValueScore"] = (1.0 / filtered["P/E Ratio"]).rank(pct=True)
-filtered["OCFScore"] = filtered["Operating Cash Flow ($M)"].rank(pct=True)
-filtered["StabilityScore"] = (1.0 / filtered["Volatility (60D, %)"]).rank(pct=True)
-
-filtered["CompositeScore"] = (
-    0.35 * filtered["RevScore"] +
-    0.35 * filtered["EpsScore"] +
-    0.20 * filtered["ValueScore"] +
-    0.05 * filtered["OCFScore"] +
-    0.05 * filtered["StabilityScore"]
-)
-
-filtered = filtered.sort_values("CompositeScore", ascending=False).head(int(max_names)).reset_index(drop=True)
-
-# -----------------------------
-# Weights (score-weighted, capped)
-# -----------------------------
-weights_raw = filtered["CompositeScore"].clip(lower=0.0001)
-weights = (weights_raw / weights_raw.sum()) * 100.0
-
-# cap each weight at 15% and renormalize
-cap = 15.0
-weights = weights.clip(upper=cap)
-weights = (weights / weights.sum()) * 100.0
-
-filtered["Weight (%)"] = weights.round(2)
-
-# Google links
-filtered["Google Quote"] = filtered["Ticker"].apply(lambda x: f"https://www.google.com/finance/quote/{x}:NYSE")
-
-# -----------------------------
-# Output
-# -----------------------------
-st.markdown("### ✅ Selected Holdings (Filtered + Ranked)")
-st.dataframe(
-    filtered[[
-        "Ticker","QoQ Revenue Growth (%)","QoQ Earnings Growth (%)","P/E Ratio",
-        "Operating Cash Flow ($M)","Volatility (60D, %)","CompositeScore","Weight (%)","Google Quote"
-    ]],
-    use_container_width=True
-)
-
-st.markdown("### Performance Snapshot (Mock)")
-perf = pd.DataFrame({
-    "Metric": ["30D Return", "60D Return", "365D Return", "Alpha (vs Russell 2000)"],
-    "Value": ["—", "—", "—", "—"]
-})
-st.table(perf)
-
-st.info(
-    "ℹ️ Performance values are intentionally set to dashes for now. "
-    "Next step is wiring this wave to real price series + benchmark (IWM/IJR) "
-    "and computing 30/60/365 returns + alpha."
-)
-
-st.markdown("---")
-st.subheader("Next Steps (we can do immediately)")
-st.markdown("""
-1) **Plug into real tickers + real fundamentals** (later)  
-2) **Add benchmark (IWM/IJR blend)** + compute real 30/60/365 returns  
-3) **Alpha-Minus-Beta mode**: exposure scaling + beta discipline  
-4) Promote this Wave into production once it’s proven
-""")
+st.button("Manually Refresh", on_click=circuit_breaker_logic)
