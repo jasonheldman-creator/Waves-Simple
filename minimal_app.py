@@ -203,11 +203,12 @@ def render_overview_tab(df):
     # Prepare display dataframe
     display_df = df[available_columns].copy()
     
-    # Format numeric columns as percentages
+    # Format numeric columns as percentages (vectorized)
     for col in display_df.columns:
         if col != "Wave" and pd.api.types.is_numeric_dtype(display_df[col]):
-            display_df[col] = display_df[col].apply(
-                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            # Use vectorized string formatting for better performance
+            display_df[col] = display_df[col].map(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) and isinstance(x, (int, float)) else "N/A"
             )
     
     # Display table
@@ -271,7 +272,12 @@ def render_single_wave_tab(df):
         return
     
     # Get wave data
-    wave_data = df[df["Wave"] == selected_wave].iloc[0]
+    filtered_df = df[df["Wave"] == selected_wave]
+    if filtered_df.empty:
+        st.error(f"Wave '{selected_wave}' not found in data.")
+        return
+    
+    wave_data = filtered_df.iloc[0]
     
     st.subheader(selected_wave)
     
@@ -281,38 +287,38 @@ def render_single_wave_tab(df):
     
     with col1:
         val = wave_data.get("Return_1D", None)
-        st.metric("1D Return", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("1D Return", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col2:
         val = wave_data.get("Return_30D", None)
-        st.metric("30D Return", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("30D Return", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col3:
         val = wave_data.get("Return_60D", None)
-        st.metric("60D Return", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("60D Return", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col4:
         val = wave_data.get("Return_365D", None)
-        st.metric("365D Return", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("365D Return", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     st.markdown("### Alpha vs Benchmark")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         val = wave_data.get("Alpha_1D", None)
-        st.metric("1D Alpha", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("1D Alpha", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col2:
         val = wave_data.get("Alpha_30D", None)
-        st.metric("30D Alpha", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("30D Alpha", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col3:
         val = wave_data.get("Alpha_60D", None)
-        st.metric("60D Alpha", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("60D Alpha", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     with col4:
         val = wave_data.get("Alpha_365D", None)
-        st.metric("365D Alpha", f"{val*100:.2f}%" if pd.notna(val) else "N/A")
+        st.metric("365D Alpha", f"{val*100:.2f}%" if pd.notna(val) and isinstance(val, (int, float)) else "N/A")
     
     # Additional wave details
     st.markdown("---")
@@ -328,7 +334,7 @@ def render_single_wave_tab(df):
         st.text(f"Mode: {mode}")
         
         exposure = wave_data.get("Exposure", None)
-        st.text(f"Exposure: {exposure:.2%}" if pd.notna(exposure) else "Exposure: N/A")
+        st.text(f"Exposure: {exposure:.2%}" if pd.notna(exposure) and isinstance(exposure, (int, float)) else "Exposure: N/A")
     
     with details_col2:
         coverage = wave_data.get("Coverage_Score", None)
