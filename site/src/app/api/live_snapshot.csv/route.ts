@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readWavesData } from "@/lib/wavesDataReader";
+import { readWavesData } from "../../../lib/wavesDataReader";
 
 /**
  * GET /api/live_snapshot.csv
