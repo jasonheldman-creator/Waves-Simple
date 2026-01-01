@@ -187,12 +187,19 @@ Submissions are logged server-side (no external email integration).
 
 ### Environment Variables
 
-The site requires the following environment variable:
+The site supports the following environment variables:
 
 - **NEXT_PUBLIC_SITE_URL**: Canonical site URL (default: `https://www.wavesintelligence.app`)
   - Used for metadata, Open Graph tags, sitemap, and robots.txt
   - Set in Vercel for production deployments
   - For local development, create `.env.local` with `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
+
+- **NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL**: External URL for live wave performance data (optional)
+  - If set, WaveCards component will fetch CSV data from this URL first
+  - Falls back to `/api/live_snapshot.csv` if not set or if fetch fails
+  - Example: `https://example.com/data/live_snapshot.csv`
+  - CSV format: `wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated`
+  - Used for integrating external data sources while maintaining local fallback
 
 See `.env.example` for reference.
 
