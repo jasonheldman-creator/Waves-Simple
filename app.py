@@ -17689,6 +17689,38 @@ def main():
 """)
     
     # ========================================================================
+    # STALE SNAPSHOT BANNER - Display warning if snapshots are stale
+    # ========================================================================
+    try:
+        from helpers.compute_gate import check_stale_snapshot
+        
+        # Check main snapshot
+        live_snapshot_path = "data/live_snapshot.csv"
+        is_stale, age_minutes = check_stale_snapshot(
+            live_snapshot_path,
+            st.session_state,
+            build_key="engine_snapshot"
+        )
+        
+        if is_stale and age_minutes != float('inf'):
+            # Snapshot exists but is stale
+            age_hours = age_minutes / 60
+            st.warning(f"""
+⚠️ **Stale Snapshot Detected**  
+The live snapshot is {age_hours:.1f} hours old (threshold: 1 hour).  
+Click a rebuild button in the sidebar to refresh the data.
+""")
+        elif not os.path.exists(live_snapshot_path):
+            # Snapshot is missing
+            st.warning("""
+⚠️ **Snapshot Missing**  
+No live snapshot found. Click a rebuild button in the sidebar to generate data.
+""")
+    except Exception as e:
+        # Silently fail if stale check fails
+        pass
+    
+    # ========================================================================
     # WALL-CLOCK WATCHDOG - Enforce 3-second timeout in Safe Mode
     # ========================================================================
     elapsed_time = time.time() - WATCHDOG_START_TIME
