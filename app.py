@@ -16030,6 +16030,22 @@ def render_wave_intelligence_planb_tab():
             if minutes_since < BUILD_LOCK_MINUTES:
                 st.warning(f"⏱️ **Build Lock Active:** Last build {minutes_since:.1f}m ago. Must wait {BUILD_LOCK_MINUTES - minutes_since:.1f}m more.")
         
+        # STEP 6: Show build in progress / suppressed status
+        try:
+            from helpers.compute_gate import get_build_diagnostics
+            
+            planb_diag = get_build_diagnostics(st.session_state, "planb_snapshot")
+            engine_diag = get_build_diagnostics(st.session_state, "engine_snapshot")
+            
+            if planb_diag.get('build_in_progress', False):
+                st.info("🔄 **Plan B Build Running** - Please wait...")
+            elif engine_diag.get('build_in_progress', False):
+                st.info("🔄 **Engine Build Running** - Please wait...")
+            elif st.session_state.get('safe_demo_mode', False):
+                st.success("🛡️ **SAFE DEMO MODE** - All builds suppressed")
+        except ImportError:
+            pass
+        
         st.markdown("---")
         
         # ========================================================================
