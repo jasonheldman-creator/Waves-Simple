@@ -215,17 +215,66 @@ def determine_confidence_label(primary_available: bool, secondary_available: boo
         return CONFIDENCE_UNAVAILABLE
 
 
-def build_proxy_snapshot(days: int = 365, enforce_timeout: bool = True) -> pd.DataFrame:
+def build_proxy_snapshot(
+    days: int = 365, 
+    enforce_timeout: bool = True,
+    session_state: Optional[Dict] = None,
+    explicit_button_click: bool = False
+) -> pd.DataFrame:
     """
     Build proxy analytics snapshot for all 28 waves.
+    STEP 2 & 3: Integrated with SAFE DEMO MODE and Compute Gate
     
     Args:
         days: Number of days of price history to fetch
         enforce_timeout: If True, enforce BUILD_TIMEOUT_SECONDS wall-clock limit
+        session_state: Streamlit session_state for SAFE DEMO MODE and compute gate
+        explicit_button_click: True if user explicitly clicked a rebuild button
         
     Returns:
         DataFrame with proxy analytics for all waves
     """
+    # ========================================================================
+    # STEP 2: Check SAFE DEMO MODE - Global Kill Switch
+    # ========================================================================
+    if session_state is not None and session_state.get("safe_demo_mode", False):
+        print("🛡️ SAFE DEMO MODE active - proxy snapshot build suppressed")
+        # Load existing snapshot if available
+        if os.path.exists(OUTPUT_SNAPSHOT_PATH):
+            try:
+                print(f"   Loading existing snapshot from {OUTPUT_SNAPSHOT_PATH}")
+                return pd.read_csv(OUTPUT_SNAPSHOT_PATH)
+            except Exception as e:
+                print(f"   Warning: Could not load snapshot: {e}")
+        return pd.DataFrame()
+    
+    # ========================================================================
+    # STEP 3: Check Compute Gate
+    # ========================================================================
+    try:
+        from helpers.compute_gate import should_allow_build, mark_build_complete
+        
+        should_build, reason = should_allow_build(
+            snapshot_path=OUTPUT_SNAPSHOT_PATH,
+            session_state=session_state,
+            build_key="planb_snapshot",
+            explicit_button_click=explicit_button_click
+        )
+        
+        if not should_build:
+            print(f"⏸️ Plan B snapshot build suppressed: {reason}")
+            # Load existing snapshot if available
+            if os.path.exists(OUTPUT_SNAPSHOT_PATH):
+                try:
+                    print(f"   Loading existing snapshot from {OUTPUT_SNAPSHOT_PATH}")
+                    return pd.read_csv(OUTPUT_SNAPSHOT_PATH)
+                except Exception as e:
+                    print(f"   Warning: Could not load snapshot: {e}")
+            return pd.DataFrame()
+    except ImportError:
+        # Compute gate not available - proceed with build
+        pass
+    
     # Record start time for wall-clock timeout
     build_start_time = datetime.now()
     
@@ -441,6 +490,17 @@ def build_proxy_snapshot(days: int = 365, enforce_timeout: bool = True) -> pd.Da
     print(f"   • Build duration: {build_duration:.1f}s")
     if timeout_exceeded:
         print(f"   • ⚠️ Wall-clock timeout exceeded")
+    
+    # ========================================================================
+    # STEP 3: Mark build as complete in compute gate
+    # ========================================================================
+    try:
+        from helpers.compute_gate import mark_build_complete
+        if session_state is not None:
+            success = not snapshot_df.empty and not timeout_exceeded
+            mark_build_complete(session_state, "planb_snapshot", success=success)
+    except ImportError:
+        pass
     
     return snapshot_df
 
