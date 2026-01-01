@@ -127,6 +127,7 @@ if "run_seq" not in st.session_state:
     st.session_state.last_run_time = datetime.now()
     st.session_state.last_trigger = "initial_load"
     st.session_state.buttons_clicked = []
+    st.session_state.trigger_set_by_rerun = False
 else:
     # Increment run sequence
     st.session_state.run_seq += 1
@@ -137,18 +138,22 @@ else:
     st.session_state.delta_seconds = delta_seconds
     st.session_state.last_run_time = current_time
     
-    # Detect what triggered this run
-    if st.session_state.get("_last_button_clicked"):
-        st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
-        st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
-        st.session_state._last_button_clicked = None
-    elif st.session_state.get("_widget_changed"):
-        st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
-        st.session_state._widget_changed = None
-    elif st.session_state.get("auto_refresh_enabled", False):
-        st.session_state.last_trigger = "auto_refresh"
-    else:
-        st.session_state.last_trigger = "unknown"
+    # Detect what triggered this run (only if not already set by trigger_rerun)
+    if not st.session_state.get("trigger_set_by_rerun", False):
+        if st.session_state.get("_last_button_clicked"):
+            st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
+            st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
+            st.session_state._last_button_clicked = None
+        elif st.session_state.get("_widget_changed"):
+            st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
+            st.session_state._widget_changed = None
+        elif st.session_state.get("auto_refresh_enabled", False):
+            st.session_state.last_trigger = "auto_refresh"
+        else:
+            st.session_state.last_trigger = "unknown"
+    
+    # Reset the flag after reading
+    st.session_state.trigger_set_by_rerun = False
 
 # ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
@@ -1856,9 +1861,9 @@ def should_allow_compute(operation_name: str, force: bool = False) -> tuple[bool
     Returns:
         Tuple of (should_run: bool, reason: str)
     """
-    # Force always wins
+    # Force always wins - check this FIRST
     if force:
-        return True, "Force flag enabled"
+        return True, "Force flag enabled - bypassing all locks"
     
     # Check global compute lock
     if st.session_state.get("compute_lock", False):
@@ -1902,6 +1907,9 @@ def trigger_rerun(trigger_name: str):
     """
     # Update last_trigger in session state
     st.session_state.last_trigger = trigger_name
+    
+    # Set flag to prevent overwriting by detection logic
+    st.session_state.trigger_set_by_rerun = True
     
     # Mark user interaction detected
     st.session_state.user_interaction_detected = True
@@ -17822,7 +17830,13 @@ def main():
         st.session_state.allow_continuous_reruns = False
     
     # Check if we should engage the loop trap
-    if run_seq >= 2 and not st.session_state.allow_continuous_reruns:
+    # Note: We check this AFTER the sidebar is rendered so users can toggle the checkbox
+    st.session_state.loop_trap_should_engage = (
+        run_seq >= 2 and not st.session_state.allow_continuous_reruns
+    )
+    
+    # Display warning if loop trap will engage, but don't stop yet
+    if st.session_state.loop_trap_should_engage:
         st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
         st.warning(f"""
 The application has completed {run_seq} runs. To prevent infinite loops, 
@@ -17832,7 +17846,6 @@ further automatic reruns are blocked.
 1. Enable "Allow Continuous Reruns (Debug)" in the sidebar, or
 2. Refresh the page manually
 """)
-        st.stop()
     
     # ========================================================================
     # STEP 3: Top Banner with Status Information
@@ -18259,6 +18272,11 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     
     # Render sidebar
     render_sidebar_info()
+    
+    # NOW enforce the loop trap AFTER sidebar is rendered
+    # This allows users to see and toggle the "Allow Continuous Reruns" checkbox
+    if st.session_state.get("loop_trap_should_engage", False):
+        st.stop()
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
