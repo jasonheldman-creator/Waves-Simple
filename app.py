@@ -118,6 +118,44 @@ except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
 # ============================================================================
+# RUN TRACE - Track script execution and prevent infinite rerun loops
+# ============================================================================
+
+# Initialize run sequence counter and timing
+if "run_seq" not in st.session_state:
+    st.session_state.run_seq = 0
+    st.session_state.last_run_time = datetime.now()
+    st.session_state.last_trigger = "initial_load"
+    st.session_state.buttons_clicked = []
+    st.session_state.trigger_set_by_rerun = False
+else:
+    # Increment run sequence
+    st.session_state.run_seq += 1
+    
+    # Calculate delta since last run
+    current_time = datetime.now()
+    delta_seconds = (current_time - st.session_state.last_run_time).total_seconds()
+    st.session_state.delta_seconds = delta_seconds
+    st.session_state.last_run_time = current_time
+    
+    # Detect what triggered this run (only if not already set by trigger_rerun)
+    if not st.session_state.get("trigger_set_by_rerun", False):
+        if st.session_state.get("_last_button_clicked"):
+            st.session_state.last_trigger = f"button:{st.session_state._last_button_clicked}"
+            st.session_state.buttons_clicked.append(st.session_state._last_button_clicked)
+            st.session_state._last_button_clicked = None
+        elif st.session_state.get("_widget_changed"):
+            st.session_state.last_trigger = f"widget:{st.session_state._widget_changed}"
+            st.session_state._widget_changed = None
+        elif st.session_state.get("auto_refresh_enabled", False):
+            st.session_state.last_trigger = "auto_refresh"
+        else:
+            st.session_state.last_trigger = "unknown"
+    
+    # Reset the flag after reading
+    st.session_state.trigger_set_by_rerun = False
+
+# ============================================================================
 # WAVE PROFILE UI TOGGLE - Feature Flag
 # ============================================================================
 # Toggle constant to enable/disable the new Wave Profile tab and banner
@@ -1809,6 +1847,77 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
         return None
 
 
+def should_allow_compute(operation_name: str, force: bool = False) -> tuple[bool, str]:
+    """
+    Check if a compute-intensive operation should be allowed to run.
+    
+    This implements a global compute lock to prevent duplicate heavy operations
+    during the same session or run.
+    
+    Args:
+        operation_name: Unique name for the operation (e.g., "fetch_prices", "build_snapshot")
+        force: If True, bypass the lock check (used for explicit user actions)
+        
+    Returns:
+        Tuple of (should_run: bool, reason: str)
+    """
+    # Force always wins - check this FIRST
+    if force:
+        return True, "Force flag enabled - bypassing all locks"
+    
+    # Check global compute lock
+    if st.session_state.get("compute_lock", False):
+        reason = st.session_state.get("compute_lock_reason", "Global compute lock is set")
+        return False, reason
+    
+    # Check if this operation was already done this session
+    operations_done = st.session_state.get("compute_operations_done", set())
+    if operation_name in operations_done:
+        return False, f"Operation '{operation_name}' already completed this session"
+    
+    # Operation is allowed
+    return True, "Operation allowed"
+
+
+def mark_compute_done(operation_name: str, success: bool = True):
+    """
+    Mark a compute operation as complete.
+    
+    Args:
+        operation_name: Name of the operation that completed
+        success: Whether the operation succeeded
+    """
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
+    
+    st.session_state.compute_operations_done.add(operation_name)
+    
+    # Set compute lock if this was a heavy operation and succeeded
+    if success and operation_name in ["fetch_prices", "build_snapshot", "warm_cache"]:
+        st.session_state.compute_lock = True
+        st.session_state.compute_lock_reason = f"Locked after '{operation_name}' completed successfully"
+
+
+def trigger_rerun(trigger_name: str):
+    """
+    Trigger a Streamlit rerun with a labeled trigger for diagnostics.
+    
+    Args:
+        trigger_name: Name/description of what triggered the rerun (e.g., "rebuild_snapshot", "change_wave")
+    """
+    # Update last_trigger in session state
+    st.session_state.last_trigger = trigger_name
+    
+    # Set flag to prevent overwriting by detection logic
+    st.session_state.trigger_set_by_rerun = True
+    
+    # Mark user interaction detected
+    st.session_state.user_interaction_detected = True
+    
+    # Trigger the rerun
+    st.rerun()
+
+
 def calculate_wavescore(wave_data):
     """
     Calculate WaveScore for a wave based on cumulative alpha over 30 days.
@@ -2561,7 +2670,8 @@ def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
                     per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
             
             # Pause between batches (random to avoid patterns)
-            if batch_idx < num_batches - 1:
+            # Only pause if Safe Mode is OFF (prevents delays during safe mode)
+            if batch_idx < num_batches - 1 and not st.session_state.get("safe_mode_no_fetch", True):
                 pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
                 print(f"Pausing {pause_duration:.2f}s before next batch...")
                 time.sleep(pause_duration)
@@ -4209,7 +4319,7 @@ def render_wave_universe_truth_panel():
                 st.session_state.user_interaction_detected = True
                 
                 st.success("✅ Universe reload queued - refreshing...")
-                st.rerun()
+                trigger_rerun("force_reload_universe")
             except Exception as e:
                 st.error(f"❌ Reload failed: {str(e)}")
     
@@ -4238,7 +4348,7 @@ def render_wave_universe_truth_panel():
                 st.session_state.user_interaction_detected = True
                 
                 st.success("✅ Cache cleared - recomputing...")
-                st.rerun()
+                trigger_rerun("clear_cache_recompute")
             except Exception as e:
                 st.error(f"❌ Cache clear failed: {str(e)}")
     
@@ -6421,6 +6531,38 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # Debug Mode: Allow Continuous Reruns
+    # ========================================================================
+    st.sidebar.markdown("### 🐛 Debug Mode")
+    
+    # Allow Continuous Reruns checkbox (default OFF)
+    allow_continuous_reruns = st.sidebar.checkbox(
+        "Allow Continuous Reruns (Debug)",
+        value=st.session_state.get("allow_continuous_reruns", False),
+        key="allow_continuous_reruns_toggle",
+        help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+    )
+    st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+    
+    if not allow_continuous_reruns:
+        st.sidebar.warning("⚠️ Loop Trap Active - Max 2 runs")
+    else:
+        st.sidebar.info("🔄 Continuous reruns enabled")
+    
+    # Reset Compute Lock button (for diagnostics)
+    if st.sidebar.button(
+        "Reset Compute Lock",
+        key="reset_compute_lock_button",
+        use_container_width=True,
+        help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+    ):
+        st.session_state["compute_lock"] = False
+        st.session_state["compute_lock_reason"] = None
+        st.sidebar.success("✅ Compute lock reset")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # Manual Snapshot Rebuild Buttons
     # ========================================================================
     st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
@@ -6454,7 +6596,7 @@ def render_sidebar_info():
                 st.session_state.loop_detected = False
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("rebuild_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
         except Exception as e:
@@ -6491,7 +6633,7 @@ def render_sidebar_info():
                 st.session_state.loop_detected = False
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("rebuild_proxy_snapshot_manual")
             else:
                 st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
         except Exception as e:
@@ -6571,7 +6713,7 @@ def render_sidebar_info():
             st.session_state.user_interaction_detected = True
             
             # Trigger immediate rerun
-            st.rerun()
+            trigger_rerun("force_reload_waves")
         except Exception as e:
             st.sidebar.warning(f"Force reload unavailable: {str(e)}")
     
@@ -6614,7 +6756,7 @@ def render_sidebar_info():
             st.session_state.user_interaction_detected = True
             
             # Trigger rerun
-            st.rerun()
+            trigger_rerun("force_reload_data_clear_cache")
         except Exception as e:
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
@@ -6682,7 +6824,7 @@ def render_sidebar_info():
                 st.cache_data.clear()
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("force_build_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error building data: {str(e)}")
     
@@ -6796,7 +6938,7 @@ def render_sidebar_info():
                     # Trigger rerun
                     # Mark user interaction
                     st.session_state.user_interaction_detected = True
-                    st.rerun()
+                    trigger_rerun("rebuild_wave_csv")
                 else:
                     st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
         except Exception as e:
@@ -6883,7 +7025,7 @@ def render_sidebar_info():
             st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("activate_all_waves")
         except Exception as e:
             st.sidebar.error(f"Error activating waves: {str(e)}")
     
@@ -7238,7 +7380,7 @@ def render_sidebar_info():
                 st.success("Wave universe cache cleared. Reloading...")
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("clear_wave_universe_cache")
             except Exception as e:
                 st.warning(f"Force reload unavailable: {str(e)}")
         
@@ -7249,7 +7391,7 @@ def render_sidebar_info():
             key="hard_rerun_button",
             use_container_width=True
         ):
-            st.rerun()
+            trigger_rerun("hard_rerun_button")
         
         # Force Reload + Clear Cache + Rerun Button (Enhanced)
         if st.button(
@@ -7283,7 +7425,7 @@ def render_sidebar_info():
                 st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("force_clear_wave_reload")
             except Exception as e:
                 st.warning(f"⚠️ Force reload failed: {str(e)}")
     
@@ -7747,7 +7889,7 @@ def render_executive_brief_tab():
                             st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
-                            st.rerun()
+                            trigger_rerun("truthframe_refresh")
                     except Exception as e:
                         st.error(f"TruthFrame refresh failed: {str(e)}")
         
@@ -10735,7 +10877,7 @@ def render_overview_tab():
                                 price_df = st.session_state.get("global_price_df")
                                 truth_df = get_truth_frame(safe_mode=False, force_refresh=True, price_df=price_df)
                                 st.success(f"✓ TruthFrame refreshed: {len(truth_df)} waves")
-                                st.rerun()
+                                trigger_rerun("truthframe_force_refresh")
                         except Exception as e:
                             st.error(f"TruthFrame refresh failed: {str(e)}")
             
@@ -13936,7 +14078,7 @@ def render_board_pack_tab():
             st.info("Please click 'Generate Board Pack' again to create PDF with fresh data.")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("boardpack_snapshot_refresh")
     
     # Footer
     st.markdown("---")
@@ -15529,7 +15671,7 @@ def render_governance_audit_tab():
                             st.success("✅ Snapshot generated successfully!")
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
-                            st.rerun()
+                            trigger_rerun("planb_snapshot_generated")
                         except Exception as e:
                             st.error(f"❌ Failed to generate snapshot: {str(e)}")
                             with st.expander("🔍 View Error Details"):
@@ -15840,7 +15982,7 @@ def render_planb_monitor_tab():
                 st.session_state.planb_snapshot_cache_bust = datetime.now()
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
-                st.rerun()
+                trigger_rerun("planb_snapshot_cache_bust")
         
         with col3:
             # Timestamp display
@@ -16225,7 +16367,7 @@ def render_wave_intelligence_planb_tab():
                         st.session_state.planb_build_in_progress = False
                         # Mark user interaction
                         st.session_state.user_interaction_detected = True
-                        st.rerun()
+                        trigger_rerun("planb_build_complete")
                     except Exception as e:
                         st.error(f"Failed to rebuild snapshot: {str(e)}")
                         st.session_state.planb_build_in_progress = False
@@ -16579,7 +16721,7 @@ def render_diagnostics_tab():
                 del st.session_state.safe_mode_error_traceback
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("clear_safe_mode_error")
     else:
         st.success("**Safe Mode is not active.** The application is running normally.")
         
@@ -16616,7 +16758,7 @@ def render_diagnostics_tab():
             st.success("Error history cleared.")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("clear_error_history")
     else:
         st.success("**No component errors logged.** All components are functioning normally.")
     
@@ -16978,7 +17120,7 @@ def render_diagnostics_tab():
             st.success("Wave universe reload triggered. Refreshing...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
         if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
@@ -16989,7 +17131,7 @@ def render_diagnostics_tab():
             st.success("Cache cleared. Refreshing...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            st.rerun()
+            trigger_rerun("diagnostics_clear_cache")
     
     st.markdown("---")
     
@@ -17661,6 +17803,51 @@ def main():
     st.caption(f"🔄 Run ID: {st.session_state.run_id} | Trigger: {st.session_state.run_trigger}")
     
     # ========================================================================
+    # STEP 2.5: Run Trace Banner & Safety Latch
+    # ========================================================================
+    
+    # Display run trace banner at the top
+    run_seq = st.session_state.get("run_seq", 0)
+    delta_seconds = st.session_state.get("delta_seconds", 0.0)
+    last_trigger = st.session_state.get("last_trigger", "unknown")
+    buttons_clicked = st.session_state.get("buttons_clicked", [])
+    
+    # Format buttons clicked
+    buttons_str = ", ".join(buttons_clicked[-3:]) if buttons_clicked else "None"
+    
+    # Display banner
+    st.info(f"""
+**🔄 RUN TRACE**  
+• **Run #:** {run_seq}  
+• **Delta:** {delta_seconds:.2f}s  
+• **Last Trigger:** {last_trigger}  
+• **Recent Buttons:** {buttons_str}
+""")
+    
+    # Safety Latch: STOP after 2 runs unless debug mode enabled
+    # Initialize debug mode checkbox state
+    if "allow_continuous_reruns" not in st.session_state:
+        st.session_state.allow_continuous_reruns = False
+    
+    # Check if we should engage the loop trap
+    # Note: We check this AFTER the sidebar is rendered so users can toggle the checkbox
+    st.session_state.loop_trap_should_engage = (
+        run_seq >= 2 and not st.session_state.allow_continuous_reruns
+    )
+    
+    # Display warning if loop trap will engage, but don't stop yet
+    if st.session_state.loop_trap_should_engage:
+        st.error("⚠️ **Loop Trap Engaged: Blocking reruns**")
+        st.warning(f"""
+The application has completed {run_seq} runs. To prevent infinite loops, 
+further automatic reruns are blocked.
+
+**To continue:**
+1. Enable "Allow Continuous Reruns (Debug)" in the sidebar, or
+2. Refresh the page manually
+""")
+    
+    # ========================================================================
     # STEP 3: Top Banner with Status Information
     # ========================================================================
     
@@ -17780,6 +17967,19 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave universe: {e}")
             st.session_state.wave_universe_validation_failed = False
+    
+    # ========================================================================
+    # Global Compute Lock - Prevent duplicate heavy computations
+    # ========================================================================
+    
+    # Initialize compute lock if not present
+    if "compute_lock" not in st.session_state:
+        st.session_state.compute_lock = False
+        st.session_state.compute_lock_reason = None
+    
+    # Initialize compute operations tracker
+    if "compute_operations_done" not in st.session_state:
+        st.session_state.compute_operations_done = set()
     
     # ========================================================================
     # Snapshot Auto-Build and Staleness Management (DISABLED IN SAFE MODE)
@@ -18013,29 +18213,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.force_price_cache_rebuild = False
     
     # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
+    # Use compute lock to prevent duplicate fetches
     if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-        try:
-            # Get TTL from session state
-            ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
-            
-            # Prefetch prices once (cached with TTL)
-            cache_result = get_global_price_cache(
-                wave_registry=WAVE_WEIGHTS,
-                days=365,
-                ttl_seconds=ttl_seconds
-            )
-            
-            # Store in session state for use across the app
-            st.session_state.global_price_df = cache_result.get("price_df")
-            st.session_state.global_price_failures = cache_result.get("failures", {})
-            st.session_state.global_price_asof = cache_result.get("asof")
-            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-            
-        except Exception as e:
-            # Log error but don't crash - app can still work without cache
-            print(f"Warning: Failed to prefetch global price cache: {str(e)}")
-            st.session_state.global_price_df = None
+        # Check compute lock
+        should_fetch, reason = should_allow_compute("fetch_prices")
+        
+        if should_fetch:
+            try:
+                # Get TTL from session state
+                ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
+                
+                # Prefetch prices once (cached with TTL)
+                cache_result = get_global_price_cache(
+                    wave_registry=WAVE_WEIGHTS,
+                    days=365,
+                    ttl_seconds=ttl_seconds
+                )
+                
+                # Store in session state for use across the app
+                st.session_state.global_price_df = cache_result.get("price_df")
+                st.session_state.global_price_failures = cache_result.get("failures", {})
+                st.session_state.global_price_asof = cache_result.get("asof")
+                st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
+                st.session_state.global_price_success_count = cache_result.get("success_count", 0)
+                
+                # Mark operation as done
+                mark_compute_done("fetch_prices", success=True)
+                
+            except Exception as e:
+                # Log error but don't crash - app can still work without cache
+                print(f"Warning: Failed to prefetch global price cache: {str(e)}")
+                st.session_state.global_price_df = None
+                mark_compute_done("fetch_prices", success=False)
+        else:
+            # Compute lock prevented fetch
+            if st.session_state.get("debug_mode", False):
+                print(f"Price fetch blocked: {reason}")
     
     # ========================================================================
     # Main Application UI
@@ -18059,6 +18272,11 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     
     # Render sidebar
     render_sidebar_info()
+    
+    # NOW enforce the loop trap AFTER sidebar is rendered
+    # This allows users to see and toggle the "Allow Continuous Reruns" checkbox
+    if st.session_state.get("loop_trap_should_engage", False):
+        st.stop()
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
