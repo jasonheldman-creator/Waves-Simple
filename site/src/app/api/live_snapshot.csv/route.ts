@@ -1,35 +1,166 @@
 import { NextResponse } from "next/server";
+import fs from "fs/promises";
+import path from "path";
+
+interface WaveRegistryRow {
+  wave_id: string;
+  wave_name: string;
+  mode_default: string;
+  benchmark_spec: string;
+  holdings_source: string;
+  category: string;
+  active: string;
+  ticker_raw: string;
+  ticker_normalized: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface WaveHistoryRow {
+  wave_id: string;
+  display_name: string;
+  date: string;
+  portfolio_return: number;
+  benchmark_return: number;
+  is_synthetic: boolean;
+}
+
+function parseRegistryCSV(csvText: string): WaveRegistryRow[] {
+  const lines = csvText.trim().split('\n');
+  return lines.slice(1).map(line => {
+    const values = line.split(',');
+    return {
+      wave_id: values[0],
+      wave_name: values[1],
+      mode_default: values[2],
+      benchmark_spec: values[3],
+      holdings_source: values[4],
+      category: values[5],
+      active: values[6],
+      ticker_raw: values[7],
+      ticker_normalized: values[8],
+      created_at: values[9],
+      updated_at: values[10],
+    };
+  });
+}
+
+function parseHistoryCSV(csvText: string): WaveHistoryRow[] {
+  const lines = csvText.trim().split('\n');
+  return lines.slice(1).map(line => {
+    const values = line.split(',');
+    return {
+      wave_id: values[0],
+      display_name: values[1],
+      date: values[2],
+      portfolio_return: parseFloat(values[3]),
+      benchmark_return: parseFloat(values[4]),
+      is_synthetic: values[5] === 'True',
+    };
+  }).filter(row => !isNaN(row.portfolio_return));
+}
+
+function calculateCumulativeReturn(returns: number[]): number {
+  return returns.reduce((cum, ret) => cum * (1 + ret), 1) - 1;
+}
 
 /**
  * GET /api/live_snapshot.csv
  * 
- * Returns deterministic demo CSV data for wave performance.
- * This endpoint always returns DEMO status with fixed placeholder values.
- * No real performance calculation is performed.
+ * Returns CSV data for all waves in the canonical registry.
+ * Performs left join of metrics from wave_history.csv to the registry.
+ * Missing metrics are filled with placeholder "--".
  */
 export async function GET() {
-  // Deterministic demo data - always returns the same values
-  const csvContent = `wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated
-wave_1,Core Equity,DEMO,1.23%,2.34%,5.67%,2025-12-24T12:00:00Z
-wave_2,Growth Alpha,DEMO,0.95%,3.10%,8.45%,2025-12-24T12:00:00Z
-wave_3,Value Recovery,DEMO,0.78%,1.85%,4.22%,2025-12-24T12:00:00Z
-wave_4,Income Generation,DEMO,0.52%,1.45%,3.18%,2025-12-24T12:00:00Z
-wave_5,Multi-Factor,DEMO,1.05%,2.67%,6.33%,2025-12-24T12:00:00Z
-wave_6,Sector Rotation,DEMO,1.42%,3.55%,7.89%,2025-12-24T12:00:00Z
-wave_7,Global Diversification,DEMO,0.88%,2.12%,5.45%,2025-12-24T12:00:00Z
-wave_8,Small-Mid Cap,DEMO,1.67%,4.23%,9.78%,2025-12-24T12:00:00Z
-wave_9,Innovation Thematic,DEMO,2.15%,5.67%,12.34%,2025-12-24T12:00:00Z
-wave_10,Defensive Positioning,DEMO,0.45%,1.12%,2.88%,2025-12-24T12:00:00Z
-wave_11,ESG Integration,DEMO,0.92%,2.45%,5.89%,2025-12-24T12:00:00Z
-wave_12,Volatility Harvesting,DEMO,0.67%,1.78%,4.56%,2025-12-24T12:00:00Z
-wave_13,Macro Allocation,DEMO,1.11%,2.89%,6.77%,2025-12-24T12:00:00Z
-wave_14,Market Neutral,DEMO,0.55%,1.34%,3.45%,2025-12-24T12:00:00Z
-wave_15,Special Situations,DEMO,1.88%,4.56%,10.23%,2025-12-24T12:00:00Z`;
-
-  return new NextResponse(csvContent, {
-    headers: {
-      "Content-Type": "text/csv",
-      "Cache-Control": "public, max-age=60, s-maxage=60",
-    },
-  });
+  try {
+    const repoRoot = path.join(process.cwd(), "..");
+    const registryPath = path.join(repoRoot, "data", "wave_registry.csv");
+    const historyPath = path.join(repoRoot, "wave_history.csv");
+    
+    // Read canonical wave registry
+    const registryText = await fs.readFile(registryPath, "utf-8");
+    const registryRows = parseRegistryCSV(registryText);
+    
+    // Read wave history and compute metrics
+    let historyRows: WaveHistoryRow[] = [];
+    try {
+      const historyText = await fs.readFile(historyPath, "utf-8");
+      historyRows = parseHistoryCSV(historyText);
+    } catch (error) {
+      // If history file not found, continue with empty history
+      console.warn("Wave history file not found, using placeholders");
+    }
+    
+    // Group history by wave_id
+    const historyByWave = new Map<string, WaveHistoryRow[]>();
+    for (const row of historyRows) {
+      if (!historyByWave.has(row.wave_id)) {
+        historyByWave.set(row.wave_id, []);
+      }
+      historyByWave.get(row.wave_id)!.push(row);
+    }
+    
+    // Build CSV rows with left join
+    const csvRows: string[] = ["wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated"];
+    
+    for (const wave of registryRows) {
+      const waveHistory = historyByWave.get(wave.wave_id);
+      
+      let status = "DEMO";
+      let performance1d = "--";
+      let performance30d = "--";
+      let performanceYtd = "--";
+      let lastUpdated = "--";
+      
+      if (waveHistory && waveHistory.length > 0) {
+        // Sort by date descending
+        waveHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        const latest = waveHistory[0];
+        const isSynthetic = waveHistory.some(r => r.is_synthetic);
+        
+        status = isSynthetic ? "DEMO" : "Active";
+        lastUpdated = latest.date;
+        
+        // Calculate 1-day performance (latest return)
+        performance1d = (latest.portfolio_return * 100).toFixed(2) + "%";
+        
+        // Calculate 30-day performance (last 21 trading days)
+        const last30Days = waveHistory.slice(0, Math.min(21, waveHistory.length));
+        const returns30d = last30Days.map(r => r.portfolio_return);
+        const cumReturn30d = calculateCumulativeReturn(returns30d);
+        performance30d = (cumReturn30d * 100).toFixed(2) + "%";
+        
+        // Calculate YTD performance (all available data)
+        const returnsYtd = waveHistory.map(r => r.portfolio_return);
+        const cumReturnYtd = calculateCumulativeReturn(returnsYtd);
+        performanceYtd = (cumReturnYtd * 100).toFixed(2) + "%";
+      }
+      
+      csvRows.push(`${wave.wave_id},${wave.wave_name},${status},${performance1d},${performance30d},${performanceYtd},${lastUpdated}`);
+    }
+    
+    const csvContent = csvRows.join("\n");
+    
+    return new NextResponse(csvContent, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+    
+  } catch (error) {
+    console.error("Error generating live snapshot CSV:", error);
+    
+    // Return minimal CSV with error indication
+    const errorCsv = "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated\n";
+    
+    return new NextResponse(errorCsv, {
+      status: 500,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 }
