@@ -17846,7 +17846,12 @@ def render_overview_clean_tab():
             
             # Market regime (from VIX_Regime column or VIX_Level)
             try:
-                vix_regime = snapshot_df['VIX_Regime'].mode().iloc[0] if 'VIX_Regime' in snapshot_df.columns else 'unknown'
+                if 'VIX_Regime' in snapshot_df.columns:
+                    vix_mode = snapshot_df['VIX_Regime'].mode()
+                    vix_regime = vix_mode.iloc[0] if len(vix_mode) > 0 else 'unknown'
+                else:
+                    vix_regime = 'unknown'
+                    
                 if vix_regime and vix_regime != 'unknown':
                     market_regime = vix_regime.title()
                 else:
