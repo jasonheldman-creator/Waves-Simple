@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta
 
 # Import normalize_ticker directly from file to avoid helpers/__init__.py dependencies
+# Note: helpers/__init__.py imports modules requiring streamlit, which may not be available
+# in all environments. This direct import pattern avoids that dependency chain.
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     "ticker_normalize",
