@@ -103,6 +103,9 @@ export async function GET() {
     // Build CSV rows with left join
     const csvRows: string[] = ["wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated"];
     
+    // Expected wave count (from wave_weights.csv canonical list)
+    const EXPECTED_WAVE_COUNT = 28;
+    
     for (const wave of registryRows) {
       const waveHistory = historyByWave.get(wave.wave_id);
       
@@ -138,6 +141,16 @@ export async function GET() {
       }
       
       csvRows.push(`${wave.wave_id},${wave.wave_name},${status},${performance1d},${performance30d},${performanceYtd},${lastUpdated}`);
+    }
+    
+    // Hard assertion - validate exactly EXPECTED_WAVE_COUNT rows
+    // Check CSV rows (excluding header) instead of registry rows for accuracy
+    const actualDataRowCount = csvRows.length - 1; // -1 for header row
+    if (actualDataRowCount !== EXPECTED_WAVE_COUNT) {
+      const errorMsg = `VALIDATION FAILED: Expected ${EXPECTED_WAVE_COUNT} data rows but got ${actualDataRowCount} in CSV output`;
+      console.error(errorMsg);
+      console.error("CSV rows (first 5):", csvRows.slice(0, 6));
+      throw new Error(errorMsg);
     }
     
     const csvContent = csvRows.join("\n");

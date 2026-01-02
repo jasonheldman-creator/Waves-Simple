@@ -2600,10 +2600,28 @@ def generate_live_snapshot(
     # Create DataFrame
     snapshot_df = pd.DataFrame(snapshot_rows)
     
+    # Hard assertion - validate exactly one row per expected wave
+    all_wave_ids = get_all_wave_ids()
+    expected_wave_count = len(all_wave_ids)
+    actual_wave_count = len(snapshot_df)
+    
+    if actual_wave_count != expected_wave_count:
+        actual_wave_ids = sorted(snapshot_df['wave_id'].unique())
+        error_msg = (
+            f"VALIDATION FAILED: Expected {expected_wave_count} waves "
+            f"but got {actual_wave_count} in the snapshot.\n"
+            f"Expected waves: {all_wave_ids}\n"
+            f"Actual wave_ids in snapshot: {list(actual_wave_ids)}\n"
+            f"Missing waves: {set(all_wave_ids) - set(actual_wave_ids)}\n"
+            f"Extra waves: {set(actual_wave_ids) - set(all_wave_ids)}"
+        )
+        raise AssertionError(error_msg)
+    
     # Save to CSV
     snapshot_df.to_csv(output_path, index=False)
     print(f"\n✓ Live snapshot saved to: {output_path}")
     print(f"  Total waves: {len(snapshot_df)}")
+    print(f"  ✓ Validation passed: {actual_wave_count} waves (expected: {expected_wave_count})")
     print(f"  Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     return snapshot_df
