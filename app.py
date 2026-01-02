@@ -17957,15 +17957,37 @@ def render_overview_clean_tab():
             def _reason(row):
                 if row["data_ready"]:
                     return "OK"
-                missing = str(row.get("missing_tickers", "")).strip()
-                stale = str(row.get("stale_tickers", "")).strip()
-                hist = int(row.get("history_days", 0) or 0)
-                cov = float(row.get("coverage_pct", 0) or 0)
+                missing = row.get("missing_tickers", "")
+                stale = row.get("stale_tickers", "")
+                hist = row.get("history_days", 0)
+                cov = row.get("coverage_pct", 0)
+                
+                # Handle NaN values properly
+                if pd.isna(missing):
+                    missing = ""
+                else:
+                    missing = str(missing).strip()
+                
+                if pd.isna(stale):
+                    stale = ""
+                else:
+                    stale = str(stale).strip()
+                
+                if pd.isna(hist):
+                    hist = 0
+                else:
+                    hist = int(hist)
+                
+                if pd.isna(cov):
+                    cov = 0
+                else:
+                    cov = float(cov)
+                
                 if cov == 0 or hist == 0:
                     return "No usable price history / coverage=0 (likely missing tickers or source mismatch)"
-                if missing and missing != "nan":
+                if missing:
                     return "Missing tickers in universe/holdings mapping"
-                if stale and stale != "nan":
+                if stale:
                     return "Stale tickers (data not refreshing / stale feed)"
                 return "Failed readiness threshold (coverage or history requirement)"
         
@@ -17974,7 +17996,7 @@ def render_overview_clean_tab():
             show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
             view_df = coverage_df.copy()
             if show_only_bad:
-                view_df = view_df[view_df["data_ready"] == False]
+                view_df = view_df[~view_df["data_ready"]]
         
             # Sort: failing first, then lowest coverage
             view_df = view_df.sort_values(
