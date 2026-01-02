@@ -32,6 +32,7 @@ from streamlit_autorefresh import st_autorefresh
 
 PAGE_TITLE = "WAVES Intelligence™ — Minimal Console v1"
 DATA_FILE = "live_snapshot.csv"
+WEIGHTS_FILE = "wave_weights.csv"
 CACHE_TTL = 60  # seconds
 MIN_REFRESH_INTERVAL = 30000  # milliseconds (30 seconds)
 MAX_CONSECUTIVE_ERRORS = 3
@@ -53,6 +54,37 @@ def format_percentage(value):
     if pd.notna(value):
         return f"{value*100:.2f}%"
     return "N/A"
+
+
+@st.cache_data(ttl=CACHE_TTL)
+def load_expected_waves():
+    """
+    Load expected wave names from wave_weights.csv.
+    Returns sorted list of unique wave names (should be 28 waves).
+    
+    Returns:
+        list: Sorted list of expected wave names, or empty list if file not found
+    """
+    try:
+        # Check both current directory and data subdirectory
+        possible_paths = [
+            WEIGHTS_FILE,
+            os.path.join("data", WEIGHTS_FILE),
+            os.path.join(os.getcwd(), WEIGHTS_FILE),
+            os.path.join(os.getcwd(), "data", WEIGHTS_FILE)
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                df = pd.read_csv(path)
+                if 'wave' in df.columns:
+                    expected_waves = sorted(df['wave'].unique())
+                    return expected_waves
+        
+        return []
+    except Exception as e:
+        st.warning(f"Error loading expected waves: {str(e)}")
+        return []
 
 
 @st.cache_data(ttl=CACHE_TTL)
@@ -118,6 +150,76 @@ def get_wave_metrics(df, wave_id=None):
     return df[available_columns]
 
 
+def build_complete_snapshot(snapshot_df, expected_waves):
+    """
+    Build a complete snapshot ensuring all expected waves are present.
+    For missing waves, populate with NaN returns and "NO DATA" status.
+    
+    Args:
+        snapshot_df (pd.DataFrame): Loaded snapshot data (may be incomplete or None)
+        expected_waves (list): List of expected wave names
+        
+    Returns:
+        pd.DataFrame: Complete snapshot with all expected waves
+    """
+    # Create base dataframe with all expected waves
+    complete_df = pd.DataFrame({
+        'Wave': expected_waves,
+        'Wave_ID': expected_waves,  # Use wave name as ID if not present
+        'Status': ['NO DATA' for _ in expected_waves],
+        'Missing_Tickers': ['' for _ in expected_waves],
+        'Missing_Ticker_Count': [0 for _ in expected_waves]
+    })
+    
+    # Add other expected columns with NaN
+    for col in ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
+                'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D',
+                'NAV', 'Coverage_Score', 'Beta_Real', 'Benchmark_Return_30D']:
+        complete_df[col] = float('nan')
+    
+    complete_df['Date'] = None
+    complete_df['Category'] = None
+    complete_df['Mode'] = None
+    complete_df['Flags'] = None
+    
+    # If no snapshot data, return complete_df with all NO DATA
+    if snapshot_df is None or snapshot_df.empty:
+        return complete_df
+    
+    # Determine the wave column name in snapshot
+    wave_col = None
+    if 'Wave' in snapshot_df.columns:
+        wave_col = 'Wave'
+    elif 'Wave_ID' in snapshot_df.columns:
+        wave_col = 'Wave_ID'
+    
+    if not wave_col:
+        # No wave column in snapshot, return complete_df with all NO DATA
+        return complete_df
+    
+    # Update complete_df with data from snapshot where available
+    for idx, row in complete_df.iterrows():
+        wave_name = row['Wave']
+        
+        # Find matching row in snapshot
+        snapshot_row = snapshot_df[snapshot_df[wave_col] == wave_name]
+        
+        if not snapshot_row.empty:
+            # Wave exists in snapshot - copy all data
+            snapshot_row = snapshot_row.iloc[0]
+            
+            # Copy all columns from snapshot
+            for col in snapshot_df.columns:
+                if col in complete_df.columns and col not in ['Wave', 'Wave_ID']:
+                    complete_df.at[idx, col] = snapshot_row[col]
+            
+            # Set status to OK if we have NAV data
+            if pd.notna(snapshot_row.get('NAV')):
+                complete_df.at[idx, 'Status'] = 'OK'
+    
+    return complete_df
+
+
 # ============================================================================
 # CIRCUIT BREAKER FOR AUTO-REFRESH
 # ============================================================================
@@ -176,6 +278,7 @@ def render_overview_tab(df):
     # Prepare the table with requested columns
     exec_columns = {
         'display_name': 'Wave',  # fallback to Wave_ID if Wave missing
+        'status': 'Status',
         'return_1d': 'Return_1D',
         'return_30d': 'Return_30D',
         'return_60d': 'Return_60D',
@@ -187,6 +290,7 @@ def render_overview_tab(df):
         'beta': 'Beta_Real',
         'benchmark': 'Benchmark_Return_30D',  # using 30D benchmark as sample
         'coverage_pct': 'Coverage_Score',
+        'missing_ticker_count': 'Missing_Ticker_Count',
         'stale_days_max': None  # not in current schema, will handle gracefully
     }
     
@@ -258,7 +362,9 @@ def render_overview_tab(df):
     with col1:
         st.subheader("🏆 Top Outperformers (30D Alpha)")
         if 'alpha_30d' in exec_df.columns and exec_df['alpha_30d'].notna().any():
+            # Use unformatted exec_df for sorting
             top5 = exec_df.nlargest(5, 'alpha_30d')[['display_name', 'alpha_30d']].copy()
+            # Format after sorting
             top5['alpha_30d'] = top5['alpha_30d'].apply(
                 lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
             )
@@ -269,8 +375,10 @@ def render_overview_tab(df):
     with col2:
         st.subheader("⚠️ Needs Attention")
         if 'alpha_30d' in exec_df.columns and exec_df['alpha_30d'].notna().any():
+            # Use unformatted exec_df for sorting
             # Show bottom 5 by alpha_30d
             bottom5 = exec_df.nsmallest(5, 'alpha_30d')[['display_name', 'alpha_30d']].copy()
+            # Format after sorting
             bottom5['alpha_30d'] = bottom5['alpha_30d'].apply(
                 lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
             )
@@ -286,8 +394,12 @@ def render_overview_tab(df):
                         issues.append("Low Coverage")
                 # Check stale days
                 if 'stale_days_max' in exec_df.columns and pd.notna(row['stale_days_max']):
-                    if row['stale_days_max'] > 0:
-                        issues.append("Stale Data")
+                    # Only compare if it's numeric
+                    try:
+                        if float(row['stale_days_max']) > 0:
+                            issues.append("Stale Data")
+                    except (ValueError, TypeError):
+                        pass  # Skip if not numeric
                 # Check for missing key columns
                 if pd.isna(row.get('return_30d')) or pd.isna(row.get('return_60d')):
                     issues.append("Missing Returns")
@@ -438,6 +550,49 @@ def render_diagnostics_tab(df):
     """
     st.header("🔧 Diagnostics")
     
+    # ========================================================================
+    # NEW: Wave Data Diagnostics
+    # ========================================================================
+    st.subheader("📊 Wave Data Diagnostics")
+    
+    if df is not None and not df.empty:
+        # Build diagnostics table
+        diag_data = []
+        for _, row in df.iterrows():
+            wave_name = row.get('Wave', row.get('Wave_ID', 'Unknown'))
+            status = row.get('Status', 'UNKNOWN')
+            missing_tickers = row.get('Missing_Tickers', '')
+            
+            diag_data.append({
+                'Wave': wave_name,
+                'Status': status,
+                'Missing Tickers': missing_tickers if missing_tickers else '-'
+            })
+        
+        diag_df = pd.DataFrame(diag_data)
+        st.dataframe(diag_df, use_container_width=True, hide_index=True)
+        
+        # Summary metrics
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        
+        total_waves = len(df)
+        waves_ok = len(df[df['Status'] == 'OK']) if 'Status' in df.columns else 0
+        waves_no_data = len(df[df['Status'] == 'NO DATA']) if 'Status' in df.columns else 0
+        
+        with col1:
+            st.metric("Total Expected Waves", total_waves)
+        
+        with col2:
+            st.metric("Waves with OK Data", waves_ok)
+        
+        with col3:
+            st.metric("Waves with NO DATA", waves_no_data)
+    else:
+        st.warning("No wave data available for diagnostics.")
+    
+    st.markdown("---")
+    
     # Data freshness section
     st.subheader("📅 Data Freshness")
     
@@ -445,8 +600,16 @@ def render_diagnostics_tab(df):
     
     with col1:
         if df is not None and 'Date' in df.columns:
-            latest_date = df['Date'].max()
-            st.metric("Latest Data Date", latest_date)
+            try:
+                # Filter out None/NaN values before finding max
+                valid_dates = df['Date'].dropna()
+                if not valid_dates.empty:
+                    latest_date = valid_dates.max()
+                    st.metric("Latest Data Date", latest_date)
+                else:
+                    st.metric("Latest Data Date", "N/A")
+            except (TypeError, ValueError):
+                st.metric("Latest Data Date", "N/A")
         else:
             st.metric("Latest Data Date", "N/A")
     
@@ -597,19 +760,27 @@ def main():
     
     # Load data
     try:
-        df = load_snapshot_data()
+        # Load expected waves from weights CSV
+        expected_waves = load_expected_waves()
         
-        if df is None:
+        # Load snapshot data (may be incomplete or missing)
+        snapshot_df = load_snapshot_data()
+        
+        # Build complete snapshot ensuring all expected waves are present
+        df = build_complete_snapshot(snapshot_df, expected_waves)
+        
+        if df is None or df.empty:
             st.error(f"""
-            ⚠️ **Missing File: {DATA_FILE}**
+            ⚠️ **No Wave Data Available**
             
-            The required data file `{DATA_FILE}` was not found in the runtime directory.
+            Expected waves could not be loaded from `{WEIGHTS_FILE}`.
+            Snapshot file `{DATA_FILE}` may also be missing.
             
             Expected locations:
             - Current directory: `{os.getcwd()}`
             - Data subdirectory: `{os.path.join(os.getcwd(), 'data')}`
             
-            Please ensure the file exists before running this application.
+            Please ensure both files exist before running this application.
             """)
             record_error()
             st.stop()  # Halt execution - no infinite loops
@@ -638,8 +809,15 @@ def main():
         timestamp_cols = ['asof', 'timestamp', 'last_updated', 'Date']
         for col in timestamp_cols:
             if col in df.columns and df[col].notna().any():
-                data_timestamp = df[col].max()
-                break
+                try:
+                    # Filter out None/NaN values before finding max
+                    valid_dates = df[col].dropna()
+                    if not valid_dates.empty:
+                        data_timestamp = valid_dates.max()
+                        break
+                except (TypeError, ValueError):
+                    # Skip if column has mixed types or non-comparable values
+                    continue
         
         # Display market snapshot strip
         st.markdown("---")
