@@ -182,8 +182,10 @@ export default function WaveCards() {
         if (perfStr === "" || perfStr === "—") {
           return null;
         }
-        const numValue = parseFloat(perfStr.replace("%", ""));
-        return !isNaN(numValue) ? { name: w.wave_name, value: numValue } : null;
+        // Handle percentage strings like "5.5%", "-3.2%", "+2.1%"
+        const cleanStr = perfStr.replace(/[%+]/g, "");
+        const numValue = parseFloat(cleanStr);
+        return !isNaN(numValue) && isFinite(numValue) ? { name: w.wave_name, value: numValue } : null;
       })
       .filter((w): w is { name: string; value: number } => w !== null);
 
@@ -204,7 +206,9 @@ export default function WaveCards() {
   ) => {
     if (waves.length === 0) return null;
 
-    const maxValue = Math.max(...waves.map((w) => Math.abs(w.value)));
+    // Guard against empty array edge case
+    const values = waves.map((w) => Math.abs(w.value));
+    const maxValue = values.length > 0 ? Math.max(...values) : 1;
 
     return (
       <div className={`rounded-lg border ${borderColor} bg-gray-900/50 p-6`}>
