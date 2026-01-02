@@ -1,4 +1,6 @@
 ticker,weight,description,exposure,cash,safe_fraction
-SUB,0.4,iShares Short-Term National Muni Bond ETF,0.4,0.0,0.0
-SHM,0.4,SPDR Nuveen Short-Term Municipal Bond ETF,0.4,0.0,0.0
-MUB,0.2,iShares National Muni Bond ETF,0.2,0.0,0.0
+MUB,0.30,iShares National Muni Bond ETF,0.30,0.0,0.0
+SUB,0.25,iShares Short-Term National Muni Bond ETF,0.25,0.0,0.0
+VTEB,0.25,Vanguard Tax-Exempt Bond ETF,0.25,0.0,0.0
+TFI,0.15,SPDR Nuveen Bloomberg Municipal Bond ETF,0.15,0.0,0.0
+SHY,0.05,iShares 1-3 Year Treasury Bond ETF,0.05,0.0,0.0
