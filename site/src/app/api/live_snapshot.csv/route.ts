@@ -86,7 +86,7 @@ export async function GET() {
     try {
       const historyText = await fs.readFile(historyPath, "utf-8");
       historyRows = parseHistoryCSV(historyText);
-    } catch (error) {
+    } catch {
       // If history file not found, continue with empty history
       console.warn("Wave history file not found, using placeholders");
     }

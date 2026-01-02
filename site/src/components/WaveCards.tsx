@@ -13,10 +13,6 @@ interface WaveCard {
   performanceYtd?: string;
 }
 
-interface WaveCardsProps {
-  waves?: WaveCard[];
-}
-
 interface LiveWaveData {
   wave_id: string;
   wave_name: string;
@@ -27,7 +23,7 @@ interface LiveWaveData {
   last_updated: string;
 }
 
-export default function WaveCards({ waves }: WaveCardsProps) {
+export default function WaveCards() {
   const [liveData, setLiveData] = useState<LiveWaveData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
