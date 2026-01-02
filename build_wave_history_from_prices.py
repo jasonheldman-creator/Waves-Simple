@@ -4,7 +4,16 @@ import os
 import sys
 import json
 from datetime import datetime, timedelta
-from helpers.ticker_normalize import normalize_ticker
+
+# Import normalize_ticker directly from file to avoid helpers/__init__.py dependencies
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "ticker_normalize",
+    os.path.join(os.path.dirname(__file__), "helpers", "ticker_normalize.py")
+)
+_ticker_normalize = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_ticker_normalize)
+normalize_ticker = _ticker_normalize.normalize_ticker
 
 
 # ------------------------
@@ -21,15 +30,49 @@ MIN_COVERAGE_THRESHOLD = 0.90
 
 # Map each Wave to its benchmark ticker (edit this as needed)
 BENCHMARK_BY_WAVE = {
-    "S&P Wave": "SPY",
-    "Growth Wave": "SPY",
+    # Equity Waves
+    "S&P 500 Wave": "SPY",
+    "Russell 3000 Wave": "VTHR",
+    "US MegaCap Core Wave": "SPY",
     "Small Cap Growth Wave": "IWM",
-    "Small-Mid Cap Growth Wave": "IJH",
+    "Small to Mid Cap Growth Wave": "IJH",
+    "US Mid/Small Growth & Semis Wave": "IJH",
+    "US Small-Cap Disruptors Wave": "IWM",
+    
+    # Tech/Growth Waves
+    "AI & Cloud MegaCap Wave": "QQQ",
     "Quantum Computing Wave": "QQQ",
+    "Next-Gen Compute & Semis Wave": "QQQ",
+    
+    # Energy/Infrastructure Waves
     "Future Power & Energy Wave": "XLE",
+    "Future Energy & EV Wave": "XLE",
     "Clean Transit-Infrastructure Wave": "ICLN",
+    "EV & Infrastructure Wave": "ICLN",
+    
+    # Income Waves
     "Income Wave": "AGG",
-    # add the rest of your 15 Waves here
+    "Vector Muni Ladder Wave": "MUB",
+    "Vector Treasury Ladder Wave": "AGG",
+    
+    # Cash Waves
+    "SmartSafe Tax-Free Money Market Wave": "SHV",
+    "SmartSafe Treasury Cash Wave": "SHV",
+    
+    # Crypto Waves
+    "Crypto Broad Growth Wave": "BTC-USD",
+    "Crypto AI Growth Wave": "BTC-USD",
+    "Crypto DeFi Growth Wave": "BTC-USD",
+    "Crypto L1 Growth Wave": "BTC-USD",
+    "Crypto L2 Growth Wave": "BTC-USD",
+    "Crypto Income Wave": "BTC-USD",
+    
+    # Multi-Asset Waves
+    "Infinity Multi-Asset Growth Wave": "SPY",
+    "Demas Fund Wave": "SPY",
+    
+    # Commodity Waves
+    "Gold Wave": "GLD",
 }
 
 
@@ -232,7 +275,7 @@ for wave, wdf in weights.groupby("wave"):
         "total_weight": float(total_weight),
         "available_weight": float(available_weight),
         "coverage_pct": float(coverage_pct),
-        "meets_threshold": coverage_pct >= MIN_COVERAGE_THRESHOLD
+        "meets_threshold": bool(coverage_pct >= MIN_COVERAGE_THRESHOLD)
     })
     
     if missing_tickers:
