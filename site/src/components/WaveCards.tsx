@@ -188,7 +188,7 @@ export default function WaveCards() {
           value: !isNaN(numValue) ? numValue : null,
         };
       })
-      .filter((w) => w.value !== null && !isNaN(w.value as number));
+      .filter((w) => w.value !== null);
 
     // Sort by performance
     const sorted = [...wavesWithPerf].sort((a, b) => (b.value as number) - (a.value as number));
@@ -198,6 +198,46 @@ export default function WaveCards() {
       bottom5: sorted.slice(-5).reverse(),
     };
   }, [liveData]);
+
+  // Helper function to render a performance chart
+  const renderPerformanceChart = (
+    waves: Array<{ name: string; value: number | null }>,
+    title: string,
+    borderColor: string
+  ) => {
+    if (waves.length === 0) return null;
+
+    const maxValue = Math.max(...waves.map((w) => Math.abs(w.value as number)));
+
+    return (
+      <div className={`rounded-lg border ${borderColor} bg-gray-900/50 p-6`}>
+        <h3 className="text-xl font-semibold text-white mb-4">{title}</h3>
+        <div className="space-y-3">
+          {waves.map((wave, idx) => {
+            const barWidth = (Math.abs(wave.value as number) / maxValue) * 100;
+            const isPositive = (wave.value as number) >= 0;
+
+            return (
+              <div key={idx} className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300 truncate">{wave.name}</span>
+                  <span className={isPositive ? "text-green-400" : "text-red-400"}>
+                    {wave.value?.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="h-6 bg-gray-800 rounded overflow-hidden">
+                  <div
+                    className={`h-full ${isPositive ? "bg-green-500" : "bg-red-500"}`}
+                    style={{ width: `${barWidth}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
@@ -216,67 +256,16 @@ export default function WaveCards() {
         {/* Performance Charts */}
         {!isLoading && chartData.top5.length > 0 && (
           <div className="mb-12 grid grid-cols-1 gap-8 lg:grid-cols-2">
-            {/* Top 5 Performers */}
-            <div className="rounded-lg border border-green-500/20 bg-gray-900/50 p-6">
-              <h3 className="text-xl font-semibold text-white mb-4">
-                Top 5 Waves by 30-Day Performance
-              </h3>
-              <div className="space-y-3">
-                {chartData.top5.map((wave, idx) => {
-                  const maxValue = Math.max(...chartData.top5.map((w) => Math.abs(w.value as number)));
-                  const barWidth = (Math.abs(wave.value as number) / maxValue) * 100;
-                  const isPositive = (wave.value as number) >= 0;
-
-                  return (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-300 truncate">{wave.name}</span>
-                        <span className={isPositive ? "text-green-400" : "text-red-400"}>
-                          {wave.value?.toFixed(2)}%
-                        </span>
-                      </div>
-                      <div className="h-6 bg-gray-800 rounded overflow-hidden">
-                        <div
-                          className={`h-full ${isPositive ? "bg-green-500" : "bg-red-500"}`}
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Bottom 5 Performers */}
-            <div className="rounded-lg border border-red-500/20 bg-gray-900/50 p-6">
-              <h3 className="text-xl font-semibold text-white mb-4">
-                Bottom 5 Waves by 30-Day Performance
-              </h3>
-              <div className="space-y-3">
-                {chartData.bottom5.map((wave, idx) => {
-                  const maxValue = Math.max(...chartData.bottom5.map((w) => Math.abs(w.value as number)));
-                  const barWidth = (Math.abs(wave.value as number) / maxValue) * 100;
-                  const isPositive = (wave.value as number) >= 0;
-
-                  return (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-300 truncate">{wave.name}</span>
-                        <span className={isPositive ? "text-green-400" : "text-red-400"}>
-                          {wave.value?.toFixed(2)}%
-                        </span>
-                      </div>
-                      <div className="h-6 bg-gray-800 rounded overflow-hidden">
-                        <div
-                          className={`h-full ${isPositive ? "bg-green-500" : "bg-red-500"}`}
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {renderPerformanceChart(
+              chartData.top5,
+              "Top 5 Waves by 30-Day Performance",
+              "border-green-500/20"
+            )}
+            {renderPerformanceChart(
+              chartData.bottom5,
+              "Bottom 5 Waves by 30-Day Performance",
+              "border-red-500/20"
+            )}
           </div>
         )}
 
