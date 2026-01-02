@@ -176,22 +176,19 @@ export default function WaveCards() {
     }
 
     // Filter waves with valid performance_30d values
-    const wavesWithPerf = liveData
+    const wavesWithPerf: Array<{ name: string; value: number }> = liveData
       .map((w) => {
         const perfStr = (w.performance_30d || "").trim();
         if (perfStr === "" || perfStr === "—") {
-          return { name: w.wave_name, value: null };
+          return null;
         }
         const numValue = parseFloat(perfStr.replace("%", ""));
-        return {
-          name: w.wave_name,
-          value: !isNaN(numValue) ? numValue : null,
-        };
+        return !isNaN(numValue) ? { name: w.wave_name, value: numValue } : null;
       })
-      .filter((w) => w.value !== null);
+      .filter((w): w is { name: string; value: number } => w !== null);
 
     // Sort by performance
-    const sorted = [...wavesWithPerf].sort((a, b) => (b.value as number) - (a.value as number));
+    const sorted = [...wavesWithPerf].sort((a, b) => b.value - a.value);
 
     return {
       top5: sorted.slice(0, 5),
@@ -201,28 +198,28 @@ export default function WaveCards() {
 
   // Helper function to render a performance chart
   const renderPerformanceChart = (
-    waves: Array<{ name: string; value: number | null }>,
+    waves: Array<{ name: string; value: number }>,
     title: string,
     borderColor: string
   ) => {
     if (waves.length === 0) return null;
 
-    const maxValue = Math.max(...waves.map((w) => Math.abs(w.value as number)));
+    const maxValue = Math.max(...waves.map((w) => Math.abs(w.value)));
 
     return (
       <div className={`rounded-lg border ${borderColor} bg-gray-900/50 p-6`}>
         <h3 className="text-xl font-semibold text-white mb-4">{title}</h3>
         <div className="space-y-3">
           {waves.map((wave, idx) => {
-            const barWidth = (Math.abs(wave.value as number) / maxValue) * 100;
-            const isPositive = (wave.value as number) >= 0;
+            const barWidth = (Math.abs(wave.value) / maxValue) * 100;
+            const isPositive = wave.value >= 0;
 
             return (
               <div key={idx} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-300 truncate">{wave.name}</span>
                   <span className={isPositive ? "text-green-400" : "text-red-400"}>
-                    {wave.value?.toFixed(2)}%
+                    {wave.value.toFixed(2)}%
                   </span>
                 </div>
                 <div className="h-6 bg-gray-800 rounded overflow-hidden">
