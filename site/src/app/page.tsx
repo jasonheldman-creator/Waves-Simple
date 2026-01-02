@@ -45,7 +45,7 @@ export default function SnapshotConsole() {
       setLoading(true);
       const response = await fetch("/api/snapshot");
       const data = await response.json();
-      
+
       if (response.ok) {
         setSnapshot(data);
         setMessage(null);
@@ -53,9 +53,9 @@ export default function SnapshotConsole() {
         setMessage({ type: "error", text: data.message || "Failed to fetch snapshot" });
       }
     } catch (error) {
-      setMessage({ 
-        type: "error", 
-        text: error instanceof Error ? error.message : "Failed to fetch snapshot" 
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to fetch snapshot",
       });
     } finally {
       setLoading(false);
@@ -66,17 +66,17 @@ export default function SnapshotConsole() {
     try {
       setRebuilding(true);
       setMessage({ type: "success", text: "Rebuilding snapshot... This may take a few minutes." });
-      
+
       const response = await fetch("/api/rebuild-snapshot", {
         method: "POST",
       });
-      
+
       const data: RebuildResponse = await response.json();
-      
+
       if (data.success) {
-        setMessage({ 
-          type: "success", 
-          text: `${data.message} (${data.waveCount} waves at ${new Date(data.timestamp!).toLocaleString()})` 
+        setMessage({
+          type: "success",
+          text: `${data.message} (${data.waveCount} waves at ${new Date(data.timestamp!).toLocaleString()})`,
         });
         // Refresh snapshot data
         await fetchSnapshot();
@@ -88,9 +88,9 @@ export default function SnapshotConsole() {
         setMessage({ type: "error", text: errorText });
       }
     } catch (error) {
-      setMessage({ 
-        type: "error", 
-        text: error instanceof Error ? error.message : "Failed to rebuild snapshot" 
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to rebuild snapshot",
       });
     } finally {
       setRebuilding(false);
@@ -139,9 +139,9 @@ export default function SnapshotConsole() {
           <div className="text-sm text-gray-600">
             {snapshot && (
               <div>
-                <strong>Total Waves:</strong> {snapshot.count} | 
+                <strong>Total Waves:</strong> {snapshot.count} |
                 <strong className="ml-2">Last Updated:</strong>{" "}
-                {snapshot.data[0]?.AsOfUTC 
+                {snapshot.data[0]?.AsOfUTC
                   ? new Date(snapshot.data[0].AsOfUTC).toLocaleString()
                   : "—"}
               </div>
@@ -202,38 +202,67 @@ export default function SnapshotConsole() {
                     const ret30d = wave.Return_30D ? parseFloat(wave.Return_30D) : null;
                     const ret60d = wave.Return_60D ? parseFloat(wave.Return_60D) : null;
                     const ret365d = wave.Return_365D ? parseFloat(wave.Return_365D) : null;
-                    
+
                     return (
-                      <tr key={wave.Wave_ID} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <tr
+                        key={wave.Wave_ID}
+                        className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                      >
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {wave.Wave}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                          ret1d !== null ? (ret1d >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400"
-                        }`}>
+                        <td
+                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
+                            ret1d !== null
+                              ? ret1d >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                              : "text-gray-400"
+                          }`}
+                        >
                           {formatReturn(wave.Return_1D)}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                          ret30d !== null ? (ret30d >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400"
-                        }`}>
+                        <td
+                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
+                            ret30d !== null
+                              ? ret30d >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                              : "text-gray-400"
+                          }`}
+                        >
                           {formatReturn(wave.Return_30D)}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                          ret60d !== null ? (ret60d >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400"
-                        }`}>
+                        <td
+                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
+                            ret60d !== null
+                              ? ret60d >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                              : "text-gray-400"
+                          }`}
+                        >
                           {formatReturn(wave.Return_60D)}
                         </td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                          ret365d !== null ? (ret365d >= 0 ? "text-green-600" : "text-red-600") : "text-gray-400"
-                        }`}>
+                        <td
+                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
+                            ret365d !== null
+                              ? ret365d >= 0
+                                ? "text-green-600"
+                                : "text-red-600"
+                              : "text-gray-400"
+                          }`}
+                        >
                           {formatReturn(wave.Return_365D)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                            wave.DataStatus === "OK" 
-                              ? "bg-green-100 text-green-800" 
-                              : "bg-red-100 text-red-800"
-                          }`}>
+                          <span
+                            className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              wave.DataStatus === "OK"
+                                ? "bg-green-100 text-green-800"
+                                : "bg-red-100 text-red-800"
+                            }`}
+                          >
                             {wave.DataStatus || "—"}
                           </span>
                         </td>
@@ -245,9 +274,7 @@ export default function SnapshotConsole() {
             </div>
           </div>
         ) : (
-          <div className="text-center py-12 text-red-600">
-            Failed to load snapshot data
-          </div>
+          <div className="text-center py-12 text-red-600">Failed to load snapshot data</div>
         )}
       </div>
     </div>

@@ -14,7 +14,7 @@ export default function Home() {
         secondaryCtaText={siteContent.home.hero.secondaryCtaText}
         secondaryCtaLink={siteContent.home.hero.secondaryCtaLink}
       />
-      
+
       {/* Operational Proof Section */}
       <section className="bg-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -35,7 +35,9 @@ export default function Home() {
                 <div className="flex items-start justify-between mb-4">
                   <div className="text-5xl">{example.icon}</div>
                   <div className="text-right">
-                    <div className="text-xs text-gray-500 uppercase tracking-wide">{example.metric}</div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide">
+                      {example.metric}
+                    </div>
                     <div className="text-sm font-semibold text-cyan-400">{example.value}</div>
                   </div>
                 </div>
@@ -84,7 +86,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-      
+
       {/* Institutional Trust Signals Section */}
       <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

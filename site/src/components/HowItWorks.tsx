@@ -18,15 +18,9 @@ export default function HowItWorks({ steps, title, subtitle }: HowItWorksProps) 
         {(title || subtitle) && (
           <div className="text-center mb-16">
             {title && (
-              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-                {title}
-              </h2>
+              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">{title}</h2>
             )}
-            {subtitle && (
-              <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-                {subtitle}
-              </p>
-            )}
+            {subtitle && <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">{subtitle}</p>}
           </div>
         )}
         <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
@@ -39,15 +33,15 @@ export default function HowItWorks({ steps, title, subtitle }: HowItWorksProps) 
               <div className="absolute -top-4 -left-4 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-green-500 text-xl font-bold text-black">
                 {step.number}
               </div>
-              
+
               {/* Icon */}
               <div className="mb-4 text-5xl">{step.icon}</div>
-              
+
               {/* Title */}
               <h3 className="text-xl font-semibold text-white group-hover:text-cyan-400 mb-3">
                 {step.title}
               </h3>
-              
+
               {/* Description */}
               <p className="text-gray-400 leading-relaxed">{step.description}</p>
             </div>

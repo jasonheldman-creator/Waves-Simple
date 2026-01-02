@@ -15,14 +15,10 @@ export default function InstitutionalCare({ title, subtitle, points }: Instituti
     <section className="bg-black py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-            {title}
-          </h2>
-          <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-            {subtitle}
-          </p>
+          <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">{title}</h2>
+          <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">{subtitle}</p>
         </div>
-        
+
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
           {points.map((point, index) => (
             <div

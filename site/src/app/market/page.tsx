@@ -98,7 +98,8 @@ export default function MarketPage() {
               Market Intelligence Terminal
             </h1>
             <p className="mt-4 text-lg text-gray-400 max-w-2xl mx-auto">
-              Real-time market data, regime analysis, and governance signals for institutional decision-making
+              Real-time market data, regime analysis, and governance signals for institutional
+              decision-making
             </p>
           </div>
 

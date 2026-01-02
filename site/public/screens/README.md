@@ -20,11 +20,13 @@ This directory contains polished abstract system visuals representing WAVES Inte
    - Board-ready reporting and documentation
 
 ## Format:
+
 - SVG format for scalability and performance
 - Abstract representations avoiding product-specific UI details
 - Focused on institutional themes: transparency, attribution, governance, decision infrastructure
 
 ## Notes:
+
 - Visuals reinforce platform credibility without creating fragile dependencies on specific UI implementations
 - Abstract nature allows flexibility as platform evolves
 - Emphasizes institutional-grade capabilities and governance-first design

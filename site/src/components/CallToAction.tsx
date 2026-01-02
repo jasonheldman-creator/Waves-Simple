@@ -24,9 +24,7 @@ export default function CallToAction({
           <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-green-500/5" />
           <div className="relative">
             <div className="text-center">
-              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-                {title}
-              </h2>
+              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">{title}</h2>
               <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-300 sm:text-xl">
                 {description}
               </p>

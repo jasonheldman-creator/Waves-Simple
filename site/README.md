@@ -13,20 +13,23 @@ This is the official marketing website for WAVES Intelligence, built with Next.j
 ### Local Development
 
 1. **Navigate to the site directory:**
+
    ```bash
    cd site
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Configure environment variables:**
+
    ```bash
    cp .env.example .env.local
    ```
-   
+
    Edit `.env.local` and set:
    - `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
    - `GITHUB_TOKEN=your_github_personal_access_token`
@@ -34,6 +37,7 @@ This is the official marketing website for WAVES Intelligence, built with Next.j
    - `GITHUB_BRANCH=main`
 
 4. **Run the development server:**
+
    ```bash
    npm run dev
    ```
@@ -91,6 +95,7 @@ site/
 ## 🎨 Features
 
 ### Pages
+
 - **Home (/)**: WAVES Intelligence™ Snapshot Console - Live market data for 28 canonical waves
 - **/platform**: Platform overview with features and screenshots
 - **/console**: Console access information
@@ -102,6 +107,7 @@ site/
 - **/contact**: Contact form with validation
 
 ### Snapshot Console Features
+
 - **Live Data Display**: Real-time view of 28 canonical waves
 - **Market Returns**: 1D, 30D, 60D, and 365D performance metrics
 - **Rebuild Functionality**: Fetch live market data and commit to GitHub
@@ -109,6 +115,7 @@ site/
 - **Auto-refresh**: Manual and automatic snapshot updates
 
 ### Components
+
 - **Navbar**: Sticky navigation with mobile menu and "Launch Console" CTA
 - **Footer**: Site-wide footer with links and information
 - **Hero**: Customizable hero sections with gradient backgrounds
@@ -120,6 +127,7 @@ site/
 - **ContactForm**: Validated contact form with API integration
 
 ### Design System
+
 - **Theme**: Dark institutional design with charcoal/black background
 - **Accents**: Cyan (#00ffff) and green (#00ff88) neon highlights
 - **Typography**: Premium, legible fonts (Geist Sans & Geist Mono)
@@ -153,12 +161,15 @@ npm run format:check
 ### API Routes
 
 #### GET /api/snapshot
+
 Fetch the current live snapshot from `data/live_snapshot.csv`.
 
 **Query Parameters:**
+
 - `format=csv` (optional): Download CSV file instead of JSON
 
 **Response (JSON):**
+
 ```json
 {
   "count": 28,
@@ -183,12 +194,15 @@ Fetch the current live snapshot from `data/live_snapshot.csv`.
 Returns the raw CSV file for download.
 
 **Validation:**
+
 - Returns HTTP 500 if snapshot doesn't contain exactly 28 waves
 
 #### POST /api/rebuild-snapshot
+
 Rebuild the live snapshot by fetching fresh market data and committing to GitHub.
 
 **Process:**
+
 1. Load canonical 28 waves from `wave_weights.csv`
 2. Fetch market data for all tickers:
    - Crypto (ending in `-USD`): CoinGecko API
@@ -198,6 +212,7 @@ Rebuild the live snapshot by fetching fresh market data and committing to GitHub
 5. Commit to `data/live_snapshot.csv` via GitHub API (only if valid)
 
 **Response (Success):**
+
 ```json
 {
   "success": true,
@@ -215,6 +230,7 @@ Rebuild the live snapshot by fetching fresh market data and committing to GitHub
 ```
 
 **Response (Failure):**
+
 ```json
 {
   "success": false,
@@ -232,6 +248,7 @@ Rebuild the live snapshot by fetching fresh market data and committing to GitHub
 ```
 
 **Validation Rules:**
+
 - Must have exactly 28 unique waves from `wave_weights.csv`
 - All waves must have at least one valid return period
 - GitHub commit only happens if validation passes
@@ -251,9 +268,11 @@ Rebuild the live snapshot by fetching fresh market data and committing to GitHub
 | `MissingTickers` | Semicolon-separated list of failed tickers |
 
 #### POST /api/contact
+
 Contact form submission endpoint.
 
 **Request Body:**
+
 ```json
 {
   "name": "string",
@@ -264,6 +283,7 @@ Contact form submission endpoint.
 ```
 
 **Validation:**
+
 - All fields are required
 - Email must be valid format
 - Name: 2-100 characters
@@ -271,6 +291,7 @@ Contact form submission endpoint.
 - Message: 10-5000 characters
 
 **Response:**
+
 - Success: `{ "success": true, "message": "..." }`
 - Error: `{ "error": "error message" }`
 
@@ -286,7 +307,6 @@ Submissions are logged server-side (no external email integration).
    - Go to [vercel.com](https://vercel.com)
    - Click "New Project"
    - Import your GitHub repository: `jasonheldman-creator/Waves-Simple`
-   
 3. **Configure Project Settings (CRITICAL):**
    - **Root Directory**: Set to `site` ⚠️ **REQUIRED**
    - **Framework Preset**: Next.js (should auto-detect)
@@ -315,20 +335,20 @@ Submissions are logged server-side (no external email integration).
 The site requires the following environment variables:
 
 #### Required for All Deployments
+
 - **NEXT_PUBLIC_SITE_URL**: Canonical site URL (default: `https://www.wavesintelligence.app`)
   - Used for metadata, Open Graph tags, sitemap, and robots.txt
   - Set in Vercel for production deployments
   - For local development, create `.env.local` with `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
 
 #### Required for Snapshot Rebuild
+
 - **GITHUB_TOKEN**: GitHub Personal Access Token with `repo` scope
   - Create at: https://github.com/settings/tokens
   - Required permissions: `repo` (full control of private repositories)
   - Used to commit snapshot updates to `data/live_snapshot.csv`
-  
 - **GITHUB_REPO**: Repository in format `owner/repo` (default: `jasonheldman-creator/Waves-Simple`)
   - The repository where snapshots are committed
-  
 - **GITHUB_BRANCH**: Branch name for commits (default: `main`)
   - Target branch for snapshot commits
 
@@ -348,26 +368,31 @@ See `.env.example` for reference.
 ## 🌐 DNS Configuration
 
 ### Marketing Site
+
 The site uses `www.wavesintelligence.app` as the canonical domain with automatic redirect from non-www.
 
 **Primary Domain:** `www.wavesintelligence.app`
 **Secondary Domain:** `wavesintelligence.app` (redirects to www)
 
 **DNS Settings in Vercel:**
+
 1. Add both domains in Vercel Dashboard → Project → Settings → Domains
 2. Vercel automatically provisions SSL certificates
 3. The `vercel.json` configuration handles the redirect from non-www to www
 
 **Automatic Redirect:**
+
 - `wavesintelligence.app/*` → `www.wavesintelligence.app/*` (HTTP 301 permanent)
 - All routes preserve their paths during redirect
 - HTTPS is enforced on all routes
 
 ### Console Subdomain
+
 If you have a separate console application:
 
 **Domain:** `console.wavesintelligence.app`
 **DNS Settings:**
+
 - Type: `CNAME`
 - Value: Your console hosting URL
 
@@ -387,6 +412,7 @@ console.wavesintelligence.app  CNAME  your-console-app.example.com
 ## 📝 Content Management
 
 All site copy is managed in `src/content/siteContent.ts`. Edit this file to update:
+
 - Page titles and descriptions
 - Hero section content
 - Feature lists
@@ -396,6 +422,7 @@ All site copy is managed in `src/content/siteContent.ts`. Edit this file to upda
 ## 🎯 SEO Optimization
 
 Each page includes:
+
 - Custom title and description meta tags
 - Open Graph tags for social sharing
 - Canonical URL configuration via `metadataBase`
@@ -404,6 +431,7 @@ Each page includes:
 - Fast page load times
 
 **SEO Files:**
+
 - `/sitemap.xml`: Automatically generated sitemap with all routes
 - `/robots.txt`: Crawler configuration with sitemap reference
 - All URLs point to canonical domain: `www.wavesintelligence.app`
@@ -419,18 +447,21 @@ Each page includes:
 ## 📊 Market Data Sources
 
 ### Cryptocurrency Data
+
 - **Provider**: CoinGecko API (Free tier)
 - **Endpoint**: `https://api.coingecko.com/api/v3/coins/{id}/market_chart`
 - **Rate Limits**: ~50 calls/minute (free tier)
 - **Tickers**: All tickers ending in `-USD` (e.g., `BTC-USD`, `ETH-USD`)
 
 ### Equity Data
+
 - **Provider**: Stooq
 - **Endpoint**: `https://stooq.com/q/d/l/?s={ticker}.US&i=d`
 - **Format**: CSV (Date, Open, High, Low, Close, Volume)
 - **Tickers**: All standard equity tickers (e.g., `AAPL`, `MSFT`, `TSLA`)
 
 ### Error Handling
+
 - Ticker-level failures are logged and tracked
 - Wave-level failures occur only when ALL tickers fail
 - Missing ticker data is reported in the `MissingTickers` column
@@ -482,6 +513,7 @@ Each page includes:
 ## 📞 Support
 
 For questions or issues:
+
 - Technical: Review this README
 - Content: Edit `src/content/siteContent.ts`
 - Components: Check `src/components/`
@@ -539,6 +571,7 @@ site/
 ## 🎨 Features
 
 ### Pages
+
 - **Home (/)**: Hero section, features grid, and call-to-action
 - **/platform**: Platform overview with features and screenshots
 - **/console**: Console access information
@@ -550,6 +583,7 @@ site/
 - **/contact**: Contact form with validation
 
 ### Components
+
 - **Navbar**: Sticky navigation with mobile menu and "Launch Console" CTA
 - **Footer**: Site-wide footer with links and information
 - **Hero**: Customizable hero sections with gradient backgrounds
@@ -561,6 +595,7 @@ site/
 - **ContactForm**: Validated contact form with API integration
 
 ### Design System
+
 - **Theme**: Dark institutional design with charcoal/black background
 - **Accents**: Cyan (#00ffff) and green (#00ff88) neon highlights
 - **Typography**: Premium, legible fonts (Geist Sans & Geist Mono)
@@ -594,9 +629,11 @@ npm run format:check
 ### API Routes
 
 #### POST /api/contact
+
 Contact form submission endpoint.
 
 **Request Body:**
+
 ```json
 {
   "name": "string",
@@ -607,6 +644,7 @@ Contact form submission endpoint.
 ```
 
 **Validation:**
+
 - All fields are required
 - Email must be valid format
 - Name: 2-100 characters
@@ -614,6 +652,7 @@ Contact form submission endpoint.
 - Message: 10-5000 characters
 
 **Response:**
+
 - Success: `{ "success": true, "message": "..." }`
 - Error: `{ "error": "error message" }`
 
@@ -629,7 +668,6 @@ Submissions are logged server-side (no external email integration).
    - Go to [vercel.com](https://vercel.com)
    - Click "New Project"
    - Import your GitHub repository: `jasonheldman-creator/Waves-Simple`
-   
 3. **Configure Project Settings (CRITICAL):**
    - **Root Directory**: Set to `site` ⚠️ **REQUIRED**
    - **Framework Preset**: Next.js (should auto-detect)
@@ -663,26 +701,31 @@ See `.env.example` for reference.
 ## 🌐 DNS Configuration
 
 ### Marketing Site
+
 The site uses `www.wavesintelligence.app` as the canonical domain with automatic redirect from non-www.
 
 **Primary Domain:** `www.wavesintelligence.app`
 **Secondary Domain:** `wavesintelligence.app` (redirects to www)
 
 **DNS Settings in Vercel:**
+
 1. Add both domains in Vercel Dashboard → Project → Settings → Domains
 2. Vercel automatically provisions SSL certificates
 3. The `vercel.json` configuration handles the redirect from non-www to www
 
 **Automatic Redirect:**
+
 - `wavesintelligence.app/*` → `www.wavesintelligence.app/*` (HTTP 301 permanent)
 - All routes preserve their paths during redirect
 - HTTPS is enforced on all routes
 
 ### Console Subdomain
+
 If you have a separate console application:
 
 **Domain:** `console.wavesintelligence.app`
 **DNS Settings:**
+
 - Type: `CNAME`
 - Value: Your console hosting URL
 
@@ -702,6 +745,7 @@ console.wavesintelligence.app  CNAME  your-console-app.example.com
 ## 📝 Content Management
 
 All site copy is managed in `src/content/siteContent.ts`. Edit this file to update:
+
 - Page titles and descriptions
 - Hero section content
 - Feature lists
@@ -711,6 +755,7 @@ All site copy is managed in `src/content/siteContent.ts`. Edit this file to upda
 ## 🎯 SEO Optimization
 
 Each page includes:
+
 - Custom title and description meta tags
 - Open Graph tags for social sharing
 - Canonical URL configuration via `metadataBase`
@@ -719,6 +764,7 @@ Each page includes:
 - Fast page load times
 
 **SEO Files:**
+
 - `/sitemap.xml`: Automatically generated sitemap with all routes
 - `/robots.txt`: Crawler configuration with sitemap reference
 - All URLs point to canonical domain: `www.wavesintelligence.app`
@@ -750,6 +796,7 @@ Each page includes:
 ## 📞 Support
 
 For questions or issues:
+
 - Technical: Review this README
 - Content: Edit `src/content/siteContent.ts`
 - Components: Check `src/components/`

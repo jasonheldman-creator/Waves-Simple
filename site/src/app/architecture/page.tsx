@@ -6,7 +6,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Architecture - WAVES Intelligence",
-  description: "Enterprise-grade infrastructure designed for institutional performance, security, and scalability.",
+  description:
+    "Enterprise-grade infrastructure designed for institutional performance, security, and scalability.",
 };
 
 export default function ArchitecturePage() {
@@ -20,7 +21,7 @@ export default function ArchitecturePage() {
         secondaryCtaText="Contact Us"
         secondaryCtaLink="/contact"
       />
-      
+
       {/* Architecture as Trust Section */}
       <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -56,15 +57,13 @@ export default function ArchitecturePage() {
           </div>
         </div>
       </section>
-      
+
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-lg text-gray-300">
-            {siteContent.architecture.description}
-          </p>
+          <p className="text-lg text-gray-300">{siteContent.architecture.description}</p>
         </div>
       </section>
-      
+
       {/* How WAVES Is Different Section */}
       <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

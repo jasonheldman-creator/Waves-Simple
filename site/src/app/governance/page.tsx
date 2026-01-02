@@ -5,7 +5,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Governance & Oversight - WAVES Intelligence",
-  description: "Institutional-grade governance frameworks for fiduciary oversight, regulatory compliance, and operational transparency.",
+  description:
+    "Institutional-grade governance frameworks for fiduciary oversight, regulatory compliance, and operational transparency.",
 };
 
 export default function GovernancePage() {
@@ -19,12 +20,10 @@ export default function GovernancePage() {
         secondaryCtaText="View Governance Architecture"
         secondaryCtaLink="/architecture"
       />
-      
+
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-lg text-gray-300">
-            {siteContent.governance.description}
-          </p>
+          <p className="text-lg text-gray-300">{siteContent.governance.description}</p>
         </div>
       </section>
 

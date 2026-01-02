@@ -9,7 +9,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Platform - WAVES Intelligence",
-  description: "A comprehensive suite of tools designed for institutional portfolio management and analytics.",
+  description:
+    "A comprehensive suite of tools designed for institutional portfolio management and analytics.",
 };
 
 export default function PlatformPage() {
@@ -23,7 +24,7 @@ export default function PlatformPage() {
         secondaryCtaText="Discuss Platform Licensing"
         secondaryCtaLink="/contact"
       />
-      
+
       {/* Institutional Buyer Validation Section */}
       <section className="bg-gradient-to-b from-black to-gray-900 py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -42,49 +43,68 @@ export default function PlatformPage() {
               Institutional Validation Frameworks
             </h2>
             <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-              Purpose-built capabilities addressing institutional buyer needs across the decision-making organization
+              Purpose-built capabilities addressing institutional buyer needs across the
+              decision-making organization
             </p>
           </div>
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
             <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8">
               <div className="text-5xl mb-4">👔</div>
-              <h3 className="text-2xl font-semibold text-white mb-4">For CIOs & Investment Committees</h3>
+              <h3 className="text-2xl font-semibold text-white mb-4">
+                For CIOs & Investment Committees
+              </h3>
               <p className="text-gray-400 mb-6">
-                Comprehensive oversight infrastructure supporting strategic allocation decisions, risk governance, and fiduciary responsibilities.
+                Comprehensive oversight infrastructure supporting strategic allocation decisions,
+                risk governance, and fiduciary responsibilities.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Board-ready reporting with complete attribution transparency</span>
+                  <span className="text-sm text-gray-300">
+                    Board-ready reporting with complete attribution transparency
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Risk budget monitoring and limit breach alerting</span>
+                  <span className="text-sm text-gray-300">
+                    Risk budget monitoring and limit breach alerting
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Governance workflow approval and delegation controls</span>
+                  <span className="text-sm text-gray-300">
+                    Governance workflow approval and delegation controls
+                  </span>
                 </div>
               </div>
             </div>
             <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8">
               <div className="text-5xl mb-4">🛡️</div>
-              <h3 className="text-2xl font-semibold text-white mb-4">For Risk & Compliance Officers</h3>
+              <h3 className="text-2xl font-semibold text-white mb-4">
+                For Risk & Compliance Officers
+              </h3>
               <p className="text-gray-400 mb-6">
-                Continuous monitoring, regulatory reporting, and comprehensive audit documentation meeting institutional compliance standards.
+                Continuous monitoring, regulatory reporting, and comprehensive audit documentation
+                meeting institutional compliance standards.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Real-time exposure monitoring with multi-layer risk overlays</span>
+                  <span className="text-sm text-gray-300">
+                    Real-time exposure monitoring with multi-layer risk overlays
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Immutable audit trails for regulatory examination</span>
+                  <span className="text-sm text-gray-300">
+                    Immutable audit trails for regulatory examination
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Policy enforcement and compliance validation gates</span>
+                  <span className="text-sm text-gray-300">
+                    Policy enforcement and compliance validation gates
+                  </span>
                 </div>
               </div>
             </div>
@@ -92,48 +112,64 @@ export default function PlatformPage() {
               <div className="text-5xl mb-4">📊</div>
               <h3 className="text-2xl font-semibold text-white mb-4">For Portfolio Managers</h3>
               <p className="text-gray-400 mb-6">
-                Tactical execution support with real-time analytics, benchmark validation, and position-level decision intelligence.
+                Tactical execution support with real-time analytics, benchmark validation, and
+                position-level decision intelligence.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Multi-factor attribution with benchmark integrity controls</span>
+                  <span className="text-sm text-gray-300">
+                    Multi-factor attribution with benchmark integrity controls
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Position-level exposure analysis and risk decomposition</span>
+                  <span className="text-sm text-gray-300">
+                    Position-level exposure analysis and risk decomposition
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Decision support with complete audit trail documentation</span>
+                  <span className="text-sm text-gray-300">
+                    Decision support with complete audit trail documentation
+                  </span>
                 </div>
               </div>
             </div>
             <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8">
               <div className="text-5xl mb-4">🏢</div>
-              <h3 className="text-2xl font-semibold text-white mb-4">For Corporate Development & Acquirers</h3>
+              <h3 className="text-2xl font-semibold text-white mb-4">
+                For Corporate Development & Acquirers
+              </h3>
               <p className="text-gray-400 mb-6">
-                Integration-ready infrastructure with technical transparency supporting M&A evaluation and enterprise deployment.
+                Integration-ready infrastructure with technical transparency supporting M&A
+                evaluation and enterprise deployment.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Complete architecture documentation and data lineage clarity</span>
+                  <span className="text-sm text-gray-300">
+                    Complete architecture documentation and data lineage clarity
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">API access and integration pathway specifications</span>
+                  <span className="text-sm text-gray-300">
+                    API access and integration pathway specifications
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Scalability validation and performance benchmarks</span>
+                  <span className="text-sm text-gray-300">
+                    Scalability validation and performance benchmarks
+                  </span>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
-      
+
       {/* How WAVES Is Different Section */}
       <section className="bg-gradient-to-b from-black via-gray-900 to-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

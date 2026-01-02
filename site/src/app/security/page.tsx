@@ -6,7 +6,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Security - WAVES Intelligence",
-  description: "Institutional-grade security controls and compliance frameworks protecting your sensitive data.",
+  description:
+    "Institutional-grade security controls and compliance frameworks protecting your sensitive data.",
 };
 
 export default function SecurityPage() {

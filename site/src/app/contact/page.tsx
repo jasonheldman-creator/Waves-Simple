@@ -11,16 +11,11 @@ export const metadata: Metadata = {
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-black">
-      <Hero
-        title={siteContent.contact.hero.title}
-        subtitle={siteContent.contact.hero.subtitle}
-      />
+      <Hero title={siteContent.contact.hero.title} subtitle={siteContent.contact.hero.subtitle} />
       <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <p className="text-lg text-gray-300">
-              {siteContent.contact.description}
-            </p>
+            <p className="text-lg text-gray-300">{siteContent.contact.description}</p>
           </div>
 
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -75,7 +70,8 @@ export default function ContactPage() {
                   <div>
                     <h3 className="font-semibold text-white mb-2">Press</h3>
                     <p className="text-gray-400">
-                      Media inquiries and press requests can be directed to press@wavesintelligence.com
+                      Media inquiries and press requests can be directed to
+                      press@wavesintelligence.com
                     </p>
                   </div>
                 </div>

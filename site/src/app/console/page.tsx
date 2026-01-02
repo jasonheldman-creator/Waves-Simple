@@ -16,10 +16,7 @@ export default function ConsolePage() {
 
   return (
     <main className="min-h-screen bg-black">
-      <Hero
-        title={siteContent.console.hero.title}
-        subtitle={siteContent.console.hero.subtitle}
-      />
+      <Hero title={siteContent.console.hero.title} subtitle={siteContent.console.hero.subtitle} />
       <section className="bg-gradient-to-b from-black to-gray-900 py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-8 sm:p-12">
@@ -28,9 +25,7 @@ export default function ConsolePage() {
               <h2 className="text-2xl font-bold text-white sm:text-3xl">
                 Institutional Console Access
               </h2>
-              <p className="mt-4 text-lg text-gray-300">
-                {siteContent.console.description}
-              </p>
+              <p className="mt-4 text-lg text-gray-300">{siteContent.console.description}</p>
 
               {/* Institutional Readiness Features */}
               <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -38,55 +33,75 @@ export default function ConsolePage() {
                   <div className="text-2xl mb-2">🔍</div>
                   <h3 className="text-sm font-semibold text-cyan-400 mb-1">Risk Overlays</h3>
                   <p className="text-xs text-gray-400">
-                    Real-time risk monitoring with multi-layer overlay analysis for comprehensive exposure management
+                    Real-time risk monitoring with multi-layer overlay analysis for comprehensive
+                    exposure management
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-800/50 p-4 border border-gray-700">
                   <div className="text-2xl mb-2">📊</div>
                   <h3 className="text-sm font-semibold text-cyan-400 mb-1">Benchmark Integrity</h3>
                   <p className="text-xs text-gray-400">
-                    Continuous validation of performance benchmarks ensuring accuracy and consistency across analytics
+                    Continuous validation of performance benchmarks ensuring accuracy and
+                    consistency across analytics
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-800/50 p-4 border border-gray-700">
                   <div className="text-2xl mb-2">📝</div>
-                  <h3 className="text-sm font-semibold text-cyan-400 mb-1">Complete Audit Trails</h3>
+                  <h3 className="text-sm font-semibold text-cyan-400 mb-1">
+                    Complete Audit Trails
+                  </h3>
                   <p className="text-xs text-gray-400">
-                    Immutable logging of all decisions, allocations, and system activities for regulatory compliance
+                    Immutable logging of all decisions, allocations, and system activities for
+                    regulatory compliance
                   </p>
                 </div>
                 <div className="rounded-lg bg-gray-800/50 p-4 border border-gray-700">
                   <div className="text-2xl mb-2">✅</div>
                   <h3 className="text-sm font-semibold text-cyan-400 mb-1">Governance Ready</h3>
                   <p className="text-xs text-gray-400">
-                    Built-in compliance frameworks and fiduciary controls meeting institutional standards
+                    Built-in compliance frameworks and fiduciary controls meeting institutional
+                    standards
                   </p>
                 </div>
               </div>
 
               {/* Compliance Statement */}
               <div className="mt-8 p-6 rounded-lg bg-gradient-to-r from-cyan-900/20 to-green-900/20 border border-cyan-500/30">
-                <h3 className="text-lg font-semibold text-white mb-3">Institutional Use Readiness</h3>
+                <h3 className="text-lg font-semibold text-white mb-3">
+                  Institutional Use Readiness
+                </h3>
                 <ul className="text-sm text-gray-300 text-left space-y-2 max-w-2xl mx-auto">
                   <li className="flex items-start">
                     <span className="text-cyan-400 mr-2">•</span>
-                    <span>SOC 2 Type II certified infrastructure with comprehensive security controls</span>
+                    <span>
+                      SOC 2 Type II certified infrastructure with comprehensive security controls
+                    </span>
                   </li>
                   <li className="flex items-start">
                     <span className="text-cyan-400 mr-2">•</span>
-                    <span>End-to-end encryption (TLS 1.3 in transit, AES-256 at rest) with HSM key management</span>
+                    <span>
+                      End-to-end encryption (TLS 1.3 in transit, AES-256 at rest) with HSM key
+                      management
+                    </span>
                   </li>
                   <li className="flex items-start">
                     <span className="text-cyan-400 mr-2">•</span>
-                    <span>Role-based access control (RBAC) with mandatory multi-factor authentication</span>
+                    <span>
+                      Role-based access control (RBAC) with mandatory multi-factor authentication
+                    </span>
                   </li>
                   <li className="flex items-start">
                     <span className="text-cyan-400 mr-2">•</span>
-                    <span>Immutable audit trails for all portfolio activities and decision workflows</span>
+                    <span>
+                      Immutable audit trails for all portfolio activities and decision workflows
+                    </span>
                   </li>
                   <li className="flex items-start">
                     <span className="text-cyan-400 mr-2">•</span>
-                    <span>GDPR compliant with support for SEC, FINRA, and fiduciary regulatory frameworks</span>
+                    <span>
+                      GDPR compliant with support for SEC, FINRA, and fiduciary regulatory
+                      frameworks
+                    </span>
                   </li>
                 </ul>
               </div>
@@ -96,7 +111,10 @@ export default function ConsolePage() {
                   {siteContent.console.accessRequest.description}
                 </p>
                 <p className="text-sm text-gray-400 mt-2">
-                  Contact: <span className="text-cyan-400 font-semibold">{siteContent.console.accessRequest.contact}</span>
+                  Contact:{" "}
+                  <span className="text-cyan-400 font-semibold">
+                    {siteContent.console.accessRequest.contact}
+                  </span>
                 </p>
               </div>
               <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:justify-center">

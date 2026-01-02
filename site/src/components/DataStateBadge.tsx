@@ -81,9 +81,7 @@ export default function DataStateBadge() {
               <span>{dataState}</span>
             </div>
           </div>
-          {message && (
-            <p className="text-xs text-gray-500 hidden sm:block">{message}</p>
-          )}
+          {message && <p className="text-xs text-gray-500 hidden sm:block">{message}</p>}
         </div>
       </div>
     </div>
