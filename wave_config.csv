@@ -17,7 +17,7 @@ Income Wave,AGG,Standard,0.6,True
 Infinity Multi-Asset Growth Wave,SPY,Standard,0.9,True
 Next-Gen Compute & Semis Wave,QQQ,Standard,0.9,True
 Quantum Computing Wave,QQQ,Private Logic,1.0,True
-Russell 3000 Wave,IWV,Standard,0.9,True
+Russell 3000 Wave,IWV,Standard,0.9,False
 S&P 500 Wave,SPY,Standard,0.9,True
 Small Cap Growth Wave,IWM,Standard,0.9,True
 Small to Mid Cap Growth Wave,IJH,Standard,0.9,True
