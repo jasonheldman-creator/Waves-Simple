@@ -23,8 +23,46 @@ interface LiveWaveData {
   alpha_1d: string;
   alpha_30d: string;
   alpha_ytd: string;
+  benchmark_id: string;
+  benchmark_name: string;
+  exposure_pct: string;
+  safe_pct: string;
+  vix_regime: string;
+  data_confidence: string;
   last_updated: string;
 }
+
+// Fallback registry of all 28 waves based on the frozen CES data contract
+const WAVE_REGISTRY: Array<{ wave_id: string; wave_name: string }> = [
+  { wave_id: "ai_cloud_megacap_wave", wave_name: "AI & Cloud MegaCap Wave" },
+  { wave_id: "clean_transit_infrastructure_wave", wave_name: "Clean Transit-Infrastructure Wave" },
+  { wave_id: "crypto_ai_growth_wave", wave_name: "Crypto AI Growth Wave" },
+  { wave_id: "crypto_broad_growth_wave", wave_name: "Crypto Broad Growth Wave" },
+  { wave_id: "crypto_defi_growth_wave", wave_name: "Crypto DeFi Growth Wave" },
+  { wave_id: "crypto_income_wave", wave_name: "Crypto Income Wave" },
+  { wave_id: "crypto_l1_growth_wave", wave_name: "Crypto L1 Growth Wave" },
+  { wave_id: "crypto_l2_growth_wave", wave_name: "Crypto L2 Growth Wave" },
+  { wave_id: "demas_fund_wave", wave_name: "Demas Fund Wave" },
+  { wave_id: "ev_infrastructure_wave", wave_name: "EV & Infrastructure Wave" },
+  { wave_id: "future_energy_ev_wave", wave_name: "Future Energy & EV Wave" },
+  { wave_id: "future_power_energy_wave", wave_name: "Future Power & Energy Wave" },
+  { wave_id: "gold_wave", wave_name: "Gold Wave" },
+  { wave_id: "income_wave", wave_name: "Income Wave" },
+  { wave_id: "infinity_multi_asset_growth_wave", wave_name: "Infinity Multi-Asset Growth Wave" },
+  { wave_id: "next_gen_compute_semis_wave", wave_name: "Next-Gen Compute & Semis Wave" },
+  { wave_id: "quantum_computing_wave", wave_name: "Quantum Computing Wave" },
+  { wave_id: "russell_3000_wave", wave_name: "Russell 3000 Wave" },
+  { wave_id: "small_cap_growth_wave", wave_name: "Small Cap Growth Wave" },
+  { wave_id: "small_to_mid_cap_growth_wave", wave_name: "Small to Mid Cap Growth Wave" },
+  { wave_id: "smartsafe_tax_free_money_market_wave", wave_name: "SmartSafe Tax-Free Money Market Wave" },
+  { wave_id: "smartsafe_treasury_cash_wave", wave_name: "SmartSafe Treasury Cash Wave" },
+  { wave_id: "sp500_wave", wave_name: "S&P 500 Wave" },
+  { wave_id: "us_megacap_core_wave", wave_name: "US MegaCap Core Wave" },
+  { wave_id: "us_mid_small_growth_semis_wave", wave_name: "US Mid/Small Growth & Semis Wave" },
+  { wave_id: "us_small_cap_disruptors_wave", wave_name: "US Small-Cap Disruptors Wave" },
+  { wave_id: "vector_muni_ladder_wave", wave_name: "Vector Muni Ladder Wave" },
+  { wave_id: "vector_treasury_ladder_wave", wave_name: "Vector Treasury Ladder Wave" },
+];
 
 /**
  * Robust CSV line parser:
@@ -109,7 +147,13 @@ export default function WaveCards() {
               alpha_1d: values[6] ?? "",
               alpha_30d: values[7] ?? "",
               alpha_ytd: values[8] ?? "",
-              last_updated: values[9] ?? "",
+              benchmark_id: values[9] ?? "",
+              benchmark_name: values[10] ?? "",
+              exposure_pct: values[11] ?? "",
+              safe_pct: values[12] ?? "",
+              vix_regime: values[13] ?? "",
+              data_confidence: values[14] ?? "",
+              last_updated: values[15] ?? "",
             };
           })
           // remove any accidental blank row
@@ -136,7 +180,26 @@ export default function WaveCards() {
       } catch (err) {
         console.error("Failed to fetch live snapshot CSV:", err);
         if (!cancelled) {
-          setLiveData([]);
+          // Use fallback registry to render 28 placeholder rows
+          const fallbackData: LiveWaveData[] = WAVE_REGISTRY.map((wave) => ({
+            wave_id: wave.wave_id,
+            wave_name: wave.wave_name,
+            status: "LIVE",
+            performance_1d: "",
+            performance_30d: "",
+            performance_ytd: "",
+            alpha_1d: "",
+            alpha_30d: "",
+            alpha_ytd: "",
+            benchmark_id: "",
+            benchmark_name: "",
+            exposure_pct: "",
+            safe_pct: "",
+            vix_regime: "",
+            data_confidence: "",
+            last_updated: "",
+          }));
+          setLiveData(fallbackData);
           setIsLoading(false);
         }
       }
