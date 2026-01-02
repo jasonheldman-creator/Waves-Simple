@@ -387,7 +387,7 @@ export async function POST() {
       if ("sha" in fileData) {
         fileSha = fileData.sha;
       }
-    } catch (error) {
+    } catch {
       // File doesn't exist yet, that's ok
       console.log("File doesn't exist yet, will create it");
     }
