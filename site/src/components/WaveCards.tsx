@@ -23,38 +23,77 @@ interface LiveWaveData {
   last_updated: string;
 }
 
+/**
+ * Simple CSV parser that handles quoted fields and commas within quotes
+ */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  
+  result.push(current);
+  return result;
+}
+
 export default function WaveCards() {
   const [liveData, setLiveData] = useState<LiveWaveData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Fetch live snapshot data from CSV endpoint
+  // Fetch live snapshot data from static CSV file
   useEffect(() => {
     const fetchLiveData = async () => {
       try {
-        const csvUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL || "/api/live_snapshot.csv";
-        const response = await fetch(csvUrl);
+        // Fetch from static CSV file in public/data directory
+        const response = await fetch('/data/live_snapshot.csv', {
+          cache: 'no-store'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const csvText = await response.text();
 
         // Parse CSV data
         const lines = csvText.trim().split("\n");
 
+        if (lines.length < 2) {
+          throw new Error("CSV file is empty or invalid");
+        }
+
         const parsedData: LiveWaveData[] = lines.slice(1).map((line) => {
-          const values = line.split(",");
+          const values = parseCSVLine(line);
           return {
-            wave_id: values[0],
-            wave_name: values[1],
-            status: values[2],
-            performance_1d: values[3],
-            performance_30d: values[4],
-            performance_ytd: values[5],
-            last_updated: values[6],
+            wave_id: values[0] || '',
+            wave_name: values[1] || '',
+            status: values[2] || '',
+            performance_1d: values[3] || '',
+            performance_30d: values[4] || '',
+            performance_ytd: values[5] || '',
+            last_updated: values[6] || '',
           };
         });
 
         setLiveData(parsedData);
+        setErrorMessage(null);
         setIsLoading(false);
       } catch (error) {
         console.error("Failed to fetch live snapshot data:", error);
+        setErrorMessage("Live data unavailable.");
         setIsLoading(false);
       }
     };
@@ -71,14 +110,19 @@ export default function WaveCards() {
 
   // Convert live data to display waves - show ALL waves from CSV
   const displayWaves: WaveCard[] = liveData.map((live, index) => {
+    // Display "—" for empty or missing performance values
+    const formatPerformance = (value: string) => {
+      return value && value.trim() !== '' ? value : '—';
+    };
+    
     return {
       id: index + 1,
       name: live.wave_name,
       description: `Wave ID: ${live.wave_id}`,
-      performance: live.performance_1d,
-      performance1d: live.performance_1d,
-      performance30d: live.performance_30d,
-      performanceYtd: live.performance_ytd,
+      performance: formatPerformance(live.performance_1d),
+      performance1d: formatPerformance(live.performance_1d),
+      performance30d: formatPerformance(live.performance_30d),
+      performanceYtd: formatPerformance(live.performance_ytd),
       status: live.status,
     };
   });
@@ -94,6 +138,11 @@ export default function WaveCards() {
             Explore our portfolio of strategic investment waves
           </p>
           {isLoading && <p className="mt-2 text-sm text-gray-500">Loading wave data...</p>}
+          {errorMessage && (
+            <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3">
+              <p className="text-sm text-red-400">{errorMessage}</p>
+            </div>
+          )}
         </div>
 
         {displayWaves.length === 0 && !isLoading ? (
@@ -122,7 +171,7 @@ export default function WaveCards() {
                       {wave.status}
                     </span>
                   </div>
-                  {wave.performance && wave.performance !== "--" && (
+                  {wave.performance && wave.performance !== "—" && (
                     <div className="text-right">
                       <div
                         className={`text-lg font-bold ${
@@ -132,7 +181,7 @@ export default function WaveCards() {
                         {wave.performance}
                       </div>
                       <div className="text-xs text-gray-500">1D</div>
-                      {wave.performance30d && wave.performance30d !== "--" && (
+                      {wave.performance30d && wave.performance30d !== "—" && (
                         <>
                           <div
                             className={`text-sm font-semibold mt-1 ${
@@ -146,7 +195,7 @@ export default function WaveCards() {
                           <div className="text-xs text-gray-500">30D</div>
                         </>
                       )}
-                      {wave.performanceYtd && wave.performanceYtd !== "--" && (
+                      {wave.performanceYtd && wave.performanceYtd !== "—" && (
                         <>
                           <div
                             className={`text-sm font-semibold mt-1 ${
