@@ -168,33 +168,141 @@ def render_overview_tab(df):
         st.warning("No data available for overview.")
         return
     
-    # Get metrics for all waves
-    metrics = get_wave_metrics(df)
+    # ========================================================================
+    # A) EXECUTIVE OVERVIEW TABLE
+    # ========================================================================
+    st.subheader("Executive Overview")
     
-    if metrics is None or metrics.empty:
-        st.warning("No metrics available.")
-        return
+    # Prepare the table with requested columns
+    exec_columns = {
+        'display_name': 'Wave',  # fallback to Wave_ID if Wave missing
+        'return_1d': 'Return_1D',
+        'return_30d': 'Return_30D',
+        'return_60d': 'Return_60D',
+        'return_365d': 'Return_365D',
+        'alpha_1d': 'Alpha_1D',
+        'alpha_30d': 'Alpha_30D',
+        'alpha_60d': 'Alpha_60D',
+        'alpha_365d': 'Alpha_365D',
+        'beta': 'Beta_Real',
+        'benchmark': 'Benchmark_Return_30D',  # using 30D benchmark as sample
+        'coverage_pct': 'Coverage_Score',
+        'stale_days_max': None  # not in current schema, will handle gracefully
+    }
     
-    # Format numeric columns as percentages
-    display_df = metrics.copy()
+    exec_df = pd.DataFrame()
     
-    percentage_columns = [
-        'Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
-        'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D'
-    ]
+    # Build display_name column
+    if 'Wave' in df.columns:
+        exec_df['display_name'] = df['Wave']
+    elif 'Wave_ID' in df.columns:
+        exec_df['display_name'] = df['Wave_ID']
+    else:
+        exec_df['display_name'] = 'Unknown'
     
-    for col in percentage_columns:
-        if col in display_df.columns:
-            # Vectorized percentage formatting
-            display_df[col] = (display_df[col] * 100).round(2).astype(str) + '%'
-            display_df[col] = display_df[col].replace('nan%', 'N/A')
+    # Add other columns if they exist
+    for target_col, source_col in exec_columns.items():
+        if target_col == 'display_name':
+            continue  # already handled
+        if source_col and source_col in df.columns:
+            exec_df[target_col] = df[source_col]
+        else:
+            exec_df[target_col] = None  # gracefully handle missing columns
     
-    # Display the table
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        hide_index=True
-    )
+    # Sort: default by alpha_30d desc if present, else return_30d desc
+    if 'alpha_30d' in exec_df.columns and exec_df['alpha_30d'].notna().any():
+        exec_df = exec_df.sort_values('alpha_30d', ascending=False, na_position='last')
+    elif 'return_30d' in exec_df.columns and exec_df['return_30d'].notna().any():
+        exec_df = exec_df.sort_values('return_30d', ascending=False, na_position='last')
+    
+    # Format for display
+    display_exec = exec_df.copy()
+    
+    # Format return/alpha columns as percentages with 2 decimals
+    pct_cols_2dec = ['return_1d', 'return_30d', 'return_60d', 'return_365d',
+                     'alpha_1d', 'alpha_30d', 'alpha_60d', 'alpha_365d', 'benchmark']
+    for col in pct_cols_2dec:
+        if col in display_exec.columns:
+            display_exec[col] = display_exec[col].apply(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            )
+    
+    # Format beta with 2 decimals
+    if 'beta' in display_exec.columns:
+        display_exec['beta'] = display_exec['beta'].apply(
+            lambda x: f"{x:.2f}" if pd.notna(x) else "N/A"
+        )
+    
+    # Format coverage_pct as 0-100 with 1 decimal
+    if 'coverage_pct' in display_exec.columns:
+        display_exec['coverage_pct'] = display_exec['coverage_pct'].apply(
+            lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
+        )
+    
+    # Format stale_days_max as integer
+    if 'stale_days_max' in display_exec.columns:
+        display_exec['stale_days_max'] = display_exec['stale_days_max'].apply(
+            lambda x: f"{int(x)}" if pd.notna(x) else "N/A"
+        )
+    
+    # Display the executive overview table
+    st.dataframe(display_exec, use_container_width=True, hide_index=True)
+    
+    # ========================================================================
+    # B) LEADERBOARDS
+    # ========================================================================
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🏆 Top Outperformers (30D Alpha)")
+        if 'alpha_30d' in exec_df.columns and exec_df['alpha_30d'].notna().any():
+            top5 = exec_df.nlargest(5, 'alpha_30d')[['display_name', 'alpha_30d']].copy()
+            top5['alpha_30d'] = top5['alpha_30d'].apply(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            )
+            st.dataframe(top5, use_container_width=True, hide_index=True)
+        else:
+            st.info("Alpha 30D data not available")
+    
+    with col2:
+        st.subheader("⚠️ Needs Attention")
+        if 'alpha_30d' in exec_df.columns and exec_df['alpha_30d'].notna().any():
+            # Show bottom 5 by alpha_30d
+            bottom5 = exec_df.nsmallest(5, 'alpha_30d')[['display_name', 'alpha_30d']].copy()
+            bottom5['alpha_30d'] = bottom5['alpha_30d'].apply(
+                lambda x: f"{x*100:.2f}%" if pd.notna(x) else "N/A"
+            )
+            st.dataframe(bottom5, use_container_width=True, hide_index=True)
+        else:
+            # Show waves with missing data, low coverage, or high stale days
+            needs_attention = []
+            for idx, row in exec_df.iterrows():
+                issues = []
+                # Check coverage
+                if 'coverage_pct' in exec_df.columns and pd.notna(row['coverage_pct']):
+                    if row['coverage_pct'] < 100:
+                        issues.append("Low Coverage")
+                # Check stale days
+                if 'stale_days_max' in exec_df.columns and pd.notna(row['stale_days_max']):
+                    if row['stale_days_max'] > 0:
+                        issues.append("Stale Data")
+                # Check for missing key columns
+                if pd.isna(row.get('return_30d')) or pd.isna(row.get('return_60d')):
+                    issues.append("Missing Returns")
+                
+                if issues:
+                    needs_attention.append({
+                        'display_name': row['display_name'],
+                        'issue': ', '.join(issues)
+                    })
+            
+            if needs_attention:
+                attention_df = pd.DataFrame(needs_attention).head(5)
+                st.dataframe(attention_df, use_container_width=True, hide_index=True)
+            else:
+                st.success("All waves look healthy!")
     
     # Summary metrics
     st.markdown("---")
@@ -472,6 +580,13 @@ def main():
         
         st.markdown("---")
         
+        # Manual refresh button
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        
+        st.markdown("---")
+        
         # Show last update time
         st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
     
@@ -501,6 +616,52 @@ def main():
         
         # Data loaded successfully
         record_success()
+        
+        # ========================================================================
+        # C) MARKET SNAPSHOT STRIP (above tabs)
+        # ========================================================================
+        # Find the file path that was used
+        data_file_path = None
+        possible_paths = [
+            DATA_FILE,
+            os.path.join("data", DATA_FILE),
+            os.path.join(os.getcwd(), DATA_FILE),
+            os.path.join(os.getcwd(), "data", DATA_FILE)
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                data_file_path = path
+                break
+        
+        # Get data timestamp - try multiple column names
+        data_timestamp = None
+        timestamp_cols = ['asof', 'timestamp', 'last_updated', 'Date']
+        for col in timestamp_cols:
+            if col in df.columns and df[col].notna().any():
+                data_timestamp = df[col].max()
+                break
+        
+        # Display market snapshot strip
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            num_waves = len(df)
+            st.metric("📊 Waves Loaded", num_waves)
+        
+        with col2:
+            if data_timestamp:
+                st.metric("📅 Data As Of", data_timestamp)
+            else:
+                st.metric("📅 Data As Of", "N/A")
+        
+        with col3:
+            if data_file_path:
+                st.metric("📁 File Path", data_file_path)
+            else:
+                st.metric("📁 File Path", "Unknown")
+        
+        st.markdown("---")
         
         # Create tabs
         tab1, tab2, tab3 = st.tabs(["📊 Overview", "🔍 Single Wave", "🔧 Diagnostics"])
