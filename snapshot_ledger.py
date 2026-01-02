@@ -80,6 +80,7 @@ SNAPSHOT_FILE = "data/live_snapshot.csv"
 SNAPSHOT_METADATA_FILE = "data/snapshot_metadata.json"
 BROKEN_TICKERS_FILE = "data/broken_tickers.csv"
 WAVE_HISTORY_FILE = "wave_history.csv"
+WAVE_WEIGHTS_FILE = "wave_weights.csv"
 TRADING_DAYS_PER_YEAR = 252
 MAX_SNAPSHOT_AGE_HOURS = 24  # Regenerate snapshot after 24 hours
 MAX_SNAPSHOT_RUNTIME_SECONDS = 300  # Maximum runtime for snapshot generation
@@ -91,6 +92,81 @@ TIMEFRAMES = {
     "60D": 60,
     "365D": 365,
 }
+
+
+def _load_canonical_waves_from_weights() -> List[Tuple[str, str]]:
+    """
+    Load the canonical list of waves from wave_weights.csv.
+    
+    Returns:
+        List of tuples (wave_display_name, wave_id) for all 28 expected waves
+    """
+    try:
+        if not os.path.exists(WAVE_WEIGHTS_FILE):
+            print(f"⚠ Warning: {WAVE_WEIGHTS_FILE} not found, using engine fallback")
+            return []
+        
+        # Read wave_weights.csv
+        weights_df = pd.read_csv(WAVE_WEIGHTS_FILE)
+        
+        # Get unique wave display names
+        unique_waves = weights_df['wave'].unique().tolist()
+        
+        # Convert display names to wave_ids
+        wave_list = []
+        for wave_name in unique_waves:
+            try:
+                if WAVES_ENGINE_AVAILABLE and get_wave_id_from_display_name is not None:
+                    wave_id = get_wave_id_from_display_name(wave_name)
+                else:
+                    # Fallback: convert display name to wave_id format
+                    wave_id = wave_name.lower().replace(' ', '_').replace('&', 'and').replace('-', '_')
+                    wave_id = wave_id.replace('/', '_')
+                
+                wave_list.append((wave_name, wave_id))
+            except Exception as e:
+                print(f"⚠ Warning: Failed to convert wave name '{wave_name}' to wave_id: {e}")
+                # Use fallback conversion
+                wave_id = wave_name.lower().replace(' ', '_').replace('&', 'and').replace('-', '_')
+                wave_id = wave_id.replace('/', '_')
+                wave_list.append((wave_name, wave_id))
+        
+        print(f"✓ Loaded {len(wave_list)} canonical waves from {WAVE_WEIGHTS_FILE}")
+        return wave_list
+        
+    except Exception as e:
+        print(f"✗ Error loading canonical waves from {WAVE_WEIGHTS_FILE}: {e}")
+        return []
+
+
+def _get_wave_tickers(wave_name: str) -> List[str]:
+    """
+    Get list of tickers for a given wave from wave_weights.csv or WAVE_WEIGHTS.
+    
+    Args:
+        wave_name: Display name of the wave
+        
+    Returns:
+        List of ticker symbols for the wave
+    """
+    try:
+        # Try WAVE_WEIGHTS first (from waves_engine)
+        if WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS is not None:
+            holdings = WAVE_WEIGHTS.get(wave_name, [])
+            if holdings:
+                return [h.ticker for h in holdings]
+        
+        # Fallback to reading from wave_weights.csv
+        if os.path.exists(WAVE_WEIGHTS_FILE):
+            weights_df = pd.read_csv(WAVE_WEIGHTS_FILE)
+            wave_tickers = weights_df[weights_df['wave'] == wave_name]['ticker'].tolist()
+            return wave_tickers
+        
+        return []
+        
+    except Exception as e:
+        print(f"⚠ Warning: Failed to get tickers for wave '{wave_name}': {e}")
+        return []
 
 
 def _safe_return(nav_series: pd.Series, days: int) -> float:
@@ -404,18 +480,31 @@ def _build_snapshot_row_tier_a(
     Returns:
         Snapshot row dictionary, or None if not available
     """
+    failed_tickers_list = []
     try:
         # Try Method 1: Use compute_history_nav (may fail if no network)
         hist_df = None
         if WAVES_ENGINE_AVAILABLE:
             try:
                 hist_df = compute_history_nav(wave_name, mode=mode, days=365, price_df=price_df)
+                # Extract failed tickers from coverage metadata
+                if hasattr(hist_df, 'attrs') and 'coverage' in hist_df.attrs:
+                    coverage = hist_df.attrs['coverage']
+                    failed_tickers_dict = coverage.get('failed_tickers', {})
+                    failed_tickers_list = list(failed_tickers_dict.keys())
             except Exception as e:
                 print(f"compute_history_nav failed for {wave_name}: {e}")
         
         # Try Method 2: Fall back to wave_history.csv
         if hist_df is None or hist_df.empty or len(hist_df) < 7:
             hist_df = _load_wave_history_from_csv(wave_id, days=365)
+            # If using fallback, try to get expected tickers from wave_weights
+            if hist_df is not None and not hist_df.empty:
+                expected_tickers = _get_wave_tickers(wave_name)
+                # Since we don't have actual failed tickers info, list all as potentially missing
+                # This is a conservative approach for the CSV fallback
+                if expected_tickers:
+                    failed_tickers_list = expected_tickers
         
         if hist_df is None or hist_df.empty or len(hist_df) < 7:
             # Not enough data for Tier A
@@ -482,6 +571,14 @@ def _build_snapshot_row_tier_a(
         # Coverage score (0-100)
         coverage_score = min(100, int(len(hist_df) / 365 * 100))
         
+        # Determine status based on data availability
+        # Check if we have valid return data
+        has_valid_data = not all(np.isnan(returns.get(f"Return_{label}")) for label in TIMEFRAMES.keys())
+        status = "OK" if has_valid_data else "NO DATA"
+        
+        # Format missing_tickers column
+        missing_tickers = ", ".join(sorted(failed_tickers_list)) if failed_tickers_list else ""
+        
         # Flags
         flags = []
         if len(hist_df) < 365:
@@ -490,6 +587,8 @@ def _build_snapshot_row_tier_a(
             flags.append("Beta N/A")
         if np.isnan(turnover_est):
             flags.append("Turnover N/A")
+        if failed_tickers_list:
+            flags.append(f"{len(failed_tickers_list)} ticker(s) failed")
         
         flags_str = "; ".join(flags) if flags else "OK"
         
@@ -530,6 +629,8 @@ def _build_snapshot_row_tier_a(
             "Flags": flags_str,
             "Data_Regime_Tag": data_regime_tag,
             "Coverage_Score": coverage_score,
+            "status": status,
+            "missing_tickers": missing_tickers,
         }
         
         return row
@@ -560,18 +661,29 @@ def _build_snapshot_row_tier_b(
     Returns:
         Snapshot row dictionary, or None if not available
     """
+    failed_tickers_list = []
     try:
         # Try Method 1: Use compute_history_nav (may fail if no network)
         hist_df = None
         if WAVES_ENGINE_AVAILABLE:
             try:
                 hist_df = compute_history_nav(wave_name, mode=mode, days=60, price_df=price_df)
+                # Extract failed tickers from coverage metadata
+                if hasattr(hist_df, 'attrs') and 'coverage' in hist_df.attrs:
+                    coverage = hist_df.attrs['coverage']
+                    failed_tickers_dict = coverage.get('failed_tickers', {})
+                    failed_tickers_list = list(failed_tickers_dict.keys())
             except Exception as e:
                 print(f"compute_history_nav failed for {wave_name}: {e}")
         
         # Try Method 2: Fall back to wave_history.csv
         if hist_df is None or hist_df.empty or len(hist_df) < 1:
             hist_df = _load_wave_history_from_csv(wave_id, days=60)
+            # If using fallback, try to get expected tickers from wave_weights
+            if hist_df is not None and not hist_df.empty:
+                expected_tickers = _get_wave_tickers(wave_name)
+                if expected_tickers:
+                    failed_tickers_list = expected_tickers
         
         if hist_df is None or hist_df.empty or len(hist_df) < 1:
             return None
@@ -622,12 +734,21 @@ def _build_snapshot_row_tier_b(
         data_regime_tag = "Operational"
         coverage_score = min(100, int(len(hist_df) / 365 * 100))
         
+        # Determine status based on data availability
+        has_valid_data = not all(np.isnan(returns.get(f"Return_{label}")) for label in TIMEFRAMES.keys())
+        status = "OK" if has_valid_data else "NO DATA"
+        
+        # Format missing_tickers column
+        missing_tickers = ", ".join(sorted(failed_tickers_list)) if failed_tickers_list else ""
+        
         # Flags
         flags = ["Limited History", "Tier B"]
         if np.isnan(beta_real):
             flags.append("Beta N/A")
         if np.isnan(turnover_est):
             flags.append("Turnover N/A")
+        if failed_tickers_list:
+            flags.append(f"{len(failed_tickers_list)} ticker(s) failed")
         
         flags_str = "; ".join(flags)
         
@@ -668,6 +789,8 @@ def _build_snapshot_row_tier_b(
             "Flags": flags_str,
             "Data_Regime_Tag": data_regime_tag,
             "Coverage_Score": coverage_score,
+            "status": status,
+            "missing_tickers": missing_tickers,
         }
         
         return row
@@ -737,10 +860,14 @@ def _build_snapshot_row_tier_d(
     vix_level, vix_regime = _get_vix_level_and_regime(price_df)
     exposure, cash_percent = _compute_exposure_and_cash(wave_name, mode, vix_level, vix_regime, price_df)
     
-    # All returns are NaN or 0
+    # All returns are NaN
     returns = {f"Return_{label}": float("nan") for label in TIMEFRAMES.keys()}
     bm_returns = {f"Benchmark_Return_{label}": float("nan") for label in TIMEFRAMES.keys()}
-    alphas = {f"Alpha_{label}": 0.0 for label in TIMEFRAMES.keys()}  # Alpha = 0 in fallback
+    alphas = {f"Alpha_{label}": float("nan") for label in TIMEFRAMES.keys()}
+    
+    # Get expected tickers for this wave
+    expected_tickers = _get_wave_tickers(wave_name)
+    missing_tickers = ", ".join(sorted(expected_tickers)) if expected_tickers else "All tickers"
     
     # Get category from registry
     category = "Unknown"
@@ -779,6 +906,8 @@ def _build_snapshot_row_tier_d(
         "Flags": "Benchmark Fallback; Tier D; No Data",
         "Data_Regime_Tag": "Unavailable",
         "Coverage_Score": 0,
+        "status": "NO DATA",
+        "missing_tickers": missing_tickers,
     }
     
     return row
@@ -981,27 +1110,39 @@ def generate_snapshot(
         except Exception as e:
             print(f"⚠ Failed to load cached snapshot: {e}")
     
-    # Get all wave IDs
-    if not WAVES_ENGINE_AVAILABLE:
-        print("✗ Waves engine not available")
-        # Return empty DataFrame with proper columns
-        return pd.DataFrame(columns=[
-            "Wave", "Mode", "Date", "NAV", "NAV_1D_Change",
-            "Return_1D", "Return_30D", "Return_60D", "Return_365D",
-            "Benchmark_Return_1D", "Benchmark_Return_30D", "Benchmark_Return_60D", "Benchmark_Return_365D",
-            "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
-            "Exposure", "CashPercent", "VIX_Level", "VIX_Regime",
-            "Beta_Real", "Beta_Target", "Beta_Drift", "Turnover_Est", "MaxDD",
-            "Flags", "Data_Regime_Tag", "Coverage_Score"
-        ])
+    # Get all wave IDs - use wave_weights.csv as canonical source
+    canonical_waves = _load_canonical_waves_from_weights()
     
-    try:
-        all_wave_ids = get_all_wave_ids()
-    except Exception as e:
-        print(f"✗ Failed to get wave IDs: {e}")
-        return pd.DataFrame()
+    # Fallback to waves engine if wave_weights.csv is not available
+    if not canonical_waves:
+        if not WAVES_ENGINE_AVAILABLE:
+            print("✗ Waves engine not available and wave_weights.csv not found")
+            # Return empty DataFrame with proper columns
+            return pd.DataFrame(columns=[
+                "Wave_ID", "Wave", "Mode", "Date", "NAV", "NAV_1D_Change",
+                "Return_1D", "Return_30D", "Return_60D", "Return_365D",
+                "Benchmark_Return_1D", "Benchmark_Return_30D", "Benchmark_Return_60D", "Benchmark_Return_365D",
+                "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
+                "Exposure", "CashPercent", "VIX_Level", "VIX_Regime",
+                "Beta_Real", "Beta_Target", "Beta_Drift", "Turnover_Est", "MaxDD",
+                "Flags", "Data_Regime_Tag", "Coverage_Score", "status", "missing_tickers"
+            ])
+        
+        try:
+            all_wave_ids = get_all_wave_ids()
+            # Convert to canonical format
+            canonical_waves = []
+            for wave_id in all_wave_ids:
+                try:
+                    wave_name = get_display_name_from_wave_id(wave_id)
+                    canonical_waves.append((wave_name, wave_id))
+                except Exception as e:
+                    print(f"⚠ Warning: Failed to get display name for {wave_id}: {e}")
+        except Exception as e:
+            print(f"✗ Failed to get wave IDs: {e}")
+            return pd.DataFrame()
     
-    print(f"✓ Found {len(all_wave_ids)} waves in registry")
+    print(f"✓ Found {len(canonical_waves)} canonical waves")
     
     # Get global price cache if available
     if price_df is None and DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE:
@@ -1016,27 +1157,22 @@ def generate_snapshot(
     snapshot_rows = []
     tier_stats = {"A": 0, "B": 0, "C": 0, "D": 0}
     
-    for wave_id in all_wave_ids:
+    for wave_name, wave_id in canonical_waves:
         # Check runtime limit
         elapsed = time.time() - start_time
         if elapsed > max_runtime_seconds:
             print(f"⚠ Max runtime ({max_runtime_seconds}s) exceeded, using fallback for remaining waves")
             # Use Tier D for remaining waves
-            for remaining_wave_id in all_wave_ids[len(snapshot_rows):]:
-                try:
-                    remaining_wave_name = get_display_name_from_wave_id(remaining_wave_id)
-                except Exception:
-                    # Fallback: use wave_id as name if function fails
-                    remaining_wave_name = remaining_wave_id
+            remaining_waves = canonical_waves[len(snapshot_rows):]
+            for remaining_wave_name, remaining_wave_id in remaining_waves:
                 row = _build_snapshot_row_tier_d(remaining_wave_id, remaining_wave_name, "Standard", price_df)
                 snapshot_rows.append(row)
                 tier_stats["D"] += 1
             break
         
-        wave_name = get_display_name_from_wave_id(wave_id)
         mode = "Standard"  # Default mode
         
-        print(f"\n[{len(snapshot_rows)+1}/{len(all_wave_ids)}] Processing {wave_name}...")
+        print(f"\n[{len(snapshot_rows)+1}/{len(canonical_waves)}] Processing {wave_name}...")
         
         # Try tiers in order: A -> B -> C -> D
         row = None
