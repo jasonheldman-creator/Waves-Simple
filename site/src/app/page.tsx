@@ -2,46 +2,75 @@
 
 import React, { useState, useEffect } from "react";
 
-interface WaveSnapshot {
-  Wave_ID: string;
-  Wave: string;
-  Return_1D?: string;
-  Return_30D?: string;
-  Return_60D?: string;
-  Return_365D?: string;
-  AsOfUTC?: string;
-  DataStatus?: string;
-  MissingTickers?: string;
-}
-
-interface SnapshotResponse {
-  count: number;
-  timestamp: string;
-  data: WaveSnapshot[];
+interface WaveData {
+  wave_id: string;
+  wave_name: string;
+  status: string;
+  performance_1d: string;
+  performance_30d: string;
+  performance_ytd: string;
+  last_updated: string;
 }
 
 export default function SnapshotConsole() {
-  const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null);
+  const [waves, setWaves] = useState<WaveData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string>("—");
 
   const fetchSnapshot = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/snapshot");
-      const data = await response.json();
-
-      if (response.ok) {
-        setSnapshot(data);
-        setMessage(null);
-      } else {
-        setMessage({ type: "error", text: data.message || "Failed to fetch snapshot" });
-      }
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "Failed to fetch snapshot",
+      setError(null);
+      
+      const response = await fetch("/data/live_snapshot.csv", {
+        cache: "no-store",
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch snapshot data");
+      }
+
+      const csvText = await response.text();
+      const lines = csvText.trim().split("\n");
+      
+      if (lines.length < 2) {
+        throw new Error("Live data unavailable");
+      }
+
+      // Parse CSV manually with proper handling of empty fields
+      const lines2 = lines.slice(1); // Skip header
+      
+      const parsedWaves: WaveData[] = lines2.map((line) => {
+        // Split by comma - this assumes no commas within quoted strings
+        // For the current CSV structure with empty fields, we need to handle consecutive commas
+        const values = line.split(",").map(v => v.trim());
+        
+        return {
+          wave_id: values[0] || "",
+          wave_name: values[1] || "",
+          status: values[2] || "",
+          performance_1d: values[3] || "",
+          performance_30d: values[4] || "",
+          performance_ytd: values[5] || "",
+          last_updated: values[6] || "",
+        };
+      });
+
+      setWaves(parsedWaves);
+      
+      // Derive last updated from the first wave's last_updated field
+      if (parsedWaves.length > 0 && parsedWaves[0].last_updated) {
+        try {
+          const date = new Date(parsedWaves[0].last_updated);
+          setLastUpdated(date.toLocaleString());
+        } catch {
+          setLastUpdated("—");
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load snapshot");
+      setWaves([]);
     } finally {
       setLoading(false);
     }
@@ -51,7 +80,7 @@ export default function SnapshotConsole() {
     fetchSnapshot();
   }, []);
 
-  const formatReturn = (val?: string) => {
+  const formatReturn = (val: string) => {
     if (!val || val === "") return "—";
     const num = parseFloat(val);
     if (isNaN(num)) return "—";
@@ -67,35 +96,17 @@ export default function SnapshotConsole() {
             WAVES Intelligence™ — Snapshot Console
           </h1>
           <p className="text-gray-600">
-            Live market data snapshot for {snapshot?.count || 28} canonical waves
+            Live market data snapshot for 28 canonical waves
           </p>
         </div>
-
-        {/* Status Messages */}
-        {message && (
-          <div
-            className={`mb-6 p-4 rounded-lg ${
-              message.type === "success"
-                ? "bg-green-50 border border-green-200 text-green-800"
-                : "bg-red-50 border border-red-200 text-red-800"
-            }`}
-          >
-            <div className="whitespace-pre-wrap">{message.text}</div>
-          </div>
-        )}
 
         {/* Controls */}
         <div className="mb-6 flex items-center justify-between bg-white p-4 rounded-lg shadow">
           <div className="text-sm text-gray-600">
-            {snapshot && (
-              <div>
-                <strong>Total Waves:</strong> {snapshot.count} |
-                <strong className="ml-2">Last Updated:</strong>{" "}
-                {snapshot.data[0]?.AsOfUTC
-                  ? new Date(snapshot.data[0].AsOfUTC).toLocaleString()
-                  : "—"}
-              </div>
-            )}
+            <div>
+              <strong>Total Waves:</strong> 28 |
+              <strong className="ml-2">Last Updated:</strong> {lastUpdated}
+            </div>
           </div>
           <div className="flex gap-3">
             <button
@@ -105,23 +116,22 @@ export default function SnapshotConsole() {
             >
               {loading ? "Loading..." : "Refresh"}
             </button>
-            {/* Rebuild functionality disabled - data now sourced from static CSV */}
-            {/* <button
-              onClick={rebuildSnapshot}
-              disabled={rebuilding}
-              className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-            >
-              {rebuilding ? "Rebuilding..." : "Rebuild Snapshot Now"}
-            </button> */}
           </div>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-800">
+            {error}
+          </div>
+        )}
+
         {/* Snapshot Table */}
-        {loading && !snapshot ? (
+        {loading && waves.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-gray-600">Loading snapshot data...</div>
           </div>
-        ) : snapshot ? (
+        ) : waves.length > 0 ? (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -137,10 +147,7 @@ export default function SnapshotConsole() {
                       30D Return
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      60D Return
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      365D Return
+                      YTD Return
                     </th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -148,19 +155,18 @@ export default function SnapshotConsole() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {snapshot.data.map((wave, index) => {
-                    const ret1d = wave.Return_1D ? parseFloat(wave.Return_1D) : null;
-                    const ret30d = wave.Return_30D ? parseFloat(wave.Return_30D) : null;
-                    const ret60d = wave.Return_60D ? parseFloat(wave.Return_60D) : null;
-                    const ret365d = wave.Return_365D ? parseFloat(wave.Return_365D) : null;
+                  {waves.map((wave, index) => {
+                    const ret1d = wave.performance_1d ? parseFloat(wave.performance_1d) : null;
+                    const ret30d = wave.performance_30d ? parseFloat(wave.performance_30d) : null;
+                    const retYtd = wave.performance_ytd ? parseFloat(wave.performance_ytd) : null;
 
                     return (
                       <tr
-                        key={wave.Wave_ID}
+                        key={wave.wave_id}
                         className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}
                       >
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {wave.Wave}
+                          {wave.wave_name}
                         </td>
                         <td
                           className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
@@ -171,7 +177,7 @@ export default function SnapshotConsole() {
                               : "text-gray-400"
                           }`}
                         >
-                          {formatReturn(wave.Return_1D)}
+                          {formatReturn(wave.performance_1d)}
                         </td>
                         <td
                           className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
@@ -182,39 +188,28 @@ export default function SnapshotConsole() {
                               : "text-gray-400"
                           }`}
                         >
-                          {formatReturn(wave.Return_30D)}
+                          {formatReturn(wave.performance_30d)}
                         </td>
                         <td
                           className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                            ret60d !== null
-                              ? ret60d >= 0
+                            retYtd !== null
+                              ? retYtd >= 0
                                 ? "text-green-600"
                                 : "text-red-600"
                               : "text-gray-400"
                           }`}
                         >
-                          {formatReturn(wave.Return_60D)}
-                        </td>
-                        <td
-                          className={`px-6 py-4 whitespace-nowrap text-sm text-right ${
-                            ret365d !== null
-                              ? ret365d >= 0
-                                ? "text-green-600"
-                                : "text-red-600"
-                              : "text-gray-400"
-                          }`}
-                        >
-                          {formatReturn(wave.Return_365D)}
+                          {formatReturn(wave.performance_ytd)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <span
-                            className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                              wave.DataStatus === "OK"
-                                ? "bg-green-100 text-green-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
-                          >
-                            {wave.DataStatus || "—"}
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            wave.status === "LIVE" 
+                              ? "bg-green-100 text-green-800"
+                              : wave.status === "FAILED" || wave.status === "ERROR"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-gray-100 text-gray-800"
+                          }`}>
+                            {wave.status}
                           </span>
                         </td>
                       </tr>
@@ -225,7 +220,7 @@ export default function SnapshotConsole() {
             </div>
           </div>
         ) : (
-          <div className="text-center py-12 text-red-600">Failed to load snapshot data</div>
+          <div className="text-center py-12 text-gray-600">Live data unavailable</div>
         )}
       </div>
     </div>
