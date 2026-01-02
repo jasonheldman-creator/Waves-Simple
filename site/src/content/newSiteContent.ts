@@ -13,32 +13,38 @@ export const siteContent = {
       {
         icon: "📊",
         title: "Decision Infrastructure Platform",
-        description: "Complete transparency into portfolio construction logic, multi-dimensional exposures, and decision rationale—governance-native architecture at every layer.",
+        description:
+          "Complete transparency into portfolio construction logic, multi-dimensional exposures, and decision rationale—governance-native architecture at every layer.",
       },
       {
         icon: "🎯",
         title: "Portfolios as Proof Engine",
-        description: "WAVES™ portfolios demonstrate platform effectiveness through disciplined, benchmark-aware execution under live market conditions—not backtests, real proof.",
+        description:
+          "WAVES™ portfolios demonstrate platform effectiveness through disciplined, benchmark-aware execution under live market conditions—not backtests, real proof.",
       },
       {
         icon: "🔍",
         title: "Institutional Exposure Analytics",
-        description: "Real-time multi-factor visibility across sectors, styles, and risk dimensions—integrated risk overlays ensure governance controls remain operational.",
+        description:
+          "Real-time multi-factor visibility across sectors, styles, and risk dimensions—integrated risk overlays ensure governance controls remain operational.",
       },
       {
         icon: "⚖️",
         title: "Governance by Design",
-        description: "Audit trails, compliance frameworks, and benchmark integrity controls built into infrastructure—not compliance add-ons, foundational governance.",
+        description:
+          "Audit trails, compliance frameworks, and benchmark integrity controls built into infrastructure—not compliance add-ons, foundational governance.",
       },
       {
         icon: "📈",
         title: "Benchmark-Disciplined Attribution",
-        description: "Factor-level decomposition reveals what systematic decisions produce—platform analytics demonstrate portfolio outcomes with institutional precision.",
+        description:
+          "Factor-level decomposition reveals what systematic decisions produce—platform analytics demonstrate portfolio outcomes with institutional precision.",
       },
       {
         icon: "🔒",
         title: "Modular Engagement Options",
-        description: "License decision infrastructure, access WAVES™ portfolios as live mandates, or integrate both—flexible institutional adoption pathways.",
+        description:
+          "License decision infrastructure, access WAVES™ portfolios as live mandates, or integrate both—flexible institutional adoption pathways.",
       },
     ],
     howItWorks: {
@@ -70,7 +76,8 @@ export const siteContent = {
     },
     audience: {
       title: "Built for Institutional Decision-Makers",
-      subtitle: "Decision infrastructure and portfolio proof—unified for institutional governance and operational excellence",
+      subtitle:
+        "Decision infrastructure and portfolio proof—unified for institutional governance and operational excellence",
       columns: [
         {
           title: "CIO / Investment Committee",
@@ -256,7 +263,8 @@ export const siteContent = {
     ],
     differentiators: {
       title: "How WAVES™ Are Different",
-      subtitle: "Decision infrastructure with portfolio validation—not advisory tools, not backtesting platforms, not stock-picking services.",
+      subtitle:
+        "Decision infrastructure with portfolio validation—not advisory tools, not backtesting platforms, not stock-picking services.",
       points: [
         {
           title: "Infrastructure + Portfolios Unified",
@@ -370,7 +378,8 @@ export const siteContent = {
   },
   acquisitionIntegration: {
     title: "Built for Acquisition & Integration",
-    subtitle: "Modular architecture designed for institutional adoption, partnership, and M&A scenarios",
+    subtitle:
+      "Modular architecture designed for institutional adoption, partnership, and M&A scenarios",
     intro:
       "WAVES Intelligence™ architecture anticipates institutional acquisition, partnership models, and bespoke deployment requirements. System design supports flexible engagement—from licensing to full integration.",
     capabilities: [

@@ -64,12 +64,10 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
           <div className="aspect-video flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
             <div className="text-center p-8">
               <div className="text-6xl mb-4">🎥</div>
-              <h3 className="text-xl font-semibold text-white mb-2">
-                Executive Briefing Video
-              </h3>
+              <h3 className="text-xl font-semibold text-white mb-2">Executive Briefing Video</h3>
               <p className="text-gray-400 max-w-md mx-auto">
-                Video content will be available here. This is an informational placeholder
-                ensuring the player interface is ready for deployment.
+                Video content will be available here. This is an informational placeholder ensuring
+                the player interface is ready for deployment.
               </p>
             </div>
           </div>
@@ -85,12 +83,12 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
           >
             <source src={videoSrc} type="video/mp4" />
             <p className="text-gray-400 p-8">
-              Your browser does not support the video tag. Please use a modern browser to
-              view this content.
+              Your browser does not support the video tag. Please use a modern browser to view this
+              content.
             </p>
           </video>
         )}
-        
+
         {/* Video overlay for additional context when not playing */}
         {!isPlaying && !videoError && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none flex items-end">
@@ -102,14 +100,13 @@ export default function ExecutiveBriefing({ compact = false }: ExecutiveBriefing
           </div>
         )}
       </div>
-      
+
       {/* Governance note */}
       <div className="mt-4 rounded-md bg-gray-900/50 border border-gray-800 p-4">
         <p className="text-xs text-gray-400 leading-relaxed">
-          <span className="font-semibold text-gray-300">Governance Note:</span> This
-          briefing is an informational system overview provided for educational purposes. It
-          does not constitute investment advice, and viewers should conduct their own due
-          diligence.
+          <span className="font-semibold text-gray-300">Governance Note:</span> This briefing is an
+          informational system overview provided for educational purposes. It does not constitute
+          investment advice, and viewers should conduct their own due diligence.
         </p>
       </div>
     </div>

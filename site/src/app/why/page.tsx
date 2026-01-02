@@ -13,7 +13,7 @@ export default function WhyPage() {
         secondaryCtaText="View Governance Architecture"
         secondaryCtaLink="/governance"
       />
-      
+
       {/* Main Reasons Section */}
       <section className="bg-black py-20 sm:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -51,16 +51,14 @@ export default function WhyPage() {
                 key={index}
                 className="rounded-lg border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-800/50 p-8 transition-all hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10"
               >
-                <h3 className="text-xl font-semibold text-white mb-3">
-                  {point.title}
-                </h3>
+                <h3 className="text-xl font-semibold text-white mb-3">{point.title}</h3>
                 <p className="text-gray-400 leading-relaxed">{point.description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
-      
+
       <CallToAction
         title="Experience Institutional Decision Infrastructure"
         description="See how WAVES Intelligence™ and WAVES™ portfolios deliver governance-native infrastructure with live portfolio validation."

@@ -15,28 +15,32 @@ export const siteContent = {
       examples: [
         {
           title: "Multi-Factor Attribution Analysis",
-          description: "Example performance decomposition showing return attribution across market factors, sector tilts, and strategy-specific alpha with benchmark integrity validation.",
+          description:
+            "Example performance decomposition showing return attribution across market factors, sector tilts, and strategy-specific alpha with benchmark integrity validation.",
           icon: "📊",
           metric: "Attribution Precision",
           value: "Factor-level clarity",
         },
         {
           title: "Real-Time Risk Exposure Dashboard",
-          description: "Illustrative view of portfolio exposures across sectors, factors, and risk dimensions with continuous monitoring and overlay analysis.",
+          description:
+            "Illustrative view of portfolio exposures across sectors, factors, and risk dimensions with continuous monitoring and overlay analysis.",
           icon: "🎯",
           metric: "Exposure Monitoring",
           value: "Position-level granularity",
         },
         {
           title: "Decision Audit Trail",
-          description: "Example audit log showing immutable records of portfolio decisions, rebalances, and governance approvals with complete traceability.",
+          description:
+            "Example audit log showing immutable records of portfolio decisions, rebalances, and governance approvals with complete traceability.",
           icon: "📋",
           metric: "Audit Completeness",
           value: "100% traceability",
         },
         {
           title: "Benchmark Integrity Validation",
-          description: "Illustrative validation workflow showing continuous benchmark reconciliation, data quality checks, and integrity controls across analytics.",
+          description:
+            "Illustrative validation workflow showing continuous benchmark reconciliation, data quality checks, and integrity controls across analytics.",
           icon: "✅",
           metric: "Data Quality",
           value: "Institutional-grade accuracy",
@@ -45,60 +49,75 @@ export const siteContent = {
     },
     institutionalTrust: {
       title: "Institutional Trust Signals",
-      subtitle: "Governance-first architecture engineered for fiduciary standards and regulatory compliance",
+      subtitle:
+        "Governance-first architecture engineered for fiduciary standards and regulatory compliance",
       features: [
         {
           title: "Governance-First Architecture",
-          description: "System design prioritizing fiduciary controls, oversight frameworks, and institutional accountability at every layer of the platform.",
+          description:
+            "System design prioritizing fiduciary controls, oversight frameworks, and institutional accountability at every layer of the platform.",
           icon: "⚖️",
         },
         {
           title: "Benchmark Integrity Enforcement",
-          description: "Continuous validation and reconciliation of performance benchmarks ensuring accuracy, consistency, and institutional standards across all analytics.",
+          description:
+            "Continuous validation and reconciliation of performance benchmarks ensuring accuracy, consistency, and institutional standards across all analytics.",
           icon: "🎯",
         },
         {
           title: "Exposure-Aware Analytics",
-          description: "Real-time visibility into portfolio exposures, risk concentrations, and factor decomposition with institutional-grade precision and attribution clarity.",
+          description:
+            "Real-time visibility into portfolio exposures, risk concentrations, and factor decomposition with institutional-grade precision and attribution clarity.",
           icon: "🔍",
         },
         {
           title: "Complete Audit Trails",
-          description: "Immutable logging of all decisions, allocations, rebalances, and system activities. Full transparency for regulatory examination and fiduciary oversight.",
+          description:
+            "Immutable logging of all decisions, allocations, rebalances, and system activities. Full transparency for regulatory examination and fiduciary oversight.",
           icon: "📋",
         },
         {
           title: "Regulated Environment Readiness",
-          description: "Compliance frameworks supporting SEC, FINRA, GDPR, and institutional regulatory requirements with built-in controls and documentation standards.",
+          description:
+            "Compliance frameworks supporting SEC, FINRA, GDPR, and institutional regulatory requirements with built-in controls and documentation standards.",
           icon: "✅",
         },
       ],
     },
     buyerPersonas: {
       title: "Built for Institutional Decision-Makers",
-      subtitle: "Addressing the specific needs of key stakeholders across the investment organization",
+      subtitle:
+        "Addressing the specific needs of key stakeholders across the investment organization",
       roles: [
         {
           title: "Chief Investment Officers",
-          description: "Strategic oversight with comprehensive portfolio analytics, risk budget management, and fiduciary governance frameworks. Complete transparency into allocation decisions and performance attribution.",
+          description:
+            "Strategic oversight with comprehensive portfolio analytics, risk budget management, and fiduciary governance frameworks. Complete transparency into allocation decisions and performance attribution.",
           icon: "👔",
-          needs: ["Strategic asset allocation oversight", "Risk budget visibility", "Fiduciary compliance"],
+          needs: [
+            "Strategic asset allocation oversight",
+            "Risk budget visibility",
+            "Fiduciary compliance",
+          ],
         },
         {
           title: "Portfolio Managers",
-          description: "Tactical execution support with real-time analytics, benchmark integrity validation, and position-level decision intelligence. Data-driven capital deployment with complete audit trails.",
+          description:
+            "Tactical execution support with real-time analytics, benchmark integrity validation, and position-level decision intelligence. Data-driven capital deployment with complete audit trails.",
           icon: "📊",
           needs: ["Real-time analytics", "Position-level insights", "Performance attribution"],
         },
         {
           title: "Risk & Compliance Officers",
-          description: "Continuous exposure monitoring, regulatory reporting, and comprehensive audit documentation. Stress testing, scenario analysis, and policy enforcement with institutional-grade controls.",
+          description:
+            "Continuous exposure monitoring, regulatory reporting, and comprehensive audit documentation. Stress testing, scenario analysis, and policy enforcement with institutional-grade controls.",
           icon: "🛡️",
           needs: ["Risk monitoring", "Compliance reporting", "Audit trails"],
         },
         {
           title: "Corporate Development Teams",
-          description: "Integration-ready infrastructure for M&A evaluation, technology due diligence, and enterprise deployment. API access, data lineage transparency, and scalable architecture documentation.",
+          description:
+            "Integration-ready infrastructure for M&A evaluation, technology due diligence, and enterprise deployment. API access, data lineage transparency, and scalable architecture documentation.",
           icon: "🏢",
           needs: ["Integration assessment", "Technical due diligence", "Scalability validation"],
         },
@@ -152,29 +171,42 @@ export const siteContent = {
     platformPreview: {
       title: "Platform Preview",
       subtitle: "Institutional decision infrastructure powering WAVES™ portfolios",
-      description: "Experience how WAVES Intelligence™ provides the analytics and governance infrastructure while WAVES™ portfolios prove its effectiveness under live market conditions. The platform delivers transparency and control; the portfolios demonstrate disciplined execution. Together, they form an integrated institutional solution.",
+      description:
+        "Experience how WAVES Intelligence™ provides the analytics and governance infrastructure while WAVES™ portfolios prove its effectiveness under live market conditions. The platform delivers transparency and control; the portfolios demonstrate disciplined execution. Together, they form an integrated institutional solution.",
       capabilities: [
         {
           title: "Real-Time Portfolio Dashboard",
-          description: "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. The same analytics infrastructure powering WAVES™ portfolio operations and available for institutional licensing.",
+          description:
+            "Live monitoring of portfolio positions, exposures, and performance metrics with institutional-grade precision. The same analytics infrastructure powering WAVES™ portfolio operations and available for institutional licensing.",
           icon: "📊",
-          features: ["Position-level granularity", "Multi-strategy aggregation", "Risk overlay visualization"],
+          features: [
+            "Position-level granularity",
+            "Multi-strategy aggregation",
+            "Risk overlay visualization",
+          ],
         },
         {
           title: "Attribution & Analytics Engine",
-          description: "Comprehensive performance decomposition explaining how decisions perform. WAVES™ portfolios leverage these analytics to demonstrate risk-aware execution. Institutions can license this same infrastructure for their own decision-making.",
+          description:
+            "Comprehensive performance decomposition explaining how decisions perform. WAVES™ portfolios leverage these analytics to demonstrate risk-aware execution. Institutions can license this same infrastructure for their own decision-making.",
           icon: "📈",
-          features: ["Factor decomposition", "Benchmark integrity controls", "Risk-adjusted metrics"],
+          features: [
+            "Factor decomposition",
+            "Benchmark integrity controls",
+            "Risk-adjusted metrics",
+          ],
         },
         {
           title: "Governance & Audit Framework",
-          description: "Immutable decision trails and compliance monitoring across both platform infrastructure and WAVES™ portfolio operations. Board-ready documentation proving institutional oversight in action.",
+          description:
+            "Immutable decision trails and compliance monitoring across both platform infrastructure and WAVES™ portfolio operations. Board-ready documentation proving institutional oversight in action.",
           icon: "📋",
           features: ["Audit trail logging", "Compliance validation", "Board reporting"],
         },
         {
           title: "Risk Management Console",
-          description: "Continuous exposure monitoring demonstrating how WAVES™ portfolios operate within institutional risk frameworks. Multi-layer overlays proving disciplined governance and risk controls.",
+          description:
+            "Continuous exposure monitoring demonstrating how WAVES™ portfolios operate within institutional risk frameworks. Multi-layer overlays proving disciplined governance and risk controls.",
           icon: "🛡️",
           features: ["Exposure monitoring", "Stress testing", "Automated alerts"],
         },
@@ -182,32 +214,39 @@ export const siteContent = {
     },
     differentiation: {
       title: "How WAVES Is Different",
-      subtitle: "Integrated infrastructure and live proof—distinct from consumer tools and generic dashboards",
-      content: "WAVES Intelligence™ is not a robo-advisor, backtesting tool, stock-picking app, or generic analytics dashboard. We deliver decision infrastructure that institutions can license, complemented by WAVES™ portfolios that prove the platform's effectiveness under live conditions. One system, two proofs—infrastructure transparency and real-world performance.",
+      subtitle:
+        "Integrated infrastructure and live proof—distinct from consumer tools and generic dashboards",
+      content:
+        "WAVES Intelligence™ is not a robo-advisor, backtesting tool, stock-picking app, or generic analytics dashboard. We deliver decision infrastructure that institutions can license, complemented by WAVES™ portfolios that prove the platform's effectiveness under live conditions. One system, two proofs—infrastructure transparency and real-world performance.",
       features: [
         {
           title: "Platform + Portfolio Integration",
-          description: "WAVES Intelligence™ explains how decisions are made. WAVES™ portfolios demonstrate what those decisions produce. Both offerings reinforce each other in a unified institutional solution.",
+          description:
+            "WAVES Intelligence™ explains how decisions are made. WAVES™ portfolios demonstrate what those decisions produce. Both offerings reinforce each other in a unified institutional solution.",
           icon: "🎯",
         },
         {
           title: "Institutional Engagement Options",
-          description: "License the platform as decision infrastructure. Engage WAVES™ portfolios as live mandates. Or pursue both in a deeply integrated approach tailored to institutional requirements.",
+          description:
+            "License the platform as decision infrastructure. Engage WAVES™ portfolios as live mandates. Or pursue both in a deeply integrated approach tailored to institutional requirements.",
           icon: "⚖️",
         },
         {
           title: "Live Proof, Not Speculation",
-          description: "WAVES™ portfolios operate under real market conditions, demonstrating disciplined, risk-aware decision-making. Not speculative products—live proofs of platform-powered governance.",
+          description:
+            "WAVES™ portfolios operate under real market conditions, demonstrating disciplined, risk-aware decision-making. Not speculative products—live proofs of platform-powered governance.",
           icon: "🎛️",
         },
         {
           title: "Decision Traceability Across Both",
-          description: "Complete audit trails linking platform analytics to WAVES™ portfolio actions. Full transparency into how the infrastructure operates and what the portfolios deliver.",
+          description:
+            "Complete audit trails linking platform analytics to WAVES™ portfolio actions. Full transparency into how the infrastructure operates and what the portfolios deliver.",
           icon: "📋",
         },
         {
           title: "Explainable Intelligence Throughout",
-          description: "Transparent attribution across platform infrastructure and portfolio operations—no black-box algorithms. Understand exactly how the system works and what it produces.",
+          description:
+            "Transparent attribution across platform infrastructure and portfolio operations—no black-box algorithms. Understand exactly how the system works and what it produces.",
           icon: "🔍",
         },
       ],
@@ -215,22 +254,26 @@ export const siteContent = {
     features: [
       {
         title: "Wave Registry",
-        description: "Centralized repository of investment strategies with canonical identifiers, metadata taxonomy, complete audit trails, and strategy documentation ensuring benchmark integrity for institutional governance. Designed to integrate into institutional investment workflows as system-of-record infrastructure.",
+        description:
+          "Centralized repository of investment strategies with canonical identifiers, metadata taxonomy, complete audit trails, and strategy documentation ensuring benchmark integrity for institutional governance. Designed to integrate into institutional investment workflows as system-of-record infrastructure.",
         icon: "🌊",
       },
       {
         title: "Performance Analytics",
-        description: "Rigorous performance measurement with multi-period attribution, factor decomposition, risk overlays, and risk-adjusted return analysis. Benchmark integrity controls ensure accuracy across strategies and time horizons. Composable across mandates, strategies, and asset classes.",
+        description:
+          "Rigorous performance measurement with multi-period attribution, factor decomposition, risk overlays, and risk-adjusted return analysis. Benchmark integrity controls ensure accuracy across strategies and time horizons. Composable across mandates, strategies, and asset classes.",
         icon: "📈",
       },
       {
         title: "Mission Control",
-        description: "Real-time market regime identification with risk overlays for portfolio positioning analytics. Dynamic capital allocation frameworks and tactical adjustments guided by benchmark integrity and governance protocols. Integration-ready for institutional workflows.",
+        description:
+          "Real-time market regime identification with risk overlays for portfolio positioning analytics. Dynamic capital allocation frameworks and tactical adjustments guided by benchmark integrity and governance protocols. Integration-ready for institutional workflows.",
         icon: "🎛️",
       },
       {
         title: "Board Pack Generator",
-        description: "Automated institutional reporting with audit trails, customizable templates, performance summaries, and governance documentation. Complete transparency for investment committees with benchmark integrity validation. System-of-record ready for fiduciary environments.",
+        description:
+          "Automated institutional reporting with audit trails, customizable templates, performance summaries, and governance documentation. Complete transparency for investment committees with benchmark integrity validation. System-of-record ready for fiduciary environments.",
         icon: "📋",
       },
     ],
@@ -238,13 +281,15 @@ export const siteContent = {
   console: {
     hero: {
       title: "WAVES Institutional Console",
-      subtitle: "Decision infrastructure platform powering WAVES™ portfolio operations and available for institutional licensing",
+      subtitle:
+        "Decision infrastructure platform powering WAVES™ portfolio operations and available for institutional licensing",
     },
     description:
       "The WAVES Console serves as the decision infrastructure platform for modern asset management. Delivering real-time portfolio analytics with risk overlays, comprehensive alpha attribution with benchmark integrity controls, and institutional-grade decision intelligence. This is the same platform that powers WAVES™ portfolio operations—demonstrating its effectiveness under live market conditions. Institutions can license this infrastructure for their own decision-making, engage WAVES™ portfolios as live mandates, or pursue both in an integrated approach. Built for fiduciary oversight, the platform provides complete transparency into strategy performance, position-level exposures with audit trails, and governance-ready compliance frameworks.",
     accessRequest: {
       title: "Request Institutional Access",
-      description: "Connect with our team to discuss platform capabilities, WAVES™ portfolio mandates, and integrated deployment options. We provide comprehensive technical due diligence materials and support for institutional evaluation of both infrastructure and live portfolio offerings.",
+      description:
+        "Connect with our team to discuss platform capabilities, WAVES™ portfolio mandates, and integrated deployment options. We provide comprehensive technical due diligence materials and support for institutional evaluation of both infrastructure and live portfolio offerings.",
       contact: "jasonheldman-creator",
     },
     intendedUsers: {
@@ -253,22 +298,26 @@ export const siteContent = {
       roles: [
         {
           title: "Chief Investment Officers",
-          description: "Strategic asset allocation oversight, risk budget management, and fiduciary governance with complete transparency into portfolio positioning and performance attribution.",
+          description:
+            "Strategic asset allocation oversight, risk budget management, and fiduciary governance with complete transparency into portfolio positioning and performance attribution.",
           icon: "👔",
         },
         {
           title: "Portfolio Managers",
-          description: "Tactical implementation, strategy execution, and position-level decision support with real-time risk overlays and benchmark integrity validation.",
+          description:
+            "Tactical implementation, strategy execution, and position-level decision support with real-time risk overlays and benchmark integrity validation.",
           icon: "📊",
         },
         {
           title: "Risk Officers",
-          description: "Continuous exposure monitoring, stress testing, scenario analysis, and risk reporting with institutional-grade precision and audit trails.",
+          description:
+            "Continuous exposure monitoring, stress testing, scenario analysis, and risk reporting with institutional-grade precision and audit trails.",
           icon: "🛡️",
         },
         {
           title: "Compliance Officers",
-          description: "Regulatory oversight, policy enforcement, trade surveillance, and comprehensive audit trail documentation for fiduciary and regulatory requirements.",
+          description:
+            "Regulatory oversight, policy enforcement, trade surveillance, and comprehensive audit trail documentation for fiduciary and regulatory requirements.",
           icon: "✅",
         },
       ],
@@ -278,22 +327,26 @@ export const siteContent = {
       features: [
         {
           title: "Auditability",
-          description: "Immutable logging of all portfolio decisions, system activities, and data modifications with tamper-proof audit trails for regulatory examination and forensic analysis.",
+          description:
+            "Immutable logging of all portfolio decisions, system activities, and data modifications with tamper-proof audit trails for regulatory examination and forensic analysis.",
           icon: "📝",
         },
         {
           title: "Data Lineage",
-          description: "Complete traceability from raw market data through analytics processing to portfolio decisions. Full transparency into calculation methodologies and data transformations.",
+          description:
+            "Complete traceability from raw market data through analytics processing to portfolio decisions. Full transparency into calculation methodologies and data transformations.",
           icon: "🔗",
         },
         {
           title: "Access Control",
-          description: "Granular role-based permissions with mandatory multi-factor authentication, session management, and hierarchical approval workflows for institutional environments.",
+          description:
+            "Granular role-based permissions with mandatory multi-factor authentication, session management, and hierarchical approval workflows for institutional environments.",
           icon: "🔐",
         },
         {
           title: "Compliance Frameworks",
-          description: "Built-in support for SEC, FINRA, GDPR, and fiduciary regulatory requirements with automated compliance monitoring and reporting capabilities.",
+          description:
+            "Built-in support for SEC, FINRA, GDPR, and fiduciary regulatory requirements with automated compliance monitoring and reporting capabilities.",
           icon: "⚖️",
         },
       ],
@@ -320,25 +373,29 @@ export const siteContent = {
       principles: [
         {
           title: "Data Flow Clarity",
-          description: "Complete visibility into data pipelines from market sources through analytics to portfolio decisions. Each transformation documented, validated, and traceable with full lineage transparency.",
+          description:
+            "Complete visibility into data pipelines from market sources through analytics to portfolio decisions. Each transformation documented, validated, and traceable with full lineage transparency.",
           icon: "🔗",
           details: ["Source validation", "Transformation logging", "End-to-end traceability"],
         },
         {
           title: "Governance Checkpoints",
-          description: "Mandatory approval workflows, policy enforcement gates, and compliance validations at critical decision points. Hierarchical controls ensuring fiduciary oversight.",
+          description:
+            "Mandatory approval workflows, policy enforcement gates, and compliance validations at critical decision points. Hierarchical controls ensuring fiduciary oversight.",
           icon: "⚖️",
           details: ["Approval workflows", "Policy enforcement", "Compliance gates"],
         },
         {
           title: "Auditability by Design",
-          description: "Immutable audit trails capturing every system action, user decision, and data modification. Tamper-proof logging for regulatory examination and forensic analysis.",
+          description:
+            "Immutable audit trails capturing every system action, user decision, and data modification. Tamper-proof logging for regulatory examination and forensic analysis.",
           icon: "📝",
           details: ["Immutable logging", "Event capture", "Forensic readiness"],
         },
         {
           title: "Risk Control Layers",
-          description: "Multi-tier risk management with exposure limits, concentration controls, and real-time breach monitoring. Automated alerts and circuit breakers for institutional risk frameworks.",
+          description:
+            "Multi-tier risk management with exposure limits, concentration controls, and real-time breach monitoring. Automated alerts and circuit breakers for institutional risk frameworks.",
           icon: "🛡️",
           details: ["Exposure limits", "Automated alerts", "Risk containment"],
         },
@@ -347,31 +404,37 @@ export const siteContent = {
     differentiation: {
       title: "How WAVES Is Different",
       subtitle: "Infrastructure designed for institutional integration and fiduciary standards",
-      content: "Unlike consumer-grade tools or standalone dashboards, WAVES is architected as composable decision infrastructure that integrates into institutional investment workflows.",
+      content:
+        "Unlike consumer-grade tools or standalone dashboards, WAVES is architected as composable decision infrastructure that integrates into institutional investment workflows.",
       features: [
         {
           title: "Strategy-Aware Benchmarks",
-          description: "Custom benchmark frameworks that adapt to mandate requirements, not generic market indices disconnected from investment objectives.",
+          description:
+            "Custom benchmark frameworks that adapt to mandate requirements, not generic market indices disconnected from investment objectives.",
           icon: "🎯",
         },
         {
           title: "Risk-Adjusted Capital Allocation",
-          description: "Systematic position sizing and portfolio construction frameworks based on quantitative risk budgets and institutional return requirements.",
+          description:
+            "Systematic position sizing and portfolio construction frameworks based on quantitative risk budgets and institutional return requirements.",
           icon: "⚖️",
         },
         {
           title: "Dynamic Exposure Control",
-          description: "Continuous monitoring and tactical adjustment of exposures across market regimes with institutional-grade precision and governance controls.",
+          description:
+            "Continuous monitoring and tactical adjustment of exposures across market regimes with institutional-grade precision and governance controls.",
           icon: "🎛️",
         },
         {
           title: "Decision Traceability",
-          description: "Immutable audit trails connecting every portfolio decision to supporting analytics, regime data, and governance approvals.",
+          description:
+            "Immutable audit trails connecting every portfolio decision to supporting analytics, regime data, and governance approvals.",
           icon: "📋",
         },
         {
           title: "Explainable Portfolio Intelligence",
-          description: "Fully transparent attribution and decision frameworks—no proprietary black boxes or unexplained algorithmic outputs.",
+          description:
+            "Fully transparent attribution and decision frameworks—no proprietary black boxes or unexplained algorithmic outputs.",
           icon: "🔍",
         },
       ],
@@ -388,32 +451,38 @@ export const siteContent = {
     features: [
       {
         title: "End-to-End Encryption",
-        description: "All portfolio data encrypted in transit using TLS 1.3 and at rest using AES-256 encryption, with hardware security module (HSM) key management.",
+        description:
+          "All portfolio data encrypted in transit using TLS 1.3 and at rest using AES-256 encryption, with hardware security module (HSM) key management.",
         icon: "🔐",
       },
       {
         title: "Access Controls",
-        description: "Granular role-based access control (RBAC), mandatory multi-factor authentication (MFA), and session management for institutional user hierarchies.",
+        description:
+          "Granular role-based access control (RBAC), mandatory multi-factor authentication (MFA), and session management for institutional user hierarchies.",
         icon: "🔑",
       },
       {
         title: "Audit Trails",
-        description: "Comprehensive immutable logging of all system activities, user actions, and data access events with benchmark integrity validation for compliance verification and forensic analysis.",
+        description:
+          "Comprehensive immutable logging of all system activities, user actions, and data access events with benchmark integrity validation for compliance verification and forensic analysis.",
         icon: "📝",
       },
       {
         title: "Compliance",
-        description: "SOC 2 Type II certified operations, GDPR compliance, and support for institutional regulatory frameworks including SEC, FINRA, and fiduciary standards.",
+        description:
+          "SOC 2 Type II certified operations, GDPR compliance, and support for institutional regulatory frameworks including SEC, FINRA, and fiduciary standards.",
         icon: "✅",
       },
       {
         title: "Data Sovereignty",
-        description: "Geographic data residency options, jurisdiction-specific compliance controls, and privacy frameworks aligned with institutional requirements.",
+        description:
+          "Geographic data residency options, jurisdiction-specific compliance controls, and privacy frameworks aligned with institutional requirements.",
         icon: "🌍",
       },
       {
         title: "Regular Audits",
-        description: "Independent third-party security audits, penetration testing programs, and vulnerability assessments conducted on a continuous basis.",
+        description:
+          "Independent third-party security audits, penetration testing programs, and vulnerability assessments conducted on a continuous basis.",
         icon: "🛡️",
       },
     ],
@@ -429,22 +498,26 @@ export const siteContent = {
     values: [
       {
         title: "Rigor",
-        description: "Maintaining disciplined quantitative methods, comprehensive data validation with benchmark integrity controls, and institutional-grade analytical frameworks across both platform infrastructure and WAVES™ portfolio operations.",
+        description:
+          "Maintaining disciplined quantitative methods, comprehensive data validation with benchmark integrity controls, and institutional-grade analytical frameworks across both platform infrastructure and WAVES™ portfolio operations.",
       },
       {
         title: "Transparency",
-        description: "Ensuring complete visibility into platform methodology and WAVES™ portfolio operations through comprehensive documentation, audit trails, and benchmark integrity validation. No black boxes—understand how the infrastructure works and what the portfolios deliver.",
+        description:
+          "Ensuring complete visibility into platform methodology and WAVES™ portfolio operations through comprehensive documentation, audit trails, and benchmark integrity validation. No black boxes—understand how the infrastructure works and what the portfolios deliver.",
       },
       {
         title: "Precision",
-        description: "Delivering institutional-quality data accuracy, low-latency analytics with risk overlays, and consistent performance measurement across platform infrastructure and WAVES™ portfolio execution.",
+        description:
+          "Delivering institutional-quality data accuracy, low-latency analytics with risk overlays, and consistent performance measurement across platform infrastructure and WAVES™ portfolio execution.",
       },
     ],
   },
   press: {
     hero: {
       title: "Press & Media",
-      subtitle: "Announcements, institutional updates, and media resources from WAVES Intelligence.",
+      subtitle:
+        "Announcements, institutional updates, and media resources from WAVES Intelligence.",
     },
     description:
       "For press inquiries, media resources, institutional announcements, or interview requests, please contact our communications team through the channels below.",
@@ -452,7 +525,8 @@ export const siteContent = {
   contact: {
     hero: {
       title: "Contact Us",
-      subtitle: "Connect with our institutional team to discuss portfolio analytics, platform capabilities, and partnership opportunities.",
+      subtitle:
+        "Connect with our institutional team to discuss portfolio analytics, platform capabilities, and partnership opportunities.",
     },
     description:
       "Whether you represent an institutional investor, asset manager, or investment office seeking advanced portfolio analytics and decision intelligence, our team is available to discuss how WAVES Intelligence can support your requirements.",
@@ -467,7 +541,8 @@ export const siteContent = {
       "WAVES Intelligence provides comprehensive governance infrastructure designed for institutional investment environments. Our platform delivers the auditability, benchmark integrity, data lineage, and risk oversight capabilities required for fiduciary-level portfolio management and regulatory compliance.",
     pillars: {
       title: "Governance Pillars",
-      subtitle: "Four foundational capabilities ensuring institutional compliance and operational excellence",
+      subtitle:
+        "Four foundational capabilities ensuring institutional compliance and operational excellence",
       items: [
         {
           title: "Auditability",
@@ -529,62 +604,74 @@ export const siteContent = {
     },
     compliance: {
       title: "Regulatory Compliance Framework",
-      subtitle: "Built-in support for institutional regulatory requirements and fiduciary standards",
+      subtitle:
+        "Built-in support for institutional regulatory requirements and fiduciary standards",
       frameworks: [
         {
           title: "SEC & FINRA Compliance",
-          description: "Comprehensive support for securities regulations including Form ADV disclosure requirements, custody rule compliance, and investment adviser recordkeeping standards.",
+          description:
+            "Comprehensive support for securities regulations including Form ADV disclosure requirements, custody rule compliance, and investment adviser recordkeeping standards.",
           icon: "⚖️",
         },
         {
           title: "Fiduciary Standards",
-          description: "Institutional frameworks supporting ERISA fiduciary responsibilities, prudent investor rules, and investment committee governance documentation requirements.",
+          description:
+            "Institutional frameworks supporting ERISA fiduciary responsibilities, prudent investor rules, and investment committee governance documentation requirements.",
           icon: "👔",
         },
         {
           title: "Data Privacy & Protection",
-          description: "GDPR compliance infrastructure with data sovereignty controls, privacy frameworks, and consent management aligned with institutional requirements.",
+          description:
+            "GDPR compliance infrastructure with data sovereignty controls, privacy frameworks, and consent management aligned with institutional requirements.",
           icon: "🔐",
         },
         {
           title: "SOC 2 Type II Certification",
-          description: "Independent validation of security controls, availability guarantees, processing integrity, confidentiality measures, and privacy protections.",
+          description:
+            "Independent validation of security controls, availability guarantees, processing integrity, confidentiality measures, and privacy protections.",
           icon: "✅",
         },
       ],
     },
     controls: {
       title: "Governance Controls & Workflows",
-      subtitle: "Automated enforcement and oversight mechanisms for institutional governance requirements",
+      subtitle:
+        "Automated enforcement and oversight mechanisms for institutional governance requirements",
       features: [
         {
           title: "Approval Workflows",
-          description: "Hierarchical approval chains for portfolio decisions, risk policy changes, and strategic allocations with delegation controls and escalation procedures.",
+          description:
+            "Hierarchical approval chains for portfolio decisions, risk policy changes, and strategic allocations with delegation controls and escalation procedures.",
           icon: "✍️",
         },
         {
           title: "Policy Enforcement",
-          description: "Automated validation of investment policies, mandate compliance, and regulatory constraints with real-time breach prevention and alerting.",
+          description:
+            "Automated validation of investment policies, mandate compliance, and regulatory constraints with real-time breach prevention and alerting.",
           icon: "🚨",
         },
         {
           title: "Access Governance",
-          description: "Role-based permissions with mandatory multi-factor authentication, session management, and privileged access monitoring for institutional security.",
+          description:
+            "Role-based permissions with mandatory multi-factor authentication, session management, and privileged access monitoring for institutional security.",
           icon: "🔑",
         },
         {
           title: "Change Management",
-          description: "Controlled deployment procedures, configuration versioning, and rollback capabilities with complete change history and impact analysis.",
+          description:
+            "Controlled deployment procedures, configuration versioning, and rollback capabilities with complete change history and impact analysis.",
           icon: "🔄",
         },
         {
           title: "Documentation Standards",
-          description: "Automated generation of investment committee materials, board presentations, and regulatory reports with version control and approval tracking.",
+          description:
+            "Automated generation of investment committee materials, board presentations, and regulatory reports with version control and approval tracking.",
           icon: "📚",
         },
         {
           title: "Incident Response",
-          description: "Structured procedures for security incidents, data breaches, and operational failures with automated escalation and regulatory notification protocols.",
+          description:
+            "Structured procedures for security incidents, data breaches, and operational failures with automated escalation and regulatory notification protocols.",
           icon: "🚑",
         },
       ],

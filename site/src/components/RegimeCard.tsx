@@ -90,9 +90,7 @@ export default function RegimeCard() {
             </div>
           </div>
         </div>
-        <div className="text-xs text-gray-500">
-          Confidence: {marketData.regime.confidence}
-        </div>
+        <div className="text-xs text-gray-500">Confidence: {marketData.regime.confidence}</div>
       </div>
       <p className="text-sm text-gray-300 mb-3">{marketData.regime.description}</p>
       <div className="pt-3 border-t border-gray-700">

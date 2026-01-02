@@ -26,9 +26,9 @@ interface WaveHistoryRow {
 }
 
 function parseRegistryCSV(csvText: string): WaveRegistryRow[] {
-  const lines = csvText.trim().split('\n');
-  return lines.slice(1).map(line => {
-    const values = line.split(',');
+  const lines = csvText.trim().split("\n");
+  return lines.slice(1).map((line) => {
+    const values = line.split(",");
     return {
       wave_id: values[0],
       wave_name: values[1],
@@ -46,18 +46,21 @@ function parseRegistryCSV(csvText: string): WaveRegistryRow[] {
 }
 
 function parseHistoryCSV(csvText: string): WaveHistoryRow[] {
-  const lines = csvText.trim().split('\n');
-  return lines.slice(1).map(line => {
-    const values = line.split(',');
-    return {
-      wave_id: values[0],
-      display_name: values[1],
-      date: values[2],
-      portfolio_return: parseFloat(values[3]),
-      benchmark_return: parseFloat(values[4]),
-      is_synthetic: values[5] === 'True',
-    };
-  }).filter(row => !isNaN(row.portfolio_return));
+  const lines = csvText.trim().split("\n");
+  return lines
+    .slice(1)
+    .map((line) => {
+      const values = line.split(",");
+      return {
+        wave_id: values[0],
+        display_name: values[1],
+        date: values[2],
+        portfolio_return: parseFloat(values[3]),
+        benchmark_return: parseFloat(values[4]),
+        is_synthetic: values[5] === "True",
+      };
+    })
+    .filter((row) => !isNaN(row.portfolio_return));
 }
 
 function calculateCumulativeReturn(returns: number[]): number {
@@ -66,7 +69,7 @@ function calculateCumulativeReturn(returns: number[]): number {
 
 /**
  * GET /api/live_snapshot.csv
- * 
+ *
  * Returns CSV data for all waves in the canonical registry.
  * Performs left join of metrics from wave_history.csv to the registry.
  * Missing metrics are filled with placeholder "--".
@@ -76,21 +79,21 @@ export async function GET() {
     const repoRoot = path.join(process.cwd(), "..");
     const registryPath = path.join(repoRoot, "data", "wave_registry.csv");
     const historyPath = path.join(repoRoot, "wave_history.csv");
-    
+
     // Read canonical wave registry
     const registryText = await fs.readFile(registryPath, "utf-8");
     const registryRows = parseRegistryCSV(registryText);
-    
+
     // Read wave history and compute metrics
     let historyRows: WaveHistoryRow[] = [];
     try {
       const historyText = await fs.readFile(historyPath, "utf-8");
       historyRows = parseHistoryCSV(historyText);
-    } catch (error) {
+    } catch {
       // If history file not found, continue with empty history
       console.warn("Wave history file not found, using placeholders");
     }
-    
+
     // Group history by wave_id
     const historyByWave = new Map<string, WaveHistoryRow[]>();
     for (const row of historyRows) {
@@ -99,50 +102,54 @@ export async function GET() {
       }
       historyByWave.get(row.wave_id)!.push(row);
     }
-    
+
     // Build CSV rows with left join
-    const csvRows: string[] = ["wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated"];
-    
+    const csvRows: string[] = [
+      "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated",
+    ];
+
     // Expected wave count (from wave_weights.csv canonical list)
     const EXPECTED_WAVE_COUNT = 28;
-    
+
     for (const wave of registryRows) {
       const waveHistory = historyByWave.get(wave.wave_id);
-      
+
       let status = "DEMO";
       let performance1d = "--";
       let performance30d = "--";
       let performanceYtd = "--";
       let lastUpdated = "--";
-      
+
       if (waveHistory && waveHistory.length > 0) {
         // Sort by date descending
         waveHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        
+
         const latest = waveHistory[0];
-        const isSynthetic = waveHistory.some(r => r.is_synthetic);
-        
+        const isSynthetic = waveHistory.some((r) => r.is_synthetic);
+
         status = isSynthetic ? "DEMO" : "Active";
         lastUpdated = latest.date;
-        
+
         // Calculate 1-day performance (latest return)
         performance1d = (latest.portfolio_return * 100).toFixed(2) + "%";
-        
+
         // Calculate 30-day performance (last 21 trading days)
         const last30Days = waveHistory.slice(0, Math.min(21, waveHistory.length));
-        const returns30d = last30Days.map(r => r.portfolio_return);
+        const returns30d = last30Days.map((r) => r.portfolio_return);
         const cumReturn30d = calculateCumulativeReturn(returns30d);
         performance30d = (cumReturn30d * 100).toFixed(2) + "%";
-        
+
         // Calculate YTD performance (all available data)
-        const returnsYtd = waveHistory.map(r => r.portfolio_return);
+        const returnsYtd = waveHistory.map((r) => r.portfolio_return);
         const cumReturnYtd = calculateCumulativeReturn(returnsYtd);
         performanceYtd = (cumReturnYtd * 100).toFixed(2) + "%";
       }
-      
-      csvRows.push(`${wave.wave_id},${wave.wave_name},${status},${performance1d},${performance30d},${performanceYtd},${lastUpdated}`);
+
+      csvRows.push(
+        `${wave.wave_id},${wave.wave_name},${status},${performance1d},${performance30d},${performanceYtd},${lastUpdated}`
+      );
     }
-    
+
     // Hard assertion - validate exactly EXPECTED_WAVE_COUNT rows
     // Check CSV rows (excluding header) instead of registry rows for accuracy
     const actualDataRowCount = csvRows.length - 1; // -1 for header row
@@ -152,22 +159,22 @@ export async function GET() {
       console.error("CSV rows (first 5):", csvRows.slice(0, 6));
       throw new Error(errorMsg);
     }
-    
+
     const csvContent = csvRows.join("\n");
-    
+
     return new NextResponse(csvContent, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Cache-Control": "no-store",
       },
     });
-    
   } catch (error) {
     console.error("Error generating live snapshot CSV:", error);
-    
+
     // Return minimal CSV with error indication
-    const errorCsv = "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated\n";
-    
+    const errorCsv =
+      "wave_id,wave_name,status,performance_1d,performance_30d,performance_ytd,last_updated\n";
+
     return new NextResponse(errorCsv, {
       status: 500,
       headers: {

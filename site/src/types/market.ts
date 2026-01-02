@@ -52,8 +52,10 @@ export const DEFAULT_MARKET_DATA: MarketData = {
   timestamp: new Date().toISOString(),
   regime: {
     regime: "Neutral",
-    description: "Market conditions showing balanced risk/reward dynamics with moderate volatility.",
-    exposureImplications: "Maintain balanced exposure across growth and defensive sectors. Monitor regime transitions.",
+    description:
+      "Market conditions showing balanced risk/reward dynamics with moderate volatility.",
+    exposureImplications:
+      "Maintain balanced exposure across growth and defensive sectors. Monitor regime transitions.",
     confidence: "MED",
   },
   governance: {
@@ -93,7 +95,7 @@ export const DEFAULT_MARKET_DATA: MarketData = {
         dailyChange: 1.08,
         dailyChangePercent: 0.55,
         weeklyChange: -2.37,
-        weeklyChangePercent: -1.20,
+        weeklyChangePercent: -1.2,
         monthlyChange: 8.76,
         monthlyChangePercent: 4.69,
       },
@@ -106,7 +108,7 @@ export const DEFAULT_MARKET_DATA: MarketData = {
         weeklyChange: -2.14,
         weeklyChangePercent: -1.13,
         monthlyChange: 8.92,
-        monthlyChangePercent: 5.00,
+        monthlyChangePercent: 5.0,
       },
     ],
     tech: [
@@ -130,7 +132,7 @@ export const DEFAULT_MARKET_DATA: MarketData = {
         weeklyChange: -6.14,
         weeklyChangePercent: -1.59,
         monthlyChange: 22.45,
-        monthlyChangePercent: 6.30,
+        monthlyChangePercent: 6.3,
       },
       {
         symbol: "NVDA",
@@ -141,7 +143,7 @@ export const DEFAULT_MARKET_DATA: MarketData = {
         weeklyChange: -12.44,
         weeklyChangePercent: -2.45,
         monthlyChange: 48.67,
-        monthlyChangePercent: 10.90,
+        monthlyChangePercent: 10.9,
       },
     ],
     rates: [

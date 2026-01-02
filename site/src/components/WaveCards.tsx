@@ -13,10 +13,6 @@ interface WaveCard {
   performanceYtd?: string;
 }
 
-interface WaveCardsProps {
-  waves?: WaveCard[];
-}
-
 interface LiveWaveData {
   wave_id: string;
   wave_name: string;
@@ -27,7 +23,7 @@ interface LiveWaveData {
   last_updated: string;
 }
 
-export default function WaveCards({ waves }: WaveCardsProps) {
+export default function WaveCards() {
   const [liveData, setLiveData] = useState<LiveWaveData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -38,10 +34,10 @@ export default function WaveCards({ waves }: WaveCardsProps) {
         const csvUrl = process.env.NEXT_PUBLIC_LIVE_SNAPSHOT_CSV_URL || "/api/live_snapshot.csv";
         const response = await fetch(csvUrl);
         const csvText = await response.text();
-        
+
         // Parse CSV data
         const lines = csvText.trim().split("\n");
-        
+
         const parsedData: LiveWaveData[] = lines.slice(1).map((line) => {
           const values = line.split(",");
           return {
@@ -54,7 +50,7 @@ export default function WaveCards({ waves }: WaveCardsProps) {
             last_updated: values[6],
           };
         });
-        
+
         setLiveData(parsedData);
         setIsLoading(false);
       } catch (error) {
@@ -97,11 +93,7 @@ export default function WaveCards({ waves }: WaveCardsProps) {
           <p className="mt-4 text-lg text-gray-400">
             Explore our portfolio of strategic investment waves
           </p>
-          {isLoading && (
-            <p className="mt-2 text-sm text-gray-500">
-              Loading wave data...
-            </p>
-          )}
+          {isLoading && <p className="mt-2 text-sm text-gray-500">Loading wave data...</p>}
         </div>
 
         {displayWaves.length === 0 && !isLoading ? (
@@ -132,23 +124,39 @@ export default function WaveCards({ waves }: WaveCardsProps) {
                   </div>
                   {wave.performance && wave.performance !== "--" && (
                     <div className="text-right">
-                      <div className={`text-lg font-bold ${
-                        wave.performance.startsWith("-") ? "text-red-400" : "text-green-400"
-                      }`}>{wave.performance}</div>
+                      <div
+                        className={`text-lg font-bold ${
+                          wave.performance.startsWith("-") ? "text-red-400" : "text-green-400"
+                        }`}
+                      >
+                        {wave.performance}
+                      </div>
                       <div className="text-xs text-gray-500">1D</div>
                       {wave.performance30d && wave.performance30d !== "--" && (
                         <>
-                          <div className={`text-sm font-semibold mt-1 ${
-                            wave.performance30d.startsWith("-") ? "text-red-400" : "text-green-400"
-                          }`}>{wave.performance30d}</div>
+                          <div
+                            className={`text-sm font-semibold mt-1 ${
+                              wave.performance30d.startsWith("-")
+                                ? "text-red-400"
+                                : "text-green-400"
+                            }`}
+                          >
+                            {wave.performance30d}
+                          </div>
                           <div className="text-xs text-gray-500">30D</div>
                         </>
                       )}
                       {wave.performanceYtd && wave.performanceYtd !== "--" && (
                         <>
-                          <div className={`text-sm font-semibold mt-1 ${
-                            wave.performanceYtd.startsWith("-") ? "text-red-400" : "text-green-400"
-                          }`}>{wave.performanceYtd}</div>
+                          <div
+                            className={`text-sm font-semibold mt-1 ${
+                              wave.performanceYtd.startsWith("-")
+                                ? "text-red-400"
+                                : "text-green-400"
+                            }`}
+                          >
+                            {wave.performanceYtd}
+                          </div>
                           <div className="text-xs text-gray-500">YTD</div>
                         </>
                       )}

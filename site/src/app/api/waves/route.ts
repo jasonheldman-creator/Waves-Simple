@@ -15,12 +15,14 @@ const FALLBACK_WAVES_DATA: WavesData = {
   dataState: "FALLBACK",
   asOf: new Date().toISOString(),
   waves: [],
-  alerts: [{
-    type: "data_quality",
-    severity: "medium",
-    message: "WAVES data source unavailable. Using fallback mode.",
-    timestamp: new Date().toISOString(),
-  }],
+  alerts: [
+    {
+      type: "data_quality",
+      severity: "medium",
+      message: "WAVES data source unavailable. Using fallback mode.",
+      timestamp: new Date().toISOString(),
+    },
+  ],
   governance: {
     dataState: "FALLBACK",
     confidenceLevel: "LOW",
@@ -31,7 +33,7 @@ const FALLBACK_WAVES_DATA: WavesData = {
 
 /**
  * GET /api/waves
- * 
+ *
  * Returns WAVES portfolio metrics with caching and fallback.
  * Primary source: wave_history.csv from repository
  * Fallback: Returns empty waves with clear messaging
@@ -51,13 +53,13 @@ export async function GET() {
   try {
     // Read WAVES data from CSV
     const { waves, dataState, syntheticPercentage } = await readWavesData();
-    
+
     // Collect all alerts from waves
     const allAlerts: WaveAlert[] = [];
     for (const wave of waves) {
       allAlerts.push(...wave.alerts);
     }
-    
+
     // Add global alerts
     if (syntheticPercentage === 100) {
       allAlerts.push({
@@ -74,7 +76,7 @@ export async function GET() {
         timestamp: new Date().toISOString(),
       });
     }
-    
+
     const wavesData: WavesData = {
       timestamp: new Date().toISOString(),
       dataState,
@@ -83,44 +85,47 @@ export async function GET() {
       alerts: allAlerts,
       governance: {
         dataState,
-        confidenceLevel: syntheticPercentage === 0 ? "HIGH" : syntheticPercentage < 50 ? "MED" : "LOW",
+        confidenceLevel:
+          syntheticPercentage === 0 ? "HIGH" : syntheticPercentage < 50 ? "MED" : "LOW",
         syntheticDataPercentage: syntheticPercentage,
         lastUpdate: new Date().toISOString(),
       },
     };
-    
+
     // Update cache
     cachedData = wavesData;
     cacheTimestamp = now;
-    
+
     return NextResponse.json(wavesData, {
       headers: {
         "Cache-Control": `public, s-maxage=${CACHE_DURATION}, stale-while-revalidate`,
       },
     });
-    
   } catch (error) {
     console.error("WAVES data fetch error:", error);
-    
+
     // Return last cached data if available
     if (cachedData) {
-      return NextResponse.json({
-        ...cachedData,
-        governance: {
-          ...cachedData.governance,
-          dataState: "FALLBACK",
+      return NextResponse.json(
+        {
+          ...cachedData,
+          governance: {
+            ...cachedData.governance,
+            dataState: "FALLBACK",
+          },
         },
-      }, {
-        headers: {
-          "Cache-Control": `public, s-maxage=${CACHE_DURATION}, stale-while-revalidate`,
-        },
-      });
+        {
+          headers: {
+            "Cache-Control": `public, s-maxage=${CACHE_DURATION}, stale-while-revalidate`,
+          },
+        }
+      );
     }
-    
+
     // Ultimate fallback
     cachedData = FALLBACK_WAVES_DATA;
     cacheTimestamp = now;
-    
+
     return NextResponse.json(FALLBACK_WAVES_DATA, {
       headers: {
         "Cache-Control": `public, s-maxage=${CACHE_DURATION}, stale-while-revalidate`,

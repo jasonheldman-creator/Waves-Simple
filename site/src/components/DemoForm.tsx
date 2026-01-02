@@ -77,11 +77,10 @@ export default function DemoForm({ title, subtitle }: DemoFormProps) {
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           <div className="rounded-lg border border-cyan-500/50 bg-gradient-to-br from-gray-900 to-gray-800/50 p-12 text-center shadow-lg shadow-cyan-500/20">
             <div className="mb-6 text-6xl">✓</div>
-            <h2 className="text-3xl font-bold text-white mb-4">
-              Thank You for Your Interest
-            </h2>
+            <h2 className="text-3xl font-bold text-white mb-4">Thank You for Your Interest</h2>
             <p className="text-lg text-gray-300 mb-6">
-              Your demo request has been received. Our team will reach out to you shortly to schedule an institutional demonstration of WAVES Intelligence™.
+              Your demo request has been received. Our team will reach out to you shortly to
+              schedule an institutional demonstration of WAVES Intelligence™.
             </p>
             <button
               onClick={() => setIsSuccess(false)}
@@ -101,15 +100,9 @@ export default function DemoForm({ title, subtitle }: DemoFormProps) {
         {(title || subtitle) && (
           <div className="text-center mb-12">
             {title && (
-              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
-                {title}
-              </h2>
+              <h2 className="text-3xl font-bold text-white sm:text-4xl lg:text-5xl">{title}</h2>
             )}
-            {subtitle && (
-              <p className="mt-4 text-lg text-gray-400 max-w-2xl mx-auto">
-                {subtitle}
-              </p>
-            )}
+            {subtitle && <p className="mt-4 text-lg text-gray-400 max-w-2xl mx-auto">{subtitle}</p>}
           </div>
         )}
 
@@ -212,7 +205,10 @@ export default function DemoForm({ title, subtitle }: DemoFormProps) {
 
           {/* Primary Challenge */}
           <div>
-            <label htmlFor="primaryChallenge" className="block text-sm font-medium text-gray-300 mb-2">
+            <label
+              htmlFor="primaryChallenge"
+              className="block text-sm font-medium text-gray-300 mb-2"
+            >
               Primary Challenge *
             </label>
             <textarea

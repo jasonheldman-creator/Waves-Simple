@@ -7,7 +7,8 @@ import { siteContent } from "@/content/siteContent";
 
 export const metadata: Metadata = {
   title: "Investment Waves - WAVES Intelligence",
-  description: "Strategic investment themes designed to capture alpha across different market conditions.",
+  description:
+    "Strategic investment themes designed to capture alpha across different market conditions.",
 };
 
 export default function WavesPage() {
@@ -39,12 +40,10 @@ export default function WavesPage() {
         secondaryCtaText="View Platform"
         secondaryCtaLink="/platform"
       />
-      
+
       <section className="bg-black py-16 sm:py-24">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-lg text-gray-300">
-            {siteContent.waves.description}
-          </p>
+          <p className="text-lg text-gray-300">{siteContent.waves.description}</p>
         </div>
       </section>
 
@@ -64,44 +63,58 @@ export default function WavesPage() {
               <div className="text-5xl mb-4">📉</div>
               <h3 className="text-2xl font-semibold text-white mb-4">Alpha-Minus-Beta Mode</h3>
               <p className="text-gray-400 mb-6">
-                Isolating strategy alpha by systematically removing broad market exposure. WAVES™ portfolios 
-                targeting returns independent of benchmark performance through disciplined beta-hedging frameworks.
+                Isolating strategy alpha by systematically removing broad market exposure. WAVES™
+                portfolios targeting returns independent of benchmark performance through
+                disciplined beta-hedging frameworks.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Market-neutral construction reducing systematic beta exposure</span>
+                  <span className="text-sm text-gray-300">
+                    Market-neutral construction reducing systematic beta exposure
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Continuous factor monitoring and rebalancing discipline</span>
+                  <span className="text-sm text-gray-300">
+                    Continuous factor monitoring and rebalancing discipline
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Attribution clarity separating alpha from beta contributions</span>
+                  <span className="text-sm text-gray-300">
+                    Attribution clarity separating alpha from beta contributions
+                  </span>
                 </div>
               </div>
             </div>
-            
+
             <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-gray-900/80 to-gray-800/50 p-8">
               <div className="text-5xl mb-4">🔒</div>
               <h3 className="text-2xl font-semibold text-white mb-4">Private Logic Mode</h3>
               <p className="text-gray-400 mb-6">
-                Proprietary signal generation and portfolio construction methodologies developed through 
-                institutional research. Transparent governance with protected intellectual property.
+                Proprietary signal generation and portfolio construction methodologies developed
+                through institutional research. Transparent governance with protected intellectual
+                property.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Institutional-grade research methodology with IP protection</span>
+                  <span className="text-sm text-gray-300">
+                    Institutional-grade research methodology with IP protection
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Complete audit trails without revealing proprietary signals</span>
+                  <span className="text-sm text-gray-300">
+                    Complete audit trails without revealing proprietary signals
+                  </span>
                 </div>
                 <div className="flex items-start">
                   <span className="text-cyan-400 mr-3">✓</span>
-                  <span className="text-sm text-gray-300">Board-ready documentation balancing transparency and confidentiality</span>
+                  <span className="text-sm text-gray-300">
+                    Board-ready documentation balancing transparency and confidentiality
+                  </span>
                 </div>
               </div>
             </div>
@@ -125,8 +138,8 @@ export default function WavesPage() {
               <div className="text-5xl mb-4">🎯</div>
               <h3 className="text-xl font-semibold text-white mb-4">Selection Alpha</h3>
               <p className="text-gray-400 mb-4">
-                Systematic security selection through quantitative screening, fundamental validation, 
-                and institutional research frameworks.
+                Systematic security selection through quantitative screening, fundamental
+                validation, and institutional research frameworks.
               </p>
               <div className="space-y-2 pt-4 border-t border-gray-700">
                 <div className="flex items-start text-sm text-gray-500">
@@ -148,8 +161,8 @@ export default function WavesPage() {
               <div className="text-5xl mb-4">🎛️</div>
               <h3 className="text-xl font-semibold text-white mb-4">Overlay Alpha</h3>
               <p className="text-gray-400 mb-4">
-                Dynamic portfolio adjustments responding to market regime shifts, volatility conditions, 
-                and risk environment changes.
+                Dynamic portfolio adjustments responding to market regime shifts, volatility
+                conditions, and risk environment changes.
               </p>
               <div className="space-y-2 pt-4 border-t border-gray-700">
                 <div className="flex items-start text-sm text-gray-500">
@@ -171,8 +184,8 @@ export default function WavesPage() {
               <div className="text-5xl mb-4">📊</div>
               <h3 className="text-xl font-semibold text-white mb-4">Regime Alpha</h3>
               <p className="text-gray-400 mb-4">
-                Strategic positioning adapting to macroeconomic regimes, market cycles, 
-                and institutional risk-return environments.
+                Strategic positioning adapting to macroeconomic regimes, market cycles, and
+                institutional risk-return environments.
               </p>
               <div className="space-y-2 pt-4 border-t border-gray-700">
                 <div className="flex items-start text-sm text-gray-500">
@@ -194,7 +207,7 @@ export default function WavesPage() {
       </section>
 
       <WaveCards />
-      
+
       {/* Platform Console Screenshots */}
       <ScreenshotGallery screenshots={platformScreenshots} />
 

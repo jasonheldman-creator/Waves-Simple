@@ -21,11 +21,11 @@ interface StooqDataPoint {
 async function fetchStooqData(symbol: string): Promise<StooqDataPoint[]> {
   const stooqSymbol = mapToStooqSymbol(symbol);
   const url = `https://stooq.com/q/d/l/?s=${stooqSymbol}&i=d`;
-  
+
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; WAVES-Intelligence/1.0)',
+        "User-Agent": "Mozilla/5.0 (compatible; WAVES-Intelligence/1.0)",
       },
     });
 
@@ -43,39 +43,44 @@ async function fetchStooqData(symbol: string): Promise<StooqDataPoint[]> {
 
 function mapToStooqSymbol(symbol: string): string {
   const symbolMap: Record<string, string> = {
-    'SPY': 'spy.us',
-    'QQQ': 'qqq.us',
-    'IWM': 'iwm.us',
-    'TLT': 'tlt.us',
-    'GLD': 'gld.us',
-    'AAPL': 'aapl.us',
-    'MSFT': 'msft.us',
-    'NVDA': 'nvda.us',
-    '^VIX': '^vix',
-    '^TNX': '^tnx',
+    SPY: "spy.us",
+    QQQ: "qqq.us",
+    IWM: "iwm.us",
+    TLT: "tlt.us",
+    GLD: "gld.us",
+    AAPL: "aapl.us",
+    MSFT: "msft.us",
+    NVDA: "nvda.us",
+    "^VIX": "^vix",
+    "^TNX": "^tnx",
   };
   return symbolMap[symbol] || symbol.toLowerCase();
 }
 
 function parseStooqCSV(csvText: string, originalSymbol: string): StooqDataPoint[] {
-  const lines = csvText.trim().split('\n');
+  const lines = csvText.trim().split("\n");
   const dataLines = lines.slice(1);
-  
-  return dataLines.map(line => {
-    const [date, open, high, low, close, volume] = line.split(',');
-    return {
-      symbol: originalSymbol,
-      date,
-      close: parseFloat(close),
-      open: parseFloat(open),
-      high: parseFloat(high),
-      low: parseFloat(low),
-      volume: parseInt(volume, 10),
-    };
-  }).filter(point => !isNaN(point.close));
+
+  return dataLines
+    .map((line) => {
+      const [date, open, high, low, close, volume] = line.split(",");
+      return {
+        symbol: originalSymbol,
+        date,
+        close: parseFloat(close),
+        open: parseFloat(open),
+        high: parseFloat(high),
+        low: parseFloat(low),
+        volume: parseInt(volume, 10),
+      };
+    })
+    .filter((point) => !isNaN(point.close));
 }
 
-function calculateChange(current: number, previous: number): {
+function calculateChange(
+  current: number,
+  previous: number
+): {
   change: number;
   changePercent: number;
 } {
@@ -87,9 +92,9 @@ function calculateChange(current: number, previous: number): {
 export async function fetchLiveSymbolData(symbol: string): Promise<MarketSymbol> {
   try {
     const data = await fetchStooqData(symbol);
-    
+
     if (data.length === 0) {
-      throw new Error('No data received from Stooq');
+      throw new Error("No data received from Stooq");
     }
 
     data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -122,17 +127,17 @@ export async function fetchLiveSymbolData(symbol: string): Promise<MarketSymbol>
 
 function getSymbolName(symbol: string): string {
   const names: Record<string, string> = {
-    'SPY': 'S&P 500 ETF',
-    'QQQ': 'Nasdaq-100 ETF',
-    'IWM': 'Russell 2000 ETF',
-    'TLT': '20+ Yr Treasury ETF',
-    'GLD': 'Gold ETF',
-    'AAPL': 'Apple Inc.',
-    'MSFT': 'Microsoft Corp.',
-    'NVDA': 'NVIDIA Corp.',
-    '^VIX': 'VIX Volatility Index',
-    '^TNX': '10-Year Treasury Yield',
-    'BTC': 'Bitcoin',
+    SPY: "S&P 500 ETF",
+    QQQ: "Nasdaq-100 ETF",
+    IWM: "Russell 2000 ETF",
+    TLT: "20+ Yr Treasury ETF",
+    GLD: "Gold ETF",
+    AAPL: "Apple Inc.",
+    MSFT: "Microsoft Corp.",
+    NVDA: "NVIDIA Corp.",
+    "^VIX": "VIX Volatility Index",
+    "^TNX": "10-Year Treasury Yield",
+    BTC: "Bitcoin",
   };
   return names[symbol] || symbol;
 }
@@ -142,28 +147,26 @@ export async function fetchMultipleSymbols(symbols: string[]): Promise<{
   dataState: DataState;
   errors: string[];
 }> {
-  const results = await Promise.allSettled(
-    symbols.map(symbol => fetchLiveSymbolData(symbol))
-  );
+  const results = await Promise.allSettled(symbols.map((symbol) => fetchLiveSymbolData(symbol)));
 
   const successfulSymbols: MarketSymbol[] = [];
   const errors: string[] = [];
 
   results.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
+    if (result.status === "fulfilled") {
       successfulSymbols.push(result.value);
     } else {
       errors.push(`${symbols[index]}: ${result.reason.message}`);
     }
   });
 
-  let dataState: DataState = 'LIVE';
+  let dataState: DataState = "LIVE";
   const successRate = successfulSymbols.length / symbols.length;
-  
+
   if (successRate === 0) {
-    dataState = 'FALLBACK';
+    dataState = "FALLBACK";
   } else if (successRate < 0.8) {
-    dataState = 'SNAPSHOT';
+    dataState = "SNAPSHOT";
   }
 
   return {
@@ -175,8 +178,9 @@ export async function fetchMultipleSymbols(symbols: string[]): Promise<{
 
 export async function fetchBitcoinPrice(): Promise<MarketSymbol> {
   try {
-    const url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24h_change=true&include_7d_change=true&include_30d_change=true';
-    
+    const url =
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24h_change=true&include_7d_change=true&include_30d_change=true";
+
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`CoinGecko API error: ${response.status}`);
@@ -186,7 +190,7 @@ export async function fetchBitcoinPrice(): Promise<MarketSymbol> {
     const btcData = data.bitcoin;
 
     if (!btcData) {
-      throw new Error('No Bitcoin data received');
+      throw new Error("No Bitcoin data received");
     }
 
     const price = btcData.usd;
@@ -195,8 +199,8 @@ export async function fetchBitcoinPrice(): Promise<MarketSymbol> {
     const monthlyChangePercent = btcData.usd_30d_change || 0;
 
     return {
-      symbol: 'BTC',
-      name: 'Bitcoin',
+      symbol: "BTC",
+      name: "Bitcoin",
       value: price,
       dailyChange: (price * dailyChangePercent) / 100,
       dailyChangePercent,
@@ -206,7 +210,7 @@ export async function fetchBitcoinPrice(): Promise<MarketSymbol> {
       monthlyChangePercent,
     };
   } catch (error) {
-    console.error('Error fetching Bitcoin price:', error);
+    console.error("Error fetching Bitcoin price:", error);
     throw error;
   }
 }

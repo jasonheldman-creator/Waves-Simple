@@ -92,9 +92,7 @@ export default function MarketTape() {
             {keySymbols.map((symbol) =>
               symbol ? (
                 <div key={symbol.symbol} className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs font-semibold text-gray-300">
-                    {symbol.symbol}
-                  </span>
+                  <span className="text-xs font-semibold text-gray-300">{symbol.symbol}</span>
                   <span className="text-xs text-gray-400">
                     {symbol.value.toLocaleString("en-US", {
                       minimumFractionDigits: 2,
