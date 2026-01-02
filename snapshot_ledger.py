@@ -1205,11 +1205,27 @@ def generate_snapshot(
     # Create DataFrame
     snapshot_df = pd.DataFrame(snapshot_rows)
     
+    # Hard assertion - validate exactly one row per expected wave
+    expected_wave_count = len(canonical_waves)
+    actual_wave_count = len(snapshot_df)
+    
+    if actual_wave_count != expected_wave_count:
+        error_msg = (
+            f"VALIDATION FAILED: Expected {expected_wave_count} waves "
+            f"but got {actual_wave_count} in the snapshot.\n"
+            f"Expected waves (first 5): {[w[0] for w in canonical_waves[:5]]}\n"
+            f"Actual Wave_IDs in snapshot: {sorted(snapshot_df['Wave_ID'].unique().tolist())}\n"
+            f"Missing waves: {set(w[1] for w in canonical_waves) - set(snapshot_df['Wave_ID'].unique())}\n"
+            f"Extra waves: {set(snapshot_df['Wave_ID'].unique()) - set(w[1] for w in canonical_waves)}"
+        )
+        raise AssertionError(error_msg)
+    
     # Summary
     print("\n" + "=" * 80)
     print("SNAPSHOT GENERATION COMPLETE")
     print("=" * 80)
     print(f"Total Waves: {len(snapshot_df)}")
+    print(f"✓ Validation passed: {actual_wave_count} waves (expected: {expected_wave_count})")
     print(f"Tier A (Full History): {tier_stats['A']}")
     print(f"Tier B (Limited History): {tier_stats['B']}")
     print(f"Tier C (Holdings Reconstruction): {tier_stats['C']}")
