@@ -750,6 +750,80 @@ def main():
         
         st.markdown("---")
         
+        # Rebuild Live Snapshot button
+        st.header("🔨 Data Rebuild")
+        
+        if st.button("🔨 Rebuild Live Snapshot Now", use_container_width=True):
+            try:
+                with st.spinner("Rebuilding live snapshot from market data..."):
+                    # Import the snapshot generator
+                    from analytics_truth import generate_live_snapshot_csv
+                    
+                    # Generate new snapshot
+                    snapshot_df = generate_live_snapshot_csv()
+                    
+                    # Get metadata
+                    total_waves = len(snapshot_df)
+                    waves_with_data = (snapshot_df['status'] == 'OK').sum()
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Clear cache to force reload
+                    st.cache_data.clear()
+                    
+                    # Show success message
+                    st.success(f"""
+                    ✅ **Snapshot Rebuilt Successfully!**
+                    
+                    - **Timestamp:** {timestamp}
+                    - **Total Waves:** {total_waves}
+                    - **Waves with Data:** {waves_with_data}
+                    - **Waves with NO DATA:** {total_waves - waves_with_data}
+                    """)
+                    
+                    # Update last rebuild timestamp to prevent immediate re-execution
+                    st.session_state.last_snapshot_build_ts = datetime.now().timestamp()
+                    
+                    # Note: User can manually refresh to see new data
+                    st.info("💡 Click 'Refresh Now' to reload with new data")
+                    
+            except Exception as e:
+                st.error(f"⚠️ **Rebuild Failed:** {str(e)}")
+        
+        # Optional: Timed rebuild with cooldown (circuit breaker aware)
+        if 'last_snapshot_build_ts' not in st.session_state:
+            st.session_state.last_snapshot_build_ts = 0
+        
+        # Show time since last rebuild
+        time_since_last = datetime.now().timestamp() - st.session_state.last_snapshot_build_ts
+        if st.session_state.last_snapshot_build_ts > 0:
+            minutes_ago = int(time_since_last / 60)
+            st.caption(f"Last rebuild: {minutes_ago} min ago")
+        
+        # Auto-rebuild option (only if circuit breaker is closed)
+        if not is_circuit_open():
+            auto_rebuild = st.checkbox(
+                "Enable Auto-Rebuild (every 5 min)",
+                value=False,
+                help="Automatically rebuild snapshot every 5 minutes. Only active when circuit breaker is closed."
+            )
+            
+            # Trigger rebuild if enabled and cooldown period has passed
+            if auto_rebuild and time_since_last >= 300:  # 300 seconds = 5 minutes
+                try:
+                    from analytics_truth import generate_live_snapshot_csv
+                    
+                    # Generate new snapshot silently
+                    snapshot_df = generate_live_snapshot_csv()
+                    st.session_state.last_snapshot_build_ts = datetime.now().timestamp()
+                    
+                    # Clear cache
+                    st.cache_data.clear()
+                    
+                except Exception as e:
+                    print(f"Auto-rebuild failed: {e}")
+        
+        st.markdown("---")
+        
         # Show last update time
         st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
     
