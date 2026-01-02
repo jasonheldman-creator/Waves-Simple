@@ -780,8 +780,11 @@ def main():
                     - **Waves with NO DATA:** {total_waves - waves_with_data}
                     """)
                     
-                    # Rerun to show new data
-                    st.rerun()
+                    # Update last rebuild timestamp to prevent immediate re-execution
+                    st.session_state.last_snapshot_build_ts = datetime.now().timestamp()
+                    
+                    # Note: User can manually refresh to see new data
+                    st.info("💡 Click 'Refresh Now' to reload with new data")
                     
             except Exception as e:
                 st.error(f"⚠️ **Rebuild Failed:** {str(e)}")

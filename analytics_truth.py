@@ -258,7 +258,7 @@ def fetch_prices_crypto_coingecko(ticker: str, days: int = 400) -> pd.Series:
             'interval': 'daily'
         }
         
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=30)
         
         if response.status_code != 200:
             raise Exception(f"CoinGecko API returned status {response.status_code}")

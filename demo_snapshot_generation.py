@@ -9,7 +9,10 @@ live market data, but for demonstration we show the structure.
 
 import sys
 import os
-sys.path.insert(0, '/home/runner/work/Waves-Simple/Waves-Simple')
+
+# Add current directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 
 import pandas as pd
 import numpy as np
