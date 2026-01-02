@@ -621,13 +621,18 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 
     # SmartSafe Waves
     "SmartSafe Treasury Cash Wave": [
-        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
-        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
+        Holding("SGOV", 0.30, "iShares 0-3 Month Treasury Bond ETF"),
+        Holding("BIL", 0.30, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
+        Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.15, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.05, "iShares 20+ Year Treasury Bond ETF"),
     ],
     "SmartSafe Tax-Free Money Market Wave": [
-        Holding("SUB", 0.40, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.40, "SPDR Nuveen Short-Term Municipal Bond ETF"),
-        Holding("MUB", 0.20, "iShares National Muni Bond ETF"),
+        Holding("MUB", 0.30, "iShares National Muni Bond ETF"),
+        Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),
+        Holding("VTEB", 0.25, "Vanguard Tax-Exempt Bond ETF"),
+        Holding("TFI", 0.15, "SPDR Nuveen Bloomberg Municipal Bond ETF"),
+        Holding("SHY", 0.05, "iShares 1-3 Year Treasury Bond ETF"),
     ],
 
     "Gold Wave": [
@@ -988,12 +993,18 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
     ],
 
     "SmartSafe Treasury Cash Wave": [
-        Holding("BIL", 0.50, "SPDR Bloomberg 1-3 Month T-Bill"),
-        Holding("SGOV", 0.50, "iShares 0-3 Month Treasury Bond ETF"),
+        Holding("SGOV", 0.30, "iShares 0-3 Month Treasury Bond ETF"),
+        Holding("BIL", 0.30, "SPDR Bloomberg 1-3 Month T-Bill"),
+        Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
+        Holding("IEF", 0.15, "iShares 7-10 Year Treasury Bond ETF"),
+        Holding("TLT", 0.05, "iShares 20+ Year Treasury Bond ETF"),
     ],
     "SmartSafe Tax-Free Money Market Wave": [
-        Holding("SUB", 0.50, "iShares Short-Term National Muni Bond ETF"),
-        Holding("SHM", 0.50, "SPDR Nuveen Short-Term Municipal Bond ETF"),
+        Holding("MUB", 0.30, "iShares National Muni Bond ETF"),
+        Holding("SUB", 0.25, "iShares Short-Term National Muni Bond ETF"),
+        Holding("VTEB", 0.25, "Vanguard Tax-Exempt Bond ETF"),
+        Holding("TFI", 0.15, "SPDR Nuveen Bloomberg Municipal Bond ETF"),
+        Holding("SHY", 0.05, "iShares 1-3 Year Treasury Bond ETF"),
     ],
     "Gold Wave": [
         Holding("GLD", 0.50, "SPDR Gold Shares"),
