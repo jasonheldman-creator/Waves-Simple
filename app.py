@@ -17904,6 +17904,94 @@ def render_overview_clean_tab():
         st.divider()
         
         # ========================================================================
+        # WAVE DATA READINESS DIAGNOSTICS
+        # ========================================================================
+        st.subheader("Wave Data Readiness Diagnostics")
+        
+        # Try to reuse an in-memory DF if it exists
+        coverage_df = None
+        for name in ["data_coverage_summary_df", "data_coverage_summary", "coverage_df", "coverage_summary_df"]:
+            if name in locals() and isinstance(locals()[name], pd.DataFrame) and len(locals()[name]) > 0:
+                coverage_df = locals()[name].copy()
+                break
+        
+        # If not found in memory, try to load from disk
+        if coverage_df is None:
+            candidate_paths = [
+                "data_coverage_summary.csv",
+                os.path.join("data", "data_coverage_summary.csv"),
+                os.path.join("outputs", "data_coverage_summary.csv"),
+                os.path.join("WAVES_Intelligence_Live", "data_coverage_summary.csv"),
+            ]
+            found_path = None
+            for p in candidate_paths:
+                if os.path.exists(p):
+                    found_path = p
+                    break
+        
+            if found_path:
+                coverage_df = pd.read_csv(found_path)
+                st.caption(f"Loaded: {found_path}")
+            else:
+                st.warning(
+                    "Could not find data_coverage_summary.csv (and no in-memory coverage DF was found). "
+                    "Please verify the file is being generated and saved to the app's working/data directory."
+                )
+        
+        # Render table if we have it
+        if coverage_df is not None and len(coverage_df) > 0:
+            # Normalize expected columns
+            expected_cols = [
+                "wave_id", "display_name", "coverage_pct", "history_days", "stale_days_max",
+                "missing_tickers", "stale_tickers"
+            ]
+            for c in expected_cols:
+                if c not in coverage_df.columns:
+                    coverage_df[c] = ""
+        
+            # Derive data_ready + reason
+            coverage_df["data_ready"] = (coverage_df["coverage_pct"].fillna(0).astype(float) >= 99.0) & (
+                coverage_df["history_days"].fillna(0).astype(int) > 0
+            )
+        
+            def _reason(row):
+                if row["data_ready"]:
+                    return "OK"
+                missing = str(row.get("missing_tickers", "")).strip()
+                stale = str(row.get("stale_tickers", "")).strip()
+                hist = int(row.get("history_days", 0) or 0)
+                cov = float(row.get("coverage_pct", 0) or 0)
+                if cov == 0 or hist == 0:
+                    return "No usable price history / coverage=0 (likely missing tickers or source mismatch)"
+                if missing and missing != "nan":
+                    return "Missing tickers in universe/holdings mapping"
+                if stale and stale != "nan":
+                    return "Stale tickers (data not refreshing / stale feed)"
+                return "Failed readiness threshold (coverage or history requirement)"
+        
+            coverage_df["reason"] = coverage_df.apply(_reason, axis=1)
+        
+            show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
+            view_df = coverage_df.copy()
+            if show_only_bad:
+                view_df = view_df[view_df["data_ready"] == False]
+        
+            # Sort: failing first, then lowest coverage
+            view_df = view_df.sort_values(
+                by=["data_ready", "coverage_pct", "history_days"],
+                ascending=[True, True, True]
+            )
+        
+            st.dataframe(
+                view_df[["wave_id", "display_name", "data_ready", "reason",
+                         "coverage_pct", "history_days", "stale_days_max",
+                         "missing_tickers", "stale_tickers"]],
+                use_container_width=True
+            )
+        
+        st.divider()
+        
+        # ========================================================================
         # 28 WAVES PERFORMANCE TABLE
         # ========================================================================
         st.markdown("### 📋 28 Waves Performance Overview")
