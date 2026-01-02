@@ -39,9 +39,9 @@ export default function SnapshotConsole() {
       }
 
       // Parse CSV manually with proper handling of empty fields
-      const [header, ...dataLines] = lines;
+      const lines2 = lines.slice(1); // Skip header
       
-      const parsedWaves: WaveData[] = dataLines.map((line) => {
+      const parsedWaves: WaveData[] = lines2.map((line) => {
         // Split by comma - this assumes no commas within quoted strings
         // For the current CSV structure with empty fields, we need to handle consecutive commas
         const values = line.split(",").map(v => v.trim());
@@ -202,7 +202,13 @@ export default function SnapshotConsole() {
                           {formatReturn(wave.performance_ytd)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            wave.status === "LIVE" 
+                              ? "bg-green-100 text-green-800"
+                              : wave.status === "FAILED" || wave.status === "ERROR"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-gray-100 text-gray-800"
+                          }`}>
                             {wave.status}
                           </span>
                         </td>
