@@ -177,10 +177,17 @@ export default function WaveCards() {
 
     // Filter waves with valid performance_30d values
     const wavesWithPerf = liveData
-      .map((w) => ({
-        name: w.wave_name,
-        value: w.performance_30d.trim() !== "" ? parseFloat(w.performance_30d.replace("%", "")) : null,
-      }))
+      .map((w) => {
+        const perfStr = (w.performance_30d || "").trim();
+        if (perfStr === "" || perfStr === "—") {
+          return { name: w.wave_name, value: null };
+        }
+        const numValue = parseFloat(perfStr.replace("%", ""));
+        return {
+          name: w.wave_name,
+          value: !isNaN(numValue) ? numValue : null,
+        };
+      })
       .filter((w) => w.value !== null && !isNaN(w.value as number));
 
     // Sort by performance
