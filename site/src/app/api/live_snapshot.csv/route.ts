@@ -144,11 +144,12 @@ export async function GET() {
     }
     
     // Hard assertion - validate exactly EXPECTED_WAVE_COUNT rows
-    const actualRowCount = registryRows.length;
-    if (actualRowCount !== EXPECTED_WAVE_COUNT) {
-      const errorMsg = `VALIDATION FAILED: Expected ${EXPECTED_WAVE_COUNT} waves but got ${actualRowCount} in wave_registry.csv`;
+    // Check CSV rows (excluding header) instead of registry rows for accuracy
+    const actualDataRowCount = csvRows.length - 1; // -1 for header row
+    if (actualDataRowCount !== EXPECTED_WAVE_COUNT) {
+      const errorMsg = `VALIDATION FAILED: Expected ${EXPECTED_WAVE_COUNT} data rows but got ${actualDataRowCount} in CSV output`;
       console.error(errorMsg);
-      console.error("Registry rows:", registryRows.map(r => r.wave_id));
+      console.error("CSV rows (first 5):", csvRows.slice(0, 6));
       throw new Error(errorMsg);
     }
     

@@ -2606,13 +2606,14 @@ def generate_live_snapshot(
     actual_wave_count = len(snapshot_df)
     
     if actual_wave_count != expected_wave_count:
+        actual_wave_ids = sorted(snapshot_df['wave_id'].unique())
         error_msg = (
             f"VALIDATION FAILED: Expected {expected_wave_count} waves "
             f"but got {actual_wave_count} in the snapshot.\n"
             f"Expected waves: {all_wave_ids}\n"
-            f"Actual wave_ids in snapshot: {sorted(snapshot_df['wave_id'].unique().tolist())}\n"
-            f"Missing waves: {set(all_wave_ids) - set(snapshot_df['wave_id'].unique())}\n"
-            f"Extra waves: {set(snapshot_df['wave_id'].unique()) - set(all_wave_ids)}"
+            f"Actual wave_ids in snapshot: {list(actual_wave_ids)}\n"
+            f"Missing waves: {set(all_wave_ids) - set(actual_wave_ids)}\n"
+            f"Extra waves: {set(actual_wave_ids) - set(all_wave_ids)}"
         )
         raise AssertionError(error_msg)
     
