@@ -994,7 +994,7 @@ BENCHMARK_WEIGHTS_STATIC: Dict[str, List[Holding]] = {
 
     "SmartSafe Treasury Cash Wave": [
         Holding("SGOV", 0.30, "iShares 0-3 Month Treasury Bond ETF"),
-        Holding("BIL", 0.30, "SPDR Bloomberg 1-3 Month T-Bill"),
+        Holding("BIL", 0.30, "SPDR Bloomberg 1-3 Month T-Bill ETF"),
         Holding("SHY", 0.20, "iShares 1-3 Year Treasury Bond ETF"),
         Holding("IEF", 0.15, "iShares 7-10 Year Treasury Bond ETF"),
         Holding("TLT", 0.05, "iShares 20+ Year Treasury Bond ETF"),
