@@ -20,24 +20,9 @@ interface SnapshotResponse {
   data: WaveSnapshot[];
 }
 
-interface RebuildResponse {
-  success: boolean;
-  message: string;
-  timestamp?: string;
-  waveCount?: number;
-  error?: string;
-  failedWaves?: string[];
-  details?: Array<{
-    wave: string;
-    status: string;
-    missingTickers: string;
-  }>;
-}
-
 export default function SnapshotConsole() {
   const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rebuilding, setRebuilding] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const fetchSnapshot = async () => {
@@ -59,41 +44,6 @@ export default function SnapshotConsole() {
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const rebuildSnapshot = async () => {
-    try {
-      setRebuilding(true);
-      setMessage({ type: "success", text: "Rebuilding snapshot... This may take a few minutes." });
-
-      const response = await fetch("/api/rebuild-snapshot", {
-        method: "POST",
-      });
-
-      const data: RebuildResponse = await response.json();
-
-      if (data.success) {
-        setMessage({
-          type: "success",
-          text: `${data.message} (${data.waveCount} waves at ${new Date(data.timestamp!).toLocaleString()})`,
-        });
-        // Refresh snapshot data
-        await fetchSnapshot();
-      } else {
-        let errorText = data.message || "Failed to rebuild snapshot";
-        if (data.failedWaves && data.failedWaves.length > 0) {
-          errorText += `\n\nFailed waves (${data.failedWaves.length}): ${data.failedWaves.join(", ")}`;
-        }
-        setMessage({ type: "error", text: errorText });
-      }
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "Failed to rebuild snapshot",
-      });
-    } finally {
-      setRebuilding(false);
     }
   };
 
@@ -155,13 +105,14 @@ export default function SnapshotConsole() {
             >
               {loading ? "Loading..." : "Refresh"}
             </button>
-            <button
+            {/* Rebuild functionality disabled - data now sourced from static CSV */}
+            {/* <button
               onClick={rebuildSnapshot}
               disabled={rebuilding}
               className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
             >
               {rebuilding ? "Rebuilding..." : "Rebuild Snapshot Now"}
-            </button>
+            </button> */}
           </div>
         </div>
 
