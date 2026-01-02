@@ -104,7 +104,7 @@ export default function SnapshotConsole() {
         <div className="mb-6 flex items-center justify-between bg-white p-4 rounded-lg shadow">
           <div className="text-sm text-gray-600">
             <div>
-              <strong>Total Waves:</strong> 28 |
+              <strong>Total Waves:</strong> {waves.length} |
               <strong className="ml-2">Last Updated:</strong> {lastUpdated}
             </div>
           </div>
