@@ -54,10 +54,13 @@ Usage:
 from __future__ import annotations
 
 import os
-from datetime import datetime
+import json
+import requests
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import pandas as pd
 import numpy as np
+import yfinance as yf
 
 # Import from waves_engine
 try:
@@ -87,6 +90,490 @@ except ImportError:
 SNAPSHOT_FILE = "data/live_snapshot.csv"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
 
+# CoinGecko ID mapping for crypto tickers
+CRYPTO_COINGECKO_MAP = {
+    'BTC-USD': 'bitcoin',
+    'ETH-USD': 'ethereum',
+    'BNB-USD': 'binancecoin',
+    'SOL-USD': 'solana',
+    'XRP-USD': 'ripple',
+    'ADA-USD': 'cardano',
+    'AVAX-USD': 'avalanche-2',
+    'DOT-USD': 'polkadot',
+    'MATIC-USD': 'matic-network',
+    'ARB-USD': 'arbitrum',
+    'OP-USD': 'optimism',
+    'IMX-USD': 'immutable-x',
+    'MNT-USD': 'mantle',
+    'STX-USD': 'blockstack',
+    'UNI-USD': 'uniswap',
+    'AAVE-USD': 'aave',
+    'LINK-USD': 'chainlink',
+    'MKR-USD': 'maker',
+    'CRV-USD': 'curve-dao-token',
+    'INJ-USD': 'injective-protocol',
+    'SNX-USD': 'havven',
+    'COMP-USD': 'compound-governance-token',
+    'LDO-USD': 'lido-dao',
+    'stETH-USD': 'staked-ether',
+    'CAKE-USD': 'pancakeswap-token',
+    'NEAR-USD': 'near',
+    'APT-USD': 'aptos',
+    'ATOM-USD': 'cosmos',
+    'TAO-USD': 'bittensor',
+    'RENDER-USD': 'render-token',
+    'FET-USD': 'fetch-ai',
+    'ICP-USD': 'internet-computer',
+    'OCEAN-USD': 'ocean-protocol',
+    'AGIX-USD': 'singularitynet',
+}
+
+
+# ============================================================================
+# NEW IMPLEMENTATION: Live Market Data Snapshot Generator
+# ============================================================================
+
+def load_weights(path: str = "wave_weights.csv") -> pd.DataFrame:
+    """
+    Load wave weights from CSV file and validate.
+    
+    Args:
+        path: Path to wave_weights.csv file
+        
+    Returns:
+        DataFrame with wave weights
+        
+    Raises:
+        FileNotFoundError: If weights file doesn't exist
+        ValueError: If weights are invalid
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Wave weights file not found: {path}")
+    
+    weights_df = pd.read_csv(path)
+    
+    # Validate required columns
+    required_cols = ['wave', 'ticker', 'weight']
+    for col in required_cols:
+        if col not in weights_df.columns:
+            raise ValueError(f"Missing required column '{col}' in {path}")
+    
+    # Validate weights sum to ~1.0 per wave (with tolerance for small deviations)
+    for wave_name in weights_df['wave'].unique():
+        wave_weights = weights_df[weights_df['wave'] == wave_name]['weight']
+        weight_sum = wave_weights.sum()
+        
+        # Warn if weights deviate significantly from 1.0 (tolerance: 0.05)
+        if abs(weight_sum - 1.0) > 0.05:
+            print(f"⚠️ Warning: Weights for '{wave_name}' sum to {weight_sum:.3f} (expected ~1.0)")
+    
+    return weights_df
+
+
+def expected_waves(weights_df: pd.DataFrame) -> List[str]:
+    """
+    Compute canonical list of expected wave names from weights DataFrame.
+    
+    Args:
+        weights_df: DataFrame from load_weights()
+        
+    Returns:
+        Sorted list of exactly 28 unique wave names
+        
+    Raises:
+        ValueError: If wave count is not 28
+    """
+    wave_names = sorted(weights_df['wave'].unique().tolist())
+    
+    if len(wave_names) != 28:
+        raise ValueError(f"Expected exactly 28 waves, found {len(wave_names)}")
+    
+    return wave_names
+
+
+def fetch_prices_equity_yf(ticker: str, days: int = 400) -> pd.Series:
+    """
+    Fetch daily close prices for an equity ticker using yfinance.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., "AAPL", "SPY")
+        days: Number of days of history to fetch (default: 400)
+        
+    Returns:
+        pandas Series of daily close prices indexed by date
+        
+    Raises:
+        Exception: If download fails or returns empty data
+    """
+    try:
+        # Calculate start date
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days + 30)  # Add buffer for weekends/holidays
+        
+        # Fetch data using yfinance
+        ticker_obj = yf.Ticker(ticker)
+        hist = ticker_obj.history(start=start_date, end=end_date)
+        
+        if hist.empty:
+            raise Exception(f"No data returned for {ticker}")
+        
+        # Return Close prices as Series
+        prices = hist['Close']
+        
+        if len(prices) == 0:
+            raise Exception(f"Empty price series for {ticker}")
+        
+        return prices
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch {ticker}: {str(e)}")
+
+
+def fetch_prices_crypto_coingecko(ticker: str, days: int = 400) -> pd.Series:
+    """
+    Fetch daily close prices for a crypto ticker using CoinGecko API.
+    
+    Args:
+        ticker: Crypto ticker in format "BTC-USD", "ETH-USD", etc.
+        days: Number of days of history to fetch (default: 400)
+        
+    Returns:
+        pandas Series of daily close prices indexed by date
+        
+    Raises:
+        Exception: If API call fails or ticker not supported
+    """
+    try:
+        # Map ticker to CoinGecko ID
+        if ticker not in CRYPTO_COINGECKO_MAP:
+            raise Exception(f"Crypto ticker {ticker} not mapped to CoinGecko ID")
+        
+        coingecko_id = CRYPTO_COINGECKO_MAP[ticker]
+        
+        # Query CoinGecko API
+        url = f"https://api.coingecko.com/api/v3/coins/{coingecko_id}/market_chart"
+        params = {
+            'vs_currency': 'usd',
+            'days': days,
+            'interval': 'daily'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            raise Exception(f"CoinGecko API returned status {response.status_code}")
+        
+        data = response.json()
+        
+        if 'prices' not in data or not data['prices']:
+            raise Exception(f"No price data in CoinGecko response for {ticker}")
+        
+        # Convert to pandas Series
+        # data['prices'] is a list of [timestamp_ms, price]
+        timestamps = [pd.Timestamp(item[0], unit='ms') for item in data['prices']]
+        prices = [item[1] for item in data['prices']]
+        
+        series = pd.Series(prices, index=timestamps)
+        
+        if len(series) == 0:
+            raise Exception(f"Empty price series for {ticker}")
+        
+        return series
+        
+    except Exception as e:
+        raise Exception(f"Failed to fetch crypto {ticker}: {str(e)}")
+
+
+def compute_period_return(prices: pd.Series, lookback_days: int) -> float:
+    """
+    Compute percentage return between nearest date >= lookback_days ago and most recent.
+    
+    Args:
+        prices: Series of prices indexed by date
+        lookback_days: Number of days to look back (e.g., 1, 30, 60, 365)
+        
+    Returns:
+        Percentage return as decimal (e.g., 0.05 for 5%)
+        Returns NaN if insufficient data
+    """
+    if len(prices) < 2:
+        return np.nan
+    
+    try:
+        # Get most recent price
+        end_price = float(prices.iloc[-1])
+        
+        # Find start price closest to lookback_days ago
+        end_date = prices.index[-1]
+        target_date = end_date - pd.Timedelta(days=lookback_days)
+        
+        # Find the nearest date on or before target_date
+        valid_dates = prices.index[prices.index <= target_date]
+        
+        if len(valid_dates) == 0:
+            # Not enough history, use earliest available
+            start_price = float(prices.iloc[0])
+        else:
+            # Use the closest date to target_date
+            start_date = valid_dates[-1]
+            start_price = float(prices.loc[start_date])
+        
+        if start_price <= 0:
+            return np.nan
+        
+        return (end_price / start_price) - 1.0
+        
+    except Exception as e:
+        print(f"  ⚠️ Error computing return: {e}")
+        return np.nan
+
+
+def compute_wave_returns(weights_df: pd.DataFrame, prices_cache: Dict[str, pd.Series]) -> Dict[str, Dict[str, Any]]:
+    """
+    Compute wave returns with proper handling of failed tickers.
+    
+    For each wave:
+    - Calculate weighted returns using only successful tickers
+    - Renormalize weights across successful tickers
+    - Track status, missing tickers, and coverage metrics
+    
+    Args:
+        weights_df: DataFrame from load_weights()
+        prices_cache: Dict mapping ticker -> price series
+        
+    Returns:
+        Dict mapping wave_name -> {
+            'return_1d': float,
+            'return_30d': float,
+            'return_60d': float,
+            'return_365d': float,
+            'status': 'OK' or 'NO DATA',
+            'missing_tickers': list of failed tickers,
+            'tickers_ok': list of successful tickers,
+            'tickers_total': int,
+            'coverage_pct': float (0-100)
+        }
+    """
+    wave_names = weights_df['wave'].unique()
+    results = {}
+    
+    for wave_name in wave_names:
+        wave_weights = weights_df[weights_df['wave'] == wave_name].copy()
+        
+        # Separate successful and failed tickers
+        successful_tickers = []
+        failed_tickers = []
+        
+        for ticker in wave_weights['ticker']:
+            if ticker in prices_cache:
+                successful_tickers.append(ticker)
+            else:
+                failed_tickers.append(ticker)
+        
+        total_tickers = len(wave_weights)
+        
+        # Check if we have any valid tickers
+        if len(successful_tickers) == 0:
+            # All tickers failed - NO DATA
+            results[wave_name] = {
+                'return_1d': np.nan,
+                'return_30d': np.nan,
+                'return_60d': np.nan,
+                'return_365d': np.nan,
+                'status': 'NO DATA',
+                'missing_tickers': failed_tickers,
+                'tickers_ok': [],
+                'tickers_total': total_tickers,
+                'coverage_pct': 0.0
+            }
+            continue
+        
+        # Renormalize weights for successful tickers
+        successful_weights = wave_weights[wave_weights['ticker'].isin(successful_tickers)].copy()
+        weight_sum = successful_weights['weight'].sum()
+        successful_weights['weight'] = successful_weights['weight'] / weight_sum
+        
+        # Compute weighted returns for each period
+        returns_1d = []
+        returns_30d = []
+        returns_60d = []
+        returns_365d = []
+        weights = []
+        
+        for _, row in successful_weights.iterrows():
+            ticker = row['ticker']
+            weight = row['weight']
+            prices = prices_cache[ticker]
+            
+            # Compute returns
+            ret_1d = compute_period_return(prices, 1)
+            ret_30d = compute_period_return(prices, 30)
+            ret_60d = compute_period_return(prices, 60)
+            ret_365d = compute_period_return(prices, 365)
+            
+            # Only include if we have valid return
+            if not np.isnan(ret_1d):
+                returns_1d.append(ret_1d * weight)
+                weights.append(weight)
+            if not np.isnan(ret_30d):
+                returns_30d.append(ret_30d * weight)
+            if not np.isnan(ret_60d):
+                returns_60d.append(ret_60d * weight)
+            if not np.isnan(ret_365d):
+                returns_365d.append(ret_365d * weight)
+        
+        # Aggregate weighted returns
+        wave_return_1d = sum(returns_1d) if returns_1d else np.nan
+        wave_return_30d = sum(returns_30d) if returns_30d else np.nan
+        wave_return_60d = sum(returns_60d) if returns_60d else np.nan
+        wave_return_365d = sum(returns_365d) if returns_365d else np.nan
+        
+        # Calculate coverage
+        coverage_pct = (len(successful_tickers) / total_tickers * 100) if total_tickers > 0 else 0.0
+        
+        results[wave_name] = {
+            'return_1d': wave_return_1d,
+            'return_30d': wave_return_30d,
+            'return_60d': wave_return_60d,
+            'return_365d': wave_return_365d,
+            'status': 'OK',
+            'missing_tickers': failed_tickers,
+            'tickers_ok': successful_tickers,
+            'tickers_total': total_tickers,
+            'coverage_pct': coverage_pct
+        }
+    
+    return results
+
+
+def generate_live_snapshot_csv(
+    out_path: str = "data/live_snapshot.csv",
+    weights_path: str = "wave_weights.csv"
+) -> pd.DataFrame:
+    """
+    Generate live snapshot CSV with exactly 28 rows (one per expected wave).
+    
+    This function:
+    1. Loads wave_weights.csv
+    2. Determines expected 28 waves
+    3. Fetches live market data for all tickers (equity via yfinance, crypto via CoinGecko)
+    4. Computes wave returns with proper handling of failed tickers
+    5. Generates DataFrame with exactly 28 rows
+    6. Writes to out_path
+    
+    Args:
+        out_path: Output path for snapshot CSV
+        weights_path: Path to wave_weights.csv
+        
+    Returns:
+        DataFrame with exactly 28 rows containing wave data
+        
+    Raises:
+        AssertionError: If final DataFrame doesn't have exactly 28 rows
+    """
+    print("\n" + "=" * 80)
+    print("GENERATING LIVE SNAPSHOT CSV")
+    print("=" * 80)
+    
+    # Step 1: Load weights
+    print(f"\n[1/5] Loading weights from {weights_path}...")
+    weights_df = load_weights(weights_path)
+    print(f"✓ Loaded {len(weights_df)} weight entries")
+    
+    # Step 2: Get expected waves
+    print("\n[2/5] Determining expected waves...")
+    waves = expected_waves(weights_df)
+    print(f"✓ Found exactly {len(waves)} expected waves")
+    
+    # Step 3: Fetch prices for all tickers
+    print("\n[3/5] Fetching market data for all tickers...")
+    all_tickers = weights_df['ticker'].unique()
+    prices_cache = {}
+    
+    for i, ticker in enumerate(all_tickers, 1):
+        try:
+            # Determine if crypto or equity
+            if ticker.endswith('-USD'):
+                # Crypto ticker - use CoinGecko
+                prices = fetch_prices_crypto_coingecko(ticker, days=400)
+                prices_cache[ticker] = prices
+                print(f"  [{i}/{len(all_tickers)}] ✓ Fetched crypto {ticker} ({len(prices)} days)")
+            else:
+                # Equity ticker - use yfinance
+                prices = fetch_prices_equity_yf(ticker, days=400)
+                prices_cache[ticker] = prices
+                print(f"  [{i}/{len(all_tickers)}] ✓ Fetched equity {ticker} ({len(prices)} days)")
+        except Exception as e:
+            print(f"  [{i}/{len(all_tickers)}] ✗ Failed {ticker}: {str(e)[:80]}")
+            # Don't add to cache - will be tracked as failed
+    
+    print(f"\n✓ Successfully fetched {len(prices_cache)}/{len(all_tickers)} tickers")
+    
+    # Step 4: Compute wave returns
+    print("\n[4/5] Computing wave returns...")
+    wave_returns = compute_wave_returns(weights_df, prices_cache)
+    print(f"✓ Computed returns for {len(wave_returns)} waves")
+    
+    # Step 5: Build snapshot DataFrame
+    print("\n[5/5] Building snapshot DataFrame...")
+    rows = []
+    current_time = datetime.now()
+    current_date = current_time.strftime("%Y-%m-%d")
+    current_utc = current_time.isoformat()
+    
+    for wave_name in waves:
+        # Get wave_id (slugified)
+        wave_id = _convert_wave_name_to_id(wave_name)
+        
+        # Get returns data
+        returns_data = wave_returns.get(wave_name, {})
+        
+        # Build row
+        row = {
+            'wave_id': wave_id,
+            'Wave': wave_name,
+            'Return_1D': returns_data.get('return_1d', np.nan),
+            'Return_30D': returns_data.get('return_30d', np.nan),
+            'Return_60D': returns_data.get('return_60d', np.nan),
+            'Return_365D': returns_data.get('return_365d', np.nan),
+            'status': returns_data.get('status', 'NO DATA'),
+            'coverage_pct': returns_data.get('coverage_pct', 0.0),
+            'missing_tickers': ', '.join(returns_data.get('missing_tickers', [])),
+            'tickers_ok': len(returns_data.get('tickers_ok', [])),
+            'tickers_total': returns_data.get('tickers_total', 0),
+            'asof_utc': current_utc
+        }
+        
+        rows.append(row)
+    
+    # Create DataFrame
+    df = pd.DataFrame(rows)
+    
+    # Validate exactly 28 rows
+    if len(df) != 28:
+        raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
+    
+    # Validate unique wave_ids
+    if df['wave_id'].nunique() != 28:
+        raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
+    
+    print(f"✓ Created DataFrame with {len(df)} rows")
+    print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
+    print(f"✓ Waves with NO DATA status: {(df['status'] == 'NO DATA').sum()}")
+    
+    # Write to CSV
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    df.to_csv(out_path, index=False)
+    print(f"\n✓ Snapshot written to {out_path}")
+    
+    print("=" * 80 + "\n")
+    
+    return df
+
+
+# ============================================================================
+# ORIGINAL FUNCTIONS (kept for backward compatibility)
+# ============================================================================
 
 def _derive_expected_waves_from_weights() -> List[str]:
     """
