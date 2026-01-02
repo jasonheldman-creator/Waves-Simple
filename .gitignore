@@ -68,3 +68,4 @@ site/build/
 site/.vercel/
 site/*.tsbuildinfo
 site/next-env.d.ts
+wave_coverage_snapshot.json

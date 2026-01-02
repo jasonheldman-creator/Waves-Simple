@@ -2,7 +2,20 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+import json
 from datetime import datetime, timedelta
+
+# Import normalize_ticker directly from file to avoid helpers/__init__.py dependencies
+# Note: helpers/__init__.py imports modules requiring streamlit, which may not be available
+# in all environments. This direct import pattern avoids that dependency chain.
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "ticker_normalize",
+    os.path.join(os.path.dirname(__file__), "helpers", "ticker_normalize.py")
+)
+_ticker_normalize = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_ticker_normalize)
+normalize_ticker = _ticker_normalize.normalize_ticker
 
 
 # ------------------------
@@ -12,18 +25,56 @@ from datetime import datetime, timedelta
 PRICES_FILE = "prices.csv"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
 OUTPUT_FILE = "wave_history.csv"
+SNAPSHOT_FILE = "wave_coverage_snapshot.json"
+
+# Minimum coverage threshold: waves must have >= 90% weight coverage
+MIN_COVERAGE_THRESHOLD = 0.90
 
 # Map each Wave to its benchmark ticker (edit this as needed)
 BENCHMARK_BY_WAVE = {
-    "S&P Wave": "SPY",
-    "Growth Wave": "SPY",
+    # Equity Waves
+    "S&P 500 Wave": "SPY",
+    "Russell 3000 Wave": "VTHR",
+    "US MegaCap Core Wave": "SPY",
     "Small Cap Growth Wave": "IWM",
-    "Small-Mid Cap Growth Wave": "IJH",
+    "Small to Mid Cap Growth Wave": "IJH",
+    "US Mid/Small Growth & Semis Wave": "IJH",
+    "US Small-Cap Disruptors Wave": "IWM",
+    
+    # Tech/Growth Waves
+    "AI & Cloud MegaCap Wave": "QQQ",
     "Quantum Computing Wave": "QQQ",
+    "Next-Gen Compute & Semis Wave": "QQQ",
+    
+    # Energy/Infrastructure Waves
     "Future Power & Energy Wave": "XLE",
+    "Future Energy & EV Wave": "XLE",
     "Clean Transit-Infrastructure Wave": "ICLN",
+    "EV & Infrastructure Wave": "ICLN",
+    
+    # Income Waves
     "Income Wave": "AGG",
-    # add the rest of your 15 Waves here
+    "Vector Muni Ladder Wave": "MUB",
+    "Vector Treasury Ladder Wave": "AGG",
+    
+    # Cash Waves
+    "SmartSafe Tax-Free Money Market Wave": "SHV",
+    "SmartSafe Treasury Cash Wave": "SHV",
+    
+    # Crypto Waves
+    "Crypto Broad Growth Wave": "BTC-USD",
+    "Crypto AI Growth Wave": "BTC-USD",
+    "Crypto DeFi Growth Wave": "BTC-USD",
+    "Crypto L1 Growth Wave": "BTC-USD",
+    "Crypto L2 Growth Wave": "BTC-USD",
+    "Crypto Income Wave": "BTC-USD",
+    
+    # Multi-Asset Waves
+    "Infinity Multi-Asset Growth Wave": "SPY",
+    "Demas Fund Wave": "SPY",
+    
+    # Commodity Waves
+    "Gold Wave": "GLD",
 }
 
 
@@ -131,10 +182,14 @@ weights = pd.read_csv(WAVE_WEIGHTS_FILE)
 if not {"wave", "ticker", "weight"}.issubset(weights.columns):
     raise ValueError("wave_weights.csv must contain columns: wave, ticker, weight")
 
-# Get unique tickers from wave_weights, plus benchmark tickers
-required_tickers = set(weights["ticker"].dropna().unique())
+# Apply ticker normalization
+print("Normalizing tickers...")
+weights["ticker_norm"] = weights["ticker"].apply(normalize_ticker)
+
+# Get unique normalized tickers from wave_weights, plus benchmark tickers
+required_tickers = set(weights["ticker_norm"].dropna().unique())
 for benchmark in BENCHMARK_BY_WAVE.values():
-    required_tickers.add(benchmark)
+    required_tickers.add(normalize_ticker(benchmark))
 required_tickers = sorted(list(required_tickers))
 
 print(f"Found {len(required_tickers)} unique tickers in wave weights and benchmarks")
@@ -162,6 +217,9 @@ else:
 
 print("Loading prices...")
 prices = pd.read_csv(PRICES_FILE, parse_dates=["date"])
+
+# Apply ticker normalization to prices
+prices["ticker"] = prices["ticker"].apply(normalize_ticker)
 prices = prices.sort_values(["ticker", "date"])
 
 if prices.empty:
@@ -179,13 +237,14 @@ rets = price_wide.pct_change().dropna(how="all")  # daily returns, NaN where mis
 # ------------------------
 
 records = []
+coverage_metrics = []
 
 for wave, wdf in weights.groupby("wave"):
     if wave not in BENCHMARK_BY_WAVE:
         print(f"[WARN] No benchmark defined for wave '{wave}'. Skipping.")
         continue
 
-    bench_ticker = BENCHMARK_BY_WAVE[wave]
+    bench_ticker = normalize_ticker(BENCHMARK_BY_WAVE[wave])
     if bench_ticker not in rets.columns:
         print(f"[WARN] Benchmark ticker '{bench_ticker}' not found in prices. Skipping wave '{wave}'.")
         continue
@@ -193,26 +252,56 @@ for wave, wdf in weights.groupby("wave"):
     wdf = wdf.copy()
     wdf["weight"] = wdf["weight"].astype(float)
 
-    # Normalize weights so they sum to 1 by absolute weight (per wave)
-    total_abs = wdf["weight"].abs().sum()
-    if total_abs == 0:
+    # Calculate total weight and identify available vs missing tickers
+    total_weight = wdf["weight"].abs().sum()
+    if total_weight == 0:
         print(f"[WARN] Wave '{wave}' has zero total weight. Skipping.")
         continue
-    wdf["norm_weight"] = wdf["weight"] / total_abs
 
-    tickers = list(wdf["ticker"])
-    missing = [t for t in tickers if t not in rets.columns]
-    if missing:
-        print(f"[WARN] Some tickers for wave '{wave}' not in prices: {missing}")
-
-    # Use only tickers that we actually have returns for
-    tickers = [t for t in tickers if t in rets.columns]
-    if not tickers:
+    # Use normalized tickers for all operations
+    tickers_norm = list(wdf["ticker_norm"])
+    available_tickers = [t for t in tickers_norm if t in rets.columns]
+    missing_tickers = [t for t in tickers_norm if t not in rets.columns]
+    
+    # Calculate coverage percentage
+    available_weight = wdf[wdf["ticker_norm"].isin(available_tickers)]["weight"].abs().sum()
+    coverage_pct = available_weight / total_weight if total_weight > 0 else 0.0
+    
+    # Track coverage metrics for snapshot
+    coverage_metrics.append({
+        "wave": wave,
+        "total_tickers": len(tickers_norm),
+        "available_tickers": len(available_tickers),
+        "missing_tickers": len(missing_tickers),
+        "missing_ticker_list": missing_tickers,
+        "total_weight": float(total_weight),
+        "available_weight": float(available_weight),
+        "coverage_pct": float(coverage_pct),
+        "meets_threshold": bool(coverage_pct >= MIN_COVERAGE_THRESHOLD)
+    })
+    
+    if missing_tickers:
+        print(f"[INFO] Wave '{wave}' missing {len(missing_tickers)} tickers: {missing_tickers}")
+        print(f"       Coverage: {coverage_pct:.2%} (threshold: {MIN_COVERAGE_THRESHOLD:.2%})")
+    
+    # Check if wave meets minimum coverage threshold
+    if coverage_pct < MIN_COVERAGE_THRESHOLD:
+        print(f"[WARN] Wave '{wave}' coverage {coverage_pct:.2%} is below {MIN_COVERAGE_THRESHOLD:.2%} threshold. Skipping.")
+        continue
+    
+    if not available_tickers:
         print(f"[WARN] No valid tickers for wave '{wave}'. Skipping.")
         continue
 
-    wdf = wdf[wdf["ticker"].isin(tickers)].set_index("ticker")
-    wave_rets = (rets[tickers] * wdf["norm_weight"]).sum(axis=1)
+    # Filter to available tickers and reweight proportionally
+    wdf_available = wdf[wdf["ticker_norm"].isin(available_tickers)].copy()
+    wdf_available = wdf_available.set_index("ticker_norm")
+    
+    # Normalize weights so they sum to 1 by absolute weight (proportional reweighting)
+    total_abs = wdf_available["weight"].abs().sum()
+    wdf_available["norm_weight"] = wdf_available["weight"] / total_abs
+    
+    wave_rets = (rets[available_tickers] * wdf_available["norm_weight"]).sum(axis=1)
 
     bench_rets = rets[bench_ticker]
 
@@ -232,4 +321,31 @@ wave_history = pd.concat(records, ignore_index=True).sort_values(["wave", "date"
 
 print(f"Writing {OUTPUT_FILE} with {len(wave_history)} rows...")
 wave_history.to_csv(OUTPUT_FILE, index=False)
+
+# Write coverage snapshot
+snapshot = {
+    "timestamp": datetime.now().isoformat(),
+    "total_waves": len(coverage_metrics),
+    "waves_meeting_threshold": sum(1 for m in coverage_metrics if m["meets_threshold"]),
+    "waves_below_threshold": sum(1 for m in coverage_metrics if not m["meets_threshold"]),
+    "min_coverage_threshold": MIN_COVERAGE_THRESHOLD,
+    "waves": coverage_metrics
+}
+
+print(f"Writing coverage snapshot to {SNAPSHOT_FILE}...")
+with open(SNAPSHOT_FILE, "w") as f:
+    json.dump(snapshot, f, indent=2)
+
+# Print summary
+print("\n" + "="*70)
+print("COVERAGE SUMMARY")
+print("="*70)
+print(f"Total waves processed: {snapshot['total_waves']}")
+print(f"Waves meeting {MIN_COVERAGE_THRESHOLD:.0%} threshold: {snapshot['waves_meeting_threshold']}")
+print(f"Waves below threshold: {snapshot['waves_below_threshold']}")
+print("\nWaves below threshold:")
+for metric in coverage_metrics:
+    if not metric["meets_threshold"]:
+        print(f"  - {metric['wave']}: {metric['coverage_pct']:.2%} coverage")
+print("="*70)
 print("Done.")
