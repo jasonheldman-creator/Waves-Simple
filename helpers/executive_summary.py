@@ -66,6 +66,8 @@ def identify_attention_waves(snapshot_df, threshold: float = -0.02) -> List[Dict
     """
     Identify waves needing attention (negative returns, low coverage, etc.).
     
+    Excludes SmartSafe cash waves from attention checks.
+    
     Args:
         snapshot_df: Snapshot DataFrame
         threshold: Return threshold for flagging (default -2%)
@@ -79,6 +81,12 @@ def identify_attention_waves(snapshot_df, threshold: float = -0.02) -> List[Dict
     attention_waves = []
     
     for _, row in snapshot_df.iterrows():
+        # Skip SmartSafe cash waves - they are always stable
+        wave_id = row.get("Wave_ID", "")
+        flags = row.get("Flags", "")
+        if "SmartSafe Cash Wave" in flags or wave_id in ["smartsafe_treasury_cash_wave", "smartsafe_tax_free_money_market_wave"]:
+            continue
+        
         reasons = []
         
         # Check 1D return

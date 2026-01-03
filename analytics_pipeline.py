@@ -851,6 +851,8 @@ def generate_benchmark_prices_csv(wave_id: str, lookback_days: int, use_dummy_da
     """
     Generate benchmark_prices.csv for a wave.
     
+    Skips generation for SmartSafe cash waves (they don't need benchmarks).
+    
     Args:
         wave_id: The wave identifier
         lookback_days: Number of days to look back
@@ -859,6 +861,15 @@ def generate_benchmark_prices_csv(wave_id: str, lookback_days: int, use_dummy_da
     Returns:
         True if successful, False otherwise
     """
+    # Skip SmartSafe cash waves - they don't need benchmark price files
+    try:
+        from waves_engine import is_smartsafe_cash_wave
+        if is_smartsafe_cash_wave(wave_id):
+            print(f"⊘ Skipping benchmark_prices.csv for SmartSafe cash wave: {wave_id}")
+            return True  # Return True as this is expected behavior
+    except (ImportError, AttributeError):
+        pass
+    
     benchmark_specs = resolve_wave_benchmarks(wave_id)
     if not benchmark_specs:
         print(f"Warning: No benchmarks found for {wave_id}")
