@@ -11036,32 +11036,32 @@ def render_overview_tab():
                 # ================================================================
                 if EXECUTIVE_SUMMARY_AVAILABLE:
                     try:
-                        # Get market data for context
+                        # Get market data for context from PRICE_BOOK (canonical source)
                         market_data = {}
                         try:
-                            # Try to get VIX, SPY, QQQ from snapshot or fetch
-                            import yfinance as yf
-                            
                             # Get VIX from snapshot if available
                             if "VIX_Level" in snapshot_df.columns:
                                 vix_values = snapshot_df["VIX_Level"].dropna()
                                 if not vix_values.empty:
                                     market_data["VIX"] = vix_values.iloc[0]
                             
-                            # Try to fetch SPY and QQQ 1D returns
+                            # Get SPY and QQQ 1D returns from PRICE_BOOK (canonical cache)
                             try:
-                                spy = yf.Ticker("SPY")
-                                spy_hist = spy.history(period="5d")
-                                if len(spy_hist) >= 2:
-                                    market_data["SPY_1D"] = (spy_hist["Close"].iloc[-1] / spy_hist["Close"].iloc[-2] - 1)
-                            except:
-                                pass
-                            
-                            try:
-                                qqq = yf.Ticker("QQQ")
-                                qqq_hist = qqq.history(period="5d")
-                                if len(qqq_hist) >= 2:
-                                    market_data["QQQ_1D"] = (qqq_hist["Close"].iloc[-1] / qqq_hist["Close"].iloc[-2] - 1)
+                                from helpers.price_book import get_price_book
+                                price_book = get_price_book(active_tickers=None)
+                                
+                                if not price_book.empty:
+                                    # Get SPY 1D return from PRICE_BOOK
+                                    if 'SPY' in price_book.columns:
+                                        spy_prices = price_book['SPY'].dropna()
+                                        if len(spy_prices) >= 2:
+                                            market_data["SPY_1D"] = (spy_prices.iloc[-1] / spy_prices.iloc[-2] - 1)
+                                    
+                                    # Get QQQ 1D return from PRICE_BOOK
+                                    if 'QQQ' in price_book.columns:
+                                        qqq_prices = price_book['QQQ'].dropna()
+                                        if len(qqq_prices) >= 2:
+                                            market_data["QQQ_1D"] = (qqq_prices.iloc[-1] / qqq_prices.iloc[-2] - 1)
                             except:
                                 pass
                         except:
