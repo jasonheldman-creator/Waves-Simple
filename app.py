@@ -5885,6 +5885,121 @@ def compute_risk_regime_attribution(df, days_list=[30, 60, 90]):
     return result
 
 
+def render_reality_panel():
+    """
+    Render the Reality Panel - Single Source of Truth Diagnostics
+    
+    This panel displays the actual PRICE_BOOK metadata used by the entire system.
+    It ensures transparency and prevents "two truths" by showing exactly what
+    data is being used for readiness, health, execution, and diagnostics.
+    
+    Displayed at the top of the Overview tab (minimum) or app-wide.
+    """
+    st.markdown("### 📋 Reality Panel - Price Book Status")
+    st.caption("Single source of truth for all price data, readiness, health, and execution")
+    
+    try:
+        from helpers.price_book import (
+            get_price_book,
+            get_price_book_meta,
+            get_active_required_tickers,
+            compute_missing_and_extra_tickers,
+            CANONICAL_CACHE_PATH,
+            PRICE_FETCH_ENABLED
+        )
+        
+        # Load the PRICE_BOOK (this is the actual object used by execution)
+        active_tickers = get_active_required_tickers()
+        price_book = get_price_book(active_tickers=None)  # Load all cached tickers
+        
+        # Get metadata from the actual PRICE_BOOK
+        meta = get_price_book_meta(price_book)
+        
+        # Compute missing/extra tickers
+        ticker_analysis = compute_missing_and_extra_tickers(price_book)
+        
+        # Get git commit info (if available)
+        git_commit = "N/A"
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                git_commit = result.stdout.strip()
+        except:
+            pass
+        
+        # Display in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**📁 Price Cache**")
+            st.text(f"Path: {meta['cache_path']}")
+            st.text(f"Shape: {meta['rows']} rows × {meta['cols']} cols")
+            
+            if meta['is_empty']:
+                st.error("⚠️ PRICE_BOOK is EMPTY")
+            else:
+                st.text(f"Date Range:")
+                st.text(f"  Min: {meta['date_min']}")
+                st.text(f"  Max: {meta['date_max']}")
+        
+        with col2:
+            st.markdown("**🎯 Ticker Coverage**")
+            st.text(f"Active Required: {ticker_analysis['required_count']}")
+            st.text(f"In PRICE_BOOK: {ticker_analysis['cached_count']}")
+            
+            missing_count = ticker_analysis['missing_count']
+            extra_count = ticker_analysis['extra_count']
+            
+            if missing_count > 0:
+                st.error(f"⚠️ Missing: {missing_count} tickers")
+            else:
+                st.success("✅ Missing: 0 tickers")
+            
+            if extra_count > 0:
+                st.info(f"ℹ️ Extra: {extra_count} tickers (harmless)")
+            else:
+                st.text(f"Extra: 0 tickers")
+        
+        with col3:
+            st.markdown("**🔧 System Info**")
+            st.text(f"Git Commit: {git_commit}")
+            st.text(f"UTC Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Show fetch status
+            if PRICE_FETCH_ENABLED:
+                st.warning("🟡 Fetch: ENABLED")
+            else:
+                st.success("🟢 Fetch: DISABLED (safe)")
+        
+        # Show detailed missing/extra tickers in expander
+        if ticker_analysis['missing_count'] > 0 or ticker_analysis['extra_count'] > 0:
+            with st.expander("📊 Detailed Ticker Analysis", expanded=False):
+                if ticker_analysis['missing_count'] > 0:
+                    st.markdown("**Missing Tickers (Required but not in cache):**")
+                    missing_display = ", ".join(ticker_analysis['missing_tickers'])
+                    if len(missing_display) > 500:
+                        missing_display = missing_display[:500] + "..."
+                    st.text(missing_display)
+                    st.caption(f"Total missing: {ticker_analysis['missing_count']}")
+                
+                if ticker_analysis['extra_count'] > 0:
+                    st.markdown("**Extra Tickers (In cache but not required):**")
+                    extra_display = ", ".join(ticker_analysis['extra_tickers'][:20])
+                    if ticker_analysis['extra_count'] > 20:
+                        extra_display += f" ... and {ticker_analysis['extra_count'] - 20} more"
+                    st.text(extra_display)
+                    st.caption(f"Total extra: {ticker_analysis['extra_count']} (these are harmless)")
+        
+    except Exception as e:
+        st.error(f"❌ Error loading Reality Panel: {str(e)}")
+        st.code(traceback.format_exc(), language="python")
+
+
 def render_mission_control():
     """
     Render the Mission Control summary strip at the top of the page.
@@ -6615,44 +6730,44 @@ def render_sidebar_info():
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
     # ========================================================================
-    # NEW: Refresh Prices Cache Button (Explicit Price Data Fetch)
+    # NEW: Rebuild Price Cache Button (Controlled, Active Tickers Only)
     # ========================================================================
     if st.sidebar.button(
-        "💰 Refresh Prices Cache",
-        key="refresh_prices_cache_button",
+        "💰 Rebuild Price Cache (Active Tickers Only)",
+        key="rebuild_price_cache_button",
         use_container_width=True,
-        help="Fetch latest prices for all required tickers and update the canonical cache"
+        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires PRICE_FETCH_ENABLED=true."
     ):
         try:
             # Show progress indicator
-            with st.spinner("Refreshing price cache... This may take a few minutes."):
-                # Import the refresh function
-                from helpers.price_loader import refresh_price_cache, check_cache_readiness
+            with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                # Import the rebuild function
+                from helpers.price_book import rebuild_price_cache
                 
-                # Call refresh
-                result = refresh_price_cache(active_only=True)
+                # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                result = rebuild_price_cache(active_only=True)
                 
-                # Show results
-                if result['success']:
+                # Check if fetching is allowed
+                if not result['allowed']:
+                    st.sidebar.warning(
+                        "⚠️ Price fetching is DISABLED\n\n"
+                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true to enable fetching.')}"
+                    )
+                elif result['success']:
                     st.sidebar.success(
-                        f"✅ Price cache refreshed!\n\n"
-                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                        f"✅ Price cache rebuilt!\n\n"
+                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                        f"📅 Latest Date: {result['date_max']}"
                     )
                     
-                    if result['tickers_failed'] > 0:
+                    # Show failed tickers if any
+                    if result['tickers_failed'] > 0 and result['failures']:
                         st.sidebar.warning(
                             f"⚠️ {result['tickers_failed']} tickers failed\n\n"
                             f"See data/cache/failed_tickers.csv for details"
                         )
                 else:
-                    st.sidebar.error("❌ Failed to refresh price cache")
-                
-                # Check readiness after refresh
-                readiness = check_cache_readiness(active_only=True)
-                if readiness['ready']:
-                    st.sidebar.success(f"✅ Cache is READY: {readiness['status']}")
-                else:
-                    st.sidebar.warning(f"⚠️ Cache status: {readiness['status']}")
+                    st.sidebar.error("❌ Failed to rebuild price cache")
                 
                 # Mark user interaction
                 st.session_state.user_interaction_detected = True
@@ -6661,9 +6776,9 @@ def render_sidebar_info():
                 st.cache_data.clear()
                 
                 # Trigger rerun
-                trigger_rerun("refresh_prices_cache")
+                trigger_rerun("rebuild_price_cache")
         except Exception as e:
-            st.sidebar.error(f"Error refreshing cache: {str(e)}")
+            st.sidebar.error(f"Error rebuilding cache: {str(e)}")
             import traceback
             st.sidebar.code(traceback.format_exc())
     
@@ -19124,6 +19239,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
+    
+    # ========================================================================
+    # REALITY PANEL - Single Source of Truth for Price Data
+    # ========================================================================
+    # Display the Reality Panel showing actual PRICE_BOOK metadata
+    render_reality_panel()
+    
+    st.markdown("---")
     
     # ========================================================================
     # ROUND 7 Phase 1: Wave Universe Validation Banner
