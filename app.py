@@ -4900,8 +4900,14 @@ def get_mission_control_data():
                 active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
                 mc_data['active_waves'] = active_count
                 
-                # No data means data_ready_count = 0
-                mc_data['data_ready_count'] = 0
+                # Even without wave_history data, SmartSafe cash waves are always ready
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    canonical_waves_set = set(canonical_waves)
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    mc_data['data_ready_count'] = 0
             except Exception:
                 pass
             return mc_data
