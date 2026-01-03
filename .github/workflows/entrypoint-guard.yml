@@ -1,0 +1,98 @@
+name: Entrypoint Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  validate-entrypoint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for minimal_app.py entrypoint references
+        run: |
+          echo "=== Checking for minimal_app.py as entrypoint ==="
+          
+          # Define patterns that would indicate minimal_app.py is being used as entrypoint
+          FAILED=0
+          
+          # Check workflow files for streamlit run minimal_app.py
+          echo "Checking workflow files for 'streamlit run minimal_app.py'..."
+          if grep -r "streamlit run minimal_app\.py" .github/workflows/ 2>/dev/null; then
+            echo "❌ FAILURE: Found 'streamlit run minimal_app.py' in workflow files"
+            FAILED=1
+          fi
+          
+          # Check workflow files for minimal_app.py references
+          echo "Checking workflow files for minimal_app.py references..."
+          if grep -r "minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml"; then
+            echo "❌ FAILURE: Found minimal_app.py references in workflow files"
+            FAILED=1
+          fi
+          
+          # Check deployment config files for minimal_app.py
+          echo "Checking deployment configuration files..."
+          if grep -E "minimal_app\.py" vercel.json 2>/dev/null; then
+            echo "❌ FAILURE: Found minimal_app.py in vercel.json"
+            FAILED=1
+          fi
+          
+          # Check for Procfile or similar deployment files
+          if [ -f "Procfile" ]; then
+            echo "Checking Procfile..."
+            if grep "minimal_app\.py" Procfile 2>/dev/null; then
+              echo "❌ FAILURE: Found minimal_app.py in Procfile"
+              FAILED=1
+            fi
+          fi
+          
+          # Check for streamlit config that might reference minimal_app.py
+          if [ -d ".streamlit" ]; then
+            echo "Checking .streamlit config directory..."
+            if grep -r "minimal_app\.py" .streamlit/ 2>/dev/null; then
+              echo "❌ FAILURE: Found minimal_app.py in .streamlit config"
+              FAILED=1
+            fi
+          fi
+          
+          # Check README and documentation files for deployment instructions
+          echo "Checking documentation for minimal_app.py deployment instructions..."
+          for file in README.md DEPLOYMENT.md *.md; do
+            if [ -f "$file" ]; then
+              if grep -i "streamlit run minimal_app" "$file" 2>/dev/null; then
+                echo "⚠️  WARNING: Found 'streamlit run minimal_app' deployment instruction in $file"
+                # Don't fail on docs, just warn
+              fi
+            fi
+          done
+          
+          if [ $FAILED -eq 0 ]; then
+            echo "✅ All entrypoint guard checks passed!"
+            echo "   No references to minimal_app.py as deployment entrypoint found."
+          else
+            echo "════════════════════════════════════════════════"
+            echo "❌ ENTRYPOINT GUARD FAILURE"
+            echo "════════════════════════════════════════════════"
+            echo "minimal_app.py MUST NOT be used as the deployment entrypoint."
+            echo "The correct entrypoint is app.py"
+            echo "════════════════════════════════════════════════"
+            exit 1
+          fi
+      
+      - name: Summary
+        if: success()
+        run: |
+          echo "════════════════════════════════════════════════"
+          echo "✅ Entrypoint guard validation passed!"
+          echo "════════════════════════════════════════════════"
+          echo "✓ No minimal_app.py entrypoint references in workflows"
+          echo "✓ No minimal_app.py entrypoint references in deployment configs"
+          echo "✓ Deployment entrypoint protection is active"
+          echo "════════════════════════════════════════════════"

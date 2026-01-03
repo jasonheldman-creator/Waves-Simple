@@ -18763,6 +18763,11 @@ def main():
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
     # ========================================================================
+    # ENTRYPOINT FINGERPRINT
+    # ========================================================================
+    print("[ENTRYPOINT] Running app.py")
+    
+    # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
     # ========================================================================
     
@@ -19301,6 +19306,11 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
+    
+    # ========================================================================
+    # ENTRYPOINT FINGERPRINT - UI Banner
+    # ========================================================================
+    st.caption("ENTRYPOINT: app.py")
     
     # ========================================================================
     # REALITY PANEL - Single Source of Truth for Price Data
