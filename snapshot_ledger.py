@@ -906,6 +906,9 @@ def _build_snapshot_row_tier_b(
         # Format missing_tickers column
         missing_tickers = ", ".join(sorted(failed_tickers_list)) if failed_tickers_list else ""
         
+        # Generate detailed N/A reason
+        na_reason = _generate_na_reason(returns, bm_returns, missing_tickers, hist_df, tier="B")
+        
         # Flags
         flags = ["Limited History", "Tier B"]
         if np.isnan(beta_real):
@@ -956,6 +959,7 @@ def _build_snapshot_row_tier_b(
             "Coverage_Score": coverage_score,
             "status": status,
             "missing_tickers": missing_tickers,
+            "NA_Reason": na_reason,
         }
         
         return row
