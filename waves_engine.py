@@ -1400,25 +1400,17 @@ def _log_diagnostics_to_json(failures: Dict[str, str], wave_id: Optional[str] = 
 
 def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Download historical price data with per-ticker isolation and graceful error handling.
+    Load historical price data from PRICE_BOOK (single authoritative source).
     
-    Enhanced Features:
-    - Retry logic with exponential backoff for transient failures
-    - Ticker normalization (e.g., BRK.B → BRK-B) to handle common issues
-    - Diagnostics tracking with categorized failure types
-    - Explicit handling for delisted tickers (permanent failures)
-    - API throttling/rate limiting protection
-    - JSON-based logging of failed tickers with timestamps
-    - LRU cache with 15-minute TTL to prevent redundant API calls
-    - Per-ticker error isolation - partial success is acceptable
-    - Falls back to individual ticker fetching if batch fails
-    - Returns partial data instead of failing completely
+    IMPORTANT: This function NO LONGER downloads from network.
+    It delegates to helpers.price_loader to access PRICE_BOOK.
+    All price data must be pre-loaded into the canonical cache.
     
     Args:
-        tickers: List of ticker symbols to download
-        days: Number of days of historical data to fetch
-        wave_id: Optional wave identifier for diagnostics tracking
-        wave_name: Optional wave display name for diagnostics tracking
+        tickers: List of ticker symbols to load
+        days: Number of days of historical data requested (for date range calculation)
+        wave_id: Optional wave identifier for diagnostics tracking (deprecated)
+        wave_name: Optional wave display name for diagnostics tracking (deprecated)
     
     Returns:
         Tuple of (prices_df, failures_dict):
@@ -1427,290 +1419,64 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     """
     failures = {}
     
-    if yf is None:
-        print("Error: yfinance is not available in this environment.")
-        failures = {ticker: "yfinance not available" for ticker in tickers}
-        # Log diagnostics
-        _log_diagnostics_to_json(failures, wave_id, wave_name)
-        # Track in diagnostics if available
-        if DIAGNOSTICS_AVAILABLE:
-            tracker = get_diagnostics_tracker()
-            for ticker in tickers:
-                failure_type, suggested_fix = categorize_error(failures[ticker], ticker)
-                report = FailedTickerReport(
-                    ticker_original=ticker,
-                    ticker_normalized=_normalize_ticker(ticker),
-                    wave_id=wave_id,
-                    wave_name=wave_name,
-                    source="yfinance",
-                    failure_type=failure_type,
-                    error_message=failures[ticker],
-                    is_fatal=True,
-                    suggested_fix=suggested_fix
-                )
-                tracker.record_failure(report)
-        return pd.DataFrame(), failures
-    
-    # Normalize tickers before fetching
-    normalized_tickers = []
-    for ticker in tickers:
-        normalized = _normalize_ticker(ticker)
-        normalized_tickers.append(normalized)
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_normalized = []
-    for ticker in normalized_tickers:
-        if ticker not in seen:
-            seen.add(ticker)
-            unique_normalized.append(ticker)
-    
-    lookback_days = days + 260
-    end = datetime.utcnow().date()
-    start = end - timedelta(days=lookback_days)
-    
-    # Try batch download first with retry logic
+    # DELEGATE TO PRICE_BOOK - Use single authoritative source
     try:
-        def _batch_download():
-            return yf.download(
-                tickers=unique_normalized,
-                start=start.isoformat(),
-                end=end.isoformat(),
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                group_by="column",
-            )
+        from helpers.price_loader import get_canonical_prices
         
-        # Use retry with backoff for batch download
-        data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
+        # Calculate date range
+        lookback_days = days + 260  # Include buffer for moving averages
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=lookback_days)
         
-        if data is None or len(data) == 0:
-            # Fall back to individual ticker fetching
-            print(f"Warning: Batch download returned no data, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        # Load from PRICE_BOOK (never fetches from network)
+        prices = get_canonical_prices(
+            tickers=tickers,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d')
+        )
         
-        if isinstance(data.columns, pd.MultiIndex):
-            if "Adj Close" in data.columns.get_level_values(0):
-                data = data["Adj Close"]
-            elif "Close" in data.columns.get_level_values(0):
-                data = data["Close"]
+        # Identify tickers with no data (all NaN) as failures
+        for ticker in tickers:
+            if ticker in prices.columns:
+                if prices[ticker].isna().all():
+                    failures[ticker] = "No data available in PRICE_BOOK"
             else:
-                data = data[data.columns.levels[0][0]]
-        if isinstance(data.columns, pd.MultiIndex):
-            data = data.droplevel(0, axis=1)
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
-        data = data.sort_index().ffill().bfill()
+                failures[ticker] = "Ticker not in PRICE_BOOK"
         
-        # Check if we got at least some data
-        if data.empty:
-            print(f"Warning: No price data after normalization, trying individual tickers")
-            return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
-        
-        # Track which tickers failed in batch download
-        available_tickers = set(data.columns)
-        for ticker in unique_normalized:
-            if ticker not in available_tickers:
-                failures[ticker] = "Not in batch result"
-        
-        # Log diagnostics if there are failures
+        # Log diagnostics for failures (if any)
         if failures:
             _log_diagnostics_to_json(failures, wave_id, wave_name)
-            # Track in diagnostics if available
-            if DIAGNOSTICS_AVAILABLE:
-                tracker = get_diagnostics_tracker()
-                for ticker, error_msg in failures.items():
-                    failure_type, suggested_fix = categorize_error(error_msg, ticker)
-                    report = FailedTickerReport(
-                        ticker_original=ticker,
-                        ticker_normalized=ticker,  # Already normalized
-                        wave_id=wave_id,
-                        wave_name=wave_name,
-                        source="yfinance",
-                        failure_type=failure_type,
-                        error_message=error_msg,
-                        is_fatal=False,  # Might succeed in individual download
-                        suggested_fix=suggested_fix
-                    )
-                    tracker.record_failure(report)
         
-        return data, failures
+        return prices, failures
         
+    except ImportError:
+        # Fallback if price_loader is not available (should not happen in production)
+        error_msg = "price_loader module not available - cannot access PRICE_BOOK"
+        print(f"Error: {error_msg}")
+        for ticker in tickers:
+            failures[ticker] = error_msg
+        _log_diagnostics_to_json(failures, wave_id, wave_name)
+        return pd.DataFrame(), failures
     except Exception as e:
-        # Graceful degradation on rate limits or other errors
-        # Try individual ticker fetching as fallback
-        error_msg = f"Batch download failed: {str(e)}"
-        print(f"Warning: yfinance batch download failed, trying individual tickers: {str(e)}")
-        
-        # Check if this is a rate limit error
-        if _is_rate_limit_error(e):
-            # Add a delay before trying individual downloads
-            time.sleep(5.0)
-        
-        return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        # Handle any other errors
+        error_msg = f"Error loading from PRICE_BOOK: {str(e)}"
+        print(f"Error: {error_msg}")
+        for ticker in tickers:
+            failures[ticker] = error_msg
+        _log_diagnostics_to_json(failures, wave_id, wave_name)
+        return pd.DataFrame(), failures
 
 
 def _download_history_individually(tickers: list[str], start, end, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Download price data one ticker at a time for maximum resilience.
+    DEPRECATED: This function is no longer used.
+    All price loading now goes through PRICE_BOOK via helpers.price_loader.
     
-    Enhanced Features:
-    - Retry logic with exponential backoff for each ticker
-    - Batch delays to prevent API rate limiting
-    - Diagnostics tracking for all failure types
-    - Explicit categorization of permanent vs transient failures
-    - JSON-based logging of failures
-    
-    Args:
-        tickers: List of ticker symbols (should already be normalized)
-        start: Start date
-        end: End date
-        wave_id: Optional wave identifier for diagnostics tracking
-        wave_name: Optional wave display name for diagnostics tracking
-        
-    Returns:
-        Tuple of (prices_df, failures_dict):
-        - prices_df: DataFrame with dates as index and tickers as columns
-        - failures_dict: Dict mapping failed tickers to error reasons
+    Kept for backward compatibility but returns empty results.
     """
-    if yf is None:
-        failures = {ticker: "yfinance not available" for ticker in tickers}
-        # Log diagnostics
-        _log_diagnostics_to_json(failures, wave_id, wave_name)
-        # Track in diagnostics if available
-        if DIAGNOSTICS_AVAILABLE:
-            tracker = get_diagnostics_tracker()
-            for ticker in tickers:
-                failure_type, suggested_fix = categorize_error(failures[ticker], ticker)
-                report = FailedTickerReport(
-                    ticker_original=ticker,
-                    ticker_normalized=ticker,
-                    wave_id=wave_id,
-                    wave_name=wave_name,
-                    source="yfinance",
-                    failure_type=failure_type,
-                    error_message=failures[ticker],
-                    is_fatal=True,
-                    suggested_fix=suggested_fix
-                )
-                tracker.record_failure(report)
-        return pd.DataFrame(), failures
-    
-    all_prices = {}
-    failures = {}
-    
-    # Get diagnostics tracker if available
-    tracker = get_diagnostics_tracker() if DIAGNOSTICS_AVAILABLE else None
-    
-    # Add batch processing with delays to reduce API stress
-    batch_size = 10
-    batch_delay = 0.5  # 0.5 seconds between batches
-    
-    for i, ticker in enumerate(tickers):
-        # Add delay between batches to prevent rate limiting
-        if i > 0 and i % batch_size == 0:
-            time.sleep(batch_delay)
-        
-        try:
-            def _download_single():
-                return yf.download(
-                    tickers=ticker,
-                    start=start.isoformat(),
-                    end=end.isoformat(),
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                )
-            
-            # Use retry with backoff for each ticker
-            data = _retry_with_backoff(_download_single, max_retries=3, initial_delay=1.0)
-            
-            if data is None or data.empty:
-                error_msg = "Empty data returned"
-                failures[ticker] = error_msg
-                
-                # Track in diagnostics
-                if tracker:
-                    failure_type, suggested_fix = categorize_error(error_msg, ticker)
-                    is_fatal = failure_type.value in ["SYMBOL_INVALID", "PROVIDER_EMPTY"]
-                    report = FailedTickerReport(
-                        ticker_original=ticker,
-                        ticker_normalized=ticker,  # Already normalized
-                        wave_id=wave_id,
-                        wave_name=wave_name,
-                        source="yfinance",
-                        failure_type=failure_type,
-                        error_message=error_msg,
-                        is_fatal=is_fatal,
-                        suggested_fix=suggested_fix
-                    )
-                    tracker.record_failure(report)
-                continue
-            
-            if 'Close' in data.columns:
-                all_prices[ticker] = data['Close']
-            elif 'Adj Close' in data.columns:
-                all_prices[ticker] = data['Adj Close']
-            else:
-                error_msg = "No Close column"
-                failures[ticker] = error_msg
-                
-                # Track in diagnostics
-                if tracker:
-                    failure_type, suggested_fix = categorize_error(error_msg, ticker)
-                    report = FailedTickerReport(
-                        ticker_original=ticker,
-                        ticker_normalized=ticker,  # Already normalized
-                        wave_id=wave_id,
-                        wave_name=wave_name,
-                        source="yfinance",
-                        failure_type=failure_type,
-                        error_message=error_msg,
-                        is_fatal=True,
-                        suggested_fix=suggested_fix
-                    )
-                    tracker.record_failure(report)
-                continue
-                
-        except Exception as e:
-            error_msg = f"Download error: {str(e)}"
-            failures[ticker] = error_msg
-            
-            # Track in diagnostics
-            if tracker:
-                failure_type, suggested_fix = categorize_error(error_msg, ticker)
-                # Determine if this is a fatal error
-                is_fatal = failure_type.value not in ["RATE_LIMIT", "NETWORK_TIMEOUT"]
-                report = FailedTickerReport(
-                    ticker_original=ticker,
-                    ticker_normalized=ticker,  # Already normalized
-                    wave_id=wave_id,
-                    wave_name=wave_name,
-                    source="yfinance",
-                    failure_type=failure_type,
-                    error_message=error_msg,
-                    is_fatal=is_fatal,
-                    suggested_fix=suggested_fix
-                )
-                tracker.record_failure(report)
-            continue
-    
-    if failures:
-        print(f"Warning: {len(failures)} ticker(s) failed to download: {list(failures.keys())[:5]}{'...' if len(failures) > 5 else ''}")
-        # Log diagnostics to JSON
-        _log_diagnostics_to_json(failures, wave_id, wave_name)
-    
-    if not all_prices:
-        print("Error: No tickers successfully downloaded")
-        return pd.DataFrame(), failures
-    
-    # Build DataFrame
-    prices_df = pd.DataFrame(all_prices)
-    prices_df = prices_df.sort_index().ffill().bfill()
-    
-    print(f"Successfully downloaded {len(all_prices)}/{len(tickers)} tickers")
-    return prices_df, failures
+    print("Warning: _download_history_individually is deprecated - use PRICE_BOOK via helpers.price_loader")
+    failures = {ticker: "Deprecated: Use PRICE_BOOK instead" for ticker in tickers}
+    return pd.DataFrame(), failures
 
 
 def _map_sector_name(raw_sector: str | None) -> str:
