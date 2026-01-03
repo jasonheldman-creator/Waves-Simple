@@ -5987,6 +5987,22 @@ def render_reality_panel():
             st.text(f"Active Required: {ticker_analysis['required_count']}")
             st.text(f"In PRICE_BOOK: {ticker_analysis['cached_count']}")
             
+            # Guardrail: Check for active_required underreporting
+            # Count active waves from registry
+            try:
+                import pandas as pd
+                wave_registry_path = os.path.join('data', 'wave_registry.csv')
+                if os.path.exists(wave_registry_path):
+                    registry_df = pd.read_csv(wave_registry_path)
+                    active_wave_count = registry_df['active'].sum()
+                    
+                    # Show warning if we have many active waves but suspiciously few required tickers
+                    if active_wave_count >= 20 and ticker_analysis['required_count'] < 20:
+                        st.error("🚨 BUG: active_required too small — registry/ticker collection failed.")
+                        st.text(f"Active waves in registry: {active_wave_count}")
+            except Exception as e:
+                pass  # Don't fail if we can't load registry
+            
             missing_count = ticker_analysis['missing_count']
             extra_count = ticker_analysis['extra_count']
             
