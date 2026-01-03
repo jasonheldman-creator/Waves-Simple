@@ -664,6 +664,15 @@ def get_build_info():
     if git_sha_env:
         build_info['sha'] = git_sha_env
     else:
+        # Fallback to git command if available
+        try:
+            import subprocess
+            result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                build_info['sha'] = result.stdout.strip()
+        except Exception:
+            pass  # Git not available or error, leave sha as None
 
 
 def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
