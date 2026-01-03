@@ -239,7 +239,7 @@ def get_russell_3000_static_list() -> List[str]:
         "IONQ", "RGTI", "QBTS", "SOUN", "BBAI", "AI", "SMCI", "DELL", "HPE",
         
         # Additional diversified
-        "RIVN", "LCID", "CHPT", "BLNK", "EVGO", "VLTA", "PTRA", "HYLN", "GOEV", "FSR",
+        "RIVN", "LCID", "CHPT", "BLNK", "EVGO", "PTRA", "HYLN", "GOEV", "FSR",
     ]
 
 

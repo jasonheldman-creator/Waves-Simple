@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-01-03T13:06:56.990935",
+  "timestamp": "2026-01-03T13:08:30.910140",
   "rebuild_summary": {
     "final_ticker_count": 897,
-    "duplicates_removed": 177,
-    "deduplication_rate": "16.5%",
+    "duplicates_removed": 174,
+    "deduplication_rate": "16.2%",
     "multi_index_count": 163
   },
   "index_inclusion": {
@@ -16,7 +16,7 @@
       "status": "included"
     },
     "SP_500": {
-      "count": 449,
+      "count": 446,
       "status": "included"
     },
     "NASDAQ_Composite": {

@@ -27,7 +27,7 @@ SP500_TICKERS = [
     "AKAM", "VRSN", "ENPH", "MPWR", "ON", "SWKS", "TER", "MRVL", "GEN", "GLW", "HPQ",
     
     # Communication Services
-    "META", "GOOGL", "GOOG", "NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS", "CHTR",
+    "NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS", "CHTR",
     "EA", "TTWO", "LYV", "MTCH", "PARA", "OMC", "IPG", "NWSA",
     
     # Consumer Discretionary
