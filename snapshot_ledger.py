@@ -459,6 +459,84 @@ def _load_wave_history_from_csv(wave_id: str, days: int = 365) -> Optional[pd.Da
         return None
 
 
+def _build_smartsafe_cash_wave_row(
+    wave_id: str,
+    wave_name: str,
+    mode: str
+) -> Dict[str, Any]:
+    """
+    Build snapshot row for SmartSafe cash waves.
+    
+    These waves are pure cash/money market holdings with:
+    - Constant NAV of 1.0
+    - 0% daily returns
+    - N/A benchmark and alpha metrics
+    - 100% coverage (no ticker dependencies)
+    
+    Args:
+        wave_id: Wave identifier
+        wave_name: Wave display name
+        mode: Operating mode
+        
+    Returns:
+        Snapshot row dictionary
+    """
+    # Get category from registry
+    category = "Cash"
+    try:
+        from helpers.wave_registry_validator import load_wave_registry
+        registry = load_wave_registry()
+        if registry and "waves" in registry:
+            for wave_entry in registry["waves"]:
+                if wave_entry.get("wave_id") == wave_id or wave_entry.get("display_name") == wave_name:
+                    category = wave_entry.get("category", "Cash")
+                    break
+    except:
+        pass
+    
+    # All returns are 0.0 for cash waves
+    returns = {f"Return_{label}": 0.0 for label in TIMEFRAMES.keys()}
+    # Benchmarks are N/A (represented as NaN)
+    bm_returns = {f"Benchmark_Return_{label}": float("nan") for label in TIMEFRAMES.keys()}
+    # Alpha is N/A since there's no benchmark
+    alphas = {f"Alpha_{label}": float("nan") for label in TIMEFRAMES.keys()}
+    
+    # VIX and exposure (cash waves are always 100% cash, 0% exposure)
+    vix_level, vix_regime = 0.0, "N/A"
+    exposure = 0.0
+    cash_percent = 100.0
+    
+    # Build row
+    row = {
+        "Wave_ID": wave_id,
+        "Wave": wave_name,
+        "Category": category,
+        "Mode": mode,
+        "Date": datetime.now().strftime("%Y-%m-%d"),
+        "NAV": 1.0,  # Constant NAV for cash
+        "NAV_1D_Change": 0.0,
+        **returns,
+        **bm_returns,
+        **alphas,
+        "Exposure": exposure,
+        "CashPercent": cash_percent,
+        "VIX_Level": vix_level,
+        "VIX_Regime": vix_regime,
+        "Beta_Real": float("nan"),  # N/A for cash
+        "Beta_Target": float("nan"),  # N/A for cash
+        "Beta_Drift": float("nan"),  # N/A for cash
+        "Turnover_Est": 0.0,  # No turnover for cash
+        "MaxDD": 0.0,  # No drawdown for cash
+        "Flags": "SmartSafe Cash Wave",
+        "Data_Regime_Tag": "Full",
+        "Coverage_Score": 100,
+        "status": "OK",
+        "missing_tickers": "",  # No tickers needed
+    }
+    
+    return row
+
+
 def _build_snapshot_row_tier_a(
     wave_id: str,
     wave_name: str,
@@ -480,6 +558,17 @@ def _build_snapshot_row_tier_a(
     Returns:
         Snapshot row dictionary, or None if not available
     """
+    # SmartSafe Cash Wave handling: skip price-based computation
+    # These waves have constant 0% daily returns
+    if WAVES_ENGINE_AVAILABLE:
+        try:
+            from waves_engine import is_smartsafe_cash_wave
+            if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
+                # Build row with 0% returns and N/A benchmarks
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+        except (ImportError, AttributeError):
+            pass
+    
     failed_tickers_list = []
     try:
         # Try Method 1: Use compute_history_nav (may fail if no network)
@@ -661,6 +750,15 @@ def _build_snapshot_row_tier_b(
     Returns:
         Snapshot row dictionary, or None if not available
     """
+    # SmartSafe Cash Wave handling
+    if WAVES_ENGINE_AVAILABLE:
+        try:
+            from waves_engine import is_smartsafe_cash_wave
+            if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+        except (ImportError, AttributeError):
+            pass
+    
     failed_tickers_list = []
     try:
         # Try Method 1: Use compute_history_nav (may fail if no network)
@@ -820,6 +918,15 @@ def _build_snapshot_row_tier_c(
     Returns:
         Snapshot row dictionary, or None if not available
     """
+    # SmartSafe Cash Wave handling
+    if WAVES_ENGINE_AVAILABLE:
+        try:
+            from waves_engine import is_smartsafe_cash_wave
+            if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+        except (ImportError, AttributeError):
+            pass
+    
     try:
         # This is complex and requires holdings data
         # For now, return None and rely on Tier D
@@ -856,6 +963,15 @@ def _build_snapshot_row_tier_d(
     Returns:
         Snapshot row dictionary (always succeeds)
     """
+    # SmartSafe Cash Wave handling
+    if WAVES_ENGINE_AVAILABLE:
+        try:
+            from waves_engine import is_smartsafe_cash_wave
+            if is_smartsafe_cash_wave(wave_id) or is_smartsafe_cash_wave(wave_name):
+                return _build_smartsafe_cash_wave_row(wave_id, wave_name, mode)
+        except (ImportError, AttributeError):
+            pass
+    
     # VIX and exposure (can always compute)
     vix_level, vix_regime = _get_vix_level_and_regime(price_df)
     exposure, cash_percent = _compute_exposure_and_cash(wave_name, mode, vix_level, vix_regime, price_df)

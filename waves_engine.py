@@ -199,6 +199,13 @@ CRYPTO_VOL_EXPOSURE = {
     "extreme_expansion": 0.75,     # -25% in extreme expansion
 }
 
+# SmartSafe Cash Waves - these are pure cash/money market holdings
+# They do not require price ingestion or alpha/benchmark computation
+SMARTSAFE_CASH_WAVES: Set[str] = {
+    "smartsafe_treasury_cash_wave",
+    "smartsafe_tax_free_money_market_wave",
+}
+
 # Crypto Liquidity/Market Structure thresholds (volume-based)
 CRYPTO_LIQUIDITY_THRESHOLDS = {
     "strong_volume": 1.50,     # Volume 50%+ above average = strong
@@ -1138,6 +1145,31 @@ def get_display_name_from_wave_id(wave_id: str) -> Optional[str]:
         display_name (e.g., "S&P 500 Wave") or None if not found
     """
     return WAVE_ID_REGISTRY.get(wave_id)
+
+
+def is_smartsafe_cash_wave(wave_identifier: str) -> bool:
+    """
+    Check if a wave is a SmartSafe cash wave.
+    
+    These waves are pure cash/money market holdings that do not require
+    price ingestion, return computation, or alpha attribution.
+    
+    Args:
+        wave_identifier: Either wave_id or display_name
+        
+    Returns:
+        True if the wave is a SmartSafe cash wave, False otherwise
+    """
+    # Check if it's a wave_id
+    if wave_identifier in SMARTSAFE_CASH_WAVES:
+        return True
+    
+    # Check if it's a display_name - convert to wave_id first
+    wave_id = get_wave_id_from_display_name(wave_identifier)
+    if wave_id and wave_id in SMARTSAFE_CASH_WAVES:
+        return True
+    
+    return False
 
 
 def validate_wave_id_registry() -> List[str]:
@@ -2509,6 +2541,36 @@ def _compute_core(
         print(f"Error: Unknown mode: {mode}")
         # Return empty DataFrame instead of raising
         return pd.DataFrame(columns=["wave_nav", "bm_nav", "wave_ret", "bm_ret"], dtype=float)
+
+    # SmartSafe Cash Wave handling: these are pure cash holdings with 0% daily return
+    # No price ingestion or benchmark computation required
+    if is_smartsafe_cash_wave(wave_name):
+        # Create a simple date range for the requested period
+        end_date = pd.Timestamp.now().normalize()
+        start_date = end_date - pd.Timedelta(days=days)
+        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        
+        # SmartSafe cash waves have constant NAV of 1.0 (0% return daily)
+        result = pd.DataFrame({
+            'wave_nav': 1.0,
+            'bm_nav': 1.0,
+            'wave_ret': 0.0,
+            'bm_ret': 0.0,
+        }, index=date_range)
+        
+        # Add coverage metadata indicating this is a cash wave (100% coverage, no tickers)
+        result.attrs["coverage"] = {
+            "wave_coverage_pct": 100.0,
+            "bm_coverage_pct": 100.0,
+            "wave_tickers_expected": 0,
+            "wave_tickers_available": 0,
+            "bm_tickers_expected": 0,
+            "bm_tickers_available": 0,
+            "failed_tickers": {},
+            "is_smartsafe_cash_wave": True,
+        }
+        
+        return result
 
     ov = overrides or {}
 
