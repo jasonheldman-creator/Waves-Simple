@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import os
 import logging
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Tuple, Any
@@ -211,10 +212,15 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
             # Get benchmark weights for this wave using display_name
             benchmark_weights = BENCHMARK_WEIGHTS_STATIC.get(display_name, [])
             for benchmark in benchmark_weights:
-                # Benchmark can be (ticker, weight) tuple or dict
-                if isinstance(benchmark, tuple) and len(benchmark) >= 1:
+                # Benchmark can be Holding object, (ticker, weight) tuple, or dict
+                if hasattr(benchmark, 'ticker'):
+                    # It's a Holding object
+                    tickers.add(benchmark.ticker)
+                elif isinstance(benchmark, tuple) and len(benchmark) >= 1:
+                    # It's a (ticker, weight) tuple
                     tickers.add(benchmark[0])
                 elif isinstance(benchmark, dict) and 'ticker' in benchmark:
+                    # It's a dict
                     tickers.add(benchmark['ticker'])
             
             # Track how many tickers this wave contributed
@@ -235,6 +241,7 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
         
     except Exception as e:
         logger.error(f"Error collecting required tickers: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}", exc_info=True)
         # Fallback to a minimal set of essential indicators only
         tickers = {'SPY', 'QQQ', '^VIX', 'BTC-USD'}
     
