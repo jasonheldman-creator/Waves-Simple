@@ -83,8 +83,7 @@ def test_allowed_yfinance_usage():
     print(f"\nFound {len(yfinance_imports)} yfinance import(s):")
     
     allowed_contexts = [
-        'get_next_earnings_date',  # Optional earnings date feature
-        'get_fed_decision_info',   # Optional Fed info feature
+        'get_next_earnings_date',  # Optional earnings date feature (gracefully degrades)
     ]
     
     all_allowed = True
