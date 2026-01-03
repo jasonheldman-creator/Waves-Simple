@@ -651,10 +651,12 @@ def get_build_info():
     - Current branch name from environment variable or git command
     - Current UTC timestamp (non-cached)
     """
+    from datetime import timezone
+    
     build_info = {
         'sha': 'unknown',
         'branch': 'unknown',
-        'utc': datetime.utcnow().isoformat()
+        'utc': datetime.now(timezone.utc).isoformat()
     }
     
     # Get Git SHA: prioritize environment variable, fallback to git command
@@ -17356,10 +17358,10 @@ def render_diagnostics_tab():
                 )
             
             with col2:
-                shape_str = f"{cache_info['num_days']} × {cache_info['num_tickers']}"
+                dataframe_shape = f"{cache_info['num_days']} × {cache_info['num_tickers']}"
                 st.metric(
                     "📊 DataFrame Shape",
-                    shape_str,
+                    dataframe_shape,
                     help="Rows (days) × Columns (tickers)"
                 )
             
