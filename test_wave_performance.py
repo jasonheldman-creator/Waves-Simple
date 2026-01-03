@@ -20,14 +20,30 @@ def test_wave_performance():
     print("Testing Wave Performance Module")
     print("=" * 70)
     
-    # Import required modules
-    from helpers.price_book import get_price_book
-    from helpers.wave_performance import (
-        compute_wave_returns,
-        compute_all_waves_performance,
-        compute_all_waves_readiness,
-        get_price_book_diagnostics
-    )
+    # Import required modules - change to helpers directory to avoid streamlit dependency
+    import sys
+    import os
+    
+    # Save current directory
+    original_dir = os.getcwd()
+    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
+    
+    # Change to helpers directory for import
+    os.chdir(helpers_dir)
+    sys.path.insert(0, helpers_dir)
+    
+    try:
+        import price_book as pb_module
+        import wave_performance as wp_module
+        
+        get_price_book = pb_module.get_price_book
+        compute_wave_returns = wp_module.compute_wave_returns
+        compute_all_waves_performance = wp_module.compute_all_waves_performance
+        compute_all_waves_readiness = wp_module.compute_all_waves_readiness
+        get_price_book_diagnostics = wp_module.get_price_book_diagnostics
+    finally:
+        # Restore original directory
+        os.chdir(original_dir)
     
     # Load PRICE_BOOK
     print("\n1. Loading PRICE_BOOK...")
@@ -72,21 +88,27 @@ def test_wave_performance():
     for status, count in status_counts.items():
         print(f"      {status}: {count} waves")
     
-    # Show waves with failures
-    failed = perf_df[perf_df['Failure_Reason'].notna()]
-    if not failed.empty:
-        print(f"\n   ⚠️  {len(failed)} waves with failures:")
-        for _, row in failed.head(5).iterrows():
-            print(f"      - {row['Wave']}: {row['Failure_Reason']} (coverage: {row['Coverage_Pct']:.1f}%)")
-        if len(failed) > 5:
-            print(f"      ... and {len(failed) - 5} more")
+    # Note: With only_validated=True (default), there should be no failures
+    # All waves returned should be valid
+    if 'Failure_Reason' in perf_df.columns:
+        failed = perf_df[perf_df['Failure_Reason'].notna()]
+        if not failed.empty:
+            print(f"\n   ⚠️  {len(failed)} waves with failures:")
+            for _, row in failed.head(5).iterrows():
+                print(f"      - {row['Wave']}: {row['Failure_Reason']} (coverage: {row['Coverage_Pct']:.1f}%)")
+            if len(failed) > 5:
+                print(f"      ... and {len(failed) - 5} more")
+        else:
+            print(f"\n   ✓ All {len(perf_df)} validated waves computed successfully!")
     else:
-        print(f"\n   ✓ All waves computed successfully!")
+        # only_validated=True mode - no Failure_Reason column
+        print(f"\n   ✓ All {len(perf_df)} validated waves computed successfully!")
+        print(f"   (Note: only_validated=True - invalid waves were filtered out)")
     
     # Show sample successful waves
-    successful = perf_df[perf_df['Failure_Reason'].isna()]
+    successful = perf_df  # All should be successful in only_validated mode
     if not successful.empty:
-        print(f"\n   Sample successful waves:")
+        print(f"\n   Sample waves in performance table:")
         for _, row in successful.head(3).iterrows():
             print(f"      - {row['Wave']}: 1D={row['1D Return']}, 30D={row['30D']}, Status={row['Status/Confidence']}")
     

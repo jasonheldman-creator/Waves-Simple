@@ -78,6 +78,40 @@ except ImportError as e:
     CACHE_PATH = CANONICAL_CACHE_PATH  # Use our own constant as fallback
 
 
+def _load_cache_fallback() -> pd.DataFrame:
+    """
+    Fallback function to load cache directly if price_loader is not available.
+    
+    This ensures get_price_book can still work even if price_loader imports fail
+    (e.g., due to streamlit dependency issues in non-UI contexts).
+    
+    Returns:
+        DataFrame with price data from canonical cache (index=dates, columns=tickers), 
+        or empty DataFrame if cache not found
+    """
+    if not os.path.exists(CANONICAL_CACHE_PATH):
+        logger.warning(f"Cache file not found: {CANONICAL_CACHE_PATH}")
+        return pd.DataFrame()
+    
+    try:
+        cache_df = pd.read_parquet(CANONICAL_CACHE_PATH)
+        logger.info(f"Loaded cache directly from {CANONICAL_CACHE_PATH}")
+        return cache_df
+    except Exception as e:
+        logger.error(f"Error loading cache from {CANONICAL_CACHE_PATH}: {e}")
+        return pd.DataFrame()
+
+
+def _deduplicate_tickers_fallback(tickers: List[str]) -> List[str]:
+    """
+    Fallback function to deduplicate tickers if price_loader is not available.
+    
+    Returns:
+        Sorted list of unique tickers
+    """
+    return sorted(list(set(tickers)))
+
+
 def get_price_book(
     active_tickers: Optional[List[str]] = None,
     mode: str = 'Standard',
@@ -111,17 +145,12 @@ def get_price_book(
     logger.info(f"Source: {CANONICAL_CACHE_PATH}")
     logger.info("=" * 70)
     
-    # Check if required functions are available
-    if load_cache is None or deduplicate_tickers is None:
-        logger.error("Required price_loader functions not available")
-        result = pd.DataFrame()
-        if active_tickers:
-            result = pd.DataFrame(columns=active_tickers)  # Use raw tickers if deduplicate not available
-        result.index.name = 'Date'
-        return result
+    # Choose load_cache function (use fallback if price_loader not available)
+    load_func = load_cache if load_cache is not None else _load_cache_fallback
+    dedupe_func = deduplicate_tickers if deduplicate_tickers is not None else _deduplicate_tickers_fallback
     
     # Load from canonical cache (never fetches)
-    cache_df = load_cache()
+    cache_df = load_func()
     
     if cache_df is None or cache_df.empty:
         logger.warning("PRICE_BOOK is empty - cache does not exist or is empty")
@@ -129,7 +158,7 @@ def get_price_book(
         # Return empty DataFrame with requested tickers as columns
         result = pd.DataFrame()
         if active_tickers:
-            result = pd.DataFrame(columns=deduplicate_tickers(active_tickers))
+            result = pd.DataFrame(columns=dedupe_func(active_tickers))
         result.index.name = 'Date'
         return result
     
@@ -144,7 +173,7 @@ def get_price_book(
     
     # Filter to requested tickers if provided
     if active_tickers:
-        tickers = deduplicate_tickers(active_tickers)
+        tickers = dedupe_func(active_tickers)
         result = cache_df.copy()
         
         # Add NaN columns for requested tickers not in cache

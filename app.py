@@ -18572,22 +18572,27 @@ def render_overview_clean_tab():
                     st.metric("Waves Status", "Error")
                     st.caption(str(e))
             
-            # Show failing waves summary
+            # Show failing waves summary (use only_validated=False to see all waves including failures)
             try:
-                perf_df = compute_all_waves_performance(price_book, periods=[1])
-                failed_waves = perf_df[perf_df['Failure_Reason'].notna()]
+                # For diagnostics, get all waves including invalid ones
+                perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
                 
-                if not failed_waves.empty:
-                    st.markdown(f"**⚠️ {len(failed_waves)} waves with N/A data:**")
+                if 'Failure_Reason' in perf_df_all.columns:
+                    failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
                     
-                    # Group by failure reason
-                    failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
-                    
-                    for reason, waves in failure_groups.items():
-                        with st.expander(f"❌ {reason} ({len(waves)} waves)", expanded=False):
-                            st.write(", ".join(waves))
+                    if not failed_waves.empty:
+                        st.markdown(f"**⚠️ {len(failed_waves)} waves with N/A data:**")
+                        
+                        # Group by failure reason
+                        failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
+                        
+                        for reason, waves in failure_groups.items():
+                            with st.expander(f"❌ {reason} ({len(waves)} waves)", expanded=False):
+                                st.write(", ".join(waves))
+                    else:
+                        st.success("✅ All waves passing validation and returning data successfully")
                 else:
-                    st.success("✅ All waves returning data successfully")
+                    st.success("✅ All waves in validated set returning data successfully")
                     
             except Exception as e:
                 st.warning(f"Unable to compute wave status: {str(e)}")
@@ -18653,13 +18658,18 @@ def render_overview_clean_tab():
             # Load PRICE_BOOK (cache-only, no fetching)
             price_book = get_price_book()
             
-            # Compute performance for all 28 waves
-            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365])
+            # Compute performance for all 28 waves (only validated by default)
+            # This ensures the main performance table ONLY shows waves with valid, continuous price history
+            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
             if not performance_df.empty:
                 # Display the performance table
-                # Note: Don't show Failure_Reason column in main view, show in expander below
+                # Note: With only_validated=True, Failure_Reason column won't exist
                 display_columns = ['Wave', '1D Return', '30D', '60D', '365D', 'Status/Confidence']
+                
+                # Show count of validated waves
+                st.info(f"📊 Showing {len(performance_df)} waves that passed validation (100% ticker coverage, sufficient price history)")
+                
                 st.dataframe(
                     performance_df[display_columns],
                     use_container_width=True,
@@ -18667,17 +18677,41 @@ def render_overview_clean_tab():
                     height=800  # Show more rows at once
                 )
                 
-                # Show failure details in expander
-                failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
-                if not failed_waves.empty:
-                    with st.expander(f"⚠️ Waves with Issues ({len(failed_waves)} waves)", expanded=False):
-                        st.dataframe(
-                            failed_waves[['Wave', 'Failure_Reason', 'Coverage_Pct']],
-                            use_container_width=True,
-                            hide_index=True
-                        )
+                # Show which waves were excluded (if any)
+                try:
+                    from waves_engine import get_all_waves_universe
+                    universe = get_all_waves_universe()
+                    total_waves = len(universe.get('waves', []))
+                    excluded_count = total_waves - len(performance_df)
+                    
+                    if excluded_count > 0:
+                        with st.expander(f"ℹ️ Validation Report ({excluded_count} waves excluded)", expanded=False):
+                            st.markdown("""
+                            **Why are waves excluded?**
+                            
+                            Waves are excluded from the performance table if they fail validation:
+                            - Missing required tickers from PRICE_BOOK
+                            - Insufficient date coverage (< 30 days)
+                            - Unable to compute returns
+                            
+                            To see all waves including invalid ones, use the Diagnostics section below.
+                            """)
+                            
+                            # Show excluded waves by getting all waves with only_validated=False
+                            perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
+                            if 'Failure_Reason' in perf_df_all.columns:
+                                failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
+                                if not failed_waves.empty:
+                                    st.dataframe(
+                                        failed_waves[['Wave', 'Failure_Reason', 'Coverage_Pct']],
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+                except Exception as e:
+                    st.caption(f"Note: Unable to determine excluded waves: {str(e)}")
+                    
             else:
-                st.warning("Unable to compute wave performance - PRICE_BOOK may be empty")
+                st.warning("No waves passed validation - PRICE_BOOK may be empty or missing required tickers")
                 
         except Exception as e:
             st.error(f"Error computing wave performance: {str(e)}")
