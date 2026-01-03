@@ -7,15 +7,18 @@ All price data must flow through this module to ensure consistency and prevent
 
 Key Principles:
 - ONE canonical cache file: data/cache/prices_cache.parquet
-- NO implicit fetching - all fetches are explicit and controlled
+- NO implicit fetching - all fetches are explicit and controlled (ALLOW_NETWORK_FETCH=False by default)
 - PRICE_BOOK is a DataFrame: index=dates, columns=tickers, values=close prices
 - All readiness, health, execution, and diagnostics use the SAME PRICE_BOOK
 
 Usage:
-    from helpers.price_book import get_price_book, get_price_book_meta
+    from helpers.price_book import get_price_book, get_price_book_meta, PRICE_BOOK
     
     # Load prices for active tickers (cache-only, no fetching)
     prices = get_price_book(active_tickers=['SPY', 'QQQ', 'NVDA'], mode='Standard')
+    
+    # Or use the singleton PRICE_BOOK (loads on first access)
+    from helpers.price_book import PRICE_BOOK
     
     # Get metadata about the price book
     meta = get_price_book_meta(prices)
@@ -36,9 +39,17 @@ CACHE_DIR = "data/cache"
 CACHE_FILE = "prices_cache.parquet"
 CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
+# System health thresholds
+CRITICAL_MISSING_THRESHOLD = 0.5  # 50% - More than this triggers STALE status
+STALE_DAYS_THRESHOLD = 10  # Days - Data older than this is STALE
+DEGRADED_DAYS_THRESHOLD = 5  # Days - Data older than this is DEGRADED
+
 # Environment variable to control fetching
 # IMPORTANT: Set to False in production/cloud to prevent automatic fetching
 PRICE_FETCH_ENABLED = os.environ.get('PRICE_FETCH_ENABLED', 'false').lower() in ('true', '1', 'yes')
+
+# Alias for consistency with problem statement
+ALLOW_NETWORK_FETCH = PRICE_FETCH_ENABLED
 
 # Import from price_loader for supporting functions
 try:
@@ -327,6 +338,19 @@ def get_active_required_tickers() -> List[str]:
     return collect_required_tickers(active_only=True)
 
 
+def get_required_tickers_active_waves() -> List[str]:
+    """
+    Alias for get_active_required_tickers() for consistency with problem statement.
+    
+    Get the list of required tickers for active waves only.
+    Excludes inactive waves, redundant crypto tickers, and old test datasets.
+    
+    Returns:
+        Sorted list of unique ticker symbols required for active waves
+    """
+    return get_active_required_tickers()
+
+
 def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any]:
     """
     Compute which tickers are missing from or extra in the PRICE_BOOK.
@@ -367,3 +391,139 @@ def compute_missing_and_extra_tickers(price_book: pd.DataFrame) -> Dict[str, Any
         'missing_count': len(missing),
         'extra_count': len(extra)
     }
+
+
+# ============================================================================
+# PRICE_BOOK Singleton
+# ============================================================================
+# Global PRICE_BOOK instance - lazy loaded on first access
+# This ensures all parts of the application use the same price data
+_PRICE_BOOK_CACHE: Optional[pd.DataFrame] = None
+_PRICE_BOOK_LOADED: bool = False
+
+
+def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
+    """
+    Get the singleton PRICE_BOOK instance.
+    
+    This ensures all parts of the application (execution, readiness, health, 
+    diagnostics) use the exact same price data loaded from the canonical cache.
+    
+    Args:
+        force_reload: If True, reload the PRICE_BOOK from disk (default: False)
+        
+    Returns:
+        The singleton PRICE_BOOK DataFrame
+    """
+    global _PRICE_BOOK_CACHE, _PRICE_BOOK_LOADED
+    
+    if force_reload or not _PRICE_BOOK_LOADED:
+        logger.info("Loading PRICE_BOOK singleton from canonical cache")
+        _PRICE_BOOK_CACHE = get_price_book(active_tickers=None)  # Load all cached tickers
+        _PRICE_BOOK_LOADED = True
+        logger.info(f"PRICE_BOOK singleton loaded: {len(_PRICE_BOOK_CACHE)} rows × {len(_PRICE_BOOK_CACHE.columns)} cols")
+    
+    return _PRICE_BOOK_CACHE
+
+
+# Expose PRICE_BOOK as a module-level variable for convenience
+# Note: This is a function that returns the singleton, not the DataFrame itself
+# Usage: from helpers.price_book import get_price_book_singleton as PRICE_BOOK
+# Or: PRICE_BOOK = get_price_book_singleton()
+PRICE_BOOK = get_price_book_singleton
+
+
+def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    """
+    Compute system health status based on PRICE_BOOK and active wave requirements.
+    
+    This provides a unified health assessment that combines:
+    - Ticker coverage (missing vs required)
+    - Data staleness (age of latest prices)
+    - Data sufficiency (number of trading days)
+    
+    Health Levels:
+    - OK: All required tickers present, data fresh (< 5 days old)
+    - DEGRADED: Missing some required tickers OR data slightly stale (5-10 days)
+    - STALE: Data very stale (> 10 days) OR missing many required tickers
+    
+    Args:
+        price_book: Optional PRICE_BOOK DataFrame. If None, loads from singleton.
+        
+    Returns:
+        Dictionary with:
+        - health_status: str - "OK", "DEGRADED", or "STALE"
+        - health_emoji: str - Visual indicator
+        - missing_count: int - Number of missing required tickers
+        - total_required: int - Total required tickers
+        - coverage_pct: float - Percentage of required tickers present
+        - days_stale: int - Days since latest data
+        - num_days: int - Number of trading days in cache
+        - details: str - Human-readable explanation
+    """
+    if price_book is None:
+        price_book = get_price_book_singleton()
+    
+    # Get ticker analysis
+    ticker_analysis = compute_missing_and_extra_tickers(price_book)
+    
+    # Get cache info
+    if check_cache_readiness is not None:
+        readiness = check_cache_readiness(active_only=True)
+        days_stale = readiness.get('days_stale', 0) or 0
+        num_days = readiness.get('num_days', 0)
+    else:
+        days_stale = 0
+        num_days = len(price_book) if not price_book.empty else 0
+    
+    missing_count = ticker_analysis['missing_count']
+    total_required = ticker_analysis['required_count']
+    
+    # Calculate coverage percentage
+    if total_required > 0:
+        coverage_pct = ((total_required - missing_count) / total_required) * 100
+    else:
+        coverage_pct = 100.0
+    
+    # Determine health status
+    health_status = "OK"
+    health_emoji = "✅"
+    details = "All systems nominal"
+    
+    # Check for critical issues
+    if price_book is None or price_book.empty:
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = "PRICE_BOOK is empty - cache needs to be built"
+    elif missing_count > total_required * CRITICAL_MISSING_THRESHOLD:
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = f"Critical: {missing_count}/{total_required} required tickers missing ({coverage_pct:.1f}% coverage)"
+    elif days_stale > STALE_DAYS_THRESHOLD:
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = f"Data is {days_stale} days stale - needs refresh"
+    elif missing_count > 0:  # Some tickers missing
+        health_status = "DEGRADED"
+        health_emoji = "⚠️"
+        details = f"Missing {missing_count}/{total_required} required tickers ({coverage_pct:.1f}% coverage)"
+    elif days_stale > DEGRADED_DAYS_THRESHOLD:
+        health_status = "DEGRADED"
+        health_emoji = "⚠️"
+        details = f"Data is {days_stale} days old - consider refresh"
+    else:
+        health_status = "OK"
+        health_emoji = "✅"
+        details = f"All {total_required} required tickers present, data fresh ({days_stale} days old)"
+    
+    return {
+        'health_status': health_status,
+        'health_emoji': health_emoji,
+        'missing_count': missing_count,
+        'total_required': total_required,
+        'coverage_pct': coverage_pct,
+        'days_stale': days_stale,
+        'num_days': num_days,
+        'details': details
+    }
+
