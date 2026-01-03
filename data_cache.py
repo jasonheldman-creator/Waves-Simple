@@ -83,7 +83,7 @@ def collect_all_required_tickers(
             # If filtering fails, fall back to using all waves to avoid breaking functionality
             # Log the error but continue
             import warnings
-            warnings.warn(f"Failed to filter waves by active status: {e}. Using all waves.")
+            warnings.warn(f"Failed to filter waves by active status: {str(e)}. Using all waves.")
     
     # Extract tickers from wave holdings
     for wave_name, holdings in filtered_registry.items():

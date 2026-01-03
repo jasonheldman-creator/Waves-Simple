@@ -6,10 +6,14 @@ Enhanced with circuit breaker and persistent cache for resilience.
 
 import os
 import json
+import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set, Any
 import streamlit as st
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Import circuit breaker and persistent cache
 try:
@@ -58,9 +62,9 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, ac
                     active_wave_ids = set(
                         wave_registry_df[wave_registry_df['active'] == True]['wave_id'].tolist()
                     )
-                    print(f"✓ Found {len(active_wave_ids)} active waves for filtering")
+                    logger.info(f"Found {len(active_wave_ids)} active waves for filtering")
             except Exception as e:
-                print(f"⚠ Warning: Could not load active wave list, using all waves: {e}")
+                logger.warning(f"Could not load active wave list, using all waves: {str(e)}")
                 # If we can't load the wave registry, fall back to using all waves
                 active_waves_only = False
         
@@ -86,14 +90,23 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, ac
                                 membership = membership.strip()
                                 if membership.startswith('WAVE_'):
                                     # Convert display name format to wave_id format
-                                    # e.g., "WAVE_RUSSELL_3000_WAVE" -> "russell_3000_wave"
+                                    # e.g., "WAVE_AI_&_CLOUD_MEGACAP_WAVE" -> "ai_cloud_megacap_wave"
+                                    # Remove 'WAVE_' prefix, convert to lowercase
                                     wave_id = membership.replace('WAVE_', '').lower()
+                                    # Remove special characters and extra underscores
+                                    import re
+                                    # Replace &, -, and other special chars with nothing
+                                    wave_id = re.sub(r'[&\-\s]+', '_', wave_id)
+                                    # Remove multiple consecutive underscores
+                                    wave_id = re.sub(r'_+', '_', wave_id)
+                                    # Remove trailing underscore if exists
+                                    wave_id = wave_id.rstrip('_')
                                     if wave_id in active_wave_ids:
                                         return True
                             return False
                         
                         df = df[df['index_membership'].apply(belongs_to_active_wave)]
-                        print(f"✓ Filtered to tickers from active waves only")
+                        logger.info("Filtered to tickers from active waves only")
                     
                     # Prioritize tickers from Wave definitions
                     # (those with WAVE_ in index_membership)
@@ -104,20 +117,20 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, ac
                     # If we have wave tickers, prefer those
                     if wave_tickers:
                         tickers = wave_tickers[:max_tickers] if max_tickers else wave_tickers
-                        print(f"✓ Loaded {len(tickers)} tickers from universal universe (Wave-prioritized, active_waves_only={active_waves_only})")
+                        logger.info(f"Loaded {len(tickers)} tickers from universal universe (Wave-prioritized, active_waves_only={active_waves_only})")
                         return tickers
                     
                     # Otherwise, return all active tickers
                     all_tickers = df['ticker'].dropna().unique().tolist()
                     tickers = all_tickers[:max_tickers] if max_tickers else all_tickers
-                    print(f"✓ Loaded {len(tickers)} tickers from universal universe")
+                    logger.info(f"Loaded {len(tickers)} tickers from universal universe")
                     return tickers
                     
             except Exception as e:
                 # Log error but continue to fallback
-                print(f"⚠ Warning: Error reading universal_universe.csv: {e}")
+                logger.warning(f"Error reading universal_universe.csv: {str(e)}")
         else:
-            print(f"⚠ Warning: universal_universe.csv not found at {universe_path}")
+            logger.warning(f"universal_universe.csv not found at {universe_path}")
         
         # FALLBACK 1: ticker_master_clean.csv (DEPRECATED - legacy support)
         ticker_master_path = os.path.join(base_dir, 'ticker_master_clean.csv')
@@ -127,10 +140,10 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, ac
                 if 'ticker' in df.columns:
                     tickers = df['ticker'].dropna().tolist()
                     tickers = tickers[:max_tickers] if max_tickers else tickers
-                    print(f"⚠ Fallback: Loaded {len(tickers)} tickers from ticker_master_clean.csv (DEPRECATED)")
+                    logger.warning(f"Fallback: Loaded {len(tickers)} tickers from ticker_master_clean.csv (DEPRECATED)")
                     return tickers
             except Exception as e:
-                print(f"⚠ Warning: Error reading ticker_master_clean.csv: {e}")
+                logger.warning(f"Error reading ticker_master_clean.csv: {str(e)}")
         
         # FALLBACK 2: Try wave position files (LEGACY)
         ticker_set: Set[str] = set()
@@ -159,12 +172,12 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, ac
         
         if ticker_set:
             tickers = list(ticker_set)[:max_tickers]
-            print(f"⚠ Fallback: Loaded {len(tickers)} tickers from wave position files (LEGACY)")
+            logger.warning(f"Fallback: Loaded {len(tickers)} tickers from wave position files (LEGACY)")
             return tickers
         
         # FALLBACK 3: Default ticker array (LAST RESORT)
         default_tickers = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ']
-        print(f"⚠ Last resort: Using default ticker array ({len(default_tickers)} tickers)")
+        logger.warning(f"Last resort: Using default ticker array ({len(default_tickers)} tickers)")
         return default_tickers
         
     except Exception:

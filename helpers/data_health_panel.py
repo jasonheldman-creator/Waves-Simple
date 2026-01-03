@@ -35,7 +35,7 @@ def render_data_health_panel():
             }
         
         # Display overall status
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             status = health.get('overall_status', 'unknown')
@@ -43,28 +43,16 @@ def render_data_health_panel():
             st.metric("Overall Status", f"{status_emoji} {status.upper()}")
         
         with col2:
-            resilience = health.get('resilience_available', False)
-            resilience_emoji = "✅" if resilience else "⚠️"
-            st.metric("Resilience Features", f"{resilience_emoji} {'Active' if resilience else 'Inactive'}")
-        
-        with col3:
-            # Show active wave ticker count if available
+            # Show active wave ticker count if available, otherwise show resilience status
             active_ticker_count = health.get('active_wave_ticker_count', 0)
             if active_ticker_count > 0:
                 st.metric("Active Wave Tickers", active_ticker_count)
             else:
-                timestamp = health.get('timestamp', '')
-                if timestamp:
-                    try:
-                        dt = datetime.fromisoformat(timestamp)
-                        time_str = dt.strftime("%H:%M:%S")
-                        st.metric("Last Check", time_str)
-                    except Exception:
-                        st.metric("Last Check", "N/A")
-                else:
-                    st.metric("Last Check", "N/A")
+                resilience = health.get('resilience_available', False)
+                resilience_emoji = "✅" if resilience else "⚠️"
+                st.metric("Resilience Features", f"{resilience_emoji} {'Active' if resilience else 'Inactive'}")
         
-        with col4:
+        with col3:
             timestamp = health.get('timestamp', '')
             if timestamp:
                 try:
