@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-01-03T12:54:18.280551",
+  "rebuild_summary": {
+    "final_ticker_count": 406,
+    "duplicates_removed": 120,
+    "deduplication_rate": "22.8%",
+    "multi_index_count": 107
+  },
+  "index_inclusion": {
+    "Russell_3000": {
+      "count": 50,
+      "status": "included"
+    },
+    "Russell_2000": {
+      "count": 50,
+      "status": "included"
+    },
+    "SP_500": {
+      "count": 276,
+      "status": "included"
+    },
+    "NASDAQ_Composite": {
+      "count": 120,
+      "status": "included"
+    },
+    "Dow_Jones": {
+      "count": 30,
+      "status": "included"
+    }
+  },
+  "ticker_format": {
+    "convention": "hyphen",
+    "example": "BRK-B (not BRK.B)",
+    "rationale": "Consistent with yfinance API requirements"
+  },
+  "exclusions": {
+    "etfs": "excluded",
+    "crypto": "excluded",
+    "fixed_income": "excluded",
+    "commodities": "excluded",
+    "index_symbols": "excluded (e.g., ^GSPC, ^DJI)",
+    "non_equity": "excluded"
+  },
+  "data_quality": {
+    "normalization": "applied",
+    "case_insensitive_dedup": "applied",
+    "invalid_symbols_removed": "yes",
+    "empty_rows_removed": "yes"
+  }
+}
