@@ -4900,8 +4900,14 @@ def get_mission_control_data():
                 active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
                 mc_data['active_waves'] = active_count
                 
-                # No data means data_ready_count = 0
-                mc_data['data_ready_count'] = 0
+                # Even without wave_history data, SmartSafe cash waves are always ready
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    canonical_waves_set = set(canonical_waves)
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    mc_data['data_ready_count'] = 0
             except Exception:
                 pass
             return mc_data
@@ -4936,15 +4942,32 @@ def get_mission_control_data():
                 mc_data['history_unique_count'] = history_waves_unique
                 
                 # NEW: Data-Ready = waves with recent data (full analytics available)
+                # Include SmartSafe cash waves which are always ready even without wave_history entries
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
                 recent_waves = set(recent_data['wave'].unique())
                 canonical_waves_set = set(canonical_waves)
                 data_ready_waves = recent_waves.intersection(canonical_waves_set)
+                
+                # Add SmartSafe cash waves - they are always ready even without price history
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    data_ready_waves = data_ready_waves.union(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    pass  # If SmartSafe constants not available, continue without them
+                
                 mc_data['data_ready_count'] = len(data_ready_waves)
             else:
                 # No wave column in history
                 mc_data['history_unique_count'] = 0
-                mc_data['data_ready_count'] = 0
+                # Count SmartSafe waves as ready even without wave_history
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    canonical_waves_set = set(canonical_waves)
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    mc_data['data_ready_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
@@ -4956,7 +4979,19 @@ def get_mission_control_data():
                 
                 # Count data-ready waves (with recent data)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                mc_data['data_ready_count'] = recent_data['wave'].nunique()
+                data_ready_count = recent_data['wave'].nunique()
+                
+                # Add SmartSafe cash waves to count - they are always ready
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    recent_waves = set(recent_data['wave'].unique())
+                    # Add SmartSafe waves that aren't already in recent_waves
+                    smartsafe_count = len(SMARTSAFE_CASH_WAVES - recent_waves)
+                    data_ready_count += smartsafe_count
+                except (ImportError, AttributeError):
+                    pass
+                
+                mc_data['data_ready_count'] = data_ready_count
         
         # System status based on data age
         if age_days <= 1:
@@ -17107,6 +17142,174 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 6.75: Failed Tickers (Top 50)
+    # ========================================================================
+    st.subheader("❌ Failed Tickers Diagnostics")
+    
+    with st.expander("📋 Failed Tickers (Top 50) - Click to expand", expanded=False):
+        try:
+            from helpers.ticker_diagnostics import load_broken_tickers_from_csv, export_failed_tickers_to_cache
+            
+            # Load broken tickers from CSV
+            broken_tickers = load_broken_tickers_from_csv("data/broken_tickers.csv")
+            
+            if not broken_tickers:
+                st.info("✅ No failed tickers found. All tickers are loading successfully.")
+            else:
+                # Summary metrics
+                total_failed = len(broken_tickers)
+                total_occurrences = sum(ticker['failure_count'] for ticker in broken_tickers)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Failed Tickers", total_failed)
+                with col2:
+                    st.metric("Total Failure Occurrences", total_occurrences)
+                with col3:
+                    avg_failures = total_occurrences / total_failed if total_failed > 0 else 0
+                    st.metric("Avg Failures per Ticker", f"{avg_failures:.1f}")
+                
+                st.markdown("---")
+                
+                # Display top 50 failed tickers
+                top_50 = broken_tickers[:50]
+                
+                st.markdown(f"### Top {len(top_50)} Failed Tickers")
+                st.caption("Sorted by number of impacted waves (highest first)")
+                
+                # Create display table
+                display_data = []
+                for i, ticker in enumerate(top_50, 1):
+                    # Sanitize error message for display
+                    error_msg = ticker.get('error_message', 'Unknown error')
+                    if len(error_msg) > 50:
+                        error_msg = error_msg[:47] + "..."
+                    
+                    # Truncate waves list for display
+                    waves = ticker.get('impacted_waves', [])
+                    wave_count = len(waves)
+                    if wave_count > 3:
+                        waves_display = ', '.join(waves[:3]) + f", ... (+{wave_count - 3} more)"
+                    else:
+                        waves_display = ', '.join(waves) if waves else 'None'
+                    
+                    display_data.append({
+                        'Rank': i,
+                        'Ticker': ticker.get('ticker_original', 'N/A'),
+                        'Failure Type': ticker.get('failure_type', 'UNKNOWN'),
+                        'Error Reason': error_msg,
+                        'Wave Count': wave_count,
+                        'Sample Waves': waves_display
+                    })
+                
+                # Display as dataframe
+                df_display = pd.DataFrame(display_data)
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                
+                # Detailed view option
+                st.markdown("---")
+                st.markdown("### Detailed Ticker Information")
+                
+                # Selector for detailed view
+                ticker_names = [t.get('ticker_original', 'N/A') for t in top_50]
+                selected_ticker = st.selectbox(
+                    "Select a ticker to view full details:",
+                    options=ticker_names,
+                    key=k("Diagnostics", "failed_ticker_selector")
+                )
+                
+                # Show detailed info for selected ticker
+                if selected_ticker:
+                    ticker_info = next((t for t in top_50 if t.get('ticker_original') == selected_ticker), None)
+                    if ticker_info:
+                        st.markdown(f"#### Details for {selected_ticker}")
+                        
+                        detail_col1, detail_col2 = st.columns(2)
+                        
+                        with detail_col1:
+                            st.markdown("**Basic Information:**")
+                            st.text(f"Original Symbol: {ticker_info.get('ticker_original', 'N/A')}")
+                            st.text(f"Normalized Symbol: {ticker_info.get('ticker_normalized', 'N/A')}")
+                            st.text(f"Failure Type: {ticker_info.get('failure_type', 'UNKNOWN')}")
+                            st.text(f"Is Fatal: {ticker_info.get('is_fatal', True)}")
+                        
+                        with detail_col2:
+                            st.markdown("**Timestamps:**")
+                            st.text(f"First Seen: {ticker_info.get('first_seen', 'N/A')}")
+                            st.text(f"Last Seen: {ticker_info.get('last_seen', 'N/A')}")
+                            st.text(f"Impacted Waves: {ticker_info.get('failure_count', 0)}")
+                        
+                        st.markdown("**Error Message:**")
+                        st.code(ticker_info.get('error_message', 'No error message available'), language=None)
+                        
+                        st.markdown("**Suggested Fix:**")
+                        st.info(ticker_info.get('suggested_fix', 'No fix suggestion available'))
+                        
+                        st.markdown("**All Impacted Waves:**")
+                        waves = ticker_info.get('impacted_waves', [])
+                        if waves:
+                            # Display waves in a grid
+                            wave_cols = st.columns(3)
+                            for idx, wave in enumerate(waves):
+                                with wave_cols[idx % 3]:
+                                    st.text(f"• {wave}")
+                        else:
+                            st.text("No impacted waves recorded")
+                
+                st.markdown("---")
+                
+                # Export button
+                st.markdown("### Export Options")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Export to cache directory
+                    if st.button("💾 Export to data/cache/failed_tickers.csv", 
+                                help="Export all failed tickers to data/cache/failed_tickers.csv"):
+                        success = export_failed_tickers_to_cache(broken_tickers, "data/cache/failed_tickers.csv")
+                        if success:
+                            st.success("✅ Successfully exported to data/cache/failed_tickers.csv")
+                        else:
+                            st.error("❌ Failed to export. Check logs for details.")
+                
+                with col2:
+                    # Download button for immediate download
+                    try:
+                        # Create CSV content for download
+                        csv_rows = []
+                        csv_rows.append("ticker_original,ticker_normalized,failure_type,error_message,failure_count,impacted_waves,suggested_fix,first_seen,last_seen,is_fatal")
+                        
+                        for ticker in broken_tickers:
+                            # Escape commas in fields
+                            waves_str = ticker.get('impacted_waves_str', '').replace('"', '""')
+                            error_msg = ticker.get('error_message', '').replace('"', '""')
+                            suggested_fix = ticker.get('suggested_fix', '').replace('"', '""')
+                            
+                            row = f'"{ticker.get("ticker_original", "")}","{ticker.get("ticker_normalized", "")}","{ticker.get("failure_type", "")}","{error_msg}",{ticker.get("failure_count", 0)},"{waves_str}","{suggested_fix}","{ticker.get("first_seen", "")}","{ticker.get("last_seen", "")}",{ticker.get("is_fatal", True)}'
+                            csv_rows.append(row)
+                        
+                        csv_content = "\n".join(csv_rows)
+                        
+                        st.download_button(
+                            label="📥 Download Failed Tickers CSV",
+                            data=csv_content,
+                            file_name=f"failed_tickers_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            help="Download all failed tickers as CSV"
+                        )
+                    except Exception as e:
+                        st.error(f"Error creating download: {str(e)}")
+                
+        except Exception as e:
+            st.error(f"Error loading failed tickers diagnostics: {str(e)}")
+            import traceback
+            with st.expander("View Error Details", expanded=False):
+                st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 7: Force Reload Actions
     # ========================================================================
     st.subheader("🔧 Maintenance Actions")
@@ -17846,7 +18049,12 @@ def render_overview_clean_tab():
             
             # Market regime (from VIX_Regime column or VIX_Level)
             try:
-                vix_regime = snapshot_df['VIX_Regime'].mode().iloc[0] if 'VIX_Regime' in snapshot_df.columns else 'unknown'
+                if 'VIX_Regime' in snapshot_df.columns:
+                    vix_mode = snapshot_df['VIX_Regime'].mode()
+                    vix_regime = vix_mode.iloc[0] if len(vix_mode) > 0 else 'unknown'
+                else:
+                    vix_regime = 'unknown'
+                    
                 if vix_regime and vix_regime != 'unknown':
                     market_regime = vix_regime.title()
                 else:
@@ -17895,6 +18103,116 @@ def render_overview_clean_tab():
                         st.caption(f"SPY: {spy_ret:+.1f}%")
             except:
                 pass
+        
+        st.divider()
+        
+        # ========================================================================
+        # WAVE DATA READINESS DIAGNOSTICS
+        # ========================================================================
+        st.subheader("Wave Data Readiness Diagnostics")
+        
+        # Try to reuse an in-memory DF if it exists
+        coverage_df = None
+        for name in ["data_coverage_summary_df", "data_coverage_summary", "coverage_df", "coverage_summary_df"]:
+            if name in locals() and isinstance(locals()[name], pd.DataFrame) and len(locals()[name]) > 0:
+                coverage_df = locals()[name].copy()
+                break
+        
+        # If not found in memory, try to load from disk
+        if coverage_df is None:
+            candidate_paths = [
+                "data_coverage_summary.csv",
+                os.path.join("data", "data_coverage_summary.csv"),
+                os.path.join("outputs", "data_coverage_summary.csv"),
+                os.path.join("WAVES_Intelligence_Live", "data_coverage_summary.csv"),
+            ]
+            found_path = None
+            for p in candidate_paths:
+                if os.path.exists(p):
+                    found_path = p
+                    break
+        
+            if found_path:
+                coverage_df = pd.read_csv(found_path)
+                st.caption(f"Loaded: {found_path}")
+            else:
+                st.warning(
+                    "Could not find data_coverage_summary.csv (and no in-memory coverage DF was found). "
+                    "Please verify the file is being generated and saved to the app's working/data directory."
+                )
+        
+        # Render table if we have it
+        if coverage_df is not None and len(coverage_df) > 0:
+            # Normalize expected columns
+            expected_cols = [
+                "wave_id", "display_name", "coverage_pct", "history_days", "stale_days_max",
+                "missing_tickers", "stale_tickers"
+            ]
+            for c in expected_cols:
+                if c not in coverage_df.columns:
+                    coverage_df[c] = ""
+        
+            # Derive data_ready + reason
+            coverage_df["data_ready"] = (coverage_df["coverage_pct"].fillna(0).astype(float) >= 99.0) & (
+                coverage_df["history_days"].fillna(0).astype(int) > 0
+            )
+        
+            def _reason(row):
+                if row["data_ready"]:
+                    return "OK"
+                missing = row.get("missing_tickers", "")
+                stale = row.get("stale_tickers", "")
+                hist = row.get("history_days", 0)
+                cov = row.get("coverage_pct", 0)
+                
+                # Handle NaN values properly
+                if pd.isna(missing):
+                    missing = ""
+                else:
+                    missing = str(missing).strip()
+                
+                if pd.isna(stale):
+                    stale = ""
+                else:
+                    stale = str(stale).strip()
+                
+                if pd.isna(hist):
+                    hist = 0
+                else:
+                    hist = int(hist)
+                
+                if pd.isna(cov):
+                    cov = 0
+                else:
+                    cov = float(cov)
+                
+                if cov == 0 or hist == 0:
+                    return "No usable price history / coverage=0 (likely missing tickers or source mismatch)"
+                if missing:
+                    return "Missing tickers in universe/holdings mapping"
+                if stale:
+                    return "Stale tickers (data not refreshing / stale feed)"
+                return "Failed readiness threshold (coverage or history requirement)"
+        
+            coverage_df["reason"] = coverage_df.apply(_reason, axis=1)
+        
+            show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
+            view_df = coverage_df.copy()
+            if show_only_bad:
+                view_df = view_df[~view_df["data_ready"]]
+        
+            # Sort: failing first, then lowest coverage
+            view_df = view_df.sort_values(
+                by=["data_ready", "coverage_pct", "history_days"],
+                ascending=[True, True, True]
+            )
+        
+            st.dataframe(
+                view_df[["wave_id", "display_name", "data_ready", "reason",
+                         "coverage_pct", "history_days", "stale_days_max",
+                         "missing_tickers", "stale_tickers"]],
+                use_container_width=True
+            )
         
         st.divider()
         
