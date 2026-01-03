@@ -7151,15 +7151,10 @@ def render_sidebar_info():
                     st.sidebar.success(f"✅ Cache is READY")
                 else:
                     st.sidebar.warning(f"⚠️ Cache status: {readiness['status_code']}")
-                        st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
                     
-                    # Show failure summary if any
-                    if failures:
-                        st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
-                else:
-                    st.sidebar.warning("⚠️ No price data was fetched. Please try again.")
-                    if failures:
-                        st.sidebar.error(f"Failures: {len(failures)} tickers failed to fetch")
+                # Show failure summary if any
+                if failures:
+                    st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
                         
         except Exception as e:
             st.sidebar.error(f"❌ Error warming cache: {str(e)}")
