@@ -253,23 +253,34 @@ def _get_return_column_name(period: int) -> str:
 
 def compute_all_waves_performance(
     price_book: pd.DataFrame,
-    periods: List[int] = [1, 30, 60, 365]
+    periods: List[int] = [1, 30, 60, 365],
+    only_validated: bool = True,
+    min_coverage_pct: float = 100.0,
+    min_history_days: int = 30
 ) -> pd.DataFrame:
     """
     Compute performance metrics for all 28 waves using PRICE_BOOK.
     
     This is the main function used by the UI to build the Performance Overview table.
     
+    IMPORTANT: By default (only_validated=True), this function ONLY returns waves 
+    that pass strict validation. This prevents silent N/A values and ensures all 
+    displayed waves have valid, continuous price history.
+    
     Args:
         price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
         periods: List of lookback periods in days [1, 30, 60, 365]
+        only_validated: If True (default), only return waves that pass validation.
+                       If False, return all waves (may include N/A values).
+        min_coverage_pct: Minimum ticker coverage percentage for validation (default: 100.0)
+        min_history_days: Minimum number of trading days for validation (default: 30)
         
     Returns:
         DataFrame with columns:
         - Wave: str - Wave name
         - 1D Return, 30D, 60D, 365D: str - Formatted returns (e.g., "+5%") or "N/A"
         - Status/Confidence: str - Data quality indicator
-        - Failure_Reason: str - Reason for N/A (if applicable)
+        - Failure_Reason: str - Reason for N/A (if applicable, only when only_validated=False)
         - Coverage_Pct: float - Ticker coverage percentage
     """
     # Get all waves
@@ -288,10 +299,43 @@ def compute_all_waves_performance(
         logger.error("No waves found in universe")
         return pd.DataFrame()
     
-    # Compute performance for each wave
+    # If only_validated=True, first validate all waves and filter
+    waves_to_process = all_waves
+    validation_map = {}
+    
+    if only_validated:
+        logger.info(f"Validating {len(all_waves)} waves with strict criteria...")
+        logger.info(f"  min_coverage_pct: {min_coverage_pct}%")
+        logger.info(f"  min_history_days: {min_history_days}")
+        
+        for wave_name in all_waves:
+            validation = validate_wave_price_history(
+                wave_name,
+                price_book,
+                min_coverage_pct=min_coverage_pct,
+                min_history_days=min_history_days
+            )
+            validation_map[wave_name] = validation
+        
+        # Filter to only valid waves
+        waves_to_process = [w for w in all_waves if validation_map.get(w, {}).get('valid', False)]
+        
+        invalid_count = len(all_waves) - len(waves_to_process)
+        logger.info(f"Validation complete: {len(waves_to_process)}/{len(all_waves)} waves passed")
+        if invalid_count > 0:
+            logger.warning(f"{invalid_count} waves failed validation and will be excluded from performance table")
+            # Log first few failures for debugging
+            invalid_waves = [w for w in all_waves if not validation_map.get(w, {}).get('valid', False)]
+            for wave_name in invalid_waves[:5]:
+                reason = validation_map.get(wave_name, {}).get('validation_reason', 'Unknown')
+                logger.warning(f"  - {wave_name}: {reason}")
+            if invalid_count > 5:
+                logger.warning(f"  ... and {invalid_count - 5} more")
+    
+    # Compute performance for each wave (only validated waves if only_validated=True)
     results = []
     
-    for wave_name in all_waves:
+    for wave_name in waves_to_process:
         wave_result = compute_wave_returns(wave_name, price_book, periods)
         
         # Build row for display table
@@ -335,7 +379,12 @@ def compute_all_waves_performance(
     # Reorder columns for display - only include columns that exist
     base_columns = ['Wave']
     period_columns = [_get_return_column_name(period) for period in periods]
-    footer_columns = ['Status/Confidence', 'Coverage_Pct', 'Failure_Reason']
+    
+    # Only include Failure_Reason if not in only_validated mode (since validated waves won't have failures)
+    if only_validated:
+        footer_columns = ['Status/Confidence', 'Coverage_Pct']
+    else:
+        footer_columns = ['Status/Confidence', 'Coverage_Pct', 'Failure_Reason']
     
     display_columns = base_columns + period_columns + footer_columns
     
@@ -482,3 +531,252 @@ def compute_all_waves_readiness(price_book: pd.DataFrame) -> pd.DataFrame:
         })
     
     return pd.DataFrame(results)
+
+
+def validate_wave_price_history(
+    wave_name: str,
+    price_book: pd.DataFrame,
+    min_coverage_pct: float = 100.0,
+    min_history_days: int = 30
+) -> Dict[str, Any]:
+    """
+    Validate that a wave has complete, continuous price history from PRICE_BOOK.
+    
+    This is a STRICT validation function that ensures:
+    1. ALL required tickers are present in PRICE_BOOK (no missing tickers allowed by default)
+    2. Sufficient date coverage exists (at least min_history_days)
+    3. Returns can be computed (no silent N/A values)
+    
+    Args:
+        wave_name: Name of the wave to validate
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        min_coverage_pct: Minimum ticker coverage percentage required (default: 100.0)
+        min_history_days: Minimum number of trading days required (default: 30)
+        
+    Returns:
+        Dictionary with:
+        - wave_name: str - Name of the wave
+        - valid: bool - Whether wave passes validation
+        - required_tickers: List[str] - All tickers the wave requires
+        - found_tickers: List[str] - Tickers found in PRICE_BOOK
+        - missing_tickers: List[str] - Tickers NOT found in PRICE_BOOK
+        - date_coverage_start: str - Earliest date in PRICE_BOOK (YYYY-MM-DD)
+        - date_coverage_end: str - Latest date in PRICE_BOOK (YYYY-MM-DD)
+        - date_coverage_days: int - Number of trading days available
+        - return_computable: str - "Yes" or "No"
+        - validation_reason: str - Reason for validation failure (if valid=False)
+        - coverage_pct: float - Percentage of required tickers found
+    """
+    result = {
+        'wave_name': wave_name,
+        'valid': False,
+        'required_tickers': [],
+        'found_tickers': [],
+        'missing_tickers': [],
+        'date_coverage_start': None,
+        'date_coverage_end': None,
+        'date_coverage_days': 0,
+        'return_computable': 'No',
+        'validation_reason': 'Unknown',
+        'coverage_pct': 0.0
+    }
+    
+    # Check if PRICE_BOOK is valid
+    if price_book is None or price_book.empty:
+        result['validation_reason'] = 'PRICE_BOOK is empty - no price data available'
+        return result
+    
+    # Check if waves_engine is available
+    if not WAVES_ENGINE_AVAILABLE or not WAVE_WEIGHTS:
+        result['validation_reason'] = 'waves_engine not available - cannot determine required tickers'
+        return result
+    
+    # Get wave holdings (tickers and weights)
+    if wave_name not in WAVE_WEIGHTS:
+        result['validation_reason'] = f'Wave "{wave_name}" not found in WAVE_WEIGHTS'
+        return result
+    
+    wave_holdings = WAVE_WEIGHTS[wave_name]
+    
+    if not wave_holdings:
+        result['validation_reason'] = 'Wave has no holdings defined in WAVE_WEIGHTS'
+        return result
+    
+    # Extract required tickers from holdings
+    try:
+        required_tickers = sorted([h.ticker for h in wave_holdings])
+    except (AttributeError, TypeError) as e:
+        result['validation_reason'] = f'Invalid holdings format: {str(e)}'
+        return result
+    
+    result['required_tickers'] = required_tickers
+    
+    # Check which tickers are in PRICE_BOOK
+    found_tickers = []
+    missing_tickers = []
+    
+    for ticker in required_tickers:
+        if ticker in price_book.columns:
+            found_tickers.append(ticker)
+        else:
+            missing_tickers.append(ticker)
+    
+    result['found_tickers'] = found_tickers
+    result['missing_tickers'] = missing_tickers
+    
+    # Calculate coverage percentage
+    coverage_pct = (len(found_tickers) / len(required_tickers)) * 100 if required_tickers else 0.0
+    result['coverage_pct'] = coverage_pct
+    
+    # Get date coverage from PRICE_BOOK
+    if not price_book.empty:
+        result['date_coverage_start'] = price_book.index[0].strftime('%Y-%m-%d')
+        result['date_coverage_end'] = price_book.index[-1].strftime('%Y-%m-%d')
+        result['date_coverage_days'] = len(price_book)
+    
+    # Validate coverage
+    if coverage_pct < min_coverage_pct:
+        result['validation_reason'] = (
+            f'Insufficient ticker coverage: {coverage_pct:.1f}% '
+            f'(found {len(found_tickers)}/{len(required_tickers)} tickers, '
+            f'missing: {", ".join(missing_tickers)})'
+        )
+        return result
+    
+    # Validate date coverage
+    if result['date_coverage_days'] < min_history_days:
+        result['validation_reason'] = (
+            f'Insufficient date coverage: {result["date_coverage_days"]} days '
+            f'(minimum required: {min_history_days} days)'
+        )
+        return result
+    
+    # Check if we have any found tickers (should always be true if coverage >= min_coverage_pct)
+    if not found_tickers:
+        result['validation_reason'] = 'No tickers found in PRICE_BOOK'
+        return result
+    
+    # Try to compute returns to verify data quality
+    wave_result = compute_wave_returns(wave_name, price_book, periods=[1])
+    
+    if not wave_result['success']:
+        result['validation_reason'] = (
+            f'Cannot compute returns: {wave_result["failure_reason"]}'
+        )
+        return result
+    
+    # All validations passed!
+    result['valid'] = True
+    result['return_computable'] = 'Yes'
+    result['validation_reason'] = 'OK - All validations passed'
+    
+    return result
+
+
+def generate_wave_validation_report(
+    price_book: pd.DataFrame,
+    min_coverage_pct: float = 100.0,
+    min_history_days: int = 30,
+    output_file: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate a comprehensive validation report for all waves.
+    
+    This produces a deterministic report showing validation status for every wave.
+    The report is suitable for inspection and debugging data quality issues.
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame
+        min_coverage_pct: Minimum ticker coverage percentage required (default: 100.0)
+        min_history_days: Minimum number of trading days required (default: 30)
+        output_file: Optional path to save the report as JSON (default: None)
+        
+    Returns:
+        Dictionary with:
+        - timestamp: str - When the report was generated
+        - price_book_meta: Dict - Metadata about PRICE_BOOK
+        - validation_criteria: Dict - Validation criteria used
+        - waves_validated: int - Total number of waves validated
+        - waves_valid: int - Number of waves that passed validation
+        - waves_invalid: int - Number of waves that failed validation
+        - validation_results: List[Dict] - Detailed validation results for each wave
+        - summary: str - Human-readable summary
+    """
+    # Import price_book module directly to avoid streamlit dependency
+    import sys
+    import os
+    helpers_dir = os.path.dirname(os.path.abspath(__file__))
+    if helpers_dir not in sys.path:
+        sys.path.insert(0, helpers_dir)
+    from price_book import get_price_book_meta
+    
+    # Get all waves
+    if not WAVES_ENGINE_AVAILABLE:
+        logger.error("waves_engine not available - cannot generate validation report")
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'error': 'waves_engine not available',
+            'waves_validated': 0,
+            'waves_valid': 0,
+            'waves_invalid': 0,
+            'validation_results': []
+        }
+    
+    try:
+        universe = get_all_waves_universe()
+        all_waves = universe.get('waves', [])
+    except Exception as e:
+        logger.error(f"Error getting wave universe: {e}")
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'error': f'Error getting wave universe: {str(e)}',
+            'waves_validated': 0,
+            'waves_valid': 0,
+            'waves_invalid': 0,
+            'validation_results': []
+        }
+    
+    # Get PRICE_BOOK metadata
+    pb_meta = get_price_book_meta(price_book)
+    
+    # Validate each wave
+    validation_results = []
+    for wave_name in all_waves:
+        validation = validate_wave_price_history(
+            wave_name,
+            price_book,
+            min_coverage_pct=min_coverage_pct,
+            min_history_days=min_history_days
+        )
+        validation_results.append(validation)
+    
+    # Count valid/invalid waves
+    waves_valid = sum(1 for v in validation_results if v['valid'])
+    waves_invalid = len(validation_results) - waves_valid
+    
+    # Build report
+    report = {
+        'timestamp': datetime.now().isoformat(),
+        'price_book_meta': pb_meta,
+        'validation_criteria': {
+            'min_coverage_pct': min_coverage_pct,
+            'min_history_days': min_history_days
+        },
+        'waves_validated': len(validation_results),
+        'waves_valid': waves_valid,
+        'waves_invalid': waves_invalid,
+        'validation_results': validation_results,
+        'summary': f'{waves_valid}/{len(validation_results)} waves passed validation'
+    }
+    
+    # Save to file if requested
+    if output_file:
+        try:
+            import json
+            with open(output_file, 'w') as f:
+                json.dump(report, f, indent=2)
+            logger.info(f"Validation report saved to {output_file}")
+        except Exception as e:
+            logger.error(f"Error saving validation report to {output_file}: {e}")
+    
+    return report
