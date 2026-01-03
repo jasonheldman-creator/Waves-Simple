@@ -146,10 +146,13 @@ This is a rollback snapshot before IC Pack v1 implementation.
 To:
 ```python
 FULL MULTI-TAB CONSOLE UI - Post PR #336
-Complete implementation with 17+ tabs including all analytics, monitoring, and governance features.
+Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
+Includes all analytics, monitoring, and governance features.
 ```
 
 This accurately reflects the current state as the full implementation rather than a pre-implementation snapshot.
+
+**Note:** There are 18 tab render functions defined, but only 16-17 tabs are visible at any given time depending on the configuration (ENABLE_WAVE_PROFILE setting and safe mode status).
 
 ## Recommendations
 

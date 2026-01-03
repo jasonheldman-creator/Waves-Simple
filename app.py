@@ -13,7 +13,8 @@ Modular structure:
 8. Main entry point
 
 FULL MULTI-TAB CONSOLE UI - Post PR #336
-Complete implementation with 17+ tabs including all analytics, monitoring, and governance features.
+Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
+Includes all analytics, monitoring, and governance features.
 """
 
 import streamlit as st
