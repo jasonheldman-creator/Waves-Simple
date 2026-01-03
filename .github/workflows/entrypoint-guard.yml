@@ -22,17 +22,18 @@ jobs:
           
           # Define patterns that would indicate minimal_app.py is being used as entrypoint
           FAILED=0
+          CURRENT_WORKFLOW="entrypoint-guard.yml"
           
           # Check workflow files for streamlit run minimal_app.py (excluding this file)
           echo "Checking workflow files for 'streamlit run minimal_app.py'..."
-          if grep -r "streamlit run minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml:"; then
+          if grep -r "streamlit run minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "${CURRENT_WORKFLOW}:"; then
             echo "❌ FAILURE: Found 'streamlit run minimal_app.py' in workflow files"
             FAILED=1
           fi
           
           # Check workflow files for minimal_app.py references (excluding this file)
           echo "Checking workflow files for minimal_app.py references..."
-          if grep -r "minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml:"; then
+          if grep -r "minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "${CURRENT_WORKFLOW}:"; then
             echo "❌ FAILURE: Found minimal_app.py references in workflow files"
             FAILED=1
           fi
@@ -64,6 +65,7 @@ jobs:
           
           # Check README and documentation files for deployment instructions
           echo "Checking documentation for minimal_app.py deployment instructions..."
+          shopt -s nullglob
           for file in README.md DEPLOYMENT.md *.md; do
             if [ -f "$file" ]; then
               if grep -i "streamlit run minimal_app" "$file" 2>/dev/null; then
@@ -72,6 +74,7 @@ jobs:
               fi
             fi
           done
+          shopt -u nullglob
           
           if [ $FAILED -eq 0 ]; then
             echo "✅ All entrypoint guard checks passed!"
