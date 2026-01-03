@@ -441,26 +441,317 @@ def fetch_prices(tickers: List[str], start_date: datetime, end_date: datetime, u
         return pd.DataFrame(), failures
 
 
+def _fetch_prices_individually(
+    
+    # Try batch download first with retry logic, then fall back to individual ticker fetching on failure
+    # Use circuit breaker to prevent excessive retries if yfinance is down
+    circuit_breaker = None
+    if CIRCUIT_BREAKER_AVAILABLE:
+        # Get or create circuit breaker for yfinance
+        circuit_breaker = get_circuit_breaker(
+            'yfinance_batch',
+            failure_threshold=5,  # Open circuit after 5 failures
+            recovery_timeout=60,  # Wait 60 seconds before trying again
+            success_threshold=2   # Need 2 successes to close circuit
+        )
+    
+    try:
+        def _batch_download():
+            # STEP 7: Add timeout to network calls (15 seconds per request)
+            return yf.download(
+                tickers=tickers_to_fetch,
+                start=start_date.strftime('%Y-%m-%d'),
+                end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
+                auto_adjust=True,
+                progress=False,
+                group_by='ticker',
+                timeout=15  # 15 second timeout per request
+            )
+        
+        # Try with circuit breaker if available
+        if circuit_breaker:
+            success, data, error = circuit_breaker.call(_batch_download)
+            if not success:
+                # Circuit is open or call failed, fall back to individual fetching
+                print(f"Circuit breaker prevented batch download or call failed: {error}")
+                return _fetch_prices_individually(tickers_to_fetch, start_date, end_date, failures, wave_id, wave_name)
+        else:
+            # Use retry with backoff for batch download
+            data = _retry_with_backoff(_batch_download, max_retries=3, initial_delay=1.0)
+        
+        if data.empty:
+            print(f"Warning: No data returned from yfinance for {tickers_to_fetch}")
+            # Try individual ticker fetching
+            return _fetch_prices_individually(tickers_to_fetch, start_date, end_date, failures, wave_id, wave_name)
+        
+        # Normalize the data structure
+        if len(tickers_to_fetch) == 1:
+            # Single ticker case
+            if 'Close' in data.columns:
+                prices = data[['Close']].rename(columns={'Close': tickers_to_fetch[0]})
+            else:
+                error_msg = "No Close column in data"
+                failures[tickers_to_fetch[0]] = error_msg
+                
+                # Track in diagnostics
+                if tracker:
+                    failure_type, suggested_fix = categorize_error(error_msg, tickers_to_fetch[0])
+                    report = FailedTickerReport(
+                        ticker_original=tickers_to_fetch[0],
+                        ticker_normalized=tickers_to_fetch[0],
+                        wave_id=wave_id,
+                        wave_name=wave_name,
+                        source="yfinance",
+                        failure_type=failure_type,
+                        error_message=error_msg,
+                        is_fatal=True,
+                        suggested_fix=suggested_fix
+                    )
+                    tracker.record_failure(report)
+                prices = pd.DataFrame()
+        else:
+            # Multiple tickers case
+            frames = []
+            for ticker in tickers_to_fetch:
+                try:
+                    if (ticker, 'Close') in data.columns:
+                        frames.append(data[(ticker, 'Close')].rename(ticker))
+                    elif ticker in data.columns and 'Close' in data[ticker].columns:
+                        frames.append(data[ticker]['Close'].rename(ticker))
+                    else:
+                        error_msg = "Missing Close column"
+                        failures[ticker] = error_msg
+                        
+                        # Track in diagnostics
+                        if tracker:
+                            failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                            report = FailedTickerReport(
+                                ticker_original=ticker,
+                                ticker_normalized=ticker,
+                                wave_id=wave_id,
+                                wave_name=wave_name,
+                                source="yfinance",
+                                failure_type=failure_type,
+                                error_message=error_msg,
+                                is_fatal=True,
+                                suggested_fix=suggested_fix
+                            )
+                            tracker.record_failure(report)
+                except (KeyError, AttributeError) as e:
+                    error_msg = f"Data extraction error: {str(e)}"
+                    failures[ticker] = error_msg
+                    
+                    # Track in diagnostics
+                    if tracker:
+                        failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                        report = FailedTickerReport(
+                            ticker_original=ticker,
+                            ticker_normalized=ticker,
+                            wave_id=wave_id,
+                            wave_name=wave_name,
+                            source="yfinance",
+                            failure_type=failure_type,
+                            error_message=error_msg,
+                            is_fatal=True,
+                            suggested_fix=suggested_fix
+                        )
+                        tracker.record_failure(report)
+                    continue
+            
+            if frames:
+                prices = pd.concat(frames, axis=1)
+            else:
+                prices = pd.DataFrame()
+        
+        if not prices.empty:
+            prices.index = pd.to_datetime(prices.index)
+            prices = prices.sort_index()
+            # Forward fill missing data (holidays)
+            prices = prices.ffill()
+        
+        # Track which tickers failed
+        for ticker in tickers_to_fetch:
+            if prices.empty or ticker not in prices.columns:
+                if ticker not in failures:
+                    error_msg = "No data in result"
+                    failures[ticker] = error_msg
+                    
+                    # Track in diagnostics
+                    if tracker:
+                        failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                        report = FailedTickerReport(
+                            ticker_original=ticker,
+                            ticker_normalized=ticker,
+                            wave_id=wave_id,
+                            wave_name=wave_name,
+                            source="yfinance",
+                            failure_type=failure_type,
+                            error_message=error_msg,
+                            is_fatal=True,
+                            suggested_fix=suggested_fix
+                        )
+                        tracker.record_failure(report)
+        
+        return prices, failures
+        
+    except Exception as e:
+        error_msg = f"Batch download error: {str(e)}"
+        print(f"Error fetching prices for {tickers_to_fetch}: {error_msg}")
+        # Try individual ticker fetching as fallback
+        return _fetch_prices_individually(tickers_to_fetch, start_date, end_date, failures, wave_id, wave_name)
+
 
 def _fetch_prices_individually(
-    tickers: List[str],
-    start_date: datetime,
-    end_date: datetime,
+    tickers: List[str], 
+    start_date: datetime, 
+    end_date: datetime, 
     failures: Dict[str, str],
     wave_id: Optional[str] = None,
     wave_name: Optional[str] = None
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    DEPRECATED: This function is no longer used.
-    All price loading now goes through PRICE_BOOK via helpers.price_loader.
+    Fetch prices one ticker at a time for maximum resilience.
+    Enhanced with retry logic, diagnostics tracking, and circuit breaker to prevent infinite loops.
     
-    Kept for backward compatibility but returns empty results.
+    Args:
+        tickers: List of ticker symbols
+        start_date: Start date for historical data
+        end_date: End date for historical data
+        failures: Dict to track failures (modified in place)
+        wave_id: Optional wave identifier for diagnostics
+        wave_name: Optional wave name for diagnostics
+        
+    Returns:
+        Tuple of (prices_df, failures_dict)
     """
-    print("Warning: _fetch_prices_individually is deprecated - use PRICE_BOOK via helpers.price_loader")
-    for ticker in tickers:
-        failures[ticker] = "Deprecated: Use PRICE_BOOK instead"
-    return pd.DataFrame(), failures
-
+    if not YFINANCE_AVAILABLE:
+        return pd.DataFrame(), failures
+    
+    # CIRCUIT BREAKER: Limit individual ticker fetches to prevent infinite loops
+    if len(tickers) > MAX_INDIVIDUAL_TICKER_FETCHES:
+        logger.warning(
+            f"Too many tickers ({len(tickers)}) for individual fetching. "
+            f"Limiting to {MAX_INDIVIDUAL_TICKER_FETCHES}"
+        )
+        # Take first MAX_INDIVIDUAL_TICKER_FETCHES tickers, mark rest as failed
+        for ticker in tickers[MAX_INDIVIDUAL_TICKER_FETCHES:]:
+            failures[ticker] = f"Exceeded max individual ticker fetch limit ({MAX_INDIVIDUAL_TICKER_FETCHES})"
+        tickers = tickers[:MAX_INDIVIDUAL_TICKER_FETCHES]
+    
+    # Get diagnostics tracker if available
+    tracker = get_diagnostics_tracker() if DIAGNOSTICS_AVAILABLE else None
+    
+    all_prices = {}
+    common_index = None
+    
+    # Add batch processing with delays to reduce API stress
+    batch_size = 10
+    batch_delay = 0.5  # 0.5 seconds between batches
+    
+    for i, ticker in enumerate(tickers):
+        try:
+            def _download_single():
+                # STEP 7: Add timeout to network calls (15 seconds per request)
+                return yf.download(
+                    tickers=ticker,
+                    start=start_date.strftime('%Y-%m-%d'),
+                    end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
+                    auto_adjust=True,
+                    progress=False,
+                    timeout=15  # 15 second timeout per request
+                )
+            
+            # STEP 4: Use MAX_TICKER_RETRIES (1) instead of hardcoded 3
+            data = _retry_with_backoff(_download_single, max_retries=MAX_TICKER_RETRIES, initial_delay=1.0)
+            
+            if data.empty:
+                error_msg = "Empty data returned"
+                failures[ticker] = error_msg
+                
+                # Track in diagnostics
+                if tracker:
+                    failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                    report = FailedTickerReport(
+                        ticker_original=ticker,
+                        ticker_normalized=normalize_ticker(ticker),
+                        wave_id=wave_id,
+                        wave_name=wave_name,
+                        source="yfinance",
+                        failure_type=failure_type,
+                        error_message=error_msg,
+                        is_fatal=True,
+                        suggested_fix=suggested_fix
+                    )
+                    tracker.record_failure(report)
+                continue
+            
+            if 'Close' in data.columns:
+                prices_series = data['Close']
+            else:
+                error_msg = "No Close column"
+                failures[ticker] = error_msg
+                
+                # Track in diagnostics
+                if tracker:
+                    failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                    report = FailedTickerReport(
+                        ticker_original=ticker,
+                        ticker_normalized=normalize_ticker(ticker),
+                        wave_id=wave_id,
+                        wave_name=wave_name,
+                        source="yfinance",
+                        failure_type=failure_type,
+                        error_message=error_msg,
+                        is_fatal=True,
+                        suggested_fix=suggested_fix
+                    )
+                    tracker.record_failure(report)
+                continue
+            
+            # Store prices
+            all_prices[ticker] = prices_series
+            
+            # Build common index
+            if common_index is None:
+                common_index = prices_series.index
+            else:
+                common_index = common_index.union(prices_series.index)
+            
+            # Add delay after each ticker fetch to reduce API stress
+            # Skip delay for the very last ticker
+            if i < len(tickers) - 1:
+                time.sleep(batch_delay)
+                
+        except Exception as e:
+            error_msg = f"Individual fetch error: {str(e)}"
+            failures[ticker] = error_msg
+            
+            # Track in diagnostics
+            if tracker:
+                failure_type, suggested_fix = categorize_error(error_msg, ticker)
+                report = FailedTickerReport(
+                    ticker_original=ticker,
+                    ticker_normalized=normalize_ticker(ticker),
+                    wave_id=wave_id,
+                    wave_name=wave_name,
+                    source="yfinance",
+                    failure_type=failure_type,
+                    error_message=error_msg,
+                    is_fatal=True,
+                    suggested_fix=suggested_fix
+                )
+                tracker.record_failure(report)
+            continue
+    
+    if not all_prices:
+        return pd.DataFrame(), failures
+    
+    # Build DataFrame with common index
+    prices_df = pd.DataFrame(all_prices, index=common_index)
+    prices_df = prices_df.sort_index()
+    prices_df = prices_df.ffill()
+    
+    return prices_df, failures
 
 
 # ------------------------------------------------------------
