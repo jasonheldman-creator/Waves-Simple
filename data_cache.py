@@ -125,113 +125,63 @@ def download_prices_batched(
     chunk_size: int = 100
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
     """
-    Download price data in batches to avoid rate limits.
+    DEPRECATED: Load price data from PRICE_BOOK instead of downloading.
     
-    Features:
-    - Chunks downloads into manageable sizes
-    - Pauses between batches
-    - Per-ticker failure tracking
-    - Continues on error (graceful degradation)
+    This function previously downloaded prices in batches to avoid rate limits.
+    It now delegates to helpers.price_loader to access PRICE_BOOK.
     
     Args:
-        tickers: List of ticker symbols to download
-        period_days: Number of days of history to fetch
-        chunk_size: Number of tickers per batch (default: 100)
+        tickers: List of ticker symbols to load
+        period_days: Number of days of history (for date range calculation)
+        chunk_size: Ignored (kept for backward compatibility)
     
     Returns:
         Tuple of (price_df, failures_dict):
         - price_df: Wide DataFrame with date index and ticker columns
         - failures_dict: Dict mapping failed tickers to error reasons
     """
-    if not YFINANCE_AVAILABLE:
-        return pd.DataFrame(), {"error": "yfinance not available"}
-    
-    if not tickers:
-        return pd.DataFrame(), {}
-    
     failures = {}
-    all_prices = pd.DataFrame()
     
-    # Calculate date range with buffer
-    end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=period_days + BUFFER_DAYS)  # Extra buffer for calculations
-    
-    # Split into batches
-    num_batches = (len(tickers) + chunk_size - 1) // chunk_size
-    
-    for batch_idx in range(num_batches):
-        start_idx = batch_idx * chunk_size
-        end_idx = min((batch_idx + 1) * chunk_size, len(tickers))
-        batch_tickers = tickers[start_idx:end_idx]
+    # DELEGATE TO PRICE_BOOK - Use single authoritative source
+    try:
+        from helpers.price_loader import get_canonical_prices
         
-        try:
-            # Download this batch
-            batch_data = yf.download(
-                tickers=batch_tickers,
-                start=start_date.isoformat(),
-                end=end_date.isoformat(),
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                group_by="column"
-            )
-            
-            if batch_data is None or len(batch_data) == 0:
-                # Record failure for all tickers in batch
-                for ticker in batch_tickers:
-                    failures[ticker] = "Empty response from yfinance"
-                continue
-            
-            # Extract Adj Close or Close prices
-            if isinstance(batch_data.columns, pd.MultiIndex):
-                if "Adj Close" in batch_data.columns.get_level_values(0):
-                    batch_prices = batch_data["Adj Close"]
-                elif "Close" in batch_data.columns.get_level_values(0):
-                    batch_prices = batch_data["Close"]
-                else:
-                    batch_prices = batch_data[batch_data.columns.levels[0][0]]
-            else:
-                batch_prices = batch_data
-            
-            # Handle single ticker case (Series instead of DataFrame)
-            if isinstance(batch_prices, pd.Series):
-                batch_prices = batch_prices.to_frame()
-            
-            # Flatten multi-index columns if needed
-            if isinstance(batch_prices.columns, pd.MultiIndex):
-                batch_prices = batch_prices.droplevel(0, axis=1)
-            
-            # Sort index and forward/backward fill
-            batch_prices = batch_prices.sort_index().ffill().bfill()
-            
-            # Merge into all_prices
-            if len(all_prices) == 0:
-                all_prices = batch_prices.copy()
-            else:
-                # Align indices and concatenate
-                all_prices = pd.concat([all_prices, batch_prices], axis=1)
-            
-            # Check which tickers succeeded and which failed
-            for ticker in batch_tickers:
-                if ticker not in batch_prices.columns:
-                    failures[ticker] = "Ticker not in downloaded data"
-                elif batch_prices[ticker].isna().all():
-                    failures[ticker] = "All NaN values"
-            
-        except Exception as e:
-            # Record failure for all tickers in batch
-            error_msg = str(e)
-            for ticker in batch_tickers:
-                failures[ticker] = f"Batch download error: {error_msg}"
+        # Calculate date range with buffer
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=period_days + BUFFER_DAYS)
         
-        # Pause between batches to avoid rate limits (except for last batch)
-        if batch_idx < num_batches - 1:
-            pause_time = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
-            time.sleep(pause_time)
+        # Load from PRICE_BOOK (never fetches from network)
+        all_prices = get_canonical_prices(
+            tickers=tickers,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d')
+        )
+        
+        # Identify tickers with no data (all NaN) as failures
+        for ticker in tickers:
+            if ticker in all_prices.columns:
+                if all_prices[ticker].isna().all():
+                    failures[ticker] = "No data available in PRICE_BOOK"
+            else:
+                failures[ticker] = "Ticker not in PRICE_BOOK"
+        
+        return all_prices, failures
+        
+    except ImportError:
+        # Fallback if price_loader is not available (should not happen in production)
+        error_msg = "price_loader module not available - cannot access PRICE_BOOK"
+        print(f"Error: {error_msg}")
+        for ticker in tickers:
+            failures[ticker] = error_msg
+        return pd.DataFrame(), failures
+    except Exception as e:
+        # Handle any other errors
+        error_msg = f"Error loading from PRICE_BOOK: {str(e)}"
+        print(f"Error: {error_msg}")
+        for ticker in tickers:
+            failures[ticker] = error_msg
+        return pd.DataFrame(), failures
     
-    return all_prices, failures
-
-
 @st.cache_data(ttl=DEFAULT_TTL_SECONDS, show_spinner=False)
 def _download_prices_cached(
     tickers_tuple: Tuple[str, ...],

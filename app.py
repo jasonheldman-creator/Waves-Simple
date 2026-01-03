@@ -664,59 +664,16 @@ def get_build_info():
     if git_sha_env:
         build_info['sha'] = git_sha_env
     else:
+        # Fallback to git command if available
         try:
-            # Fallback to git command
-            result = subprocess.run(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
+            import subprocess
+            result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                                    capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 build_info['sha'] = result.stdout.strip()
-        except:
-            pass
-    
-    # Get branch name: prioritize environment variable, fallback to git command
-    git_branch_env = os.environ.get('GIT_BRANCH') or os.environ.get('BRANCH_NAME')
-    if git_branch_env:
-        build_info['branch'] = git_branch_env
-    else:
-        try:
-            # Fallback to git command
-            result = subprocess.run(
-                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                build_info['branch'] = result.stdout.strip()
-        except:
-            pass
-    
-    return build_info
+        except Exception:
+            pass  # Git not available or error, leave sha as None
 
-# Display build stamp banner (non-cached, always current)
-build_info = get_build_info()
-st.markdown(
-    f"""
-    <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
-        <span style="color: #888; font-size: 12px; font-family: monospace;">
-            BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
-        </span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-# Cache keys for wave universe management
-WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wave_history_cache"]
-
-
-# ============================================================================
-# WAVE PROFILE BANNER - Enhanced Header Display with Quick Stats
-# ============================================================================
 
 def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     """
@@ -2533,41 +2490,64 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
 
 def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
     """
-    Batched prefetch function for prices with rate-limit protection.
+    DEPRECATED: Load prices from PRICE_BOOK instead of prefetching.
     
-    Features:
-    - Builds master ticker set from holdings + benchmarks + safe assets
-    - Batched downloads (chunk size: PRICE_DOWNLOAD_BATCH_SIZE)
-    - Pauses between chunks to avoid rate limits
-    - Per-ticker failure tracking
+    This function previously pre-fetched prices for all waves.
+    It now delegates to helpers.price_loader to access PRICE_BOOK.
     
     Args:
-        days: Number of days of history to fetch (default: 365)
+        days: Number of days of history requested (for date range calculation)
     
     Returns:
         Tuple of (price_df: pd.DataFrame, per_ticker_failures: dict)
         - price_df: DataFrame with dates as index and tickers as columns
         - per_ticker_failures: Dict mapping failed tickers to error reasons
     """
-    # ========================================================================
-    # Safe Mode Check - Prevent external data fetching
-    # ========================================================================
-    if st.session_state.get("safe_mode_no_fetch", True):
-        print("⏸️ Safe Mode active - skipping price prefetch")
-        return pd.DataFrame(), {"safe_mode": "Price fetching disabled in Safe Mode"}
-    
-    import time
-    import random
-    
-    # Import yfinance
+    # DELEGATE TO PRICE_BOOK - Use single authoritative source
     try:
-        import yfinance as yf
+        from helpers.price_loader import get_canonical_prices, collect_required_tickers
+        
+        # Collect required tickers (active waves only)
+        master_tickers = collect_required_tickers(active_only=True)
+        
+        if len(master_tickers) == 0:
+            print("Warning: No tickers found")
+            return pd.DataFrame(), {"error": "No tickers found"}
+        
+        print(f"Loading prices for {len(master_tickers)} tickers from PRICE_BOOK...")
+        
+        # Calculate date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days + 10)  # Extra buffer
+        
+        # Load from PRICE_BOOK (never fetches from network)
+        all_prices = get_canonical_prices(
+            tickers=master_tickers,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d')
+        )
+        
+        # Identify tickers with no data (all NaN) as failures
+        per_ticker_failures = {}
+        for ticker in master_tickers:
+            if ticker in all_prices.columns:
+                if all_prices[ticker].isna().all():
+                    per_ticker_failures[ticker] = "No data available in PRICE_BOOK"
+            else:
+                per_ticker_failures[ticker] = "Ticker not in PRICE_BOOK"
+        
+        return all_prices, per_ticker_failures
+        
     except ImportError:
-        print("Warning: yfinance not available")
-        return pd.DataFrame(), {"error": "yfinance not installed"}
-    
-    per_ticker_failures = {}
-    all_prices = pd.DataFrame()
+        # Fallback if price_loader is not available
+        error_msg = "price_loader module not available - cannot access PRICE_BOOK"
+        print(f"Error: {error_msg}")
+        return pd.DataFrame(), {"error": error_msg}
+    except Exception as e:
+        # Handle any other errors
+        error_msg = f"Error loading from PRICE_BOOK: {str(e)}"
+        print(f"Error: {error_msg}")
+        return pd.DataFrame(), {"error": error_msg}
     
     try:
         # Build master ticker set
@@ -7171,15 +7151,10 @@ def render_sidebar_info():
                     st.sidebar.success(f"✅ Cache is READY")
                 else:
                     st.sidebar.warning(f"⚠️ Cache status: {readiness['status_code']}")
-                        st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
                     
-                    # Show failure summary if any
-                    if failures:
-                        st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
-                else:
-                    st.sidebar.warning("⚠️ No price data was fetched. Please try again.")
-                    if failures:
-                        st.sidebar.error(f"Failures: {len(failures)} tickers failed to fetch")
+                # Show failure summary if any
+                if failures:
+                    st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
                         
         except Exception as e:
             st.sidebar.error(f"❌ Error warming cache: {str(e)}")
