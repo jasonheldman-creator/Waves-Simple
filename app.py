@@ -11011,7 +11011,7 @@ def render_overview_tab():
                         "Wave_ID", "Wave", "Category", "Readiness", "Alert",
                         "Return_1D", "Return_30D", "Return_60D", "Return_365D",
                         "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
-                        "Exposure", "CashPercent", "Coverage %"
+                        "Exposure", "CashPercent", "Coverage %", "NA_Reason"
                     ]
                     
                     # Only include columns that exist

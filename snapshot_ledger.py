@@ -532,9 +532,72 @@ def _build_smartsafe_cash_wave_row(
         "Coverage_Score": 100,
         "status": "OK",
         "missing_tickers": "",  # No tickers needed
+        "NA_Reason": "✓",  # No issues - SmartSafe cash wave
     }
     
     return row
+
+
+def _generate_na_reason(
+    returns: Dict[str, float],
+    bm_returns: Dict[str, float],
+    missing_tickers: str,
+    hist_df: Optional[pd.DataFrame] = None,
+    tier: str = "A"
+) -> str:
+    """
+    Generate detailed reason for N/A values in performance metrics.
+    
+    Args:
+        returns: Dictionary of wave returns by timeframe
+        bm_returns: Dictionary of benchmark returns by timeframe
+        missing_tickers: String of missing/failed tickers
+        hist_df: Optional history DataFrame
+        tier: Data tier used (A, B, C, D)
+        
+    Returns:
+        Human-readable reason string explaining N/A values
+    """
+    reasons = []
+    
+    # Check for missing tickers
+    if missing_tickers and missing_tickers != "":
+        ticker_list = missing_tickers.split(", ")
+        if len(ticker_list) <= 5:
+            reasons.append(f"missing_tickers: {missing_tickers}")
+        else:
+            reasons.append(f"missing_tickers: {len(ticker_list)} tickers ({', '.join(ticker_list[:3])}, ...)")
+    
+    # Check for missing benchmark data
+    has_bm_data = any(not np.isnan(v) for v in bm_returns.values())
+    if not has_bm_data:
+        reasons.append("missing_benchmark")
+    
+    # Check for insufficient historical data
+    if hist_df is not None:
+        if len(hist_df) < 7:
+            reasons.append(f"insufficient_history: {len(hist_df)} days")
+        elif len(hist_df) < 30:
+            reasons.append(f"limited_history: {len(hist_df)} days")
+    
+    # Check for no overlapping dates (empty series after cleaning)
+    has_return_data = any(not np.isnan(v) for v in returns.values())
+    if not has_return_data and has_bm_data:
+        reasons.append("no_overlapping_dates")
+    elif not has_return_data and not has_bm_data:
+        reasons.append("empty_series_after_cleaning")
+    
+    # Check for tier fallback
+    if tier == "D":
+        reasons.append("tier_d_fallback: all data sources failed")
+    elif tier == "C":
+        reasons.append("tier_c_fallback: limited_data_reconstruction")
+    
+    # Return formatted reason string
+    if reasons:
+        return "; ".join(reasons)
+    else:
+        return "✓"  # All data available
 
 
 def _build_snapshot_row_tier_a(
@@ -668,6 +731,9 @@ def _build_snapshot_row_tier_a(
         # Format missing_tickers column
         missing_tickers = ", ".join(sorted(failed_tickers_list)) if failed_tickers_list else ""
         
+        # Generate detailed N/A reason
+        na_reason = _generate_na_reason(returns, bm_returns, missing_tickers, hist_df, tier="A")
+        
         # Flags
         flags = []
         if len(hist_df) < 365:
@@ -720,6 +786,7 @@ def _build_snapshot_row_tier_a(
             "Coverage_Score": coverage_score,
             "status": status,
             "missing_tickers": missing_tickers,
+            "NA_Reason": na_reason,
         }
         
         return row
@@ -985,6 +1052,9 @@ def _build_snapshot_row_tier_d(
     expected_tickers = _get_wave_tickers(wave_name)
     missing_tickers = ", ".join(sorted(expected_tickers)) if expected_tickers else "All tickers"
     
+    # Generate detailed N/A reason for tier D
+    na_reason = _generate_na_reason(returns, bm_returns, missing_tickers, hist_df=None, tier="D")
+    
     # Get category from registry
     category = "Unknown"
     try:
@@ -1024,6 +1094,7 @@ def _build_snapshot_row_tier_d(
         "Coverage_Score": 0,
         "status": "NO DATA",
         "missing_tickers": missing_tickers,
+        "NA_Reason": na_reason,
     }
     
     return row
@@ -1241,7 +1312,7 @@ def generate_snapshot(
                 "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
                 "Exposure", "CashPercent", "VIX_Level", "VIX_Regime",
                 "Beta_Real", "Beta_Target", "Beta_Drift", "Turnover_Est", "MaxDD",
-                "Flags", "Data_Regime_Tag", "Coverage_Score", "status", "missing_tickers"
+                "Flags", "Data_Regime_Tag", "Coverage_Score", "status", "missing_tickers", "NA_Reason"
             ])
         
         try:
