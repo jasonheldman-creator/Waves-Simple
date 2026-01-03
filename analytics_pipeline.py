@@ -1175,7 +1175,7 @@ def compute_data_ready_status_from_cache(wave_id: str) -> Dict[str, Any]:
     Returns:
         Dictionary with comprehensive readiness diagnostics
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     import logging
     
     # Try to import price loader
