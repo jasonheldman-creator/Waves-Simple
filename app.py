@@ -5937,9 +5937,11 @@ def render_reality_panel():
             get_price_book,
             get_price_book_meta,
             get_active_required_tickers,
+            get_required_tickers_active_waves,
             compute_missing_and_extra_tickers,
             CANONICAL_CACHE_PATH,
-            PRICE_FETCH_ENABLED
+            PRICE_FETCH_ENABLED,
+            ALLOW_NETWORK_FETCH
         )
         
         # Load the PRICE_BOOK (this is the actual object used by execution)
@@ -6787,7 +6789,7 @@ def render_sidebar_info():
         "💰 Rebuild Price Cache (Active Tickers Only)",
         key="rebuild_price_cache_button",
         use_container_width=True,
-        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires PRICE_FETCH_ENABLED=true."
+        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
     ):
         try:
             # Show progress indicator
@@ -6801,8 +6803,8 @@ def render_sidebar_info():
                 # Check if fetching is allowed
                 if not result['allowed']:
                     st.sidebar.warning(
-                        "⚠️ Price fetching is DISABLED\n\n"
-                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true to enable fetching.')}"
+                        "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
                     )
                 elif result['success']:
                     st.sidebar.success(
