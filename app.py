@@ -640,57 +640,68 @@ WATCHDOG_START_TIME = time.time()
 def get_build_info():
     """
     Get build information for display in UI.
-    Returns: dict with 'sha', 'date', 'branch' keys
+    Returns: dict with 'sha', 'branch', 'utc' keys
     
     Note: Uses inline Git commands here since this runs at module load time,
     before the helper functions (get_git_commit_hash, get_git_branch_name) 
     are defined later in the file.
+    
+    This function retrieves:
+    - Git short SHA from environment variable or git command
+    - Current branch name from environment variable or git command
+    - Current UTC timestamp (non-cached)
     """
     build_info = {
         'sha': 'unknown',
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'branch': 'unknown'
+        'branch': 'unknown',
+        'utc': datetime.utcnow().isoformat()
     }
     
-    try:
-        # Try to get Git SHA (short version)
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            build_info['sha'] = result.stdout.strip()
-        else:
-            # Fallback to BUILD_ID environment variable
-            build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
-    except:
-        # Fallback to BUILD_ID environment variable
-        build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
+    # Get Git SHA: prioritize environment variable, fallback to git command
+    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+    if git_sha_env:
+        build_info['sha'] = git_sha_env
+    else:
+        try:
+            # Fallback to git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                build_info['sha'] = result.stdout.strip()
+        except:
+            pass
     
-    try:
-        # Get current branch
-        result = subprocess.run(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            build_info['branch'] = result.stdout.strip()
-    except:
-        pass
+    # Get branch name: prioritize environment variable, fallback to git command
+    git_branch_env = os.environ.get('GIT_BRANCH') or os.environ.get('BRANCH_NAME')
+    if git_branch_env:
+        build_info['branch'] = git_branch_env
+    else:
+        try:
+            # Fallback to git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                build_info['branch'] = result.stdout.strip()
+        except:
+            pass
     
     return build_info
 
-# Display build stamp banner
+# Display build stamp banner (non-cached, always current)
 build_info = get_build_info()
 st.markdown(
     f"""
     <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
         <span style="color: #888; font-size: 12px; font-family: monospace;">
-            WAVES BUILD: {build_info['sha']} | {build_info['date']} | {build_info['branch']}
+            BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
         </span>
     </div>
     """,
@@ -17321,6 +17332,69 @@ def render_diagnostics_tab():
     # ========================================================================
     st.subheader("💰 Active Price Source Details")
     
+    # ========================================================================
+    # PRICE SOURCE STAMP - Permanent display (non-cached, always visible)
+    # ========================================================================
+    st.markdown("### 📍 Price Source Stamp")
+    st.markdown("**Current run price source information (non-cached):**")
+    
+    try:
+        from helpers.price_loader import get_cache_info, CACHE_PATH
+        
+        # Get current price cache info (non-cached call)
+        cache_info = get_cache_info()
+        
+        if cache_info['exists']:
+            # Display as metrics in columns for quick visibility
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "📁 Price Source File",
+                    "prices_cache.parquet",
+                    help="Exact price source file used for this run"
+                )
+            
+            with col2:
+                shape_str = f"{cache_info['num_days']} × {cache_info['num_tickers']}"
+                st.metric(
+                    "📊 DataFrame Shape",
+                    shape_str,
+                    help="Rows (days) × Columns (tickers)"
+                )
+            
+            with col3:
+                max_date = cache_info['date_range'][1] if cache_info['date_range'][1] else "N/A"
+                st.metric(
+                    "📅 Maximum Date",
+                    max_date,
+                    help="Most recent date in the dataframe"
+                )
+            
+            with col4:
+                st.metric(
+                    "🎯 Ticker Count",
+                    cache_info['num_tickers'],
+                    help="Number of unique tickers in dataframe"
+                )
+            
+            # Display full path in a compact format
+            st.caption(f"**Full path:** `{cache_info['path']}`")
+        else:
+            st.warning("⚠️ Price cache file does not exist. No price data available for this run.")
+            st.caption(f"Expected location: `{CACHE_PATH}`")
+    
+    except ImportError as e:
+        st.error(f"❌ Price loader module not available: {str(e)}")
+    except Exception as e:
+        st.error(f"❌ Error loading price source stamp: {str(e)}")
+        import traceback
+        st.caption("Error details:")
+        st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # Detailed price information in expander (optional)
     with st.expander("📊 Price Cache Information - Click to expand", expanded=False):
         try:
             from helpers.price_loader import get_cache_info, CACHE_PATH
