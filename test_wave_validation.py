@@ -16,6 +16,29 @@ from datetime import datetime, timedelta
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Helper function to import modules without streamlit dependency
+def import_wave_modules():
+    """
+    Import wave performance modules directly to avoid streamlit dependency.
+    
+    Returns:
+        Tuple of (validate_wave_price_history, compute_all_waves_performance, 
+                  generate_wave_validation_report) functions
+    """
+    import sys
+    import os
+    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
+    if helpers_dir not in sys.path:
+        sys.path.insert(0, helpers_dir)
+    
+    from wave_performance import (
+        validate_wave_price_history,
+        compute_all_waves_performance,
+        generate_wave_validation_report
+    )
+    
+    return validate_wave_price_history, compute_all_waves_performance, generate_wave_validation_report
+
 def create_test_price_book(tickers, days=100, start_date='2024-01-01'):
     """Create a test PRICE_BOOK with specified tickers."""
     dates = pd.date_range(start=start_date, periods=days, freq='B')  # Business days
@@ -38,13 +61,8 @@ def test_validation_with_complete_data():
     print("Test 1: Validation with Complete Data")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import validate_wave_price_history
+    # Import using helper function
+    validate_wave_price_history, _, _ = import_wave_modules()
     
     # Create test PRICE_BOOK with all tickers for S&P 500 Wave
     test_tickers = ['SPY']  # S&P 500 Wave only needs SPY
@@ -81,13 +99,8 @@ def test_validation_with_missing_tickers():
     print("Test 2: Validation with Missing Tickers")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import validate_wave_price_history
+    # Import using helper function
+    validate_wave_price_history, _, _ = import_wave_modules()
     
     # Create test PRICE_BOOK without all required tickers for AI & Cloud MegaCap Wave
     # AI & Cloud MegaCap Wave requires: ADBE, AMD, AVGO, CRM, GOOGL, INTC, META, MSFT, NVDA, ORCL
@@ -127,13 +140,8 @@ def test_validation_with_insufficient_history():
     print("Test 3: Validation with Insufficient History")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import validate_wave_price_history
+    # Import using helper function
+    validate_wave_price_history, _, _ = import_wave_modules()
     
     # Create test PRICE_BOOK with only 10 days of data (less than minimum 30)
     test_tickers = ['SPY']
@@ -168,13 +176,8 @@ def test_validation_with_relaxed_criteria():
     print("Test 4: Validation with Relaxed Criteria")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import validate_wave_price_history
+    # Import using helper function
+    validate_wave_price_history, _, _ = import_wave_modules()
     
     # Create test PRICE_BOOK with 90% of required tickers
     # AI & Cloud MegaCap Wave requires 10 tickers, we'll provide 9
@@ -212,13 +215,8 @@ def test_performance_filtering():
     print("Test 5: Performance Table Filtering")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import compute_all_waves_performance
+    # Import using helper function
+    _, compute_all_waves_performance, _ = import_wave_modules()
     
     # Create test PRICE_BOOK with only a few tickers (most waves will fail validation)
     test_tickers = ['SPY', 'QQQ', 'GLD', 'BTC-USD']
@@ -276,13 +274,8 @@ def test_validation_report_generation():
     print("Test 6: Validation Report Generation")
     print("=" * 70)
     
-    # Import directly from module to avoid streamlit dependency
-    import sys
-    import os
-    helpers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'helpers')
-    if helpers_dir not in sys.path:
-        sys.path.insert(0, helpers_dir)
-    from wave_performance import generate_wave_validation_report
+    # Import using helper function
+    _, _, generate_wave_validation_report = import_wave_modules()
     
     # Create test PRICE_BOOK with mixed coverage
     test_tickers = ['SPY', 'QQQ', 'GLD', 'BTC-USD', 'ETH-USD', 'NVDA', 'MSFT']

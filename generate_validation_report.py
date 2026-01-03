@@ -27,17 +27,19 @@ def print_separator(char='=', length=80):
     """Print a separator line."""
     print(char * length)
 
-def print_validation_result(validation, index, total):
+def print_validation_result(validation, index, total, use_colors=True):
     """Print a single wave validation result in a readable format."""
     wave_name = validation['wave_name']
     valid = validation['valid']
     
-    # Status indicator
+    # Status indicator with optional ANSI colors
     status_icon = "✓" if valid else "✗"
-    status_color = "\033[92m" if valid else "\033[91m"  # Green or Red
-    reset_color = "\033[0m"
-    
-    print(f"\n{status_color}[{index}/{total}] {status_icon} {wave_name}{reset_color}")
+    if use_colors:
+        status_color = "\033[92m" if valid else "\033[91m"  # Green or Red
+        reset_color = "\033[0m"
+        print(f"\n{status_color}[{index}/{total}] {status_icon} {wave_name}{reset_color}")
+    else:
+        print(f"\n[{index}/{total}] {status_icon} {wave_name}")
     print(f"  Return Computable: {validation['return_computable']}")
     print(f"  Validation: {validation['validation_reason']}")
     
@@ -65,7 +67,7 @@ def print_validation_result(validation, index, total):
     
     print(f"  Coverage: {validation['coverage_pct']:.1f}%")
 
-def generate_and_display_report(min_coverage_pct=100.0, min_history_days=30, save_to_file=True):
+def generate_and_display_report(min_coverage_pct=100.0, min_history_days=30, save_to_file=True, use_colors=True):
     """Generate and display the validation report."""
     print_separator()
     print("WAVE VALIDATION REPORT GENERATOR")
@@ -141,14 +143,14 @@ def generate_and_display_report(min_coverage_pct=100.0, min_history_days=30, sav
         print(f"\n{len(invalid_waves)} INVALID WAVES (Failed Validation):")
         print_separator('-')
         for i, validation in enumerate(invalid_waves, 1):
-            print_validation_result(validation, i, len(invalid_waves))
+            print_validation_result(validation, i, len(invalid_waves), use_colors=use_colors)
     
     # Show valid waves
     if valid_waves:
         print(f"\n\n{len(valid_waves)} VALID WAVES (Passed Validation):")
         print_separator('-')
         for i, validation in enumerate(valid_waves, 1):
-            print_validation_result(validation, i, len(valid_waves))
+            print_validation_result(validation, i, len(valid_waves), use_colors=use_colors)
     
     # Final summary
     print_separator()
@@ -212,13 +214,20 @@ Examples:
         help='Do not save report to file (just display)'
     )
     
+    parser.add_argument(
+        '--no-colors',
+        action='store_true',
+        help='Disable colored output (for non-ANSI terminals)'
+    )
+    
     args = parser.parse_args()
     
     try:
         generate_and_display_report(
             min_coverage_pct=args.min_coverage,
             min_history_days=args.min_days,
-            save_to_file=not args.no_save
+            save_to_file=not args.no_save,
+            use_colors=not args.no_colors
         )
     except KeyboardInterrupt:
         print("\n\n⚠️  Report generation cancelled by user")

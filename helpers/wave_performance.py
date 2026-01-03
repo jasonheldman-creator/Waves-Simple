@@ -299,15 +299,17 @@ def compute_all_waves_performance(
         logger.error("No waves found in universe")
         return pd.DataFrame()
     
-    # If only_validated=True, first validate all waves and filter
-    waves_to_process = all_waves
-    validation_map = {}
+    # Compute performance for each wave (only validated waves if only_validated=True)
+    results = []
+    waves_to_process = all_waves  # Default: process all waves
     
+    # Optimization: If only_validated=True, filter waves first to avoid computing performance for invalid waves
     if only_validated:
         logger.info(f"Validating {len(all_waves)} waves with strict criteria...")
         logger.info(f"  min_coverage_pct: {min_coverage_pct}%")
         logger.info(f"  min_history_days: {min_history_days}")
         
+        validation_map = {}
         for wave_name in all_waves:
             validation = validate_wave_price_history(
                 wave_name,
@@ -331,9 +333,6 @@ def compute_all_waves_performance(
                 logger.warning(f"  - {wave_name}: {reason}")
             if invalid_count > 5:
                 logger.warning(f"  ... and {invalid_count - 5} more")
-    
-    # Compute performance for each wave (only validated waves if only_validated=True)
-    results = []
     
     for wave_name in waves_to_process:
         wave_result = compute_wave_returns(wave_name, price_book, periods)

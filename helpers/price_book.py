@@ -86,7 +86,8 @@ def _load_cache_fallback() -> pd.DataFrame:
     (e.g., due to streamlit dependency issues in non-UI contexts).
     
     Returns:
-        DataFrame with price data from canonical cache, or empty DataFrame if not found
+        DataFrame with price data from canonical cache (index=dates, columns=tickers), 
+        or empty DataFrame if cache not found
     """
     if not os.path.exists(CANONICAL_CACHE_PATH):
         logger.warning(f"Cache file not found: {CANONICAL_CACHE_PATH}")
