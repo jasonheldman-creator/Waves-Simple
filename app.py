@@ -56,14 +56,6 @@ except ImportError:
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
 
-# Import data cache for global price caching
-try:
-    from data_cache import get_global_price_cache
-    DATA_CACHE_AVAILABLE = True
-except ImportError:
-    DATA_CACHE_AVAILABLE = False
-    get_global_price_cache = None
-
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
     from helpers.ticker_rail import render_bottom_ticker_v3
@@ -2529,192 +2521,6 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
     except Exception as e:
         # CHANGED: Even on exception, mark as ready - fail gracefully during rendering
         return True, "Ready", f"Will attempt fresh computation"
-
-
-def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
-    """
-    Batched prefetch function for prices with rate-limit protection.
-    
-    Features:
-    - Builds master ticker set from holdings + benchmarks + safe assets
-    - Batched downloads (chunk size: PRICE_DOWNLOAD_BATCH_SIZE)
-    - Pauses between chunks to avoid rate limits
-    - Per-ticker failure tracking
-    
-    Args:
-        days: Number of days of history to fetch (default: 365)
-    
-    Returns:
-        Tuple of (price_df: pd.DataFrame, per_ticker_failures: dict)
-        - price_df: DataFrame with dates as index and tickers as columns
-        - per_ticker_failures: Dict mapping failed tickers to error reasons
-    """
-    # ========================================================================
-    # Safe Mode Check - Prevent external data fetching
-    # ========================================================================
-    if st.session_state.get("safe_mode_no_fetch", True):
-        print("⏸️ Safe Mode active - skipping price prefetch")
-        return pd.DataFrame(), {"safe_mode": "Price fetching disabled in Safe Mode"}
-    
-    import time
-    import random
-    
-    # Import yfinance
-    try:
-        import yfinance as yf
-    except ImportError:
-        print("Warning: yfinance not available")
-        return pd.DataFrame(), {"error": "yfinance not installed"}
-    
-    per_ticker_failures = {}
-    all_prices = pd.DataFrame()
-    
-    try:
-        # Build master ticker set
-        master_tickers = set()
-        
-        # 1. Get all holdings tickers from enabled waves
-        try:
-            wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-            enabled_waves = [w for w in universe.get("waves", []) if universe.get("enabled_flags", {}).get(w, True)]
-            
-            # Load wave weights/holdings
-            wave_weights_path = os.path.join(os.path.dirname(__file__), 'wave_weights.csv')
-            if os.path.exists(wave_weights_path):
-                wave_weights_df = pd.read_csv(wave_weights_path)
-                for wave in enabled_waves:
-                    wave_holdings = wave_weights_df[wave_weights_df['wave'] == wave]
-                    if 'ticker' in wave_holdings.columns:
-                        holdings_tickers = wave_holdings['ticker'].dropna().unique().tolist()
-                        master_tickers.update(holdings_tickers)
-        except Exception as e:
-            print(f"Warning: Could not load wave holdings: {str(e)}")
-        
-        # 2. Get all benchmark tickers from enabled waves
-        try:
-            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-            if os.path.exists(wave_config_path):
-                config_df = pd.read_csv(wave_config_path)
-                if 'Benchmark' in config_df.columns:
-                    benchmark_tickers = config_df['Benchmark'].dropna().unique().tolist()
-                    master_tickers.update(benchmark_tickers)
-        except Exception as e:
-            print(f"Warning: Could not load benchmark tickers: {str(e)}")
-        
-        # 3. Add safe asset tickers
-        master_tickers.update(SAFE_ASSET_TICKERS)
-        
-        # Convert to sorted list for consistent batching
-        master_tickers = sorted(list(master_tickers))
-        
-        if len(master_tickers) == 0:
-            print("Warning: No tickers found to prefetch")
-            return pd.DataFrame(), {"error": "No tickers to fetch"}
-        
-        print(f"Prefetching prices for {len(master_tickers)} tickers...")
-        
-        # Calculate date range
-        end_date = datetime.utcnow().date()
-        start_date = end_date - timedelta(days=days + 10)  # Extra buffer
-        
-        # Batch download
-        batch_size = PRICE_DOWNLOAD_BATCH_SIZE
-        num_batches = (len(master_tickers) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(master_tickers))
-            batch_tickers = master_tickers[start_idx:end_idx]
-            
-            print(f"Downloading batch {batch_idx + 1}/{num_batches} ({len(batch_tickers)} tickers)...")
-            
-            try:
-                # Download this batch
-                batch_data = yf.download(
-                    tickers=batch_tickers,
-                    start=start_date.isoformat(),
-                    end=end_date.isoformat(),
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    group_by="column"
-                )
-                
-                if batch_data is None or len(batch_data) == 0:
-                    # Record failure for all tickers in batch
-                    for ticker in batch_tickers:
-                        per_ticker_failures[ticker] = "Empty response from yfinance"
-                    continue
-                
-                # Extract Adj Close or Close prices
-                if isinstance(batch_data.columns, pd.MultiIndex):
-                    if "Adj Close" in batch_data.columns.get_level_values(0):
-                        batch_prices = batch_data["Adj Close"]
-                    elif "Close" in batch_data.columns.get_level_values(0):
-                        batch_prices = batch_data["Close"]
-                    else:
-                        batch_prices = batch_data[batch_data.columns.levels[0][0]]
-                else:
-                    batch_prices = batch_data
-                
-                # Handle single ticker case (Series instead of DataFrame)
-                if isinstance(batch_prices, pd.Series):
-                    batch_prices = batch_prices.to_frame()
-                
-                # Merge into all_prices
-                if len(all_prices) == 0:
-                    all_prices = batch_prices.copy()
-                else:
-                    all_prices = pd.concat([all_prices, batch_prices], axis=1)
-                
-                # Check which tickers succeeded and which failed
-                for ticker in batch_tickers:
-                    if ticker not in batch_prices.columns:
-                        per_ticker_failures[ticker] = "Ticker not in downloaded data"
-                    elif batch_prices[ticker].isna().all():
-                        per_ticker_failures[ticker] = "All NaN values"
-                
-            except Exception as e:
-                # Record failure for all tickers in batch
-                error_msg = str(e)
-                print(f"Batch {batch_idx + 1} failed: {error_msg}")
-                for ticker in batch_tickers:
-                    per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
-            
-            # Pause between batches (random to avoid patterns)
-            # Only pause if Safe Mode is OFF (prevents delays during safe mode)
-            if batch_idx < num_batches - 1 and not st.session_state.get("safe_mode_no_fetch", True):
-                pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
-                print(f"Pausing {pause_duration:.2f}s before next batch...")
-                time.sleep(pause_duration)
-        
-        # Fill missing values (forward fill then backward fill)
-        if len(all_prices) > 0:
-            all_prices = all_prices.sort_index().ffill().bfill()
-        
-        print(f"Prefetch complete: {len(all_prices.columns)} tickers downloaded, {len(per_ticker_failures)} failures")
-        
-        return all_prices, per_ticker_failures
-        
-    except Exception as e:
-        print(f"Error in prefetch_prices_for_all_waves: {str(e)}")
-        return pd.DataFrame(), {"error": f"Prefetch exception: {str(e)}"}
-
-
-@st.cache_data(ttl=PRICE_CACHE_TTL)
-def cached_prefetch_prices_for_all_waves(days: int = 365, _force_refresh: bool = False) -> tuple[pd.DataFrame, dict]:
-    """
-    Cached wrapper for prefetch_prices_for_all_waves with configurable TTL.
-    
-    Args:
-        days: Number of days of history to fetch
-        _force_refresh: Force refresh flag (prefixed with _ to exclude from cache key)
-    
-    Returns:
-        Tuple of (price_df, per_ticker_failures)
-    """
-    return prefetch_prices_for_all_waves(days)
 
 
 def get_cse_crypto_universe():
@@ -6888,38 +6694,25 @@ def render_sidebar_info():
                 if "rate_limited_waves" in st.session_state:
                     del st.session_state["rate_limited_waves"]
                 
-                # Force refresh the global price cache
-                if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-                    cache_result = get_global_price_cache(
-                        wave_registry=WAVE_WEIGHTS,
-                        days=365,
-                        ttl_seconds=st.session_state.get("price_cache_ttl_seconds", 7200)
-                    )
-                    
-                    # Update session state
-                    st.session_state.global_price_df = cache_result.get("price_df")
-                    st.session_state.global_price_failures = cache_result.get("failures", {})
-                    st.session_state.global_price_asof = cache_result.get("asof")
-                    st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                    st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                    
-                    # Show results
-                    success_count = cache_result.get("success_count", 0)
-                    failure_count = len(cache_result.get("failures", {}))
-                    
-                    st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
-                    
-                    # Generate and export diagnostics report if there are failures
-                    if failure_count > 0:
-                        try:
-                            from helpers.ticker_diagnostics import get_diagnostics_tracker
-                            tracker = get_diagnostics_tracker()
-                            report_path = tracker.export_to_csv()
-                            st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
-                        except Exception:
-                            pass
-                else:
-                    st.sidebar.warning("⚠️ Data cache system not available")
+                # Force refresh the canonical price cache (PRICE_BOOK)
+                from helpers.price_loader import refresh_price_cache
+                cache_result = refresh_price_cache(active_only=True)
+                
+                # Show results
+                success_count = cache_result.get("tickers_fetched", 0)
+                failure_count = cache_result.get("tickers_failed", 0)
+                
+                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                
+                # Generate and export diagnostics report if there are failures
+                if failure_count > 0:
+                    try:
+                        from helpers.ticker_diagnostics import get_diagnostics_tracker
+                        tracker = get_diagnostics_tracker()
+                        report_path = tracker.export_to_csv()
+                        st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
+                    except Exception:
+                        pass
                 
                 # Force reload diagnostics
                 st.cache_data.clear()
@@ -6975,61 +6768,43 @@ def render_sidebar_info():
                     # Force rebuild price cache
                     st.session_state.force_price_cache_rebuild = True
                     
-                    # Rebuild global price cache
-                    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-                        try:
-                            cache_result = get_global_price_cache(
-                                wave_registry=WAVE_WEIGHTS,
-                                days=365,
-                                ttl_seconds=1  # Force immediate rebuild
-                            )
-                            
-                            # Update session state with new cache
-                            st.session_state.global_price_df = cache_result.get("price_df")
-                            st.session_state.global_price_failures = cache_result.get("failures", {})
-                            st.session_state.global_price_asof = cache_result.get("asof")
-                            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                            
-                            # Get summary statistics
-                            waves_total = rebuild_result['waves_written']
-                            success_count = cache_result.get("success_count", 0)
-                            failures = cache_result.get("failures", {})
-                            tickers_failed_count = len(failures)
-                            
-                            # Display summary
-                            st.sidebar.info(f"""
+                    # Rebuild canonical price cache (PRICE_BOOK)
+                    try:
+                        from helpers.price_loader import refresh_price_cache
+                        cache_result = refresh_price_cache(active_only=True)
+                        
+                        # Get summary statistics
+                        waves_total = rebuild_result['waves_written']
+                        success_count = cache_result.get("tickers_fetched", 0)
+                        failures = cache_result.get("failures", {})
+                        tickers_failed_count = cache_result.get("tickers_failed", 0)
+                        
+                        # Display summary
+                        st.sidebar.info(f"""
 **Rebuild Summary:**
 - Total Waves: {waves_total}
 - Waves Loaded: {waves_total}
 - Tickers Success: {success_count}
 - Tickers Failed: {tickers_failed_count}
-                            """)
+                        """)
+                        
+                        # Show failed tickers if any
+                        if tickers_failed_count > 0 and failures:
+                            st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
                             
-                            # Show failed tickers if any
-                            if tickers_failed_count > 0:
-                                st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
-                                
-                                # Build failed ticker table
-                                failed_ticker_data = []
-                                for ticker, error in failures.items():
-                                    # Find which waves use this ticker
-                                    impacted_waves = []
-                                    for wave_name, holdings in WAVE_WEIGHTS.items():
-                                        if any(h.ticker == ticker for h in holdings):
-                                            impacted_waves.append(wave_name)
-                                    
-                                    failed_ticker_data.append({
-                                        'Ticker': ticker,
-                                        'Error': str(error)[:50],  # Truncate long errors
-                                        'Impacted Waves': len(impacted_waves)
-                                    })
-                                
-                                if failed_ticker_data:
-                                    failed_df = pd.DataFrame(failed_ticker_data)
-                                    st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
-                        except Exception as cache_error:
-                            st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
+                            # Build failed ticker table (limited display)
+                            failed_ticker_data = []
+                            for ticker, error in list(failures.items())[:20]:  # Show first 20
+                                failed_ticker_data.append({
+                                    'Ticker': ticker,
+                                    'Error': str(error)[:50],  # Truncate long errors
+                                })
+                            
+                            if failed_ticker_data:
+                                failed_df = pd.DataFrame(failed_ticker_data)
+                                st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
+                    except Exception as cache_error:
+                        st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
                     
                     # Increment version to force reload
                     if "wave_universe_version" not in st.session_state:
@@ -17604,8 +17379,7 @@ def render_diagnostics_tab():
     # Detailed price information in expander (optional)
     with st.expander("📊 Price Cache Information - Click to expand", expanded=False):
         try:
-            from helpers.price_loader import get_cache_info, CACHE_PATH
-            from data_cache import collect_all_required_tickers
+            from helpers.price_loader import get_cache_info, CACHE_PATH, collect_required_tickers
             from waves_engine import get_all_waves_universe
             
             st.markdown("### Price Cache Status")
@@ -17689,12 +17463,7 @@ def render_diagnostics_tab():
                     wave_registry = WAVE_WEIGHTS
                     
                     # Collect required tickers
-                    required_tickers = collect_all_required_tickers(
-                        wave_registry,
-                        include_benchmarks=True,
-                        include_safe_assets=True,
-                        active_only=False
-                    )
+                    required_tickers = collect_required_tickers(active_only=False)
                     
                     # Count tickers
                     cache_ticker_count = cache_info['num_tickers']
