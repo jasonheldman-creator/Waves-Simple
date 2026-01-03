@@ -83,7 +83,8 @@ def test_price_book_centralization():
     
     # Test 7: Canonical cache path
     print("\n7. Testing canonical cache path...")
-    assert CANONICAL_CACHE_PATH == "data/cache/prices_cache.parquet"
+    expected_path = os.path.join("data", "cache", "prices_cache.parquet")
+    assert CANONICAL_CACHE_PATH == expected_path, f"Expected {expected_path}, got {CANONICAL_CACHE_PATH}"
     print(f"   ✓ Canonical path: {CANONICAL_CACHE_PATH}")
     
     print("\n" + "=" * 70)

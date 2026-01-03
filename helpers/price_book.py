@@ -39,6 +39,11 @@ CACHE_DIR = "data/cache"
 CACHE_FILE = "prices_cache.parquet"
 CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
+# System health thresholds
+CRITICAL_MISSING_THRESHOLD = 0.5  # 50% - More than this triggers STALE status
+STALE_DAYS_THRESHOLD = 10  # Days - Data older than this is STALE
+DEGRADED_DAYS_THRESHOLD = 5  # Days - Data older than this is DEGRADED
+
 # Environment variable to control fetching
 # IMPORTANT: Set to False in production/cloud to prevent automatic fetching
 PRICE_FETCH_ENABLED = os.environ.get('PRICE_FETCH_ENABLED', 'false').lower() in ('true', '1', 'yes')
@@ -490,11 +495,11 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         health_status = "STALE"
         health_emoji = "❌"
         details = "PRICE_BOOK is empty - cache needs to be built"
-    elif missing_count > total_required * 0.5:  # More than 50% missing
+    elif missing_count > total_required * CRITICAL_MISSING_THRESHOLD:
         health_status = "STALE"
         health_emoji = "❌"
         details = f"Critical: {missing_count}/{total_required} required tickers missing ({coverage_pct:.1f}% coverage)"
-    elif days_stale > 10:  # More than 10 days old
+    elif days_stale > STALE_DAYS_THRESHOLD:
         health_status = "STALE"
         health_emoji = "❌"
         details = f"Data is {days_stale} days stale - needs refresh"
@@ -502,7 +507,7 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
         health_status = "DEGRADED"
         health_emoji = "⚠️"
         details = f"Missing {missing_count}/{total_required} required tickers ({coverage_pct:.1f}% coverage)"
-    elif days_stale > 5:  # Slightly stale
+    elif days_stale > DEGRADED_DAYS_THRESHOLD:
         health_status = "DEGRADED"
         health_emoji = "⚠️"
         details = f"Data is {days_stale} days old - consider refresh"
