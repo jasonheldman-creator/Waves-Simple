@@ -411,7 +411,13 @@ def get_price_book_diagnostics(price_book: pd.DataFrame) -> Dict[str, Any]:
         - total_tickers: int - Total tickers in cache
         - total_days: int - Total trading days
     """
-    from helpers.price_book import CANONICAL_CACHE_PATH
+    # Import directly to avoid streamlit dependency
+    import os
+    import sys
+    helpers_dir = os.path.dirname(os.path.abspath(__file__))
+    if helpers_dir not in sys.path:
+        sys.path.insert(0, helpers_dir)
+    from price_book import CANONICAL_CACHE_PATH
     
     if price_book is None or price_book.empty:
         return {
