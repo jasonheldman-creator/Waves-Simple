@@ -16844,12 +16844,17 @@ def render_diagnostics_tab():
             st.metric("Required Tickers", readiness['required_tickers'])
             st.metric("Cached Tickers", readiness['num_tickers'])
             
-            # Failed tickers count
-            failed_count = len(readiness.get('missing_tickers', []))
-            if failed_count > 0:
-                st.caption(f"⚠️ **Missing:** {failed_count} tickers")
+            # Missing tickers count
+            missing_count = len(readiness.get('missing_tickers', []))
+            if missing_count > 0:
+                st.caption(f"⚠️ **Missing:** {missing_count} tickers")
             else:
                 st.caption("✅ **Missing:** 0 tickers")
+            
+            # Extra tickers count (informational only)
+            extra_count = len(readiness.get('extra_tickers', []))
+            if extra_count > 0:
+                st.caption(f"ℹ️ **Extra:** {extra_count} tickers (harmless)")
         
         # Show detailed info in expander
         with st.expander("📊 Detailed Cache Information", expanded=False):
@@ -16877,6 +16882,12 @@ def render_diagnostics_tab():
                 
                 st.text(f"Required Tickers: {readiness['required_tickers']}")
                 st.text(f"Missing Tickers: {len(readiness.get('missing_tickers', []))}")
+                st.text(f"Extra Tickers: {len(readiness.get('extra_tickers', []))}")
+                
+                # Show failed tickers count if available
+                failed_count = len(readiness.get('failed_tickers', []))
+                if failed_count > 0:
+                    st.text(f"Failed Downloads: {failed_count}")
             
             # Show missing tickers if any
             if readiness.get('missing_tickers'):
@@ -16889,6 +16900,32 @@ def render_diagnostics_tab():
                     
                     with st.expander("View all missing tickers", expanded=False):
                         st.text(", ".join(missing))
+            
+            # Show extra tickers info (informational only - these are harmless)
+            if readiness.get('extra_tickers'):
+                st.markdown("### Extra Tickers (Informational)")
+                st.caption("These tickers are in the cache but not required by active waves. This is harmless.")
+                extra = readiness['extra_tickers']
+                if len(extra) <= 20:
+                    st.text(", ".join(extra))
+                else:
+                    st.text(", ".join(extra[:20]) + f", ... and {len(extra) - 20} more")
+                    
+                    with st.expander("View all extra tickers", expanded=False):
+                        st.text(", ".join(extra))
+            
+            # Show failed tickers if any
+            if readiness.get('failed_tickers'):
+                st.markdown("### Failed Tickers")
+                st.caption("These required tickers failed to download. Check failed_tickers.csv for details.")
+                failed = readiness['failed_tickers']
+                if len(failed) <= 20:
+                    st.text(", ".join(failed))
+                else:
+                    st.text(", ".join(failed[:20]) + f", ... and {len(failed) - 20} more")
+                    
+                    with st.expander("View all failed tickers", expanded=False):
+                        st.text(", ".join(failed))
         
         # Warning if cache is not ready
         if not readiness['ready']:
