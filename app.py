@@ -4936,15 +4936,32 @@ def get_mission_control_data():
                 mc_data['history_unique_count'] = history_waves_unique
                 
                 # NEW: Data-Ready = waves with recent data (full analytics available)
+                # Include SmartSafe cash waves which are always ready even without wave_history entries
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
                 recent_waves = set(recent_data['wave'].unique())
                 canonical_waves_set = set(canonical_waves)
                 data_ready_waves = recent_waves.intersection(canonical_waves_set)
+                
+                # Add SmartSafe cash waves - they are always ready even without price history
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    data_ready_waves = data_ready_waves.union(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    pass  # If SmartSafe constants not available, continue without them
+                
                 mc_data['data_ready_count'] = len(data_ready_waves)
             else:
                 # No wave column in history
                 mc_data['history_unique_count'] = 0
-                mc_data['data_ready_count'] = 0
+                # Count SmartSafe waves as ready even without wave_history
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    canonical_waves_set = set(canonical_waves)
+                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
+                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
+                except (ImportError, AttributeError):
+                    mc_data['data_ready_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
@@ -4956,7 +4973,19 @@ def get_mission_control_data():
                 
                 # Count data-ready waves (with recent data)
                 recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                mc_data['data_ready_count'] = recent_data['wave'].nunique()
+                data_ready_count = recent_data['wave'].nunique()
+                
+                # Add SmartSafe cash waves to count - they are always ready
+                try:
+                    from waves_engine import SMARTSAFE_CASH_WAVES
+                    recent_waves = set(recent_data['wave'].unique())
+                    # Add SmartSafe waves that aren't already in recent_waves
+                    smartsafe_count = len(SMARTSAFE_CASH_WAVES - recent_waves)
+                    data_ready_count += smartsafe_count
+                except (ImportError, AttributeError):
+                    pass
+                
+                mc_data['data_ready_count'] = data_ready_count
         
         # System status based on data age
         if age_days <= 1:

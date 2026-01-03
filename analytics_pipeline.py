@@ -1276,6 +1276,55 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     
     result['checks_passed']['wave_registry'] = True
     
+    # Check 1b: SmartSafe cash waves are always fully ready
+    # These are pure cash/money market instruments that don't require price data
+    try:
+        from waves_engine import is_smartsafe_cash_wave
+        if is_smartsafe_cash_wave(wave_id):
+            result['readiness_status'] = 'full'
+            result['is_ready'] = True
+            result['analytics_ready'] = True
+            result['readiness_reasons'] = ['SmartSafe cash wave: always ready (no price volatility)']
+            result['allowed_analytics'] = {
+                'current_pricing': True,
+                'simple_returns': True,
+                'multi_window_returns': True,
+                'volatility_metrics': True,
+                'correlation_analysis': False,  # No benchmarks needed for cash
+                'alpha_attribution': False,  # No alpha for cash instruments
+                'advanced_analytics': True
+            }
+            result['reason'] = 'READY'
+            result['reason_codes'] = ['READY', 'SMARTSAFE_CASH']
+            result['details'] = 'SmartSafe cash wave: no price data required (constant NAV=1.0, return=0%)'
+            result['checks'] = {
+                'has_weights': True,
+                'has_prices': True,
+                'has_benchmark': False,  # Not applicable for cash
+                'has_nav': True,
+                'is_fresh': True,
+                'has_sufficient_history': True,
+            }
+            result['checks_passed'] = {
+                'wave_registry': True,
+                'has_weights': True,
+                'smartsafe_cash': True
+            }
+            result['missing_tickers'] = []
+            result['missing_benchmark_tickers'] = []
+            result['stale_tickers'] = []
+            result['coverage_pct'] = 100.0
+            result['history_days'] = 365  # Virtual history
+            result['stale_days_max'] = 0
+            result['source_used'] = 'smartsafe'
+            result['informational_issues'] = ['SmartSafe cash wave: alpha and benchmark attribution not applicable']
+            result['suggested_actions'] = []
+            _log_readiness_result(result)
+            return result
+    except (ImportError, AttributeError):
+        # If is_smartsafe_cash_wave is not available, continue with normal checks
+        pass
+    
     # Check 2: Has weights/holdings defined
     tickers = resolve_wave_tickers(wave_id)
     total_tickers = len(tickers) if tickers else 0
