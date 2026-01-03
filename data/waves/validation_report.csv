@@ -1,3 +1,2 @@
 wave_id,display_name,status,prices_ok,benchmark_ok,positions_ok,trades_ok,nav_ok,issue_count
-us_megacap_core_wave,US MegaCap Core Wave,pass,True,True,True,True,True,0
-crypto_broad_growth_wave,Crypto Broad Growth Wave,pass,True,True,True,True,True,0
+gold_wave,Gold Wave,pass,True,True,True,True,True,1
