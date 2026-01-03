@@ -6809,6 +6809,59 @@ def render_sidebar_info():
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
     # ========================================================================
+    # NEW: Refresh Prices Cache Button (Explicit Price Data Fetch)
+    # ========================================================================
+    if st.sidebar.button(
+        "💰 Refresh Prices Cache",
+        key="refresh_prices_cache_button",
+        use_container_width=True,
+        help="Fetch latest prices for all required tickers and update the canonical cache"
+    ):
+        try:
+            # Show progress indicator
+            with st.spinner("Refreshing price cache... This may take a few minutes."):
+                # Import the refresh function
+                from helpers.price_loader import refresh_price_cache, check_cache_readiness
+                
+                # Call refresh
+                result = refresh_price_cache(active_only=True)
+                
+                # Show results
+                if result['success']:
+                    st.sidebar.success(
+                        f"✅ Price cache refreshed!\n\n"
+                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                    )
+                    
+                    if result['tickers_failed'] > 0:
+                        st.sidebar.warning(
+                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                            f"See data/cache/failed_tickers.csv for details"
+                        )
+                else:
+                    st.sidebar.error("❌ Failed to refresh price cache")
+                
+                # Check readiness after refresh
+                readiness = check_cache_readiness(active_only=True)
+                if readiness['ready']:
+                    st.sidebar.success(f"✅ Cache is READY: {readiness['status']}")
+                else:
+                    st.sidebar.warning(f"⚠️ Cache status: {readiness['status']}")
+                
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
+                # Clear Streamlit caches to reflect new data
+                st.cache_data.clear()
+                
+                # Trigger rerun
+                trigger_rerun("refresh_prices_cache")
+        except Exception as e:
+            st.sidebar.error(f"Error refreshing cache: {str(e)}")
+            import traceback
+            st.sidebar.code(traceback.format_exc())
+    
+    # ========================================================================
     # NEW: Force Build Data for All Waves Button (Enhanced with Diagnostics)
     # ========================================================================
     if st.sidebar.button(
@@ -16740,6 +16793,122 @@ def render_diagnostics_tab():
         auto_refresh = st.session_state.get("auto_refresh_enabled", False)
         refresh_status = "🟢 On" if auto_refresh else "🔴 Off"
         st.metric("Auto-Refresh", refresh_status)
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1.5: PRICE SOURCE STAMP (ALWAYS VISIBLE)
+    # ========================================================================
+    st.subheader("💰 PRICE SOURCE STAMP")
+    st.caption("Canonical price cache information - single source of truth for all price data")
+    
+    try:
+        from helpers.price_loader import get_cache_info, check_cache_readiness, collect_required_tickers
+        
+        # Get cache info
+        cache_info = get_cache_info()
+        
+        # Get readiness check
+        readiness = check_cache_readiness(active_only=True)
+        
+        # Display in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Use status_code for display
+            status_code = readiness.get('status_code', 'UNKNOWN')
+            
+            st.metric(
+                "Cache Status",
+                status_code,
+                delta=None,
+                help=readiness['status']
+            )
+            
+            # Cache path
+            st.caption(f"**Path:** `{cache_info['path']}`")
+            
+        with col2:
+            # Dataframe shape
+            shape_str = f"{readiness['num_days']} × {readiness['num_tickers']}"
+            st.metric("Cache Shape (rows × cols)", shape_str)
+            
+            # Max date
+            if readiness['max_date']:
+                st.caption(f"**Max Date:** {readiness['max_date']}")
+            else:
+                st.caption("**Max Date:** N/A")
+        
+        with col3:
+            # Ticker counts
+            st.metric("Required Tickers", readiness['required_tickers'])
+            st.metric("Cached Tickers", readiness['num_tickers'])
+            
+            # Failed tickers count
+            failed_count = len(readiness.get('missing_tickers', []))
+            if failed_count > 0:
+                st.caption(f"⚠️ **Missing:** {failed_count} tickers")
+            else:
+                st.caption("✅ **Missing:** 0 tickers")
+        
+        # Show detailed info in expander
+        with st.expander("📊 Detailed Cache Information", expanded=False):
+            st.markdown("### Cache Details")
+            
+            detail_col1, detail_col2 = st.columns(2)
+            
+            with detail_col1:
+                st.markdown("**Cache File:**")
+                st.text(f"Exists: {'Yes' if cache_info['exists'] else 'No'}")
+                st.text(f"Size: {cache_info['size_mb']:.2f} MB")
+                st.text(f"Rows: {readiness['num_days']} trading days")
+                st.text(f"Columns: {readiness['num_tickers']} tickers")
+                
+                if cache_info['date_range'][0] and cache_info['date_range'][1]:
+                    st.text(f"Date Range: {cache_info['date_range'][0]} to {cache_info['date_range'][1]}")
+            
+            with detail_col2:
+                st.markdown("**Readiness:**")
+                st.text(f"Status: {readiness['status']}")
+                st.text(f"Ready: {'Yes' if readiness['ready'] else 'No'}")
+                
+                if readiness['days_stale'] is not None:
+                    st.text(f"Days Stale: {readiness['days_stale']}")
+                
+                st.text(f"Required Tickers: {readiness['required_tickers']}")
+                st.text(f"Missing Tickers: {len(readiness.get('missing_tickers', []))}")
+            
+            # Show missing tickers if any
+            if readiness.get('missing_tickers'):
+                st.markdown("### Missing Tickers")
+                missing = readiness['missing_tickers']
+                if len(missing) <= 20:
+                    st.text(", ".join(missing))
+                else:
+                    st.text(", ".join(missing[:20]) + f", ... and {len(missing) - 20} more")
+                    
+                    with st.expander("View all missing tickers", expanded=False):
+                        st.text(", ".join(missing))
+        
+        # Warning if cache is not ready
+        if not readiness['ready']:
+            if not readiness['exists']:
+                st.warning(
+                    "⚠️ **Cache file is missing!** Click '💰 Refresh Prices Cache' in the sidebar to build the cache.",
+                    icon="⚠️"
+                )
+            else:
+                st.warning(
+                    f"⚠️ **Cache is not ready:** {readiness['status']}\n\n"
+                    "Click '💰 Refresh Prices Cache' in the sidebar to update.",
+                    icon="⚠️"
+                )
+        
+    except Exception as e:
+        st.error(f"Error loading price cache information: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
     
     st.markdown("---")
     
