@@ -61,6 +61,170 @@ CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 FAILED_TICKERS_FILE = "failed_tickers.csv"
 FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 
+# ============================================================================
+# PRICE_BOOK: Single Authoritative Price Source
+# ============================================================================
+# This is the single source of truth for all price data in the system.
+# All components MUST read from this object to ensure consistency.
+# 
+# Rules:
+# 1. PRICE_BOOK is loaded ONCE per session from the canonical cache
+# 2. All execution logic reads from PRICE_BOOK
+# 3. All diagnostics read from PRICE_BOOK
+# 4. NO component may fetch prices independently
+# 5. Cache updates invalidate PRICE_BOOK, forcing reload
+# ============================================================================
+
+class PriceBook:
+    """
+    Singleton container for the authoritative price dataset.
+    
+    This class ensures all system components use the exact same price data,
+    eliminating inconsistencies between execution and diagnostics.
+    """
+    
+    _instance = None
+    _prices_df: Optional[pd.DataFrame] = None
+    _loaded_at: Optional[datetime] = None
+    _cache_info: Optional[Dict[str, Any]] = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(PriceBook, cls).__new__(cls)
+        return cls._instance
+    
+    def load(self, force_reload: bool = False) -> pd.DataFrame:
+        """
+        Load prices from canonical cache into PRICE_BOOK.
+        
+        Args:
+            force_reload: If True, reload from cache even if already loaded
+            
+        Returns:
+            DataFrame with prices (same reference stored in PRICE_BOOK)
+        """
+        if self._prices_df is not None and not force_reload:
+            logger.info("PRICE_BOOK: Using existing loaded prices")
+            return self._prices_df
+        
+        logger.info("=" * 70)
+        logger.info("PRICE_BOOK: Loading canonical price data")
+        logger.info("=" * 70)
+        
+        # Load from canonical cache
+        cache_df = load_cache()
+        
+        if cache_df is None or cache_df.empty:
+            logger.warning("PRICE_BOOK: Cache is empty or does not exist")
+            self._prices_df = pd.DataFrame()
+        else:
+            self._prices_df = cache_df.copy()
+            logger.info(f"PRICE_BOOK: Loaded {len(self._prices_df)} days, {len(self._prices_df.columns)} tickers")
+        
+        self._loaded_at = datetime.utcnow()
+        self._cache_info = get_cache_info()
+        
+        logger.info("=" * 70)
+        
+        return self._prices_df
+    
+    def get_prices(
+        self, 
+        tickers: Optional[List[str]] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Get prices from PRICE_BOOK with optional filtering.
+        
+        Args:
+            tickers: List of ticker symbols to filter (None = all tickers)
+            start: Start date for filtering (YYYY-MM-DD)
+            end: End date for filtering (YYYY-MM-DD)
+            
+        Returns:
+            Filtered DataFrame from PRICE_BOOK
+        """
+        # Ensure prices are loaded
+        if self._prices_df is None:
+            self.load()
+        
+        if self._prices_df is None or self._prices_df.empty:
+            # Return empty DataFrame with requested tickers as columns
+            result = pd.DataFrame()
+            if tickers:
+                result = pd.DataFrame(columns=deduplicate_tickers(tickers))
+            result.index.name = 'Date'
+            return result
+        
+        # Start with full dataset
+        result = self._prices_df.copy()
+        
+        # Apply date filtering
+        if start is not None:
+            start_date = pd.to_datetime(start)
+            result = result[result.index >= start_date]
+        
+        if end is not None:
+            end_date = pd.to_datetime(end)
+            result = result[result.index <= end_date]
+        
+        # Apply ticker filtering
+        if tickers:
+            tickers = deduplicate_tickers(tickers)
+            
+            # Add NaN columns for requested tickers not in PRICE_BOOK
+            for ticker in tickers:
+                if ticker not in result.columns:
+                    result[ticker] = np.nan
+            
+            # Keep only requested tickers
+            result = result[tickers]
+        
+        return result
+    
+    def is_loaded(self) -> bool:
+        """Check if PRICE_BOOK has been loaded."""
+        return self._prices_df is not None
+    
+    def get_info(self) -> Dict[str, Any]:
+        """
+        Get information about PRICE_BOOK.
+        
+        Returns:
+            Dictionary with metadata about loaded prices
+        """
+        info = {
+            'loaded': self.is_loaded(),
+            'loaded_at': self._loaded_at.isoformat() if self._loaded_at else None,
+            'num_tickers': len(self._prices_df.columns) if self._prices_df is not None else 0,
+            'num_days': len(self._prices_df) if self._prices_df is not None else 0,
+            'cache_info': self._cache_info or {}
+        }
+        
+        if self._prices_df is not None and not self._prices_df.empty:
+            info['date_range'] = (
+                self._prices_df.index[0].strftime('%Y-%m-%d'),
+                self._prices_df.index[-1].strftime('%Y-%m-%d')
+            )
+        
+        return info
+    
+    def invalidate(self) -> None:
+        """
+        Invalidate PRICE_BOOK, forcing reload on next access.
+        
+        Call this after cache updates to ensure fresh data.
+        """
+        logger.info("PRICE_BOOK: Invalidated - will reload on next access")
+        self._prices_df = None
+        self._loaded_at = None
+        self._cache_info = None
+
+
+# Global PRICE_BOOK instance
+PRICE_BOOK = PriceBook()
+
 # Cache configuration
 DEFAULT_CACHE_YEARS = 5  # Keep last 5 years of data
 MAX_FORWARD_FILL_DAYS = 3  # Maximum gap to forward-fill (CHANGED from 5 to 3)
@@ -614,15 +778,19 @@ def get_canonical_prices(
     end: Optional[str] = None
 ) -> pd.DataFrame:
     """
-    Load price data from the canonical cache ONLY. Never fetches from network.
+    Load price data from PRICE_BOOK - the single authoritative source.
     
-    This is the single source of truth for price data in the system.
-    - Loads ONLY from data/cache/prices_cache.parquet
-    - Never performs downloads under any circumstances
-    - Returns what is available in cache or NaN for missing tickers
+    This function accesses the PRICE_BOOK singleton, which contains the
+    canonical price dataset loaded from data/cache/prices_cache.parquet.
+    
+    IMPORTANT:
+    - Never fetches from network
+    - All components must use this function for consistency
+    - Returns what is available in PRICE_BOOK or NaN for missing tickers
+    - Diagnostics and execution use the SAME dataset
     
     Args:
-        tickers: List of ticker symbols (optional - if None, returns all cached tickers)
+        tickers: List of ticker symbols (optional - if None, returns all tickers)
         start: Start date (YYYY-MM-DD) or None for all available dates
         end: End date (YYYY-MM-DD) or None for all available dates
         
@@ -634,49 +802,16 @@ def get_canonical_prices(
     
     Example:
         >>> prices = get_canonical_prices(['AAPL', 'MSFT'])
-        >>> prices = get_canonical_prices()  # Get all cached tickers
+        >>> prices = get_canonical_prices()  # Get all tickers in PRICE_BOOK
     """
     logger.info("=" * 70)
-    logger.info("CANONICAL PRICE GETTER: Loading from cache only")
+    logger.info("CANONICAL PRICE GETTER: Accessing PRICE_BOOK")
     logger.info("=" * 70)
     
-    # Load cache
-    cache_df = load_cache()
+    # Access PRICE_BOOK singleton
+    result = PRICE_BOOK.get_prices(tickers=tickers, start=start, end=end)
     
-    if cache_df is None or cache_df.empty:
-        logger.warning("Cache is empty or does not exist")
-        # Return empty DataFrame
-        result = pd.DataFrame()
-        if tickers:
-            result = pd.DataFrame(columns=deduplicate_tickers(tickers))
-        result.index.name = 'Date'
-        return result
-    
-    # Parse date range if provided
-    if start is not None:
-        start_date = pd.to_datetime(start)
-        cache_df = cache_df[cache_df.index >= start_date]
-    
-    if end is not None:
-        end_date = pd.to_datetime(end)
-        cache_df = cache_df[cache_df.index <= end_date]
-    
-    # If tickers specified, filter to those tickers
-    if tickers:
-        tickers = deduplicate_tickers(tickers)
-        result = cache_df.copy()
-        
-        # Add NaN columns for requested tickers not in cache
-        for ticker in tickers:
-            if ticker not in result.columns:
-                result[ticker] = np.nan
-        
-        # Keep only requested tickers
-        result = result[tickers]
-    else:
-        result = cache_df
-    
-    logger.info(f"Loaded from cache: {len(result)} days, {len(result.columns)} tickers")
+    logger.info(f"Returned from PRICE_BOOK: {len(result)} days, {len(result.columns)} tickers")
     logger.info("=" * 70)
     
     return result
@@ -689,17 +824,19 @@ def load_or_fetch_prices(
     force_fetch: bool = False
 ) -> pd.DataFrame:
     """
-    Load price data from cache (with optional explicit fetch).
+    Load price data from PRICE_BOOK (with optional explicit fetch).
     
     IMPORTANT: This function NO LONGER automatically fetches missing data.
-    - By default, loads ONLY from cache (same as get_canonical_prices)
+    - By default, loads ONLY from PRICE_BOOK (same as get_canonical_prices)
     - Only fetches if force_fetch=True is explicitly set
     - Network fetching should ONLY occur via:
       1. User clicking "Refresh Prices Cache" button
       2. Explicit FORCE_CACHE_REFRESH=1 environment variable
     
-    This is a compatibility wrapper around get_canonical_prices() that allows
-    explicit fetching when needed.
+    When force_fetch=True:
+    - Updates the canonical cache file
+    - Invalidates PRICE_BOOK, forcing reload
+    - Ensures all subsequent reads see the updated data
     
     Args:
         tickers: List of ticker symbols (may contain duplicates)
@@ -714,7 +851,7 @@ def load_or_fetch_prices(
         - Values: Adjusted close prices (NaN for failed tickers)
     
     Example:
-        >>> prices = load_or_fetch_prices(['AAPL', 'MSFT'])  # Loads from cache only
+        >>> prices = load_or_fetch_prices(['AAPL', 'MSFT'])  # Loads from PRICE_BOOK
         >>> prices = load_or_fetch_prices(['AAPL'], force_fetch=True)  # Explicitly fetches
     """
     logger.info("=" * 70)
@@ -750,8 +887,8 @@ def load_or_fetch_prices(
     should_fetch = force_fetch or FORCE_CACHE_REFRESH
     
     if not should_fetch:
-        # NO IMPLICIT FETCHING - just load from cache
-        logger.info("Implicit fetching disabled - loading from cache only")
+        # NO IMPLICIT FETCHING - just load from PRICE_BOOK
+        logger.info("Implicit fetching disabled - loading from PRICE_BOOK only")
         result = get_canonical_prices(tickers, start=start, end=end)
         
         # Apply limited forward-filling
@@ -829,29 +966,14 @@ def load_or_fetch_prices(
         # Save updated cache
         save_cache(merged)
         cache_df = merged
+        
+        # IMPORTANT: Invalidate PRICE_BOOK so it reloads with fresh data
+        PRICE_BOOK.invalidate()
+        logger.info("PRICE_BOOK invalidated - will reload with fresh cache data")
     
-    # Step 8: Extract requested data from cache
-    if cache_df is None or cache_df.empty:
-        logger.warning("No data available")
-        # Return empty DataFrame with requested tickers as columns (all NaN)
-        result = pd.DataFrame(columns=tickers)
-        result.index.name = 'Date'
-        return result
-    
-    # Filter to requested date range
-    result = cache_df[
-        (cache_df.index >= start_date) & (cache_df.index <= end_date)
-    ].copy()
-    
-    # Ensure all requested tickers are present (add NaN columns for failed tickers)
-    for ticker in tickers:
-        if ticker not in result.columns:
-            result[ticker] = np.nan
-            if ticker not in failures:
-                failures[ticker] = "Not available in cache or fetch failed"
-    
-    # Keep only requested tickers and sort columns
-    result = result[tickers]
+    # Step 8: Extract requested data from PRICE_BOOK
+    # This ensures we return data from the same source as get_canonical_prices
+    result = get_canonical_prices(tickers, start=start, end=end)
     
     # Apply limited forward-filling
     result = apply_forward_fill(result, MAX_FORWARD_FILL_DAYS)
@@ -872,6 +994,9 @@ def refresh_price_cache(active_only: bool = True) -> Dict[str, Any]:
     
     This function should be called explicitly by the user via UI button
     or when FORCE_CACHE_REFRESH environment variable is set.
+    
+    After successful refresh, PRICE_BOOK is invalidated to ensure
+    all subsequent reads get the updated data.
     
     Args:
         active_only: If True, only fetch tickers for active waves (default: True)
@@ -895,6 +1020,11 @@ def refresh_price_cache(active_only: bool = True) -> Dict[str, Any]:
     
     # Fetch prices with force_fetch=True
     prices_df = load_or_fetch_prices(tickers, force_fetch=True)
+    
+    # PRICE_BOOK is already invalidated in load_or_fetch_prices when force_fetch=True
+    # But let's ensure it's invalidated here too for clarity
+    PRICE_BOOK.invalidate()
+    logger.info("PRICE_BOOK invalidated after cache refresh")
     
     # Get cache info
     cache_info = get_cache_info()
@@ -1043,13 +1173,14 @@ def check_cache_readiness(
     active_only: bool = True
 ) -> Dict[str, Any]:
     """
-    Check if the canonical price cache is ready for use.
+    Check if PRICE_BOOK (canonical price cache) is ready for use.
     
     This provides a single source of truth for system readiness diagnostics.
-    All execution logic should use this same cache and readiness determination.
+    All execution logic should use PRICE_BOOK, and this function validates
+    the same data that execution will see.
     
     Readiness criteria:
-    - Cache file exists
+    - Cache file exists and PRICE_BOOK can be loaded
     - Has minimum trading days of data
     - Data is not too stale (within max_stale_days)
     - Contains required tickers for active waves
@@ -1074,7 +1205,10 @@ def check_cache_readiness(
         - status: str - Human-readable status message
         - status_code: str - Status code (READY, MISSING, EMPTY, INSUFFICIENT, STALE, DEGRADED)
     """
-    cache_df = load_cache()
+    # Load PRICE_BOOK (will use existing load if already loaded)
+    prices_df = PRICE_BOOK.get_prices()
+    
+    # Collect required tickers
     required_tickers = collect_required_tickers(active_only=active_only)
     
     result = {
@@ -1098,18 +1232,18 @@ def check_cache_readiness(
         result['missing_tickers'] = required_tickers
         return result
     
-    if cache_df is None or cache_df.empty:
+    if prices_df is None or prices_df.empty:
         result['status'] = 'EMPTY - Cache file is empty'
         result['status_code'] = 'EMPTY'
         result['missing_tickers'] = required_tickers
         return result
     
-    result['num_days'] = len(cache_df)
-    result['num_tickers'] = len(cache_df.columns)
-    result['max_date'] = cache_df.index[-1].strftime('%Y-%m-%d')
+    result['num_days'] = len(prices_df)
+    result['num_tickers'] = len(prices_df.columns)
+    result['max_date'] = prices_df.index[-1].strftime('%Y-%m-%d')
     
     # Calculate staleness
-    days_since_update = (datetime.utcnow() - cache_df.index[-1]).days
+    days_since_update = (datetime.utcnow() - prices_df.index[-1]).days
     result['days_stale'] = days_since_update
     
     # Check minimum trading days
@@ -1124,8 +1258,8 @@ def check_cache_readiness(
         result['status_code'] = 'STALE'
         # Don't return yet - still report missing tickers
     
-    # Check required tickers
-    cached_tickers = set(cache_df.columns)
+    # Check required tickers (using PRICE_BOOK data)
+    cached_tickers = set(prices_df.columns)
     required_set = set(required_tickers)
     
     missing = sorted(list(required_set - cached_tickers))
