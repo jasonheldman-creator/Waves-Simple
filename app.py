@@ -17403,9 +17403,6 @@ def render_diagnostics_tab():
                 st.markdown("### Ticker Count Comparison")
                 
                 try:
-                    # Get wave registry to collect required tickers
-                    wave_universe = get_all_waves_universe()
-                    
                     # Build wave registry dict from waves engine
                     from waves_engine import WAVE_WEIGHTS
                     wave_registry = WAVE_WEIGHTS
