@@ -7131,13 +7131,13 @@ def render_sidebar_info():
             st.sidebar.error(f"Error activating waves: {str(e)}")
     
     # ========================================================================
-    # NEW: Warm Cache Button (Optional - Recommended)
+    # Legacy: Warm Cache Button (Now uses canonical price cache)
     # ========================================================================
     if st.sidebar.button(
         "🔥 Warm Cache",
         key="warm_cache_button",
         use_container_width=True,
-        help="Prefetch and cache price data to ensure fast startup (optional)"
+        help="Prefetch and cache price data to ensure fast startup (uses canonical cache)"
     ):
         # Debug trace marker
         if st.session_state.get("debug_mode", False):
@@ -7145,24 +7145,32 @@ def render_sidebar_info():
         
         try:
             with st.spinner("Warming cache with price data..."):
-                # Prefetch prices
-                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
+                # Use canonical price cache refresh
+                from helpers.price_loader import refresh_price_cache, check_cache_readiness
                 
-                # Store to session state
-                if len(price_df) > 0:
-                    st.session_state["last_good_prices"] = price_df
-                    st.session_state["last_price_fetch_time"] = datetime.now()
+                result = refresh_price_cache(active_only=True)
+                
+                # Show results
+                if result['success']:
+                    st.sidebar.success(
+                        f"✅ Cache warmed!\n\n"
+                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                    )
                     
-                    # Optional: Save to disk (parquet format for fast loading)
-                    try:
-                        cache_dir = os.path.join(os.path.dirname(__file__), 'data')
-                        os.makedirs(cache_dir, exist_ok=True)
-                        cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
-                        price_df.to_parquet(cache_file)
-                        st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
-                    except Exception as disk_error:
-                        # Disk save failed, but memory cache still works
-                        st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
+                    if result['tickers_failed'] > 0:
+                        st.sidebar.warning(
+                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                            f"See data/cache/failed_tickers.csv for details"
+                        )
+                else:
+                    st.sidebar.error("❌ Failed to warm cache")
+                
+                # Check readiness after refresh
+                readiness = check_cache_readiness(active_only=True)
+                if readiness['ready']:
+                    st.sidebar.success(f"✅ Cache is READY")
+                else:
+                    st.sidebar.warning(f"⚠️ Cache status: {readiness['status_code']}")
                         st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
                     
                     # Show failure summary if any
@@ -16844,12 +16852,17 @@ def render_diagnostics_tab():
             st.metric("Required Tickers", readiness['required_tickers'])
             st.metric("Cached Tickers", readiness['num_tickers'])
             
-            # Failed tickers count
-            failed_count = len(readiness.get('missing_tickers', []))
-            if failed_count > 0:
-                st.caption(f"⚠️ **Missing:** {failed_count} tickers")
+            # Missing tickers count
+            missing_count = len(readiness.get('missing_tickers', []))
+            if missing_count > 0:
+                st.caption(f"⚠️ **Missing:** {missing_count} tickers")
             else:
                 st.caption("✅ **Missing:** 0 tickers")
+            
+            # Extra tickers count (informational only)
+            extra_count = len(readiness.get('extra_tickers', []))
+            if extra_count > 0:
+                st.caption(f"ℹ️ **Extra:** {extra_count} tickers (harmless)")
         
         # Show detailed info in expander
         with st.expander("📊 Detailed Cache Information", expanded=False):
@@ -16877,6 +16890,12 @@ def render_diagnostics_tab():
                 
                 st.text(f"Required Tickers: {readiness['required_tickers']}")
                 st.text(f"Missing Tickers: {len(readiness.get('missing_tickers', []))}")
+                st.text(f"Extra Tickers: {len(readiness.get('extra_tickers', []))}")
+                
+                # Show failed tickers count if available
+                failed_count = len(readiness.get('failed_tickers', []))
+                if failed_count > 0:
+                    st.text(f"Failed Downloads: {failed_count}")
             
             # Show missing tickers if any
             if readiness.get('missing_tickers'):
@@ -16889,6 +16908,32 @@ def render_diagnostics_tab():
                     
                     with st.expander("View all missing tickers", expanded=False):
                         st.text(", ".join(missing))
+            
+            # Show extra tickers info (informational only - these are harmless)
+            if readiness.get('extra_tickers'):
+                st.markdown("### Extra Tickers (Informational)")
+                st.caption("These tickers are in the cache but not required by active waves. This is harmless.")
+                extra = readiness['extra_tickers']
+                if len(extra) <= 20:
+                    st.text(", ".join(extra))
+                else:
+                    st.text(", ".join(extra[:20]) + f", ... and {len(extra) - 20} more")
+                    
+                    with st.expander("View all extra tickers", expanded=False):
+                        st.text(", ".join(extra))
+            
+            # Show failed tickers if any
+            if readiness.get('failed_tickers'):
+                st.markdown("### Failed Tickers")
+                st.caption("These required tickers failed to download. Check failed_tickers.csv for details.")
+                failed = readiness['failed_tickers']
+                if len(failed) <= 20:
+                    st.text(", ".join(failed))
+                else:
+                    st.text(", ".join(failed[:20]) + f", ... and {len(failed) - 20} more")
+                    
+                    with st.expander("View all failed tickers", expanded=False):
+                        st.text(", ".join(failed))
         
         # Warning if cache is not ready
         if not readiness['ready']:
@@ -19262,54 +19307,32 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         pass
     
     # ========================================================================
-    # Global Price Cache Initialization
+    # Global Price Cache Initialization - DISABLED (now using canonical cache)
     # ========================================================================
+    # NOTE: Global price cache initialization has been disabled to prevent
+    # implicit background downloads. All price data now comes from the
+    # canonical cache at data/cache/prices_cache.parquet.
+    # 
+    # Users should explicitly refresh the cache using:
+    # 1. "Refresh Prices Cache" button in sidebar
+    # 2. FORCE_CACHE_REFRESH=1 environment variable
+    #
+    # The canonical cache can be accessed via:
+    #   from helpers.price_loader import get_canonical_prices
+    #   prices = get_canonical_prices(tickers=['AAPL', 'MSFT'])
     
-    # Initialize price cache TTL setting if not present (default: 2 hours)
+    # Initialize price cache TTL setting if not present (kept for backward compatibility)
     if "price_cache_ttl_seconds" not in st.session_state:
         st.session_state.price_cache_ttl_seconds = 7200
     
-    # Initialize force rebuild flag if not present
+    # Initialize force rebuild flag if not present (kept for backward compatibility)
     if "force_price_cache_rebuild" not in st.session_state:
         st.session_state.force_price_cache_rebuild = False
     
-    # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
-    # Use compute lock to prevent duplicate fetches
-    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-        # Check compute lock
-        should_fetch, reason = should_allow_compute("fetch_prices")
-        
-        if should_fetch:
-            try:
-                # Get TTL from session state
-                ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
-                
-                # Prefetch prices once (cached with TTL)
-                cache_result = get_global_price_cache(
-                    wave_registry=WAVE_WEIGHTS,
-                    days=365,
-                    ttl_seconds=ttl_seconds
-                )
-                
-                # Store in session state for use across the app
-                st.session_state.global_price_df = cache_result.get("price_df")
-                st.session_state.global_price_failures = cache_result.get("failures", {})
-                st.session_state.global_price_asof = cache_result.get("asof")
-                st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                
-                # Mark operation as done
-                mark_compute_done("fetch_prices", success=True)
-                
-            except Exception as e:
-                # Log error but don't crash - app can still work without cache
-                print(f"Warning: Failed to prefetch global price cache: {str(e)}")
-                st.session_state.global_price_df = None
-                mark_compute_done("fetch_prices", success=False)
-        else:
-            # Compute lock prevented fetch
-            if st.session_state.get("debug_mode", False):
-                print(f"Price fetch blocked: {reason}")
+    # REMOVED: Automatic price cache prefetching on startup
+    # This was causing implicit background downloads which violated the
+    # single source of truth principle. All price loading now goes through
+    # the canonical cache which only downloads on explicit user request.
     
     # ========================================================================
     # Main Application UI

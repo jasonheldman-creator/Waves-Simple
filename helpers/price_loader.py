@@ -130,13 +130,19 @@ def deduplicate_tickers(tickers: List[str]) -> List[str]:
 
 def collect_required_tickers(active_only: bool = True) -> List[str]:
     """
-    Collect all required tickers for the system.
+    Collect ONLY required tickers for active waves and their benchmarks.
     
     This is a deterministic and scoped function that gathers:
-    - All tickers in wave holdings for active waves
-    - All benchmark tickers for those waves
-    - Safe sleeves tickers (if applicable)
-    - Excludes "universe" tickers (e.g., top 200 crypto) unless explicitly required by a wave
+    - All tickers in wave holdings for active waves ONLY
+    - All benchmark tickers for those active waves ONLY
+    - Essential market indicators (SPY, ^VIX, BTC-USD)
+    - EXCLUDES:
+      * Universe tickers (e.g., top 200 crypto) unless explicitly in an active wave
+      * Optional watchlist tickers
+      * Inactive wave tickers
+      * Unnecessary safe sleeve tickers not actually used by active waves
+    
+    SmartSafe cash waves are properly exempt from price requirements.
     
     Args:
         active_only: If True, only include tickers from active waves (default: True)
@@ -148,7 +154,12 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
     
     try:
         # Import waves_engine to get wave definitions
-        from waves_engine import get_all_wave_ids, WAVE_WEIGHTS, BENCHMARK_WEIGHTS_STATIC
+        from waves_engine import (
+            get_all_wave_ids, 
+            WAVE_WEIGHTS, 
+            BENCHMARK_WEIGHTS_STATIC,
+            is_smartsafe_cash_wave
+        )
         
         # Get all wave IDs
         all_wave_ids = get_all_wave_ids()
@@ -168,9 +179,15 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
                     registry_df[registry_df['active']]['wave_id'].tolist()
                 )
                 all_wave_ids = [wid for wid in all_wave_ids if wid in active_wave_ids]
+                logger.info(f"Filtered to {len(all_wave_ids)} active waves")
         
-        # Collect tickers from wave holdings
+        # Collect tickers from wave holdings (ONLY from active waves)
         for wave_id in all_wave_ids:
+            # Skip SmartSafe cash waves - they don't need price data
+            if is_smartsafe_cash_wave(wave_id):
+                logger.debug(f"Skipping SmartSafe cash wave: {wave_id}")
+                continue
+            
             # Get wave weights (holdings)
             wave_weights = WAVE_WEIGHTS.get(wave_id, [])
             for holding in wave_weights:
@@ -189,18 +206,15 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
                     tickers.add(benchmark['ticker'])
         
         # Add essential market indicators (always included for system health)
-        tickers.update(['SPY', '^VIX', 'BTC-USD'])
+        # These are used across multiple components for diagnostics
+        essential_indicators = ['SPY', '^VIX', 'BTC-USD']
+        tickers.update(essential_indicators)
         
-        # Add common safe sleeve tickers
-        safe_tickers = [
-            'SGOV', 'BIL', 'SHY', 'IEF', 'TLT',
-            'USDC-USD', 'USDT-USD', 'DAI-USD'
-        ]
-        tickers.update(safe_tickers)
+        logger.info(f"Collected {len(tickers)} required tickers from {len(all_wave_ids)} active waves")
         
     except Exception as e:
         logger.error(f"Error collecting required tickers: {e}")
-        # Fallback to a minimal set
+        # Fallback to a minimal set of essential indicators only
         tickers = {'SPY', 'QQQ', '^VIX', 'BTC-USD'}
     
     return deduplicate_tickers(list(tickers))
@@ -594,6 +608,80 @@ def merge_cache_and_new_data(
     return merged
 
 
+def get_canonical_prices(
+    tickers: Optional[List[str]] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Load price data from the canonical cache ONLY. Never fetches from network.
+    
+    This is the single source of truth for price data in the system.
+    - Loads ONLY from data/cache/prices_cache.parquet
+    - Never performs downloads under any circumstances
+    - Returns what is available in cache or NaN for missing tickers
+    
+    Args:
+        tickers: List of ticker symbols (optional - if None, returns all cached tickers)
+        start: Start date (YYYY-MM-DD) or None for all available dates
+        end: End date (YYYY-MM-DD) or None for all available dates
+        
+    Returns:
+        DataFrame with:
+        - Index: Datetime (trading days)
+        - Columns: Ticker symbols
+        - Values: Adjusted close prices (NaN for missing tickers)
+    
+    Example:
+        >>> prices = get_canonical_prices(['AAPL', 'MSFT'])
+        >>> prices = get_canonical_prices()  # Get all cached tickers
+    """
+    logger.info("=" * 70)
+    logger.info("CANONICAL PRICE GETTER: Loading from cache only")
+    logger.info("=" * 70)
+    
+    # Load cache
+    cache_df = load_cache()
+    
+    if cache_df is None or cache_df.empty:
+        logger.warning("Cache is empty or does not exist")
+        # Return empty DataFrame
+        result = pd.DataFrame()
+        if tickers:
+            result = pd.DataFrame(columns=deduplicate_tickers(tickers))
+        result.index.name = 'Date'
+        return result
+    
+    # Parse date range if provided
+    if start is not None:
+        start_date = pd.to_datetime(start)
+        cache_df = cache_df[cache_df.index >= start_date]
+    
+    if end is not None:
+        end_date = pd.to_datetime(end)
+        cache_df = cache_df[cache_df.index <= end_date]
+    
+    # If tickers specified, filter to those tickers
+    if tickers:
+        tickers = deduplicate_tickers(tickers)
+        result = cache_df.copy()
+        
+        # Add NaN columns for requested tickers not in cache
+        for ticker in tickers:
+            if ticker not in result.columns:
+                result[ticker] = np.nan
+        
+        # Keep only requested tickers
+        result = result[tickers]
+    else:
+        result = cache_df
+    
+    logger.info(f"Loaded from cache: {len(result)} days, {len(result.columns)} tickers")
+    logger.info("=" * 70)
+    
+    return result
+
+
 def load_or_fetch_prices(
     tickers: List[str],
     start: Optional[str] = None,
@@ -601,21 +689,23 @@ def load_or_fetch_prices(
     force_fetch: bool = False
 ) -> pd.DataFrame:
     """
-    Load or fetch price data with intelligent caching.
+    Load price data from cache (with optional explicit fetch).
     
-    This is the main entry point for price data. It:
-    1. Deduplicates and normalizes tickers
-    2. Loads existing cache
-    3. Identifies missing/stale data
-    4. Fetches only what's needed (if force_fetch or FORCE_CACHE_REFRESH)
-    5. Updates cache
-    6. Returns requested data
+    IMPORTANT: This function NO LONGER automatically fetches missing data.
+    - By default, loads ONLY from cache (same as get_canonical_prices)
+    - Only fetches if force_fetch=True is explicitly set
+    - Network fetching should ONLY occur via:
+      1. User clicking "Refresh Prices Cache" button
+      2. Explicit FORCE_CACHE_REFRESH=1 environment variable
+    
+    This is a compatibility wrapper around get_canonical_prices() that allows
+    explicit fetching when needed.
     
     Args:
         tickers: List of ticker symbols (may contain duplicates)
         start: Start date (YYYY-MM-DD) or None for auto-calculate
         end: End date (YYYY-MM-DD) or None for today
-        force_fetch: If True, fetch data even if available in cache
+        force_fetch: If True, fetch data even if available in cache (default: False)
         
     Returns:
         DataFrame with:
@@ -624,12 +714,8 @@ def load_or_fetch_prices(
         - Values: Adjusted close prices (NaN for failed tickers)
     
     Example:
-        >>> prices = load_or_fetch_prices(['AAPL', 'MSFT'], start='2024-01-01')
-        >>> print(prices.head())
-                    AAPL   MSFT
-        2024-01-02  185.64  374.58
-        2024-01-03  184.25  373.85
-        ...
+        >>> prices = load_or_fetch_prices(['AAPL', 'MSFT'])  # Loads from cache only
+        >>> prices = load_or_fetch_prices(['AAPL'], force_fetch=True)  # Explicitly fetches
     """
     logger.info("=" * 70)
     logger.info("PRICE LOADER: Starting load_or_fetch_prices")
@@ -659,11 +745,34 @@ def load_or_fetch_prices(
     
     logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
     
-    # Step 3: Load existing cache
+    # Step 3: Check if explicit fetch is requested
+    # ONLY fetch if force_fetch=True OR FORCE_CACHE_REFRESH env var is set
+    should_fetch = force_fetch or FORCE_CACHE_REFRESH
+    
+    if not should_fetch:
+        # NO IMPLICIT FETCHING - just load from cache
+        logger.info("Implicit fetching disabled - loading from cache only")
+        result = get_canonical_prices(tickers, start=start, end=end)
+        
+        # Apply limited forward-filling
+        result = apply_forward_fill(result, MAX_FORWARD_FILL_DAYS)
+        
+        logger.info(f"Returning: {len(result)} days, {len(result.columns)} tickers")
+        logger.info(
+            f"Coverage: {result.notna().any(axis=1).sum()} days with data, "
+            f"{result.isna().all().sum()} tickers fully missing"
+        )
+        logger.info("=" * 70)
+        
+        return result
+    
+    # EXPLICIT FETCH PATH - only when force_fetch=True or FORCE_CACHE_REFRESH=1
+    logger.warning("EXPLICIT FETCH requested - will download missing/stale data")
+    
+    # Step 4: Load existing cache
     cache_df = load_cache()
     
-    # Step 4: Identify missing and stale tickers
-    # Skip this step if force_fetch or FORCE_CACHE_REFRESH is set
+    # Step 5: Identify missing and stale tickers
     to_fetch = []
     if force_fetch or FORCE_CACHE_REFRESH:
         logger.info("Force fetch enabled - will refresh all tickers")
@@ -681,7 +790,7 @@ def load_or_fetch_prices(
         else:
             logger.info("All requested data available in cache")
     
-    # Step 5: Fetch missing/stale data
+    # Step 6: Fetch missing/stale data
     failures = {}
     new_data = pd.DataFrame()
     
@@ -710,7 +819,7 @@ def load_or_fetch_prices(
             if len(failures) > 10:
                 logger.warning(f"  ... and {len(failures) - 10} more")
     
-    # Step 6: Merge cache and new data
+    # Step 7: Merge cache and new data
     if not new_data.empty:
         merged = merge_cache_and_new_data(cache_df, new_data)
         
@@ -721,7 +830,7 @@ def load_or_fetch_prices(
         save_cache(merged)
         cache_df = merged
     
-    # Step 7: Extract requested data from cache
+    # Step 8: Extract requested data from cache
     if cache_df is None or cache_df.empty:
         logger.warning("No data available")
         # Return empty DataFrame with requested tickers as columns (all NaN)
@@ -846,17 +955,22 @@ else:
 
 def get_cache_info() -> Dict[str, Any]:
     """
-    Get information about the current price cache.
+    Get information about the current canonical price cache.
+    
+    This provides metadata about the single source of truth for price data.
     
     Returns:
         Dictionary with cache metadata:
-        - exists: bool
-        - path: str
-        - size_mb: float
-        - num_tickers: int
-        - num_days: int
-        - date_range: tuple of (start, end) dates
-        - tickers: list of ticker symbols
+        - exists: bool - Cache file exists
+        - path: str - Canonical cache file path
+        - size_mb: float - File size in MB
+        - num_tickers: int - Number of tickers in cache
+        - num_days: int - Number of trading days in cache
+        - date_range: tuple - (start_date, end_date) as strings
+        - last_updated: str - Most recent date in cache
+        - tickers: list - All ticker symbols in cache
+        - is_stale: bool - Whether cache is older than MAX_STALE_DAYS
+        - days_stale: int - Days since last update
     """
     info = {
         'exists': os.path.exists(CACHE_PATH),
@@ -865,7 +979,10 @@ def get_cache_info() -> Dict[str, Any]:
         'num_tickers': 0,
         'num_days': 0,
         'date_range': (None, None),
-        'tickers': []
+        'last_updated': None,
+        'tickers': [],
+        'is_stale': False,
+        'days_stale': 0
     }
     
     if not info['exists']:
@@ -881,11 +998,18 @@ def get_cache_info() -> Dict[str, Any]:
         if cache_df is not None and not cache_df.empty:
             info['num_tickers'] = len(cache_df.columns)
             info['num_days'] = len(cache_df)
-            info['date_range'] = (
-                cache_df.index[0].strftime('%Y-%m-%d'),
-                cache_df.index[-1].strftime('%Y-%m-%d')
-            )
+            
+            start_date = cache_df.index[0].strftime('%Y-%m-%d')
+            end_date = cache_df.index[-1].strftime('%Y-%m-%d')
+            
+            info['date_range'] = (start_date, end_date)
+            info['last_updated'] = end_date
             info['tickers'] = sorted(cache_df.columns.tolist())
+            
+            # Calculate staleness
+            days_since_update = (datetime.utcnow() - cache_df.index[-1]).days
+            info['days_stale'] = days_since_update
+            info['is_stale'] = days_since_update > MAX_STALE_DAYS
     
     except Exception as e:
         logger.error(f"Error getting cache info: {e}")
@@ -919,7 +1043,10 @@ def check_cache_readiness(
     active_only: bool = True
 ) -> Dict[str, Any]:
     """
-    Check if the price cache is ready for use.
+    Check if the canonical price cache is ready for use.
+    
+    This provides a single source of truth for system readiness diagnostics.
+    All execution logic should use this same cache and readiness determination.
     
     Readiness criteria:
     - Cache file exists
@@ -940,9 +1067,12 @@ def check_cache_readiness(
         - num_tickers: int - Number of tickers in cache
         - max_date: str - Most recent date in cache
         - days_stale: int - Days since most recent data
-        - required_tickers: int - Number of tickers required
+        - required_tickers: int - Number of tickers required for active waves
         - missing_tickers: List[str] - Required tickers not in cache
-        - status: str - Human-readable status
+        - extra_tickers: List[str] - Tickers in cache but not required (harmless)
+        - failed_tickers: List[str] - Tickers that failed to download (from failed_tickers.csv)
+        - status: str - Human-readable status message
+        - status_code: str - Status code (READY, MISSING, EMPTY, INSUFFICIENT, STALE, DEGRADED)
     """
     cache_df = load_cache()
     required_tickers = collect_required_tickers(active_only=active_only)
@@ -956,6 +1086,8 @@ def check_cache_readiness(
         'days_stale': None,
         'required_tickers': len(required_tickers),
         'missing_tickers': [],
+        'extra_tickers': [],
+        'failed_tickers': [],
         'status': 'Unknown',
         'status_code': 'UNKNOWN'
     }
@@ -963,11 +1095,13 @@ def check_cache_readiness(
     if not result['exists']:
         result['status'] = 'MISSING - Cache file does not exist'
         result['status_code'] = 'MISSING'
+        result['missing_tickers'] = required_tickers
         return result
     
     if cache_df is None or cache_df.empty:
         result['status'] = 'EMPTY - Cache file is empty'
         result['status_code'] = 'EMPTY'
+        result['missing_tickers'] = required_tickers
         return result
     
     result['num_days'] = len(cache_df)
@@ -988,16 +1122,46 @@ def check_cache_readiness(
     if days_since_update > max_stale_days:
         result['status'] = f'STALE - Data is {days_since_update} days old (max {max_stale_days})'
         result['status_code'] = 'STALE'
-        return result
+        # Don't return yet - still report missing tickers
     
     # Check required tickers
-    missing = [t for t in required_tickers if t not in cache_df.columns]
-    result['missing_tickers'] = missing
+    cached_tickers = set(cache_df.columns)
+    required_set = set(required_tickers)
     
+    missing = sorted(list(required_set - cached_tickers))
+    extra = sorted(list(cached_tickers - required_set))
+    
+    result['missing_tickers'] = missing
+    result['extra_tickers'] = extra
+    
+    # Load failed tickers from CSV to provide context
+    if os.path.exists(FAILED_TICKERS_PATH):
+        try:
+            failed_df = pd.read_csv(FAILED_TICKERS_PATH)
+            if not failed_df.empty:
+                # Get unique failed tickers (use ticker_normalized column)
+                if 'ticker_normalized' in failed_df.columns:
+                    failed_tickers = failed_df['ticker_normalized'].unique().tolist()
+                elif 'ticker' in failed_df.columns:
+                    failed_tickers = failed_df['ticker'].unique().tolist()
+                else:
+                    failed_tickers = []
+                
+                # Only include failed tickers that are in the required set
+                result['failed_tickers'] = sorted(list(set(failed_tickers) & required_set))
+        except Exception as e:
+            logger.error(f"Error loading failed tickers: {e}")
+    
+    # Determine final readiness
     if missing:
         result['status'] = f'DEGRADED - Missing {len(missing)} required tickers'
         result['status_code'] = 'DEGRADED'
-        result['ready'] = False  # Still not ready if missing tickers
+        result['ready'] = False
+        return result
+    
+    # If we got here and status was STALE, keep that status but mark as not ready
+    if result['status_code'] == 'STALE':
+        result['ready'] = False
         return result
     
     # All checks passed
