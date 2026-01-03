@@ -11,6 +11,8 @@ on:
 jobs:
   validate-entrypoint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout code
@@ -67,11 +69,9 @@ jobs:
           echo "Checking documentation for minimal_app.py deployment instructions..."
           shopt -s nullglob
           for file in README.md DEPLOYMENT.md *.md; do
-            if [ -f "$file" ]; then
-              if grep -i "streamlit run minimal_app" "$file" 2>/dev/null; then
-                echo "⚠️  WARNING: Found 'streamlit run minimal_app' deployment instruction in $file"
-                # Don't fail on docs, just warn
-              fi
+            if grep -i "streamlit run minimal_app" "$file" 2>/dev/null; then
+              echo "⚠️  WARNING: Found 'streamlit run minimal_app' deployment instruction in $file"
+              # Don't fail on docs, just warn
             fi
           done
           shopt -u nullglob
