@@ -1,26 +1,26 @@
 {
-  "timestamp": "2026-01-03T12:54:18.280551",
+  "timestamp": "2026-01-03T13:00:59.380846",
   "rebuild_summary": {
-    "final_ticker_count": 406,
-    "duplicates_removed": 120,
-    "deduplication_rate": "22.8%",
-    "multi_index_count": 107
+    "final_ticker_count": 897,
+    "duplicates_removed": 178,
+    "deduplication_rate": "16.6%",
+    "multi_index_count": 163
   },
   "index_inclusion": {
     "Russell_3000": {
-      "count": 50,
+      "count": 80,
       "status": "included"
     },
     "Russell_2000": {
-      "count": 50,
+      "count": 299,
       "status": "included"
     },
     "SP_500": {
-      "count": 276,
+      "count": 449,
       "status": "included"
     },
     "NASDAQ_Composite": {
-      "count": 120,
+      "count": 217,
       "status": "included"
     },
     "Dow_Jones": {

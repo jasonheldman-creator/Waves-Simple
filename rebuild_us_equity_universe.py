@@ -32,6 +32,22 @@ from typing import List, Dict, Set, Tuple
 from collections import defaultdict
 import re
 
+# Import comprehensive ticker database
+try:
+    from us_equity_tickers_comprehensive import (
+        SP500_TICKERS,
+        RUSSELL_3000_ADDITIONS,
+        RUSSELL_2000_REPRESENTATIVE,
+        NASDAQ_COMPOSITE_TICKERS,
+        DOW_JONES_TICKERS,
+        get_all_tickers as get_comprehensive_tickers,
+        get_ticker_index_mapping as get_comprehensive_mapping
+    )
+    HAS_COMPREHENSIVE_DB = True
+except ImportError:
+    HAS_COMPREHENSIVE_DB = False
+    print("Warning: Comprehensive ticker database not available")
+
 # Configuration
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_CSV = os.path.join(REPO_ROOT, "universal_universe.csv")
@@ -177,6 +193,12 @@ def fetch_sp500_constituents() -> List[str]:
         List of ticker symbols
     """
     print("Fetching S&P 500 constituents...")
+    
+    # Use comprehensive database if available
+    if HAS_COMPREHENSIVE_DB:
+        print(f"✓ Using comprehensive database: {len(SP500_TICKERS)} S&P 500 tickers")
+        return list(SP500_TICKERS)
+    
     try:
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         tables = pd.read_html(url)
@@ -240,6 +262,12 @@ def fetch_russell_3000_constituents() -> List[str]:
         List of ticker symbols
     """
     print("Fetching Russell 3000 constituents...")
+    
+    # Use comprehensive database if available
+    if HAS_COMPREHENSIVE_DB:
+        print(f"✓ Using comprehensive database: {len(RUSSELL_3000_ADDITIONS)} Russell 3000 additions")
+        return list(RUSSELL_3000_ADDITIONS)
+    
     print("⚠ Note: Russell 3000 data not freely available via API")
     print("   Using static representative list of mid/small caps")
     
@@ -282,6 +310,12 @@ def fetch_russell_2000_constituents() -> List[str]:
         List of ticker symbols
     """
     print("Fetching Russell 2000 constituents...")
+    
+    # Use comprehensive database if available
+    if HAS_COMPREHENSIVE_DB:
+        print(f"✓ Using comprehensive database: {len(RUSSELL_2000_REPRESENTATIVE)} Russell 2000 tickers")
+        return list(RUSSELL_2000_REPRESENTATIVE)
+    
     print("⚠ Note: Russell 2000 data not freely available via API")
     print("   Using static representative list")
     
@@ -352,6 +386,12 @@ def fetch_nasdaq_composite_constituents() -> List[str]:
         List of ticker symbols
     """
     print("Fetching NASDAQ Composite constituents...")
+    
+    # Use comprehensive database if available
+    if HAS_COMPREHENSIVE_DB:
+        print(f"✓ Using comprehensive database: {len(NASDAQ_COMPOSITE_TICKERS)} NASDAQ Composite tickers")
+        return list(NASDAQ_COMPOSITE_TICKERS)
+    
     try:
         # Try to fetch from NASDAQ screener
         url = "https://api.nasdaq.com/api/screener/stocks"
@@ -436,6 +476,12 @@ def fetch_dow_jones_constituents() -> List[str]:
         List of ticker symbols
     """
     print("Fetching Dow Jones Industrial Average constituents...")
+    
+    # Use comprehensive database if available
+    if HAS_COMPREHENSIVE_DB:
+        print(f"✓ Using comprehensive database: {len(DOW_JONES_TICKERS)} Dow Jones tickers")
+        return list(DOW_JONES_TICKERS)
+    
     try:
         url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
         tables = pd.read_html(url)
