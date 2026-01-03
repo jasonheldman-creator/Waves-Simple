@@ -23,16 +23,16 @@ jobs:
           # Define patterns that would indicate minimal_app.py is being used as entrypoint
           FAILED=0
           
-          # Check workflow files for streamlit run minimal_app.py
+          # Check workflow files for streamlit run minimal_app.py (excluding this file)
           echo "Checking workflow files for 'streamlit run minimal_app.py'..."
-          if grep -r "streamlit run minimal_app\.py" .github/workflows/ 2>/dev/null; then
+          if grep -r "streamlit run minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml:"; then
             echo "❌ FAILURE: Found 'streamlit run minimal_app.py' in workflow files"
             FAILED=1
           fi
           
-          # Check workflow files for minimal_app.py references
+          # Check workflow files for minimal_app.py references (excluding this file)
           echo "Checking workflow files for minimal_app.py references..."
-          if grep -r "minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml"; then
+          if grep -r "minimal_app\.py" .github/workflows/ 2>/dev/null | grep -v "entrypoint-guard.yml:"; then
             echo "❌ FAILURE: Found minimal_app.py references in workflow files"
             FAILED=1
           fi
