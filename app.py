@@ -18509,185 +18509,180 @@ def render_overview_clean_tab():
         st.divider()
         
         # ========================================================================
-        # WAVE DATA READINESS DIAGNOSTICS
+        # WAVE DATA READINESS DIAGNOSTICS (PRICE_BOOK-based)
         # ========================================================================
         st.subheader("Wave Data Readiness Diagnostics")
+        st.caption("**Live evaluation against PRICE_BOOK** - Real-time ticker coverage and data quality assessment")
         
-        # Try to reuse an in-memory DF if it exists
-        coverage_df = None
-        for name in ["data_coverage_summary_df", "data_coverage_summary", "coverage_df", "coverage_summary_df"]:
-            if name in locals() and isinstance(locals()[name], pd.DataFrame) and len(locals()[name]) > 0:
-                coverage_df = locals()[name].copy()
-                break
-        
-        # If not found in memory, try to load from disk
-        if coverage_df is None:
-            candidate_paths = [
-                "data_coverage_summary.csv",
-                os.path.join("data", "data_coverage_summary.csv"),
-                os.path.join("outputs", "data_coverage_summary.csv"),
-                os.path.join("WAVES_Intelligence_Live", "data_coverage_summary.csv"),
-            ]
-            found_path = None
-            for p in candidate_paths:
-                if os.path.exists(p):
-                    found_path = p
-                    break
-        
-            if found_path:
-                coverage_df = pd.read_csv(found_path)
-                st.caption(f"Loaded: {found_path}")
-            else:
-                st.warning(
-                    "Could not find data_coverage_summary.csv (and no in-memory coverage DF was found). "
-                    "Please verify the file is being generated and saved to the app's working/data directory."
+        try:
+            from helpers.price_book import get_price_book
+            from helpers.wave_performance import (
+                compute_all_waves_readiness, 
+                get_price_book_diagnostics,
+                compute_all_waves_performance
+            )
+            
+            # Load PRICE_BOOK
+            price_book = get_price_book()
+            
+            # ====================================================================
+            # PRICE_BOOK TRUTH DIAGNOSTICS PANEL
+            # ====================================================================
+            st.markdown("#### 📊 PRICE_BOOK Truth Diagnostics")
+            
+            # Get PRICE_BOOK metadata
+            pb_diag = get_price_book_diagnostics(price_book)
+            
+            # Display PRICE_BOOK metadata in columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Cache File", "prices_cache.parquet")
+                st.caption(f"Path: {pb_diag['path']}")
+            
+            with col2:
+                st.metric("Shape (Days × Tickers)", f"{pb_diag['shape'][0]} × {pb_diag['shape'][1]}")
+                st.caption(f"Total: {pb_diag['total_days']} days, {pb_diag['total_tickers']} tickers")
+            
+            with col3:
+                st.metric("Date Range", f"{pb_diag['date_min']} to {pb_diag['date_max']}")
+                # Calculate days stale
+                if pb_diag['date_max'] != 'N/A':
+                    from datetime import datetime
+                    latest_date = datetime.strptime(pb_diag['date_max'], '%Y-%m-%d')
+                    days_stale = (datetime.now() - latest_date).days
+                    st.caption(f"Data is {days_stale} days old")
+                else:
+                    st.caption("No data available")
+            
+            with col4:
+                # Count active waves and waves with data
+                try:
+                    from waves_engine import get_all_waves_universe
+                    universe = get_all_waves_universe()
+                    total_waves = len(universe.get('waves', []))
+                    
+                    # Compute performance to see which waves have data
+                    perf_df = compute_all_waves_performance(price_book, periods=[1])
+                    waves_with_data = len(perf_df[perf_df['Status/Confidence'] != 'Unavailable'])
+                    
+                    st.metric("Waves Status", f"{waves_with_data}/{total_waves} returning data")
+                    st.caption(f"{total_waves - waves_with_data} waves with issues")
+                except Exception as e:
+                    st.metric("Waves Status", "Error")
+                    st.caption(str(e))
+            
+            # Show failing waves summary
+            try:
+                perf_df = compute_all_waves_performance(price_book, periods=[1])
+                failed_waves = perf_df[perf_df['Failure_Reason'].notna()]
+                
+                if not failed_waves.empty:
+                    st.markdown(f"**⚠️ {len(failed_waves)} waves with N/A data:**")
+                    
+                    # Group by failure reason
+                    failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
+                    
+                    for reason, waves in failure_groups.items():
+                        with st.expander(f"❌ {reason} ({len(waves)} waves)", expanded=False):
+                            st.write(", ".join(waves))
+                else:
+                    st.success("✅ All waves returning data successfully")
+                    
+            except Exception as e:
+                st.warning(f"Unable to compute wave status: {str(e)}")
+            
+            st.divider()
+            
+            # ====================================================================
+            # WAVE READINESS TABLE
+            # ====================================================================
+            st.markdown("#### 📋 Wave-by-Wave Readiness Assessment")
+            
+            # Compute readiness for all waves
+            readiness_df = compute_all_waves_readiness(price_book)
+            
+            if not readiness_df.empty:
+                # Add checkbox to filter
+                show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
+                
+                view_df = readiness_df.copy()
+                if show_only_bad:
+                    view_df = view_df[~view_df["data_ready"]]
+                
+                # Sort: failing first, then lowest coverage
+                view_df = view_df.sort_values(
+                    by=["data_ready", "coverage_pct", "history_days"],
+                    ascending=[True, True, True]
                 )
-        
-        # Render table if we have it
-        if coverage_df is not None and len(coverage_df) > 0:
-            # Normalize expected columns
-            expected_cols = [
-                "wave_id", "display_name", "coverage_pct", "history_days", "stale_days_max",
-                "missing_tickers", "stale_tickers"
-            ]
-            for c in expected_cols:
-                if c not in coverage_df.columns:
-                    coverage_df[c] = ""
-        
-            # Derive data_ready + reason
-            coverage_df["data_ready"] = (coverage_df["coverage_pct"].fillna(0).astype(float) >= 99.0) & (
-                coverage_df["history_days"].fillna(0).astype(int) > 0
-            )
-        
-            def _reason(row):
-                if row["data_ready"]:
-                    return "OK"
-                missing = row.get("missing_tickers", "")
-                stale = row.get("stale_tickers", "")
-                hist = row.get("history_days", 0)
-                cov = row.get("coverage_pct", 0)
                 
-                # Handle NaN values properly
-                if pd.isna(missing):
-                    missing = ""
-                else:
-                    missing = str(missing).strip()
+                # Display readiness table
+                st.dataframe(
+                    view_df[["wave_name", "data_ready", "reason", "coverage_pct", 
+                            "history_days", "total_tickers", "missing_tickers"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
                 
-                if pd.isna(stale):
-                    stale = ""
-                else:
-                    stale = str(stale).strip()
+                # Summary metrics
+                ready_count = readiness_df['data_ready'].sum()
+                total_count = len(readiness_df)
+                st.caption(f"**Summary:** {ready_count}/{total_count} waves are data-ready "
+                          f"({ready_count/total_count*100:.1f}% readiness)")
+            else:
+                st.warning("Unable to compute wave readiness - PRICE_BOOK may be empty")
                 
-                if pd.isna(hist):
-                    hist = 0
-                else:
-                    hist = int(hist)
-                
-                if pd.isna(cov):
-                    cov = 0
-                else:
-                    cov = float(cov)
-                
-                if cov == 0 or hist == 0:
-                    return "No usable price history / coverage=0 (likely missing tickers or source mismatch)"
-                if missing:
-                    return "Missing tickers in universe/holdings mapping"
-                if stale:
-                    return "Stale tickers (data not refreshing / stale feed)"
-                return "Failed readiness threshold (coverage or history requirement)"
-        
-            coverage_df["reason"] = coverage_df.apply(_reason, axis=1)
-        
-            show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
-            view_df = coverage_df.copy()
-            if show_only_bad:
-                view_df = view_df[~view_df["data_ready"]]
-        
-            # Sort: failing first, then lowest coverage
-            view_df = view_df.sort_values(
-                by=["data_ready", "coverage_pct", "history_days"],
-                ascending=[True, True, True]
-            )
-        
-            st.dataframe(
-                view_df[["wave_id", "display_name", "data_ready", "reason",
-                         "coverage_pct", "history_days", "stale_days_max",
-                         "missing_tickers", "stale_tickers"]],
-                use_container_width=True
-            )
+        except Exception as e:
+            st.error(f"Error computing wave readiness: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
         
         st.divider()
         
         # ========================================================================
-        # 28 WAVES PERFORMANCE TABLE
+        # 28 WAVES PERFORMANCE TABLE (PRICE_BOOK-based)
         # ========================================================================
         st.markdown("### 📋 28 Waves Performance Overview")
-        st.caption(f"Data Source: {data_source if data_source else 'No data available - showing placeholders'}")
+        st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
         
-        # Build display table with all 28 waves
-        table_data = []
-        
-        for wave_name in all_waves:
-            row_data = {
-                'Wave': wave_name,
-                '1D Return': 'N/A',
-                '30D': 'N/A',
-                '60D': 'N/A',
-                '365D': 'N/A',
-                '1D Alpha': 'N/A',
-                '30D Alpha': 'N/A',
-                '60D Alpha': 'N/A',
-                '365D Alpha': 'N/A',
-                'Status/Confidence': 'Unavailable'
-            }
+        # Load PRICE_BOOK and compute performance
+        try:
+            from helpers.price_book import get_price_book
+            from helpers.wave_performance import compute_all_waves_performance
             
-            # Try to fill in data from snapshot
-            if snapshot_df is not None and not snapshot_df.empty:
-                wave_row = snapshot_df[snapshot_df['Wave'] == wave_name]
+            # Load PRICE_BOOK (cache-only, no fetching)
+            price_book = get_price_book()
+            
+            # Compute performance for all 28 waves
+            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365])
+            
+            if not performance_df.empty:
+                # Display the performance table
+                # Note: Don't show Failure_Reason column in main view, show in expander below
+                display_columns = ['Wave', '1D Return', '30D', '60D', '365D', 'Status/Confidence']
+                st.dataframe(
+                    performance_df[display_columns],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=800  # Show more rows at once
+                )
                 
-                if not wave_row.empty:
-                    wave_row = wave_row.iloc[0]
-                    
-                    # Format returns as percentages without decimals
-                    for col, label in [
-                        ('Return_1D', '1D Return'),
-                        ('Return_30D', '30D'),
-                        ('Return_60D', '60D'),
-                        ('Return_365D', '365D'),
-                        ('Alpha_1D', '1D Alpha'),
-                        ('Alpha_30D', '30D Alpha'),
-                        ('Alpha_60D', '60D Alpha'),
-                        ('Alpha_365D', '365D Alpha')
-                    ]:
-                        if col in wave_row.index and pd.notna(wave_row[col]):
-                            val = wave_row[col] * 100
-                            row_data[label] = f"{val:+.0f}%"
-                    
-                    # Determine status/confidence
-                    flags = wave_row.get('Flags', '')
-                    coverage = wave_row.get('Coverage_Score', 0)
-                    
-                    if pd.isna(wave_row.get('Return_1D')):
-                        row_data['Status/Confidence'] = 'Unavailable'
-                    elif 'Proxy' in str(flags) or data_source == 'Proxy Snapshot (Plan B)':
-                        row_data['Status/Confidence'] = 'Proxy (Plan B)'
-                    elif coverage >= 90:
-                        row_data['Status/Confidence'] = 'Full'
-                    elif coverage >= 50:
-                        row_data['Status/Confidence'] = 'Operational'
-                    else:
-                        row_data['Status/Confidence'] = 'Partial'
-            
-            table_data.append(row_data)
-        
-        # Create and display dataframe
-        display_df = pd.DataFrame(table_data)
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            height=800  # Show more rows at once
-        )
+                # Show failure details in expander
+                failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
+                if not failed_waves.empty:
+                    with st.expander(f"⚠️ Waves with Issues ({len(failed_waves)} waves)", expanded=False):
+                        st.dataframe(
+                            failed_waves[['Wave', 'Failure_Reason', 'Coverage_Pct']],
+                            use_container_width=True,
+                            hide_index=True
+                        )
+            else:
+                st.warning("Unable to compute wave performance - PRICE_BOOK may be empty")
+                
+        except Exception as e:
+            st.error(f"Error computing wave performance: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
         
         st.divider()
         
