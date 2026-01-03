@@ -188,7 +188,7 @@ def compute_wave_returns(
         portfolio_values = pd.Series(0.0, index=ticker_prices.index)
         for i, ticker in enumerate(available_tickers):
             weight = renormalized_weights[i]
-            portfolio_values += normalized_prices[ticker].fillna(method='ffill') * weight
+            portfolio_values += normalized_prices[ticker].ffill() * weight
     except Exception as e:
         result['failure_reason'] = f'Error computing portfolio values: {str(e)}'
         return result
@@ -316,8 +316,15 @@ def compute_all_waves_performance(
     # Create DataFrame
     df = pd.DataFrame(results)
     
-    # Reorder columns for display
-    display_columns = ['Wave', '1D Return', '30D', '60D', '365D', 'Status/Confidence', 'Coverage_Pct', 'Failure_Reason']
+    # Reorder columns for display - only include columns that exist
+    base_columns = ['Wave']
+    period_columns = [f'{period}D Return' if period == 1 else f'{period}D' for period in periods]
+    footer_columns = ['Status/Confidence', 'Coverage_Pct', 'Failure_Reason']
+    
+    display_columns = base_columns + period_columns + footer_columns
+    
+    # Only select columns that actually exist in the dataframe
+    display_columns = [col for col in display_columns if col in df.columns]
     df = df[display_columns]
     
     return df
