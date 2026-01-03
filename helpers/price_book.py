@@ -426,3 +426,99 @@ def get_price_book_singleton(force_reload: bool = False) -> pd.DataFrame:
 # Usage: from helpers.price_book import get_price_book_singleton as PRICE_BOOK
 # Or: PRICE_BOOK = get_price_book_singleton()
 PRICE_BOOK = get_price_book_singleton
+
+
+def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    """
+    Compute system health status based on PRICE_BOOK and active wave requirements.
+    
+    This provides a unified health assessment that combines:
+    - Ticker coverage (missing vs required)
+    - Data staleness (age of latest prices)
+    - Data sufficiency (number of trading days)
+    
+    Health Levels:
+    - OK: All required tickers present, data fresh (< 5 days old)
+    - DEGRADED: Missing some required tickers OR data slightly stale (5-10 days)
+    - STALE: Data very stale (> 10 days) OR missing many required tickers
+    
+    Args:
+        price_book: Optional PRICE_BOOK DataFrame. If None, loads from singleton.
+        
+    Returns:
+        Dictionary with:
+        - health_status: str - "OK", "DEGRADED", or "STALE"
+        - health_emoji: str - Visual indicator
+        - missing_count: int - Number of missing required tickers
+        - total_required: int - Total required tickers
+        - coverage_pct: float - Percentage of required tickers present
+        - days_stale: int - Days since latest data
+        - num_days: int - Number of trading days in cache
+        - details: str - Human-readable explanation
+    """
+    if price_book is None:
+        price_book = get_price_book_singleton()
+    
+    # Get ticker analysis
+    ticker_analysis = compute_missing_and_extra_tickers(price_book)
+    
+    # Get cache info
+    if check_cache_readiness is not None:
+        readiness = check_cache_readiness(active_only=True)
+        days_stale = readiness.get('days_stale', 0) or 0
+        num_days = readiness.get('num_days', 0)
+    else:
+        days_stale = 0
+        num_days = len(price_book) if not price_book.empty else 0
+    
+    missing_count = ticker_analysis['missing_count']
+    total_required = ticker_analysis['required_count']
+    
+    # Calculate coverage percentage
+    if total_required > 0:
+        coverage_pct = ((total_required - missing_count) / total_required) * 100
+    else:
+        coverage_pct = 100.0
+    
+    # Determine health status
+    health_status = "OK"
+    health_emoji = "✅"
+    details = "All systems nominal"
+    
+    # Check for critical issues
+    if price_book is None or price_book.empty:
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = "PRICE_BOOK is empty - cache needs to be built"
+    elif missing_count > total_required * 0.5:  # More than 50% missing
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = f"Critical: {missing_count}/{total_required} required tickers missing ({coverage_pct:.1f}% coverage)"
+    elif days_stale > 10:  # More than 10 days old
+        health_status = "STALE"
+        health_emoji = "❌"
+        details = f"Data is {days_stale} days stale - needs refresh"
+    elif missing_count > 0:  # Some tickers missing
+        health_status = "DEGRADED"
+        health_emoji = "⚠️"
+        details = f"Missing {missing_count}/{total_required} required tickers ({coverage_pct:.1f}% coverage)"
+    elif days_stale > 5:  # Slightly stale
+        health_status = "DEGRADED"
+        health_emoji = "⚠️"
+        details = f"Data is {days_stale} days old - consider refresh"
+    else:
+        health_status = "OK"
+        health_emoji = "✅"
+        details = f"All {total_required} required tickers present, data fresh ({days_stale} days old)"
+    
+    return {
+        'health_status': health_status,
+        'health_emoji': health_emoji,
+        'missing_count': missing_count,
+        'total_required': total_required,
+        'coverage_pct': coverage_pct,
+        'days_stale': days_stale,
+        'num_days': num_days,
+        'details': details
+    }
+

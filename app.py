@@ -5939,6 +5939,7 @@ def render_reality_panel():
             get_active_required_tickers,
             get_required_tickers_active_waves,
             compute_missing_and_extra_tickers,
+            compute_system_health,
             CANONICAL_CACHE_PATH,
             PRICE_FETCH_ENABLED,
             ALLOW_NETWORK_FETCH
@@ -6019,15 +6020,23 @@ def render_reality_panel():
                 st.text(f"Extra: 0 tickers")
         
         with col3:
-            st.markdown("**🔧 System Info**")
-            st.text(f"Git Commit: {git_commit}")
-            st.text(f"UTC Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+            st.markdown("**🏥 System Health**")
+            
+            # Compute unified health status
+            health = compute_system_health(price_book)
+            
+            st.metric(
+                "Health Status",
+                f"{health['health_emoji']} {health['health_status']}",
+                help=health['details']
+            )
+            st.caption(health['details'])
             
             # Show fetch status
-            if PRICE_FETCH_ENABLED:
-                st.warning("🟡 Fetch: ENABLED")
+            if ALLOW_NETWORK_FETCH:
+                st.warning("🟡 Network Fetch: ENABLED")
             else:
-                st.success("🟢 Fetch: DISABLED (safe)")
+                st.success("🟢 Network Fetch: DISABLED")
         
         # Show detailed missing/extra tickers in expander
         if ticker_analysis['missing_count'] > 0 or ticker_analysis['extra_count'] > 0:
