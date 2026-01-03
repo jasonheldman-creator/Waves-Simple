@@ -5959,7 +5959,8 @@ def render_reality_panel():
                 ['git', 'rev-parse', '--short', 'HEAD'],
                 capture_output=True,
                 text=True,
-                timeout=2
+                timeout=2,
+                shell=False  # Explicitly set for security clarity
             )
             if result.returncode == 0:
                 git_commit = result.stdout.strip()

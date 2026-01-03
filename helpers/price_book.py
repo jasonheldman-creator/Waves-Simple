@@ -55,9 +55,16 @@ try:
     )
 except ImportError as e:
     logger.warning(f"Could not import from price_loader: {e}")
+    # Set all to None for proper error handling
     load_cache = None
     save_cache = None
     collect_required_tickers = None
+    normalize_ticker = None
+    deduplicate_tickers = None
+    load_or_fetch_prices = None
+    get_cache_info = None
+    check_cache_readiness = None
+    CACHE_PATH = CANONICAL_CACHE_PATH  # Use our own constant as fallback
 
 
 def get_price_book(
@@ -92,6 +99,15 @@ def get_price_book(
     logger.info("PRICE_BOOK: Loading canonical price data (cache-only)")
     logger.info(f"Source: {CANONICAL_CACHE_PATH}")
     logger.info("=" * 70)
+    
+    # Check if required functions are available
+    if load_cache is None or deduplicate_tickers is None:
+        logger.error("Required price_loader functions not available")
+        result = pd.DataFrame()
+        if active_tickers:
+            result = pd.DataFrame(columns=active_tickers)  # Use raw tickers if deduplicate not available
+        result.index.name = 'Date'
+        return result
     
     # Load from canonical cache (never fetches)
     cache_df = load_cache()
@@ -217,6 +233,21 @@ def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
     logger.info("REBUILD PRICE CACHE: Explicit cache rebuild requested")
     logger.info("=" * 70)
     
+    # Check if required functions are available
+    if collect_required_tickers is None or load_or_fetch_prices is None or get_cache_info is None:
+        logger.error("Required price_loader functions not available for rebuild")
+        return {
+            'allowed': False,
+            'success': False,
+            'tickers_requested': 0,
+            'tickers_fetched': 0,
+            'tickers_failed': 0,
+            'failures': {},
+            'date_max': None,
+            'cache_info': {},
+            'message': 'Price loader functions not available. Check imports.'
+        }
+    
     # Check if fetching is enabled
     if not PRICE_FETCH_ENABLED:
         logger.warning("PRICE_FETCH_ENABLED is False - fetching is disabled")
@@ -290,6 +321,9 @@ def get_active_required_tickers() -> List[str]:
     Returns:
         Sorted list of unique ticker symbols required for active waves
     """
+    if collect_required_tickers is None:
+        logger.error("collect_required_tickers function not available")
+        return []
     return collect_required_tickers(active_only=True)
 
 
