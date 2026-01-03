@@ -2545,10 +2545,10 @@ def _compute_core(
     # SmartSafe Cash Wave handling: these are pure cash holdings with 0% daily return
     # No price ingestion or benchmark computation required
     if is_smartsafe_cash_wave(wave_name):
-        # Create a simple date range for the requested period
+        # Create a simple date range for the requested period (business days only)
         end_date = pd.Timestamp.now().normalize()
         start_date = end_date - pd.Timedelta(days=days)
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        date_range = pd.date_range(start=start_date, end=end_date, freq='B')  # Business days only
         
         # SmartSafe cash waves have constant NAV of 1.0 (0% return daily)
         result = pd.DataFrame({
