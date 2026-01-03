@@ -99,7 +99,7 @@ RUSSELL_3000_ADDITIONS = [
     "PLTR", "RBLX", "NET", "DDOG", "ZS", "OKTA", "ZM", "DOCU", "TWLO", "COUP",
     "BILL", "DOCN", "S", "PATH", "GTLB", "CFLT", "MDB", "ESTC", "TEAM", "HUBS",
     "FROG", "DASH", "COIN", "CPNG", "SHOP", "W", "U", "AFRM", "UPST", "SOFI",
-    "DKNG", "CELH", "RBLX",
+    "DKNG", "CELH",
     
     # Mid-cap value & cyclical
     "ALK", "JBLU", "LUV", "UAL", "DAL", "AAL", "HA", "SAVE", "SKYW",

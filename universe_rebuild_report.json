@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-01-03T13:00:59.380846",
+  "timestamp": "2026-01-03T13:06:56.990935",
   "rebuild_summary": {
     "final_ticker_count": 897,
-    "duplicates_removed": 178,
-    "deduplication_rate": "16.6%",
+    "duplicates_removed": 177,
+    "deduplication_rate": "16.5%",
     "multi_index_count": 163
   },
   "index_inclusion": {
     "Russell_3000": {
-      "count": 80,
+      "count": 79,
       "status": "included"
     },
     "Russell_2000": {

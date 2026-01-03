@@ -151,12 +151,12 @@ def get_sp500_static_list() -> List[str]:
         
         # Energy
         "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY", "HAL",
-        "DVN", "HES", "FANG", "BKR", "KMI", "WMB", "LNG", "TRGP", "OKE", "EPD",
+        "DVN", "HES", "FANG", "BKR", "KMI", "WMB", "LNG", "TRGP", "OKE",
         
         # Financials
         "BRK-B", "JPM", "BAC", "WFC", "MS", "GS", "C", "SCHW", "AXP", "BLK",
         "SPGI", "USB", "PNC", "TFC", "COF", "BK", "STT", "NTRS", "FRC", "RF",
-        "CFG", "KEY", "FITB", "HBAN", "MTB", "ZION", "CMA", "SIVB", "WAL", "WBS",
+        "CFG", "KEY", "FITB", "HBAN", "MTB", "ZION", "CMA", "SIVB", "WAL",
         
         # Healthcare
         "UNH", "JNJ", "LLY", "ABBV", "MRK", "TMO", "ABT", "DHR", "PFE", "BMY",
@@ -166,7 +166,7 @@ def get_sp500_static_list() -> List[str]:
         # Industrials
         "CAT", "UNP", "UPS", "RTX", "BA", "HON", "LMT", "GE", "DE", "MMM",
         "NSC", "FDX", "CSX", "NOC", "EMR", "ETN", "ITW", "PH", "WM", "GD",
-        "TT", "PCAR", "ROK", "CARR", "OTIS", "JCI", "CTAS", "CMI", "EMR", "FAST",
+        "TT", "PCAR", "ROK", "CARR", "OTIS", "JCI", "CTAS", "CMI", "FAST",
         
         # Materials
         "LIN", "SHW", "APD", "ECL", "FCX", "NEM", "DOW", "DD", "NUE", "PPG",
@@ -235,8 +235,8 @@ def get_russell_3000_static_list() -> List[str]:
         # Mid-cap value
         "ALK", "JBLU", "LUV", "UAL", "DAL", "AAL", "HA", "SAVE", "SKYW", "MESA",
         
-        # Small-cap tech
-        "IONQ", "RGTI", "QBTS", "SOUN", "BBAI", "AI", "NVDA", "SMCI", "DELL", "HPE",
+        # Quantum computing & AI (mid-cap growth)
+        "IONQ", "RGTI", "QBTS", "SOUN", "BBAI", "AI", "SMCI", "DELL", "HPE",
         
         # Additional diversified
         "RIVN", "LCID", "CHPT", "BLNK", "EVGO", "VLTA", "PTRA", "HYLN", "GOEV", "FSR",
