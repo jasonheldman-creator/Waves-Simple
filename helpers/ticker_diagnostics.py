@@ -12,6 +12,7 @@ from typing import List, Dict, Optional, Any
 import csv
 import os
 from pathlib import Path
+import io
 
 
 class FailureType(Enum):
@@ -256,3 +257,123 @@ def get_diagnostics_tracker() -> TickerDiagnosticsTracker:
     if _global_tracker is None:
         _global_tracker = TickerDiagnosticsTracker()
     return _global_tracker
+
+
+def load_broken_tickers_from_csv(csv_path: str = "data/broken_tickers.csv") -> List[Dict[str, Any]]:
+    """
+    Load broken tickers from the standard broken_tickers.csv file.
+    
+    Args:
+        csv_path: Path to the broken tickers CSV file
+        
+    Returns:
+        List of dictionaries with ticker information including:
+        - ticker_original: Original ticker symbol
+        - ticker_normalized: Normalized ticker symbol
+        - failure_type: Type of failure
+        - error_message: Error message
+        - impacted_waves: Comma-separated list of impacted waves
+        - suggested_fix: Suggested fix for the issue
+        - first_seen: First seen timestamp
+        - last_seen: Last seen timestamp
+        - is_fatal: Whether the failure is fatal
+        - failure_count: Number of waves this ticker fails in
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        print("Warning: pandas not available, cannot load broken tickers")
+        return []
+    
+    if not os.path.exists(csv_path):
+        return []
+    
+    try:
+        df = pd.read_csv(csv_path)
+        
+        # Sanitize and validate data
+        broken_tickers = []
+        for _, row in df.iterrows():
+            # Validate required fields
+            ticker = str(row.get('ticker_original', '')).strip()
+            if not ticker:
+                continue
+            
+            # Parse impacted waves
+            impacted_waves_str = str(row.get('impacted_waves', '')).strip()
+            impacted_waves = [w.strip() for w in impacted_waves_str.split(',') if w.strip()] if impacted_waves_str else []
+            
+            # Create entry
+            entry = {
+                'ticker_original': ticker,
+                'ticker_normalized': str(row.get('ticker_normalized', ticker)).strip(),
+                'failure_type': str(row.get('failure_type', 'UNKNOWN_ERROR')).strip(),
+                'error_message': str(row.get('error_message', '')).strip(),
+                'impacted_waves': impacted_waves,
+                'impacted_waves_str': impacted_waves_str,
+                'suggested_fix': str(row.get('suggested_fix', '')).strip(),
+                'first_seen': str(row.get('first_seen', '')).strip(),
+                'last_seen': str(row.get('last_seen', '')).strip(),
+                'is_fatal': bool(row.get('is_fatal', True)),
+                'failure_count': len(impacted_waves)
+            }
+            broken_tickers.append(entry)
+        
+        # Sort by failure count descending
+        broken_tickers.sort(key=lambda x: x['failure_count'], reverse=True)
+        
+        return broken_tickers
+        
+    except Exception as e:
+        print(f"Warning: Failed to load broken tickers from {csv_path}: {e}")
+        return []
+
+
+def export_failed_tickers_to_cache(broken_tickers: List[Dict[str, Any]], 
+                                    output_path: str = "data/cache/failed_tickers.csv") -> bool:
+    """
+    Export failed tickers to a CSV file in the cache directory.
+    
+    Args:
+        broken_tickers: List of broken ticker dictionaries
+        output_path: Path to the output CSV file
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Write CSV
+        with open(output_path, 'w', newline='') as f:
+            if not broken_tickers:
+                # Write header only
+                writer = csv.writer(f)
+                writer.writerow([
+                    'ticker_original', 'ticker_normalized', 'failure_type', 
+                    'error_message', 'failure_count', 'impacted_waves',
+                    'suggested_fix', 'first_seen', 'last_seen', 'is_fatal'
+                ])
+            else:
+                # Write data
+                fieldnames = [
+                    'ticker_original', 'ticker_normalized', 'failure_type', 
+                    'error_message', 'failure_count', 'impacted_waves',
+                    'suggested_fix', 'first_seen', 'last_seen', 'is_fatal'
+                ]
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                writer.writeheader()
+                
+                for ticker in broken_tickers:
+                    # Create a copy and convert impacted_waves list to string
+                    row = ticker.copy()
+                    row['impacted_waves'] = row.get('impacted_waves_str', 
+                                                    ', '.join(row.get('impacted_waves', [])))
+                    writer.writerow(row)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error exporting failed tickers to {output_path}: {e}")
+        return False

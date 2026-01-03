@@ -1,15 +1,15 @@
 {
-  "snapshot_id": "snap-bfe80d1456354bf2",
-  "snapshot_hash": "acc7328929face8e",
+  "snapshot_id": "snap-18accf9def3a4922",
+  "snapshot_hash": "463731acbe4032fe",
   "generation_reason": "auto",
-  "timestamp": "2026-01-01T10:13:14.292069",
-  "software_version": "fbf263a",
-  "git_branch": "copilot/stabilize-streamlit-app",
-  "registry_version": "v20251228_055416",
-  "benchmark_version": "v20251228_055416",
+  "timestamp": "2026-01-03T05:03:56.808715",
+  "software_version": "fd200e1",
+  "git_branch": "copilot/add-failed-tickers-section",
+  "registry_version": "v20260102_214700",
+  "benchmark_version": "v20260102_214700",
   "data_regime": "SANDBOX",
   "safe_mode": "OFF",
   "wave_count": 28,
-  "degraded_wave_count": 17,
+  "degraded_wave_count": 0,
   "broken_ticker_count": 128
 }

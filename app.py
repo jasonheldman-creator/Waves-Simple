@@ -17142,6 +17142,181 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 6.75: Failed Tickers (Top 50)
+    # ========================================================================
+    st.subheader("❌ Failed Tickers Diagnostics")
+    
+    with st.expander("📋 Failed Tickers (Top 50) - Click to expand", expanded=False):
+        try:
+            from helpers.ticker_diagnostics import load_broken_tickers_from_csv, export_failed_tickers_to_cache
+            
+            # Load broken tickers from CSV
+            broken_tickers = load_broken_tickers_from_csv("data/broken_tickers.csv")
+            
+            if not broken_tickers:
+                st.info("✅ No failed tickers found. All tickers are loading successfully.")
+            else:
+                # Summary metrics
+                total_failed = len(broken_tickers)
+                total_occurrences = sum(ticker['failure_count'] for ticker in broken_tickers)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Failed Tickers", total_failed)
+                with col2:
+                    st.metric("Total Failure Occurrences", total_occurrences)
+                with col3:
+                    avg_failures = total_occurrences / total_failed if total_failed > 0 else 0
+                    st.metric("Avg Failures per Ticker", f"{avg_failures:.1f}")
+                
+                st.markdown("---")
+                
+                # Display top 50 failed tickers
+                top_50 = broken_tickers[:50]
+                
+                st.markdown(f"### Top {len(top_50)} Failed Tickers")
+                st.caption("Sorted by number of impacted waves (highest first)")
+                
+                # Create display table
+                display_data = []
+                for i, ticker in enumerate(top_50, 1):
+                    # Sanitize error message for display
+                    error_msg = ticker.get('error_message', 'Unknown error')
+                    if len(error_msg) > 50:
+                        error_msg = error_msg[:47] + "..."
+                    
+                    # Truncate waves list for display
+                    waves = ticker.get('impacted_waves', [])
+                    wave_count = len(waves)
+                    if wave_count > 3:
+                        waves_display = ', '.join(waves[:3]) + f", ... (+{wave_count - 3} more)"
+                    else:
+                        waves_display = ', '.join(waves) if waves else 'None'
+                    
+                    display_data.append({
+                        'Rank': i,
+                        'Ticker': ticker.get('ticker_original', 'N/A'),
+                        'Failure Type': ticker.get('failure_type', 'UNKNOWN'),
+                        'Error Reason': error_msg,
+                        'Wave Count': wave_count,
+                        'Sample Waves': waves_display
+                    })
+                
+                # Display as dataframe
+                df_display = pd.DataFrame(display_data)
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                
+                # Detailed view option
+                st.markdown("---")
+                st.markdown("### Detailed Ticker Information")
+                
+                # Selector for detailed view
+                ticker_names = [t.get('ticker_original', 'N/A') for t in top_50]
+                selected_ticker = st.selectbox(
+                    "Select a ticker to view full details:",
+                    options=ticker_names,
+                    key=k("Diagnostics", "failed_ticker_selector")
+                )
+                
+                # Show detailed info for selected ticker
+                if selected_ticker:
+                    ticker_info = next((t for t in top_50 if t.get('ticker_original') == selected_ticker), None)
+                    if ticker_info:
+                        st.markdown(f"#### Details for {selected_ticker}")
+                        
+                        detail_col1, detail_col2 = st.columns(2)
+                        
+                        with detail_col1:
+                            st.markdown("**Basic Information:**")
+                            st.text(f"Original Symbol: {ticker_info.get('ticker_original', 'N/A')}")
+                            st.text(f"Normalized Symbol: {ticker_info.get('ticker_normalized', 'N/A')}")
+                            st.text(f"Failure Type: {ticker_info.get('failure_type', 'UNKNOWN')}")
+                            st.text(f"Is Fatal: {ticker_info.get('is_fatal', True)}")
+                        
+                        with detail_col2:
+                            st.markdown("**Timestamps:**")
+                            st.text(f"First Seen: {ticker_info.get('first_seen', 'N/A')}")
+                            st.text(f"Last Seen: {ticker_info.get('last_seen', 'N/A')}")
+                            st.text(f"Impacted Waves: {ticker_info.get('failure_count', 0)}")
+                        
+                        st.markdown("**Error Message:**")
+                        st.code(ticker_info.get('error_message', 'No error message available'), language=None)
+                        
+                        st.markdown("**Suggested Fix:**")
+                        st.info(ticker_info.get('suggested_fix', 'No fix suggestion available'))
+                        
+                        st.markdown("**All Impacted Waves:**")
+                        waves = ticker_info.get('impacted_waves', [])
+                        if waves:
+                            # Display waves in a grid
+                            wave_cols = st.columns(3)
+                            for idx, wave in enumerate(waves):
+                                with wave_cols[idx % 3]:
+                                    st.text(f"• {wave}")
+                        else:
+                            st.text("No impacted waves recorded")
+                
+                st.markdown("---")
+                
+                # Export button
+                st.markdown("### Export Options")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Export to cache directory
+                    if st.button("💾 Export to data/cache/failed_tickers.csv", 
+                                help="Export all failed tickers to data/cache/failed_tickers.csv"):
+                        success = export_failed_tickers_to_cache(broken_tickers, "data/cache/failed_tickers.csv")
+                        if success:
+                            st.success("✅ Successfully exported to data/cache/failed_tickers.csv")
+                        else:
+                            st.error("❌ Failed to export. Check logs for details.")
+                
+                with col2:
+                    # Download button for immediate download
+                    try:
+                        # Create CSV content for download using csv module
+                        import io
+                        import csv as csv_module
+                        
+                        output = io.StringIO()
+                        fieldnames = [
+                            'ticker_original', 'ticker_normalized', 'failure_type', 
+                            'error_message', 'failure_count', 'impacted_waves',
+                            'suggested_fix', 'first_seen', 'last_seen', 'is_fatal'
+                        ]
+                        writer = csv_module.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+                        writer.writeheader()
+                        
+                        for ticker in broken_tickers:
+                            # Create a copy and convert impacted_waves list to string
+                            row = ticker.copy()
+                            row['impacted_waves'] = row.get('impacted_waves_str', 
+                                                            ', '.join(row.get('impacted_waves', [])))
+                            writer.writerow(row)
+                        
+                        csv_content = output.getvalue()
+                        
+                        st.download_button(
+                            label="📥 Download Failed Tickers CSV",
+                            data=csv_content,
+                            file_name=f"failed_tickers_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            help="Download all failed tickers as CSV"
+                        )
+                    except Exception as e:
+                        st.error(f"Error creating download: {str(e)}")
+                
+        except Exception as e:
+            st.error(f"Error loading failed tickers diagnostics: {str(e)}")
+            import traceback
+            with st.expander("View Error Details", expanded=False):
+                st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 7: Force Reload Actions
     # ========================================================================
     st.subheader("🔧 Maintenance Actions")
