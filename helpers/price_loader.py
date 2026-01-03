@@ -165,7 +165,7 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
                 registry_df = pd.read_csv(wave_registry_path)
                 # Filter to active waves only
                 active_wave_ids = set(
-                    registry_df[registry_df['active'] == True]['wave_id'].tolist()
+                    registry_df[registry_df['active']]['wave_id'].tolist()
                 )
                 all_wave_ids = [wid for wid in all_wave_ids if wid in active_wave_ids]
         
@@ -224,7 +224,7 @@ def save_failed_tickers(failures: Dict[str, str]) -> None:
             {
                 'ticker': ticker,
                 'reason': reason,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.utcnow().isoformat()
             }
             for ticker, reason in failures.items()
         ])
@@ -328,7 +328,7 @@ def trim_cache_to_date_range(
         return cache_df
     
     # Calculate cutoff date
-    cutoff_date = datetime.now() - timedelta(days=365 * years)
+    cutoff_date = datetime.utcnow() - timedelta(days=365 * years)
     
     # Filter to dates after cutoff
     trimmed = cache_df[cache_df.index >= cutoff_date]
@@ -956,15 +956,18 @@ def check_cache_readiness(
         'days_stale': None,
         'required_tickers': len(required_tickers),
         'missing_tickers': [],
-        'status': 'Unknown'
+        'status': 'Unknown',
+        'status_code': 'UNKNOWN'
     }
     
     if not result['exists']:
         result['status'] = 'MISSING - Cache file does not exist'
+        result['status_code'] = 'MISSING'
         return result
     
     if cache_df is None or cache_df.empty:
         result['status'] = 'EMPTY - Cache file is empty'
+        result['status_code'] = 'EMPTY'
         return result
     
     result['num_days'] = len(cache_df)
@@ -972,17 +975,19 @@ def check_cache_readiness(
     result['max_date'] = cache_df.index[-1].strftime('%Y-%m-%d')
     
     # Calculate staleness
-    days_since_update = (datetime.now() - cache_df.index[-1]).days
+    days_since_update = (datetime.utcnow() - cache_df.index[-1]).days
     result['days_stale'] = days_since_update
     
     # Check minimum trading days
     if result['num_days'] < min_trading_days:
         result['status'] = f'INSUFFICIENT - Only {result["num_days"]} trading days (need {min_trading_days})'
+        result['status_code'] = 'INSUFFICIENT'
         return result
     
     # Check staleness
     if days_since_update > max_stale_days:
         result['status'] = f'STALE - Data is {days_since_update} days old (max {max_stale_days})'
+        result['status_code'] = 'STALE'
         return result
     
     # Check required tickers
@@ -991,11 +996,13 @@ def check_cache_readiness(
     
     if missing:
         result['status'] = f'DEGRADED - Missing {len(missing)} required tickers'
+        result['status_code'] = 'DEGRADED'
         result['ready'] = False  # Still not ready if missing tickers
         return result
     
     # All checks passed
     result['ready'] = True
     result['status'] = 'READY'
+    result['status_code'] = 'READY'
     
     return result

@@ -16815,9 +16815,12 @@ def render_diagnostics_tab():
         col1, col2, col3 = st.columns(3)
         
         with col1:
+            # Use status_code for display
+            status_code = readiness.get('status_code', 'UNKNOWN')
+            
             st.metric(
                 "Cache Status",
-                readiness['status'].split('-')[0].strip(),  # Get the first part (READY, STALE, etc.)
+                status_code,
                 delta=None,
                 help=readiness['status']
             )

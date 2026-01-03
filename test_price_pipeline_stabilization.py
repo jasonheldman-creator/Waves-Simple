@@ -106,13 +106,13 @@ def test_force_cache_refresh_env_var():
         import helpers.price_loader as pl
         importlib.reload(pl)
         
-        assert pl.FORCE_CACHE_REFRESH == True, "FORCE_CACHE_REFRESH should be True when env var is '1'"
+        assert pl.FORCE_CACHE_REFRESH, "FORCE_CACHE_REFRESH should be True when env var is '1'"
         
         # Reset environment variable
         os.environ['FORCE_CACHE_REFRESH'] = '0'
         importlib.reload(pl)
         
-        assert pl.FORCE_CACHE_REFRESH == False, "FORCE_CACHE_REFRESH should be False when env var is '0'"
+        assert not pl.FORCE_CACHE_REFRESH, "FORCE_CACHE_REFRESH should be False when env var is '0'"
         
         print("✅ FORCE_CACHE_REFRESH environment variable handling works correctly")
         return True
