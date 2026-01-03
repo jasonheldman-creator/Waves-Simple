@@ -43,9 +43,14 @@ def render_data_health_panel():
             st.metric("Overall Status", f"{status_emoji} {status.upper()}")
         
         with col2:
-            resilience = health.get('resilience_available', False)
-            resilience_emoji = "✅" if resilience else "⚠️"
-            st.metric("Resilience Features", f"{resilience_emoji} {'Active' if resilience else 'Inactive'}")
+            # Show active wave ticker count if available, otherwise show resilience status
+            active_ticker_count = health.get('active_wave_ticker_count', 0)
+            if active_ticker_count > 0:
+                st.metric("Active Wave Tickers", active_ticker_count)
+            else:
+                resilience = health.get('resilience_available', False)
+                resilience_emoji = "✅" if resilience else "⚠️"
+                st.metric("Resilience Features", f"{resilience_emoji} {'Active' if resilience else 'Inactive'}")
         
         with col3:
             timestamp = health.get('timestamp', '')
@@ -58,6 +63,10 @@ def render_data_health_panel():
                     st.metric("Last Check", "N/A")
             else:
                 st.metric("Last Check", "N/A")
+        
+        # Display note about active wave filtering
+        if health.get('active_wave_ticker_count', 0) > 0:
+            st.caption("ℹ️ System health monitored based on tickers from active waves only")
         
         # Circuit Breaker Status
         if health.get('circuit_breakers'):

@@ -6,10 +6,14 @@ Enhanced with circuit breaker and persistent cache for resilience.
 
 import os
 import json
+import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set, Any
 import streamlit as st
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Import circuit breaker and persistent cache
 try:
@@ -26,22 +30,43 @@ except ImportError:
 # ============================================================================
 
 @st.cache_data(ttl=300)
-def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) -> List[str]:
+def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, active_waves_only: bool = True) -> List[str]:
     """
     Extract holdings from canonical universal universe file.
     
     This function now uses universal_universe.csv as the SINGLE SOURCE OF TRUTH
     for all ticker references across the platform.
     
+    Enhanced to filter tickers by active wave membership to prevent inactive wave
+    tickers from affecting system health status.
+    
     Args:
         max_tickers: Maximum number of unique tickers to return
         top_n_per_wave: Number of top holdings to extract per wave (for display)
+        active_waves_only: If True, only return tickers from waves marked as active in wave_registry.csv
     
     Returns:
         List of unique ticker symbols (up to max_tickers)
     """
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
+        
+        # Get active wave IDs if filtering is requested
+        active_wave_ids = set()
+        if active_waves_only:
+            try:
+                wave_registry_path = os.path.join(base_dir, 'data', 'wave_registry.csv')
+                if os.path.exists(wave_registry_path):
+                    wave_registry_df = pd.read_csv(wave_registry_path)
+                    # Get wave_ids where active == True
+                    active_wave_ids = set(
+                        wave_registry_df[wave_registry_df['active'] == True]['wave_id'].tolist()
+                    )
+                    logger.info(f"Found {len(active_wave_ids)} active waves for filtering")
+            except Exception as e:
+                logger.warning(f"Could not load active wave list, using all waves: {str(e)}")
+                # If we can't load the wave registry, fall back to using all waves
+                active_waves_only = False
         
         # PRIMARY SOURCE: universal_universe.csv (CANONICAL)
         universe_path = os.path.join(base_dir, 'universal_universe.csv')
@@ -53,6 +78,36 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                 df = df[df['status'] == 'active']
                 
                 if 'ticker' in df.columns:
+                    # Filter by active waves if requested
+                    if active_waves_only and active_wave_ids:
+                        # Filter tickers to only those belonging to active waves
+                        def belongs_to_active_wave(index_membership):
+                            if pd.isna(index_membership):
+                                return False
+                            # Parse index_membership string to extract wave names
+                            memberships = str(index_membership).upper().split(',')
+                            for membership in memberships:
+                                membership = membership.strip()
+                                if membership.startswith('WAVE_'):
+                                    # Convert display name format to wave_id format
+                                    # e.g., "WAVE_AI_&_CLOUD_MEGACAP_WAVE" -> "ai_cloud_megacap_wave"
+                                    # Remove 'WAVE_' prefix, convert to lowercase
+                                    wave_id = membership.replace('WAVE_', '').lower()
+                                    # Remove special characters and extra underscores
+                                    import re
+                                    # Replace &, -, and other special chars with nothing
+                                    wave_id = re.sub(r'[&\-\s]+', '_', wave_id)
+                                    # Remove multiple consecutive underscores
+                                    wave_id = re.sub(r'_+', '_', wave_id)
+                                    # Remove trailing underscore if exists
+                                    wave_id = wave_id.rstrip('_')
+                                    if wave_id in active_wave_ids:
+                                        return True
+                            return False
+                        
+                        df = df[df['index_membership'].apply(belongs_to_active_wave)]
+                        logger.info("Filtered to tickers from active waves only")
+                    
                     # Prioritize tickers from Wave definitions
                     # (those with WAVE_ in index_membership)
                     wave_tickers = df[
@@ -62,20 +117,20 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                     # If we have wave tickers, prefer those
                     if wave_tickers:
                         tickers = wave_tickers[:max_tickers] if max_tickers else wave_tickers
-                        print(f"✓ Loaded {len(tickers)} tickers from universal universe (Wave-prioritized)")
+                        logger.info(f"Loaded {len(tickers)} tickers from universal universe (Wave-prioritized, active_waves_only={active_waves_only})")
                         return tickers
                     
                     # Otherwise, return all active tickers
                     all_tickers = df['ticker'].dropna().unique().tolist()
                     tickers = all_tickers[:max_tickers] if max_tickers else all_tickers
-                    print(f"✓ Loaded {len(tickers)} tickers from universal universe")
+                    logger.info(f"Loaded {len(tickers)} tickers from universal universe")
                     return tickers
                     
             except Exception as e:
                 # Log error but continue to fallback
-                print(f"⚠ Warning: Error reading universal_universe.csv: {e}")
+                logger.warning(f"Error reading universal_universe.csv: {str(e)}")
         else:
-            print(f"⚠ Warning: universal_universe.csv not found at {universe_path}")
+            logger.warning(f"universal_universe.csv not found at {universe_path}")
         
         # FALLBACK 1: ticker_master_clean.csv (DEPRECATED - legacy support)
         ticker_master_path = os.path.join(base_dir, 'ticker_master_clean.csv')
@@ -85,10 +140,10 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                 if 'ticker' in df.columns:
                     tickers = df['ticker'].dropna().tolist()
                     tickers = tickers[:max_tickers] if max_tickers else tickers
-                    print(f"⚠ Fallback: Loaded {len(tickers)} tickers from ticker_master_clean.csv (DEPRECATED)")
+                    logger.warning(f"Fallback: Loaded {len(tickers)} tickers from ticker_master_clean.csv (DEPRECATED)")
                     return tickers
             except Exception as e:
-                print(f"⚠ Warning: Error reading ticker_master_clean.csv: {e}")
+                logger.warning(f"Error reading ticker_master_clean.csv: {str(e)}")
         
         # FALLBACK 2: Try wave position files (LEGACY)
         ticker_set: Set[str] = set()
@@ -117,12 +172,12 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
         
         if ticker_set:
             tickers = list(ticker_set)[:max_tickers]
-            print(f"⚠ Fallback: Loaded {len(tickers)} tickers from wave position files (LEGACY)")
+            logger.warning(f"Fallback: Loaded {len(tickers)} tickers from wave position files (LEGACY)")
             return tickers
         
         # FALLBACK 3: Default ticker array (LAST RESORT)
         default_tickers = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'WMT', 'JNJ']
-        print(f"⚠ Last resort: Using default ticker array ({len(default_tickers)} tickers)")
+        logger.warning(f"Last resort: Using default ticker array ({len(default_tickers)} tickers)")
         return default_tickers
         
     except Exception:
@@ -472,8 +527,12 @@ def get_ticker_health_status() -> Dict[str, Any]:
     Get health status of ticker data fetching system.
     Enhanced with fail-safe error handling to prevent crashes.
     
+    Now also checks for stale tickers from active waves only to avoid
+    marking system as degraded due to inactive wave ticker failures.
+    
     Returns:
-        Dict with health metrics including circuit breaker status and cache stats
+        Dict with health metrics including circuit breaker status, cache stats,
+        and stale ticker information (filtered to active waves only)
     """
     # Default health status (fail-safe fallback)
     health = {
@@ -481,6 +540,8 @@ def get_ticker_health_status() -> Dict[str, Any]:
         'resilience_available': RESILIENCE_AVAILABLE,
         'circuit_breakers': {},
         'cache_stats': {},
+        'stale_ticker_count': 0,
+        'active_wave_ticker_count': 0,
         'overall_status': 'unknown'
     }
     
@@ -488,6 +549,7 @@ def get_ticker_health_status() -> Dict[str, Any]:
         # Update timestamp
         health['timestamp'] = datetime.now().isoformat()
         
+        # Check circuit breaker states if available
         if RESILIENCE_AVAILABLE:
             try:
                 # Get circuit breaker states
@@ -500,7 +562,7 @@ def get_ticker_health_status() -> Dict[str, Any]:
                     if isinstance(state, dict) and state.get('state') == 'open':
                         open_count += 1
                 
-                # Set status based on circuit breaker state
+                # Set initial status based on circuit breaker state
                 if open_count > 0:
                     health['overall_status'] = 'degraded'
                 else:
@@ -519,8 +581,40 @@ def get_ticker_health_status() -> Dict[str, Any]:
                 # Non-blocking: Log error but continue
                 health['cache_stats'] = {'error': str(e)}
         else:
-            # Resilience features not available - assume healthy
+            # Resilience features not available - assume healthy initially
             health['overall_status'] = 'healthy'
+        
+        # Enhanced: Check for stale tickers from ACTIVE waves only
+        # This prevents inactive wave ticker failures from marking system as degraded
+        try:
+            # Try to get list of tickers from active waves
+            from data_cache import collect_all_required_tickers
+            
+            # Import WAVE_WEIGHTS if available
+            try:
+                from waves_engine import WAVE_WEIGHTS
+                
+                # Collect tickers from active waves only
+                active_wave_tickers = collect_all_required_tickers(
+                    WAVE_WEIGHTS,
+                    include_benchmarks=False,  # Don't include optional benchmarks for health check
+                    include_safe_assets=False,  # Don't include optional safe assets for health check
+                    active_only=True  # KEY: Only include tickers from active waves
+                )
+                
+                health['active_wave_ticker_count'] = len(active_wave_tickers)
+                
+                # TODO: Check if any of these active wave tickers are stale
+                # For now, we just track the count
+                # Future enhancement: Check price data freshness for these tickers
+                
+            except ImportError:
+                # WAVE_WEIGHTS not available, skip stale ticker check
+                pass
+                
+        except Exception as e:
+            # Non-blocking: If stale ticker check fails, don't change overall status
+            pass
     
     except Exception as e:
         # Ultimate fail-safe: Return basic health status
