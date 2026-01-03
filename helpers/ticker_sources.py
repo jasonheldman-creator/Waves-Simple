@@ -26,22 +26,43 @@ except ImportError:
 # ============================================================================
 
 @st.cache_data(ttl=300)
-def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) -> List[str]:
+def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, active_waves_only: bool = True) -> List[str]:
     """
     Extract holdings from canonical universal universe file.
     
     This function now uses universal_universe.csv as the SINGLE SOURCE OF TRUTH
     for all ticker references across the platform.
     
+    Enhanced to filter tickers by active wave membership to prevent inactive wave
+    tickers from affecting system health status.
+    
     Args:
         max_tickers: Maximum number of unique tickers to return
         top_n_per_wave: Number of top holdings to extract per wave (for display)
+        active_waves_only: If True, only return tickers from waves marked as active in wave_registry.csv
     
     Returns:
         List of unique ticker symbols (up to max_tickers)
     """
     try:
         base_dir = os.path.dirname(os.path.dirname(__file__))
+        
+        # Get active wave IDs if filtering is requested
+        active_wave_ids = set()
+        if active_waves_only:
+            try:
+                wave_registry_path = os.path.join(base_dir, 'data', 'wave_registry.csv')
+                if os.path.exists(wave_registry_path):
+                    wave_registry_df = pd.read_csv(wave_registry_path)
+                    # Get wave_ids where active == True
+                    active_wave_ids = set(
+                        wave_registry_df[wave_registry_df['active'] == True]['wave_id'].tolist()
+                    )
+                    print(f"✓ Found {len(active_wave_ids)} active waves for filtering")
+            except Exception as e:
+                print(f"⚠ Warning: Could not load active wave list, using all waves: {e}")
+                # If we can't load the wave registry, fall back to using all waves
+                active_waves_only = False
         
         # PRIMARY SOURCE: universal_universe.csv (CANONICAL)
         universe_path = os.path.join(base_dir, 'universal_universe.csv')
@@ -53,6 +74,27 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                 df = df[df['status'] == 'active']
                 
                 if 'ticker' in df.columns:
+                    # Filter by active waves if requested
+                    if active_waves_only and active_wave_ids:
+                        # Filter tickers to only those belonging to active waves
+                        def belongs_to_active_wave(index_membership):
+                            if pd.isna(index_membership):
+                                return False
+                            # Parse index_membership string to extract wave names
+                            memberships = str(index_membership).upper().split(',')
+                            for membership in memberships:
+                                membership = membership.strip()
+                                if membership.startswith('WAVE_'):
+                                    # Convert display name format to wave_id format
+                                    # e.g., "WAVE_RUSSELL_3000_WAVE" -> "russell_3000_wave"
+                                    wave_id = membership.replace('WAVE_', '').lower()
+                                    if wave_id in active_wave_ids:
+                                        return True
+                            return False
+                        
+                        df = df[df['index_membership'].apply(belongs_to_active_wave)]
+                        print(f"✓ Filtered to tickers from active waves only")
+                    
                     # Prioritize tickers from Wave definitions
                     # (those with WAVE_ in index_membership)
                     wave_tickers = df[
@@ -62,7 +104,7 @@ def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5) ->
                     # If we have wave tickers, prefer those
                     if wave_tickers:
                         tickers = wave_tickers[:max_tickers] if max_tickers else wave_tickers
-                        print(f"✓ Loaded {len(tickers)} tickers from universal universe (Wave-prioritized)")
+                        print(f"✓ Loaded {len(tickers)} tickers from universal universe (Wave-prioritized, active_waves_only={active_waves_only})")
                         return tickers
                     
                     # Otherwise, return all active tickers

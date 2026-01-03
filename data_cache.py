@@ -44,23 +44,49 @@ DEFAULT_TTL_SECONDS = 7200  # Default cache TTL (2 hours)
 def collect_all_required_tickers(
     wave_registry: Dict[str, List[Any]],
     include_benchmarks: bool = True,
-    include_safe_assets: bool = True
+    include_safe_assets: bool = True,
+    active_only: bool = False
 ) -> List[str]:
     """
     Collect all tickers required across the wave registry.
     
     Args:
-        wave_registry: Dictionary mapping wave names to holdings
+        wave_registry: Dictionary mapping wave_id to holdings
         include_benchmarks: Whether to include benchmark tickers
         include_safe_assets: Whether to include safe asset tickers
+        active_only: If True, only include tickers from active waves (filters using wave_registry.csv)
     
     Returns:
         Sorted list of unique tickers
     """
     tickers = set()
     
+    # Filter wave_registry to only active waves if requested
+    filtered_registry = wave_registry
+    if active_only:
+        try:
+            import os
+            # Read wave_registry.csv to get active wave_ids
+            wave_registry_path = os.path.join(os.path.dirname(__file__), 'data', 'wave_registry.csv')
+            if os.path.exists(wave_registry_path):
+                import pandas as pd
+                registry_df = pd.read_csv(wave_registry_path)
+                # Filter to active waves only
+                active_wave_ids = set(registry_df[registry_df['active'] == True]['wave_id'].tolist())
+                # Filter wave_registry dict to only include active wave_ids
+                filtered_registry = {k: v for k, v in wave_registry.items() if k in active_wave_ids}
+            else:
+                # If wave_registry.csv doesn't exist, fall back to using all waves
+                # This maintains backward compatibility
+                pass
+        except Exception as e:
+            # If filtering fails, fall back to using all waves to avoid breaking functionality
+            # Log the error but continue
+            import warnings
+            warnings.warn(f"Failed to filter waves by active status: {e}. Using all waves.")
+    
     # Extract tickers from wave holdings
-    for wave_name, holdings in wave_registry.items():
+    for wave_name, holdings in filtered_registry.items():
         for holding in holdings:
             # Holdings can be Holding objects or dicts
             if hasattr(holding, 'ticker'):
@@ -68,7 +94,7 @@ def collect_all_required_tickers(
             elif isinstance(holding, dict) and 'ticker' in holding:
                 tickers.add(holding['ticker'])
     
-    # Add standard market and volatility tickers
+    # Add standard market and volatility tickers (always included for system health monitoring)
     tickers.update(['SPY', '^VIX', 'BTC-USD'])
     
     # Add benchmark tickers if requested
@@ -228,7 +254,8 @@ def _download_prices_cached(
 def get_global_price_cache(
     wave_registry: Dict[str, List[Any]],
     days: int = 365,
-    ttl_seconds: int = 7200
+    ttl_seconds: int = 7200,
+    active_only: bool = False
 ) -> Dict[str, Any]:
     """
     Get global price cache with TTL-based caching and session state persistence.
@@ -244,6 +271,7 @@ def get_global_price_cache(
         wave_registry: Dictionary mapping wave names to holdings
         days: Number of days of history (default: 365)
         ttl_seconds: Cache TTL in seconds (default: 7200 = 2 hours)
+        active_only: If True, only fetch prices for tickers from active waves (default: False for backward compatibility)
     
     Returns:
         Dictionary with:
@@ -254,10 +282,13 @@ def get_global_price_cache(
         - success_count: Number of tickers successfully downloaded
     """
     # Collect all required tickers
+    # Note: For backward compatibility, default is to include all waves (active_only=False)
+    # System health monitoring should use active_only=True to avoid false positives from inactive waves
     tickers = collect_all_required_tickers(
         wave_registry,
         include_benchmarks=True,
-        include_safe_assets=True
+        include_safe_assets=True,
+        active_only=active_only
     )
     
     if not tickers:
