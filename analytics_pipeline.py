@@ -1162,7 +1162,385 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
     }
 
 
-def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
+def compute_data_ready_status_from_cache(wave_id: str) -> Dict[str, Any]:
+    """
+    Compute comprehensive data readiness status using centralized price cache.
+    
+    This new implementation uses the canonical price loader module instead of
+    per-wave CSV files, providing better performance and consistency.
+    
+    Args:
+        wave_id: The wave identifier
+        
+    Returns:
+        Dictionary with comprehensive readiness diagnostics
+    """
+    from datetime import datetime, timezone
+    import logging
+    
+    # Try to import price loader
+    try:
+        from helpers.price_loader import (
+            load_or_fetch_prices_cached,
+            MIN_REQUIRED_DAYS,
+            MAX_STALE_DAYS
+        )
+        PRICE_LOADER_AVAILABLE = True
+    except ImportError:
+        PRICE_LOADER_AVAILABLE = False
+        logger.warning("Price loader not available, falling back to old method")
+        return compute_data_ready_status(wave_id)
+    
+    # Initialize response
+    result = {
+        'wave_id': wave_id,
+        'display_name': get_display_name_from_wave_id(wave_id) or wave_id,
+        'readiness_status': 'unavailable',
+        'is_ready': False,
+        'analytics_ready': False,
+        'readiness_reasons': [],
+        'allowed_analytics': {
+            'current_pricing': False,
+            'simple_returns': False,
+            'multi_window_returns': False,
+            'volatility_metrics': False,
+            'correlation_analysis': False,
+            'alpha_attribution': False,
+            'advanced_analytics': False
+        },
+        'checks_passed': {},
+        'checks_failed': {},
+        'blocking_issues': [],
+        'informational_issues': [],
+        'suggested_actions': [],
+        'reason': 'UNKNOWN',
+        'reason_codes': [],
+        'details': '',
+        'checks': {
+            'has_weights': False,
+            'has_prices': False,
+            'has_benchmark': False,
+            'has_nav': False,
+            'is_fresh': False,
+            'has_sufficient_history': False,
+        },
+        'missing_tickers': [],
+        'missing_benchmark_tickers': [],
+        'stale_tickers': [],
+        'coverage_pct': 0.0,
+        'history_days': 0,
+        'stale_days_max': 0,
+        'missing_dates': {'earliest': None, 'latest': None},
+        'history_window_used': {'start': None, 'end': None},
+        'source_used': 'cache',
+        'exception': None
+    }
+    
+    # Check 1: Wave exists in registry
+    all_wave_ids = get_all_wave_ids()
+    if wave_id not in all_wave_ids:
+        result['reason'] = 'WAVE_NOT_FOUND'
+        result['reason_codes'].append('WAVE_NOT_FOUND')
+        result['readiness_reasons'].append(f"Wave ID '{wave_id}' is not registered")
+        result['blocking_issues'].append('WAVE_NOT_FOUND')
+        result['suggested_actions'].append('Verify wave ID and ensure it exists in WAVE_ID_REGISTRY')
+        result['details'] = f"Wave ID '{wave_id}' is not registered in WAVE_ID_REGISTRY"
+        result['checks_failed']['wave_registry'] = {
+            'reason': 'Wave not found in registry',
+            'blocking': True
+        }
+        _log_readiness_result(result)
+        return result
+    
+    result['checks_passed']['wave_registry'] = True
+    
+    # Check 1b: SmartSafe cash waves are always exempt
+    try:
+        from waves_engine import is_smartsafe_cash_wave
+        if is_smartsafe_cash_wave(wave_id):
+            result['readiness_status'] = 'full'
+            result['is_ready'] = True
+            result['analytics_ready'] = True
+            result['readiness_reasons'] = ['EXEMPT (SmartSafe cash sleeve)']
+            result['allowed_analytics'] = {
+                'current_pricing': True,
+                'simple_returns': True,
+                'multi_window_returns': True,
+                'volatility_metrics': True,
+                'correlation_analysis': False,
+                'alpha_attribution': False,
+                'advanced_analytics': True
+            }
+            result['reason'] = 'EXEMPT'
+            result['reason_codes'] = ['EXEMPT', 'SMARTSAFE_CASH']
+            result['details'] = 'EXEMPT (SmartSafe cash sleeve)'
+            result['checks'] = {
+                'has_weights': True,
+                'has_prices': True,
+                'has_benchmark': False,
+                'has_nav': True,
+                'is_fresh': True,
+                'has_sufficient_history': True,
+            }
+            result['checks_passed'] = {
+                'wave_registry': True,
+                'has_weights': True,
+                'smartsafe_cash': True
+            }
+            result['missing_tickers'] = []
+            result['missing_benchmark_tickers'] = []
+            result['stale_tickers'] = []
+            result['coverage_pct'] = 100.0
+            result['history_days'] = 365
+            result['stale_days_max'] = 0
+            result['source_used'] = 'exempt'
+            _log_readiness_result(result)
+            return result
+    except (ImportError, AttributeError):
+        pass
+    
+    # Check 2: Has weights/holdings defined
+    tickers = resolve_wave_tickers(wave_id)
+    total_tickers = len(tickers) if tickers else 0
+    
+    if not tickers:
+        result['reason'] = 'MISSING_WEIGHTS'
+        result['reason_codes'].append('MISSING_WEIGHTS')
+        result['readiness_reasons'].append('No holdings defined for this wave')
+        result['blocking_issues'].append('MISSING_WEIGHTS')
+        result['suggested_actions'].append('Define holdings in WAVE_WEIGHTS configuration')
+        result['details'] = f"No holdings defined in WAVE_WEIGHTS for '{wave_id}'"
+        result['checks_failed']['has_weights'] = {
+            'reason': 'No holdings configuration found',
+            'blocking': True
+        }
+        _log_readiness_result(result)
+        return result
+    
+    result['checks']['has_weights'] = True
+    result['checks_passed']['has_weights'] = True
+    
+    # Get benchmark tickers for diagnostics
+    benchmark_specs = resolve_wave_benchmarks(wave_id)
+    benchmark_tickers = [ticker for ticker, _ in benchmark_specs]
+    
+    # Check 3: Load price data from cache
+    try:
+        # Load prices for wave tickers
+        prices_df = load_or_fetch_prices_cached(tickers)
+        
+        if prices_df.empty:
+            result['reason'] = 'MISSING_PRICES'
+            result['reason_codes'].append('MISSING_PRICES')
+            result['readiness_reasons'].append('No price data available')
+            result['blocking_issues'].append('MISSING_PRICES')
+            result['suggested_actions'].append('Price cache is empty - check network connectivity')
+            result['details'] = "No price data available from cache"
+            result['missing_tickers'] = tickers
+            result['source_used'] = 'none'
+            result['coverage_pct'] = 0.0
+            result['checks_failed']['has_prices'] = {
+                'reason': 'Price cache returned empty',
+                'blocking': True
+            }
+            _log_readiness_result(result)
+            return result
+        
+        result['checks']['has_prices'] = True
+        result['checks_passed']['has_prices'] = True
+        
+        # Record history window
+        first_date = prices_df.index[0]
+        last_date = prices_df.index[-1]
+        num_days = len(prices_df)
+        
+        result['history_window_used'] = {
+            'start': first_date.strftime('%Y-%m-%d'),
+            'end': last_date.strftime('%Y-%m-%d')
+        }
+        result['history_days'] = num_days
+        
+        # Check for missing tickers and calculate coverage
+        available_tickers = set(prices_df.columns)
+        expected_tickers = set(tickers)
+        missing = sorted(list(expected_tickers - available_tickers))
+        
+        # Also check for tickers with all NaN values
+        for ticker in available_tickers:
+            if prices_df[ticker].isna().all():
+                if ticker not in missing:
+                    missing.append(ticker)
+        
+        result['missing_tickers'] = missing
+        coverage = (total_tickers - len(missing)) / total_tickers if total_tickers > 0 else 0.0
+        coverage_pct = coverage * 100.0
+        result['coverage_pct'] = coverage_pct
+        
+        # Check freshness
+        now = datetime.now()
+        days_since_last = (now - last_date).days
+        is_fresh = days_since_last <= MAX_STALE_DAYS
+        result['checks']['is_fresh'] = is_fresh
+        
+        if is_fresh:
+            result['checks_passed']['is_fresh'] = True
+        else:
+            result['reason_codes'].append('STALE_DATA')
+            result['informational_issues'].append('STALE_DATA')
+            result['readiness_reasons'].append(f'Data is {days_since_last} days old (max: {MAX_STALE_DAYS})')
+            result['suggested_actions'].append('Refresh price cache to get latest data')
+        
+        # Identify stale tickers (tickers with data but last update is old)
+        stale_tickers = []
+        stale_days_max = 0
+        stale_cutoff = now - timedelta(days=MAX_STALE_DAYS)
+        
+        for ticker in tickers:
+            if ticker in prices_df.columns:
+                ticker_data = prices_df[ticker].dropna()
+                if not ticker_data.empty:
+                    ticker_last_date = ticker_data.index[-1]
+                    if ticker_last_date < stale_cutoff:
+                        stale_tickers.append(ticker)
+                        days_old = (now - ticker_last_date).days
+                        stale_days_max = max(stale_days_max, days_old)
+        
+        result['stale_tickers'] = stale_tickers
+        result['stale_days_max'] = stale_days_max
+        
+        # Check for benchmark data
+        has_benchmark = False
+        if benchmark_tickers:
+            benchmark_df = load_or_fetch_prices_cached(benchmark_tickers)
+            has_benchmark = not benchmark_df.empty
+        
+        if has_benchmark:
+            result['checks']['has_benchmark'] = True
+            result['checks_passed']['has_benchmark'] = True
+        else:
+            result['reason_codes'].append('MISSING_BENCHMARK')
+            result['informational_issues'].append('MISSING_BENCHMARK')
+            result['readiness_reasons'].append('Benchmark data missing (limits some analytics)')
+            result['suggested_actions'].append('Ensure benchmark tickers are valid')
+            result['missing_benchmark_tickers'] = benchmark_tickers
+        
+        # Graded readiness evaluation
+        # Level 1: OPERATIONAL (can display current state)
+        if coverage_pct >= (MIN_COVERAGE_OPERATIONAL * 100) and num_days >= MIN_DAYS_OPERATIONAL:
+            result['readiness_status'] = 'operational'
+            result['is_ready'] = True
+            result['allowed_analytics']['current_pricing'] = True
+            result['allowed_analytics']['simple_returns'] = num_days >= MIN_DAYS_OPERATIONAL
+            
+            if missing:
+                result['readiness_reasons'].append(
+                    f'Wave is operational with {coverage_pct:.1f}% coverage ({len(missing)} tickers missing)'
+                )
+            else:
+                result['readiness_reasons'].append('Wave is operational with full ticker coverage')
+            
+            # Level 2: PARTIAL (can run basic analytics)
+            if coverage_pct >= (MIN_COVERAGE_PARTIAL * 100) and num_days >= MIN_DAYS_PARTIAL:
+                result['readiness_status'] = 'partial'
+                result['allowed_analytics']['volatility_metrics'] = True
+                result['allowed_analytics']['correlation_analysis'] = has_benchmark
+                
+                if num_days < MIN_DAYS_FULL:
+                    result['readiness_reasons'].append(
+                        f'Partial readiness: {num_days} days of history (need {MIN_DAYS_FULL} for full analytics)'
+                    )
+                    result['informational_issues'].append('INSUFFICIENT_FULL_HISTORY')
+                    result['suggested_actions'].append(
+                        f'Fetch more historical data for full analytics capability'
+                    )
+                
+                # Level 3: FULL (all analytics available)
+                if (coverage_pct >= (MIN_COVERAGE_FULL * 100) and 
+                    num_days >= MIN_DAYS_FULL and 
+                    has_benchmark):
+                    result['readiness_status'] = 'full'
+                    result['allowed_analytics']['multi_window_returns'] = True
+                    result['allowed_analytics']['alpha_attribution'] = True
+                    result['allowed_analytics']['advanced_analytics'] = True
+                    result['readiness_reasons'] = ['Wave is fully ready: all analytics available']
+                    result['reason'] = 'READY'
+                    result['reason_codes'] = ['READY'] + result['reason_codes']
+                    result['details'] = f'All checks passed. {num_days} days of fresh data with {coverage_pct:.1f}% coverage'
+        
+        # Compute analytics_ready flag
+        result['analytics_ready'] = (
+            (coverage_pct / 100.0) >= MIN_COVERAGE_FOR_ANALYTICS and 
+            num_days >= MIN_DAYS_FOR_ANALYTICS
+        )
+        
+        if not result['analytics_ready'] and result['is_ready']:
+            if (coverage_pct / 100.0) < MIN_COVERAGE_FOR_ANALYTICS:
+                result['informational_issues'].append('ANALYTICS_LIMITED_COVERAGE')
+                result['readiness_reasons'].append(
+                    f'Analytics limited: coverage {coverage_pct:.1f}% (need {MIN_COVERAGE_FOR_ANALYTICS*100:.0f}% for full analytics)'
+                )
+            if num_days < MIN_DAYS_FOR_ANALYTICS:
+                result['informational_issues'].append('ANALYTICS_LIMITED_HISTORY')
+                result['readiness_reasons'].append(
+                    f'Analytics limited: {num_days} days history (need {MIN_DAYS_FOR_ANALYTICS} days for full analytics)'
+                )
+        
+        if not result['is_ready']:
+            # Below operational threshold
+            if coverage_pct < (MIN_COVERAGE_OPERATIONAL * 100):
+                issue = f'Insufficient coverage: {coverage_pct:.1f}% (need {MIN_COVERAGE_OPERATIONAL*100:.0f}% for operational)'
+                result['blocking_issues'].append('LOW_COVERAGE')
+                result['readiness_reasons'].append(issue)
+                result['suggested_actions'].append(
+                    f'Improve coverage from {coverage_pct:.1f}% to {MIN_COVERAGE_OPERATIONAL*100:.0f}%'
+                )
+            
+            if num_days < MIN_DAYS_OPERATIONAL:
+                issue = f'Insufficient history: {num_days} days (need {MIN_DAYS_OPERATIONAL} for operational)'
+                result['blocking_issues'].append('INSUFFICIENT_HISTORY')
+                result['readiness_reasons'].append(issue)
+                result['suggested_actions'].append(
+                    f'Fetch at least {MIN_DAYS_OPERATIONAL - num_days} more days of history'
+                )
+        
+        # Set legacy fields
+        if result['readiness_status'] in ['operational', 'partial', 'full']:
+            if not result['reason_codes'] or result['reason_codes'][0] != 'READY':
+                result['reason'] = 'OPERATIONAL'
+                if 'OPERATIONAL' not in result['reason_codes']:
+                    result['reason_codes'].insert(0, 'OPERATIONAL')
+        else:
+            if not result['reason']:
+                result['reason'] = result['blocking_issues'][0] if result['blocking_issues'] else 'UNAVAILABLE'
+        
+        if not result['details']:
+            result['details'] = '; '.join(result['readiness_reasons']) if result['readiness_reasons'] else 'Unknown status'
+        
+        if num_days >= MIN_DAYS_OPERATIONAL:
+            result['checks']['has_sufficient_history'] = True
+            result['checks_passed']['has_sufficient_history'] = True
+        
+        _log_readiness_result(result)
+        
+    except Exception as e:
+        result['reason'] = 'DATA_READ_ERROR'
+        result['reason_codes'].append('DATA_READ_ERROR')
+        result['readiness_reasons'].append(f'Error reading data: {str(e)}')
+        result['blocking_issues'].append('DATA_READ_ERROR')
+        result['suggested_actions'].append('Check price cache integrity')
+        result['details'] = f"Error reading price data: {str(e)}"
+        result['exception'] = str(e)
+        result['checks_failed']['data_read'] = {
+            'reason': f'Exception reading data: {str(e)}',
+            'blocking': True,
+            'exception_type': type(e).__name__
+        }
+        _log_readiness_result(result)
+    
+    return result
+
+
+def compute_data_ready_status(wave_id: str, use_cache: bool = True) -> Dict[str, Any]:
     """
     Compute comprehensive data readiness status for a wave with graded diagnostics.
     
@@ -1176,6 +1554,7 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     
     Args:
         wave_id: The wave identifier
+        use_cache: If True, use centralized cache (default). If False, use legacy file-based approach.
         
     Returns:
         Dictionary with graded readiness diagnostics:
@@ -1211,6 +1590,14 @@ def compute_data_ready_status(wave_id: str) -> Dict[str, Any]:
     """
     from datetime import datetime, timezone
     import logging
+    
+    # Try to use cache-based version if requested
+    if use_cache:
+        try:
+            return compute_data_ready_status_from_cache(wave_id)
+        except Exception as e:
+            logger.warning(f"Cache-based readiness check failed for {wave_id}, falling back: {e}")
+            # Fall through to legacy version
     
     # Initialize response with graded readiness fields
     result = {
