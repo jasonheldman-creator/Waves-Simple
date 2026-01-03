@@ -4812,15 +4812,49 @@ def get_mission_control_data():
                 
                 mc_data['data_ready_count'] = data_ready_count
         
-        # System status based on data age
-        if age_days <= 1:
-            mc_data['system_status'] = 'Excellent'
-        elif age_days <= 3:
-            mc_data['system_status'] = 'Good'
-        elif age_days <= 7:
-            mc_data['system_status'] = 'Fair'
-        else:
-            mc_data['system_status'] = 'Stale'
+        # System status based on PRICE_BOOK data age (not wave_history)
+        # This ensures we don't show STALE due to irrelevant tickers
+        try:
+            from helpers.price_loader import check_cache_readiness
+            cache_readiness = check_cache_readiness(active_only=True)
+            
+            if cache_readiness.get('days_stale') is not None:
+                price_age_days = cache_readiness['days_stale']
+                
+                # Use price cache age for system status (active tickers only)
+                if price_age_days <= 1:
+                    mc_data['system_status'] = 'Excellent'
+                elif price_age_days <= 3:
+                    mc_data['system_status'] = 'Good'
+                elif price_age_days <= 5:  # Increased threshold for price data
+                    mc_data['system_status'] = 'Fair'
+                else:
+                    mc_data['system_status'] = 'Stale'
+                
+                # Update data freshness to reflect PRICE_BOOK
+                if cache_readiness.get('max_date'):
+                    mc_data['data_freshness'] = cache_readiness['max_date']
+                    mc_data['data_age_days'] = price_age_days
+            else:
+                # Fallback to wave_history age if cache readiness unavailable
+                if age_days <= 1:
+                    mc_data['system_status'] = 'Excellent'
+                elif age_days <= 3:
+                    mc_data['system_status'] = 'Good'
+                elif age_days <= 7:
+                    mc_data['system_status'] = 'Fair'
+                else:
+                    mc_data['system_status'] = 'Stale'
+        except Exception:
+            # Fallback to original logic if price cache check fails
+            if age_days <= 1:
+                mc_data['system_status'] = 'Excellent'
+            elif age_days <= 3:
+                mc_data['system_status'] = 'Good'
+            elif age_days <= 7:
+                mc_data['system_status'] = 'Fair'
+            else:
+                mc_data['system_status'] = 'Stale'
         
         # Calculate Market Regime based on recent returns
         recent_days = 5
@@ -16820,13 +16854,13 @@ def render_diagnostics_tab():
         if not readiness['ready']:
             if not readiness['exists']:
                 st.warning(
-                    "⚠️ **Cache file is missing!** Click '💰 Refresh Prices Cache' in the sidebar to build the cache.",
+                    "⚠️ **Cache file is missing!** Click '💰 Rebuild Price Cache (Active Tickers Only)' in the sidebar to build the cache.",
                     icon="⚠️"
                 )
             else:
                 st.warning(
                     f"⚠️ **Cache is not ready:** {readiness['status']}\n\n"
-                    "Click '💰 Refresh Prices Cache' in the sidebar to update.",
+                    "Click '💰 Rebuild Price Cache (Active Tickers Only)' in the sidebar to update.",
                     icon="⚠️"
                 )
         
