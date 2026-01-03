@@ -17276,20 +17276,27 @@ def render_diagnostics_tab():
                 with col2:
                     # Download button for immediate download
                     try:
-                        # Create CSV content for download
-                        csv_rows = []
-                        csv_rows.append("ticker_original,ticker_normalized,failure_type,error_message,failure_count,impacted_waves,suggested_fix,first_seen,last_seen,is_fatal")
+                        # Create CSV content for download using csv module
+                        import io
+                        import csv as csv_module
+                        
+                        output = io.StringIO()
+                        fieldnames = [
+                            'ticker_original', 'ticker_normalized', 'failure_type', 
+                            'error_message', 'failure_count', 'impacted_waves',
+                            'suggested_fix', 'first_seen', 'last_seen', 'is_fatal'
+                        ]
+                        writer = csv_module.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+                        writer.writeheader()
                         
                         for ticker in broken_tickers:
-                            # Escape commas in fields
-                            waves_str = ticker.get('impacted_waves_str', '').replace('"', '""')
-                            error_msg = ticker.get('error_message', '').replace('"', '""')
-                            suggested_fix = ticker.get('suggested_fix', '').replace('"', '""')
-                            
-                            row = f'"{ticker.get("ticker_original", "")}","{ticker.get("ticker_normalized", "")}","{ticker.get("failure_type", "")}","{error_msg}",{ticker.get("failure_count", 0)},"{waves_str}","{suggested_fix}","{ticker.get("first_seen", "")}","{ticker.get("last_seen", "")}",{ticker.get("is_fatal", True)}'
-                            csv_rows.append(row)
+                            # Create a copy and convert impacted_waves list to string
+                            row = ticker.copy()
+                            row['impacted_waves'] = row.get('impacted_waves_str', 
+                                                            ', '.join(row.get('impacted_waves', [])))
+                            writer.writerow(row)
                         
-                        csv_content = "\n".join(csv_rows)
+                        csv_content = output.getvalue()
                         
                         st.download_button(
                             label="📥 Download Failed Tickers CSV",
@@ -17303,6 +17310,176 @@ def render_diagnostics_tab():
                 
         except Exception as e:
             st.error(f"Error loading failed tickers diagnostics: {str(e)}")
+            import traceback
+            with st.expander("View Error Details", expanded=False):
+                st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 6.9: Active Price Source Diagnostics
+    # ========================================================================
+    st.subheader("💰 Active Price Source Details")
+    
+    with st.expander("📊 Price Cache Information - Click to expand", expanded=False):
+        try:
+            from helpers.price_loader import get_cache_info, CACHE_PATH
+            from data_cache import collect_all_required_tickers
+            from waves_engine import get_all_waves_universe
+            
+            st.markdown("### Price Cache Status")
+            
+            # Get cache information
+            cache_info = get_cache_info()
+            
+            if cache_info['exists']:
+                # Display cache path
+                st.markdown("#### Cache Details")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.text(f"📁 Cache Path:")
+                    st.code(cache_info['path'], language=None)
+                
+                with col2:
+                    st.metric("File Size", f"{cache_info['size_mb']:.2f} MB")
+                
+                # Display data shape
+                st.markdown("#### Data Shape")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Rows (Days)", cache_info['num_days'])
+                
+                with col2:
+                    st.metric("Columns (Tickers)", cache_info['num_tickers'])
+                
+                with col3:
+                    total_data_points = cache_info['num_days'] * cache_info['num_tickers']
+                    st.metric("Total Data Points", f"{total_data_points:,}")
+                
+                # Display date range
+                st.markdown("#### Date Range")
+                if cache_info['date_range'][0] and cache_info['date_range'][1]:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.metric("Start Date", cache_info['date_range'][0])
+                    
+                    with col2:
+                        st.metric("End Date", cache_info['date_range'][1])
+                    
+                    # Calculate days span
+                    try:
+                        from datetime import datetime
+                        start = datetime.strptime(cache_info['date_range'][0], '%Y-%m-%d')
+                        end = datetime.strptime(cache_info['date_range'][1], '%Y-%m-%d')
+                        days_span = (end - start).days
+                        st.info(f"📅 Total span: {days_span} calendar days")
+                    except Exception:
+                        pass
+                else:
+                    st.warning("Date range information not available")
+                
+                # Display first 20 columns
+                st.markdown("#### First 20 Tickers in Cache")
+                if cache_info['tickers']:
+                    first_20_tickers = cache_info['tickers'][:20]
+                    
+                    # Display in 4 columns for better layout
+                    cols = st.columns(4)
+                    for idx, ticker in enumerate(first_20_tickers):
+                        with cols[idx % 4]:
+                            st.text(f"{idx + 1}. {ticker}")
+                    
+                    if cache_info['num_tickers'] > 20:
+                        st.caption(f"... and {cache_info['num_tickers'] - 20} more tickers")
+                else:
+                    st.warning("No tickers found in cache")
+                
+                st.markdown("---")
+                
+                # Ticker count comparison
+                st.markdown("### Ticker Count Comparison")
+                
+                try:
+                    # Get wave registry to collect required tickers
+                    wave_universe = get_all_waves_universe()
+                    
+                    # Build wave registry dict from waves engine
+                    from waves_engine import WAVE_WEIGHTS
+                    wave_registry = WAVE_WEIGHTS
+                    
+                    # Collect required tickers
+                    required_tickers = collect_all_required_tickers(
+                        wave_registry,
+                        include_benchmarks=True,
+                        include_safe_assets=True,
+                        active_only=False
+                    )
+                    
+                    # Count tickers
+                    cache_ticker_count = cache_info['num_tickers']
+                    required_ticker_count = len(required_tickers)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Tickers in Cache", cache_ticker_count)
+                    
+                    with col2:
+                        st.metric("Required Tickers", required_ticker_count)
+                    
+                    with col3:
+                        coverage_pct = (cache_ticker_count / required_ticker_count * 100) if required_ticker_count > 0 else 0
+                        st.metric("Coverage", f"{coverage_pct:.1f}%")
+                    
+                    # Show missing or extra tickers
+                    cache_tickers_set = set(cache_info['tickers'])
+                    required_tickers_set = set(required_tickers)
+                    
+                    missing_tickers = sorted(required_tickers_set - cache_tickers_set)
+                    extra_tickers = sorted(cache_tickers_set - required_tickers_set)
+                    
+                    if missing_tickers:
+                        with st.expander(f"⚠️ Missing Tickers ({len(missing_tickers)})", expanded=False):
+                            st.caption("These tickers are required but not in cache:")
+                            cols = st.columns(4)
+                            for idx, ticker in enumerate(missing_tickers[:50]):  # Show first 50
+                                with cols[idx % 4]:
+                                    st.text(f"• {ticker}")
+                            if len(missing_tickers) > 50:
+                                st.caption(f"... and {len(missing_tickers) - 50} more")
+                    
+                    if extra_tickers:
+                        with st.expander(f"ℹ️ Extra Tickers ({len(extra_tickers)})", expanded=False):
+                            st.caption("These tickers are in cache but not currently required:")
+                            cols = st.columns(4)
+                            for idx, ticker in enumerate(extra_tickers[:50]):  # Show first 50
+                                with cols[idx % 4]:
+                                    st.text(f"• {ticker}")
+                            if len(extra_tickers) > 50:
+                                st.caption(f"... and {len(extra_tickers) - 50} more")
+                    
+                    if not missing_tickers and not extra_tickers:
+                        st.success("✅ Perfect match: All required tickers are in cache, no extras")
+                    elif not missing_tickers:
+                        st.success("✅ All required tickers are available in cache")
+                    
+                except Exception as e:
+                    st.error(f"Error comparing ticker counts: {str(e)}")
+                    import traceback
+                    with st.expander("View Error Details", expanded=False):
+                        st.code(traceback.format_exc(), language="python")
+            else:
+                st.warning("⚠️ Price cache file does not exist")
+                st.info(f"Expected location: {CACHE_PATH}")
+                st.caption("The price cache may need to be built. Try using the 'Force Reload Actions' below.")
+        
+        except ImportError as e:
+            st.error(f"Required module not available: {str(e)}")
+        except Exception as e:
+            st.error(f"Error loading price source diagnostics: {str(e)}")
             import traceback
             with st.expander("View Error Details", expanded=False):
                 st.code(traceback.format_exc(), language="python")
