@@ -2,15 +2,15 @@
 
 ## Overview
 
-This implementation successfully expands the crypto universe from 35 to 202 Growth & Income cryptocurrencies while maintaining strict asset class separation and ensuring no regressions to existing equity wave functionality.
+This implementation successfully expands the crypto universe from 35 to 201 Growth & Income cryptocurrencies while maintaining strict asset class separation and ensuring no regressions to existing equity wave functionality.
 
 ## Changes Made
 
 ### 1. Universal Universe CSV Expansion
 - **File**: `universal_universe.csv`
-- **Change**: Added 168 new crypto assets (34 existing + 168 new = 202 total)
+- **Change**: Added 166 new crypto assets (35 existing + 166 new = 201 total)
 - **Asset Classes Maintained**:
-  - Crypto: 202 assets (expanded from 35)
+  - Crypto: 201 assets (expanded from 35)
   - Equity: 58 assets (unchanged)
   - ETF: 33 assets (unchanged)
   - Fixed Income: 15 assets (unchanged)
@@ -18,12 +18,13 @@ This implementation successfully expands the crypto universe from 35 to 202 Grow
 
 ### 2. Ticker Normalization Updates
 - **File**: `waves_engine.py`
-- **Change**: Expanded `TICKER_ALIASES` dictionary from 35 to 202 crypto ticker mappings
+- **Change**: Expanded `TICKER_ALIASES` dictionary from 35 to 201 crypto ticker mappings
 - **Purpose**: Ensures all crypto tickers are normalized to their `-USD` suffix for yfinance compatibility
+- **Note**: RNDR mapped to RENDER-USD (ticker rebrand handled)
 
 ### 3. Supporting Scripts
 - **Created**: `merge_crypto_expansion.py` - Utility script to merge crypto expansions into universal universe
-- **Created**: `crypto_universe_expansion.csv` - Source file containing 202 crypto assets with metadata
+- **Created**: `crypto_universe_expansion.csv` - Source file containing 201 crypto assets with metadata
 - **Created**: `test_crypto_universe_expansion.py` - Comprehensive validation test suite
 
 ## Implementation Approach
@@ -41,7 +42,7 @@ The implementation follows **Option 2** from the requirements:
 
 ## Crypto Asset Selection Criteria
 
-The 202 crypto assets were selected based on:
+The 201 crypto assets were selected based on:
 
 1. **Market Capitalization**: Top ~200 by market cap (as of late 2024/early 2025)
 2. **Liquidity**: Focus on liquid, actively traded assets
@@ -79,11 +80,11 @@ The 202 crypto assets were selected based on:
 ## Validation & Testing
 
 ### Automated Tests
-1. **Universe Loading**: ✓ Loads 310 total assets
-2. **Asset Class Filtering**: ✓ Crypto returns 202, Equity returns 58
+1. **Universe Loading**: ✓ Loads 309 total assets
+2. **Asset Class Filtering**: ✓ Crypto returns 201, Equity returns 58
 3. **Crypto Wave Purity**: ✓ All 6 crypto waves use only crypto assets
 4. **Equity Wave Purity**: ✓ All 21 pure equity waves contain no crypto
-5. **Ticker Normalization**: ✓ All 202 crypto tickers have aliases
+5. **Ticker Normalization**: ✓ All 201 crypto tickers have aliases
 6. **No Duplicates**: ✓ No duplicate tickers across asset classes
 
 ### Manual Verification
@@ -99,7 +100,7 @@ The 202 crypto assets were selected based on:
 - **Implementation**: Single CSV with `asset_class` column (Option 2)
 - **Evidence**: 
   - `universal_universe.csv` has `asset_class` column
-  - `get_tickers_by_asset_class('crypto')` returns 202 crypto tickers
+  - `get_tickers_by_asset_class('crypto')` returns 201 crypto tickers
   - `get_tickers_by_asset_class('equity')` returns 58 equity tickers
   - No overlap between asset classes
 
@@ -117,7 +118,7 @@ The 202 crypto assets were selected based on:
    
 2. **Integration must not introduce regressions or merge asset classes ambiguously**: ✓
    - All tests pass
-   - No duplicate tickers
+   - No duplicate tickers (RNDR duplicate removed, mapped to RENDER-USD)
    - Clear asset_class separation
    - Equity waves unchanged
 
@@ -133,12 +134,12 @@ The 202 crypto assets were selected based on:
 
 ## Files Modified
 
-1. `universal_universe.csv` - Expanded from 143 to 310 assets
-2. `waves_engine.py` - Updated TICKER_ALIASES from 35 to 202 crypto mappings
+1. `universal_universe.csv` - Expanded from 143 to 309 assets
+2. `waves_engine.py` - Updated TICKER_ALIASES from 35 to 201 crypto mappings
 
 ## Files Created
 
-1. `crypto_universe_expansion.csv` - Source data for 202 crypto assets
+1. `crypto_universe_expansion.csv` - Source data for 201 crypto assets
 2. `merge_crypto_expansion.py` - Merge utility script
 3. `test_crypto_universe_expansion.py` - Validation test suite
 4. `universal_universe.csv.backup` - Backup of original universe
@@ -167,11 +168,12 @@ The 202 crypto assets were selected based on:
 ## Conclusion
 
 The crypto universe expansion has been successfully implemented with:
-- ✓ 202 crypto assets (target: 200-250)
+- ✓ 201 crypto assets (target: 200-250)
 - ✓ Clean asset class separation
 - ✓ Zero regressions to equity functionality
 - ✓ All acceptance criteria met
 - ✓ Comprehensive test coverage
+- ✓ Duplicate ticker (RNDR) resolved and mapped to RENDER-USD
 
 The implementation follows best practices:
 - Minimal code changes (only ticker aliases)
@@ -183,6 +185,6 @@ The implementation follows best practices:
 ---
 
 **Implementation Date**: January 3, 2026  
-**Crypto Assets**: 202  
-**Total Assets**: 310  
+**Crypto Assets**: 201  
+**Total Assets**: 309  
 **Test Coverage**: 100% of acceptance criteria

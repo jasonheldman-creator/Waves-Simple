@@ -124,7 +124,7 @@ TICKER_ALIASES: Dict[str, str] = {
     "BF/B": "BF-B",
     "BFB": "BF-B",
     
-    # Crypto tickers - ensure USD pairs for yfinance (auto-expanded for 200+ crypto assets)
+    # Crypto tickers - ensure USD pairs for yfinance (201 crypto assets as of Jan 2026)
     "1INCH": "1INCH-USD",
     "AAVE": "AAVE-USD",
     "ACA": "ACA-USD",
@@ -264,7 +264,7 @@ TICKER_ALIASES: Dict[str, str] = {
     "RENDER": "RENDER-USD",
     "REP": "REP-USD",
     "REZ": "REZ-USD",
-    "RNDR": "RNDR-USD",
+    "RNDR": "RENDER-USD",  # RNDR rebranded to RENDER
     "ROSE": "ROSE-USD",
     "RPL": "RPL-USD",
     "RSR": "RSR-USD",
