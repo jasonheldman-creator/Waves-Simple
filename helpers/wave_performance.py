@@ -23,7 +23,7 @@ Usage:
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -236,6 +236,21 @@ def compute_wave_returns(
     return result
 
 
+def _get_return_column_name(period: int) -> str:
+    """
+    Get the display column name for a return period.
+    
+    Helper function to ensure consistent column naming across the module.
+    
+    Args:
+        period: Number of days (e.g., 1, 30, 60, 365)
+        
+    Returns:
+        Column name (e.g., "1D Return" for 1, "30D" for 30)
+    """
+    return f'{period}D Return' if period == 1 else f'{period}D'
+
+
 def compute_all_waves_performance(
     price_book: pd.DataFrame,
     periods: List[int] = [1, 30, 60, 365]
@@ -290,12 +305,13 @@ def compute_all_waves_performance(
         for period in periods:
             key = f'{period}D'
             ret_value = wave_result['returns'].get(key)
+            col_name = _get_return_column_name(period)
             
             if ret_value is not None and not pd.isna(ret_value):
                 # Format as percentage: +5% or -3%
-                row[f'{period}D Return' if period == 1 else f'{period}D'] = f"{ret_value * 100:+.0f}%"
+                row[col_name] = f"{ret_value * 100:+.0f}%"
             else:
-                row[f'{period}D Return' if period == 1 else f'{period}D'] = 'N/A'
+                row[col_name] = 'N/A'
         
         # Determine status/confidence based on coverage and success
         if wave_result['success']:
@@ -318,7 +334,7 @@ def compute_all_waves_performance(
     
     # Reorder columns for display - only include columns that exist
     base_columns = ['Wave']
-    period_columns = [f'{period}D Return' if period == 1 else f'{period}D' for period in periods]
+    period_columns = [_get_return_column_name(period) for period in periods]
     footer_columns = ['Status/Confidence', 'Coverage_Pct', 'Failure_Reason']
     
     display_columns = base_columns + period_columns + footer_columns
