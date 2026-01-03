@@ -156,6 +156,7 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
         # Import waves_engine to get wave definitions
         from waves_engine import (
             get_all_wave_ids, 
+            get_display_name_from_wave_id,
             WAVE_WEIGHTS, 
             BENCHMARK_WEIGHTS_STATIC,
             is_smartsafe_cash_wave
@@ -180,30 +181,50 @@ def collect_required_tickers(active_only: bool = True) -> List[str]:
                 )
                 all_wave_ids = [wid for wid in all_wave_ids if wid in active_wave_ids]
                 logger.info(f"Filtered to {len(all_wave_ids)} active waves")
+                # Debug: Log first 10 active wave IDs
+                logger.info(f"First 10 active wave IDs: {all_wave_ids[:10]}")
         
         # Collect tickers from wave holdings (ONLY from active waves)
+        ticker_count_per_wave = {}  # Track tickers per wave for debugging
         for wave_id in all_wave_ids:
             # Skip SmartSafe cash waves - they don't need price data
             if is_smartsafe_cash_wave(wave_id):
                 logger.debug(f"Skipping SmartSafe cash wave: {wave_id}")
                 continue
             
-            # Get wave weights (holdings)
-            wave_weights = WAVE_WEIGHTS.get(wave_id, [])
+            # Convert wave_id to display_name to look up in WAVE_WEIGHTS
+            display_name = get_display_name_from_wave_id(wave_id)
+            if not display_name:
+                logger.warning(f"Could not get display name for wave_id: {wave_id}")
+                continue
+            
+            wave_tickers_before = len(tickers)
+            
+            # Get wave weights (holdings) using display_name
+            wave_weights = WAVE_WEIGHTS.get(display_name, [])
             for holding in wave_weights:
                 if hasattr(holding, 'ticker'):
                     tickers.add(holding.ticker)
                 elif isinstance(holding, dict) and 'ticker' in holding:
                     tickers.add(holding['ticker'])
             
-            # Get benchmark weights for this wave
-            benchmark_weights = BENCHMARK_WEIGHTS_STATIC.get(wave_id, [])
+            # Get benchmark weights for this wave using display_name
+            benchmark_weights = BENCHMARK_WEIGHTS_STATIC.get(display_name, [])
             for benchmark in benchmark_weights:
                 # Benchmark can be (ticker, weight) tuple or dict
                 if isinstance(benchmark, tuple) and len(benchmark) >= 1:
                     tickers.add(benchmark[0])
                 elif isinstance(benchmark, dict) and 'ticker' in benchmark:
                     tickers.add(benchmark['ticker'])
+            
+            # Track how many tickers this wave contributed
+            wave_tickers_count = len(tickers) - wave_tickers_before
+            ticker_count_per_wave[wave_id] = wave_tickers_count
+        
+        # Log ticker counts per wave for debugging (first 10 waves)
+        if ticker_count_per_wave:
+            sample_waves = list(ticker_count_per_wave.items())[:10]
+            logger.info(f"Ticker counts for first 10 waves: {sample_waves}")
         
         # Add essential market indicators (always included for system health)
         # These are used across multiple components for diagnostics
