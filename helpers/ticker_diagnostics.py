@@ -12,6 +12,7 @@ from typing import List, Dict, Optional, Any
 import csv
 import os
 from pathlib import Path
+import io
 
 
 class FailureType(Enum):
@@ -278,7 +279,11 @@ def load_broken_tickers_from_csv(csv_path: str = "data/broken_tickers.csv") -> L
         - is_fatal: Whether the failure is fatal
         - failure_count: Number of waves this ticker fails in
     """
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError:
+        print("Warning: pandas not available, cannot load broken tickers")
+        return []
     
     if not os.path.exists(csv_path):
         return []

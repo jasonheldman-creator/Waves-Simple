@@ -17276,20 +17276,27 @@ def render_diagnostics_tab():
                 with col2:
                     # Download button for immediate download
                     try:
-                        # Create CSV content for download
-                        csv_rows = []
-                        csv_rows.append("ticker_original,ticker_normalized,failure_type,error_message,failure_count,impacted_waves,suggested_fix,first_seen,last_seen,is_fatal")
+                        # Create CSV content for download using csv module
+                        import io
+                        import csv as csv_module
+                        
+                        output = io.StringIO()
+                        fieldnames = [
+                            'ticker_original', 'ticker_normalized', 'failure_type', 
+                            'error_message', 'failure_count', 'impacted_waves',
+                            'suggested_fix', 'first_seen', 'last_seen', 'is_fatal'
+                        ]
+                        writer = csv_module.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+                        writer.writeheader()
                         
                         for ticker in broken_tickers:
-                            # Escape commas in fields
-                            waves_str = ticker.get('impacted_waves_str', '').replace('"', '""')
-                            error_msg = ticker.get('error_message', '').replace('"', '""')
-                            suggested_fix = ticker.get('suggested_fix', '').replace('"', '""')
-                            
-                            row = f'"{ticker.get("ticker_original", "")}","{ticker.get("ticker_normalized", "")}","{ticker.get("failure_type", "")}","{error_msg}",{ticker.get("failure_count", 0)},"{waves_str}","{suggested_fix}","{ticker.get("first_seen", "")}","{ticker.get("last_seen", "")}",{ticker.get("is_fatal", True)}'
-                            csv_rows.append(row)
+                            # Create a copy and convert impacted_waves list to string
+                            row = ticker.copy()
+                            row['impacted_waves'] = row.get('impacted_waves_str', 
+                                                            ', '.join(row.get('impacted_waves', [])))
+                            writer.writerow(row)
                         
-                        csv_content = "\n".join(csv_rows)
+                        csv_content = output.getvalue()
                         
                         st.download_button(
                             label="📥 Download Failed Tickers CSV",
