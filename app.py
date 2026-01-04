@@ -13203,11 +13203,12 @@ def generate_board_pack_html():
     data_freshness = mc_data.get('data_freshness', 'unknown')
     data_age_days = mc_data.get('data_age_days', None)
     
+    # source of truth: helpers/price_book.py
     if data_age_days is not None:
-        if data_age_days <= 1:
+        if data_age_days <= PRICE_CACHE_OK_DAYS:
             confidence = "High"
             confidence_color = "#3c3"
-        elif data_age_days <= 3:
+        elif data_age_days <= PRICE_CACHE_DEGRADED_DAYS:
             confidence = "Medium"
             confidence_color = "#f90"
         else:
