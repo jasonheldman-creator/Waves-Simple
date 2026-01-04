@@ -1,0 +1,148 @@
+name: Update Price Cache (Option A1 Automation)
+
+# Schedule: Run daily at 6:00 AM UTC (after market close, before next day's pre-market)
+# Can also be triggered manually via workflow_dispatch
+on:
+  schedule:
+    # Run at 6:00 AM UTC every day (1:00 AM EST / 10:00 PM PST previous day)
+    - cron: '0 6 * * *'
+  
+  workflow_dispatch:
+    # Allow manual triggering with optional parameters
+    inputs:
+      active_only:
+        description: 'Fetch only active wave tickers'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  update-price-cache:
+    name: Update PRICE_BOOK Cache
+    runs-on: ubuntu-latest
+    
+    # Set timeout to prevent runaway jobs
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for proper git operations
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Configure git for commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Run price cache update
+        env:
+          # Enable price fetching for this workflow
+          PRICE_FETCH_ENABLED: 'true'
+          ALLOW_NETWORK_FETCH: 'true'
+        run: |
+          echo "Starting price cache update..."
+          echo "Active only: ${{ github.event.inputs.active_only || 'true' }}"
+          
+          # Run the price cache rebuild script
+          python -c "
+          import sys
+          import os
+          from helpers.price_book import rebuild_price_cache
+          
+          # Force user-initiated mode for explicit automation
+          active_only = '${{ github.event.inputs.active_only || 'true' }}' == 'true'
+          
+          print(f'Rebuilding price cache (active_only={active_only})...')
+          result = rebuild_price_cache(active_only=active_only, force_user_initiated=True)
+          
+          if not result.get('allowed'):
+              print(f'ERROR: Fetch not allowed - {result.get(\"message\")}')
+              sys.exit(1)
+          
+          if not result.get('success'):
+              print(f'ERROR: Fetch failed - {result.get(\"message\")}')
+              sys.exit(1)
+          
+          print(f'SUCCESS: Cache updated')
+          print(f'  Tickers requested: {result.get(\"tickers_requested\", 0)}')
+          print(f'  Tickers fetched: {result.get(\"tickers_fetched\", 0)}')
+          print(f'  Latest price date: {result.get(\"date_max\", \"N/A\")}')
+          print(f'  Failed tickers: {len(result.get(\"failures\", {}))}')
+          
+          # Exit with error if no tickers were fetched
+          if result.get('tickers_fetched', 0) == 0:
+              print('ERROR: No tickers were successfully fetched')
+              sys.exit(1)
+          "
+      
+      - name: Check for cache file changes
+        id: check_changes
+        run: |
+          # Check if price cache files were modified
+          if git diff --quiet data/cache/prices_cache.parquet data/cache/failed_tickers.csv; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Price cache files were updated"
+          fi
+      
+      - name: Commit and push updated cache
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          # Add only the cache files
+          git add data/cache/prices_cache.parquet data/cache/failed_tickers.csv
+          
+          # Create commit with timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          git commit -m "Update price cache - ${TIMESTAMP}
+          
+          Automated update via GitHub Actions (Option A1)
+          - Schedule: Daily at 6:00 AM UTC
+          - Triggered by: ${{ github.event_name }}
+          "
+          
+          # Push to main branch
+          git push origin main
+      
+      - name: Upload cache artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-cache-${{ github.run_number }}
+          path: |
+            data/cache/prices_cache.parquet
+            data/cache/failed_tickers.csv
+          retention-days: 30
+      
+      - name: Report summary
+        if: always()
+        run: |
+          echo "## Price Cache Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run number**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changes committed**: ${{ steps.check_changes.outputs.changed }}" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if cache files exist and show their sizes
+          if [ -f "data/cache/prices_cache.parquet" ]; then
+            CACHE_SIZE=$(du -h data/cache/prices_cache.parquet | cut -f1)
+            echo "- **Cache file size**: ${CACHE_SIZE}" >> $GITHUB_STEP_SUMMARY
+          fi
