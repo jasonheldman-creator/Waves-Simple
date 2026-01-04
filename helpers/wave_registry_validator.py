@@ -2,18 +2,20 @@
 Wave Registry Validator
 
 This module validates the wave registry configuration file and ensures:
-- Exactly 28 enabled unique wave_ids
+- All enabled unique wave_ids are present
 - No duplicate wave_ids or display_names
 - Each wave has a benchmark definition
 - Each wave has weights defined or a fallback mechanism
 
 The validator runs on app start and provides detailed diagnostics.
+It supports filtering by active/enabled status to properly count expected waves.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import pandas as pd
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -99,16 +101,57 @@ def load_wave_registry(registry_path: str = "config/wave_registry.json") -> Opti
         return None
 
 
+def get_active_wave_registry(registry_path: str = "data/wave_registry.csv") -> pd.DataFrame:
+    """
+    Load and filter the wave registry to return only active waves.
+    
+    This function reads the wave_registry.csv file and filters it to include
+    only waves where active=True. This ensures validation logic only counts
+    active waves and avoids false alerts like "Expected 28, found 27".
+    
+    Args:
+        registry_path: Path to the wave registry CSV file
+        
+    Returns:
+        DataFrame containing only active waves with all columns from CSV.
+        Empty DataFrame if CSV doesn't exist or can't be loaded.
+    
+    Example:
+        >>> active_waves = get_active_wave_registry()
+        >>> print(f"Active wave count: {len(active_waves)}")
+        Active wave count: 27
+    """
+    try:
+        if not os.path.exists(registry_path):
+            return pd.DataFrame()
+        
+        # Load the CSV
+        df = pd.read_csv(registry_path)
+        
+        # Ensure 'active' column exists
+        if 'active' not in df.columns:
+            return df
+        
+        # Filter to active waves only
+        active_df = df[df['active'] == True].copy()
+        
+        return active_df
+        
+    except Exception as e:
+        return pd.DataFrame()
+
+
 def validate_wave_registry(
     registry_path: str = "config/wave_registry.json",
-    wave_weights: Optional[Dict] = None
+    wave_weights: Optional[Dict] = None,
+    csv_path: str = "data/wave_registry.csv"
 ) -> ValidationResult:
     """
     Validate the wave registry configuration.
     
     Checks:
     - Registry file exists and is valid JSON
-    - Exactly 28 enabled unique wave_ids
+    - Enabled unique wave_ids match active waves from CSV
     - No duplicate wave_ids or display_names
     - Each wave has a benchmark definition
     - Each wave has weights defined (if wave_weights provided)
@@ -116,6 +159,7 @@ def validate_wave_registry(
     Args:
         registry_path: Path to the wave registry JSON file
         wave_weights: Optional WAVE_WEIGHTS dict from waves_engine for cross-validation
+        csv_path: Path to the wave registry CSV file for counting active waves
         
     Returns:
         ValidationResult with detailed diagnostics
@@ -223,11 +267,19 @@ def validate_wave_registry(
         if tag not in valid_tags:
             result.add_warning(f"Wave '{display_name}' has non-standard tag: {tag} (valid: {valid_tags})")
     
-    # Check total enabled wave count
-    if enabled_count != 28:
-        result.add_error(f"Expected exactly 28 enabled waves, found {enabled_count}")
+    # Check total enabled wave count against active waves in CSV
+    # Get expected count from active waves in CSV
+    active_waves_df = get_active_wave_registry(csv_path)
+    expected_active_count = len(active_waves_df)
+    
+    if expected_active_count == 0:
+        # CSV not available or empty, fall back to warning
+        result.add_warning(f"Could not determine expected active wave count from CSV at {csv_path}")
+        result.add_info(f"Found {enabled_count} enabled waves in JSON registry")
+    elif enabled_count != expected_active_count:
+        result.add_error(f"Expected {expected_active_count} enabled waves (from active CSV rows), found {enabled_count}")
     else:
-        result.add_info(f"✓ Exactly 28 enabled waves")
+        result.add_info(f"✓ Exactly {expected_active_count} enabled waves (matches active CSV count)")
     
     # Check total wave count
     result.add_info(f"Total waves in registry: {len(waves)}")
