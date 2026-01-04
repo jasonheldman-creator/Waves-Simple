@@ -52,6 +52,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Success rate configuration
+DEFAULT_MIN_SUCCESS_RATE = 0.95
+MIN_SUCCESS_RATE = min(1.0, max(0.0, float(os.getenv("MIN_SUCCESS_RATE", str(DEFAULT_MIN_SUCCESS_RATE)))))
+
 
 def collect_all_tickers():
     """
@@ -173,7 +177,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         years: Number of years of history to keep
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, success_rate: float)
     """
     logger.info("=" * 70)
     logger.info("BUILD PRICE CACHE")
@@ -192,7 +196,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         user_input = input("\nCache exists. Rebuild? (y/N): ").strip().lower()
         if user_input != 'y':
             logger.info("Keeping existing cache")
-            return True
+            return True, 1.0
     
     # Step 1: Collect all tickers
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
@@ -220,6 +224,11 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     
     logger.info(f"Missing tickers: {len(missing_tickers)}/{len(all_tickers)}")
     
+    # Track success metrics
+    total_attempted = len(missing_tickers)
+    successful_downloads = 0
+    failed_tickers = {}
+    
     # Step 5: Fetch missing data (if network is available)
     if missing_tickers:
         logger.info("Attempting to fetch missing tickers from yfinance...")
@@ -232,7 +241,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         
         # Fetch in batches
         all_new_data = []
-        all_failures = {}
         
         for i in range(0, len(missing_tickers), BATCH_SIZE):
             batch = missing_tickers[i:i + BATCH_SIZE]
@@ -246,14 +254,18 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                 
                 if not batch_data.empty:
                     all_new_data.append(batch_data)
-                    logger.info(f"  Fetched {len(batch_data)} days for {len(batch_data.columns)} tickers")
+                    # Count successful downloads in this batch
+                    batch_success_count = len(batch_data.columns)
+                    successful_downloads += batch_success_count
+                    logger.info(f"  Fetched {len(batch_data)} days for {batch_success_count} tickers")
                 
-                all_failures.update(batch_failures)
+                # Track failures
+                failed_tickers.update(batch_failures)
                 
             except Exception as e:
                 logger.error(f"  Batch {batch_num} failed: {e}")
                 for ticker in batch:
-                    all_failures[ticker] = str(e)
+                    failed_tickers[ticker] = str(e)
         
         # Merge new data with cache
         if all_new_data:
@@ -266,12 +278,32 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             cache_df = merge_cache_and_new_data(cache_df, new_data_df)
         
         # Log failures
-        if all_failures:
-            logger.warning(f"Failed to fetch {len(all_failures)} tickers:")
-            for ticker in list(all_failures.keys())[:10]:
-                logger.warning(f"  {ticker}: {all_failures[ticker]}")
-            if len(all_failures) > 10:
-                logger.warning(f"  ... and {len(all_failures) - 10} more")
+        if failed_tickers:
+            logger.warning(f"Failed to fetch {len(failed_tickers)} tickers:")
+            for ticker in list(failed_tickers.keys())[:10]:
+                logger.warning(f"  {ticker}: {failed_tickers[ticker]}")
+            if len(failed_tickers) > 10:
+                logger.warning(f"  ... and {len(failed_tickers) - 10} more")
+    
+    # Calculate success rate
+    success_rate = successful_downloads / total_attempted if total_attempted > 0 else 0.0
+    
+    # Log detailed summary
+    logger.info("=" * 70)
+    logger.info("DOWNLOAD SUMMARY")
+    logger.info("=" * 70)
+    logger.info(f"Total tickers attempted: {total_attempted}")
+    logger.info(f"Successful downloads: {successful_downloads}")
+    logger.info(f"Failed downloads: {len(failed_tickers)}")
+    logger.info(f"Success rate: {success_rate * 100:.2f}%")
+    
+    if failed_tickers:
+        logger.warning("Failed tickers:")
+        for ticker, reason in list(failed_tickers.items())[:20]:
+            logger.warning(f"  {ticker}: {reason}")
+        if len(failed_tickers) > 20:
+            logger.warning(f"  ... and {len(failed_tickers) - 20} more")
+    logger.info("=" * 70)
     
     # Step 6: Trim cache to date range
     if not cache_df.empty:
@@ -298,10 +330,10 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Coverage: {coverage:.1f}% ({info['num_tickers']}/{len(all_tickers)} tickers)")
         logger.info("=" * 70)
         
-        return True
+        return True, success_rate
     else:
         logger.error("No data available to build cache")
-        return False
+        return False, 0.0
 
 
 def main():
@@ -312,9 +344,18 @@ def main():
     
     args = parser.parse_args()
     
-    success = build_initial_cache(force_rebuild=args.force, years=args.years)
+    success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
     
-    sys.exit(0 if success else 1)
+    # Exit based on success rate threshold
+    if not success:
+        logger.error("Cache build failed")
+        sys.exit(1)
+    elif success_rate >= MIN_SUCCESS_RATE:
+        logger.info(f"Success rate {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+        sys.exit(0)
+    else:
+        logger.error(f"Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+        sys.exit(1)
 
 
 if __name__ == '__main__':

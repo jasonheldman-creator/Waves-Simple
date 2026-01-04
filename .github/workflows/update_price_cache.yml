@@ -7,6 +7,7 @@ on:
 env:
   REQUIRED_TICKERS: "SPY, AAPL"
   OPTIONAL_TICKERS: "MSFT, GOOGL"
+  MIN_SUCCESS_RATE: "0.95"
 
 jobs:
   update_cache:
