@@ -4956,6 +4956,7 @@ def get_mission_control_data():
         
         # System status and data age based on PRICE_BOOK (not wave_history)
         # Use compute_system_health from price_book for consistent thresholds
+        # source of truth: helpers/price_book.py
         try:
             from helpers.price_book import (
                 get_price_book, 
@@ -6362,6 +6363,7 @@ def render_mission_control():
                 age_display = "Today"
             # Option B: Three-tier staleness display
             # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            # source of truth: helpers/price_book.py
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
                 # STALE: >30 days
                 age_display = f"❌ {data_age} days (STALE)"
@@ -6433,6 +6435,7 @@ def render_mission_control():
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
+        # source of truth: helpers/price_book.py
         # Show warning if cache is STALE (>30 days) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
@@ -18680,6 +18683,7 @@ def render_overview_clean_tab():
             
             # Check 1: Price book staleness (Option B: three-tier system)
             # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            # source of truth: helpers/price_book.py
             if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
                 status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
             elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
