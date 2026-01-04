@@ -18654,8 +18654,8 @@ def render_overview_clean_tab():
                 status_issues.append(f"Price data is {data_age_days} days old")
             
             # Check 2: Missing tickers / data coverage
+            total_waves = len(performance_df) if not performance_df.empty else 0
             if not performance_df.empty:
-                total_waves = len(performance_df)
                 if 'Failure_Reason' in performance_df.columns:
                     failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
                     failed_count = len(failed_waves)
