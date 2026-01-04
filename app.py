@@ -18509,7 +18509,12 @@ def render_overview_clean_tab():
                 if latest_price_date is not None:
                     # Normalize to date only (remove time component)
                     latest_price_date_normalized = pd.Timestamp(latest_price_date).normalize()
-                    utc_today = pd.Timestamp.now(tz=timezone.utc).normalize()
+                    # Remove timezone from latest_price_date if present
+                    if latest_price_date_normalized.tz is not None:
+                        latest_price_date_normalized = latest_price_date_normalized.tz_localize(None)
+                    
+                    # Get current UTC date (timezone-naive for comparison)
+                    utc_today = pd.Timestamp.now(tz=timezone.utc).tz_localize(None).normalize()
                     data_age_days = (utc_today - latest_price_date_normalized).days
         except Exception as e:
             print(f"Warning: Failed to load PRICE_BOOK: {e}")
