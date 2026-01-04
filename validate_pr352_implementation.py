@@ -144,7 +144,7 @@ def check_workflow_schedule():
 
 
 def check_price_book_function():
-    """Check if price_book.py has rebuild_price_cache with correct signature"""
+    """Check if price_book.py has rebuild_price_cache function"""
     try:
         # Try to import the function
         from helpers.price_book import rebuild_price_cache
@@ -157,7 +157,6 @@ def check_price_book_function():
         params = list(sig.parameters.keys())
         
         has_active_only = 'active_only' in params
-        has_force_user = 'force_user_initiated' in params
         
         details.append(f"Parameters: {', '.join(params)}")
         
@@ -166,18 +165,12 @@ def check_price_book_function():
         else:
             details.append("✗ Missing active_only parameter")
         
-        if has_force_user:
-            details.append("✓ Has force_user_initiated parameter")
-            # Check default value
-            default = sig.parameters['force_user_initiated'].default
-            if default is False:
-                details.append(f"✓ Default value: {default}")
-            else:
-                details.append(f"⚠ Default value: {default} (expected False)")
-        else:
-            details.append("✗ Missing force_user_initiated parameter")
+        # Note: force_user_initiated is optional (PR #352 addition)
+        # This validation works with or without it
+        if 'force_user_initiated' in params:
+            details.append("ℹ Has force_user_initiated parameter (from PR #352)")
         
-        passed = has_active_only and has_force_user
+        passed = has_active_only  # Only require active_only
         print_check("Price cache function signature", passed, details)
         return passed
         

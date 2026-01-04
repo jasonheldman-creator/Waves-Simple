@@ -65,11 +65,11 @@ jobs:
           import os
           from helpers.price_book import rebuild_price_cache
           
-          # Force user-initiated mode for explicit automation
+          # Rebuild price cache with environment variables set
           active_only = '${{ github.event.inputs.active_only || 'true' }}' == 'true'
           
           print(f'Rebuilding price cache (active_only={active_only})...')
-          result = rebuild_price_cache(active_only=active_only, force_user_initiated=True)
+          result = rebuild_price_cache(active_only=active_only)
           
           if not result.get('allowed'):
               print(f'ERROR: Fetch not allowed - {result.get(\"message\")}')

@@ -63,13 +63,12 @@ This implementation provides automated price cache updates via GitHub Actions, r
 
 ### 2. Price Cache Update Logic
 
-**Core Function**: `rebuild_price_cache(active_only=True, force_user_initiated=True)`
+**Core Function**: `rebuild_price_cache(active_only=True)`
 
-**Location**: `helpers/price_book.py` (existing, used by workflow)
+**Location**: `helpers/price_book.py` (existing function, no modifications required)
 
 **Parameters**:
 - `active_only`: If True, fetch only tickers from active waves (default: True)
-- `force_user_initiated`: If True, bypass PRICE_FETCH_ENABLED check (default: False, set to True in workflow)
 
 **Environment Variables** (set in workflow):
 ```yaml
@@ -77,6 +76,8 @@ env:
   PRICE_FETCH_ENABLED: 'true'
   ALLOW_NETWORK_FETCH: 'true'
 ```
+
+**Note**: The workflow sets `PRICE_FETCH_ENABLED=true` in its environment, so it can call the standard `rebuild_price_cache()` function without any code modifications.
 
 **Return Value** (dict):
 ```python
