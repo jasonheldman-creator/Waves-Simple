@@ -6149,11 +6149,19 @@ def render_mission_control():
     """
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
-    # Debug: Run state indicator (temporary)
+    # RUN COUNTER + Timestamp Indicator (ALWAYS VISIBLE - Production requirement)
+    # Note: run_id is incremented in main() function at line ~19076
     current_time = datetime.now().strftime("%H:%M:%S")
+    run_id = st.session_state.get("run_id", 0)
     auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", False)
     rebuilding = st.session_state.get("rebuilding_price_book", False)
-    st.caption(f"🔍 Run State: {current_time} | Auto-Refresh: {'ON' if auto_refresh_enabled else 'OFF'} | Rebuild: {'IN PROGRESS' if rebuilding else 'IDLE'}")
+    
+    # Prominent banner showing RUN COUNTER and status
+    st.info(
+        f"🔄 **RUN COUNTER:** {run_id} | 🕐 **Timestamp:** {current_time} | "
+        f"🔄 **Auto-Refresh:** {'🟢 ON' if auto_refresh_enabled else '🔴 OFF'} | "
+        f"{'🔨 **Rebuild:** IN PROGRESS' if rebuilding else ''}"
+    )
     
     mc_data = get_mission_control_data()
     
@@ -6292,13 +6300,16 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
+            # Add STALE indicator for old data
+            elif data_age > STALE_DAYS_THRESHOLD:
+                age_display = f"⚠️ {data_age} days (STALE)"
         else:
             age_display = "Unknown"
         
         st.metric(
             label="Data Age",
             value=age_display,
-            help="Time since last data update (UTC)"
+            help="Time since last data update (UTC). STALE if > 10 days old."
         )
     
     with sec_col5:
@@ -6350,8 +6361,9 @@ def render_mission_control():
         # Show warning if cache is old AND network fetch is disabled
         if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
-                f"⚠️ **Cache is frozen (ALLOW_NETWORK_FETCH=False)**\n\n"
-                f"Data is {data_age} days old. Click 'Rebuild PRICE_BOOK Cache' button below to update."
+                f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
+                f"Data is {data_age} days old. Network fetching is disabled (safe_mode), "
+                f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
             )
     except Exception:
         pass
@@ -6368,7 +6380,7 @@ def render_mission_control():
             "🔨 Rebuild PRICE_BOOK Cache",
             key="rebuild_price_cache_mission_control",
             use_container_width=True,
-            help="Rebuild the canonical price cache with active wave tickers. Requires ALLOW_NETWORK_FETCH=true."
+            help="Rebuild the canonical price cache with fresh market data. Works even when safe_mode is ON (safe_mode only blocks implicit fetches, not explicit user actions)."
         ):
             # Prevent double-trigger by checking if rebuild is already in progress
             if st.session_state.get("rebuilding_price_book", False):
@@ -6383,14 +6395,15 @@ def render_mission_control():
                         # Import the rebuild function
                         from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
                         
-                        # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
-                        result = rebuild_price_cache(active_only=True)
+                        # Call rebuild with force_user_initiated=True to allow manual fetching
+                        # even when safe_mode_no_fetch=True (safe_mode only blocks IMPLICIT fetches)
+                        result = rebuild_price_cache(active_only=True, force_user_initiated=True)
                         
                         # Check if fetching is allowed
                         if not result['allowed']:
                             st.error(
-                                "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
-                                f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                                "❌ Price fetching failed\n\n"
+                                f"{result.get('message', 'Unable to fetch prices.')}"
                             )
                         elif result['success']:
                             st.success(
