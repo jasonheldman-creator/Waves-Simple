@@ -1,129 +1,48 @@
 name: Update Price Cache
 
 on:
-  # Schedule daily after market close (9 PM ET = 2 AM UTC next day)
   schedule:
-    - cron: "0 2 * * *"  # Daily at 2 AM UTC (9 PM ET previous day)
-  
-  # Allow manual trigger
-  workflow_dispatch:
-    inputs:
-      days:
-        description: 'Days of historical data to fetch'
-        required: false
-        default: '400'
-        type: string
+    - cron: "0 2 * * *"
 
-permissions:
-  contents: write
+env:
+  REQUIRED_TICKERS: "SPY, AAPL"
+  OPTIONAL_TICKERS: "MSFT, GOOGL"
 
 jobs:
-  update-price-cache:
+  update_cache:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      
-      - name: Install dependencies
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Fetch prices for required tickers
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      
-      - name: Build/Update price cache
-        run: |
-          echo "=== Starting Price Cache Update ==="
-          python build_complete_price_cache.py --days ${{ inputs.days || '400' }}
-          echo "=== Price Cache Update Complete ==="
-      
-      - name: Convert CSV to Parquet (if needed)
-        run: |
-          python -c "
-          import os
-          import pandas as pd
-          
-          # Check if prices.csv exists and needs conversion
-          if os.path.exists('prices.csv'):
-              print('Converting prices.csv to parquet format...')
-              df = pd.read_csv('prices.csv')
-              
-              # Create cache directory if it doesn't exist
-              os.makedirs('data/cache', exist_ok=True)
-              
-              # Convert to wide format (dates as index, tickers as columns)
-              if 'date' in df.columns and 'ticker' in df.columns and 'close' in df.columns:
-                  df['date'] = pd.to_datetime(df['date'])
-                  df_wide = df.pivot(index='date', columns='ticker', values='close')
-                  df_wide.to_parquet('data/cache/prices_cache.parquet', compression='snappy')
-                  print(f'Saved prices_cache.parquet: {len(df_wide)} days, {len(df_wide.columns)} tickers')
-              else:
-                  print('prices.csv format not recognized, skipping conversion')
-          else:
-              print('prices.csv not found, skipping conversion')
-          "
-      
-      - name: Verify cache update
-        run: |
-          echo "=== Verifying Price Cache Update ==="
-          if [ -f data/cache/prices_cache.parquet ]; then
-            echo "✅ Cache file exists at: data/cache/prices_cache.parquet"
-            echo ""
-            python extract_cache_stats.py
-          else
-            echo "❌ ERROR: prices_cache.parquet not found at data/cache/prices_cache.parquet"
+          IFS=',' read -r -a tickers <<< "$REQUIRED_TICKERS"
+          missing_tickers=""
+          for ticker in "${tickers[@]}"; do
+            if ! ./fetch_price.sh "$ticker"; then
+              missing_tickers+="$ticker "
+            fi
+          done
+          if [ -n "$missing_tickers" ]; then
+            echo "::error::Failed to fetch required tickers: $missing_tickers"
             exit 1
           fi
-      
-      - name: Commit and push updates
-        run: |
-          git config user.name "waves-bot"
-          git config user.email "actions@github.com"
-          
-          # Add files if they exist
-          [ -f data/cache/prices_cache.parquet ] && git add data/cache/prices_cache.parquet
-          [ -f prices.csv ] && git add prices.csv
-          [ -f ticker_reference_list.csv ] && git add ticker_reference_list.csv
-          [ -f price_cache_diagnostics.json ] && git add price_cache_diagnostics.json
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: update price cache [auto]
 
-          Updated by scheduled GitHub Action
-          - Refreshed prices_cache.parquet
-          - Updated reference lists and diagnostics
-          
-          Workflow: ${{ github.workflow }}
-          Run ID: ${{ github.run_id }}"
-            git push
-            echo "✅ Price cache updated and committed"
-          fi
-      
-      - name: Summary
+      - name: Fetch prices for optional tickers
         run: |
-          echo "### Price Cache Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✅ Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f data/cache/prices_cache.parquet ]; then
-            python -c "
-            import pandas as pd
-            from datetime import datetime
-            df = pd.read_parquet('data/cache/prices_cache.parquet')
-            print('**Cache Info:**')
-            print(f'- Trading Days: {len(df)}')
-            print(f'- Tickers: {len(df.columns)}')
-            print(f'- Latest Date: {df.index.max().strftime(\"%Y-%m-%d\")}')
-            print(f'- Data Age: {(datetime.now() - df.index.max().to_pydatetime()).days} days')
-            " >> $GITHUB_STEP_SUMMARY
+          IFS=',' read -r -a tickers <<< "$OPTIONAL_TICKERS"
+          failed_tickers=""
+          for ticker in "${tickers[@]}"; do
+            if ! ./fetch_price.sh "$ticker"; then
+              failed_tickers+="$ticker "
+            fi
+          done
+          if [ -n "$failed_tickers" ]; then
+            echo "::warning::Failed to fetch optional tickers: $failed_tickers"
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Finalize Workflow
+        run: |
+          echo "All required tickers updated successfully."
