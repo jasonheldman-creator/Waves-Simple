@@ -128,24 +128,74 @@ def get_benchmark_weights(wave_name: str) -> Dict[str, float]:
         return {"SPY": 1.0}
 
 
+def get_nav_column(nav_df: pd.DataFrame) -> Optional[str]:
+    """
+    Get the NAV column name with fallback logic.
+    Returns the column name if found, None otherwise.
+    """
+    # Try different possible column names in order of preference
+    for col_name in ['nav', 'wave_nav', 'close', 'price', 'equity', 'value']:
+        if col_name in nav_df.columns:
+            return col_name
+    
+    # If none of the above, try to construct from returns
+    for ret_col in ['returns', 'wave_ret', 'ret']:
+        if ret_col in nav_df.columns:
+            return ret_col  # Will need to be converted to cumulative NAV
+    
+    return None
+
+
+def get_benchmark_nav_column(nav_df: pd.DataFrame) -> Optional[str]:
+    """
+    Get the benchmark NAV column name with fallback logic.
+    Returns the column name if found, None otherwise.
+    """
+    # Try different possible column names
+    for col_name in ['benchmark_nav', 'bm_nav', 'benchmark']:
+        if col_name in nav_df.columns:
+            return col_name
+    
+    return None
+
+
 def create_performance_chart(nav_df: pd.DataFrame, wave_name: str) -> go.Figure:
     """Create a performance chart for the wave."""
     fig = go.Figure()
     
+    # Get NAV column with fallback
+    nav_col = get_nav_column(nav_df)
+    
+    if nav_col is None:
+        # Error case - will be handled by caller
+        raise ValueError(f"No suitable NAV column found. Available columns: {list(nav_df.columns)}")
+    
+    # Check if we need to convert returns to NAV
+    nav_data = nav_df[nav_col]
+    if nav_col in ['returns', 'wave_ret', 'ret']:
+        # Convert returns to cumulative NAV starting at 1.0
+        nav_data = (1.0 + nav_df[nav_col]).cumprod()
+    
     # Add wave NAV line
     fig.add_trace(go.Scatter(
         x=nav_df.index,
-        y=nav_df['nav'],
+        y=nav_data,
         mode='lines',
         name=wave_name,
         line=dict(color='#1f77b4', width=2)
     ))
     
     # Add benchmark line if available
-    if 'benchmark_nav' in nav_df.columns:
+    bm_nav_col = get_benchmark_nav_column(nav_df)
+    if bm_nav_col is not None:
+        bm_nav_data = nav_df[bm_nav_col]
+        # Check if benchmark is also a return column
+        if bm_nav_col in ['bm_ret', 'benchmark_ret']:
+            bm_nav_data = (1.0 + nav_df[bm_nav_col]).cumprod()
+        
         fig.add_trace(go.Scatter(
             x=nav_df.index,
-            y=nav_df['benchmark_nav'],
+            y=bm_nav_data,
             mode='lines',
             name='Benchmark',
             line=dict(color='#ff7f0e', width=2, dash='dash')
@@ -240,42 +290,67 @@ def main():
                 if nav_df.empty:
                     st.warning("No performance data available for this wave.")
                 else:
-                    # Display chart
-                    chart = create_performance_chart(nav_df, selected_wave)
-                    st.plotly_chart(chart, use_container_width=True)
+                    # Get NAV column with fallback
+                    nav_col = get_nav_column(nav_df)
                     
-                    # Show latest NAV values
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        latest_nav = nav_df['nav'].iloc[-1]
-                        st.metric("Current NAV", f"{latest_nav:.4f}")
-                    
-                    with col2:
-                        if len(nav_df) > 1:
-                            initial_nav = nav_df['nav'].iloc[0]
-                            total_return = calculate_return(latest_nav, initial_nav)
-                            if total_return is not None:
-                                st.metric("Total Return", f"{total_return:.2f}%")
-                            else:
-                                st.metric("Total Return", "N/A")
-                    
-                    with col3:
-                        if 'benchmark_nav' in nav_df.columns and len(nav_df) > 1:
-                            initial_nav = nav_df['nav'].iloc[0]
-                            initial_bm = nav_df['benchmark_nav'].iloc[0]
-                            total_return = calculate_return(latest_nav, initial_nav)
-                            bm_return = calculate_return(nav_df['benchmark_nav'].iloc[-1], initial_bm)
-                            
-                            if total_return is not None and bm_return is not None:
-                                alpha = total_return - bm_return
-                                st.metric("Alpha vs Benchmark", f"{alpha:.2f}%")
-                            else:
-                                st.metric("Alpha vs Benchmark", "N/A")
-                    
-                    # Show data table in expander
-                    with st.expander("View Raw Data"):
-                        st.dataframe(nav_df, use_container_width=True)
+                    if nav_col is None:
+                        # No suitable NAV column found - show error with available columns
+                        st.error(
+                            f"⚠️ Error: No suitable NAV column found in performance data.\n\n"
+                            f"Available columns: {', '.join(nav_df.columns)}\n\n"
+                            f"Expected one of: nav, wave_nav, close, price, equity, value, returns, wave_ret, ret"
+                        )
+                    else:
+                        # Get NAV data (convert from returns if necessary)
+                        nav_data = nav_df[nav_col]
+                        if nav_col in ['returns', 'wave_ret', 'ret']:
+                            nav_data = (1.0 + nav_df[nav_col]).cumprod()
+                        
+                        # Display chart
+                        try:
+                            chart = create_performance_chart(nav_df, selected_wave)
+                            st.plotly_chart(chart, use_container_width=True)
+                        except Exception as chart_error:
+                            st.error(f"Error creating chart: {str(chart_error)}")
+                        
+                        # Show latest NAV values
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            latest_nav = nav_data.iloc[-1]
+                            st.metric("Current NAV", f"{latest_nav:.4f}")
+                        
+                        with col2:
+                            if len(nav_df) > 1:
+                                initial_nav = nav_data.iloc[0]
+                                total_return = calculate_return(latest_nav, initial_nav)
+                                if total_return is not None:
+                                    st.metric("Total Return", f"{total_return:.2f}%")
+                                else:
+                                    st.metric("Total Return", "N/A")
+                        
+                        with col3:
+                            bm_nav_col = get_benchmark_nav_column(nav_df)
+                            if bm_nav_col is not None and len(nav_df) > 1:
+                                # Get benchmark NAV data (convert from returns if necessary)
+                                bm_nav_data = nav_df[bm_nav_col]
+                                if bm_nav_col in ['bm_ret', 'benchmark_ret']:
+                                    bm_nav_data = (1.0 + nav_df[bm_nav_col]).cumprod()
+                                
+                                initial_nav = nav_data.iloc[0]
+                                initial_bm = bm_nav_data.iloc[0]
+                                total_return = calculate_return(latest_nav, initial_nav)
+                                bm_return = calculate_return(bm_nav_data.iloc[-1], initial_bm)
+                                
+                                if total_return is not None and bm_return is not None:
+                                    alpha = total_return - bm_return
+                                    st.metric("Alpha vs Benchmark", f"{alpha:.2f}%")
+                                else:
+                                    st.metric("Alpha vs Benchmark", "N/A")
+                        
+                        # Show data table in expander
+                        with st.expander("View Raw Data"):
+                            st.dataframe(nav_df, use_container_width=True)
                         
         except Exception as e:
             st.error(f"Error loading performance data: {str(e)}")
