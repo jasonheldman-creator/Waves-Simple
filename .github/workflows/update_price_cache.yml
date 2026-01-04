@@ -57,10 +57,10 @@ jobs:
           
           echo "Building price cache with ${{ steps.params.outputs.days }} days of data..."
           
-          # Convert days to years (round up to ensure we get at least the requested days)
-          # E.g., 365 days -> 2 years, 400 days -> 2 years, 730 days -> 3 years
-          # This ensures we always fetch enough historical data
-          YEARS=$(( (${{ steps.params.outputs.days }} + 364) / 365 ))
+          # Convert days to years using ceiling division
+          # Formula: ceil(days/365) = (days + 365 - 1) / 365
+          # E.g., 1-365 days -> 1 year, 366-730 days -> 2 years, etc.
+          YEARS=$(( (${{ steps.params.outputs.days }} + 365 - 1) / 365 ))
           echo "Fetching $YEARS year(s) of data (covers ${{ steps.params.outputs.days }} days)"
           
           # Run build_price_cache.py (the existing script that creates the parquet file)
@@ -77,63 +77,7 @@ jobs:
       - name: Extract cache statistics
         id: stats
         run: |
-          python << 'EOF'
-          import os
-          import pandas as pd
-          from datetime import datetime
-          
-          cache_path = "data/cache/prices_cache.parquet"
-          
-          if not os.path.exists(cache_path):
-              print("ERROR: Cache file not found")
-              exit(1)
-          
-          try:
-              # Load the cache
-              df = pd.read_parquet(cache_path)
-              
-              # Get statistics
-              num_rows = len(df)
-              num_cols = len(df.columns)
-              file_size_bytes = os.path.getsize(cache_path)
-              file_size_mb = file_size_bytes / (1024 * 1024)
-              
-              # Get last price date (most recent date in index)
-              if isinstance(df.index, pd.DatetimeIndex):
-                  last_date = df.index.max().strftime('%Y-%m-%d')
-                  first_date = df.index.min().strftime('%Y-%m-%d')
-              else:
-                  last_date = "Unknown"
-                  first_date = "Unknown"
-              
-              # Calculate data age
-              if last_date != "Unknown":
-                  last_dt = pd.to_datetime(last_date)
-                  today = pd.Timestamp.now().normalize()
-                  age_days = (today - last_dt).days
-              else:
-                  age_days = -1
-              
-              # Write to GitHub output
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"last_date={last_date}\n")
-                  f.write(f"first_date={first_date}\n")
-                  f.write(f"num_rows={num_rows}\n")
-                  f.write(f"num_cols={num_cols}\n")
-                  f.write(f"file_size_mb={file_size_mb:.2f}\n")
-                  f.write(f"age_days={age_days}\n")
-              
-              print(f"Last Price Date: {last_date}")
-              print(f"Date Range: {first_date} to {last_date}")
-              print(f"Dimensions: {num_rows} rows × {num_cols} columns")
-              print(f"Tickers: {num_cols}")
-              print(f"File Size: {file_size_mb:.2f} MB")
-              print(f"Data Age: {age_days} days")
-              
-          except Exception as e:
-              print(f"ERROR: Failed to extract statistics: {e}")
-              exit(1)
-          EOF
+          python extract_cache_stats.py "data/cache/prices_cache.parquet" "$GITHUB_OUTPUT"
       
       - name: Check for changes
         id: check_changes

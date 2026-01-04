@@ -107,6 +107,8 @@ This implementation provides automated daily updates to the canonical price cach
    - **Failure Mode:** Exits with error code if cache file not created
 
 6. **Extract Cache Statistics**
+   - Script: `extract_cache_stats.py`
+   - Arguments: `<cache_path> <output_file>`
    - Reads the newly created parquet file
    - Extracts metadata:
      - Last Price Date
@@ -307,6 +309,7 @@ Update `CANONICAL_CACHE_PATH` in `helpers/price_book.py` (not recommended)
 
 - **PROOF_ARTIFACTS_GUIDE.md** - Screenshot requirements for validation
 - **validate_pr352_implementation.py** - Automated validation script
+- **extract_cache_stats.py** - Cache statistics extraction script (used by workflow)
 - **helpers/price_book.py** - Canonical price data loader module
 - **build_price_cache.py** - Price cache builder script
 

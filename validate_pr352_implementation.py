@@ -75,7 +75,12 @@ def validate_workflow_configuration():
     
     try:
         with open(WORKFLOW_FILE, 'r') as f:
-            workflow = yaml.safe_load(f)
+            content = f.read()
+        
+        # Pre-process YAML to handle 'on:' being parsed as boolean True
+        # Replace 'on:' with 'trigger_on:' for reliable parsing
+        content_safe = content.replace('\non:', '\ntrigger_on:')
+        workflow = yaml.safe_load(content_safe)
         
         errors = []
         warnings = []
@@ -89,20 +94,12 @@ def validate_workflow_configuration():
         else:
             warnings.append("Workflow name not specified")
         
-        # Check triggers (on)
-        # Note: Due to YAML spec, the key 'on' may be parsed as boolean True
-        # when using safe_load. We check for both possible keys.
-        # See: https://yaml.org/type/bool.html
-        triggers = None
-        if 'on' in workflow:
-            triggers = workflow['on']
-        elif True in workflow:
-            # YAML parsed 'on:' as True key
-            triggers = workflow[True]
-        
-        if not triggers:
+        # Check triggers (using our safe key)
+        if 'trigger_on' not in workflow:
             errors.append("No triggers ('on') defined in workflow")
             return False, errors, warnings
+        
+        triggers = workflow['trigger_on']
         
         # Check schedule trigger
         if 'schedule' in triggers:
