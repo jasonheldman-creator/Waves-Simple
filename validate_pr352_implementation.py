@@ -301,8 +301,9 @@ def test_build_script_exists():
             if check_pattern in content:
                 print(f"✅ Found: {check_name}")
             else:
+                # Note: Build script checks are informational, not critical
+                # Different implementations may use different function names
                 print(f"⚠️  Not found: {check_name}")
-                # Don't fail on these - script may have different implementation
         
         print("\n✅ PASS: Build script exists and appears functional")
         return True

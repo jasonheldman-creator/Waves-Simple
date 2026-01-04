@@ -93,7 +93,12 @@ jobs:
         run: |
           git config user.name "waves-bot"
           git config user.email "actions@github.com"
-          git add data/cache/prices_cache.parquet prices.csv ticker_reference_list.csv price_cache_diagnostics.json || true
+          
+          # Add files if they exist
+          [ -f data/cache/prices_cache.parquet ] && git add data/cache/prices_cache.parquet
+          [ -f prices.csv ] && git add prices.csv
+          [ -f ticker_reference_list.csv ] && git add ticker_reference_list.csv
+          [ -f price_cache_diagnostics.json ] && git add price_cache_diagnostics.json
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
