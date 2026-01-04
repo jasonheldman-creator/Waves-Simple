@@ -1,0 +1,11 @@
+Regime attribution is essential for assessing durability.
+
+Vector Truth tracks every return period's market regime—risk-on or risk-off—based on VIX levels and volatility signals.
+
+We then show cumulative alpha earned in each regime. If a strategy delivers four percent alpha in risk-on and three percent in risk-off, that's balanced. It suggests resilience.
+
+But if a strategy shows six percent alpha in risk-on and negative one percent in risk-off, that's a red flag. The strategy is regime-dependent. Its durability is questionable.
+
+We calculate a fragility score from zero to one. Low fragility means the alpha is structurally sound. High fragility means it's vulnerable to regime shifts, dispersion collapse, or volatility suppression.
+
+Boards need to know this. Traditional attribution hides it. Vector Truth surfaces it explicitly.

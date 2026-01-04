@@ -1,0 +1,30 @@
+Wave,Benchmark,Mode,Beta_Target,enabled
+AI & Cloud MegaCap Wave,QQQ,Standard,0.9,True
+Clean Transit-Infrastructure Wave,ICLN,Standard,0.9,True
+Crypto AI Growth Wave,BTC-USD,Standard,0.9,True
+Crypto Broad Growth Wave,BTC-USD,Standard,0.9,True
+Crypto DeFi Growth Wave,BTC-USD,Standard,0.9,True
+Crypto Income Wave,BTC-USD,Standard,0.8,True
+Crypto L1 Growth Wave,BTC-USD,Standard,0.9,True
+Crypto L2 Growth Wave,BTC-USD,Standard,0.9,True
+Demas Fund Wave,SPY,Standard,0.85,True
+EV & Infrastructure Wave,XLI,Standard,0.9,True
+Future Energy & EV Wave,XLE,Standard,0.9,True
+Future Power & Energy Wave,XLE,Standard,0.9,True
+Gold Wave,GLD,Standard,0.5,True
+Growth Wave,QQQ,Standard,0.9,True
+Income Wave,AGG,Standard,0.6,True
+Infinity Multi-Asset Growth Wave,SPY,Standard,0.9,True
+Next-Gen Compute & Semis Wave,QQQ,Standard,0.9,True
+Quantum Computing Wave,QQQ,Private Logic,1.0,True
+S&P 500 Wave,SPY,Standard,0.9,True
+Small Cap Growth Wave,IWM,Standard,0.9,True
+Small to Mid Cap Growth Wave,IJH,Standard,0.9,True
+Small-Mid Cap Growth Wave,IJH,Standard,0.9,True
+SmartSafe Tax-Free Money Market Wave,SUB,Standard,0.3,True
+SmartSafe Treasury Cash Wave,BIL,Standard,0.3,True
+US MegaCap Core Wave,SPY,Standard,0.9,True
+US Mid/Small Growth & Semis Wave,IJH,Standard,0.9,True
+US Small-Cap Disruptors Wave,IWM,Standard,0.9,True
+Vector Muni Ladder Wave,MUB,Standard,0.6,True
+Vector Treasury Ladder Wave,AGG,Standard,0.6,True

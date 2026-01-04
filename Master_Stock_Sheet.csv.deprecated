@@ -1,0 +1,170 @@
+Ticker,Company,Weight,Sector,MarketValue,Price
+NVDA,Nvidia,0.01486210128,,4456134118652,183.38
+AAPL,Apple Inc.,0.01388338473,,4417762165237,280.84
+MSFT,Microsoft,0.01291882866,,3579387843601,480.74
+GOOGL,Alphabet Inc.,0.012080026486,,3981330921442,317.62
+META,Meta Platforms,0.01051000182,,1667404696683,295.05
+TSLA,Tesla,0.01004629457,,1420498002155,454.43
+BRK.B,Berkshire Hathaway,0.0093172579,,8061323922782,455.82
+LLY,Eli Lilly,0.00930578901,,570035499769,613.47
+WMT,Walmart,0.00930537618695,,195102092964,101.49
+JPM,JPMorgan Chase,0.00888871607331,,95269092481,41.84
+ORCL,Oracle Corporation,0.0082888417031,,290408218471,120.24
+JNJ,Johnson & Johnson,0.00816072423489,,408094143306,202.43
+MA,Mastercard,0.00807951450917,,639585410066,542.64
+XOM,ExxonMobil,0.00804000804,,303988075526,117.12
+NFLX,Netflix,0.00794573733979,,330772099755,432.21
+COST,Costco,0.00784321545847,,309124203497,285.26
+ABBV,AbbVie,0.00733262236428,,2075034890683,98.84
+PLTR,Palantir Technologies,0.007113098027,,3518681655,177.92
+BAC,Bank of America,0.006319078821,,29705206496863,54.16
+HD,Home Depot,0.0061165696922,,34959375105,351.17
+BTC,Bitcoin,0.003,Store of Value / Settlement,1750000000000,87000.0
+BCH,Bitcoin Cash,7e-05,Store of Value / Settlement,11500000000,570.0
+BSV,Bitcoin SV,1e-05,Store of Value / Settlement,800000000,55.0
+ETH,Ethereum,0.0015,Smart Contract Platforms (Layer 1),350000000000,3000.0
+SOL,Solana,0.0004,Smart Contract Platforms (Layer 1),70000000000,125.0
+TRX,TRON,0.00015,Smart Contract Platforms (Layer 1),26000000000,0.278
+ADA,Cardano,8e-05,Smart Contract Platforms (Layer 1),13500000000,0.37
+SUI,Sui,3e-05,Smart Contract Platforms (Layer 1),5500000000,1.45
+AVAX,Avalanche,3e-05,Smart Contract Platforms (Layer 1),5300000000,12.0
+HBAR,Hedera,3e-05,Smart Contract Platforms (Layer 1),4800000000,0.11
+NEAR,NEAR Protocol,2e-05,Smart Contract Platforms (Layer 1),3900000000,5.5
+ETC,Ethereum Classic,2e-05,Smart Contract Platforms (Layer 1),3800000000,26.0
+KAS,Kaspa,1e-05,Smart Contract Platforms (Layer 1),3100000000,0.13
+APT,Aptos,1e-05,Smart Contract Platforms (Layer 1),2900000000,9.0
+ALGO,Algorand,1e-05,Smart Contract Platforms (Layer 1),2800000000,0.35
+XTZ,Tezos,1e-05,Smart Contract Platforms (Layer 1),1200000000,1.1
+FTM,Fantom,1e-05,Smart Contract Platforms (Layer 1),500000000,0.8
+EGLD,MultiversX,1e-05,Smart Contract Platforms (Layer 1),420000000,32.0
+ZIL,Zilliqa,1e-05,Smart Contract Platforms (Layer 1),400000000,0.025
+ONE,Harmony,1e-05,Smart Contract Platforms (Layer 1),360000000,0.02
+CSPR,Casper,1e-05,Smart Contract Platforms (Layer 1),85000000,0.045
+TON,Toncoin,2e-05,Smart Contract Platforms (Layer 1),3700000000,1.49
+MNT,Mantle,2e-05,Scaling Solutions (Layer 2),3800000000,1.18
+POL,Polygon,1e-05,Scaling Solutions (Layer 2),3000000000,0.6
+ARB,Arbitrum,1e-05,Scaling Solutions (Layer 2),2700000000,0.8
+OP,Optimism,1e-05,Scaling Solutions (Layer 2),1800000000,2.1
+STX,Stacks,1e-05,Scaling Solutions (Layer 2),1100000000,2.0
+MATIC,Polygon (legacy),1e-05,Scaling Solutions (Layer 2),40000000,0.5
+LRC,Loopring,1e-05,Scaling Solutions (Layer 2),38000000,0.3
+ZK,zkSync,1e-05,Scaling Solutions (Layer 2),36000000,0.15
+METIS,Metis,1e-05,Scaling Solutions (Layer 2),34000000,45.0
+BOBA,Boba Network,1e-05,Scaling Solutions (Layer 2),32000000,0.25
+CELR,Celer Network,1e-05,Scaling Solutions (Layer 2),30000000,0.02
+SKALE,SKALE,1e-05,Scaling Solutions (Layer 2),42000000,0.06
+IMX,Immutable,1e-05,Scaling Solutions (Layer 2),1000000000,1.5
+UNI,Uniswap,2e-05,Decentralized Finance (DeFi),3600000000,5.7
+AAVE,Aave,2e-05,Decentralized Finance (DeFi),4500000000,300.0
+ENA,Ethena,1e-05,Decentralized Finance (DeFi),3300000000,1.1
+ONDO,Ondo,1e-05,Decentralized Finance (DeFi),3200000000,1.5
+CAKE,PancakeSwap,1e-05,Decentralized Finance (DeFi),2000000000,2.5
+NEXO,Nexo,1e-05,Decentralized Finance (DeFi),1900000000,1.3
+CRV,Curve DAO,1e-05,Decentralized Finance (DeFi),1700000000,0.9
+INJ,Injective,1e-05,Decentralized Finance (DeFi),1300000000,25.0
+RUNE,THORChain,1e-05,Decentralized Finance (DeFi),750000000,5.5
+KAVA,Kava,1e-05,Decentralized Finance (DeFi),380000000,0.5
+SNX,Synthetix,1e-05,Decentralized Finance (DeFi),320000000,2.5
+COMP,Compound,1e-05,Decentralized Finance (DeFi),300000000,65.0
+SUSHI,SushiSwap,1e-05,Decentralized Finance (DeFi),280000000,1.5
+ZRX,0x,1e-05,Decentralized Finance (DeFi),240000000,0.5
+1INCH,1inch,1e-05,Decentralized Finance (DeFi),220000000,0.4
+BAL,Balancer,1e-05,Decentralized Finance (DeFi),140000000,3.0
+YFI,Yearn Finance,1e-05,Decentralized Finance (DeFi),120000000,8500.0
+GNO,Gnosis,1e-05,Decentralized Finance (DeFi),50000000,280.0
+UMA,UMA,1e-05,Decentralized Finance (DeFi),20000000,3.0
+PERP,Perpetual Protocol,1e-05,Decentralized Finance (DeFi),18000000,0.8
+DYDX,dYdX,1e-05,Decentralized Finance (DeFi),16000000,1.5
+GMX,GMX,1e-05,Decentralized Finance (DeFi),14000000,45.0
+BNB,Binance Coin,0.0006,Infrastructure,116000000000,845.0
+LINK,Chainlink,5e-05,Infrastructure,8700000000,12.5
+DOT,Polkadot,2e-05,Infrastructure,5000000000,7.5
+BGB,Bitget Token,2e-05,Infrastructure,4100000000,5.8
+OKB,OKB,2e-05,Infrastructure,4000000000,60.0
+KCS,KuCoin Token,1e-05,Infrastructure,3400000000,12.0
+FIL,Filecoin,1e-05,Infrastructure,2600000000,5.5
+VET,VeChain,1e-05,Infrastructure,2500000000,0.045
+QNT,Quant,1e-05,Infrastructure,2400000000,120.0
+ATOM,Cosmos,1e-05,Infrastructure,2200000000,7.0
+TIA,Celestia,1e-05,Infrastructure,950000000,8.0
+GRT,The Graph,1e-05,Infrastructure,900000000,0.25
+ENS,Ethereum Name Service,1e-05,Infrastructure,850000000,28.0
+FLOW,Flow,1e-05,Infrastructure,480000000,0.9
+THETA,Theta Network,1e-05,Infrastructure,450000000,2.1
+ROSE,Oasis Network,1e-05,Infrastructure,340000000,0.08
+BAT,Basic Attention Token,1e-05,Infrastructure,260000000,0.3
+ANKR,Ankr,1e-05,Infrastructure,200000000,0.04
+CRO,Crypto.com Coin,1e-05,Infrastructure,100000000,0.18
+KSM,Kusama,1e-05,Infrastructure,95000000,35.0
+HNT,Helium,1e-05,Infrastructure,80000000,7.0
+AR,Arweave,1e-05,Infrastructure,75000000,18.0
+STORJ,Storj,1e-05,Infrastructure,70000000,0.6
+LPT,Livepeer,1e-05,Infrastructure,48000000,16.0
+IOTX,IoTeX,1e-05,Infrastructure,44000000,0.05
+TRB,Tellor,1e-05,Infrastructure,28000000,90.0
+BAND,Band Protocol,1e-05,Infrastructure,26000000,1.5
+API3,API3,1e-05,Infrastructure,24000000,2.5
+DIA,DIA,1e-05,Infrastructure,22000000,0.5
+XYO,XYO Network,1e-05,Infrastructure,3600000,0.01
+NKN,NKN,1e-05,Infrastructure,3400000,0.08
+POKT,Pocket Network,1e-05,Infrastructure,3200000,0.15
+CTSI,Cartesi,1e-05,Infrastructure,2800000,0.25
+PHA,Phala Network,1e-05,Infrastructure,2600000,0.15
+TFUEL,Theta Fuel,1e-05,Infrastructure,2400000,0.06
+STRONG,Strong,1e-05,Infrastructure,2000000,25.0
+TAO,Bittensor,2e-05,AI / Compute / Data,4200000000,650.0
+ICP,Internet Computer,2e-05,AI / Compute / Data,3700000000,10.0
+WLD,Worldcoin,1e-05,AI / Compute / Data,2300000000,2.5
+RENDER,Render,1e-05,AI / Compute / Data,2100000000,7.5
+FET,Artificial Superintelligence Alliance,1e-05,AI / Compute / Data,1400000000,1.3
+OCEAN,Ocean Protocol,1e-05,AI / Compute / Data,65000000,0.7
+AGIX,SingularityNET,1e-05,AI / Compute / Data,60000000,0.5
+NMR,Numeraire,1e-05,AI / Compute / Data,55000000,18.0
+RLC,iExec RLC,1e-05,AI / Compute / Data,46000000,2.0
+GLM,Golem,1e-05,AI / Compute / Data,3000000,0.4
+CUDOS,Cudos,1e-05,AI / Compute / Data,1900000,0.02
+MANA,Decentraland,1e-05,Gaming / Metaverse,700000000,0.6
+SAND,The Sandbox,1e-05,Gaming / Metaverse,650000000,0.5
+AXS,Axie Infinity,1e-05,Gaming / Metaverse,600000000,6.0
+GALA,Gala,1e-05,Gaming / Metaverse,550000000,0.04
+ENJ,Enjin,1e-05,Gaming / Metaverse,180000000,0.25
+CHZ,Chiliz,1e-05,Gaming / Metaverse,160000000,0.08
+BLUR,Blur,1e-05,Gaming / Metaverse,10000000,0.4
+LOOKS,LooksRare,1e-05,Gaming / Metaverse,9500000,0.15
+APE,ApeCoin,1e-05,Gaming / Metaverse,9000000,1.2
+MAGIC,Magic,1e-05,Gaming / Metaverse,8500000,0.6
+ILV,Illuvium,1e-05,Gaming / Metaverse,8000000,60.0
+GODS,Gods Unchained,1e-05,Gaming / Metaverse,7500000,0.25
+TLM,Alien Worlds,1e-05,Gaming / Metaverse,7000000,0.015
+SLP,Smooth Love Potion,1e-05,Gaming / Metaverse,6500000,0.003
+GHST,Aavegotchi,1e-05,Gaming / Metaverse,6000000,1.1
+BEAM,Beam,1e-05,Gaming / Metaverse,5500000,0.025
+PRIME,Echelon Prime,1e-05,Gaming / Metaverse,5000000,8.0
+ERN,Ethernity Chain,1e-05,Gaming / Metaverse,2200000,2.0
+SUPER,SuperVerse,1e-05,Gaming / Metaverse,1800000,0.8
+VOXEL,Voxies,1e-05,Gaming / Metaverse,1700000,0.2
+PYR,Vulcan Forged,1e-05,Gaming / Metaverse,1600000,3.5
+ALICE,My Neighbor Alice,1e-05,Gaming / Metaverse,1500000,1.5
+MBOX,Mobox,1e-05,Gaming / Metaverse,1400000,0.4
+SOS,OpenDAO,1e-05,Gaming / Metaverse,1300000,1e-06
+STARL,StarLink,1e-05,Gaming / Metaverse,1200000,3e-06
+NFTX,NFTX,1e-05,Gaming / Metaverse,1100000,35.0
+RARI,Rarible,1e-05,Gaming / Metaverse,1000000,2.5
+WHALE,Whale,1e-05,Gaming / Metaverse,950000,8.0
+XRP,XRP,0.0006,Payments / Remittance,115000000000,2.0
+DOGE,Dogecoin,0.00012,Payments / Remittance,20000000000,0.13
+SHIB,Shiba Inu,2e-05,Payments / Remittance,4400000000,7.4e-06
+XMR,Monero,5e-05,Payments / Remittance,8200000000,450.0
+XLM,Stellar,4e-05,Payments / Remittance,7100000000,0.22
+LTC,Litecoin,4e-05,Payments / Remittance,5900000000,76.0
+DASH,Dash,1e-05,Payments / Remittance,1600000000,42.0
+CELO,Celo,1e-05,Payments / Remittance,90000000,0.8
+CRPT,Crypterium,1e-05,Payments / Remittance,4800000,0.5
+ACH,Alchemy Pay,1e-05,Payments / Remittance,4600000,0.03
+AMP,Amp,1e-05,Payments / Remittance,4400000,0.008
+COTI,COTI,1e-05,Payments / Remittance,4200000,0.1
+REQ,Request,1e-05,Payments / Remittance,4000000,0.12
+MTL,Metal,1e-05,Payments / Remittance,3800000,1.5
+LDO,Lido DAO,1e-05,Yield/Staking,1500000000,1.8
+RPL,Rocket Pool,1e-05,Yield/Staking,12000000,25.0
+USDC,USD Coin,0.0004,Stablecoin Infrastructure,77000000000,1.0

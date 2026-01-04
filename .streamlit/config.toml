@@ -1,0 +1,6 @@
+[server]
+fileWatcherType = "none"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false

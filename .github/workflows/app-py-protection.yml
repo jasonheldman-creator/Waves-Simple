@@ -1,0 +1,152 @@
+name: App.py Protection
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app.py'
+  push:
+    branches:
+      - main
+    paths:
+      - 'app.py'
+
+jobs:
+  validate-app-py:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed to compare with main
+      
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Validate Python syntax
+        run: |
+          echo "=== Validating app.py syntax ==="
+          python -m py_compile app.py
+          echo "✅ Syntax validation passed"
+      
+      - name: Check line count regression
+        run: |
+          echo "=== Checking for line count regression ==="
+          
+          # Get current line count
+          CURRENT_LINES=$(wc -l < app.py)
+          echo "Current app.py line count: $CURRENT_LINES"
+          
+          # Get line count from main branch
+          git fetch origin main
+          MAIN_LINES=$(git show origin/main:app.py 2>/dev/null | wc -l || echo "0")
+          echo "Main branch app.py line count: $MAIN_LINES"
+          
+          # Calculate 80% threshold (20% shrinkage allowed)
+          THRESHOLD=$((MAIN_LINES * 80 / 100))
+          echo "Minimum allowed line count (80% of main): $THRESHOLD"
+          
+          # Check if current lines meet threshold
+          if [ "$CURRENT_LINES" -lt "$THRESHOLD" ]; then
+            echo "❌ FAILURE: app.py has shrunk by more than 20%"
+            echo "   Main branch: $MAIN_LINES lines"
+            echo "   Current: $CURRENT_LINES lines"
+            echo "   Reduction: $(((MAIN_LINES - CURRENT_LINES) * 100 / MAIN_LINES))%"
+            exit 1
+          else
+            CHANGE_PERCENT=$(((CURRENT_LINES - MAIN_LINES) * 100 / MAIN_LINES))
+            echo "✅ Line count check passed"
+            echo "   Change: $CHANGE_PERCENT% ($(($CURRENT_LINES - $MAIN_LINES)) lines)"
+          fi
+      
+      - name: Verify key tab labels exist
+        run: |
+          echo "=== Verifying key tab labels exist in app.py ==="
+          
+          # Define critical tab labels that must exist
+          REQUIRED_TABS=(
+            "Overview"
+            "Console"
+            "Executive"
+            "Details"
+            "Reports"
+            "Overlays"
+            "Attribution"
+            "Board Pack"
+            "IC Pack"
+            "Alpha Capture"
+            "Wave Monitor"
+            "Plan B Monitor"
+            "Governance"
+            "Diagnostics"
+          )
+          
+          MISSING_TABS=()
+          
+          for tab in "${REQUIRED_TABS[@]}"; do
+            if ! grep -q "$tab" app.py; then
+              MISSING_TABS+=("$tab")
+            fi
+          done
+          
+          if [ ${#MISSING_TABS[@]} -eq 0 ]; then
+            echo "✅ All critical tab labels found"
+            echo "   Verified ${#REQUIRED_TABS[@]} tab labels"
+          else
+            echo "❌ FAILURE: Missing critical tab labels:"
+            for tab in "${MISSING_TABS[@]}"; do
+              echo "   - $tab"
+            done
+            exit 1
+          fi
+      
+      - name: Verify critical render functions exist
+        run: |
+          echo "=== Verifying critical render functions exist ==="
+          
+          # Define critical render functions that must exist
+          REQUIRED_FUNCTIONS=(
+            "def render_executive_tab"
+            "def render_overview_tab"
+            "def render_details_tab"
+            "def render_reports_tab"
+            "def render_overlays_tab"
+            "def render_attribution_tab"
+            "def render_diagnostics_tab"
+            "def main"
+          )
+          
+          MISSING_FUNCTIONS=()
+          
+          for func in "${REQUIRED_FUNCTIONS[@]}"; do
+            if ! grep -q "$func" app.py; then
+              MISSING_FUNCTIONS+=("$func")
+            fi
+          done
+          
+          if [ ${#MISSING_FUNCTIONS[@]} -eq 0 ]; then
+            echo "✅ All critical render functions found"
+            echo "   Verified ${#REQUIRED_FUNCTIONS[@]} functions"
+          else
+            echo "❌ FAILURE: Missing critical render functions:"
+            for func in "${MISSING_FUNCTIONS[@]}"; do
+              echo "   - $func"
+            done
+            exit 1
+          fi
+      
+      - name: Summary
+        if: success()
+        run: |
+          echo "════════════════════════════════════════════════"
+          echo "✅ All app.py protection checks passed!"
+          echo "════════════════════════════════════════════════"
+          echo "✓ Python syntax valid"
+          echo "✓ Line count within acceptable range"
+          echo "✓ All critical tab labels present"
+          echo "✓ All critical render functions present"
+          echo "════════════════════════════════════════════════"

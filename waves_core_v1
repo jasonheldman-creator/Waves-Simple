@@ -1,0 +1,53 @@
+# waves_config.py — WAVES Core v1 registry (SAFE, standalone)
+
+WAVES = {
+    "SMID_VALUE_ACCEL": {
+        "name": "Small–Mid Cap Value Acceleration Wave",
+        "type": "Equity (SMID)",
+        "benchmark": {"IWM": 0.60, "IJR": 0.40},
+        "beta_target": 0.80,
+        "modes": ["Standard", "Alpha-Minus-Beta"],
+        "description": "QoQ revenue >=20%, QoQ EPS >=25%, P/E<=12 (or EV/EBITDA<=8), +cashflow, liquidity + risk sizing."
+    },
+
+    # A few simple core waves so you can see the system working immediately
+    "MEGACAP_CORE": {
+        "name": "US MegaCap Core Wave",
+        "type": "Equity (Large)",
+        "benchmark": {"SPY": 1.00},
+        "beta_target": 1.00,
+        "modes": ["Standard", "Alpha-Minus-Beta"],
+        "description": "Simple mega-cap proxy using a static basket."
+    },
+    "AI_CLOUD": {
+        "name": "AI & Cloud MegaCap Wave",
+        "type": "Equity (Thematic)",
+        "benchmark": {"QQQ": 1.00},
+        "beta_target": 1.00,
+        "modes": ["Standard", "Alpha-Minus-Beta"],
+        "description": "Simple AI/Cloud proxy using a static basket."
+    },
+    "SMARTSAFE_TREASURY": {
+        "name": "SmartSafe Treasury Cash Wave",
+        "type": "Defensive",
+        "benchmark": {"BIL": 1.00},
+        "beta_target": 0.05,
+        "modes": ["Standard", "Alpha-Minus-Beta"],
+        "description": "Cash/T-bill proxy (defensive baseline)."
+    },
+}
+
+# Static baskets for the simple demo waves (you can replace later)
+STATIC_BASKETS = {
+    "MEGACAP_CORE": {
+        "AAPL": 0.10, "MSFT": 0.10, "AMZN": 0.08, "GOOGL": 0.07, "META": 0.06,
+        "NVDA": 0.08, "BRK-B": 0.06, "LLY": 0.05, "JPM": 0.05, "AVGO": 0.07,
+        "XOM": 0.05, "UNH": 0.05, "V": 0.08
+    },
+    "AI_CLOUD": {
+        "NVDA": 0.14, "MSFT": 0.12, "AMZN": 0.10, "GOOGL": 0.08, "META": 0.08,
+        "AVGO": 0.08, "AMD": 0.06, "CRM": 0.06, "NOW": 0.06, "PLTR": 0.05,
+        "SNOW": 0.05, "ORCL": 0.06, "TSM": 0.06
+    },
+    "SMARTSAFE_TREASURY": {"BIL": 1.00},
+}

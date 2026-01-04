@@ -1,0 +1,173 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#0a0a0a"/>
+  
+  <!-- Header -->
+  <rect width="1920" height="80" fill="#1a1a1a"/>
+  <text x="40" y="50" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#06b6d4">WAVES Intelligence™</text>
+  <text x="1700" y="50" font-family="Arial, sans-serif" font-size="16" fill="#9ca3af">Portfolio Dashboard</text>
+  
+  <!-- Main Grid Layout -->
+  <!-- Left Panel - Portfolio Metrics -->
+  <rect x="40" y="120" width="580" height="940" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="60" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Real-Time Portfolio Metrics</text>
+  
+  <!-- Metric Cards -->
+  <rect x="60" y="180" width="260" height="120" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="80" y="210" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">Total AUM</text>
+  <text x="80" y="250" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#06b6d4">$127.4M</text>
+  <text x="80" y="280" font-family="Arial, sans-serif" font-size="12" fill="#10b981">+2.3% MTD</text>
+  
+  <rect x="340" y="180" width="260" height="120" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="360" y="210" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">Active Positions</text>
+  <text x="360" y="250" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#06b6d4">47</text>
+  <text x="360" y="280" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Across 3 Strategies</text>
+  
+  <rect x="60" y="320" width="260" height="120" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="80" y="350" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">Portfolio Beta</text>
+  <text x="80" y="390" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#06b6d4">0.87</text>
+  <text x="80" y="420" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">vs S&amp;P 500</text>
+  
+  <rect x="340" y="320" width="260" height="120" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="360" y="350" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">Tracking Error</text>
+  <text x="360" y="390" font-family="Arial, sans-serif" font-size="32" font-weight="bold" fill="#06b6d4">4.2%</text>
+  <text x="360" y="420" font-family="Arial, sans-serif" font-size="12" fill="#10b981">Within Limits</text>
+  
+  <!-- Position List -->
+  <text x="60" y="480" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#f9fafb">Top Holdings</text>
+  <line x1="60" y1="490" x2="600" y2="490" stroke="#374151" stroke-width="1"/>
+  
+  <!-- Table Headers -->
+  <text x="70" y="515" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Symbol</text>
+  <text x="220" y="515" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Weight</text>
+  <text x="340" y="515" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Wave</text>
+  <text x="460" y="515" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">P&amp;L</text>
+  
+  <!-- Sample Rows -->
+  <text x="70" y="545" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">AAPL</text>
+  <text x="220" y="545" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">8.4%</text>
+  <text x="340" y="545" font-family="Arial, sans-serif" font-size="14" fill="#06b6d4">Growth</text>
+  <text x="460" y="545" font-family="Arial, sans-serif" font-size="14" fill="#10b981">+$142K</text>
+  
+  <text x="70" y="575" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">MSFT</text>
+  <text x="220" y="575" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">7.2%</text>
+  <text x="340" y="575" font-family="Arial, sans-serif" font-size="14" fill="#06b6d4">Growth</text>
+  <text x="460" y="575" font-family="Arial, sans-serif" font-size="14" fill="#10b981">+$98K</text>
+  
+  <text x="70" y="605" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">JPM</text>
+  <text x="220" y="605" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">5.8%</text>
+  <text x="340" y="605" font-family="Arial, sans-serif" font-size="14" fill="#06b6d4">Value</text>
+  <text x="460" y="605" font-family="Arial, sans-serif" font-size="14" fill="#10b981">+$67K</text>
+  
+  <text x="70" y="635" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">UNH</text>
+  <text x="220" y="635" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">4.9%</text>
+  <text x="340" y="635" font-family="Arial, sans-serif" font-size="14" fill="#06b6d4">Defensive</text>
+  <text x="460" y="635" font-family="Arial, sans-serif" font-size="14" fill="#f59e0b">-$12K</text>
+  
+  <!-- Center Panel - Exposure Chart -->
+  <rect x="640" y="120" width="640" height="460" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="660" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Multi-Dimensional Exposure Analysis</text>
+  
+  <!-- Simulated Chart Area -->
+  <rect x="680" y="200" width="560" height="340" fill="#0a0a0a" rx="4"/>
+  
+  <!-- Chart Grid Lines -->
+  <line x1="680" y1="260" x2="1240" y2="260" stroke="#374151" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="680" y1="340" x2="1240" y2="340" stroke="#374151" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="680" y1="420" x2="1240" y2="420" stroke="#374151" stroke-width="1" stroke-dasharray="4,4"/>
+  <line x1="680" y1="500" x2="1240" y2="500" stroke="#374151" stroke-width="1" stroke-dasharray="4,4"/>
+  
+  <!-- Simulated Bars -->
+  <rect x="720" y="320" width="80" height="180" fill="#06b6d4" opacity="0.8"/>
+  <rect x="840" y="380" width="80" height="120" fill="#8b5cf6" opacity="0.8"/>
+  <rect x="960" y="280" width="80" height="220" fill="#10b981" opacity="0.8"/>
+  <rect x="1080" y="420" width="80" height="80" fill="#f59e0b" opacity="0.8"/>
+  
+  <text x="740" y="525" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Growth</text>
+  <text x="860" y="525" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Value</text>
+  <text x="975" y="525" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Defensive</text>
+  <text x="1085" y="525" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Cyclical</text>
+  
+  <!-- Risk Overlay Panel -->
+  <rect x="640" y="600" width="640" height="460" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="660" y="640" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Integrated Risk Overlays</text>
+  
+  <!-- Risk Indicators -->
+  <rect x="680" y="670" width="280" height="100" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="700" y="700" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">VaR (95%)</text>
+  <text x="700" y="735" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#06b6d4">$2.8M</text>
+  <text x="700" y="760" font-family="Arial, sans-serif" font-size="12" fill="#10b981">Normal Range</text>
+  
+  <rect x="980" y="670" width="280" height="100" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1000" y="700" font-family="Arial, sans-serif" font-size="14" fill="#9ca3af">Max Drawdown</text>
+  <text x="1000" y="735" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#06b6d4">-8.4%</text>
+  <text x="1000" y="760" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">YTD</text>
+  
+  <!-- Heat Map -->
+  <text x="680" y="810" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#f9fafb">Sector Concentration</text>
+  <rect x="680" y="825" width="120" height="80" fill="#10b981" opacity="0.6"/>
+  <rect x="810" y="825" width="120" height="80" fill="#06b6d4" opacity="0.7"/>
+  <rect x="940" y="825" width="120" height="80" fill="#8b5cf6" opacity="0.5"/>
+  <rect x="1070" y="825" width="120" height="80" fill="#f59e0b" opacity="0.4"/>
+  
+  <text x="720" y="870" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Tech</text>
+  <text x="850" y="870" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Finance</text>
+  <text x="975" y="870" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Health</text>
+  <text x="1100" y="870" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Energy</text>
+  
+  <!-- Right Panel - Governance Status -->
+  <rect x="1300" y="120" width="580" height="940" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="1320" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Governance Framework Status</text>
+  
+  <!-- Compliance Checks -->
+  <rect x="1340" y="190" width="520" height="60" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="4"/>
+  <circle cx="1370" cy="220" r="8" fill="#10b981"/>
+  <text x="1390" y="215" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">Position Limits Compliant</text>
+  <text x="1390" y="235" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">All positions within 10% threshold</text>
+  
+  <rect x="1340" y="270" width="520" height="60" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="4"/>
+  <circle cx="1370" cy="300" r="8" fill="#10b981"/>
+  <text x="1390" y="295" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">Risk Limits Satisfied</text>
+  <text x="1390" y="315" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">VaR and tracking error within bounds</text>
+  
+  <rect x="1340" y="350" width="520" height="60" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="4"/>
+  <circle cx="1370" cy="380" r="8" fill="#10b981"/>
+  <text x="1390" y="375" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">Benchmark Alignment Verified</text>
+  <text x="1390" y="395" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Systematic integrity maintained</text>
+  
+  <rect x="1340" y="430" width="520" height="60" fill="#1f2937" stroke="#f59e0b" stroke-width="2" rx="4"/>
+  <circle cx="1370" cy="460" r="8" fill="#f59e0b"/>
+  <text x="1390" y="455" font-family="Arial, sans-serif" font-size="14" fill="#f9fafb">Rebalance Due</text>
+  <text x="1390" y="475" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Scheduled for next trading day</text>
+  
+  <!-- Audit Trail -->
+  <text x="1320" y="540" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#f9fafb">Recent Audit Trail</text>
+  <line x1="1320" y1="550" x2="1860" y2="550" stroke="#374151" stroke-width="1"/>
+  
+  <text x="1340" y="580" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Dec 23, 2025 14:32</text>
+  <text x="1340" y="600" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Position rebalance executed: 3 trades</text>
+  
+  <text x="1340" y="630" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Dec 23, 2025 09:15</text>
+  <text x="1340" y="650" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Daily risk check completed: All limits OK</text>
+  
+  <text x="1340" y="680" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Dec 22, 2025 16:00</text>
+  <text x="1340" y="700" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Attribution analysis generated</text>
+  
+  <text x="1340" y="730" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Dec 22, 2025 14:20</text>
+  <text x="1340" y="750" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Exposure analysis updated</text>
+  
+  <!-- Performance Badge -->
+  <rect x="1340" y="800" width="520" height="240" fill="#0a0a0a" stroke="#06b6d4" stroke-width="1" rx="4"/>
+  <text x="1360" y="835" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">WAVES™ Portfolio Performance</text>
+  
+  <text x="1360" y="870" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">YTD Return</text>
+  <text x="1360" y="900" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#10b981">+14.7%</text>
+  
+  <text x="1600" y="870" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Sharpe Ratio</text>
+  <text x="1600" y="900" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#06b6d4">1.84</text>
+  
+  <text x="1360" y="945" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Governance-disciplined execution</text>
+  <text x="1360" y="965" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Full transparency across all decisions</text>
+  <text x="1360" y="985" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Systematic risk-aware positioning</text>
+  <text x="1360" y="1005" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Platform-powered analytics</text>
+</svg>

@@ -1,0 +1,203 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#0a0a0a"/>
+  
+  <!-- Header -->
+  <rect width="1920" height="80" fill="#1a1a1a"/>
+  <text x="40" y="50" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#06b6d4">WAVES Intelligence™</text>
+  <text x="1660" y="50" font-family="Arial, sans-serif" font-size="16" fill="#9ca3af">Governance Console</text>
+  
+  <!-- Main Layout: 3 Columns -->
+  <!-- Left Column - Policy Compliance -->
+  <rect x="40" y="120" width="580" height="940" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="60" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Policy Compliance Monitoring</text>
+  <text x="60" y="185" font-family="Arial, sans-serif" font-size="13" fill="#9ca3af">Institutional governance in action</text>
+  
+  <!-- Compliance Status Cards -->
+  <rect x="60" y="210" width="540" height="90" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="250" r="12" fill="#10b981"/>
+  <text x="115" y="240" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Position Concentration Limits</text>
+  <text x="115" y="260" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: COMPLIANT | Last Check: 2 min ago</text>
+  <text x="115" y="280" font-family="Arial, sans-serif" font-size="11" fill="#10b981">All positions &lt; 10% threshold. Max: 8.4% (AAPL)</text>
+  
+  <rect x="60" y="315" width="540" height="90" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="355" r="12" fill="#10b981"/>
+  <text x="115" y="345" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Risk Limits Validation</text>
+  <text x="115" y="365" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: COMPLIANT | Last Check: 2 min ago</text>
+  <text x="115" y="385" font-family="Arial, sans-serif" font-size="11" fill="#10b981">VaR: $2.8M (&lt; $5M limit) | TE: 3.5% (&lt; 5% limit)</text>
+  
+  <rect x="60" y="420" width="540" height="90" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="460" r="12" fill="#10b981"/>
+  <text x="115" y="450" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Sector Diversification</text>
+  <text x="115" y="470" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: COMPLIANT | Last Check: 2 min ago</text>
+  <text x="115" y="490" font-family="Arial, sans-serif" font-size="11" fill="#10b981">All sectors within ±10% benchmark deviation</text>
+  
+  <rect x="60" y="525" width="540" height="90" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="565" r="12" fill="#10b981"/>
+  <text x="115" y="555" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Benchmark Integrity Controls</text>
+  <text x="115" y="575" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: VALIDATED | Last Check: 2 min ago</text>
+  <text x="115" y="595" font-family="Arial, sans-serif" font-size="11" fill="#10b981">Systematic integrity maintained across all holdings</text>
+  
+  <rect x="60" y="630" width="540" height="90" fill="#1f2937" stroke="#f59e0b" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="670" r="12" fill="#f59e0b"/>
+  <text x="115" y="660" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Rebalance Schedule</text>
+  <text x="115" y="680" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: PENDING | Scheduled: Tomorrow 09:30</text>
+  <text x="115" y="700" font-family="Arial, sans-serif" font-size="11" fill="#f59e0b">Drift tolerance reached: 1.2% (threshold: 1.5%)</text>
+  
+  <rect x="60" y="735" width="540" height="90" fill="#1f2937" stroke="#10b981" stroke-width="2" rx="6"/>
+  <circle cx="90" cy="775" r="12" fill="#10b981"/>
+  <text x="115" y="765" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#f9fafb">Trading Authorization</text>
+  <text x="115" y="785" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Status: APPROVED | Approver: Risk Committee</text>
+  <text x="115" y="805" font-family="Arial, sans-serif" font-size="11" fill="#10b981">All pending trades approved for execution</text>
+  
+  <!-- Policy Review Status -->
+  <text x="60" y="860" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#f9fafb">Policy Review Status</text>
+  <line x1="60" y1="870" x2="600" y2="870" stroke="#374151" stroke-width="1"/>
+  
+  <rect x="80" y="885" width="500" height="60" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="100" y="910" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Investment Policy Statement</text>
+  <text x="100" y="930" font-family="Arial, sans-serif" font-size="11" fill="#10b981">✓ Reviewed: Dec 1, 2025 | Next: Mar 1, 2026</text>
+  
+  <rect x="80" y="960" width="500" height="60" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="100" y="985" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Risk Management Framework</text>
+  <text x="100" y="1005" font-family="Arial, sans-serif" font-size="11" fill="#10b981">✓ Reviewed: Nov 15, 2025 | Next: Feb 15, 2026</text>
+  
+  <!-- Center Column - Audit Trail -->
+  <rect x="640" y="120" width="640" height="940" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="660" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Complete Audit Trail</text>
+  <text x="660" y="185" font-family="Arial, sans-serif" font-size="13" fill="#9ca3af">Platform infrastructure and WAVES™ portfolio operations</text>
+  
+  <!-- Audit Log Entries -->
+  <rect x="680" y="210" width="580" height="830" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  
+  <!-- Entry 1 -->
+  <rect x="700" y="230" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="250" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 23, 2025 14:32:18 UTC</text>
+  <text x="720" y="270" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Position Rebalance Executed</text>
+  <text x="720" y="288" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Trade execution | User: system.auto</text>
+  <text x="720" y="303" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: 3 trades executed | Total value: $2.4M</text>
+  
+  <!-- Entry 2 -->
+  <rect x="700" y="330" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="350" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 23, 2025 14:15:42 UTC</text>
+  <text x="720" y="370" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Trade Authorization Approved</text>
+  <text x="720" y="388" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Approval | User: risk.committee@firm.com</text>
+  <text x="720" y="403" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: Rebalance trades approved for execution</text>
+  
+  <!-- Entry 3 -->
+  <rect x="700" y="430" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="450" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 23, 2025 09:15:03 UTC</text>
+  <text x="720" y="470" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Daily Risk Check Completed</text>
+  <text x="720" y="488" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Risk validation | User: system.auto</text>
+  <text x="720" y="503" font-family="Arial, sans-serif" font-size="11" fill="#10b981">Result: All limits satisfied | No violations detected</text>
+  
+  <!-- Entry 4 -->
+  <rect x="700" y="530" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="550" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 22, 2025 16:00:12 UTC</text>
+  <text x="720" y="570" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Attribution Analysis Generated</text>
+  <text x="720" y="588" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Report generation | User: system.auto</text>
+  <text x="720" y="603" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: Factor attribution computed for all strategies</text>
+  
+  <!-- Entry 5 -->
+  <rect x="700" y="630" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="650" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 22, 2025 14:20:35 UTC</text>
+  <text x="720" y="670" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Exposure Analysis Updated</text>
+  <text x="720" y="688" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Analysis update | User: system.auto</text>
+  <text x="720" y="703" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: Multi-dimensional exposure recalculated</text>
+  
+  <!-- Entry 6 -->
+  <rect x="700" y="730" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="750" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 22, 2025 09:30:08 UTC</text>
+  <text x="720" y="770" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Market Data Synchronized</text>
+  <text x="720" y="788" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Data sync | User: system.auto</text>
+  <text x="720" y="803" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: 2,847 price updates | 47 positions valued</text>
+  
+  <!-- Entry 7 -->
+  <rect x="700" y="830" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="850" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 21, 2025 16:45:22 UTC</text>
+  <text x="720" y="870" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">Benchmark Integrity Check</text>
+  <text x="720" y="888" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Validation | User: system.auto</text>
+  <text x="720" y="903" font-family="Arial, sans-serif" font-size="11" fill="#10b981">Result: Systematic integrity confirmed</text>
+  
+  <!-- Entry 8 -->
+  <rect x="700" y="930" width="540" height="85" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="720" y="950" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Dec 21, 2025 10:15:47 UTC</text>
+  <text x="720" y="970" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="#f9fafb">User Access Logged</text>
+  <text x="720" y="988" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Action: Console access | User: portfolio.manager@firm.com</text>
+  <text x="720" y="1003" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Details: Viewed performance dashboard | Duration: 12m</text>
+  
+  <!-- Right Column - Board Reporting -->
+  <rect x="1300" y="120" width="580" height="940" fill="#111827" stroke="#1f2937" stroke-width="1" rx="8"/>
+  <text x="1320" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#f9fafb">Board-Ready Documentation</text>
+  <text x="1320" y="185" font-family="Arial, sans-serif" font-size="13" fill="#9ca3af">Platform analytics and live mandate performance</text>
+  
+  <!-- Executive Summary Card -->
+  <rect x="1340" y="210" width="520" height="200" fill="#0a0a0a" stroke="#06b6d4" stroke-width="2" rx="6"/>
+  <text x="1360" y="240" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#06b6d4">Executive Summary - Q4 2025</text>
+  
+  <text x="1380" y="270" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Governance Status</text>
+  <circle cx="1390" cy="290" r="4" fill="#10b981"/>
+  <text x="1405" y="295" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">100% policy compliance maintained</text>
+  <circle cx="1390" cy="310" r="4" fill="#10b981"/>
+  <text x="1405" y="315" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">All risk limits satisfied continuously</text>
+  <circle cx="1390" cy="330" r="4" fill="#10b981"/>
+  <text x="1405" y="335" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Zero governance violations this quarter</text>
+  
+  <text x="1380" y="365" font-family="Arial, sans-serif" font-size="13" fill="#f9fafb">Performance Highlights</text>
+  <circle cx="1390" cy="385" r="4" fill="#06b6d4"/>
+  <text x="1405" y="390" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">WAVES™ Growth: +14.7% YTD (vs +12.3% benchmark)</text>
+  <circle cx="1390" cy="405" r="4" fill="#06b6d4"/>
+  <text x="1405" y="410" font-family="Arial, sans-serif" font-size="11" fill="#9ca3af">Information Ratio: 0.68 | Sharpe: 1.84</text>
+  
+  <!-- Performance Summary -->
+  <rect x="1340" y="430" width="520" height="150" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="460" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#f9fafb">WAVES™ Portfolio Performance</text>
+  
+  <text x="1380" y="490" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">YTD Return</text>
+  <text x="1700" y="490" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#10b981">+14.7%</text>
+  
+  <text x="1380" y="515" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Tracking Error</text>
+  <text x="1700" y="515" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">3.5%</text>
+  
+  <text x="1380" y="540" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Max Drawdown</text>
+  <text x="1700" y="540" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">-8.4%</text>
+  
+  <text x="1380" y="565" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Volatility</text>
+  <text x="1700" y="565" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">12.8%</text>
+  
+  <!-- Governance Metrics -->
+  <rect x="1340" y="600" width="520" height="150" fill="#1f2937" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="630" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#f9fafb">Governance Metrics</text>
+  
+  <text x="1380" y="660" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Policy Compliance Rate</text>
+  <text x="1700" y="660" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#10b981">100%</text>
+  
+  <text x="1380" y="685" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Audit Trail Entries</text>
+  <text x="1700" y="685" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">2,847</text>
+  
+  <text x="1380" y="710" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Risk Limit Breaches</text>
+  <text x="1700" y="710" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#10b981">0</text>
+  
+  <text x="1380" y="735" font-family="Arial, sans-serif" font-size="12" fill="#9ca3af">Trades Executed</text>
+  <text x="1700" y="735" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#06b6d4">247</text>
+  
+  <!-- Report Generation -->
+  <text x="1320" y="790" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#f9fafb">Available Reports</text>
+  <line x1="1320" y1="800" x2="1860" y2="800" stroke="#374151" stroke-width="1"/>
+  
+  <rect x="1340" y="820" width="520" height="50" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="845" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Quarterly Performance Report</text>
+  <text x="1720" y="845" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Download PDF</text>
+  
+  <rect x="1340" y="885" width="520" height="50" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="910" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Risk & Compliance Summary</text>
+  <text x="1720" y="910" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Download PDF</text>
+  
+  <rect x="1340" y="950" width="520" height="50" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="975" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Attribution Analysis Deep Dive</text>
+  <text x="1720" y="975" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Download PDF</text>
+  
+  <rect x="1340" y="1015" width="520" height="50" fill="#0a0a0a" stroke="#374151" stroke-width="1" rx="4"/>
+  <text x="1360" y="1040" font-family="Arial, sans-serif" font-size="12" fill="#f9fafb">Complete Audit Trail Export</text>
+  <text x="1720" y="1040" font-family="Arial, sans-serif" font-size="11" fill="#06b6d4">Download CSV</text>
+</svg>

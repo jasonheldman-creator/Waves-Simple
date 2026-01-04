@@ -1,0 +1,3 @@
+ticker,weight,description,exposure,cash,safe_fraction
+GLD,0.7,SPDR Gold Shares,0.7,0.0,0.0
+IAU,0.3,iShares Gold Trust,0.3,0.0,0.0

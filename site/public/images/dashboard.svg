@@ -1,0 +1,66 @@
+<svg width="1920" height="1080" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background with grid -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a1a" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="neonGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#00ff88;stop-opacity:0.8" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#0a0a0a"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.3"/>
+  
+  <!-- Overlay gradient -->
+  <rect width="1920" height="1080" fill="url(#neonGradient)" opacity="0.05"/>
+  
+  <!-- Dashboard mockup elements -->
+  <!-- Header bar -->
+  <rect x="60" y="60" width="1800" height="80" fill="#1a1a1a" stroke="#00ffff" stroke-width="2" rx="8"/>
+  <text x="100" y="115" font-family="Arial, sans-serif" font-size="36" fill="#00ffff" font-weight="bold">WAVES Intelligence</text>
+  <circle cx="1780" cy="100" r="20" fill="#00ff88" opacity="0.3"/>
+  
+  <!-- Sidebar -->
+  <rect x="60" y="160" width="280" height="860" fill="#0f0f0f" stroke="#00ffff" stroke-width="2" rx="8"/>
+  <rect x="80" y="180" width="240" height="40" fill="#00ffff" opacity="0.2" rx="4"/>
+  <rect x="80" y="240" width="240" height="40" fill="#1a1a1a" rx="4"/>
+  <rect x="80" y="300" width="240" height="40" fill="#1a1a1a" rx="4"/>
+  <rect x="80" y="360" width="240" height="40" fill="#1a1a1a" rx="4"/>
+  
+  <!-- Main content area -->
+  <rect x="360" y="160" width="1500" height="860" fill="#0f0f0f" stroke="#00ff88" stroke-width="2" rx="8"/>
+  
+  <!-- Cards/Widgets -->
+  <rect x="400" y="200" width="460" height="260" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="630" y="250" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Portfolio Value</text>
+  <text x="630" y="300" font-family="Arial, sans-serif" font-size="48" fill="#00ff88" text-anchor="middle" font-weight="bold">$2.4M</text>
+  
+  <rect x="900" y="200" width="460" height="260" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="1130" y="250" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Daily P&L</text>
+  <text x="1130" y="300" font-family="Arial, sans-serif" font-size="48" fill="#00ff88" text-anchor="middle" font-weight="bold">+$12.5K</text>
+  
+  <rect x="1400" y="200" width="420" height="260" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="1610" y="250" font-family="Arial, sans-serif" font-size="24" fill="#00ffff" text-anchor="middle">Sharpe Ratio</text>
+  <text x="1610" y="300" font-family="Arial, sans-serif" font-size="48" fill="#00ff88" text-anchor="middle" font-weight="bold">2.34</text>
+  
+  <!-- Chart area -->
+  <rect x="400" y="500" width="920" height="480" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="860" y="540" font-family="Arial, sans-serif" font-size="20" fill="#00ffff" text-anchor="middle">Performance Chart</text>
+  
+  <!-- Simulated chart line -->
+  <polyline points="440,900 540,820 640,860 740,780 840,820 940,740 1040,780 1140,720 1240,760" 
+            fill="none" stroke="url(#neonGradient)" stroke-width="3"/>
+  
+  <!-- Activity feed -->
+  <rect x="1360" y="500" width="460" height="480" fill="#1a1a1a" stroke="#00ffff" stroke-width="1" rx="6"/>
+  <text x="1590" y="540" font-family="Arial, sans-serif" font-size="20" fill="#00ffff" text-anchor="middle">Recent Activity</text>
+  <rect x="1380" y="560" width="420" height="50" fill="#00ffff" opacity="0.1" rx="4"/>
+  <rect x="1380" y="630" width="420" height="50" fill="#00ffff" opacity="0.1" rx="4"/>
+  <rect x="1380" y="700" width="420" height="50" fill="#00ffff" opacity="0.1" rx="4"/>
+  
+  <!-- Title overlay -->
+  <text x="960" y="580" font-family="Arial, sans-serif" font-size="72" fill="#00ffff" text-anchor="middle" font-weight="bold" opacity="0.15">DASHBOARD</text>
+</svg>

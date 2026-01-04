@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-01-04T04:35:46.327951",
+  "snapshot_build_time": "2026-01-04 04:35:46",
+  "waves_processed": 28,
+  "status_counts": {
+    "Full": 2,
+    "Partial": 0,
+    "Operational": 0,
+    "Unavailable": 26
+  },
+  "top_failure_reasons": [],
+  "broken_tickers": [],
+  "summary": "28 waves processed, 2 Full (7%), 0 Partial (0%), 0 Operational (0%), 26 Unavailable (93%)"
+}

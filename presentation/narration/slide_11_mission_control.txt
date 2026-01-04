@@ -1,0 +1,11 @@
+Mission Control is your real-time risk monitoring hub.
+
+It displays current VIX levels, regime classifications, and exposure adjustments across all Waves.
+
+The VIX Regime Overlay system automatically classifies market conditions as risk-on or risk-off based on trailing volatility. When regimes shift, Mission Control highlights which Waves are affected and how exposure levels adjust.
+
+The SmartSafe gating system is visible here. When volatility spikes above critical thresholds, capital preservation overlays activate. You see this in real time. No surprises.
+
+Mission Control also tracks capital deployment across Waves, identifies concentration risks, and monitors benchmark drift. If a governed benchmark is drifting from its snapshot definition, you're alerted immediately.
+
+This is proactive risk management. Not reactive firefighting.

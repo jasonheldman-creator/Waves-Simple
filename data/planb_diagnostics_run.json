@@ -1,0 +1,294 @@
+{
+  "timestamp": "2026-01-01T11:39:02.118426",
+  "days": 365,
+  "total_waves": 28,
+  "successful_fetches": 0,
+  "failed_fetches": 28,
+  "timeout_exceeded": false,
+  "build_duration_seconds": 0.320612,
+  "ticker_failures": [
+    {
+      "wave_id": "ai_cloud_megacap_wave",
+      "primary_ticker": "MSFT",
+      "secondary_ticker": "GOOGL"
+    },
+    {
+      "wave_id": "clean_transit_infrastructure_wave",
+      "primary_ticker": "PAVE",
+      "secondary_ticker": "ICLN"
+    },
+    {
+      "wave_id": "crypto_ai_growth_wave",
+      "primary_ticker": "TAO-USD",
+      "secondary_ticker": "FET-USD"
+    },
+    {
+      "wave_id": "crypto_broad_growth_wave",
+      "primary_ticker": "BTC-USD",
+      "secondary_ticker": "ETH-USD"
+    },
+    {
+      "wave_id": "crypto_defi_growth_wave",
+      "primary_ticker": "UNI-USD",
+      "secondary_ticker": "AAVE-USD"
+    },
+    {
+      "wave_id": "crypto_income_wave",
+      "primary_ticker": "ETH-USD",
+      "secondary_ticker": "BTC-USD"
+    },
+    {
+      "wave_id": "crypto_l1_growth_wave",
+      "primary_ticker": "ETH-USD",
+      "secondary_ticker": "SOL-USD"
+    },
+    {
+      "wave_id": "crypto_l2_growth_wave",
+      "primary_ticker": "MATIC-USD",
+      "secondary_ticker": "ARB-USD"
+    },
+    {
+      "wave_id": "demas_fund_wave",
+      "primary_ticker": "SPY",
+      "secondary_ticker": "QQQ"
+    },
+    {
+      "wave_id": "ev_infrastructure_wave",
+      "primary_ticker": "TSLA",
+      "secondary_ticker": "PAVE"
+    },
+    {
+      "wave_id": "future_energy_ev_wave",
+      "primary_ticker": "XLE",
+      "secondary_ticker": "TSLA"
+    },
+    {
+      "wave_id": "future_power_energy_wave",
+      "primary_ticker": "ICLN",
+      "secondary_ticker": "TAN"
+    },
+    {
+      "wave_id": "gold_wave",
+      "primary_ticker": "GLD",
+      "secondary_ticker": "IAU"
+    },
+    {
+      "wave_id": "income_wave",
+      "primary_ticker": "VYM",
+      "secondary_ticker": "SCHD"
+    },
+    {
+      "wave_id": "infinity_multi_asset_growth_wave",
+      "primary_ticker": "SPY",
+      "secondary_ticker": "QQQ"
+    },
+    {
+      "wave_id": "next_gen_compute_semis_wave",
+      "primary_ticker": "NVDA",
+      "secondary_ticker": "AMD"
+    },
+    {
+      "wave_id": "quantum_computing_wave",
+      "primary_ticker": "QTUM",
+      "secondary_ticker": "IONQ"
+    },
+    {
+      "wave_id": "russell_3000_wave",
+      "primary_ticker": "IWV",
+      "secondary_ticker": "VTI"
+    },
+    {
+      "wave_id": "small_cap_growth_wave",
+      "primary_ticker": "IWO",
+      "secondary_ticker": "VBK"
+    },
+    {
+      "wave_id": "small_to_mid_cap_growth_wave",
+      "primary_ticker": "IWP",
+      "secondary_ticker": "IJH"
+    },
+    {
+      "wave_id": "smartsafe_tax_free_money_market_wave",
+      "primary_ticker": "SUB",
+      "secondary_ticker": "MUB"
+    },
+    {
+      "wave_id": "smartsafe_treasury_cash_wave",
+      "primary_ticker": "BIL",
+      "secondary_ticker": "SHV"
+    },
+    {
+      "wave_id": "sp500_wave",
+      "primary_ticker": "SPY",
+      "secondary_ticker": "VOO"
+    },
+    {
+      "wave_id": "us_megacap_core_wave",
+      "primary_ticker": "SPY",
+      "secondary_ticker": "QQQ"
+    },
+    {
+      "wave_id": "us_mid_small_growth_semis_wave",
+      "primary_ticker": "IWP",
+      "secondary_ticker": "SOXX"
+    },
+    {
+      "wave_id": "us_small_cap_disruptors_wave",
+      "primary_ticker": "IWO",
+      "secondary_ticker": "VBR"
+    },
+    {
+      "wave_id": "vector_muni_ladder_wave",
+      "primary_ticker": "SUB",
+      "secondary_ticker": "MUB"
+    },
+    {
+      "wave_id": "vector_treasury_ladder_wave",
+      "primary_ticker": "BIL",
+      "secondary_ticker": "SHV"
+    }
+  ],
+  "wave_results": [
+    {
+      "wave_id": "ai_cloud_megacap_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "clean_transit_infrastructure_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_ai_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_broad_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_defi_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_income_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_l1_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "crypto_l2_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "demas_fund_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "ev_infrastructure_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "future_energy_ev_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "future_power_energy_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "gold_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "income_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "infinity_multi_asset_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "next_gen_compute_semis_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "quantum_computing_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "russell_3000_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "small_cap_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "small_to_mid_cap_growth_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "smartsafe_tax_free_money_market_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "smartsafe_treasury_cash_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "sp500_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "us_megacap_core_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "us_mid_small_growth_semis_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "us_small_cap_disruptors_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "vector_muni_ladder_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    },
+    {
+      "wave_id": "vector_treasury_ladder_wave",
+      "confidence": "UNAVAILABLE",
+      "proxy_ticker_used": null
+    }
+  ],
+  "snapshot_saved": true
+}

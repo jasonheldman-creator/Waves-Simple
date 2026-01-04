@@ -1,0 +1,32 @@
+{
+  "voice_id": "pNInz6obpgDQGcFmaJgB",
+  "voice_name": "Adam",
+  "voice_description": "Male voice with professional tone suitable for executive briefings",
+  "model_id": "eleven_monolingual_v1",
+  "voice_settings": {
+    "stability": 0.65,
+    "similarity_boost": 0.75,
+    "style": 0.0,
+    "use_speaker_boost": true
+  },
+  "output_format": "mp3_44100_128",
+  "optimize_streaming_latency": 0,
+  "pronunciation_dictionary_locators": [],
+  "ssml_support": {
+    "enabled": true,
+    "pause_short": "<break time=\"0.3s\"/>",
+    "pause_medium": "<break time=\"0.5s\"/>",
+    "pause_long": "<break time=\"0.8s\"/>"
+  },
+  "notes": [
+    "Voice settings optimized for professional executive briefings",
+    "Stability: 0.65 - Moderate stability for consistent AI presence",
+    "Similarity: 0.75 - High similarity for clear voice character",
+    "Style: 0.0 - Neutral style for professional delivery",
+    "Output format: mp3_44100_128 - High quality MP3 at 44.1kHz, 128kbps",
+    "Alternative voice_id options:",
+    "  - pNInz6obpgDQGcFmaJgB (Adam - Deep male voice)",
+    "  - ErXwobaYiN019PkySvjV (Antoni - Well-rounded male voice)",
+    "  - VR6AewLTigWG4xSOukaG (Arnold - Crisp male voice)"
+  ]
+}

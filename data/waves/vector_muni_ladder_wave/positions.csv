@@ -1,0 +1,6 @@
+ticker,weight,description,exposure,cash,safe_fraction
+SUB,0.25,iShares Short-Term National Muni Bond ETF,0.25,0.0,0.0
+SHM,0.2,SPDR Nuveen Short-Term Municipal Bond ETF,0.2,0.0,0.0
+MUB,0.25,iShares National Muni Bond ETF,0.25,0.0,0.0
+TFI,0.15,SPDR Nuveen Bloomberg Municipal Bond ETF,0.15,0.0,0.0
+HYD,0.15,VanEck High-Yield Muni ETF,0.15,0.0,0.0

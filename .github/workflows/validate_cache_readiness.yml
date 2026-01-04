@@ -1,0 +1,155 @@
+name: Validate Price Cache Readiness
+
+on:
+  # Run on every push and pull request
+  push:
+    branches:
+      - main
+      - develop
+      - 'copilot/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+  
+  # Run daily to catch stale data
+  schedule:
+    - cron: "0 10 * * *"  # Daily at 10 AM UTC
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-cache:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      
+      - name: Check cache file exists
+        run: |
+          if [ ! -f data/cache/prices_cache.parquet ]; then
+            echo "❌ ERROR: prices_cache.parquet not found"
+            exit 1
+          fi
+          echo "✅ Cache file exists"
+      
+      - name: Validate cache readiness
+        run: |
+          python << 'VALIDATE_SCRIPT'
+          import sys
+          import os
+          
+          # Suppress streamlit warnings in CI
+          os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
+          
+          try:
+              from helpers.price_loader import check_cache_readiness
+              
+              print("=" * 70)
+              print("CACHE READINESS VALIDATION")
+              print("=" * 70)
+              
+              # Check cache readiness with CI-appropriate thresholds
+              # max_stale_days=2 means data must be within 2 trading days
+              readiness = check_cache_readiness(
+                  active_only=True,
+                  max_stale_days=2  # CI allows max 2 trading days staleness
+              )
+              
+              print(f"\nStatus: {readiness['status']}")
+              print(f"Status Code: {readiness['status_code']}")
+              print(f"Max Date: {readiness['max_date']}")
+              print(f"Days Stale (calendar): {readiness['days_stale']}")
+              print(f"Trading Days in Cache: {readiness['num_days']}")
+              print(f"Tickers in Cache: {readiness['num_tickers']}")
+              print(f"Required Tickers: {readiness['required_tickers']}")
+              print(f"Missing Tickers: {len(readiness['missing_tickers'])}")
+              
+              # Validation checks
+              errors = []
+              warnings = []
+              
+              # Check 1: Cache must exist and have data
+              if not readiness['exists']:
+                  errors.append("Cache file does not exist")
+              elif readiness['num_days'] == 0 or readiness['num_tickers'] == 0:
+                  errors.append("Cache is empty")
+              
+              # Check 2: No missing required tickers
+              if readiness['missing_tickers']:
+                  errors.append(f"Missing {len(readiness['missing_tickers'])} required tickers:")
+                  for ticker in readiness['missing_tickers'][:10]:
+                      print(f"  ❌ {ticker}")
+                  if len(readiness['missing_tickers']) > 10:
+                      print(f"  ... and {len(readiness['missing_tickers']) - 10} more")
+              
+              # Check 3: Data must not be stale (within 2 trading days)
+              if readiness['status_code'] == 'STALE':
+                  errors.append(f"Price data is stale: {readiness['status']}")
+              
+              # Check 4: Sufficient trading days
+              if readiness['status_code'] == 'INSUFFICIENT':
+                  errors.append(f"Insufficient data: {readiness['status']}")
+              
+              # Report results
+              print("\n" + "=" * 70)
+              print("VALIDATION RESULTS")
+              print("=" * 70)
+              
+              if errors:
+                  print("\n❌ VALIDATION FAILED")
+                  for error in errors:
+                      print(f"  • {error}")
+                  sys.exit(1)
+              elif warnings:
+                  print("\n⚠️  VALIDATION PASSED WITH WARNINGS")
+                  for warning in warnings:
+                      print(f"  • {warning}")
+                  sys.exit(0)
+              else:
+                  print("\n✅ VALIDATION PASSED")
+                  print(f"  • Cache is ready: {readiness['ready']}")
+                  print(f"  • All required tickers present")
+                  print(f"  • Data is fresh (within 2 trading days)")
+                  sys.exit(0)
+              
+          except Exception as e:
+              print(f"\n❌ VALIDATION ERROR: {e}")
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          VALIDATE_SCRIPT
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Cache Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ $? -eq 0 ]; then
+            echo "**Status:** ✅ PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** ❌ FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Validation Criteria:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Cache file must exist" >> $GITHUB_STEP_SUMMARY
+          echo "- All required tickers must be present" >> $GITHUB_STEP_SUMMARY
+          echo "- Data must be within 2 trading days" >> $GITHUB_STEP_SUMMARY
+          echo "- Minimum 60 trading days of data" >> $GITHUB_STEP_SUMMARY
