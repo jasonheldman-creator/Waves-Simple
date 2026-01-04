@@ -198,6 +198,48 @@ WAVE_VALIDATION_MIN_HISTORY_DAYS = 30  # Require 30 days minimum history
 PRICE_DOWNLOAD_BATCH_SIZE = 100
 
 # Pause duration (seconds) between batches to avoid rate limiting
+PRICE_DOWNLOAD_BATCH_PAUSE = 1
+
+# ============================================================================
+# AI EXECUTIVE BRIEFING CONFIGURATION
+# ============================================================================
+# Thresholds for AI Executive Briefing signals and assessments
+# These values can be adjusted to calibrate signal sensitivity
+
+# System Confidence thresholds
+CONFIDENCE_HIGH_COVERAGE_PCT = 90.0  # Coverage % for High confidence
+CONFIDENCE_MODERATE_COVERAGE_PCT = 70.0  # Coverage % for Moderate confidence
+
+# Risk Regime thresholds (VIX-based)
+RISK_REGIME_VIX_LOW = 15.0  # VIX below this = Risk-On
+RISK_REGIME_VIX_HIGH = 25.0  # VIX above this = Risk-Off
+
+# Risk Regime fallback thresholds (performance-based when VIX unavailable)
+RISK_REGIME_PERF_RISK_ON = 0.5  # Average 1D return % for Risk-On
+RISK_REGIME_PERF_RISK_OFF = -0.5  # Average 1D return % for Risk-Off
+
+# Alpha Quality thresholds
+ALPHA_QUALITY_STRONG_RETURN = 0.5  # Average 1D return % for Strong
+ALPHA_QUALITY_STRONG_RATIO = 0.6  # Ratio of positive strategies for Strong
+ALPHA_QUALITY_MIXED_RATIO = 0.5  # Ratio of positive strategies for Mixed
+
+# Performance posture assessment thresholds
+POSTURE_STRONG_POSITIVE = 0.5  # Avg 1D return % for "strong positive momentum"
+POSTURE_WEAK_NEGATIVE = -0.5  # Avg 1D return % for "defensive positioning"
+
+# Dispersion thresholds for risk assessment
+DISPERSION_HIGH = 2.0  # Std dev % for "elevated dispersion"
+DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
+
+# Data Integrity thresholds
+DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
+DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
+
+# Default signal values (used if calculation fails)
+DEFAULT_ALPHA_QUALITY = "Mixed"
+DEFAULT_RISK_REGIME = "Neutral"
+DEFAULT_DATA_INTEGRITY = "Degraded"
+DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
 
@@ -18636,11 +18678,11 @@ def render_overview_clean_tab():
                 positive_count = total_count = 0
             
             # Determine system posture
-            if avg_1d > 0.5:
+            if avg_1d > POSTURE_STRONG_POSITIVE:
                 posture = "strong positive momentum"
             elif avg_1d > 0:
                 posture = "modest positive performance"
-            elif avg_1d > -0.5:
+            elif avg_1d > POSTURE_WEAK_NEGATIVE:
                 posture = "slight underperformance"
             else:
                 posture = "defensive positioning warranted"
@@ -18649,9 +18691,9 @@ def render_overview_clean_tab():
             risk_assessment = "balanced"
             if len(returns_1d) > 0:
                 dispersion = returns_1d.std()
-                if dispersion > 2.0:
+                if dispersion > DISPERSION_HIGH:
                     risk_assessment = "elevated dispersion observed"
-                elif dispersion < 0.5:
+                elif dispersion < DISPERSION_LOW:
                     risk_assessment = "low volatility environment"
             
             # Alpha source narrative
@@ -18693,20 +18735,20 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
         signal_col1, signal_col2, signal_col3, signal_col4 = st.columns(4)
         
         # Calculate signals - define these at function scope for use in recommendations
-        alpha_quality = "Mixed"  # Default
-        risk_regime = "Neutral"  # Default
-        data_integrity = "Degraded"  # Default
-        confidence = "Moderate"  # Default
+        alpha_quality = DEFAULT_ALPHA_QUALITY
+        risk_regime = DEFAULT_RISK_REGIME
+        data_integrity = DEFAULT_DATA_INTEGRITY
+        confidence = DEFAULT_CONFIDENCE
         
         try:
             # System Confidence: Based on data coverage and freshness
             if not performance_df.empty:
                 valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
                 
-                if data_current and valid_data_pct >= 90:
+                if data_current and valid_data_pct >= CONFIDENCE_HIGH_COVERAGE_PCT:
                     confidence = "High"
                     confidence_color = "🟢"
-                elif valid_data_pct >= 70:
+                elif valid_data_pct >= CONFIDENCE_MODERATE_COVERAGE_PCT:
                     confidence = "Moderate"
                     confidence_color = "🟡"
                 else:
@@ -18728,10 +18770,10 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
                 current_vix = None
             
             if current_vix is not None:
-                if current_vix < 15:
+                if current_vix < RISK_REGIME_VIX_LOW:
                     risk_regime = "Risk-On"
                     regime_color = "🟢"
-                elif current_vix < 25:
+                elif current_vix < RISK_REGIME_VIX_HIGH:
                     risk_regime = "Neutral"
                     regime_color = "🟡"
                 else:
@@ -18739,10 +18781,10 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
                     regime_color = "🔴"
             else:
                 # Fallback based on performance
-                if avg_1d > 0.5:
+                if avg_1d > RISK_REGIME_PERF_RISK_ON:
                     risk_regime = "Risk-On"
                     regime_color = "🟢"
-                elif avg_1d < -0.5:
+                elif avg_1d < RISK_REGIME_PERF_RISK_OFF:
                     risk_regime = "Risk-Off"
                     regime_color = "🔴"
                 else:
@@ -18750,10 +18792,10 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
                     regime_color = "🟡"
             
             # Alpha Quality: Based on performance distribution
-            if avg_1d > 0.5 and positive_count / total_count > 0.6:
+            if avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
                 alpha_quality = "Strong"
                 alpha_color = "🟢"
-            elif avg_1d > 0 or positive_count / total_count > 0.5:
+            elif avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO:
                 alpha_quality = "Mixed"
                 alpha_color = "🟡"
             else:
@@ -18761,10 +18803,10 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
                 alpha_color = "🔴"
             
             # Data Integrity: Based on coverage and age
-            if data_current and valid_data_pct >= 95:
+            if data_current and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
                 data_integrity = "Verified"
                 integrity_color = "🟢"
-            elif valid_data_pct >= 80:
+            elif valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
                 data_integrity = "Degraded"
                 integrity_color = "🟡"
             else:
