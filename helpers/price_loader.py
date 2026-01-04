@@ -79,8 +79,26 @@ FORCE_CACHE_REFRESH = os.environ.get('FORCE_CACHE_REFRESH', '0') == '1'
 
 # Option B: Staleness threshold configuration (read from environment variables)
 # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
-PRICE_CACHE_OK_DAYS = int(os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
-PRICE_CACHE_DEGRADED_DAYS = int(os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+try:
+    PRICE_CACHE_OK_DAYS = int(os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
+except (ValueError, TypeError):
+    logger.warning("Invalid PRICE_CACHE_OK_DAYS environment variable, using default: 14")
+    PRICE_CACHE_OK_DAYS = 14
+
+try:
+    PRICE_CACHE_DEGRADED_DAYS = int(os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+except (ValueError, TypeError):
+    logger.warning("Invalid PRICE_CACHE_DEGRADED_DAYS environment variable, using default: 30")
+    PRICE_CACHE_DEGRADED_DAYS = 30
+
+# Validate threshold constraint: DEGRADED_DAYS must be greater than OK_DAYS
+if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
+    logger.warning(
+        f"PRICE_CACHE_DEGRADED_DAYS ({PRICE_CACHE_DEGRADED_DAYS}) must be greater than "
+        f"PRICE_CACHE_OK_DAYS ({PRICE_CACHE_OK_DAYS}). Using defaults: OK=14, DEGRADED=30"
+    )
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
 
 
 def ensure_cache_directory() -> None:

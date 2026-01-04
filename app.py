@@ -6367,7 +6367,7 @@ def render_mission_control():
         st.metric(
             label="Data Age",
             value=age_display,
-            help=f"Time since last data update (UTC). OK ≤{DEGRADED_DAYS_THRESHOLD} days, DEGRADED {DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days, STALE >{STALE_DAYS_THRESHOLD} days."
+            help=f"Time since last data update (UTC). Three-tier staleness system: OK (≤{DEGRADED_DAYS_THRESHOLD} days), DEGRADED ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days), STALE (>{STALE_DAYS_THRESHOLD} days). Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
         )
     
     with sec_col5:

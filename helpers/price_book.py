@@ -43,8 +43,30 @@ CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
 # These can be overridden via environment variables PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS
 import os as _os
-PRICE_CACHE_OK_DAYS = int(_os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
-PRICE_CACHE_DEGRADED_DAYS = int(_os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+import logging as _logging
+
+_logger = _logging.getLogger(__name__)
+
+try:
+    PRICE_CACHE_OK_DAYS = int(_os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
+except (ValueError, TypeError):
+    _logger.warning("Invalid PRICE_CACHE_OK_DAYS environment variable, using default: 14")
+    PRICE_CACHE_OK_DAYS = 14
+
+try:
+    PRICE_CACHE_DEGRADED_DAYS = int(_os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+except (ValueError, TypeError):
+    _logger.warning("Invalid PRICE_CACHE_DEGRADED_DAYS environment variable, using default: 30")
+    PRICE_CACHE_DEGRADED_DAYS = 30
+
+# Validate threshold constraint: DEGRADED_DAYS must be greater than OK_DAYS
+if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
+    _logger.warning(
+        f"PRICE_CACHE_DEGRADED_DAYS ({PRICE_CACHE_DEGRADED_DAYS}) must be greater than "
+        f"PRICE_CACHE_OK_DAYS ({PRICE_CACHE_OK_DAYS}). Using defaults: OK=14, DEGRADED=30"
+    )
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
 
 # Legacy constants (for backward compatibility)
 CRITICAL_MISSING_THRESHOLD = 0.5  # 50% - More than this triggers STALE status
