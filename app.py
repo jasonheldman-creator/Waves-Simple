@@ -125,10 +125,10 @@ try:
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
     # Fallback defaults if price_book is unavailable
-    STALE_DAYS_THRESHOLD = 10
-    DEGRADED_DAYS_THRESHOLD = 5
     PRICE_CACHE_OK_DAYS = 14
     PRICE_CACHE_DEGRADED_DAYS = 30
+    STALE_DAYS_THRESHOLD = 30  # Alias for PRICE_CACHE_DEGRADED_DAYS
+    DEGRADED_DAYS_THRESHOLD = 14  # Alias for PRICE_CACHE_OK_DAYS
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
