@@ -18677,63 +18677,34 @@ def render_overview_clean_tab():
         st.markdown("### 🎛️ Composite System Control Status")
         
         try:
-            # Compute system status based on multiple signals
-            status_issues = []
+            # Use canonical health status from price_book
+            canonical_health_status = health.get('health_status', 'unknown')
+            canonical_health_emoji = health.get('health_emoji', '❓')
+            canonical_details = health.get('details', 'System status unavailable')
             
-            # Check 1: Price book staleness (Option B: three-tier system)
-            # OK: ≤{DEGRADED_DAYS_THRESHOLD} days, DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days, STALE: >{STALE_DAYS_THRESHOLD} days
-            if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
-                status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
-            elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
-                status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
-            # else: data_age_days ≤ {DEGRADED_DAYS_THRESHOLD} days → OK, no issue to report
-            
-            # Check 2: Missing tickers / data coverage
-            total_waves = len(performance_df) if not performance_df.empty else 0
-            if not performance_df.empty:
-                if 'Failure_Reason' in performance_df.columns:
-                    failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
-                    failed_count = len(failed_waves)
-                    
-                    if failed_count > 0:
-                        missing_ticker_count = len(failed_waves[failed_waves['Failure_Reason'].str.contains('Missing tickers', case=False, na=False)])
-                        if missing_ticker_count > 0:
-                            status_issues.append(f"{missing_ticker_count} strategies with missing ticker data")
-            
-            # Check 3: Data integrity
-            valid_data_pct = 0
-            if not performance_df.empty and total_waves > 0:
-                def parse_return(val):
-                    if pd.isna(val) or val == "N/A":
-                        return None
-                    try:
-                        return float(str(val).replace('%', '').replace('+', ''))
-                    except:
-                        return None
-                
-                if '1D Return' in performance_df.columns:
-                    returns_1d = performance_df['1D Return'].apply(parse_return).dropna()
-                    valid_data_pct = (len(returns_1d) / total_waves * 100)
-                    
-                    if valid_data_pct < 70:
-                        status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
-            
-            # Determine overall system status (Option B aligned)
-            if len(status_issues) == 0 and data_current:
+            # Map canonical health status to UI status vocabulary
+            # Canonical: OK, DEGRADED, STALE
+            # UI: STABLE (OK), WATCH (DEGRADED with minor issues), DEGRADED (STALE or major issues)
+            if canonical_health_status == 'OK':
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
-                status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= DEGRADED_DAYS_THRESHOLD):
+                status_text = canonical_details
+            elif canonical_health_status == 'DEGRADED':
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
-                status_text = "System operational with minor issues: " + "; ".join(status_issues[:2])
-            else:
+                status_text = canonical_details
+            elif canonical_health_status == 'STALE':
                 system_status = "DEGRADED"
                 status_color = "🔴"
                 status_bg = "#5a1a1a"
-                status_text = "System requires attention: " + "; ".join(status_issues[:3])
+                status_text = canonical_details
+            else:
+                system_status = "UNKNOWN"
+                status_color = "❓"
+                status_bg = "#3a3a3a"
+                status_text = "System status unavailable"
             
             # Display status banner
             st.markdown(f"""
