@@ -241,15 +241,19 @@ def get_price_book_meta(price_book: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
+def rebuild_price_cache(active_only: bool = True, force_user_initiated: bool = False) -> Dict[str, Any]:
     """
     Rebuild the canonical price cache by fetching data for active tickers.
     
     This is the ONLY function that should trigger network fetching.
     It must be called explicitly (e.g., via button click).
     
+    IMPORTANT: This function supports explicit user-initiated fetching even when
+    safe_mode_no_fetch=True. The safe_mode restriction only applies to IMPLICIT
+    fetches, not EXPLICIT user actions via button clicks.
+    
     Workflow:
-    1. Check PRICE_FETCH_ENABLED environment variable
+    1. Check PRICE_FETCH_ENABLED environment variable (can be bypassed with force_user_initiated)
     2. Collect required tickers (active waves only)
     3. Fetch prices for those tickers
     4. Write to canonical cache file
@@ -257,6 +261,7 @@ def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
     
     Args:
         active_only: If True, only fetch tickers for active waves (default: True)
+        force_user_initiated: If True, bypass PRICE_FETCH_ENABLED check for explicit user actions (default: False)
         
     Returns:
         Dictionary with:
@@ -271,6 +276,8 @@ def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
     """
     logger.info("=" * 70)
     logger.info("REBUILD PRICE CACHE: Explicit cache rebuild requested")
+    if force_user_initiated:
+        logger.info("MODE: User-initiated (bypassing safe_mode restrictions)")
     logger.info("=" * 70)
     
     # Check if required functions are available
@@ -288,8 +295,8 @@ def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
             'message': 'Price loader functions not available. Check imports.'
         }
     
-    # Check if fetching is enabled
-    if not PRICE_FETCH_ENABLED:
+    # Check if fetching is enabled (can be bypassed for explicit user actions)
+    if not PRICE_FETCH_ENABLED and not force_user_initiated:
         logger.warning("PRICE_FETCH_ENABLED is False - fetching is disabled")
         return {
             'allowed': False,
@@ -300,10 +307,13 @@ def rebuild_price_cache(active_only: bool = True) -> Dict[str, Any]:
             'failures': {},
             'date_max': None,
             'cache_info': {},
-            'message': 'Fetching is disabled. Set PRICE_FETCH_ENABLED=true to enable.'
+            'message': 'Fetching is disabled. Set PRICE_FETCH_ENABLED=true to enable or use manual rebuild button.'
         }
     
-    logger.info("PRICE_FETCH_ENABLED is True - proceeding with fetch")
+    if force_user_initiated:
+        logger.info("Proceeding with user-initiated fetch (safe_mode restriction bypassed)")
+    else:
+        logger.info("PRICE_FETCH_ENABLED is True - proceeding with fetch")
     
     # Collect required tickers
     required_tickers = collect_required_tickers(active_only=active_only)
