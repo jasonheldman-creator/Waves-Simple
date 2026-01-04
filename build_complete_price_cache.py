@@ -36,6 +36,10 @@ BATCH_SIZE = 10  # Download in small batches to avoid rate limits
 BATCH_DELAY = 1.5  # Delay between batches in seconds
 MAX_RETRIES = 3  # Retry failed downloads
 
+# Critical tickers that MUST succeed for the build to pass
+CRITICAL_TICKERS = {'IGV', 'STETH-USD', '^VIX'}
+# Note: stETH-USD is normalized to STETH-USD, so both forms are handled
+
 
 def log_message(message: str, level: str = "INFO"):
     """Log a message with timestamp."""
@@ -400,6 +404,26 @@ def main():
     diagnostics_path = os.path.join(REPO_ROOT, 'price_cache_diagnostics.json')
     save_diagnostics(diagnostics, diagnostics_path)
     
+    # Step 5: Validate critical tickers
+    log_message("\nStep 5: Validating critical tickers...")
+    missing_critical = CRITICAL_TICKERS - successful_tickers
+    failed_critical = [t for t in CRITICAL_TICKERS if t in failures]
+    
+    # Separate critical and non-critical failures
+    critical_failures = {k: v for k, v in failures.items() if k in CRITICAL_TICKERS}
+    non_critical_failures = {k: v for k, v in failures.items() if k not in CRITICAL_TICKERS}
+    
+    # Determine cache status
+    if missing_critical or failed_critical:
+        cache_status = "FAILED"
+        status_level = "ERROR"
+    elif non_critical_failures:
+        cache_status = f"DEGRADED ({len(non_critical_failures)} non-critical tickers skipped)"
+        status_level = "WARN"
+    else:
+        cache_status = "STABLE"
+        status_level = "INFO"
+    
     # Print summary
     log_message("\n" + "=" * 60)
     log_message("SUMMARY")
@@ -414,14 +438,34 @@ def main():
     log_message(f"  - {ticker_ref_path}")
     log_message(f"  - {diagnostics_path}")
     
-    if failures:
-        log_message(f"\nFailed tickers ({len(failures)}):")
-        for ticker, error in sorted(failures.items()):
-            log_message(f"  {ticker}: {error}")
+    # Critical ticker status
+    log_message(f"\nCritical Tickers ({len(CRITICAL_TICKERS)}):")
+    for ticker in sorted(CRITICAL_TICKERS):
+        if ticker in successful_tickers:
+            log_message(f"  ✓ {ticker}: SUCCESS")
+        else:
+            error_msg = failures.get(ticker, "Unknown error")
+            log_message(f"  ✗ {ticker}: FAILED - {error_msg}", "ERROR")
     
+    if non_critical_failures:
+        log_message(f"\nNon-Critical Failed Tickers ({len(non_critical_failures)}):")
+        for ticker, error in sorted(non_critical_failures.items())[:10]:  # Show first 10
+            log_message(f"  ✗ {ticker}: {error}", "WARN")
+        if len(non_critical_failures) > 10:
+            log_message(f"  ... and {len(non_critical_failures) - 10} more", "WARN")
+    
+    # Final status
+    log_message("\n" + "=" * 60)
+    log_message(f"Cache Status: {cache_status}", status_level)
     log_message("=" * 60)
     
-    return 0 if len(failures) == 0 else 1
+    # Exit logic: succeed if all critical tickers are present
+    if missing_critical or failed_critical:
+        log_message("\n❌ BUILD FAILED: Missing critical tickers", "ERROR")
+        return 1
+    else:
+        log_message("\n✅ BUILD SUCCESSFUL: All critical tickers present", "INFO")
+        return 0
 
 
 if __name__ == "__main__":

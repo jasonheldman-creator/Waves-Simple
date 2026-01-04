@@ -1,8 +1,8 @@
 {
-  "timestamp": "2025-12-29 14:37:40",
-  "total_tickers_requested": 129,
+  "timestamp": "2026-01-04 13:31:49",
+  "total_tickers_requested": 131,
   "successful_downloads": 0,
-  "failed_downloads": 129,
+  "failed_downloads": 131,
   "success_rate": "0.0%",
   "failures": {
     "AAPL": "Insufficient data: 0 rows",
@@ -54,6 +54,7 @@
     "ICLN": "Insufficient data: 0 rows",
     "ICP-USD": "Insufficient data: 0 rows",
     "IEF": "Insufficient data: 0 rows",
+    "IGV": "Insufficient data: 0 rows",
     "IJH": "Insufficient data: 0 rows",
     "IMX-USD": "Insufficient data: 0 rows",
     "INJ-USD": "Insufficient data: 0 rows",
@@ -133,7 +134,8 @@
     "XOM": "Insufficient data: 0 rows",
     "XRP-USD": "Insufficient data: 0 rows",
     "ZS": "Insufficient data: 0 rows",
-    "^VIX": "Insufficient data: 0 rows"
+    "^VIX": "Insufficient data: 0 rows",
+    "stETH-USD": "Insufficient data: 0 rows"
   },
   "ticker_statistics": {}
 }
