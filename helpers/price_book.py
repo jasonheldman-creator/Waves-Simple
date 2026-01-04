@@ -39,10 +39,17 @@ CACHE_DIR = "data/cache"
 CACHE_FILE = "prices_cache.parquet"
 CANONICAL_CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
-# System health thresholds
+# System health thresholds (Option B: Revised staleness handling)
+# OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+# These can be overridden via environment variables PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS
+import os as _os
+PRICE_CACHE_OK_DAYS = int(_os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
+PRICE_CACHE_DEGRADED_DAYS = int(_os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+
+# Legacy constants (for backward compatibility)
 CRITICAL_MISSING_THRESHOLD = 0.5  # 50% - More than this triggers STALE status
-STALE_DAYS_THRESHOLD = 10  # Days - Data older than this is STALE
-DEGRADED_DAYS_THRESHOLD = 5  # Days - Data older than this is DEGRADED
+STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS  # Alias for Option B STALE threshold (>30 days)
+DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS  # Alias for Option B DEGRADED threshold (>14 days)
 
 # Environment variable to control fetching
 # IMPORTANT: Set to False in production/cloud to prevent automatic fetching
@@ -481,10 +488,10 @@ def compute_system_health(price_book: Optional[pd.DataFrame] = None) -> Dict[str
     - Data staleness (age of latest prices)
     - Data sufficiency (number of trading days)
     
-    Health Levels:
-    - OK: All required tickers present, data fresh (< 5 days old)
-    - DEGRADED: Missing some required tickers OR data slightly stale (5-10 days)
-    - STALE: Data very stale (> 10 days) OR missing many required tickers
+    Health Levels (Option B):
+    - OK: All required tickers present, data fresh (≤14 days old)
+    - DEGRADED: Missing some required tickers OR data moderately stale (15-30 days)
+    - STALE: Data very stale (>30 days) OR missing many required tickers
     
     Args:
         price_book: Optional PRICE_BOOK DataFrame. If None, loads from singleton.
