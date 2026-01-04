@@ -23,6 +23,7 @@ import os
 import traceback
 import logging
 import time
+import itertools
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -4722,7 +4723,7 @@ def get_mission_control_data():
                 
                 # Compute waves_live_count from PRICE_BOOK validation
                 try:
-                    from helpers.price_book import get_price_book, get_price_book_meta
+                    from helpers.price_book import get_price_book
                     price_book = get_price_book(active_tickers=None)
                     if not price_book.empty:
                         # Count enabled waves - if PRICE_BOOK has data, all enabled waves are "live"
@@ -4768,7 +4769,7 @@ def get_mission_control_data():
                 # Compute waves_live_count from PRICE_BOOK validation
                 # This counts active waves that have valid price data in PRICE_BOOK
                 try:
-                    from helpers.price_book import get_price_book, get_price_book_meta
+                    from helpers.price_book import get_price_book
                     price_book = get_price_book(active_tickers=None)
                     if not price_book.empty:
                         # If PRICE_BOOK has data, count all enabled waves as "live"
@@ -6298,10 +6299,8 @@ def render_mission_control():
                         # Show failed tickers if any
                         if result['tickers_failed'] > 0 and result['failures']:
                             with st.expander("⚠️ Failed Tickers", expanded=False):
-                                # Show first 10 failed tickers efficiently
-                                for i, ticker in enumerate(result['failures'].keys()):
-                                    if i >= 10:
-                                        break
+                                # Show first 10 failed tickers efficiently using islice
+                                for ticker in itertools.islice(result['failures'].keys(), 10):
                                     st.text(f"• {ticker}")
                                 if len(result['failures']) > 10:
                                     st.text(f"... and {len(result['failures']) - 10} more")
