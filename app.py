@@ -121,7 +121,10 @@ try:
         compute_system_health
     )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
-    # Legacy aliases for backward compatibility
+    # Legacy aliases for backward compatibility - mapping to canonical names:
+    # - DEGRADED_DAYS_THRESHOLD = threshold for transitioning FROM OK TO DEGRADED (14 days)
+    # - STALE_DAYS_THRESHOLD = threshold for transitioning FROM DEGRADED TO STALE (30 days)
+    # These maintain backward compatibility with code that uses the old threshold names.
     DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS
     STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
 except ImportError:
@@ -18884,6 +18887,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         
         try:
             # System Confidence: Based on data coverage and freshness
+            # Note: System Confidence requires very fresh data (data_current = age <= 1 day)
+            # for "High" confidence, which is more stringent than Data Integrity's OK threshold
+            # (age <= 14 days). This is intentional - confidence in real-time decisions
+            # requires fresher data than general data integrity validation.
             if not performance_df.empty:
                 valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
                 
