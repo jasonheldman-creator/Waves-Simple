@@ -112,6 +112,16 @@ try:
 except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
+# Import price_book constants for Mission Control
+try:
+    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    PRICE_BOOK_CONSTANTS_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_CONSTANTS_AVAILABLE = False
+    # Fallback defaults if price_book is unavailable
+    STALE_DAYS_THRESHOLD = 10
+    DEGRADED_DAYS_THRESHOLD = 5
+
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
 # ============================================================================
@@ -6300,8 +6310,8 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
-            # Add STALE indicator for old data
-            elif data_age > STALE_DAYS_THRESHOLD:
+            # Add STALE indicator for old data (with type safety)
+            elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
                 age_display = f"⚠️ {data_age} days (STALE)"
         else:
             age_display = "Unknown"
@@ -6356,10 +6366,10 @@ def render_mission_control():
     # ========================================================================
     data_age = mc_data.get('data_age_days')
     try:
-        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
+        from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is old AND network fetch is disabled
-        if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+        # Show warning if cache is old AND network fetch is disabled (with type safety)
+        if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
                 f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
                 f"Data is {data_age} days old. Network fetching is disabled (safe_mode), "
