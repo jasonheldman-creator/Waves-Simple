@@ -18952,6 +18952,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 alpha_color = "🔴"
             
             # Data Integrity: Based on coverage and age using canonical price_book thresholds
+            # source of truth: helpers/price_book.py
             # UI uses price_book as source of truth to prevent divergence
             # OK: age ≤ PRICE_CACHE_OK_DAYS (14 days) AND coverage ≥ 95%
             # DEGRADED: (age > PRICE_CACHE_OK_DAYS but ≤ PRICE_CACHE_DEGRADED_DAYS) OR (coverage ≥ 80% but < 95%)
