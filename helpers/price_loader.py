@@ -66,7 +66,7 @@ FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 DEFAULT_CACHE_YEARS = 5  # Keep last 5 years of data
 MAX_FORWARD_FILL_DAYS = 3  # Maximum gap to forward-fill (CHANGED from 5 to 3)
 MIN_REQUIRED_DAYS = 60  # Minimum trading days for readiness (CHANGED from 10 to 60)
-MAX_STALE_DAYS = 5  # Data older than this is considered stale (CHANGED from 3 to 5)
+MAX_STALE_DAYS = 2  # Data older than this many trading days is considered stale (CHANGED to use trading days)
 
 # Download configuration
 BATCH_SIZE = 50  # Maximum tickers per batch download
@@ -1065,6 +1065,35 @@ def clear_cache() -> bool:
         return False
 
 
+def get_trading_days_ago(target_date: datetime, trading_days_back: int = 1) -> datetime:
+    """
+    Calculate a date that is N trading days before the target date.
+    Trading days exclude weekends (Saturday and Sunday).
+    
+    Args:
+        target_date: The reference date
+        trading_days_back: Number of trading days to go back (default: 1)
+        
+    Returns:
+        datetime object representing the date N trading days ago
+    
+    Example:
+        >>> # If today is Monday, 1 trading day ago is Friday
+        >>> # If today is Sunday, 1 trading day ago is Friday (2 calendar days)
+    """
+    current = target_date
+    trading_days_counted = 0
+    
+    # Move back day by day until we've counted enough trading days
+    while trading_days_counted < trading_days_back:
+        current = current - timedelta(days=1)
+        # Check if it's a weekday (Monday=0, Sunday=6)
+        if current.weekday() < 5:  # Monday-Friday
+            trading_days_counted += 1
+    
+    return current
+
+
 def check_cache_readiness(
     min_trading_days: int = MIN_REQUIRED_DAYS,
     max_stale_days: int = MAX_STALE_DAYS,
@@ -1136,8 +1165,16 @@ def check_cache_readiness(
     result['num_tickers'] = len(cache_df.columns)
     result['max_date'] = cache_df.index[-1].strftime('%Y-%m-%d')
     
-    # Calculate staleness
-    days_since_update = (datetime.utcnow() - cache_df.index[-1]).days
+    # Calculate staleness using trading days (not calendar days)
+    # max_stale_days parameter is interpreted as trading days
+    max_date = cache_df.index[-1].to_pydatetime()
+    now = datetime.utcnow()
+    
+    # Calculate the cutoff date (N trading days ago from now)
+    cutoff_date = get_trading_days_ago(now, trading_days_back=max_stale_days)
+    
+    # Calculate calendar days for reporting purposes
+    days_since_update = (now - max_date).days
     result['days_stale'] = days_since_update
     
     # Check minimum trading days
@@ -1146,9 +1183,10 @@ def check_cache_readiness(
         result['status_code'] = 'INSUFFICIENT'
         return result
     
-    # Check staleness
-    if days_since_update > max_stale_days:
-        result['status'] = f'STALE - Data is {days_since_update} days old (max {max_stale_days})'
+    # Check staleness based on trading days
+    # If max_date is older than the cutoff (N trading days ago), it's stale
+    if max_date < cutoff_date:
+        result['status'] = f'STALE - Data is {days_since_update} calendar days old (>{max_stale_days} trading days)'
         result['status_code'] = 'STALE'
         # Don't return yet - still report missing tickers
     

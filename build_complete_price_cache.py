@@ -111,8 +111,10 @@ def get_safe_asset_tickers() -> Set[str]:
         '^VIX',
         # Commodities
         'GLD', 'IAU',
-        # Stablecoins (for crypto waves)
-        'USDC-USD', 'USDT-USD', 'DAI-USD',
+        # Stablecoins and staking tokens (for crypto waves)
+        'USDC-USD', 'USDT-USD', 'DAI-USD', 'stETH-USD', 'STETH-USD',
+        # Technology sector ETFs
+        'IGV',
     }
     
     log_message(f"Added {len(safe_assets)} safe asset tickers")
