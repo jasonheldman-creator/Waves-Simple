@@ -18576,14 +18576,15 @@ def render_wave_overview_new_tab():
 
 def render_overview_clean_tab():
     """
-    AI Executive Briefing - Tab 1
+    Institutional Readiness - Tab 1
     
     Transformed C-suite decision layer providing:
-    1. AI Executive Brief Narrative - High-level human-judgment summary
-    2. Human-Readable Signals - System Confidence, Risk Regime, Alpha Quality, Data Integrity
-    3. AI Recommendations - Clear next steps for decision-makers
-    4. Performance Insights - Key outperformers and positioning context
-    5. Market Context - Concise regime assessment
+    1. Composite System Control Status - High-level system health (STABLE/WATCH/DEGRADED)
+    2. AI Executive Brief Narrative - High-level human-judgment summary
+    3. Human-Readable Signals - System Confidence, Risk Regime, Alpha Quality, Data Integrity
+    4. AI Recommendations - Clear next steps for decision-makers
+    5. Performance Insights - Key outperformers and positioning context
+    6. Market Context - Concise regime assessment
     
     All system diagnostics and technical details moved to collapsed expanders.
     Designed for executives to understand system state within 10 seconds.
@@ -18605,10 +18606,10 @@ def render_overview_clean_tab():
             margin-bottom: 20px;
         ">
             <h1 style="color: #00d9ff; margin: 0; font-size: 32px; text-align: center;">
-                🧠 AI Executive Briefing
+                🏛️ Institutional Readiness
             </h1>
             <p style="color: #a8dadc; margin: 8px 0 0 0; font-size: 16px; text-align: center;">
-                Strategic Intelligence for Decision-Makers
+                Executive Decision Interface
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -18617,12 +18618,6 @@ def render_overview_clean_tab():
         try:
             from helpers.price_book import get_price_book, get_price_book_meta
             from helpers.wave_performance import compute_all_waves_performance
-            from helpers.executive_summary import (
-                identify_top_performers, 
-                identify_attention_waves,
-                analyze_alpha_drivers,
-                get_market_regime_summary
-            )
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
@@ -18642,6 +18637,95 @@ def render_overview_clean_tab():
             if st.session_state.get("debug_mode", False):
                 st.exception(e)
             return
+        
+        # ========================================================================
+        # COMPOSITE SYSTEM CONTROL STATUS
+        # ========================================================================
+        st.markdown("### 🎛️ Composite System Control Status")
+        
+        try:
+            # Compute system status based on multiple signals
+            status_issues = []
+            
+            # Check 1: Price book staleness
+            if data_age_days is not None and data_age_days > 7:
+                status_issues.append(f"Price data is {data_age_days} days stale")
+            elif data_age_days is not None and data_age_days > 1:
+                status_issues.append(f"Price data is {data_age_days} days old")
+            
+            # Check 2: Missing tickers / data coverage
+            total_waves = len(performance_df) if not performance_df.empty else 0
+            if not performance_df.empty:
+                if 'Failure_Reason' in performance_df.columns:
+                    failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
+                    failed_count = len(failed_waves)
+                    
+                    if failed_count > 0:
+                        missing_ticker_count = len(failed_waves[failed_waves['Failure_Reason'].str.contains('Missing tickers', case=False, na=False)])
+                        if missing_ticker_count > 0:
+                            status_issues.append(f"{missing_ticker_count} strategies with missing ticker data")
+            
+            # Check 3: Data integrity
+            valid_data_pct = 0
+            if not performance_df.empty and total_waves > 0:
+                def parse_return(val):
+                    if pd.isna(val) or val == "N/A":
+                        return None
+                    try:
+                        return float(str(val).replace('%', '').replace('+', ''))
+                    except:
+                        return None
+                
+                if '1D Return' in performance_df.columns:
+                    returns_1d = performance_df['1D Return'].apply(parse_return).dropna()
+                    valid_data_pct = (len(returns_1d) / total_waves * 100)
+                    
+                    if valid_data_pct < 70:
+                        status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
+            
+            # Determine overall system status
+            if len(status_issues) == 0 and data_current:
+                system_status = "STABLE"
+                status_color = "🟢"
+                status_bg = "#1b4332"
+                status_text = "All systems operational. Data is current and complete."
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= 3):
+                system_status = "WATCH"
+                status_color = "🟡"
+                status_bg = "#664d03"
+                status_text = "System operational with minor issues: " + "; ".join(status_issues[:2])
+            else:
+                system_status = "DEGRADED"
+                status_color = "🔴"
+                status_bg = "#5a1a1a"
+                status_text = "System requires attention: " + "; ".join(status_issues[:3])
+            
+            # Display status banner
+            st.markdown(f"""
+            <div style="
+                background: {status_bg};
+                border: 2px solid {'#52b788' if system_status == 'STABLE' else '#ffc107' if system_status == 'WATCH' else '#dc3545'};
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 20px;
+            ">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <h3 style="color: {'#52b788' if system_status == 'STABLE' else '#ffc107' if system_status == 'WATCH' else '#dc3545'}; margin: 0; font-size: 24px;">
+                            {status_color} System Status: {system_status}
+                        </h3>
+                        <p style="color: #e0e0e0; margin: 8px 0 0 0; font-size: 14px;">
+                            {status_text}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.warning("System status check temporarily unavailable")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
         
         st.divider()
         
@@ -18680,42 +18764,57 @@ def render_overview_clean_tab():
             # Determine system posture
             if avg_1d > POSTURE_STRONG_POSITIVE:
                 posture = "strong positive momentum"
+                regime_context = "favorable market conditions"
             elif avg_1d > 0:
                 posture = "modest positive performance"
+                regime_context = "constructive market backdrop"
             elif avg_1d > POSTURE_WEAK_NEGATIVE:
                 posture = "slight underperformance"
+                regime_context = "mixed market environment"
             else:
                 posture = "defensive positioning warranted"
+                regime_context = "challenging market conditions"
             
             # Risk assessment based on dispersion
-            risk_assessment = "balanced"
+            risk_assessment = "balanced market regime"
             if len(returns_1d) > 0:
                 dispersion = returns_1d.std()
                 if dispersion > DISPERSION_HIGH:
-                    risk_assessment = "elevated dispersion observed"
+                    risk_assessment = "heightened dispersion across strategies"
                 elif dispersion < DISPERSION_LOW:
-                    risk_assessment = "low volatility environment"
+                    risk_assessment = "low volatility regime"
             
             # Alpha source narrative
             if avg_1d > 0.3:
-                alpha_narrative = "Platform strategies are capturing meaningful outperformance across multiple exposures."
+                alpha_narrative = "Platform strategies are capturing meaningful outperformance across multiple factor exposures."
             elif avg_1d > 0:
-                alpha_narrative = "Platform strategies are modestly outperforming with selective alpha capture."
+                alpha_narrative = "Platform strategies demonstrate selective alpha generation with disciplined risk management."
             else:
-                alpha_narrative = "Platform strategies are prioritizing capital preservation in current conditions."
+                alpha_narrative = "Platform strategies are prioritizing capital preservation while maintaining strategic positioning."
             
             # Construct executive narrative
             current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
             
+            # Strategy performance context - emphasize regime, not raw counts
+            if positive_count > 0 and total_count > 0:
+                win_rate = (positive_count / total_count * 100)
+                if win_rate >= 70:
+                    performance_context = f"Broad-based strength observed ({positive_count} of {total_count} strategies positive)."
+                elif win_rate >= 50:
+                    performance_context = f"Balanced performance distribution across the portfolio ({positive_count} of {total_count} strategies positive)."
+                else:
+                    performance_context = f"Selective opportunities in current regime ({positive_count} of {total_count} strategies positive)."
+            else:
+                performance_context = "Performance data is being compiled."
+            
             narrative_text = f"""
 **As of {current_time}**
 
-The platform is monitoring **{total_waves} investment strategies** with {posture}. 
-Market conditions reflect {risk_assessment}, with {positive_count} of {total_count} strategies posting gains today.
+The platform is monitoring **{total_waves} institutional-grade investment strategies** exhibiting {posture} within {regime_context}. 
 
-{alpha_narrative}
+{performance_context} {alpha_narrative}
 
-**Assessment:** {'Action may be required' if avg_1d < -1.0 else 'Maintain current positioning' if avg_1d >= 0 else 'Monitor closely'}.
+**Strategic Assessment:** {'Evaluate risk reduction measures' if avg_1d < -1.0 else 'Maintain strategic positioning' if avg_1d >= 0 else 'Continue monitoring market developments'}.
             """
             
             st.markdown(narrative_text)
@@ -18792,10 +18891,10 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
                     regime_color = "🟡"
             
             # Alpha Quality: Based on performance distribution
-            if avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
+            if total_count > 0 and avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
                 alpha_quality = "Strong"
                 alpha_color = "🟢"
-            elif avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO:
+            elif total_count > 0 and (avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO):
                 alpha_quality = "Mixed"
                 alpha_color = "🟡"
             else:
@@ -19735,7 +19834,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
         
         analytics_tabs = st.tabs([
-            "Overview (Clean)",        # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",        # NEW: FIRST TAB - Clean demo-ready overview
             "Console",                 # Core functionality
             "Overview",                # Market tab equivalent
             "Details",     
@@ -19753,9 +19852,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Console tab
         with analytics_tabs[1]:
@@ -19827,9 +19926,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Overview (Clean) is FIRST
+        # Normal mode with Wave Profile enabled - Institutional Readiness is FIRST
         analytics_tabs = st.tabs([
-            "Overview (Clean)",            # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",            # NEW: FIRST TAB - Clean demo-ready overview
             "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
             "Console",                     # Third tab - Executive
             "Wave",                        # Fourth tab - Wave Profile with hero card
@@ -19848,9 +19947,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Overview tab (second) - Executive Brief
         with analytics_tabs[1]:
@@ -19926,9 +20025,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Overview (Clean) is FIRST tab
+        # Institutional Readiness is FIRST tab
         analytics_tabs = st.tabs([
-            "Overview (Clean)",           # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",           # NEW: FIRST TAB - Clean demo-ready overview
             "Overview",                   # Second tab - unified system overview
             "Console",                    # Third tab - Executive
             "Details",                    # Factor Decomp equivalent
@@ -19946,9 +20045,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Overview tab (second) - Executive Brief
         with analytics_tabs[1]:

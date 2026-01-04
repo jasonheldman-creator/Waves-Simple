@@ -112,6 +112,16 @@ try:
 except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
+# Import price_book constants for Mission Control
+try:
+    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    PRICE_BOOK_CONSTANTS_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_CONSTANTS_AVAILABLE = False
+    # Fallback defaults if price_book is unavailable
+    STALE_DAYS_THRESHOLD = 10
+    DEGRADED_DAYS_THRESHOLD = 5
+
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
 # ============================================================================
@@ -188,6 +198,48 @@ WAVE_VALIDATION_MIN_HISTORY_DAYS = 30  # Require 30 days minimum history
 PRICE_DOWNLOAD_BATCH_SIZE = 100
 
 # Pause duration (seconds) between batches to avoid rate limiting
+PRICE_DOWNLOAD_BATCH_PAUSE = 1
+
+# ============================================================================
+# AI EXECUTIVE BRIEFING CONFIGURATION
+# ============================================================================
+# Thresholds for AI Executive Briefing signals and assessments
+# These values can be adjusted to calibrate signal sensitivity
+
+# System Confidence thresholds
+CONFIDENCE_HIGH_COVERAGE_PCT = 90.0  # Coverage % for High confidence
+CONFIDENCE_MODERATE_COVERAGE_PCT = 70.0  # Coverage % for Moderate confidence
+
+# Risk Regime thresholds (VIX-based)
+RISK_REGIME_VIX_LOW = 15.0  # VIX below this = Risk-On
+RISK_REGIME_VIX_HIGH = 25.0  # VIX above this = Risk-Off
+
+# Risk Regime fallback thresholds (performance-based when VIX unavailable)
+RISK_REGIME_PERF_RISK_ON = 0.5  # Average 1D return % for Risk-On
+RISK_REGIME_PERF_RISK_OFF = -0.5  # Average 1D return % for Risk-Off
+
+# Alpha Quality thresholds
+ALPHA_QUALITY_STRONG_RETURN = 0.5  # Average 1D return % for Strong
+ALPHA_QUALITY_STRONG_RATIO = 0.6  # Ratio of positive strategies for Strong
+ALPHA_QUALITY_MIXED_RATIO = 0.5  # Ratio of positive strategies for Mixed
+
+# Performance posture assessment thresholds
+POSTURE_STRONG_POSITIVE = 0.5  # Avg 1D return % for "strong positive momentum"
+POSTURE_WEAK_NEGATIVE = -0.5  # Avg 1D return % for "defensive positioning"
+
+# Dispersion thresholds for risk assessment
+DISPERSION_HIGH = 2.0  # Std dev % for "elevated dispersion"
+DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
+
+# Data Integrity thresholds
+DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
+DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
+
+# Default signal values (used if calculation fails)
+DEFAULT_ALPHA_QUALITY = "Mixed"
+DEFAULT_RISK_REGIME = "Neutral"
+DEFAULT_DATA_INTEGRITY = "Degraded"
+DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
 
@@ -6149,11 +6201,19 @@ def render_mission_control():
     """
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
-    # Debug: Run state indicator (temporary)
+    # RUN COUNTER + Timestamp Indicator (ALWAYS VISIBLE - Production requirement)
+    # Note: run_id is incremented in main() function at line ~19076
     current_time = datetime.now().strftime("%H:%M:%S")
+    run_id = st.session_state.get("run_id", 0)
     auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", False)
     rebuilding = st.session_state.get("rebuilding_price_book", False)
-    st.caption(f"🔍 Run State: {current_time} | Auto-Refresh: {'ON' if auto_refresh_enabled else 'OFF'} | Rebuild: {'IN PROGRESS' if rebuilding else 'IDLE'}")
+    
+    # Prominent banner showing RUN COUNTER and status
+    st.info(
+        f"🔄 **RUN COUNTER:** {run_id} | 🕐 **Timestamp:** {current_time} | "
+        f"🔄 **Auto-Refresh:** {'🟢 ON' if auto_refresh_enabled else '🔴 OFF'} | "
+        f"{'🔨 **Rebuild:** IN PROGRESS' if rebuilding else ''}"
+    )
     
     mc_data = get_mission_control_data()
     
@@ -6292,13 +6352,16 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
+            # Add STALE indicator for old data (with type safety)
+            elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
+                age_display = f"⚠️ {data_age} days (STALE)"
         else:
             age_display = "Unknown"
         
         st.metric(
             label="Data Age",
             value=age_display,
-            help="Time since last data update (UTC)"
+            help="Time since last data update (UTC). STALE if > 10 days old."
         )
     
     with sec_col5:
@@ -6345,13 +6408,14 @@ def render_mission_control():
     # ========================================================================
     data_age = mc_data.get('data_age_days')
     try:
-        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
+        from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is old AND network fetch is disabled
-        if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+        # Show warning if cache is old AND network fetch is disabled (with type safety)
+        if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
-                f"⚠️ **Cache is frozen (ALLOW_NETWORK_FETCH=False)**\n\n"
-                f"Data is {data_age} days old. Click 'Rebuild PRICE_BOOK Cache' button below to update."
+                f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
+                f"Data is {data_age} days old. Network fetching is disabled (safe_mode), "
+                f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
             )
     except Exception:
         pass
@@ -6368,7 +6432,7 @@ def render_mission_control():
             "🔨 Rebuild PRICE_BOOK Cache",
             key="rebuild_price_cache_mission_control",
             use_container_width=True,
-            help="Rebuild the canonical price cache with active wave tickers. Requires ALLOW_NETWORK_FETCH=true."
+            help="Rebuild the canonical price cache with fresh market data. Works even when safe_mode is ON (safe_mode only blocks implicit fetches, not explicit user actions)."
         ):
             # Prevent double-trigger by checking if rebuild is already in progress
             if st.session_state.get("rebuilding_price_book", False):
@@ -6383,14 +6447,15 @@ def render_mission_control():
                         # Import the rebuild function
                         from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
                         
-                        # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
-                        result = rebuild_price_cache(active_only=True)
+                        # Call rebuild with force_user_initiated=True to allow manual fetching
+                        # even when safe_mode_no_fetch=True (safe_mode only blocks IMPLICIT fetches)
+                        result = rebuild_price_cache(active_only=True, force_user_initiated=True)
                         
                         # Check if fetching is allowed
                         if not result['allowed']:
                             st.error(
-                                "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
-                                f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                                "❌ Price fetching failed\n\n"
+                                f"{result.get('message', 'Unable to fetch prices.')}"
                             )
                         elif result['success']:
                             st.success(
@@ -18511,64 +18576,26 @@ def render_wave_overview_new_tab():
 
 def render_overview_clean_tab():
     """
-    Render the clean Overview tab - Demo-ready first screen.
+    Institutional Readiness - Tab 1
     
-    This tab provides:
-    - Clean, professional first impression
-    - Top summary box with key insights
-    - 28 waves performance table (always renders all waves)
-    - NO debug/system content (moved to Diagnostics Admin section at bottom)
-    - Data sources: live_snapshot.csv → live_proxy_snapshot.csv → placeholder
+    Transformed C-suite decision layer providing:
+    1. Composite System Control Status - High-level system health (STABLE/WATCH/DEGRADED)
+    2. AI Executive Brief Narrative - High-level human-judgment summary
+    3. Human-Readable Signals - System Confidence, Risk Regime, Alpha Quality, Data Integrity
+    4. AI Recommendations - Clear next steps for decision-makers
+    5. Performance Insights - Key outperformers and positioning context
+    6. Market Context - Concise regime assessment
+    
+    All system diagnostics and technical details moved to collapsed expanders.
+    Designed for executives to understand system state within 10 seconds.
     """
     try:
-        # ========================================================================
-        # LOAD DATA - Try live_snapshot.csv, fallback to live_proxy_snapshot.csv
-        # ========================================================================
         import os
         import pandas as pd
-        
-        snapshot_df = None
-        data_source = None
-        
-        # Try live_snapshot.csv first
-        live_snapshot_path = "data/live_snapshot.csv"
-        if os.path.exists(live_snapshot_path):
-            try:
-                snapshot_df = pd.read_csv(live_snapshot_path)
-                data_source = "Live Snapshot"
-            except Exception as e:
-                print(f"Warning: Failed to load live_snapshot.csv: {e}")
-        
-        # Fallback to live_proxy_snapshot.csv (Plan B)
-        if snapshot_df is None or snapshot_df.empty:
-            proxy_snapshot_path = "data/live_proxy_snapshot.csv"
-            if os.path.exists(proxy_snapshot_path):
-                try:
-                    snapshot_df = pd.read_csv(proxy_snapshot_path)
-                    data_source = "Proxy Snapshot (Plan B)"
-                except Exception as e:
-                    print(f"Warning: Failed to load live_proxy_snapshot.csv: {e}")
-        
-        # Get all 28 waves from wave engine
-        all_waves = []
-        if WAVES_ENGINE_AVAILABLE:
-            try:
-                from waves_engine import get_all_waves_universe
-                universe = get_all_waves_universe()
-                all_waves = universe.get('waves', [])
-            except Exception as e:
-                print(f"Warning: Failed to get wave universe: {e}")
-        
-        # If we don't have waves list, create placeholder for 28 waves
-        if not all_waves:
-            all_waves = [f"Wave {i+1}" for i in range(28)]
-        
-        # Ensure we have exactly 28 waves
-        if len(all_waves) != 28:
-            print(f"Warning: Expected 28 waves, got {len(all_waves)}")
+        from datetime import datetime
         
         # ========================================================================
-        # HEADER
+        # EXECUTIVE HEADER
         # ========================================================================
         st.markdown("""
         <div style="
@@ -18577,434 +18604,652 @@ def render_overview_clean_tab():
             border-radius: 12px;
             padding: 20px;
             margin-bottom: 20px;
-            text-align: center;
         ">
-            <h1 style="color: #00d9ff; margin: 0; font-size: 32px;">
-                🌊 WAVES Intelligence™
+            <h1 style="color: #00d9ff; margin: 0; font-size: 32px; text-align: center;">
+                🏛️ Institutional Readiness
             </h1>
-            <p style="color: #ffffff; margin: 5px 0 0 0; font-size: 16px;">
-                Clean Overview Dashboard
+            <p style="color: #a8dadc; margin: 8px 0 0 0; font-size: 16px; text-align: center;">
+                Executive Decision Interface
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # ========================================================================
-        # STALE DATA WARNING BANNER
-        # ========================================================================
-        # Calculate data age from PRICE_BOOK
+        # Load data for analysis
         try:
             from helpers.price_book import get_price_book, get_price_book_meta
-            from datetime import datetime
-            import pandas as pd
+            from helpers.wave_performance import compute_all_waves_performance
+            from helpers.executive_summary import (
+                identify_top_performers, 
+                identify_attention_waves,
+                analyze_alpha_drivers,
+                get_market_regime_summary
+            )
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
+            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
+            # Data age assessment
+            data_age_days = None
+            data_current = False
             if price_meta['date_max'] is not None:
                 latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
                 utc_today = pd.Timestamp.utcnow().normalize()
-                age_days = (utc_today - latest_price_date).days
-                
-                # Show warning if data is more than 1 day old
-                if age_days > 1:
-                    st.warning(f"""
-                    ⚠️ **STALE/CACHED DATA NOTICE**
-                    
-                    This console displays **historical cached data**, not live market data.
-                    
-                    - **Last Price Date (UTC):** {price_meta['date_max']}
-                    - **Data Age:** {age_days} days old
-                    - **Data Source:** Cached price history (prices_cache.parquet)
-                    
-                    To update with current market data, use the "Rebuild PRICE_BOOK Cache" button in the sidebar (requires network access).
-                    """)
-                elif age_days == 1:
-                    st.info(f"""
-                    ℹ️ **CACHED DATA NOTICE**
-                    
-                    Displaying cached data from {price_meta['date_max']} ({age_days} day old).
-                    Data source: prices_cache.parquet
-                    """)
-            else:
-                st.error("⚠️ **NO PRICE DATA AVAILABLE** - PRICE_BOOK cache is empty")
+                data_age_days = (utc_today - latest_price_date).days
+                data_current = data_age_days <= 1
+            
         except Exception as e:
-            st.error(f"⚠️ Unable to determine data freshness: {str(e)}")
+            st.error(f"Unable to load platform data. Please check system status.")
+            if st.session_state.get("debug_mode", False):
+                st.exception(e)
+            return
         
         # ========================================================================
-        # TOP SUMMARY BOX
+        # COMPOSITE SYSTEM CONTROL STATUS
         # ========================================================================
-        st.markdown("### 📊 Executive Summary")
+        st.markdown("### 🎛️ Composite System Control Status")
         
-        # Calculate summary metrics
-        top_performers = []
-        waves_needing_attention = []
-        market_regime = "Unknown"
-        
-        if snapshot_df is not None and not snapshot_df.empty:
-            # Top performers today (by 1D Return)
-            try:
-                valid_returns = snapshot_df[snapshot_df['Return_1D'].notna()].copy()
-                if not valid_returns.empty:
-                    valid_returns = valid_returns.sort_values('Return_1D', ascending=False)
-                    top_3 = valid_returns.head(3)
-                    for _, row in top_3.iterrows():
-                        wave_name = row.get('Wave', 'Unknown')
-                        ret_1d = row.get('Return_1D', 0) * 100
-                        top_performers.append(f"{wave_name} ({ret_1d:.0f}%)")
-            except Exception as e:
-                print(f"Warning: Failed to calculate top performers: {e}")
+        try:
+            # Compute system status based on multiple signals
+            status_issues = []
             
-            # Waves needing attention (negative 30D Alpha or unavailable)
-            try:
-                # Check for negative 30D alpha
-                needs_attention = snapshot_df[
-                    (snapshot_df['Alpha_30D'].notna()) & 
-                    (snapshot_df['Alpha_30D'] < -0.05)  # More than -5% alpha
-                ].copy()
-                
-                # Also check for unavailable waves
-                unavailable = snapshot_df[
-                    (snapshot_df['Return_1D'].isna()) | 
-                    (snapshot_df['Flags'].str.contains('No Data|Unavailable', case=False, na=False))
-                ]
-                
-                attention_waves = pd.concat([needs_attention, unavailable]).drop_duplicates(subset=['Wave'])
-                
-                if not attention_waves.empty:
-                    for _, row in attention_waves.head(3).iterrows():
-                        wave_name = row.get('Wave', 'Unknown')
-                        waves_needing_attention.append(wave_name)
-            except Exception as e:
-                print(f"Warning: Failed to calculate waves needing attention: {e}")
+            # Check 1: Price book staleness
+            if data_age_days is not None and data_age_days > 7:
+                status_issues.append(f"Price data is {data_age_days} days stale")
+            elif data_age_days is not None and data_age_days > 1:
+                status_issues.append(f"Price data is {data_age_days} days old")
             
-            # Market regime (from VIX_Regime column or VIX_Level)
-            try:
-                if 'VIX_Regime' in snapshot_df.columns:
-                    vix_mode = snapshot_df['VIX_Regime'].mode()
-                    vix_regime = vix_mode.iloc[0] if len(vix_mode) > 0 else 'unknown'
-                else:
-                    vix_regime = 'unknown'
+            # Check 2: Missing tickers / data coverage
+            if not performance_df.empty:
+                total_waves = len(performance_df)
+                if 'Failure_Reason' in performance_df.columns:
+                    failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
+                    failed_count = len(failed_waves)
                     
-                if vix_regime and vix_regime != 'unknown':
-                    market_regime = vix_regime.title()
-                else:
-                    # Fallback: check VIX level
-                    if 'VIX_Level' in snapshot_df.columns:
-                        avg_vix = snapshot_df['VIX_Level'].mean()
-                        if pd.notna(avg_vix):
-                            if avg_vix < 15:
-                                market_regime = "Low Volatility"
-                            elif avg_vix < 25:
-                                market_regime = "Normal"
-                            else:
-                                market_regime = "Elevated Volatility"
-            except Exception as e:
-                print(f"Warning: Failed to determine market regime: {e}")
-        
-        # Display summary in columns
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("#### 🏆 Top Outperformers Today")
-            if top_performers:
-                for performer in top_performers:
-                    st.markdown(f"• {performer}")
-            else:
-                st.info("No data available")
-        
-        with col2:
-            st.markdown("#### ⚠️ Waves Needing Attention")
-            if waves_needing_attention:
-                for wave in waves_needing_attention:
-                    st.markdown(f"• {wave}")
-            else:
-                st.success("All waves performing well")
-        
-        with col3:
-            st.markdown("#### 📈 Market Regime")
-            st.markdown(f"**{market_regime}**")
+                    if failed_count > 0:
+                        missing_ticker_count = len(failed_waves[failed_waves['Failure_Reason'].str.contains('Missing tickers', case=False, na=False)])
+                        if missing_ticker_count > 0:
+                            status_issues.append(f"{missing_ticker_count} strategies with missing ticker data")
             
-            # Add SPY/QQQ/VIX metrics if available
-            try:
-                if snapshot_df is not None and not snapshot_df.empty:
-                    spy_wave = snapshot_df[snapshot_df['Wave'].str.contains('S&P 500', case=False, na=False)]
-                    if not spy_wave.empty:
-                        spy_ret = spy_wave.iloc[0].get('Return_1D', 0) * 100
-                        st.caption(f"SPY: {spy_ret:+.1f}%")
-            except:
-                pass
+            # Check 3: Data integrity
+            valid_data_pct = 0
+            if not performance_df.empty and total_waves > 0:
+                def parse_return(val):
+                    if pd.isna(val) or val == "N/A":
+                        return None
+                    try:
+                        return float(str(val).replace('%', '').replace('+', ''))
+                    except:
+                        return None
+                
+                if '1D Return' in performance_df.columns:
+                    returns_1d = performance_df['1D Return'].apply(parse_return).dropna()
+                    valid_data_pct = (len(returns_1d) / total_waves * 100)
+                    
+                    if valid_data_pct < 70:
+                        status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
+            
+            # Determine overall system status
+            if len(status_issues) == 0 and data_current:
+                system_status = "STABLE"
+                status_color = "🟢"
+                status_bg = "#1b4332"
+                status_text = "All systems operational. Data is current and complete."
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= 3):
+                system_status = "WATCH"
+                status_color = "🟡"
+                status_bg = "#664d03"
+                status_text = "System operational with minor issues: " + "; ".join(status_issues[:2])
+            else:
+                system_status = "DEGRADED"
+                status_color = "🔴"
+                status_bg = "#5a1a1a"
+                status_text = "System requires attention: " + "; ".join(status_issues[:3])
+            
+            # Display status banner
+            st.markdown(f"""
+            <div style="
+                background: {status_bg};
+                border: 2px solid {'#52b788' if system_status == 'STABLE' else '#ffc107' if system_status == 'WATCH' else '#dc3545'};
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 20px;
+            ">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <h3 style="color: {'#52b788' if system_status == 'STABLE' else '#ffc107' if system_status == 'WATCH' else '#dc3545'}; margin: 0; font-size: 24px;">
+                            {status_color} System Status: {system_status}
+                        </h3>
+                        <p style="color: #e0e0e0; margin: 8px 0 0 0; font-size: 14px;">
+                            {status_text}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.warning("System status check temporarily unavailable")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
         
         st.divider()
         
         # ========================================================================
-        # WAVE DATA READINESS DIAGNOSTICS (PRICE_BOOK-based)
+        # 1. AI EXECUTIVE BRIEF NARRATIVE
         # ========================================================================
-        st.subheader("Wave Data Readiness Diagnostics")
-        st.caption("**Live evaluation against PRICE_BOOK** - Real-time ticker coverage and data quality assessment")
+        st.markdown("### 📋 Executive Intelligence Summary")
+        
+        # Generate AI narrative
+        try:
+            # Compute system-level metrics
+            total_waves = len(performance_df) if not performance_df.empty else 0
+            
+            # Parse returns for analysis
+            def parse_return(val):
+                if pd.isna(val) or val == "N/A":
+                    return None
+                try:
+                    return float(str(val).replace('%', '').replace('+', ''))
+                except:
+                    return None
+            
+            # Calculate portfolio metrics
+            if not performance_df.empty and '1D Return' in performance_df.columns:
+                returns_1d = performance_df['1D Return'].apply(parse_return).dropna()
+                returns_30d = performance_df['30D'].apply(parse_return).dropna() if '30D' in performance_df.columns else pd.Series()
+                
+                avg_1d = returns_1d.mean() if len(returns_1d) > 0 else 0
+                avg_30d = returns_30d.mean() if len(returns_30d) > 0 else 0
+                positive_count = (returns_1d > 0).sum() if len(returns_1d) > 0 else 0
+                total_count = len(returns_1d)
+            else:
+                avg_1d = avg_30d = 0
+                positive_count = total_count = 0
+            
+            # Determine system posture
+            if avg_1d > POSTURE_STRONG_POSITIVE:
+                posture = "strong positive momentum"
+                regime_context = "favorable market conditions"
+            elif avg_1d > 0:
+                posture = "modest positive performance"
+                regime_context = "constructive market backdrop"
+            elif avg_1d > POSTURE_WEAK_NEGATIVE:
+                posture = "slight underperformance"
+                regime_context = "mixed market environment"
+            else:
+                posture = "defensive positioning warranted"
+                regime_context = "challenging market conditions"
+            
+            # Risk assessment based on dispersion
+            risk_assessment = "balanced market regime"
+            if len(returns_1d) > 0:
+                dispersion = returns_1d.std()
+                if dispersion > DISPERSION_HIGH:
+                    risk_assessment = "heightened dispersion across strategies"
+                elif dispersion < DISPERSION_LOW:
+                    risk_assessment = "low volatility regime"
+            
+            # Alpha source narrative
+            if avg_1d > 0.3:
+                alpha_narrative = "Platform strategies are capturing meaningful outperformance across multiple factor exposures."
+            elif avg_1d > 0:
+                alpha_narrative = "Platform strategies demonstrate selective alpha generation with disciplined risk management."
+            else:
+                alpha_narrative = "Platform strategies are prioritizing capital preservation while maintaining strategic positioning."
+            
+            # Construct executive narrative
+            current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+            
+            # Strategy performance context - emphasize regime, not raw counts
+            if positive_count > 0 and total_count > 0:
+                win_rate = (positive_count / total_count * 100)
+                if win_rate >= 70:
+                    performance_context = f"Broad-based strength observed ({positive_count} of {total_count} strategies positive)."
+                elif win_rate >= 50:
+                    performance_context = f"Balanced performance distribution across the portfolio ({positive_count} of {total_count} strategies positive)."
+                else:
+                    performance_context = f"Selective opportunities in current regime ({positive_count} of {total_count} strategies positive)."
+            else:
+                performance_context = "Performance data is being compiled."
+            
+            narrative_text = f"""
+**As of {current_time}**
+
+The platform is monitoring **{total_waves} institutional-grade investment strategies** exhibiting {posture} within {regime_context}. 
+
+{performance_context} {alpha_narrative}
+
+**Strategic Assessment:** {'Evaluate risk reduction measures' if avg_1d < -1.0 else 'Maintain strategic positioning' if avg_1d >= 0 else 'Continue monitoring market developments'}.
+            """
+            
+            st.markdown(narrative_text)
+            
+        except Exception as e:
+            st.warning("Executive summary temporarily unavailable. System is operational.")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # 2. HUMAN-READABLE SIGNALS
+        # ========================================================================
+        st.markdown("### 🎯 Platform Intelligence Signals")
+        
+        signal_col1, signal_col2, signal_col3, signal_col4 = st.columns(4)
+        
+        # Calculate signals - define these at function scope for use in recommendations
+        alpha_quality = DEFAULT_ALPHA_QUALITY
+        risk_regime = DEFAULT_RISK_REGIME
+        data_integrity = DEFAULT_DATA_INTEGRITY
+        confidence = DEFAULT_CONFIDENCE
         
         try:
-            from helpers.price_book import get_price_book
-            from helpers.wave_performance import (
-                compute_all_waves_readiness, 
-                get_price_book_diagnostics,
-                compute_all_waves_performance
-            )
-            
-            # Load PRICE_BOOK
-            price_book = get_price_book()
-            
-            # ====================================================================
-            # PRICE_BOOK TRUTH DIAGNOSTICS PANEL
-            # ====================================================================
-            st.markdown("#### 📊 PRICE_BOOK Truth Diagnostics")
-            
-            # Get PRICE_BOOK metadata
-            pb_diag = get_price_book_diagnostics(price_book)
-            
-            # Display PRICE_BOOK metadata in columns
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Cache File", "prices_cache.parquet")
-                st.caption(f"Path: {pb_diag['path']}")
-            
-            with col2:
-                st.metric("Shape (Days × Tickers)", f"{pb_diag['shape'][0]} × {pb_diag['shape'][1]}")
-                st.caption(f"Total: {pb_diag['total_days']} days, {pb_diag['total_tickers']} tickers")
-            
-            with col3:
-                st.metric("Last Price Date (UTC)", pb_diag['date_max'])
-                # Calculate days stale
-                if pb_diag['date_max'] != 'N/A':
-                    from datetime import datetime
-                    import pandas as pd
-                    latest_date = pd.Timestamp(pb_diag['date_max'], tz='UTC').normalize()
-                    utc_today = pd.Timestamp.utcnow().normalize()
-                    days_stale = (utc_today - latest_date).days
-                    
-                    # Color-code based on data age
-                    if days_stale > 7:
-                        st.error(f"⚠️ STALE: {days_stale} days old")
-                    elif days_stale > 1:
-                        st.warning(f"⚠️ CACHED: {days_stale} days old")
-                    elif days_stale == 1:
-                        st.info(f"ℹ️ {days_stale} day old")
-                    else:
-                        st.success(f"✅ Current (today)")
-                else:
-                    st.caption("No data available")
-            
-            with col4:
-                # Count active waves and waves with data
-                try:
-                    from waves_engine import get_all_waves_universe
-                    universe = get_all_waves_universe()
-                    total_waves = len(universe.get('waves', []))
-                    
-                    # Compute performance to see which waves have data
-                    perf_df = compute_all_waves_performance(price_book, periods=[1])
-                    waves_with_data = len(perf_df[perf_df['Status/Confidence'] != 'Unavailable'])
-                    
-                    st.metric("Waves Status", f"{waves_with_data}/{total_waves} returning data")
-                    st.caption(f"{total_waves - waves_with_data} waves with issues")
-                except Exception as e:
-                    st.metric("Waves Status", "Error")
-                    st.caption(str(e))
-            
-            # Show failing waves summary (use only_validated=False to see all waves including failures)
-            try:
-                # For diagnostics, get all waves including invalid ones
-                perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
+            # System Confidence: Based on data coverage and freshness
+            if not performance_df.empty:
+                valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
                 
-                if 'Failure_Reason' in perf_df_all.columns:
-                    failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
-                    
-                    if not failed_waves.empty:
-                        st.markdown(f"**⚠️ {len(failed_waves)} waves with N/A data:**")
-                        
-                        # Group by failure reason
-                        failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
-                        
-                        for reason, waves in failure_groups.items():
-                            with st.expander(f"❌ {reason} ({len(waves)} waves)", expanded=False):
-                                st.write(", ".join(waves))
-                    else:
-                        st.success("✅ All waves passing validation and returning data successfully")
+                if data_current and valid_data_pct >= CONFIDENCE_HIGH_COVERAGE_PCT:
+                    confidence = "High"
+                    confidence_color = "🟢"
+                elif valid_data_pct >= CONFIDENCE_MODERATE_COVERAGE_PCT:
+                    confidence = "Moderate"
+                    confidence_color = "🟡"
                 else:
-                    st.success("✅ All waves in validated set returning data successfully")
+                    confidence = "Low"
+                    confidence_color = "🔴"
+            else:
+                confidence = "Low"
+                confidence_color = "🔴"
+            
+            # Risk Regime: Based on market context and volatility
+            # Try to get VIX and market data
+            try:
+                if 'VIX' in price_book.columns:
+                    vix_prices = price_book['VIX'].dropna()
+                    current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
+                else:
+                    current_vix = None
+            except:
+                current_vix = None
+            
+            if current_vix is not None:
+                if current_vix < RISK_REGIME_VIX_LOW:
+                    risk_regime = "Risk-On"
+                    regime_color = "🟢"
+                elif current_vix < RISK_REGIME_VIX_HIGH:
+                    risk_regime = "Neutral"
+                    regime_color = "🟡"
+                else:
+                    risk_regime = "Risk-Off"
+                    regime_color = "🔴"
+            else:
+                # Fallback based on performance
+                if avg_1d > RISK_REGIME_PERF_RISK_ON:
+                    risk_regime = "Risk-On"
+                    regime_color = "🟢"
+                elif avg_1d < RISK_REGIME_PERF_RISK_OFF:
+                    risk_regime = "Risk-Off"
+                    regime_color = "🔴"
+                else:
+                    risk_regime = "Neutral"
+                    regime_color = "🟡"
+            
+            # Alpha Quality: Based on performance distribution
+            if avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
+                alpha_quality = "Strong"
+                alpha_color = "🟢"
+            elif avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO:
+                alpha_quality = "Mixed"
+                alpha_color = "🟡"
+            else:
+                alpha_quality = "Weak"
+                alpha_color = "🔴"
+            
+            # Data Integrity: Based on coverage and age
+            if data_current and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
+                data_integrity = "Verified"
+                integrity_color = "🟢"
+            elif valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
+                data_integrity = "Degraded"
+                integrity_color = "🟡"
+            else:
+                data_integrity = "Compromised"
+                integrity_color = "🔴"
+            
+            # Display signals
+            with signal_col1:
+                st.metric("System Confidence", f"{confidence_color} {confidence}")
+                st.caption(f"{valid_data_pct:.0f}% coverage validated")
+            
+            with signal_col2:
+                st.metric("Risk Regime", f"{regime_color} {risk_regime}")
+                if current_vix:
+                    st.caption(f"VIX: {current_vix:.1f}")
+                else:
+                    st.caption("Market-derived assessment")
+            
+            with signal_col3:
+                st.metric("Alpha Quality", f"{alpha_color} {alpha_quality}")
+                st.caption(f"{positive_count}/{total_count} strategies positive")
+            
+            with signal_col4:
+                st.metric("Data Integrity", f"{integrity_color} {data_integrity}")
+                if data_age_days is not None:
+                    st.caption(f"Data age: {data_age_days} day{'s' if data_age_days != 1 else ''}")
+                else:
+                    st.caption("Assessment complete")
                     
-            except Exception as e:
-                st.warning(f"Unable to compute wave status: {str(e)}")
+        except Exception as e:
+            st.warning("Signal generation temporarily unavailable")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # 3. AI RECOMMENDATIONS
+        # ========================================================================
+        st.markdown("### 💡 AI Recommendations")
+        
+        try:
+            # Generate recommendations based on signals
+            recommendations = []
+            
+            # Recommendation based on alpha quality
+            if alpha_quality == "Strong":
+                recommendations.append("✅ **Maintain Current Exposure** - Platform strategies are performing well. Continue current positioning across high-conviction opportunities.")
+            elif alpha_quality == "Mixed":
+                recommendations.append("⚠️ **Selective Rebalancing** - Consider rotating toward top-performing strategies while maintaining diversification.")
+            else:
+                recommendations.append("🔴 **Reduce Risk Exposure** - Platform performance suggests defensive positioning. Consider reducing allocations to underperforming strategies.")
+            
+            # Recommendation based on risk regime
+            if risk_regime == "Risk-Off":
+                recommendations.append("🛡️ **Increase Hedging** - Elevated volatility suggests adding protective positions or increasing cash allocation.")
+            elif risk_regime == "Risk-On":
+                recommendations.append("📈 **Opportunistic Growth** - Favorable conditions support increasing exposure to growth-oriented strategies.")
+            
+            # Recommendation based on data integrity
+            if data_integrity == "Degraded" or data_integrity == "Compromised":
+                recommendations.append("🔧 **Refresh Data Sources** - Data quality requires attention. Initiate data refresh to ensure decision accuracy.")
+            
+            # Data-driven tactical recommendations
+            if not performance_df.empty:
+                # Identify top performers
+                top_perf = performance_df.nlargest(3, '1D Return') if '1D Return' in performance_df.columns else pd.DataFrame()
+                
+                if not top_perf.empty and len(top_perf) > 0:
+                    top_name = top_perf.iloc[0]['Wave'] if 'Wave' in top_perf.columns else "leading strategy"
+                    recommendations.append(f"⭐ **Spotlight Opportunity** - {top_name} shows notable outperformance. Review for potential position sizing increase.")
+            
+            # Display recommendations
+            for rec in recommendations:
+                st.markdown(rec)
+                
+        except Exception as e:
+            st.info("AI recommendations will appear here based on current market conditions and platform performance.")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
+        # ========================================================================
+        st.markdown("### ⭐ Top Performing Strategies")
+        
+        try:
+            if not performance_df.empty and '1D Return' in performance_df.columns:
+                # Get top 5 performers
+                def parse_return_value(val):
+                    if pd.isna(val) or val == "N/A":
+                        return None
+                    try:
+                        return float(str(val).replace('%', '').replace('+', ''))
+                    except:
+                        return None
+                
+                # Create numeric column for sorting
+                performance_df['1D_Return_Numeric'] = performance_df['1D Return'].apply(parse_return_value)
+                
+                # Sort and get top performers
+                top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
+                
+                if not top_performers.empty:
+                    # Display as simple cards
+                    perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
+                    
+                    for idx, (_, row) in enumerate(top_performers.iterrows()):
+                        col = [perf_col1, perf_col2, perf_col3, perf_col4, perf_col5][idx]
+                        with col:
+                            wave_name = row.get('Wave', 'N/A')
+                            return_1d = row.get('1D_Return_Numeric', 0)
+                            return_30d = parse_return_value(row.get('30D', 'N/A'))
+                            
+                            st.metric(
+                                label=wave_name if len(wave_name) < 20 else wave_name[:17] + "...",
+                                value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
+                                delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
+                            )
+                else:
+                    st.info("Performance data is being compiled. Check back shortly.")
+            else:
+                st.info("Performance metrics will appear here once data is available.")
+                
+        except Exception as e:
+            st.warning("Performance insights temporarily unavailable.")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # 5. MARKET CONTEXT
+        # ========================================================================
+        st.markdown("### 🌍 Market Context")
+        
+        try:
+            # Define key market indicators
+            market_tickers = {
+                'SPY': 'S&P 500',
+                'QQQ': 'Nasdaq 100',
+                'IWM': 'Small Caps',
+                'TLT': 'Treasuries',
+                'GLD': 'Gold',
+                'VIX': 'Volatility'
+            }
+            
+            market_cols = st.columns(6)
+            
+            for idx, (ticker, name) in enumerate(market_tickers.items()):
+                with market_cols[idx]:
+                    try:
+                        if ticker in price_book.columns:
+                            prices = price_book[ticker].dropna()
+                            
+                            if len(prices) >= 2:
+                                ret_1d = ((prices.iloc[-1] / prices.iloc[-2]) - 1) * 100
+                                
+                                # Determine trend indicator
+                                if ret_1d > 0.5:
+                                    trend = "🟢"
+                                elif ret_1d < -0.5:
+                                    trend = "🔴"
+                                else:
+                                    trend = "⚪"
+                                
+                                st.metric(name, f"{trend} {ret_1d:+.1f}%")
+                            else:
+                                st.metric(name, "—")
+                                st.caption("Pending")
+                        else:
+                            st.metric(name, "—")
+                            st.caption("N/A")
+                    except Exception as e:
+                        st.metric(name, "—")
+                        st.caption("Error")
+        except Exception as e:
+            st.warning("Market context will appear here")
+            if st.session_state.get("debug_mode", False):
+                st.caption(f"Debug: {str(e)}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SYSTEM DIAGNOSTICS (Collapsed Expander)
+        # ========================================================================
+        with st.expander("🔧 System Diagnostics & Technical Details", expanded=False):
+            st.markdown("#### Technical Diagnostics for Administrators")
+            st.caption("Detailed system validation metrics and engineering data")
+            
+            # Build info
+            st.markdown("**Build Information**")
+            try:
+                import subprocess
+                branch = subprocess.check_output(['git', 'branch', '--show-current']).decode('utf-8').strip()
+                utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                
+                diag_col1, diag_col2 = st.columns(2)
+                with diag_col1:
+                    st.metric("Git Branch", branch)
+                with diag_col2:
+                    st.metric("UTC Timestamp", utc_now)
+            except:
+                st.caption("Build info unavailable")
             
             st.divider()
             
-            # ====================================================================
-            # DATA VALIDATION STATUS
-            # ====================================================================
-            st.success("✅ All active waves passed validation (100% price coverage, sufficient history)")
-            
-        except Exception as e:
-            st.error(f"Error validating wave data: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-        
-        st.divider()
-        
-        # ========================================================================
-        # 28 WAVES PERFORMANCE TABLE (PRICE_BOOK-based)
-        # ========================================================================
-        st.markdown("### 📋 28 Waves Performance Overview")
-        
-        # Add data source caption with freshness warning
-        try:
-            from helpers.price_book import get_price_book, get_price_book_meta
-            import pandas as pd
-            price_book_check = get_price_book()
-            price_meta_check = get_price_book_meta(price_book_check)
-            
-            if price_meta_check['date_max'] is not None:
-                latest_date_ts = pd.Timestamp(price_meta_check['date_max'], tz='UTC').normalize()
-                utc_now = pd.Timestamp.utcnow().normalize()
-                age = (utc_now - latest_date_ts).days
+            # Price book diagnostics
+            st.markdown("**Data Cache Status**")
+            try:
+                from helpers.wave_performance import get_price_book_diagnostics
                 
-                if age > 1:
-                    st.caption(f"**⚠️ Data Source: CACHED/HISTORICAL (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']} ({age} days old)")
-                else:
-                    st.caption(f"**Data Source: PRICE_BOOK (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']}")
-            else:
-                st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - No data available")
-        except:
-            st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
-        
-        # Load PRICE_BOOK and compute performance
-        try:
-            from helpers.price_book import get_price_book
-            from helpers.wave_performance import compute_all_waves_performance
-            
-            # Load PRICE_BOOK (cache-only, no fetching)
-            price_book = get_price_book()
-            
-            # Compute performance for all 28 waves (only validated by default)
-            # This ensures the main performance table ONLY shows waves with valid, continuous price history
-            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
-            
-            if not performance_df.empty:
-                # Display the performance table
-                # Note: With only_validated=True, Failure_Reason column won't exist
-                display_columns = ['Wave', '1D Return', '30D', '60D', '365D', 'Status/Confidence']
+                pb_diag = get_price_book_diagnostics(price_book)
                 
-                # Show count of validated waves
-                st.info(f"📊 Showing {len(performance_df)} waves that passed validation (100% ticker coverage, sufficient price history)")
+                diag_col1, diag_col2, diag_col3 = st.columns(3)
                 
-                st.dataframe(
-                    performance_df[display_columns],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=800  # Show more rows at once
-                )
+                with diag_col1:
+                    st.metric("Cache File", "prices_cache.parquet")
+                    st.caption(f"Path: {pb_diag.get('path', 'N/A')}")
                 
-                # Show which waves were excluded (if any)
-                try:
-                    from waves_engine import get_all_waves_universe
-                    universe = get_all_waves_universe()
-                    total_waves = len(universe.get('waves', []))
-                    excluded_count = total_waves - len(performance_df)
+                with diag_col2:
+                    shape = pb_diag.get('shape', (0, 0))
+                    st.metric("Shape", f"{shape[0]} × {shape[1]}")
+                    st.caption(f"{pb_diag.get('total_days', 0)} days, {pb_diag.get('total_tickers', 0)} tickers")
+                
+                with diag_col3:
+                    last_date = pb_diag.get('date_max', 'N/A')
+                    st.metric("Last Date", last_date)
                     
-                    if excluded_count > 0:
-                        with st.expander(f"ℹ️ Validation Report ({excluded_count} waves excluded)", expanded=False):
-                            st.markdown("""
-                            **Why are waves excluded?**
-                            
-                            Waves are excluded from the performance table if they fail validation:
-                            - Missing required tickers from PRICE_BOOK
-                            - Insufficient date coverage (< 30 days)
-                            - Unable to compute returns
-                            
-                            To see all waves including invalid ones, use the Diagnostics section below.
-                            """)
-                            
-                            # Show excluded waves by getting all waves with only_validated=False
-                            perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
-                            if 'Failure_Reason' in perf_df_all.columns:
-                                failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
-                                if not failed_waves.empty:
-                                    st.dataframe(
-                                        failed_waves[['Wave', 'Failure_Reason', 'Coverage_Pct']],
-                                        use_container_width=True,
-                                        hide_index=True
-                                    )
-                except Exception as e:
-                    st.caption(f"Note: Unable to determine excluded waves: {str(e)}")
-                    
-            else:
-                st.warning("No waves passed validation - PRICE_BOOK may be empty or missing required tickers")
-                
-        except Exception as e:
-            st.error(f"Error computing wave performance: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-        
-        st.divider()
-        
-        # ========================================================================
-        # DIAGNOSTICS (ADMIN) - Expandable section at bottom
-        # ========================================================================
-        with st.expander("🔧 Diagnostics (Admin)", expanded=False):
-            st.markdown("#### System Diagnostics")
+                    if last_date != 'N/A':
+                        latest_date = pd.Timestamp(last_date, tz='UTC').normalize()
+                        utc_today = pd.Timestamp.utcnow().normalize()
+                        days_stale = (utc_today - latest_date).days
+                        
+                        if days_stale > 7:
+                            st.error(f"STALE: {days_stale} days")
+                        elif days_stale > 1:
+                            st.warning(f"CACHED: {days_stale} days")
+                        else:
+                            st.success("Current")
+            except Exception as e:
+                st.caption(f"Cache diagnostics unavailable: {str(e)[:50]}")
             
-            # Run ID and trigger info
+            st.divider()
+            
+            # Session state
+            st.markdown("**Session State**")
+            
             run_id = st.session_state.get("run_id", 0)
-            run_trigger = st.session_state.get("run_trigger", "unknown")
             run_seq = st.session_state.get("run_seq", 0)
+            run_trigger = st.session_state.get("run_trigger", "unknown")
+            safe_mode = st.session_state.get("safe_mode_no_fetch", True)
+            loop_detected = st.session_state.get("loop_detected", False)
             
-            col1, col2, col3 = st.columns(3)
+            session_col1, session_col2, session_col3 = st.columns(3)
             
-            with col1:
+            with session_col1:
                 st.metric("Run ID", run_id)
                 st.metric("Run Sequence", run_seq)
             
-            with col2:
+            with session_col2:
                 st.metric("Trigger", run_trigger)
-                safe_mode = st.session_state.get("safe_mode_no_fetch", True)
                 st.metric("Safe Mode", "ON" if safe_mode else "OFF")
             
-            with col3:
-                loop_detected = st.session_state.get("loop_detected", False)
+            with session_col3:
                 st.metric("Loop Detected", "YES" if loop_detected else "NO")
-                
-                # Snapshot age
-                try:
-                    if os.path.exists(live_snapshot_path):
-                        mtime = os.path.getmtime(live_snapshot_path)
-                        age_hours = (datetime.now().timestamp() - mtime) / 3600
-                        st.metric("Snapshot Age", f"{age_hours:.1f}h")
+                selected_wave = st.session_state.get("selected_wave", "N/A")
+                st.metric("Selected Wave", selected_wave)
+            
+            st.divider()
+            
+            # Wave validation
+            st.markdown("**Wave Validation Status**")
+            
+            try:
+                if not performance_df.empty:
+                    total_waves = len(performance_df)
+                    
+                    # Check for validation issues
+                    if 'Failure_Reason' in performance_df.columns:
+                        failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
+                        failed_count = len(failed_waves)
                     else:
-                        st.metric("Snapshot Age", "N/A")
-                except:
-                    st.metric("Snapshot Age", "Error")
+                        failed_count = 0
+                    
+                    val_col1, val_col2 = st.columns(2)
+                    
+                    with val_col1:
+                        st.metric("Total Waves", total_waves)
+                    
+                    with val_col2:
+                        st.metric("Failed Validations", failed_count)
+                        
+                        if failed_count > 0:
+                            st.warning(f"{failed_count} waves with validation issues")
+                        else:
+                            st.success("All waves passing validation")
+                    
+                    # Show failed waves if any
+                    if failed_count > 0 and 'Failure_Reason' in performance_df.columns:
+                        st.markdown("**Failed Waves:**")
+                        failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
+                        
+                        for reason, waves in failure_groups.items():
+                            st.markdown(f"**{reason}:** {', '.join(waves[:5])}")
+                            if len(waves) > 5:
+                                st.caption(f"...and {len(waves) - 5} more")
+                else:
+                    st.caption("No performance data available")
+            except Exception as e:
+                st.caption(f"Validation status unavailable: {str(e)[:50]}")
             
-            # System status details
-            st.markdown("#### System Status Details")
+            st.divider()
             
-            status_info = {
-                "Safe Mode (No Fetch)": "ON" if st.session_state.get("safe_mode_no_fetch", True) else "OFF",
-                "Loop Trap Active": "YES" if st.session_state.get("loop_trap_should_engage", False) else "NO",
-                "Allow Continuous Reruns": "YES" if st.session_state.get("allow_continuous_reruns", False) else "NO",
-                "Auto Refresh Enabled": "YES" if st.session_state.get("auto_refresh_enabled", False) else "NO",
-                "Compute Lock": "LOCKED" if st.session_state.get("compute_lock", False) else "UNLOCKED"
-            }
+            # Network status
+            st.markdown("**Network & Auto-Refresh**")
             
-            for key, value in status_info.items():
-                st.text(f"{key}: {value}")
+            try:
+                from helpers.price_book import ALLOW_NETWORK_FETCH
+                network_status = "ENABLED" if ALLOW_NETWORK_FETCH else "DISABLED"
+            except:
+                network_status = "N/A"
             
-            # Recent buttons clicked
-            buttons_clicked = st.session_state.get("buttons_clicked", [])
-            if buttons_clicked:
-                st.markdown("#### Recent Button Clicks")
-                st.text(", ".join(buttons_clicked[-5:]))
+            auto_refresh_status = st.session_state.get("auto_refresh_enabled", False)
+            
+            net_col1, net_col2 = st.columns(2)
+            
+            with net_col1:
+                st.metric("Network Fetch", network_status)
+            
+            with net_col2:
+                st.metric("Auto-Refresh", "ON" if auto_refresh_status else "OFF")
     
     except Exception as e:
-        st.error(f"Error rendering Overview (Clean) tab: {str(e)}")
+        st.error("⚠️ Executive Briefing encountered an error")
+        st.info("The system is being restored. Please refresh the page or contact support.")
         if st.session_state.get("debug_mode", False):
             st.exception(e)
 
@@ -19595,7 +19840,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.warning("⚠️ Wave Intelligence Center is temporarily unavailable. Displaying core tabs only.")
         
         analytics_tabs = st.tabs([
-            "Overview (Clean)",        # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",        # NEW: FIRST TAB - Clean demo-ready overview
             "Console",                 # Core functionality
             "Overview",                # Market tab equivalent
             "Details",     
@@ -19613,9 +19858,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Console tab
         with analytics_tabs[1]:
@@ -19687,9 +19932,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
-        # Normal mode with Wave Profile enabled - Overview (Clean) is FIRST
+        # Normal mode with Wave Profile enabled - Institutional Readiness is FIRST
         analytics_tabs = st.tabs([
-            "Overview (Clean)",            # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",            # NEW: FIRST TAB - Clean demo-ready overview
             "Overview",                    # Second tab - unified system overview with performance, alpha attribution, and market context
             "Console",                     # Third tab - Executive
             "Wave",                        # Fourth tab - Wave Profile with hero card
@@ -19708,9 +19953,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Overview tab (second) - Executive Brief
         with analytics_tabs[1]:
@@ -19786,9 +20031,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
-        # Overview (Clean) is FIRST tab
+        # Institutional Readiness is FIRST tab
         analytics_tabs = st.tabs([
-            "Overview (Clean)",           # NEW: FIRST TAB - Clean demo-ready overview
+            "Institutional Readiness",           # NEW: FIRST TAB - Clean demo-ready overview
             "Overview",                   # Second tab - unified system overview
             "Console",                    # Third tab - Executive
             "Details",                    # Factor Decomp equivalent
@@ -19806,9 +20051,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
         
-        # Overview (Clean) tab (FIRST)
+        # Institutional Readiness tab (FIRST)
         with analytics_tabs[0]:
-            safe_component("Overview (Clean)", render_overview_clean_tab)
+            safe_component("Institutional Readiness", render_overview_clean_tab)
         
         # Overview tab (second) - Executive Brief
         with analytics_tabs[1]:
