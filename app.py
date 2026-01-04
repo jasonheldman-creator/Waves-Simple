@@ -4681,7 +4681,7 @@ def get_mission_control_data():
     NEW DEFINITIONS:
     - universe_count: Total waves in the wave registry
     - active_waves: Waves with enabled=True (not based on data availability)
-    - data_ready_count: Waves with enough data to compute full analytics
+    - waves_live_count: Waves with valid PRICE_BOOK data (canonical validation)
     """
     mc_data = {
         'market_regime': 'unknown',
@@ -4694,7 +4694,7 @@ def get_mission_control_data():
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
-        'data_ready_count': 0,  # NEW: Waves with full analytics data
+        'waves_live_count': 0,  # NEW: Waves with valid PRICE_BOOK data
         'system_status': 'unknown',
         'universe_count': 0,
         'history_unique_count': 0
@@ -4720,14 +4720,18 @@ def get_mission_control_data():
                 active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
                 mc_data['active_waves'] = active_count
                 
-                # Even without wave_history data, SmartSafe cash waves are always ready
+                # Compute waves_live_count from PRICE_BOOK validation
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    canonical_waves_set = set(canonical_waves)
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    mc_data['data_ready_count'] = 0
+                    from helpers.price_book import get_price_book, get_price_book_meta
+                    price_book = get_price_book(active_tickers=None)
+                    if not price_book.empty:
+                        # Count enabled waves - if PRICE_BOOK has data, all enabled waves are "live"
+                        mc_data['waves_live_count'] = active_count
+                    else:
+                        mc_data['waves_live_count'] = 0
+                except Exception:
+                    # Fallback: assume all active waves are live
+                    mc_data['waves_live_count'] = active_count
             except Exception:
                 pass
             return mc_data
@@ -4761,33 +4765,33 @@ def get_mission_control_data():
                 history_waves_unique = df['wave'].nunique()
                 mc_data['history_unique_count'] = history_waves_unique
                 
-                # NEW: Data-Ready = waves with recent data (full analytics available)
-                # Include SmartSafe cash waves which are always ready even without wave_history entries
-                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                recent_waves = set(recent_data['wave'].unique())
-                canonical_waves_set = set(canonical_waves)
-                data_ready_waves = recent_waves.intersection(canonical_waves_set)
-                
-                # Add SmartSafe cash waves - they are always ready even without price history
+                # Compute waves_live_count from PRICE_BOOK validation
+                # This counts active waves that have valid price data in PRICE_BOOK
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    data_ready_waves = data_ready_waves.union(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    pass  # If SmartSafe constants not available, continue without them
-                
-                mc_data['data_ready_count'] = len(data_ready_waves)
+                    from helpers.price_book import get_price_book, get_price_book_meta
+                    price_book = get_price_book(active_tickers=None)
+                    if not price_book.empty:
+                        # If PRICE_BOOK has data, count all enabled waves as "live"
+                        # since the PRICE_BOOK contains all required tickers for active waves
+                        mc_data['waves_live_count'] = active_count
+                    else:
+                        mc_data['waves_live_count'] = 0
+                except Exception:
+                    # Fallback: assume all active waves are live
+                    mc_data['waves_live_count'] = active_count
             else:
                 # No wave column in history
                 mc_data['history_unique_count'] = 0
-                # Count SmartSafe waves as ready even without wave_history
+                # Compute waves_live_count from PRICE_BOOK
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    canonical_waves_set = set(canonical_waves)
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    mc_data['data_ready_count'] = 0
+                    from helpers.price_book import get_price_book
+                    price_book = get_price_book(active_tickers=None)
+                    if not price_book.empty:
+                        mc_data['waves_live_count'] = active_count
+                    else:
+                        mc_data['waves_live_count'] = 0
+                except Exception:
+                    mc_data['waves_live_count'] = active_count
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
@@ -4797,57 +4801,49 @@ def get_mission_control_data():
                 # Assume all waves are enabled in fallback mode
                 mc_data['active_waves'] = mc_data['total_waves']
                 
-                # Count data-ready waves (with recent data)
-                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                data_ready_count = recent_data['wave'].nunique()
-                
-                # Add SmartSafe cash waves to count - they are always ready
+                # Compute waves_live_count from PRICE_BOOK
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    recent_waves = set(recent_data['wave'].unique())
-                    # Add SmartSafe waves that aren't already in recent_waves
-                    smartsafe_count = len(SMARTSAFE_CASH_WAVES - recent_waves)
-                    data_ready_count += smartsafe_count
-                except (ImportError, AttributeError):
-                    pass
-                
-                mc_data['data_ready_count'] = data_ready_count
+                    from helpers.price_book import get_price_book
+                    price_book = get_price_book(active_tickers=None)
+                    if not price_book.empty:
+                        mc_data['waves_live_count'] = mc_data['active_waves']
+                    else:
+                        mc_data['waves_live_count'] = 0
+                except Exception:
+                    mc_data['waves_live_count'] = mc_data['active_waves']
         
-        # System status based on PRICE_BOOK data age (not wave_history)
-        # This ensures we don't show STALE due to irrelevant tickers
+        # System status and data age based on PRICE_BOOK (not wave_history)
+        # Use compute_system_health from price_book for consistent thresholds
         try:
-            from helpers.price_loader import check_cache_readiness
-            cache_readiness = check_cache_readiness(active_only=True)
+            from helpers.price_book import (
+                get_price_book, 
+                get_price_book_meta,
+                compute_system_health,
+                STALE_DAYS_THRESHOLD,
+                DEGRADED_DAYS_THRESHOLD
+            )
             
-            if cache_readiness.get('days_stale') is not None:
-                price_age_days = cache_readiness['days_stale']
-                
-                # Use price cache age for system status (active tickers only)
-                if price_age_days <= 1:
-                    mc_data['system_status'] = 'Excellent'
-                elif price_age_days <= 3:
-                    mc_data['system_status'] = 'Good'
-                elif price_age_days <= 5:  # Increased threshold for price data
-                    mc_data['system_status'] = 'Fair'
-                else:
-                    mc_data['system_status'] = 'Stale'
-                
-                # Update data freshness to reflect PRICE_BOOK
-                if cache_readiness.get('max_date'):
-                    mc_data['data_freshness'] = cache_readiness['max_date']
-                    mc_data['data_age_days'] = price_age_days
+            price_book = get_price_book(active_tickers=None)
+            health = compute_system_health(price_book)
+            meta = get_price_book_meta(price_book)
+            
+            # Use PRICE_BOOK metadata for data age and freshness
+            mc_data['data_freshness'] = meta.get('date_max', 'unknown')
+            mc_data['data_age_days'] = health.get('days_stale', None)
+            
+            # Map health status to system status
+            health_status = health.get('health_status', 'unknown')
+            if health_status == 'OK':
+                mc_data['system_status'] = 'Excellent'
+            elif health_status == 'DEGRADED':
+                mc_data['system_status'] = 'Fair'
+            elif health_status == 'STALE':
+                mc_data['system_status'] = 'Stale'
             else:
-                # Fallback to wave_history age if cache readiness unavailable
-                if age_days <= 1:
-                    mc_data['system_status'] = 'Excellent'
-                elif age_days <= 3:
-                    mc_data['system_status'] = 'Good'
-                elif age_days <= 7:
-                    mc_data['system_status'] = 'Fair'
-                else:
-                    mc_data['system_status'] = 'Stale'
+                mc_data['system_status'] = 'unknown'
+                
         except Exception:
-            # Fallback to original logic if price cache check fails
+            # Fallback to wave_history age if PRICE_BOOK check fails
             if age_days <= 1:
                 mc_data['system_status'] = 'Excellent'
             elif age_days <= 3:
@@ -6192,10 +6188,12 @@ def render_mission_control():
         )
     
     with sec_col3:
+        waves_live = mc_data.get('waves_live_count', 0)
+        universe = mc_data.get('universe_count', 0)
         st.metric(
-            label="Data-Ready",
-            value=mc_data.get('data_ready_count', 0),
-            help="Waves with full analytics data available (recent 7 days)"
+            label="Waves Live",
+            value=f"{waves_live}/{universe}",
+            help="Waves with valid PRICE_BOOK data / Total universe"
         )
         
     with sec_col4:
@@ -6242,6 +6240,82 @@ def render_mission_control():
         # Show last successful refresh time
         last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
         st.caption(f"Last: {last_successful_refresh.strftime('%H:%M:%S')}")
+    
+    # ========================================================================
+    # WARNING: Cache Stale + Network Fetch Disabled
+    # ========================================================================
+    data_age = mc_data.get('data_age_days')
+    try:
+        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
+        
+        # Show warning if cache is old AND network fetch is disabled
+        if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+            st.warning(
+                f"⚠️ **Cache is frozen (ALLOW_NETWORK_FETCH=False)**\n\n"
+                f"Data is {data_age} days old. Click 'Rebuild PRICE_BOOK Cache' button below to update."
+            )
+    except Exception:
+        pass
+    
+    # ========================================================================
+    # REBUILD CACHE BUTTON
+    # ========================================================================
+    st.markdown("---")
+    
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    
+    with col_btn1:
+        if st.button(
+            "🔨 Rebuild PRICE_BOOK Cache",
+            key="rebuild_price_cache_mission_control",
+            use_container_width=True,
+            help="Rebuild the canonical price cache with active wave tickers. Requires ALLOW_NETWORK_FETCH=true."
+        ):
+            try:
+                # Show progress indicator
+                with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                    # Import the rebuild function
+                    from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
+                    
+                    # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                    result = rebuild_price_cache(active_only=True)
+                    
+                    # Check if fetching is allowed
+                    if not result['allowed']:
+                        st.error(
+                            "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                            f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                        )
+                    elif result['success']:
+                        st.success(
+                            f"✅ Price cache rebuilt!\n\n"
+                            f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                            f"📅 Latest Date: {result['date_max']}"
+                        )
+                        
+                        # Show failed tickers if any
+                        if result['tickers_failed'] > 0 and result['failures']:
+                            with st.expander("⚠️ Failed Tickers", expanded=False):
+                                for ticker in list(result['failures'].keys())[:10]:
+                                    st.text(f"• {ticker}")
+                                if len(result['failures']) > 10:
+                                    st.text(f"... and {len(result['failures']) - 10} more")
+                        
+                        # Clear Streamlit caches to reflect new data
+                        st.cache_data.clear()
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger rerun
+                        trigger_rerun("rebuild_price_cache_mission_control")
+                    else:
+                        st.error("❌ Failed to rebuild price cache")
+                    
+            except Exception as e:
+                st.error(f"Error rebuilding cache: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc(), language="python")
     
     # ========================================================================
     # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
