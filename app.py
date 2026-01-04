@@ -4959,11 +4959,7 @@ def get_mission_control_data():
             from helpers.price_book import (
                 get_price_book, 
                 get_price_book_meta,
-                compute_system_health,
-                PRICE_CACHE_OK_DAYS,
-                PRICE_CACHE_DEGRADED_DAYS,
-                STALE_DAYS_THRESHOLD,
-                DEGRADED_DAYS_THRESHOLD
+                compute_system_health
             )
             
             price_book = get_price_book(active_tickers=None)
