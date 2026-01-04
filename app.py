@@ -4738,6 +4738,7 @@ def get_mission_control_data():
         'wavescore_leader_score': 'unknown',
         'data_freshness': 'unknown',
         'data_age_days': None,
+        'last_price_date': 'Unknown',  # Added for safety - shows latest date in PRICE_BOOK
         'total_waves': 0,
         'active_waves': 0,
         'waves_live_count': 0,  # NEW: Waves with valid PRICE_BOOK data
