@@ -1247,8 +1247,8 @@ def get_all_waves_universe() -> dict:
     Returns:
         Dictionary containing:
         - 'waves': List of all wave display names (28 total)
-        - 'wave_ids': List of all canonical wave_ids (28 total)
-        - 'count': Total number of waves
+        - 'wave_ids': List of all canonical wave_ids
+        - 'count': Total number of waves (dynamic, based on WAVE_ID_REGISTRY)
         - 'source': Source identifier ('wave_registry')
         - 'version': Registry version for cache busting
     

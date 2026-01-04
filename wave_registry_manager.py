@@ -3,7 +3,7 @@ wave_registry_manager.py
 
 CSV Self-Healing System for Wave Universe Registry
 
-This module provides automated CSV management and validation for the 28-Wave universe.
+This module provides automated CSV management and validation for the Wave universe.
 It ensures correctness even when the application encounters corrupted or partial CSV files.
 
 Key Features:
@@ -12,6 +12,7 @@ Key Features:
 - Ticker normalization (BRK.B → BRK-B, etc.)
 - Full column management for wave metadata
 - Clear logging and error reporting
+- Dynamic wave count (no hard-coded expectations)
 
 Usage:
     from wave_registry_manager import rebuild_wave_registry_csv, validate_wave_registry_csv
@@ -48,7 +49,8 @@ from waves_engine import (
 
 # Constants
 WAVE_REGISTRY_PATH = "data/wave_registry.csv"
-EXPECTED_WAVE_COUNT = 28  # Total waves in the universe
+# Dynamic wave count - computed from WAVE_ID_REGISTRY at runtime
+# No hard-coded wave count to ensure flexibility as waves are added/removed
 
 # Ticker normalization map - handles common ticker format variations
 # Maps from raw ticker format to normalized format for yfinance compatibility
@@ -249,12 +251,11 @@ def rebuild_wave_registry_csv(force: bool = False) -> Dict[str, any]:
     try:
         # Get all wave IDs from canonical source
         wave_ids = get_all_wave_ids()
+        expected_wave_count = len(wave_ids)  # Dynamic count from registry
         
-        if len(wave_ids) != EXPECTED_WAVE_COUNT:
-            error_msg = f"Expected {EXPECTED_WAVE_COUNT} waves, found {len(wave_ids)} in waves_engine"
-            logger.error(error_msg)
-            result['errors'].append(error_msg)
-            return result
+        # No hard-coded validation - waves can be added/removed
+        # Just log the count for visibility
+        logger.info(f"Building wave registry CSV with {expected_wave_count} waves from WAVE_ID_REGISTRY")
         
         # Build CSV data
         rows = []
@@ -325,7 +326,7 @@ def validate_wave_registry_csv() -> Dict[str, any]:
     
     Validation checks:
     1. File exists
-    2. Row count >= EXPECTED_WAVE_COUNT
+    2. Row count matches WAVE_ID_REGISTRY (dynamic)
     3. All required columns present
     4. No duplicate wave_ids
     5. No blank wave_names
@@ -375,13 +376,14 @@ def validate_wave_registry_csv() -> Dict[str, any]:
         df = pd.read_csv(WAVE_REGISTRY_PATH)
         result['wave_count'] = len(df)
         
-        # Check 2: Row count >= EXPECTED_WAVE_COUNT
-        if len(df) < EXPECTED_WAVE_COUNT:
+        # Check 2: Row count matches WAVE_ID_REGISTRY (dynamic validation)
+        expected_wave_count = len(WAVE_ID_REGISTRY)
+        if len(df) != expected_wave_count:
             result['is_valid'] = False
-            result['checks_failed'].append(f"insufficient_rows (expected {EXPECTED_WAVE_COUNT}, found {len(df)})")
-            logger.warning(f"❌ Insufficient rows: expected {EXPECTED_WAVE_COUNT}, found {len(df)}")
+            result['checks_failed'].append(f"wave_count_mismatch (expected {expected_wave_count} from WAVE_ID_REGISTRY, found {len(df)})")
+            logger.warning(f"❌ Wave count mismatch: expected {expected_wave_count} from WAVE_ID_REGISTRY, found {len(df)}")
         else:
-            result['checks_passed'].append("sufficient_rows")
+            result['checks_passed'].append("wave_count_matches")
         
         # Check 3: All required columns present
         missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]

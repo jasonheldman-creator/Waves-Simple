@@ -19485,16 +19485,17 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             st.session_state.wave_registry_validated = False
     
     # ========================================================================
-    # Wave Universe Validation - Verify 28 Waves (ROUND 7 Phase 1)
+    # Wave Universe Validation - Dynamic Wave Count (ROUND 7 Phase 1)
     # ========================================================================
     
-    # Validate that we have exactly 28 waves on startup
+    # Validate wave universe on startup (dynamic count based on registry)
     if "wave_universe_validated" not in st.session_state:
         try:
-            from waves_engine import get_all_waves_universe
+            from waves_engine import get_all_waves_universe, WAVE_ID_REGISTRY
             
             universe = get_all_waves_universe()
-            expected_count = 28
+            # Dynamic calculation: expected count from registry
+            expected_count = len(WAVE_ID_REGISTRY)
             actual_count = universe.get('count', 0)
             
             if actual_count != expected_count:
@@ -19504,7 +19505,8 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
                 print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
             else:
                 st.session_state.wave_universe_validation_failed = False
-                print(f"✅ Wave Universe Validated: {actual_count} waves")
+                st.session_state.wave_universe_success = f"{actual_count}/{expected_count}"
+                print(f"✅ Wave Universe Validated: {actual_count}/{expected_count} waves")
             
             st.session_state.wave_universe_validated = True
         except Exception as e:
@@ -19818,10 +19820,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # ROUND 7 Phase 1: Wave Universe Validation Banner
     # ========================================================================
-    # Display warning banner if wave universe validation failed
+    # Display banner based on wave universe validation status
     if st.session_state.get("wave_universe_validation_failed", False):
         discrepancy = st.session_state.get("wave_universe_discrepancy", "Unknown discrepancy")
         st.error(f"🔴 **Wave Universe Validation Failed:** {discrepancy}")
+    elif st.session_state.get("wave_universe_success", None):
+        # Display GREEN success banner when validation passes
+        success_msg = st.session_state.get("wave_universe_success", "")
+        st.success(f"✅ **Wave Universe Validated:** {success_msg} waves")
     
     # Check if Wave Intelligence Center encountered errors (SAFE_MODE fallback)
     # Use session state to check both the error flag and if safe mode is enabled
