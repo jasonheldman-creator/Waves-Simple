@@ -179,6 +179,10 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 # LOWERED from 60 to 7 to support partial data availability
 MIN_DAYS_READY = 7
 
+# Wave validation thresholds (must match performance table requirements)
+WAVE_VALIDATION_MIN_COVERAGE_PCT = 100.0  # Require 100% ticker coverage
+WAVE_VALIDATION_MIN_HISTORY_DAYS = 30  # Require 30 days minimum history
+
 # Batch size for ticker price downloads to reduce rate-limit risks
 PRICE_DOWNLOAD_BATCH_SIZE = 100
 
@@ -4703,8 +4707,8 @@ def count_waves_with_valid_price_book_data(canonical_waves, enabled_flags, price
             validation = validate_wave_price_history(
                 wave,
                 price_book,
-                min_coverage_pct=100.0,  # Same as performance table
-                min_history_days=30  # Same as performance table
+                min_coverage_pct=WAVE_VALIDATION_MIN_COVERAGE_PCT,
+                min_history_days=WAVE_VALIDATION_MIN_HISTORY_DAYS
             )
             
             if validation.get('valid', False):
@@ -4712,9 +4716,9 @@ def count_waves_with_valid_price_book_data(canonical_waves, enabled_flags, price
         
         return valid_count
     except Exception as e:
-        # If validation fails, fall back to simple check
-        # At least we know PRICE_BOOK has data, so return enabled count
-        return sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+        # If validation fails, return 0 for consistency
+        # This prevents reporting inaccurate counts when validation can't be performed
+        return 0
 
 
 def get_mission_control_data():
