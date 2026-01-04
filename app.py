@@ -113,14 +113,28 @@ except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
 # Import price_book constants for Mission Control
+# UI uses price_book as source of truth to prevent divergence
 try:
-    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    from helpers.price_book import (
+        PRICE_CACHE_OK_DAYS, 
+        PRICE_CACHE_DEGRADED_DAYS,
+        compute_system_health
+    )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
+    # Legacy aliases for backward compatibility - mapping to canonical names:
+    # - DEGRADED_DAYS_THRESHOLD = threshold for transitioning FROM OK TO DEGRADED (14 days)
+    # - STALE_DAYS_THRESHOLD = threshold for transitioning FROM DEGRADED TO STALE (30 days)
+    # These maintain backward compatibility with code that uses the old threshold names.
+    DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS
+    STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
     # Fallback defaults if price_book is unavailable
-    STALE_DAYS_THRESHOLD = 10
-    DEGRADED_DAYS_THRESHOLD = 5
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
+    STALE_DAYS_THRESHOLD = 30
+    DEGRADED_DAYS_THRESHOLD = 14
+    compute_system_health = None
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -6352,24 +6366,26 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
-            # Option B: Three-tier staleness display
-            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            # Option B: Three-tier staleness display using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # OK: ≤PRICE_CACHE_OK_DAYS (14), DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS (15-30), STALE: >PRICE_CACHE_DEGRADED_DAYS (>30)
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
-                # STALE: >30 days
+                # STALE: >PRICE_CACHE_DEGRADED_DAYS
                 age_display = f"❌ {data_age} days (STALE)"
             elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD:
-                # DEGRADED: 15-30 days
+                # DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS
                 age_display = f"⚠️ {data_age} days (DEGRADED)"
-            # else: OK: ≤14 days (no special indicator)
+            # else: OK: ≤PRICE_CACHE_OK_DAYS (no special indicator)
         else:
             age_display = "Unknown"
         
         # Build help text for data age metric
+        # UI uses price_book as source of truth to prevent divergence
         help_text = (
             f"Time since last data update (UTC). Three-tier staleness system: "
-            f"OK (≤{DEGRADED_DAYS_THRESHOLD} days), "
-            f"DEGRADED ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days), "
-            f"STALE (>{STALE_DAYS_THRESHOLD} days). "
+            f"OK (≤{PRICE_CACHE_OK_DAYS} days), "
+            f"DEGRADED ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days), "
+            f"STALE (>{PRICE_CACHE_DEGRADED_DAYS} days). "
             f"Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
         )
         
@@ -6421,22 +6437,23 @@ def render_mission_control():
     # ========================================================================
     # WARNING: Cache Stale + Network Fetch Disabled
     # ========================================================================
+    # UI uses price_book as source of truth to prevent divergence
     data_age = mc_data.get('data_age_days')
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is STALE (>30 days) AND network fetch is disabled (with type safety)
+        # Show warning if cache is STALE (>PRICE_CACHE_DEGRADED_DAYS) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
                 f"⚠️ **STALE DATA WARNING**\n\n"
-                f"Data is {data_age} days old (>{STALE_DAYS_THRESHOLD} days). Network fetching is disabled (safe_mode), "
+                f"Data is {data_age} days old (>{PRICE_CACHE_DEGRADED_DAYS} days). Network fetching is disabled (safe_mode), "
                 f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
             )
         elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
-            # Info message for DEGRADED (15-30 days)
+            # Info message for DEGRADED (PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS)
             st.info(
                 f"ℹ️ **DEGRADED DATA NOTICE**\n\n"
-                f"Data is {data_age} days old ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days). "
+                f"Data is {data_age} days old ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days). "
                 f"Consider refreshing using the 'Rebuild PRICE_BOOK Cache' button below for fresher data."
             )
     except Exception:
@@ -18667,15 +18684,16 @@ def render_overview_clean_tab():
         
         try:
             # Compute system status based on multiple signals
+            # UI uses price_book as source of truth to prevent divergence
             status_issues = []
             
-            # Check 1: Price book staleness (Option B: three-tier system)
-            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
-            if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
+            # Check 1: Price book staleness using canonical thresholds from price_book.py
+            # OK: ≤PRICE_CACHE_OK_DAYS (14), DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS (15-30), STALE: >PRICE_CACHE_DEGRADED_DAYS (>30)
+            if data_age_days is not None and data_age_days > PRICE_CACHE_DEGRADED_DAYS:
                 status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
-            elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
+            elif data_age_days is not None and data_age_days > PRICE_CACHE_OK_DAYS:
                 status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
-            # else: data_age_days ≤ 14 days → OK, no issue to report
+            # else: data_age_days ≤ PRICE_CACHE_OK_DAYS → OK, no issue to report
             
             # Check 2: Missing tickers / data coverage
             total_waves = len(performance_df) if not performance_df.empty else 0
@@ -18707,13 +18725,17 @@ def render_overview_clean_tab():
                     if valid_data_pct < 70:
                         status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
             
-            # Determine overall system status (Option B aligned)
-            if len(status_issues) == 0 and data_current:
+            # Determine overall system status using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # STABLE: No issues AND data age ≤ PRICE_CACHE_OK_DAYS (14 days)
+            # WATCH: Minor issues (≤2) AND data age ≤ PRICE_CACHE_DEGRADED_DAYS (30 days)
+            # DEGRADED: Multiple issues OR data age > PRICE_CACHE_DEGRADED_DAYS
+            if len(status_issues) == 0 and (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS):
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
                 status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= DEGRADED_DAYS_THRESHOLD):
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS):
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
@@ -18865,6 +18887,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         
         try:
             # System Confidence: Based on data coverage and freshness
+            # Note: System Confidence requires very fresh data (data_current = age <= 1 day)
+            # for "High" confidence, which is more stringent than Data Integrity's OK threshold
+            # (age <= 14 days). This is intentional - confidence in real-time decisions
+            # requires fresher data than general data integrity validation.
             if not performance_df.empty:
                 valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
                 
@@ -18925,11 +18951,15 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 alpha_quality = "Weak"
                 alpha_color = "🔴"
             
-            # Data Integrity: Based on coverage and age
-            if data_current and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
+            # Data Integrity: Based on coverage and age using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # OK: age ≤ PRICE_CACHE_OK_DAYS (14 days) AND coverage ≥ 95%
+            # DEGRADED: (age > PRICE_CACHE_OK_DAYS but ≤ PRICE_CACHE_DEGRADED_DAYS) OR (coverage ≥ 80% but < 95%)
+            # COMPROMISED: age > PRICE_CACHE_DEGRADED_DAYS OR coverage < 80%
+            if (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS) and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
                 data_integrity = "Verified"
                 integrity_color = "🟢"
-            elif valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
+            elif (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS) and valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
                 data_integrity = "Degraded"
                 integrity_color = "🟡"
             else:
