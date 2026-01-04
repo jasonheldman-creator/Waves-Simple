@@ -69,9 +69,10 @@ def check_workflow_yaml_valid():
         details.append(f"Valid YAML: Yes")
         details.append(f"Workflow name: {workflow_data.get('name', 'N/A')}")
         
-        # Check for required keys - note 'on' is a Python keyword, check with string
+        # Check for required keys - note 'on' is a Python keyword
+        # In YAML, 'on' as a top-level key is valid and won't be converted to boolean
         required_keys = ['name', 'jobs']
-        has_on = 'on' in workflow_data or True in workflow_data  # 'on' might be parsed as True
+        has_on = 'on' in workflow_data
         
         missing_keys = [key for key in required_keys if key not in workflow_data]
         
@@ -109,8 +110,8 @@ def check_workflow_schedule():
         
         details = []
         
-        # Check for schedule trigger - 'on' might be parsed as True (Python keyword)
-        on_config = workflow_data.get('on', workflow_data.get(True, {}))
+        # Check for schedule trigger - 'on' is a string key in YAML
+        on_config = workflow_data.get('on', {})
         
         if isinstance(on_config, str):
             # Simple trigger like 'push'
