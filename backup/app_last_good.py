@@ -83,7 +83,8 @@ try:
 except ImportError:
     AUTO_REFRESH_CONFIG_AVAILABLE = False
     # Fallback defaults if config module is unavailable
-    DEFAULT_AUTO_REFRESH_ENABLED = True
+    # Auto-refresh OFF by default to prevent infinite reruns
+    DEFAULT_AUTO_REFRESH_ENABLED = False
     DEFAULT_REFRESH_INTERVAL_MS = 60000
     REFRESH_INTERVAL_OPTIONS = {"1 minute": 60000, "2 minutes": 120000}
     AUTO_PAUSE_ON_ERROR = True
@@ -4787,24 +4788,35 @@ def get_mission_control_data():
             price_meta = get_price_book_meta(price_book)
             
             if price_meta['date_max'] is not None:
-                # Use latest price date from PRICE_BOOK
-                latest_price_date = datetime.strptime(price_meta['date_max'], '%Y-%m-%d')
+                # Use latest price date from PRICE_BOOK (UTC-aware calculation)
+                # Parse date string as UTC timestamp at midnight
+                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
                 mc_data['data_freshness'] = price_meta['date_max']
+                mc_data['last_price_date'] = price_meta['date_max']
                 
                 # Calculate data age in days (UTC-aware)
-                age_days = (datetime.now() - latest_price_date).days
+                utc_today = pd.Timestamp.utcnow().normalize()
+                age_days = (utc_today - latest_price_date).days
                 mc_data['data_age_days'] = age_days
             else:
                 # Fallback if PRICE_BOOK is empty
                 latest_date = df['date'].max()
                 mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
-                age_days = (datetime.now() - latest_date).days
+                mc_data['last_price_date'] = latest_date.strftime('%Y-%m-%d')
+                # Ensure fallback also uses UTC
+                latest_price_date = pd.Timestamp(latest_date, tz='UTC').normalize()
+                utc_today = pd.Timestamp.utcnow().normalize()
+                age_days = (utc_today - latest_price_date).days
                 mc_data['data_age_days'] = age_days
         except Exception:
             # Fallback to wave_history if PRICE_BOOK fails
             latest_date = df['date'].max()
             mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
-            age_days = (datetime.now() - latest_date).days
+            mc_data['last_price_date'] = latest_date.strftime('%Y-%m-%d')
+            # Ensure fallback also uses UTC
+            latest_price_date = pd.Timestamp(latest_date, tz='UTC').normalize()
+            utc_today = pd.Timestamp.utcnow().normalize()
+            age_days = (utc_today - latest_price_date).days
             mc_data['data_age_days'] = age_days
         
         # Count waves using centralized wave universe (Data Backbone V1)
@@ -6137,6 +6149,12 @@ def render_mission_control():
     """
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
+    # Debug: Run state indicator (temporary)
+    current_time = datetime.now().strftime("%H:%M:%S")
+    auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", False)
+    rebuilding = st.session_state.get("rebuilding_price_book", False)
+    st.caption(f"🔍 Run State: {current_time} | Auto-Refresh: {'ON' if auto_refresh_enabled else 'OFF'} | Rebuild: {'IN PROGRESS' if rebuilding else 'IDLE'}")
+    
     mc_data = get_mission_control_data()
     
     # Top row: Primary metrics (5 columns)
@@ -6238,10 +6256,10 @@ def render_mission_control():
         else:
             st.caption(f"Data: {freshness_value}")
     
-    # Bottom row: Secondary metrics + Auto-Refresh Indicators (5 columns)
+    # Bottom row: Secondary metrics + Auto-Refresh Indicators (6 columns)
     st.markdown("---")
     
-    sec_col1, sec_col2, sec_col3, sec_col4, sec_col5 = st.columns(5)
+    sec_col1, sec_col2, sec_col3, sec_col4, sec_col5, sec_col6 = st.columns(6)
     
     with sec_col1:
         st.metric(
@@ -6280,10 +6298,19 @@ def render_mission_control():
         st.metric(
             label="Data Age",
             value=age_display,
-            help="Time since last data update"
+            help="Time since last data update (UTC)"
         )
     
     with sec_col5:
+        # Last Price Date (UTC) - shows the actual latest date in PRICE_BOOK
+        last_price_date = mc_data.get('last_price_date', 'Unknown')
+        st.metric(
+            label="Last Price Date",
+            value=last_price_date,
+            help="Latest price date in PRICE_BOOK (UTC)"
+        )
+    
+    with sec_col6:
         # Auto-Refresh Status Indicator (Enhanced)
         auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", DEFAULT_AUTO_REFRESH_ENABLED)
         auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
@@ -6343,52 +6370,64 @@ def render_mission_control():
             use_container_width=True,
             help="Rebuild the canonical price cache with active wave tickers. Requires ALLOW_NETWORK_FETCH=true."
         ):
-            try:
-                # Show progress indicator
-                with st.spinner("Rebuilding price cache... This may take a few minutes."):
-                    # Import the rebuild function
-                    from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
+            # Prevent double-trigger by checking if rebuild is already in progress
+            if st.session_state.get("rebuilding_price_book", False):
+                st.warning("⏳ Rebuild already in progress...")
+            else:
+                try:
+                    # Set flag to prevent double-trigger
+                    st.session_state.rebuilding_price_book = True
                     
-                    # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
-                    result = rebuild_price_cache(active_only=True)
-                    
-                    # Check if fetching is allowed
-                    if not result['allowed']:
-                        st.error(
-                            "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
-                            f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
-                        )
-                    elif result['success']:
-                        st.success(
-                            f"✅ Price cache rebuilt!\n\n"
-                            f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
-                            f"📅 Latest Date: {result['date_max']}"
-                        )
+                    # Show progress indicator
+                    with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                        # Import the rebuild function
+                        from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
                         
-                        # Show failed tickers if any
-                        if result['tickers_failed'] > 0 and result['failures']:
-                            with st.expander("⚠️ Failed Tickers", expanded=False):
-                                # Show first 10 failed tickers efficiently using islice
-                                for ticker in itertools.islice(result['failures'].keys(), 10):
-                                    st.text(f"• {ticker}")
-                                if len(result['failures']) > 10:
-                                    st.text(f"... and {len(result['failures']) - 10} more")
+                        # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                        result = rebuild_price_cache(active_only=True)
                         
-                        # Clear Streamlit caches to reflect new data
-                        st.cache_data.clear()
+                        # Check if fetching is allowed
+                        if not result['allowed']:
+                            st.error(
+                                "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                                f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                            )
+                        elif result['success']:
+                            st.success(
+                                f"✅ PRICE_BOOK rebuilt. Latest price date now: {result['date_max']}\n\n"
+                                f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                            )
+                            
+                            # Show failed tickers if any
+                            if result['tickers_failed'] > 0 and result['failures']:
+                                with st.expander("⚠️ Failed Tickers", expanded=False):
+                                    # Show first 10 failed tickers efficiently using islice
+                                    for ticker in itertools.islice(result['failures'].keys(), 10):
+                                        st.text(f"• {ticker}")
+                                    if len(result['failures']) > 10:
+                                        st.text(f"... and {len(result['failures']) - 10} more")
+                            
+                            # Clear Streamlit caches to reflect new data
+                            st.cache_data.clear()
+                            
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            
+                            # Note: Flag will be cleared in finally block after rerun
+                            # This prevents race conditions
+                            
+                            # Trigger rerun
+                            trigger_rerun("rebuild_price_cache_mission_control")
+                        else:
+                            st.error("❌ Failed to rebuild price cache")
                         
-                        # Mark user interaction
-                        st.session_state.user_interaction_detected = True
-                        
-                        # Trigger rerun
-                        trigger_rerun("rebuild_price_cache_mission_control")
-                    else:
-                        st.error("❌ Failed to rebuild price cache")
-                    
-            except Exception as e:
-                st.error(f"Error rebuilding cache: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc(), language="python")
+                except Exception as e:
+                    st.error(f"Error rebuilding cache: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc(), language="python")
+                finally:
+                    # Always clear the flag when done
+                    st.session_state.rebuilding_price_book = False
     
     # ========================================================================
     # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
@@ -18550,6 +18589,48 @@ def render_overview_clean_tab():
         """, unsafe_allow_html=True)
         
         # ========================================================================
+        # STALE DATA WARNING BANNER
+        # ========================================================================
+        # Calculate data age from PRICE_BOOK
+        try:
+            from helpers.price_book import get_price_book, get_price_book_meta
+            from datetime import datetime
+            import pandas as pd
+            
+            price_book = get_price_book()
+            price_meta = get_price_book_meta(price_book)
+            
+            if price_meta['date_max'] is not None:
+                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
+                utc_today = pd.Timestamp.utcnow().normalize()
+                age_days = (utc_today - latest_price_date).days
+                
+                # Show warning if data is more than 1 day old
+                if age_days > 1:
+                    st.warning(f"""
+                    ⚠️ **STALE/CACHED DATA NOTICE**
+                    
+                    This console displays **historical cached data**, not live market data.
+                    
+                    - **Last Price Date (UTC):** {price_meta['date_max']}
+                    - **Data Age:** {age_days} days old
+                    - **Data Source:** Cached price history (prices_cache.parquet)
+                    
+                    To update with current market data, use the "Rebuild PRICE_BOOK Cache" button in the sidebar (requires network access).
+                    """)
+                elif age_days == 1:
+                    st.info(f"""
+                    ℹ️ **CACHED DATA NOTICE**
+                    
+                    Displaying cached data from {price_meta['date_max']} ({age_days} day old).
+                    Data source: prices_cache.parquet
+                    """)
+            else:
+                st.error("⚠️ **NO PRICE DATA AVAILABLE** - PRICE_BOOK cache is empty")
+        except Exception as e:
+            st.error(f"⚠️ Unable to determine data freshness: {str(e)}")
+        
+        # ========================================================================
         # TOP SUMMARY BOX
         # ========================================================================
         st.markdown("### 📊 Executive Summary")
@@ -18692,13 +18773,24 @@ def render_overview_clean_tab():
                 st.caption(f"Total: {pb_diag['total_days']} days, {pb_diag['total_tickers']} tickers")
             
             with col3:
-                st.metric("Date Range", f"{pb_diag['date_min']} to {pb_diag['date_max']}")
+                st.metric("Last Price Date (UTC)", pb_diag['date_max'])
                 # Calculate days stale
                 if pb_diag['date_max'] != 'N/A':
                     from datetime import datetime
-                    latest_date = datetime.strptime(pb_diag['date_max'], '%Y-%m-%d')
-                    days_stale = (datetime.now() - latest_date).days
-                    st.caption(f"Data is {days_stale} days old")
+                    import pandas as pd
+                    latest_date = pd.Timestamp(pb_diag['date_max'], tz='UTC').normalize()
+                    utc_today = pd.Timestamp.utcnow().normalize()
+                    days_stale = (utc_today - latest_date).days
+                    
+                    # Color-code based on data age
+                    if days_stale > 7:
+                        st.error(f"⚠️ STALE: {days_stale} days old")
+                    elif days_stale > 1:
+                        st.warning(f"⚠️ CACHED: {days_stale} days old")
+                    elif days_stale == 1:
+                        st.info(f"ℹ️ {days_stale} day old")
+                    else:
+                        st.success(f"✅ Current (today)")
                 else:
                     st.caption("No data available")
             
@@ -18762,7 +18854,27 @@ def render_overview_clean_tab():
         # 28 WAVES PERFORMANCE TABLE (PRICE_BOOK-based)
         # ========================================================================
         st.markdown("### 📋 28 Waves Performance Overview")
-        st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
+        
+        # Add data source caption with freshness warning
+        try:
+            from helpers.price_book import get_price_book, get_price_book_meta
+            import pandas as pd
+            price_book_check = get_price_book()
+            price_meta_check = get_price_book_meta(price_book_check)
+            
+            if price_meta_check['date_max'] is not None:
+                latest_date_ts = pd.Timestamp(price_meta_check['date_max'], tz='UTC').normalize()
+                utc_now = pd.Timestamp.utcnow().normalize()
+                age = (utc_now - latest_date_ts).days
+                
+                if age > 1:
+                    st.caption(f"**⚠️ Data Source: CACHED/HISTORICAL (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']} ({age} days old)")
+                else:
+                    st.caption(f"**Data Source: PRICE_BOOK (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']}")
+            else:
+                st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - No data available")
+        except:
+            st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
         
         # Load PRICE_BOOK and compute performance
         try:

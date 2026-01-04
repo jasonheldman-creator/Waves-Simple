@@ -18589,6 +18589,48 @@ def render_overview_clean_tab():
         """, unsafe_allow_html=True)
         
         # ========================================================================
+        # STALE DATA WARNING BANNER
+        # ========================================================================
+        # Calculate data age from PRICE_BOOK
+        try:
+            from helpers.price_book import get_price_book, get_price_book_meta
+            from datetime import datetime
+            import pandas as pd
+            
+            price_book = get_price_book()
+            price_meta = get_price_book_meta(price_book)
+            
+            if price_meta['date_max'] is not None:
+                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
+                utc_today = pd.Timestamp.utcnow().normalize()
+                age_days = (utc_today - latest_price_date).days
+                
+                # Show warning if data is more than 1 day old
+                if age_days > 1:
+                    st.warning(f"""
+                    ⚠️ **STALE/CACHED DATA NOTICE**
+                    
+                    This console displays **historical cached data**, not live market data.
+                    
+                    - **Last Price Date (UTC):** {price_meta['date_max']}
+                    - **Data Age:** {age_days} days old
+                    - **Data Source:** Cached price history (prices_cache.parquet)
+                    
+                    To update with current market data, use the "Rebuild PRICE_BOOK Cache" button in the sidebar (requires network access).
+                    """)
+                elif age_days == 1:
+                    st.info(f"""
+                    ℹ️ **CACHED DATA NOTICE**
+                    
+                    Displaying cached data from {price_meta['date_max']} ({age_days} day old).
+                    Data source: prices_cache.parquet
+                    """)
+            else:
+                st.error("⚠️ **NO PRICE DATA AVAILABLE** - PRICE_BOOK cache is empty")
+        except Exception as e:
+            st.error(f"⚠️ Unable to determine data freshness: {str(e)}")
+        
+        # ========================================================================
         # TOP SUMMARY BOX
         # ========================================================================
         st.markdown("### 📊 Executive Summary")
@@ -18731,13 +18773,24 @@ def render_overview_clean_tab():
                 st.caption(f"Total: {pb_diag['total_days']} days, {pb_diag['total_tickers']} tickers")
             
             with col3:
-                st.metric("Date Range", f"{pb_diag['date_min']} to {pb_diag['date_max']}")
+                st.metric("Last Price Date (UTC)", pb_diag['date_max'])
                 # Calculate days stale
                 if pb_diag['date_max'] != 'N/A':
                     from datetime import datetime
-                    latest_date = datetime.strptime(pb_diag['date_max'], '%Y-%m-%d')
-                    days_stale = (datetime.now() - latest_date).days
-                    st.caption(f"Data is {days_stale} days old")
+                    import pandas as pd
+                    latest_date = pd.Timestamp(pb_diag['date_max'], tz='UTC').normalize()
+                    utc_today = pd.Timestamp.utcnow().normalize()
+                    days_stale = (utc_today - latest_date).days
+                    
+                    # Color-code based on data age
+                    if days_stale > 7:
+                        st.error(f"⚠️ STALE: {days_stale} days old")
+                    elif days_stale > 1:
+                        st.warning(f"⚠️ CACHED: {days_stale} days old")
+                    elif days_stale == 1:
+                        st.info(f"ℹ️ {days_stale} day old")
+                    else:
+                        st.success(f"✅ Current (today)")
                 else:
                     st.caption("No data available")
             
@@ -18801,7 +18854,27 @@ def render_overview_clean_tab():
         # 28 WAVES PERFORMANCE TABLE (PRICE_BOOK-based)
         # ========================================================================
         st.markdown("### 📋 28 Waves Performance Overview")
-        st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
+        
+        # Add data source caption with freshness warning
+        try:
+            from helpers.price_book import get_price_book, get_price_book_meta
+            import pandas as pd
+            price_book_check = get_price_book()
+            price_meta_check = get_price_book_meta(price_book_check)
+            
+            if price_meta_check['date_max'] is not None:
+                latest_date_ts = pd.Timestamp(price_meta_check['date_max'], tz='UTC').normalize()
+                utc_now = pd.Timestamp.utcnow().normalize()
+                age = (utc_now - latest_date_ts).days
+                
+                if age > 1:
+                    st.caption(f"**⚠️ Data Source: CACHED/HISTORICAL (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']} ({age} days old)")
+                else:
+                    st.caption(f"**Data Source: PRICE_BOOK (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']}")
+            else:
+                st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - No data available")
+        except Exception:
+            st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
         
         # Load PRICE_BOOK and compute performance
         try:
