@@ -4955,6 +4955,7 @@ def get_mission_control_data():
         
         # System status and data age based on PRICE_BOOK (not wave_history)
         # Use compute_system_health from price_book for consistent thresholds
+        # Note: STALE_DAYS_THRESHOLD and DEGRADED_DAYS_THRESHOLD are imported globally at module level
         try:
             from helpers.price_book import (
                 get_price_book, 
