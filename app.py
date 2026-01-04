@@ -4673,6 +4673,50 @@ def create_correlation_heatmap(wave1_data, wave2_data, wave1_name, wave2_name):
 # SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
 
+def count_waves_with_valid_price_book_data(canonical_waves, enabled_flags, price_book):
+    """
+    Count waves that have valid PRICE_BOOK data using the same validation logic
+    as the performance table and readiness checks.
+    
+    Args:
+        canonical_waves: List of all wave names
+        enabled_flags: Dict of wave -> enabled (True/False)
+        price_book: PRICE_BOOK DataFrame
+        
+    Returns:
+        int: Count of enabled waves with valid PRICE_BOOK data
+    """
+    if price_book is None or price_book.empty:
+        return 0
+    
+    try:
+        from helpers.wave_performance import validate_wave_price_history
+        
+        # Count enabled waves that pass validation
+        valid_count = 0
+        for wave in canonical_waves:
+            # Only check enabled waves
+            if not enabled_flags.get(wave, True):
+                continue
+            
+            # Validate wave against PRICE_BOOK
+            validation = validate_wave_price_history(
+                wave,
+                price_book,
+                min_coverage_pct=100.0,  # Same as performance table
+                min_history_days=30  # Same as performance table
+            )
+            
+            if validation.get('valid', False):
+                valid_count += 1
+        
+        return valid_count
+    except Exception as e:
+        # If validation fails, fall back to simple check
+        # At least we know PRICE_BOOK has data, so return enabled count
+        return sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
+
+
 def get_mission_control_data():
     """
     Retrieve Mission Control metrics from available data.
@@ -4725,14 +4769,12 @@ def get_mission_control_data():
                 try:
                     from helpers.price_book import get_price_book
                     price_book = get_price_book(active_tickers=None)
-                    if not price_book.empty:
-                        # Count enabled waves - if PRICE_BOOK has data, all enabled waves are "live"
-                        mc_data['waves_live_count'] = active_count
-                    else:
-                        mc_data['waves_live_count'] = 0
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
                 except Exception:
-                    # Fallback: assume all active waves are live
-                    mc_data['waves_live_count'] = active_count
+                    # Fallback: if PRICE_BOOK check fails completely, use 0
+                    mc_data['waves_live_count'] = 0
             except Exception:
                 pass
             return mc_data
@@ -4771,15 +4813,12 @@ def get_mission_control_data():
                 try:
                     from helpers.price_book import get_price_book
                     price_book = get_price_book(active_tickers=None)
-                    if not price_book.empty:
-                        # If PRICE_BOOK has data, count all enabled waves as "live"
-                        # since the PRICE_BOOK contains all required tickers for active waves
-                        mc_data['waves_live_count'] = active_count
-                    else:
-                        mc_data['waves_live_count'] = 0
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
                 except Exception:
-                    # Fallback: assume all active waves are live
-                    mc_data['waves_live_count'] = active_count
+                    # Fallback: if PRICE_BOOK check fails completely, use 0
+                    mc_data['waves_live_count'] = 0
             else:
                 # No wave column in history
                 mc_data['history_unique_count'] = 0
@@ -4787,12 +4826,11 @@ def get_mission_control_data():
                 try:
                     from helpers.price_book import get_price_book
                     price_book = get_price_book(active_tickers=None)
-                    if not price_book.empty:
-                        mc_data['waves_live_count'] = active_count
-                    else:
-                        mc_data['waves_live_count'] = 0
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
                 except Exception:
-                    mc_data['waves_live_count'] = active_count
+                    mc_data['waves_live_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
@@ -4803,15 +4841,26 @@ def get_mission_control_data():
                 mc_data['active_waves'] = mc_data['total_waves']
                 
                 # Compute waves_live_count from PRICE_BOOK
+                # In fallback mode, we don't have canonical_waves/enabled_flags,
+                # so we'll use a simpler check
                 try:
                     from helpers.price_book import get_price_book
+                    from helpers.wave_performance import compute_all_waves_performance
+                    
                     price_book = get_price_book(active_tickers=None)
                     if not price_book.empty:
-                        mc_data['waves_live_count'] = mc_data['active_waves']
+                        # Count validated waves by computing performance
+                        perf_df = compute_all_waves_performance(
+                            price_book, 
+                            periods=[1], 
+                            only_validated=True
+                        )
+                        mc_data['waves_live_count'] = len(perf_df)
                     else:
                         mc_data['waves_live_count'] = 0
                 except Exception:
-                    mc_data['waves_live_count'] = mc_data['active_waves']
+                    # Ultimate fallback: use 0
+                    mc_data['waves_live_count'] = 0
         
         # System status and data age based on PRICE_BOOK (not wave_history)
         # Use compute_system_health from price_book for consistent thresholds
