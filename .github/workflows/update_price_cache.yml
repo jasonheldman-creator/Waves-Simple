@@ -1,48 +1,57 @@
 name: Update Price Cache
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 2 * * *"
-
-env:
-  REQUIRED_TICKERS: "SPY, AAPL"
-  OPTIONAL_TICKERS: "MSFT, GOOGL"
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
 
 jobs:
-  update_cache:
+  update-price-cache:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Fetch prices for required tickers
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
         run: |
-          IFS=',' read -r -a tickers <<< "$REQUIRED_TICKERS"
-          missing_tickers=""
-          for ticker in "${tickers[@]}"; do
-            if ! ./fetch_price.sh "$ticker"; then
-              missing_tickers+="$ticker "
-            fi
-          done
-          if [ -n "$missing_tickers" ]; then
-            echo "::error::Failed to fetch required tickers: $missing_tickers"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build/Update price cache
+        run: |
+          python build_price_cache.py --force --non-interactive
+
+      - name: Verify cache update
+        run: |
+          if [ -f "data/cache/prices_cache.parquet" ]; then
+            echo "Cache file exists"
+            ls -lh data/cache/prices_cache.parquet
+          else
+            echo "Warning: Cache file not found"
             exit 1
           fi
 
-      - name: Fetch prices for optional tickers
+      - name: Commit and push updates
         run: |
-          IFS=',' read -r -a tickers <<< "$OPTIONAL_TICKERS"
-          failed_tickers=""
-          for ticker in "${tickers[@]}"; do
-            if ! ./fetch_price.sh "$ticker"; then
-              failed_tickers+="$ticker "
-            fi
-          done
-          if [ -n "$failed_tickers" ]; then
-            echo "::warning::Failed to fetch optional tickers: $failed_tickers"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/cache/prices_cache.parquet
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update price cache - $(date +'%Y-%m-%d')"
+            git push
           fi
 
-      - name: Finalize Workflow
+      - name: Summary
         run: |
-          echo "All required tickers updated successfully."
+          echo "Price cache update completed successfully"
+          if [ -f "data/cache/prices_cache.parquet" ]; then
+            python -c "import pandas as pd; df=pd.read_parquet('data/cache/prices_cache.parquet'); print(f'Tickers: {len(df.columns)}, Days: {len(df)}')"
+          fi

@@ -42,6 +42,9 @@ from helpers.price_loader import (
     DEFAULT_CACHE_YEARS,
     BATCH_SIZE
 )
+
+# Minimum success rate threshold (95% of tickers must succeed)
+MIN_SUCCESS_RATE = 0.95
 from waves_engine import get_all_wave_ids, WAVE_WEIGHTS
 from analytics_pipeline import resolve_wave_tickers, resolve_wave_benchmarks
 
@@ -164,13 +167,14 @@ def load_existing_price_files():
     return merged
 
 
-def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
+def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS, non_interactive=False):
     """
     Build the initial price cache.
     
     Args:
         force_rebuild: Force rebuild even if cache exists
         years: Number of years of history to keep
+        non_interactive: Skip interactive prompts (for CI/CD environments)
         
     Returns:
         True if successful, False otherwise
@@ -188,6 +192,10 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Tickers: {info['num_tickers']}")
         logger.info(f"  Days: {info['num_days']}")
         logger.info(f"  Date range: {info['date_range'][0]} to {info['date_range'][1]}")
+        
+        if non_interactive:
+            logger.info("Running in non-interactive mode, keeping existing cache")
+            return True
         
         user_input = input("\nCache exists. Rebuild? (y/N): ").strip().lower()
         if user_input != 'y':
@@ -221,6 +229,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     logger.info(f"Missing tickers: {len(missing_tickers)}/{len(all_tickers)}")
     
     # Step 5: Fetch missing data (if network is available)
+    all_failures = {}
     if missing_tickers:
         logger.info("Attempting to fetch missing tickers from yfinance...")
         
@@ -232,7 +241,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         
         # Fetch in batches
         all_new_data = []
-        all_failures = {}
         
         for i in range(0, len(missing_tickers), BATCH_SIZE):
             batch = missing_tickers[i:i + BATCH_SIZE]
@@ -265,19 +273,22 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             
             cache_df = merge_cache_and_new_data(cache_df, new_data_df)
         
-        # Log failures
+        # Log failures clearly
         if all_failures:
-            logger.warning(f"Failed to fetch {len(all_failures)} tickers:")
+            logger.warning("=" * 70)
+            logger.warning(f"FAILED TICKERS: {len(all_failures)}/{len(missing_tickers)}")
+            logger.warning("=" * 70)
             for ticker in list(all_failures.keys())[:10]:
                 logger.warning(f"  {ticker}: {all_failures[ticker]}")
             if len(all_failures) > 10:
                 logger.warning(f"  ... and {len(all_failures) - 10} more")
+            logger.warning("=" * 70)
     
     # Step 6: Trim cache to date range
     if not cache_df.empty:
         cache_df = trim_cache_to_date_range(cache_df, years)
     
-    # Step 7: Save cache
+    # Step 7: Save cache and calculate success rate
     if not cache_df.empty:
         logger.info("Saving cache...")
         save_cache(cache_df)
@@ -293,12 +304,24 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Days: {info['num_days']}")
         logger.info(f"  Date range: {info['date_range'][0]} to {info['date_range'][1]}")
         
-        # Calculate coverage
+        # Calculate coverage and success rate
         coverage = info['num_tickers'] / len(all_tickers) * 100 if len(all_tickers) > 0 else 0
-        logger.info(f"  Coverage: {coverage:.1f}% ({info['num_tickers']}/{len(all_tickers)} tickers)")
-        logger.info("=" * 70)
+        success_rate = info['num_tickers'] / len(all_tickers) if len(all_tickers) > 0 else 0
         
-        return True
+        logger.info(f"  Coverage: {coverage:.1f}% ({info['num_tickers']}/{len(all_tickers)} tickers)")
+        logger.info(f"  Success rate: {success_rate:.2%}")
+        logger.info(f"  Minimum required: {MIN_SUCCESS_RATE:.2%}")
+        
+        # Determine if success rate meets threshold
+        if success_rate >= MIN_SUCCESS_RATE:
+            logger.info(f"  ✓ Success rate meets threshold")
+            logger.info("=" * 70)
+            return True
+        else:
+            logger.error(f"  ✗ Success rate below threshold!")
+            logger.error(f"  Failed tickers: {len(all_failures)}")
+            logger.error("=" * 70)
+            return False
     else:
         logger.error("No data available to build cache")
         return False
@@ -309,10 +332,15 @@ def main():
     parser = argparse.ArgumentParser(description='Build initial price cache')
     parser.add_argument('--force', action='store_true', help='Force rebuild even if cache exists')
     parser.add_argument('--years', type=int, default=DEFAULT_CACHE_YEARS, help='Number of years of history')
+    parser.add_argument('--non-interactive', action='store_true', help='Run in non-interactive mode (for CI/CD)')
     
     args = parser.parse_args()
     
-    success = build_initial_cache(force_rebuild=args.force, years=args.years)
+    success = build_initial_cache(
+        force_rebuild=args.force, 
+        years=args.years,
+        non_interactive=args.non_interactive
+    )
     
     sys.exit(0 if success else 1)
 
