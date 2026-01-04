@@ -114,13 +114,20 @@ except ImportError:
 
 # Import price_book constants for Mission Control
 try:
-    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    from helpers.price_book import (
+        PRICE_CACHE_OK_DAYS,
+        PRICE_CACHE_DEGRADED_DAYS,
+        STALE_DAYS_THRESHOLD,
+        DEGRADED_DAYS_THRESHOLD
+    )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
-    # Fallback defaults if price_book is unavailable
-    STALE_DAYS_THRESHOLD = 10
-    DEGRADED_DAYS_THRESHOLD = 5
+    # Fallback defaults if price_book is unavailable - aligned with canonical values
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
+    STALE_DAYS_THRESHOLD = 30  # Aligned with PRICE_CACHE_DEGRADED_DAYS
+    DEGRADED_DAYS_THRESHOLD = 14  # Aligned with PRICE_CACHE_OK_DAYS
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -4948,13 +4955,12 @@ def get_mission_control_data():
         
         # System status and data age based on PRICE_BOOK (not wave_history)
         # Use compute_system_health from price_book for consistent thresholds
+        # Note: STALE_DAYS_THRESHOLD and DEGRADED_DAYS_THRESHOLD are imported globally at module level
         try:
             from helpers.price_book import (
                 get_price_book, 
                 get_price_book_meta,
-                compute_system_health,
-                STALE_DAYS_THRESHOLD,
-                DEGRADED_DAYS_THRESHOLD
+                compute_system_health
             )
             
             price_book = get_price_book(active_tickers=None)
@@ -18638,21 +18644,22 @@ def render_overview_clean_tab():
         
         # Load data for analysis
         try:
-            from helpers.price_book import get_price_book, get_price_book_meta
+            from helpers.price_book import (
+                get_price_book, 
+                get_price_book_meta,
+                compute_system_health,
+                compute_missing_and_extra_tickers
+            )
             from helpers.wave_performance import compute_all_waves_performance
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
             performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
-            # Data age assessment
-            data_age_days = None
-            data_current = False
-            if price_meta['date_max'] is not None:
-                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
-                utc_today = pd.Timestamp.utcnow().normalize()
-                data_age_days = (utc_today - latest_price_date).days
-                data_current = data_age_days <= 1
+            # Use canonical health computation from price_book
+            health = compute_system_health(price_book)
+            data_age_days = health.get('days_stale', None)
+            data_current = data_age_days is not None and data_age_days <= 1
             
         except Exception as e:
             st.error(f"Unable to load platform data. Please check system status.")
@@ -18666,63 +18673,34 @@ def render_overview_clean_tab():
         st.markdown("### 🎛️ Composite System Control Status")
         
         try:
-            # Compute system status based on multiple signals
-            status_issues = []
+            # Use canonical health status from price_book
+            canonical_health_status = health.get('health_status', 'unknown')
+            canonical_health_emoji = health.get('health_emoji', '❓')
+            canonical_details = health.get('details', 'System status unavailable')
             
-            # Check 1: Price book staleness (Option B: three-tier system)
-            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
-            if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
-                status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
-            elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
-                status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
-            # else: data_age_days ≤ 14 days → OK, no issue to report
-            
-            # Check 2: Missing tickers / data coverage
-            total_waves = len(performance_df) if not performance_df.empty else 0
-            if not performance_df.empty:
-                if 'Failure_Reason' in performance_df.columns:
-                    failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
-                    failed_count = len(failed_waves)
-                    
-                    if failed_count > 0:
-                        missing_ticker_count = len(failed_waves[failed_waves['Failure_Reason'].str.contains('Missing tickers', case=False, na=False)])
-                        if missing_ticker_count > 0:
-                            status_issues.append(f"{missing_ticker_count} strategies with missing ticker data")
-            
-            # Check 3: Data integrity
-            valid_data_pct = 0
-            if not performance_df.empty and total_waves > 0:
-                def parse_return(val):
-                    if pd.isna(val) or val == "N/A":
-                        return None
-                    try:
-                        return float(str(val).replace('%', '').replace('+', ''))
-                    except:
-                        return None
-                
-                if '1D Return' in performance_df.columns:
-                    returns_1d = performance_df['1D Return'].apply(parse_return).dropna()
-                    valid_data_pct = (len(returns_1d) / total_waves * 100)
-                    
-                    if valid_data_pct < 70:
-                        status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
-            
-            # Determine overall system status (Option B aligned)
-            if len(status_issues) == 0 and data_current:
+            # Map canonical health status to UI status vocabulary
+            # Canonical: OK, DEGRADED, STALE
+            # UI: STABLE (OK), WATCH (DEGRADED with minor issues), DEGRADED (STALE or major issues)
+            if canonical_health_status == 'OK':
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
-                status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= DEGRADED_DAYS_THRESHOLD):
+                status_text = canonical_details
+            elif canonical_health_status == 'DEGRADED':
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
-                status_text = "System operational with minor issues: " + "; ".join(status_issues[:2])
-            else:
+                status_text = canonical_details
+            elif canonical_health_status == 'STALE':
                 system_status = "DEGRADED"
                 status_color = "🔴"
                 status_bg = "#5a1a1a"
-                status_text = "System requires attention: " + "; ".join(status_issues[:3])
+                status_text = canonical_details
+            else:
+                system_status = "UNKNOWN"
+                status_color = "❓"
+                status_bg = "#3a3a3a"
+                status_text = "System status unavailable"
             
             # Display status banner
             st.markdown(f"""
