@@ -113,14 +113,22 @@ except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
 # Import price_book constants for Mission Control
+# source of truth: helpers/price_book.py
 try:
-    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    from helpers.price_book import (
+        STALE_DAYS_THRESHOLD, 
+        DEGRADED_DAYS_THRESHOLD,
+        PRICE_CACHE_OK_DAYS,
+        PRICE_CACHE_DEGRADED_DAYS
+    )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
     # Fallback defaults if price_book is unavailable
     STALE_DAYS_THRESHOLD = 10
     DEGRADED_DAYS_THRESHOLD = 5
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -13186,11 +13194,12 @@ def generate_board_pack_html():
     data_freshness = mc_data.get('data_freshness', 'unknown')
     data_age_days = mc_data.get('data_age_days', None)
     
+    # source of truth: helpers/price_book.py
     if data_age_days is not None:
-        if data_age_days <= 1:
+        if data_age_days <= PRICE_CACHE_OK_DAYS:
             confidence = "High"
             confidence_color = "#3c3"
-        elif data_age_days <= 3:
+        elif data_age_days <= PRICE_CACHE_DEGRADED_DAYS:
             confidence = "Medium"
             confidence_color = "#f90"
         else:
