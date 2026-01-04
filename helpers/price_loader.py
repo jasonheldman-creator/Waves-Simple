@@ -66,7 +66,7 @@ FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 DEFAULT_CACHE_YEARS = 5  # Keep last 5 years of data
 MAX_FORWARD_FILL_DAYS = 3  # Maximum gap to forward-fill (CHANGED from 5 to 3)
 MIN_REQUIRED_DAYS = 60  # Minimum trading days for readiness (CHANGED from 10 to 60)
-MAX_STALE_DAYS = 5  # Data older than this is considered stale (CHANGED from 3 to 5)
+MAX_STALE_DAYS = 2  # Data older than this many trading days is considered stale (CHANGED to use trading days)
 
 # Download configuration
 BATCH_SIZE = 50  # Maximum tickers per batch download
