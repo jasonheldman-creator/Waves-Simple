@@ -69,24 +69,16 @@ jobs:
               print('prices.csv not found, skipping conversion')
           "
       
-      - name: Display cache info
+      - name: Verify cache update
         run: |
-          echo "=== Cache File Info ==="
+          echo "=== Verifying Price Cache Update ==="
           if [ -f data/cache/prices_cache.parquet ]; then
-            ls -lh data/cache/prices_cache.parquet
-            python -c "
-            import pandas as pd
-            from datetime import datetime
-            df = pd.read_parquet('data/cache/prices_cache.parquet')
-            print(f'\nCache Statistics:')
-            print(f'  Trading Days: {len(df)}')
-            print(f'  Tickers: {len(df.columns)}')
-            print(f'  Date Range: {df.index.min()} to {df.index.max()}')
-            print(f'  Latest Date: {df.index.max()}')
-            print(f'  Data Age: {(datetime.now() - df.index.max().to_pydatetime()).days} days')
-            "
+            echo "✅ Cache file exists at: data/cache/prices_cache.parquet"
+            echo ""
+            python extract_cache_stats.py
           else
-            echo "prices_cache.parquet not found"
+            echo "❌ ERROR: prices_cache.parquet not found at data/cache/prices_cache.parquet"
+            exit 1
           fi
       
       - name: Commit and push updates
