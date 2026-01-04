@@ -13204,7 +13204,7 @@ def generate_board_pack_html():
     data_age_days = mc_data.get('data_age_days', None)
     
     # Use canonical thresholds from price_book.py to align with compute_system_health()
-    # OK: ≤PRICE_CACHE_OK_DAYS (14), DEGRADED: 15-30, STALE: >PRICE_CACHE_DEGRADED_DAYS (>30)
+    # OK: ≤PRICE_CACHE_OK_DAYS, DEGRADED: (PRICE_CACHE_OK_DAYS+1) to PRICE_CACHE_DEGRADED_DAYS, STALE: >PRICE_CACHE_DEGRADED_DAYS
     if data_age_days is not None:
         if data_age_days <= PRICE_CACHE_OK_DAYS:
             confidence = "High"
