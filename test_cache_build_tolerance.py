@@ -95,6 +95,17 @@ def test_status_determination():
     print(f"  Scenario 3 (critical failure): {status} ✓")
 
 
+def _calculate_exit_code(successful_tickers, failures):
+    """Helper function to calculate exit code based on critical ticker status."""
+    missing_critical = CRITICAL_TICKERS - successful_tickers
+    failed_critical = [t for t in CRITICAL_TICKERS if t in failures]
+    
+    if missing_critical or failed_critical:
+        return 1
+    else:
+        return 0
+
+
 def test_exit_code_logic():
     """Test exit code determination logic."""
     print("\nTesting exit code logic...")
@@ -102,13 +113,7 @@ def test_exit_code_logic():
     # Scenario 1: All critical tickers present
     successful_tickers = {'IGV', 'STETH-USD', '^VIX', 'SPY'}
     failures = {'QQQ': 'Error'}
-    missing_critical = CRITICAL_TICKERS - successful_tickers
-    failed_critical = [t for t in CRITICAL_TICKERS if t in failures]
-    
-    if missing_critical or failed_critical:
-        exit_code = 1
-    else:
-        exit_code = 0
+    exit_code = _calculate_exit_code(successful_tickers, failures)
     
     assert exit_code == 0, f"Expected exit code 0, got {exit_code}"
     print(f"  Scenario 1 (critical present, non-critical fail): exit code {exit_code} ✓")
@@ -116,13 +121,7 @@ def test_exit_code_logic():
     # Scenario 2: Critical ticker missing
     successful_tickers = {'SPY', 'QQQ'}
     failures = {'IGV': 'Error'}
-    missing_critical = CRITICAL_TICKERS - successful_tickers
-    failed_critical = [t for t in CRITICAL_TICKERS if t in failures]
-    
-    if missing_critical or failed_critical:
-        exit_code = 1
-    else:
-        exit_code = 0
+    exit_code = _calculate_exit_code(successful_tickers, failures)
     
     assert exit_code == 1, f"Expected exit code 1, got {exit_code}"
     print(f"  Scenario 2 (critical missing): exit code {exit_code} ✓")
@@ -130,13 +129,7 @@ def test_exit_code_logic():
     # Scenario 3: All succeed
     successful_tickers = {'IGV', 'STETH-USD', '^VIX', 'SPY', 'QQQ'}
     failures = {}
-    missing_critical = CRITICAL_TICKERS - successful_tickers
-    failed_critical = [t for t in CRITICAL_TICKERS if t in failures]
-    
-    if missing_critical or failed_critical:
-        exit_code = 1
-    else:
-        exit_code = 0
+    exit_code = _calculate_exit_code(successful_tickers, failures)
     
     assert exit_code == 0, f"Expected exit code 0, got {exit_code}"
     print(f"  Scenario 3 (all succeed): exit code {exit_code} ✓")

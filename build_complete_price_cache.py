@@ -37,8 +37,8 @@ BATCH_DELAY = 1.5  # Delay between batches in seconds
 MAX_RETRIES = 3  # Retry failed downloads
 
 # Critical tickers that MUST succeed for the build to pass
+# Note: All tickers are normalized to uppercase, so 'stETH-USD' → 'STETH-USD'
 CRITICAL_TICKERS = {'IGV', 'STETH-USD', '^VIX'}
-# Note: stETH-USD is normalized to STETH-USD, so both forms are handled
 
 
 def log_message(message: str, level: str = "INFO"):
