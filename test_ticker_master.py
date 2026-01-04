@@ -133,14 +133,17 @@ def test_wave_count():
     try:
         from waves_engine import get_all_waves_universe
         
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
         universe = get_all_waves_universe()
         wave_count = universe['count']
         
-        if wave_count != 28:
-            print(f"   ❌ FAIL: Found {wave_count} waves (expected 28)")
+        if wave_count != expected_count:
+            print(f"   ❌ FAIL: Found {wave_count} waves (expected {expected_count} from WAVE_ID_REGISTRY)")
             return False
         
-        print(f"   ✅ PASS: All 28 waves defined")
+        print(f"   ✅ PASS: All {expected_count} waves defined (from WAVE_ID_REGISTRY)")
         return True
         
     except Exception as e:

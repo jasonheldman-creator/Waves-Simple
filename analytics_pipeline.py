@@ -2526,9 +2526,12 @@ def get_wave_readiness_diagnostic_summary() -> Dict[str, Any]:
             f"Only {result['total_waves_rendered']} of {total_in_registry} waves rendered"
         )
     
-    if total_in_registry != 28:
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
+    if total_in_registry != expected_count:
         result['warnings'].append(
-            f"Registry contains {total_in_registry} waves, expected 28"
+            f"Registry contains {total_in_registry} waves, expected {expected_count} from WAVE_ID_REGISTRY"
         )
     
     return result

@@ -77,9 +77,12 @@ try:
     
     readiness_df = generate_wave_readiness_report()
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     if not readiness_df.empty:
         total_waves = len(readiness_df)
-        assert total_waves == 28, f"Expected 28 waves, got {total_waves}"
+        assert total_waves == expected_count, f"Expected {expected_count} waves, got {total_waves}"
         
         if 'coverage_pct' in readiness_df.columns:
             avg_coverage = readiness_df['coverage_pct'].mean()

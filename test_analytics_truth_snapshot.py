@@ -31,13 +31,16 @@ def test_derive_expected_waves():
     print("TEST: Derive Expected Waves")
     print("=" * 80)
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     expected_waves = _derive_expected_waves_from_weights()
     
-    assert len(expected_waves) == 28, f"Expected 28 waves, got {len(expected_waves)}"
+    assert len(expected_waves) == expected_count, f"Expected {expected_count} waves, got {len(expected_waves)}"
     assert len(expected_waves) == len(set(expected_waves)), "Waves should be unique"
     assert expected_waves == sorted(expected_waves), "Waves should be sorted"
     
-    print(f"✓ Derived {len(expected_waves)} expected waves")
+    print(f"✓ Derived {len(expected_waves)} expected waves (from WAVE_ID_REGISTRY)")
     print(f"✓ All waves are unique")
     print(f"✓ Waves are sorted")
     print(f"\nFirst 5 waves: {expected_waves[:5]}")

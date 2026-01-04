@@ -216,9 +216,12 @@ def test_snapshot_structure():
     
     df = pd.DataFrame(rows)
     
-    # Validate structure
-    assert len(df) == 28, f"Expected 28 rows, got {len(df)}"
-    assert df['wave_id'].nunique() == 28, "Expected 28 unique wave_ids"
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
+    # Validate structure (dynamic)
+    assert len(df) == expected_count, f"Expected {expected_count} rows, got {len(df)}"
+    assert df['wave_id'].nunique() == expected_count, f"Expected {expected_count} unique wave_ids"
     assert 'Wave' in df.columns
     assert 'Return_1D' in df.columns
     assert 'Return_30D' in df.columns

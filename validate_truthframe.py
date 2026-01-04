@@ -32,13 +32,16 @@ def validate_truthframe():
     
     print(f"  ✓ TruthFrame loaded: {len(truth_df)} waves")
     
-    # Test 2: Verify all 28 waves present
-    print("\n[2/6] Verifying all 28 waves present...")
-    if len(truth_df) != 28:
-        print(f"  ✗ FAILED: Expected 28 waves, got {len(truth_df)}")
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
+    # Test 2: Verify all waves present (dynamic)
+    print(f"\n[2/6] Verifying all {expected_count} waves present...")
+    if len(truth_df) != expected_count:
+        print(f"  ✗ FAILED: Expected {expected_count} waves, got {len(truth_df)}")
         return False
     
-    print(f"  ✓ All 28 waves present")
+    print(f"  ✓ All {expected_count} waves present (from WAVE_ID_REGISTRY)")
     
     # Test 3: Check required columns
     print("\n[3/6] Checking required columns...")

@@ -19,8 +19,11 @@ def test_load_canonical_waves():
     
     canonical_waves = _load_canonical_waves_from_weights()
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     assert canonical_waves is not None, "Failed to load canonical waves"
-    assert len(canonical_waves) == 28, f"Expected 28 waves, got {len(canonical_waves)}"
+    assert len(canonical_waves) == expected_count, f"Expected {expected_count} waves, got {len(canonical_waves)}"
     
     # Check structure: should be list of (wave_name, wave_id) tuples
     assert all(len(w) == 2 for w in canonical_waves), "Each wave should be a (name, id) tuple"

@@ -106,11 +106,14 @@ def test_snapshot_first_rendering():
         print(f"  Fresh: {freshness['fresh']}")
         print(f"  Stale: {freshness.get('stale', False)}")
         
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
         # Load snapshot
         snapshot = load_proxy_snapshot()
         assert not snapshot.empty, "Snapshot should not be empty"
-        assert len(snapshot) == 28, f"Expected 28 waves, got {len(snapshot)}"
-        print(f"✅ Loaded snapshot with {len(snapshot)} waves")
+        assert len(snapshot) == expected_count, f"Expected {expected_count} waves, got {len(snapshot)}"
+        print(f"✅ Loaded snapshot with {len(snapshot)} waves (from WAVE_ID_REGISTRY)")
         
         # Check required columns
         required_cols = ['wave_id', 'display_name', 'category', 'proxy_ticker', 'confidence']

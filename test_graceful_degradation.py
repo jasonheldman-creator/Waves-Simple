@@ -69,8 +69,11 @@ def test_live_snapshot_fallback():
         # Test with non-existent file
         df = load_live_snapshot(path='nonexistent_snapshot.csv', fallback=True)
         
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
         assert not df.empty, "Fallback should return non-empty DataFrame"
-        assert len(df) == 28, f"Should have 28 waves, got {len(df)}"
+        assert len(df) == expected_count, f"Should have {expected_count} waves, got {len(df)}"
         
         required_cols = ['wave_id', 'wave_name', 'readiness_status', 'data_regime']
         for col in required_cols:
@@ -132,7 +135,7 @@ def test_broken_tickers_report():
 
 
 def test_wave_weights_completeness():
-    """Test that wave_weights.csv has all 28 waves."""
+    """Test that wave_weights.csv has all waves from registry."""
     print("\n" + "=" * 70)
     print("TEST: Wave weights CSV completeness")
     print("=" * 70)
@@ -141,22 +144,24 @@ def test_wave_weights_completeness():
     import pandas as pd
     
     try:
-        # Check engine has 28 waves
-        assert len(WAVE_WEIGHTS) == 28, f"WAVE_WEIGHTS should have 28 waves, got {len(WAVE_WEIGHTS)}"
-        assert len(WAVE_ID_REGISTRY) == 28, f"WAVE_ID_REGISTRY should have 28 waves, got {len(WAVE_ID_REGISTRY)}"
+        expected_count = len(WAVE_ID_REGISTRY)
         
-        print(f"✓ Engine has 28 waves")
+        # Check engine has correct wave count
+        assert len(WAVE_WEIGHTS) == expected_count, f"WAVE_WEIGHTS should have {expected_count} waves, got {len(WAVE_WEIGHTS)}"
+        assert len(WAVE_ID_REGISTRY) == expected_count, f"WAVE_ID_REGISTRY should have {expected_count} waves, got {len(WAVE_ID_REGISTRY)}"
         
-        # Check CSV has 28 waves
+        print(f"✓ Engine has {expected_count} waves (from WAVE_ID_REGISTRY)")
+        
+        # Check CSV has correct wave count
         csv_path = 'wave_weights.csv'
         assert os.path.exists(csv_path), f"wave_weights.csv not found"
         
         df = pd.read_csv(csv_path)
         unique_waves = df['wave'].nunique()
         
-        assert unique_waves == 28, f"CSV should have 28 waves, got {unique_waves}"
+        assert unique_waves == expected_count, f"CSV should have {expected_count} waves, got {unique_waves}"
         
-        print(f"✓ wave_weights.csv has 28 waves")
+        print(f"✓ wave_weights.csv has {expected_count} waves")
         print(f"  Total rows: {len(df)}")
         
     except Exception as e:

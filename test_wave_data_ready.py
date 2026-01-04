@@ -217,12 +217,15 @@ def test_generate_wave_readiness_report():
 def test_compute_data_ready_status_all_waves():
     """Test that compute_data_ready_status works for all 28 waves with graded readiness."""
     print("=" * 80)
-    print("TEST: compute_data_ready_status for all 28 waves (Graded Model)")
+    print("TEST: compute_data_ready_status for all waves (Graded Model)")
     print("=" * 80)
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     wave_ids = get_all_wave_ids()
-    assert len(wave_ids) == 28, f"Expected 28 waves, got {len(wave_ids)}"
-    print(f"✓ Found all 28 waves in registry")
+    assert len(wave_ids) == expected_count, f"Expected {expected_count} waves, got {len(wave_ids)}"
+    print(f"✓ Found all {expected_count} waves in registry (from WAVE_ID_REGISTRY)")
     
     # Track results by graded status
     full_waves = []

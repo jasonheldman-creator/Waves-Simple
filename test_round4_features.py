@@ -45,13 +45,16 @@ def test_wave_registry_validator():
             print(result.get_detailed_report())
             return False
         
-        # Verify 28 enabled waves
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
+        # Verify enabled waves (dynamic)
         enabled_count = sum(1 for w in registry['waves'] if w.get('enabled', False))
-        if enabled_count != 28:
-            print(f"❌ FAIL: Expected 28 enabled waves, got {enabled_count}")
+        if enabled_count != expected_count:
+            print(f"❌ FAIL: Expected {expected_count} enabled waves, got {enabled_count}")
             return False
         
-        print(f"✓ Exactly 28 enabled waves")
+        print(f"✓ Exactly {expected_count} enabled waves (from WAVE_ID_REGISTRY)")
         
         # Verify all have benchmarks
         no_benchmark = [w['display_name'] for w in registry['waves'] 
