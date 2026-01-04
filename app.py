@@ -19488,23 +19488,46 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Wave Universe Validation - Verify 28 Waves (ROUND 7 Phase 1)
     # ========================================================================
     
-    # Validate that we have exactly 28 waves on startup
+    # Validate that we have the expected number of active waves on startup
     if "wave_universe_validated" not in st.session_state:
         try:
             from waves_engine import get_all_waves_universe
+            from wave_registry_manager import get_active_wave_registry
             
             universe = get_all_waves_universe()
-            expected_count = 28
+            
+            # Get expected count from active waves in CSV registry
+            active_waves_df = get_active_wave_registry()
+            expected_active_count = len(active_waves_df)
+            
             actual_count = universe.get('count', 0)
             
-            if actual_count != expected_count:
+            if expected_active_count == 0:
+                # CSV not available, skip validation
+                st.session_state.wave_universe_validation_failed = False
+                print(f"⚠️ Could not load active wave registry, skipping validation")
+            elif actual_count != expected_active_count:
+                # Get inactive waves for informative message
+                all_waves_df = active_waves_df  # We only have active waves loaded
+                inactive_count = 0
+                try:
+                    import pandas as pd
+                    full_registry = pd.read_csv("data/wave_registry.csv")
+                    inactive_waves = full_registry[full_registry['active'] == False]
+                    inactive_count = len(inactive_waves)
+                    inactive_names = ', '.join(inactive_waves['wave_name'].tolist()) if len(inactive_waves) > 0 else ''
+                except:
+                    inactive_names = ''
+                
                 # Store validation failure in session state
                 st.session_state.wave_universe_validation_failed = True
-                st.session_state.wave_universe_discrepancy = f"Expected {expected_count} waves, found {actual_count}"
+                st.session_state.wave_universe_discrepancy = f"Expected {expected_active_count} active waves, found {actual_count}"
+                if inactive_count > 0 and inactive_names:
+                    st.session_state.wave_universe_inactive_info = f"Inactive waves excluded: {inactive_names}"
                 print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
             else:
                 st.session_state.wave_universe_validation_failed = False
-                print(f"✅ Wave Universe Validated: {actual_count} waves")
+                print(f"✅ Wave Universe Validated: {actual_count}/{expected_active_count} active waves")
             
             st.session_state.wave_universe_validated = True
         except Exception as e:

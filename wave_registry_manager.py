@@ -319,6 +319,79 @@ def rebuild_wave_registry_csv(force: bool = False) -> Dict[str, any]:
     return result
 
 
+def get_active_wave_registry() -> pd.DataFrame:
+    """
+    Load and filter the wave registry to return only active waves.
+    
+    This function reads the wave_registry.csv file and filters it to include
+    only waves where active=True. This ensures validation logic only counts
+    active waves and avoids false alerts like "Expected 28, found 27".
+    
+    Returns:
+        DataFrame containing only active waves with all columns from CSV.
+        Empty DataFrame if CSV doesn't exist or can't be loaded.
+    
+    Example:
+        >>> active_waves = get_active_wave_registry()
+        >>> print(f"Active wave count: {len(active_waves)}")
+        Active wave count: 27
+        >>> inactive_waves = get_wave_registry()[get_wave_registry()['active'] == False]
+        >>> print(f"Inactive waves: {', '.join(inactive_waves['wave_name'])}")
+        Inactive waves: Russell 3000 Wave
+    """
+    try:
+        if not os.path.exists(WAVE_REGISTRY_PATH):
+            logger.warning(f"Wave registry CSV not found at {WAVE_REGISTRY_PATH}")
+            return pd.DataFrame()
+        
+        # Load the CSV
+        df = pd.read_csv(WAVE_REGISTRY_PATH)
+        
+        # Ensure 'active' column exists
+        if 'active' not in df.columns:
+            logger.warning("'active' column not found in wave registry CSV, returning all waves")
+            return df
+        
+        # Filter to active waves only
+        active_df = df[df['active'] == True].copy()
+        
+        logger.info(f"Loaded {len(active_df)} active waves out of {len(df)} total waves")
+        
+        return active_df
+        
+    except Exception as e:
+        logger.error(f"Error loading active wave registry: {str(e)}", exc_info=True)
+        return pd.DataFrame()
+
+
+def get_wave_registry() -> pd.DataFrame:
+    """
+    Load the complete wave registry (both active and inactive waves).
+    
+    Returns:
+        DataFrame containing all waves with all columns from CSV.
+        Empty DataFrame if CSV doesn't exist or can't be loaded.
+    
+    Example:
+        >>> all_waves = get_wave_registry()
+        >>> print(f"Total waves: {len(all_waves)}")
+        Total waves: 28
+    """
+    try:
+        if not os.path.exists(WAVE_REGISTRY_PATH):
+            logger.warning(f"Wave registry CSV not found at {WAVE_REGISTRY_PATH}")
+            return pd.DataFrame()
+        
+        df = pd.read_csv(WAVE_REGISTRY_PATH)
+        logger.info(f"Loaded {len(df)} waves from registry")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error loading wave registry: {str(e)}", exc_info=True)
+        return pd.DataFrame()
+
+
 def validate_wave_registry_csv() -> Dict[str, any]:
     """
     Validate the wave registry CSV for correctness and completeness.
