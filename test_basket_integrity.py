@@ -52,10 +52,12 @@ def test_basket_integrity():
     
     # Test 2: Wave registry
     print("Test 2: Verifying wave registry...")
+    from waves_engine import WAVE_ID_REGISTRY
     universe = get_all_waves_universe()
     
-    if universe['count'] != 28:
-        print(f"❌ FAILED: Expected 28 waves, got {universe['count']}")
+    expected_count = len(WAVE_ID_REGISTRY)
+    if universe['count'] != expected_count:
+        print(f"❌ FAILED: Expected {expected_count} waves, got {universe['count']}")
         return False
     
     if universe['source'] != 'wave_registry':

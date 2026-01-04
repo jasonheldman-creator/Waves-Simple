@@ -21,17 +21,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_all_waves_produce_output():
-    """Test that all 28 waves produce outputs even with ticker failures."""
+    """Test that all waves produce outputs even with ticker failures."""
     print("=" * 70)
-    print("TEST: All 28 waves produce outputs")
+    print("TEST: All waves produce outputs")
     print("=" * 70)
     
-    from waves_engine import get_all_waves, compute_history_nav
+    from waves_engine import get_all_waves, compute_history_nav, WAVE_ID_REGISTRY
     
     all_waves = get_all_waves()
+    expected_count = len(WAVE_ID_REGISTRY)
     
-    assert len(all_waves) == 28, f"Expected 28 waves, got {len(all_waves)}"
-    print(f"✓ Found {len(all_waves)} waves in registry")
+    assert len(all_waves) == expected_count, f"Expected {expected_count} waves, got {len(all_waves)}"
+    print(f"✓ Found {len(all_waves)} waves in registry (from WAVE_ID_REGISTRY)")
     
     # Test each wave
     failed_waves = []

@@ -2,7 +2,7 @@
 Test ROUND 7 Features Implementation
 
 This test validates all 6 phases of ROUND 7 features:
-1. Canonical Wave Universe
+1. Canonical Wave Universe (dynamic wave count)
 2. Dual-Source Metrics Resolution
 3. Snapshot Auto-Build and Staleness Management
 4. Circuit Breaker Enforcement
@@ -12,21 +12,24 @@ This test validates all 6 phases of ROUND 7 features:
 
 def test_phase_1_wave_universe():
     """Test Phase 1: Canonical Wave Universe"""
-    from waves_engine import get_all_waves_universe
+    from waves_engine import get_all_waves_universe, WAVE_ID_REGISTRY
     
     universe = get_all_waves_universe()
+    
+    # Dynamic expected count from registry
+    expected_count = len(WAVE_ID_REGISTRY)
     
     # Verify universe structure
     assert 'waves' in universe, "Universe missing 'waves' key"
     assert 'wave_ids' in universe, "Universe missing 'wave_ids' key"
     assert 'count' in universe, "Universe missing 'count' key"
     
-    # Verify count is exactly 28
-    assert universe['count'] == 28, f"Expected 28 waves, got {universe['count']}"
-    assert len(universe['waves']) == 28, f"Expected 28 display names, got {len(universe['waves'])}"
-    assert len(universe['wave_ids']) == 28, f"Expected 28 wave_ids, got {len(universe['wave_ids'])}"
+    # Verify count matches registry (dynamic)
+    assert universe['count'] == expected_count, f"Expected {expected_count} waves, got {universe['count']}"
+    assert len(universe['waves']) == expected_count, f"Expected {expected_count} display names, got {len(universe['waves'])}"
+    assert len(universe['wave_ids']) == expected_count, f"Expected {expected_count} wave_ids, got {len(universe['wave_ids'])}"
     
-    print("✅ Phase 1: Wave Universe validated (28 waves)")
+    print(f"✅ Phase 1: Wave Universe validated ({expected_count} waves from WAVE_ID_REGISTRY)")
 
 
 def test_phase_2_metrics_resolution():

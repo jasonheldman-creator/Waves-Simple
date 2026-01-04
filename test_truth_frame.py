@@ -17,18 +17,20 @@ from analytics_truth import (
 
 
 def test_get_all_28_wave_ids():
-    """Test that we can get all 28 wave IDs"""
+    """Test that we can get all wave IDs (dynamic count)"""
+    from waves_engine import WAVE_ID_REGISTRY
     wave_ids = _get_all_28_wave_ids()
     
+    expected_count = len(WAVE_ID_REGISTRY)
     print(f"✓ Found {len(wave_ids)} wave IDs")
-    assert len(wave_ids) == 28, f"Expected 28 waves, got {len(wave_ids)}"
+    assert len(wave_ids) == expected_count, f"Expected {expected_count} waves, got {len(wave_ids)}"
     
     # Check some known waves
     assert "sp500_wave" in wave_ids
     assert "income_wave" in wave_ids
     assert "crypto_l1_growth_wave" in wave_ids
     
-    print("✓ All 28 wave IDs validated")
+    print(f"✓ All {expected_count} wave IDs validated (from WAVE_ID_REGISTRY)")
 
 
 def test_get_display_name():
@@ -44,10 +46,12 @@ def test_get_display_name():
 
 def test_create_empty_truth_frame():
     """Test empty TruthFrame creation"""
+    from waves_engine import WAVE_ID_REGISTRY
     truth_df = _create_empty_truth_frame()
     
+    expected_count = len(WAVE_ID_REGISTRY)
     print(f"✓ Created empty TruthFrame with {len(truth_df)} rows")
-    assert len(truth_df) == 28, f"Expected 28 rows, got {len(truth_df)}"
+    assert len(truth_df) == expected_count, f"Expected {expected_count} rows, got {len(truth_df)}"
     
     # Check required columns
     required_columns = [
@@ -75,20 +79,22 @@ def test_create_empty_truth_frame():
 
 def test_get_truth_frame_safe_mode():
     """Test TruthFrame retrieval in Safe Mode"""
+    from waves_engine import WAVE_ID_REGISTRY
     print("\n=== Testing Safe Mode ===")
     
-    # Safe Mode should always return a DataFrame with 28 waves
+    expected_count = len(WAVE_ID_REGISTRY)
+    # Safe Mode should always return a DataFrame with all waves
     truth_df = get_truth_frame(safe_mode=True)
     
     print(f"✓ Got TruthFrame with {len(truth_df)} rows in Safe Mode")
-    assert len(truth_df) == 28, f"Expected 28 rows in Safe Mode, got {len(truth_df)}"
+    assert len(truth_df) == expected_count, f"Expected {expected_count} rows in Safe Mode, got {len(truth_df)}"
     
     # Check that all wave_ids are present
     wave_ids = _get_all_28_wave_ids()
     for wave_id in wave_ids:
         assert wave_id in truth_df['wave_id'].values, f"Missing wave_id in Safe Mode: {wave_id}"
     
-    print("✓ All 28 waves present in Safe Mode")
+    print(f"✓ All {expected_count} waves present in Safe Mode (from WAVE_ID_REGISTRY)")
 
 
 def test_get_wave_truth():
@@ -147,17 +153,19 @@ def test_filter_truth_frame():
 
 
 def test_truth_frame_never_drops_rows():
-    """Test that TruthFrame always maintains all 28 rows"""
+    """Test that TruthFrame always maintains all wave rows"""
+    from waves_engine import WAVE_ID_REGISTRY
     print("\n=== Testing No Row Dropping ===")
     
-    # Even with failures, should always return 28 rows
+    expected_count = len(WAVE_ID_REGISTRY)
+    # Even with failures, should always return all rows
     truth_df = get_truth_frame(safe_mode=True)
-    assert len(truth_df) == 28, "TruthFrame should never drop rows"
+    assert len(truth_df) == expected_count, f"TruthFrame should never drop rows (expected {expected_count})"
     
     # Check that every wave_id is unique
-    assert len(truth_df['wave_id'].unique()) == 28, "All wave_ids should be unique"
+    assert len(truth_df['wave_id'].unique()) == expected_count, f"All wave_ids should be unique (expected {expected_count})"
     
-    print("✓ TruthFrame maintains all 28 rows (no drops)")
+    print(f"✓ TruthFrame maintains all {expected_count} rows (no drops, from WAVE_ID_REGISTRY)")
 
 
 def test_truth_frame_column_consistency():

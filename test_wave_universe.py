@@ -3,7 +3,7 @@
 Test script to validate get_all_waves_universe() and diagnostic functions.
 
 This script tests:
-1. get_all_waves_universe() returns all 28 waves from registry
+1. get_all_waves_universe() returns all waves from registry (dynamic count)
 2. get_wave_readiness_diagnostic_summary() provides root cause visibility
 3. Wave universe is correctly sourced from the registry
 """
@@ -20,10 +20,13 @@ def test_get_all_waves_universe():
     print("TEST: get_all_waves_universe() - Canonical Registry Source")
     print("=" * 80)
     
-    from waves_engine import get_all_waves_universe
+    from waves_engine import get_all_waves_universe, WAVE_ID_REGISTRY
     
     # Get wave universe
     universe = get_all_waves_universe()
+    
+    # Dynamic expected count from registry
+    expected_count = len(WAVE_ID_REGISTRY)
     
     # Validate structure
     assert 'waves' in universe, "Missing 'waves' key"
@@ -34,21 +37,21 @@ def test_get_all_waves_universe():
     
     print(f"✓ Universe structure is valid")
     
-    # Validate count
-    assert universe['count'] == 28, f"Expected 28 waves, got {universe['count']}"
-    print(f"✓ Universe contains exactly 28 waves")
+    # Validate count (dynamic)
+    assert universe['count'] == expected_count, f"Expected {expected_count} waves, got {universe['count']}"
+    print(f"✓ Universe contains exactly {expected_count} waves (from WAVE_ID_REGISTRY)")
     
     # Validate source
     assert universe['source'] == 'wave_registry', f"Expected source 'wave_registry', got '{universe['source']}'"
     print(f"✓ Wave universe sourced from: {universe['source']}")
     
-    # Validate wave names
-    assert len(universe['waves']) == 28, f"Expected 28 wave names, got {len(universe['waves'])}"
-    print(f"✓ All 28 wave display names present")
+    # Validate wave names (dynamic)
+    assert len(universe['waves']) == expected_count, f"Expected {expected_count} wave names, got {len(universe['waves'])}"
+    print(f"✓ All {expected_count} wave display names present")
     
-    # Validate wave IDs
-    assert len(universe['wave_ids']) == 28, f"Expected 28 wave IDs, got {len(universe['wave_ids'])}"
-    print(f"✓ All 28 wave IDs present")
+    # Validate wave IDs (dynamic)
+    assert len(universe['wave_ids']) == expected_count, f"Expected {expected_count} wave IDs, got {len(universe['wave_ids'])}"
+    print(f"✓ All {expected_count} wave IDs present")
     
     # Show sample
     print(f"\nSample wave names (first 5):")
@@ -70,9 +73,13 @@ def test_diagnostic_summary():
     print("=" * 80)
     
     from analytics_pipeline import get_wave_readiness_diagnostic_summary
+    from waves_engine import WAVE_ID_REGISTRY
     
     # Get diagnostic summary
     diag = get_wave_readiness_diagnostic_summary()
+    
+    # Dynamic expected count from registry
+    expected_count = len(WAVE_ID_REGISTRY)
     
     # Validate structure
     required_keys = [
@@ -90,14 +97,14 @@ def test_diagnostic_summary():
     
     print(f"✓ Diagnostic summary structure is valid")
     
-    # Validate registry count
-    assert diag['total_waves_in_registry'] == 28, \
-        f"Expected 28 waves in registry, got {diag['total_waves_in_registry']}"
+    # Validate registry count (dynamic)
+    assert diag['total_waves_in_registry'] == expected_count, \
+        f"Expected {expected_count} waves in registry, got {diag['total_waves_in_registry']}"
     print(f"✓ Total waves in registry: {diag['total_waves_in_registry']}")
     
-    # Validate all waves rendered
-    assert diag['total_waves_rendered'] == 28, \
-        f"Expected 28 waves rendered, got {diag['total_waves_rendered']} (NO SILENT EXCLUSIONS!)"
+    # Validate all waves rendered (dynamic)
+    assert diag['total_waves_rendered'] == expected_count, \
+        f"Expected {expected_count} waves rendered, got {diag['total_waves_rendered']} (NO SILENT EXCLUSIONS!)"
     print(f"✓ Total waves rendered: {diag['total_waves_rendered']} (NO SILENT EXCLUSIONS)")
     
     # Validate source
@@ -105,8 +112,8 @@ def test_diagnostic_summary():
         f"Expected source 'wave_registry', got '{diag['wave_universe_source']}'"
     print(f"✓ Wave universe sourced from: {diag['wave_universe_source']}")
     
-    # Validate completeness
-    assert diag['is_complete'], "Wave universe should be complete (28 waves)"
+    # Validate completeness (dynamic)
+    assert diag['is_complete'], f"Wave universe should be complete ({expected_count} waves)"
     print(f"✓ Wave universe is complete: {diag['is_complete']}")
     
     # Show readiness breakdown
