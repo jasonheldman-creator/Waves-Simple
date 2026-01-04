@@ -6149,10 +6149,11 @@ def render_mission_control():
     Enhanced with Alpha Attribution + Diagnostics features (Exec Layer v2).
     """
     # Import constants at the beginning to avoid UnboundLocalError
+    # Catch all exceptions to ensure graceful degradation
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
-    except ImportError:
-        # Fallback defaults if import fails
+    except Exception:
+        # Fallback defaults if import fails for any reason
         ALLOW_NETWORK_FETCH = False
         STALE_DAYS_THRESHOLD = 10
     
