@@ -1089,12 +1089,22 @@ def validate_wave_data_ready(wave_id: str, lookback_days: int = 7) -> Dict[str, 
             if not checks['prices_valid']:
                 issues.append(f"Insufficient price data: {len(prices_df)} days < {lookback_days} required")
             
-            # Check for recent data (within last 5 days)
+            # Check for recent data using trading days logic
             if not prices_df.empty:
                 last_date = prices_df.index[-1]
                 days_old = (datetime.now() - last_date).days
-                if days_old > 5:
-                    issues.append(f"Price data is stale: last date is {last_date.date()}")
+                
+                # Use price_loader's trading day logic for consistency
+                try:
+                    from helpers.price_loader import get_trading_days_ago
+                    # Check if data is older than 1 trading day
+                    cutoff_date = get_trading_days_ago(datetime.now(), trading_days_back=1)
+                    if last_date.to_pydatetime() < cutoff_date:
+                        issues.append(f"Price data is stale: last date is {last_date.date()} (older than 1 trading day)")
+                except ImportError:
+                    # Fallback to calendar days if import fails
+                    if days_old > 5:
+                        issues.append(f"Price data is stale: last date is {last_date.date()}")
                     
         except Exception as e:
             checks['prices_days'] = 0
