@@ -4788,7 +4788,8 @@ def get_mission_control_data():
             
             if price_meta['date_max'] is not None:
                 # Use latest price date from PRICE_BOOK (UTC-aware calculation)
-                latest_price_date = pd.Timestamp(price_meta['date_max']).normalize()
+                # Parse date string as UTC timestamp at midnight
+                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
                 mc_data['data_freshness'] = price_meta['date_max']
                 mc_data['last_price_date'] = price_meta['date_max']
                 
@@ -4801,16 +4802,20 @@ def get_mission_control_data():
                 latest_date = df['date'].max()
                 mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
                 mc_data['last_price_date'] = latest_date.strftime('%Y-%m-%d')
+                # Ensure fallback also uses UTC
+                latest_price_date = pd.Timestamp(latest_date, tz='UTC').normalize()
                 utc_today = pd.Timestamp.utcnow().normalize()
-                age_days = (utc_today - latest_date.normalize()).days
+                age_days = (utc_today - latest_price_date).days
                 mc_data['data_age_days'] = age_days
         except Exception:
             # Fallback to wave_history if PRICE_BOOK fails
             latest_date = df['date'].max()
             mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
             mc_data['last_price_date'] = latest_date.strftime('%Y-%m-%d')
+            # Ensure fallback also uses UTC
+            latest_price_date = pd.Timestamp(latest_date, tz='UTC').normalize()
             utc_today = pd.Timestamp.utcnow().normalize()
-            age_days = (utc_today - latest_date.normalize()).days
+            age_days = (utc_today - latest_price_date).days
             mc_data['data_age_days'] = age_days
         
         # Count waves using centralized wave universe (Data Backbone V1)
