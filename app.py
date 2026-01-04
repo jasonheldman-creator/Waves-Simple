@@ -18618,12 +18618,6 @@ def render_overview_clean_tab():
         try:
             from helpers.price_book import get_price_book, get_price_book_meta
             from helpers.wave_performance import compute_all_waves_performance
-            from helpers.executive_summary import (
-                identify_top_performers, 
-                identify_attention_waves,
-                analyze_alpha_drivers,
-                get_market_regime_summary
-            )
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
