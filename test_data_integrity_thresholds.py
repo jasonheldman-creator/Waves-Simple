@@ -33,10 +33,10 @@ def test_validation_scenarios():
     with open(app_path, 'r') as f:
         content = f.read()
     
-    # Extract the coverage constants from app.py
+    # Extract the coverage constants from app.py using improved regex
     import re
-    verified_match = re.search(r'DATA_INTEGRITY_VERIFIED_COVERAGE\s*=\s*(\d+\.?\d*)', content)
-    degraded_match = re.search(r'DATA_INTEGRITY_DEGRADED_COVERAGE\s*=\s*(\d+\.?\d*)', content)
+    verified_match = re.search(r'DATA_INTEGRITY_VERIFIED_COVERAGE\s*=\s*(\d+(?:\.\d+)?)', content)
+    degraded_match = re.search(r'DATA_INTEGRITY_DEGRADED_COVERAGE\s*=\s*(\d+(?:\.\d+)?)', content)
     
     DATA_INTEGRITY_VERIFIED_COVERAGE = float(verified_match.group(1)) if verified_match else 95.0
     DATA_INTEGRITY_DEGRADED_COVERAGE = float(degraded_match.group(1)) if degraded_match else 80.0
@@ -110,36 +110,18 @@ def test_imports_from_price_book():
     assert "from helpers.price_book import" in content, \
         "Import from helpers.price_book not found in app.py"
     
-    # Check for specific imports - find the import block more reliably
-    import_start = content.find("from helpers.price_book import")
-    if import_start == -1:
-        raise AssertionError("Import from helpers.price_book not found")
+    # Use regex to extract the import statement more reliably
+    import re
     
-    # Find the end of the import statement by looking for the closing paren
-    # or the first occurrence of a line that doesn't continue the import
-    import_end = import_start
-    paren_depth = 0
-    in_import = False
+    # Pattern to match: from helpers.price_book import (multiline or single line)
+    import_pattern = r'from\s+helpers\.price_book\s+import\s*\(([^)]+)\)|from\s+helpers\.price_book\s+import\s+([^\n]+)'
+    match = re.search(import_pattern, content, re.MULTILINE | re.DOTALL)
     
-    for i, char in enumerate(content[import_start:], start=import_start):
-        if char == '(':
-            paren_depth += 1
-            in_import = True
-        elif char == ')':
-            paren_depth -= 1
-            if paren_depth == 0 and in_import:
-                import_end = i + 1
-                break
-        elif char == '\n' and paren_depth == 0:
-            # Single-line import without parentheses
-            import_end = i
-            break
+    if not match:
+        raise AssertionError("Could not parse import from helpers.price_book")
     
-    if import_end == import_start:
-        # Fallback: just grab next 500 chars if parsing fails
-        import_end = import_start + 500
-    
-    import_section = content[import_start:import_end]
+    # Get the import content (from either group 1 or group 2)
+    import_section = match.group(1) if match.group(1) else match.group(2)
     
     assert "PRICE_CACHE_OK_DAYS" in import_section, \
         "PRICE_CACHE_OK_DAYS not imported from helpers.price_book"
