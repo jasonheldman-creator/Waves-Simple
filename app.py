@@ -131,7 +131,12 @@ def get_benchmark_weights(wave_name: str) -> Dict[str, float]:
 def get_nav_column(nav_df: pd.DataFrame) -> Optional[str]:
     """
     Get the NAV column name with fallback logic.
-    Returns the column name if found, None otherwise.
+    
+    Checks for NAV columns in order: nav, wave_nav, close, price, equity, value.
+    Falls back to return columns (returns, wave_ret, ret) which need conversion to cumulative NAV.
+    
+    Returns:
+        Column name if found, None otherwise.
     """
     # Try different possible column names in order of preference
     for col_name in ['nav', 'wave_nav', 'close', 'price', 'equity', 'value']:
@@ -149,14 +154,45 @@ def get_nav_column(nav_df: pd.DataFrame) -> Optional[str]:
 def get_benchmark_nav_column(nav_df: pd.DataFrame) -> Optional[str]:
     """
     Get the benchmark NAV column name with fallback logic.
-    Returns the column name if found, None otherwise.
+    
+    Checks for benchmark columns in order: benchmark_nav, bm_nav, benchmark.
+    Also checks for benchmark return columns (bm_ret, benchmark_ret) which need conversion.
+    
+    Returns:
+        Column name if found, None otherwise.
     """
-    # Try different possible column names
+    # Try different possible NAV column names
     for col_name in ['benchmark_nav', 'bm_nav', 'benchmark']:
         if col_name in nav_df.columns:
             return col_name
     
+    # Try return columns as fallback
+    for ret_col in ['bm_ret', 'benchmark_ret']:
+        if ret_col in nav_df.columns:
+            return ret_col
+    
     return None
+
+
+def is_return_column(col_name: str) -> bool:
+    """Check if a column name represents returns (needs conversion to NAV)."""
+    return col_name in ['returns', 'wave_ret', 'ret', 'bm_ret', 'benchmark_ret']
+
+
+def convert_to_nav(data: pd.Series, col_name: str) -> pd.Series:
+    """
+    Convert return series to cumulative NAV series if needed.
+    
+    Args:
+        data: Series containing NAV or returns
+        col_name: Name of the column (used to determine if conversion needed)
+        
+    Returns:
+        NAV series (either original data or converted from returns)
+    """
+    if is_return_column(col_name):
+        return (1.0 + data).cumprod()
+    return data
 
 
 def create_performance_chart(nav_df: pd.DataFrame, wave_name: str) -> go.Figure:
@@ -170,11 +206,8 @@ def create_performance_chart(nav_df: pd.DataFrame, wave_name: str) -> go.Figure:
         # Error case - will be handled by caller
         raise ValueError(f"No suitable NAV column found. Available columns: {list(nav_df.columns)}")
     
-    # Check if we need to convert returns to NAV
-    nav_data = nav_df[nav_col]
-    if nav_col in ['returns', 'wave_ret', 'ret']:
-        # Convert returns to cumulative NAV starting at 1.0
-        nav_data = (1.0 + nav_df[nav_col]).cumprod()
+    # Convert returns to NAV if needed
+    nav_data = convert_to_nav(nav_df[nav_col], nav_col)
     
     # Add wave NAV line
     fig.add_trace(go.Scatter(
@@ -188,10 +221,7 @@ def create_performance_chart(nav_df: pd.DataFrame, wave_name: str) -> go.Figure:
     # Add benchmark line if available
     bm_nav_col = get_benchmark_nav_column(nav_df)
     if bm_nav_col is not None:
-        bm_nav_data = nav_df[bm_nav_col]
-        # Check if benchmark is also a return column
-        if bm_nav_col in ['bm_ret', 'benchmark_ret']:
-            bm_nav_data = (1.0 + nav_df[bm_nav_col]).cumprod()
+        bm_nav_data = convert_to_nav(nav_df[bm_nav_col], bm_nav_col)
         
         fig.add_trace(go.Scatter(
             x=nav_df.index,
@@ -302,9 +332,7 @@ def main():
                         )
                     else:
                         # Get NAV data (convert from returns if necessary)
-                        nav_data = nav_df[nav_col]
-                        if nav_col in ['returns', 'wave_ret', 'ret']:
-                            nav_data = (1.0 + nav_df[nav_col]).cumprod()
+                        nav_data = convert_to_nav(nav_df[nav_col], nav_col)
                         
                         # Display chart
                         try:
@@ -333,9 +361,7 @@ def main():
                             bm_nav_col = get_benchmark_nav_column(nav_df)
                             if bm_nav_col is not None and len(nav_df) > 1:
                                 # Get benchmark NAV data (convert from returns if necessary)
-                                bm_nav_data = nav_df[bm_nav_col]
-                                if bm_nav_col in ['bm_ret', 'benchmark_ret']:
-                                    bm_nav_data = (1.0 + nav_df[bm_nav_col]).cumprod()
+                                bm_nav_data = convert_to_nav(nav_df[bm_nav_col], bm_nav_col)
                                 
                                 initial_nav = nav_data.iloc[0]
                                 initial_bm = bm_nav_data.iloc[0]
