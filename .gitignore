@@ -70,3 +70,4 @@ site/*.tsbuildinfo
 site/next-env.d.ts
 wave_coverage_snapshot.json
 test_mission_control_fix.py
+test_data_age_fix.py
