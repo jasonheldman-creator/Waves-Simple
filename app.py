@@ -18873,7 +18873,7 @@ def render_overview_clean_tab():
                     st.caption(f"**Data Source: PRICE_BOOK (prices_cache.parquet)** - Last updated: {price_meta_check['date_max']}")
             else:
                 st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - No data available")
-        except:
+        except Exception:
             st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
         
         # Load PRICE_BOOK and compute performance
