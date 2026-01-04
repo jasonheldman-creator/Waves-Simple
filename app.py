@@ -6362,14 +6362,14 @@ def render_mission_control():
             if data_age == 0:
                 age_display = "Today"
             # Option B: Three-tier staleness display
-            # OK: ≤{DEGRADED_DAYS_THRESHOLD} days, DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days, STALE: >{STALE_DAYS_THRESHOLD} days
+            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
-                # STALE: >{STALE_DAYS_THRESHOLD} days
+                # STALE: >30 days
                 age_display = f"❌ {data_age} days (STALE)"
             elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD:
-                # DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days
+                # DEGRADED: 15-30 days
                 age_display = f"⚠️ {data_age} days (DEGRADED)"
-            # else: OK: ≤{DEGRADED_DAYS_THRESHOLD} days (no special indicator)
+            # else: OK: ≤14 days (no special indicator)
         else:
             age_display = "Unknown"
         
@@ -6434,7 +6434,7 @@ def render_mission_control():
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is STALE (>{STALE_DAYS_THRESHOLD} days) AND network fetch is disabled (with type safety)
+        # Show warning if cache is STALE (>30 days) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
                 f"⚠️ **STALE DATA WARNING**\n\n"
@@ -6442,7 +6442,7 @@ def render_mission_control():
                 f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
             )
         elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
-            # Info message for DEGRADED ({DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days)
+            # Info message for DEGRADED (15-30 days)
             st.info(
                 f"ℹ️ **DEGRADED DATA NOTICE**\n\n"
                 f"Data is {data_age} days old ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days). "
@@ -18663,7 +18663,6 @@ def render_overview_clean_tab():
             health = compute_system_health(price_book)
             data_age_days = health.get('days_stale', None)
             data_current = data_age_days is not None and data_age_days <= 1
-            missing_tickers = compute_missing_and_extra_tickers(price_book)['missing_count']
             
         except Exception as e:
             st.error(f"Unable to load platform data. Please check system status.")
