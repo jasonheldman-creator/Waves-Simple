@@ -46,7 +46,7 @@ def test_argparse_non_interactive():
     
     # Test parsing
     args = parser.parse_args(['--non-interactive'])
-    assert args.non_interactive == True, "Failed to parse --non-interactive flag"
+    assert args.non_interactive, "Failed to parse --non-interactive flag"
     print("✓ --non-interactive flag is properly parsed")
 
 

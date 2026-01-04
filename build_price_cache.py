@@ -12,10 +12,11 @@ It performs the following steps:
 5. Save consolidated cache
 
 Usage:
-    python build_price_cache.py [--force] [--years 5]
+    python build_price_cache.py [--force] [--years 5] [--non-interactive]
     
     --force: Force rebuild cache even if it exists
     --years: Number of years of history to keep (default: 5)
+    --non-interactive: Run in non-interactive mode (for CI/CD)
 """
 
 import os
@@ -42,11 +43,11 @@ from helpers.price_loader import (
     DEFAULT_CACHE_YEARS,
     BATCH_SIZE
 )
+from waves_engine import get_all_wave_ids, WAVE_WEIGHTS
+from analytics_pipeline import resolve_wave_tickers, resolve_wave_benchmarks
 
 # Minimum success rate threshold (95% of tickers must succeed)
 MIN_SUCCESS_RATE = 0.95
-from waves_engine import get_all_wave_ids, WAVE_WEIGHTS
-from analytics_pipeline import resolve_wave_tickers, resolve_wave_benchmarks
 
 # Configure logging
 logging.basicConfig(
