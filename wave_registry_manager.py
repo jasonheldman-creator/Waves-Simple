@@ -49,8 +49,8 @@ from waves_engine import (
 
 # Constants
 WAVE_REGISTRY_PATH = "data/wave_registry.csv"
-# Dynamic wave count - computed from WAVE_ID_REGISTRY at runtime
-# No hard-coded wave count to ensure flexibility as waves are added/removed
+# Dynamic wave count - computed from WAVE_ID_REGISTRY in waves_engine module at runtime
+# No hard-coded wave count to ensure flexibility as waves are added/removed from the registry
 
 # Ticker normalization map - handles common ticker format variations
 # Maps from raw ticker format to normalized format for yfinance compatibility

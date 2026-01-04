@@ -549,12 +549,12 @@ def generate_live_snapshot_csv(
     # Create DataFrame
     df = pd.DataFrame(rows)
     
-    # Validate exactly 28 rows
-    if len(df) != 28:
-        raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
-    
     from waves_engine import WAVE_ID_REGISTRY
     expected_count = len(WAVE_ID_REGISTRY)
+    
+    # Validate expected row count (dynamic)
+    if len(df) != expected_count:
+        raise AssertionError(f"Expected exactly {expected_count} rows, got {len(df)}")
     
     # Validate unique wave_ids (dynamic)
     if df['wave_id'].nunique() != expected_count:

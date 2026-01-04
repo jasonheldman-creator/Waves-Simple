@@ -74,8 +74,9 @@ def test_no_hardcoded_28_in_validation_files():
                     line_end = len(content)
                 line = content[line_start:line_end]
                 
-                # Skip if it's in a comment or a test example
-                if '#' in line[:match.start() - line_start]:
+                # Skip if it's in a comment (bounds-safe check)
+                comment_pos = line.find('#')
+                if comment_pos != -1 and comment_pos < (match.start() - line_start):
                     continue
                 
                 failures.append({
