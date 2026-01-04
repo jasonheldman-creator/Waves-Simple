@@ -6364,10 +6364,19 @@ def render_mission_control():
         else:
             age_display = "Unknown"
         
+        # Build help text for data age metric
+        help_text = (
+            f"Time since last data update (UTC). Three-tier staleness system: "
+            f"OK (≤{DEGRADED_DAYS_THRESHOLD} days), "
+            f"DEGRADED ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days), "
+            f"STALE (>{STALE_DAYS_THRESHOLD} days). "
+            f"Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
+        )
+        
         st.metric(
             label="Data Age",
             value=age_display,
-            help=f"Time since last data update (UTC). Three-tier staleness system: OK (≤{DEGRADED_DAYS_THRESHOLD} days), DEGRADED ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days), STALE (>{STALE_DAYS_THRESHOLD} days). Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
+            help=help_text
         )
     
     with sec_col5:

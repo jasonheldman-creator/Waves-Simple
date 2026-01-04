@@ -1262,6 +1262,7 @@ def check_cache_readiness(
     # If data is DEGRADED (15-30 days), mark as ready but with degraded status
     if staleness_status == 'DEGRADED':
         result['ready'] = True  # Still operational
+        # Note: PRICE_CACHE_OK_DAYS + 1 represents the lower bound of DEGRADED range
         result['status'] = f'DEGRADED - Data is {days_since_update} days old ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days)'
         result['status_code'] = 'DEGRADED'
         return result
