@@ -241,7 +241,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         
         # Fetch in batches
         all_new_data = []
-        all_failures = {}
         
         for i in range(0, len(missing_tickers), BATCH_SIZE):
             batch = missing_tickers[i:i + BATCH_SIZE]
@@ -260,14 +259,12 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                     successful_downloads += batch_success_count
                     logger.info(f"  Fetched {len(batch_data)} days for {batch_success_count} tickers")
                 
-                # Track all failures
-                all_failures.update(batch_failures)
+                # Track failures
                 failed_tickers.update(batch_failures)
                 
             except Exception as e:
                 logger.error(f"  Batch {batch_num} failed: {e}")
                 for ticker in batch:
-                    all_failures[ticker] = str(e)
                     failed_tickers[ticker] = str(e)
         
         # Merge new data with cache
@@ -281,12 +278,12 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             cache_df = merge_cache_and_new_data(cache_df, new_data_df)
         
         # Log failures
-        if all_failures:
-            logger.warning(f"Failed to fetch {len(all_failures)} tickers:")
-            for ticker in list(all_failures.keys())[:10]:
-                logger.warning(f"  {ticker}: {all_failures[ticker]}")
-            if len(all_failures) > 10:
-                logger.warning(f"  ... and {len(all_failures) - 10} more")
+        if failed_tickers:
+            logger.warning(f"Failed to fetch {len(failed_tickers)} tickers:")
+            for ticker in list(failed_tickers.keys())[:10]:
+                logger.warning(f"  {ticker}: {failed_tickers[ticker]}")
+            if len(failed_tickers) > 10:
+                logger.warning(f"  ... and {len(failed_tickers) - 10} more")
     
     # Calculate success rate
     success_rate = successful_downloads / total_attempted if total_attempted > 0 else 0.0

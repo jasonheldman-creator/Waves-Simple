@@ -87,8 +87,6 @@ def test_exit_code_with_high_success_rate():
         # We'll test by mocking the build_initial_cache function
         import build_price_cache
         
-        original_build = build_price_cache.build_initial_cache
-        
         # Mock build_initial_cache to return high success rate
         def mock_build_high_success(*args, **kwargs):
             return True, 0.98  # 98% success rate
