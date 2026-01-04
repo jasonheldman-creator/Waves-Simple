@@ -6190,9 +6190,11 @@ def render_mission_control():
     with sec_col3:
         waves_live = mc_data.get('waves_live_count', 0)
         universe = mc_data.get('universe_count', 0)
+        # Display as fraction (defensive: handle edge case of universe=0)
+        display_value = f"{waves_live}/{universe}" if universe > 0 else "0/0"
         st.metric(
             label="Waves Live",
-            value=f"{waves_live}/{universe}",
+            value=display_value,
             help="Waves with valid PRICE_BOOK data / Total universe"
         )
         
@@ -6296,7 +6298,10 @@ def render_mission_control():
                         # Show failed tickers if any
                         if result['tickers_failed'] > 0 and result['failures']:
                             with st.expander("⚠️ Failed Tickers", expanded=False):
-                                for ticker in list(result['failures'].keys())[:10]:
+                                # Show first 10 failed tickers efficiently
+                                for i, ticker in enumerate(result['failures'].keys()):
+                                    if i >= 10:
+                                        break
                                     st.text(f"• {ticker}")
                                 if len(result['failures']) > 10:
                                     st.text(f"... and {len(result['failures']) - 10} more")
