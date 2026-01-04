@@ -96,13 +96,23 @@ def test_imports_from_price_book():
     assert "from helpers.price_book import" in content, \
         "Import from helpers.price_book not found in app.py"
     
-    # Check for specific imports
-    import_section = content[content.find("from helpers.price_book import"):content.find("from helpers.price_book import") + 300]
+    # Check for specific imports - find the import block more reliably
+    import_start = content.find("from helpers.price_book import")
+    if import_start == -1:
+        raise AssertionError("Import from helpers.price_book not found")
+    
+    # Find the end of the import statement (look for closing paren or newline)
+    import_end = content.find(")", import_start)
+    if import_end == -1:
+        import_end = content.find("\n", import_start)
+    import_section = content[import_start:import_end + 50]  # Add small buffer
     
     assert "PRICE_CACHE_OK_DAYS" in import_section, \
         "PRICE_CACHE_OK_DAYS not imported from helpers.price_book"
     assert "PRICE_CACHE_DEGRADED_DAYS" in import_section, \
         "PRICE_CACHE_DEGRADED_DAYS not imported from helpers.price_book"
+    assert "compute_system_health" in import_section, \
+        "compute_system_health not imported from helpers.price_book"
     
     print("\n✅ Verified imports from helpers/price_book.py:")
     print("   - PRICE_CACHE_OK_DAYS")
