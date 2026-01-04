@@ -17,14 +17,14 @@ Restore the full multi-tab Institutional Console `app.py` file that was deleted 
 - **Status**: Last good commit before the deletion
 - **Date**: January 4, 2026
 
-Note: The problem statement mentioned commit `bd313bd4aa33e65ed64c8e4e13771f241c0eb21d`, but this commit actually came AFTER the deletion and only contained a partial restoration (403 lines). The actual full file exists in commit `6331cb7`.
+Note: The problem statement mentioned commit `bd313bd4aa33e65ed64c8e4e13771f241c0eb21d`, but this commit actually came AFTER the deletion and only contained a partial restoration (403 lines). The actual full file exists in commit `6331cb7eaaf141800b9060c46a59d59939e879a1`.
 
 ## Restoration Details
 
 ### File Statistics
 - **Lines restored**: 20,271 lines
 - **File size**: ~897 KB
-- **Changes**: +20,166 insertions, -399 deletions
+- **Changes**: +20,166 insertions, -399 deletions (from the current branch state which had 504 lines)
 
 ### Multi-Tab Structure Verified ✓
 
@@ -86,8 +86,8 @@ The restored `app.py` contains **THREE tab configurations** depending on the app
 16. Wave Overview (New)
 
 ### Key Features Restored
-- ✅ Full `st.tabs()` navigation structure (4 instances in file)
-- ✅ Complete institutional console with 16-17 tabs
+- ✅ Full `st.tabs()` navigation structure (3 main tab configurations + 1 sub-tab for period selection)
+- ✅ Complete institutional console with 16-17 tabs (varies by mode)
 - ✅ All analytics, monitoring, and governance features
 - ✅ Safe mode fallback handling
 - ✅ Wave profile integration
@@ -113,7 +113,7 @@ wc -l app.py
 ```bash
 grep -c "st.tabs" app.py
 ```
-✅ **Result**: 4 occurrences (as expected)
+✅ **Result**: 4 occurrences (1 for sub-tabs within attribution, 3 for main analytics tab configurations)
 
 ## Conclusion
 The full Institutional Console `app.py` file has been successfully restored from commit `6331cb7eaaf141800b9060c46a59d59939e879a1`, which is the last good commit before the deletion that occurred in commit `c7be7cc27950fc9ba0c91526c4472b553acbbc22`.
