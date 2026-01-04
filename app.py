@@ -114,13 +114,20 @@ except ImportError:
 
 # Import price_book constants for Mission Control
 try:
-    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    from helpers.price_book import (
+        PRICE_CACHE_OK_DAYS,
+        PRICE_CACHE_DEGRADED_DAYS,
+        STALE_DAYS_THRESHOLD,
+        DEGRADED_DAYS_THRESHOLD
+    )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
-    # Fallback defaults if price_book is unavailable
-    STALE_DAYS_THRESHOLD = 10
-    DEGRADED_DAYS_THRESHOLD = 5
+    # Fallback defaults if price_book is unavailable - aligned with canonical values
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
+    STALE_DAYS_THRESHOLD = 30  # Aligned with PRICE_CACHE_DEGRADED_DAYS
+    DEGRADED_DAYS_THRESHOLD = 14  # Aligned with PRICE_CACHE_OK_DAYS
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -4953,6 +4960,8 @@ def get_mission_control_data():
                 get_price_book, 
                 get_price_book_meta,
                 compute_system_health,
+                PRICE_CACHE_OK_DAYS,
+                PRICE_CACHE_DEGRADED_DAYS,
                 STALE_DAYS_THRESHOLD,
                 DEGRADED_DAYS_THRESHOLD
             )
@@ -6353,14 +6362,14 @@ def render_mission_control():
             if data_age == 0:
                 age_display = "Today"
             # Option B: Three-tier staleness display
-            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            # OK: ≤{DEGRADED_DAYS_THRESHOLD} days, DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days, STALE: >{STALE_DAYS_THRESHOLD} days
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
-                # STALE: >30 days
+                # STALE: >{STALE_DAYS_THRESHOLD} days
                 age_display = f"❌ {data_age} days (STALE)"
             elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD:
-                # DEGRADED: 15-30 days
+                # DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days
                 age_display = f"⚠️ {data_age} days (DEGRADED)"
-            # else: OK: ≤14 days (no special indicator)
+            # else: OK: ≤{DEGRADED_DAYS_THRESHOLD} days (no special indicator)
         else:
             age_display = "Unknown"
         
@@ -6425,7 +6434,7 @@ def render_mission_control():
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is STALE (>30 days) AND network fetch is disabled (with type safety)
+        # Show warning if cache is STALE (>{STALE_DAYS_THRESHOLD} days) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
                 f"⚠️ **STALE DATA WARNING**\n\n"
@@ -6433,7 +6442,7 @@ def render_mission_control():
                 f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
             )
         elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
-            # Info message for DEGRADED (15-30 days)
+            # Info message for DEGRADED ({DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days)
             st.info(
                 f"ℹ️ **DEGRADED DATA NOTICE**\n\n"
                 f"Data is {data_age} days old ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days). "
@@ -18638,21 +18647,23 @@ def render_overview_clean_tab():
         
         # Load data for analysis
         try:
-            from helpers.price_book import get_price_book, get_price_book_meta
+            from helpers.price_book import (
+                get_price_book, 
+                get_price_book_meta,
+                compute_system_health,
+                compute_missing_and_extra_tickers
+            )
             from helpers.wave_performance import compute_all_waves_performance
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
             performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
-            # Data age assessment
-            data_age_days = None
-            data_current = False
-            if price_meta['date_max'] is not None:
-                latest_price_date = pd.Timestamp(price_meta['date_max'], tz='UTC').normalize()
-                utc_today = pd.Timestamp.utcnow().normalize()
-                data_age_days = (utc_today - latest_price_date).days
-                data_current = data_age_days <= 1
+            # Use canonical health computation from price_book
+            health = compute_system_health(price_book)
+            data_age_days = health.get('days_stale', None)
+            data_current = data_age_days is not None and data_age_days <= 1
+            missing_tickers = compute_missing_and_extra_tickers(price_book)['missing_count']
             
         except Exception as e:
             st.error(f"Unable to load platform data. Please check system status.")
@@ -18670,12 +18681,12 @@ def render_overview_clean_tab():
             status_issues = []
             
             # Check 1: Price book staleness (Option B: three-tier system)
-            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            # OK: ≤{DEGRADED_DAYS_THRESHOLD} days, DEGRADED: {DEGRADED_DAYS_THRESHOLD+1}-{STALE_DAYS_THRESHOLD} days, STALE: >{STALE_DAYS_THRESHOLD} days
             if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
                 status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
             elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
                 status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
-            # else: data_age_days ≤ 14 days → OK, no issue to report
+            # else: data_age_days ≤ {DEGRADED_DAYS_THRESHOLD} days → OK, no issue to report
             
             # Check 2: Missing tickers / data coverage
             total_waves = len(performance_df) if not performance_df.empty else 0
