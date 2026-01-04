@@ -1,48 +1,57 @@
+# Here is the updated YAML configuration for the workflow:
+
 name: Update Price Cache
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 2 * * *"
-
-env:
-  REQUIRED_TICKERS: "SPY, AAPL"
-  OPTIONAL_TICKERS: "MSFT, GOOGL"
+    - cron: '0 0 * * *'
 
 jobs:
-  update_cache:
+  update-price-cache:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v2
 
-      - name: Fetch prices for required tickers
-        run: |
-          IFS=',' read -r -a tickers <<< "$REQUIRED_TICKERS"
-          missing_tickers=""
-          for ticker in "${tickers[@]}"; do
-            if ! ./fetch_price.sh "$ticker"; then
-              missing_tickers+="$ticker "
-            fi
-          done
-          if [ -n "$missing_tickers" ]; then
-            echo "::error::Failed to fetch required tickers: $missing_tickers"
-            exit 1
-          fi
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
 
-      - name: Fetch prices for optional tickers
-        run: |
-          IFS=',' read -r -a tickers <<< "$OPTIONAL_TICKERS"
-          failed_tickers=""
-          for ticker in "${tickers[@]}"; do
-            if ! ./fetch_price.sh "$ticker"; then
-              failed_tickers+="$ticker "
-            fi
-          done
-          if [ -n "$failed_tickers" ]; then
-            echo "::warning::Failed to fetch optional tickers: $failed_tickers"
-          fi
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Finalize Workflow
-        run: |
-          echo "All required tickers updated successfully."
+    - name: Build complete price cache
+      run: python build_complete_price_cache.py
+      continue-on-error: true
+
+    - name: Verify required tickers
+      run: |
+        python -c """
+import pandas as pd
+import sys
+
+REQUIRED_TICKERS = {'TICKER1', 'TICKER2', 'TICKER3'}  # Update with actual required tickers
+FILE_PATH = 'data/cache/prices_cache.parquet'
+
+def check_tickers():
+    try:
+        df = pd.read_parquet(FILE_PATH)
+        current_tickers = set(df['ticker'].unique())
+        missing_tickers = REQUIRED_TICKERS - current_tickers
+        coverage = (len(REQUIRED_TICKERS - missing_tickers) / len(REQUIRED_TICKERS)) * 100
+
+        print(f"Required Tickers Summary: {REQUIRED_TICKERS}")
+        print(f"Optional Degradation Summary: Missing Tickers: {missing_tickers}")
+        if missing_tickers or coverage < 100:
+            sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+check_tickers()
+"""
