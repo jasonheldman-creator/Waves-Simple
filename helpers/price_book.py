@@ -307,7 +307,7 @@ def rebuild_price_cache(active_only: bool = True, force_user_initiated: bool = F
             'failures': {},
             'date_max': None,
             'cache_info': {},
-            'message': 'Fetching is disabled. Set PRICE_FETCH_ENABLED=true to enable or use manual rebuild button.'
+            'message': 'Fetching is disabled. Set environment variable PRICE_FETCH_ENABLED=true (or 1, or yes) to enable or use manual rebuild button.'
         }
     
     if force_user_initiated:

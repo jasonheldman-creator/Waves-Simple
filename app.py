@@ -6150,6 +6150,7 @@ def render_mission_control():
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
     # RUN COUNTER + Timestamp Indicator (ALWAYS VISIBLE - Production requirement)
+    # Note: run_id is incremented in main() function at line ~19076
     current_time = datetime.now().strftime("%H:%M:%S")
     run_id = st.session_state.get("run_id", 0)
     auto_refresh_enabled = st.session_state.get("auto_refresh_enabled", False)
