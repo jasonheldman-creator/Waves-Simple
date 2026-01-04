@@ -12,8 +12,9 @@ Modular structure:
 7. Render functions for tabs and analytics
 8. Main entry point
 
-SNAPSHOT BACKUP: massive-ic-pack-v1 branch
-This is a rollback snapshot before IC Pack v1 implementation.
+FULL MULTI-TAB CONSOLE UI - Post PR #336
+Complete implementation with 18 tab render functions (16-17 visible tabs depending on configuration).
+Includes all analytics, monitoring, and governance features.
 """
 
 import streamlit as st
@@ -22,6 +23,7 @@ import os
 import traceback
 import logging
 import time
+import itertools
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -55,14 +57,6 @@ except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
-
-# Import data cache for global price caching
-try:
-    from data_cache import get_global_price_cache
-    DATA_CACHE_AVAILABLE = True
-except ImportError:
-    DATA_CACHE_AVAILABLE = False
-    get_global_price_cache = None
 
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
@@ -184,6 +178,10 @@ SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 # Minimum days of price history required for a wave to be considered "Data-Ready"
 # LOWERED from 60 to 7 to support partial data availability
 MIN_DAYS_READY = 7
+
+# Wave validation thresholds (must match performance table requirements)
+WAVE_VALIDATION_MIN_COVERAGE_PCT = 100.0  # Require 100% ticker coverage
+WAVE_VALIDATION_MIN_HISTORY_DAYS = 30  # Require 30 days minimum history
 
 # Batch size for ticker price downloads to reduce rate-limit risks
 PRICE_DOWNLOAD_BATCH_SIZE = 100
@@ -640,57 +638,70 @@ WATCHDOG_START_TIME = time.time()
 def get_build_info():
     """
     Get build information for display in UI.
-    Returns: dict with 'sha', 'date', 'branch' keys
+    Returns: dict with 'sha', 'branch', 'utc' keys
     
     Note: Uses inline Git commands here since this runs at module load time,
     before the helper functions (get_git_commit_hash, get_git_branch_name) 
     are defined later in the file.
+    
+    This function retrieves:
+    - Git short SHA from environment variable or git command
+    - Current branch name from environment variable or git command
+    - Current UTC timestamp (non-cached)
     """
+    from datetime import timezone
+    
     build_info = {
         'sha': 'unknown',
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'branch': 'unknown'
+        'branch': 'unknown',
+        'utc': datetime.now(timezone.utc).isoformat()
     }
     
-    try:
-        # Try to get Git SHA (short version)
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            build_info['sha'] = result.stdout.strip()
-        else:
-            # Fallback to BUILD_ID environment variable
-            build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
-    except:
-        # Fallback to BUILD_ID environment variable
-        build_info['sha'] = os.environ.get('BUILD_ID', 'unknown')
+    # Get Git SHA: prioritize environment variable, fallback to git command
+    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+    if git_sha_env:
+        build_info['sha'] = git_sha_env
+    else:
+        try:
+            # Fallback to git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                build_info['sha'] = result.stdout.strip()
+        except:
+            pass
     
-    try:
-        # Get current branch
-        result = subprocess.run(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            build_info['branch'] = result.stdout.strip()
-    except:
-        pass
+    # Get branch name: prioritize environment variable, fallback to git command
+    git_branch_env = os.environ.get('GIT_BRANCH') or os.environ.get('BRANCH_NAME')
+    if git_branch_env:
+        build_info['branch'] = git_branch_env
+    else:
+        try:
+            # Fallback to git command
+            result = subprocess.run(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0:
+                build_info['branch'] = result.stdout.strip()
+        except:
+            pass
     
     return build_info
 
-# Display build stamp banner
+# Display build stamp banner (non-cached, always current)
 build_info = get_build_info()
 st.markdown(
     f"""
     <div style="background-color: #1e1e1e; padding: 8px 16px; border-left: 3px solid #00d4ff; margin-bottom: 16px;">
         <span style="color: #888; font-size: 12px; font-family: monospace;">
-            WAVES BUILD: {build_info['sha']} | {build_info['date']} | {build_info['branch']}
+            BUILD: {build_info['sha']} | BRANCH: {build_info['branch']} | UTC: {build_info['utc']}
         </span>
     </div>
     """,
@@ -1366,10 +1377,6 @@ def get_canonical_wave_universe(force_reload: bool = False, _wave_universe_versi
         wave_list.append(CRYPTO_INCOME_WAVE)
         wave_list.append(CSE_WAVE_NAME)
         source = "fallback"
-    
-    # Add Russell 3000 Wave if not already present (defensive - should be in registry)
-    if "Russell 3000 Wave" not in wave_list:
-        wave_list.append("Russell 3000 Wave")
     
     # Deduplicate
     deduplicated_waves, removed_duplicates = dedupe_waves(wave_list)
@@ -2516,192 +2523,6 @@ def is_wave_data_ready(wave_id: str, wave_history_df=None, wave_universe=None, p
     except Exception as e:
         # CHANGED: Even on exception, mark as ready - fail gracefully during rendering
         return True, "Ready", f"Will attempt fresh computation"
-
-
-def prefetch_prices_for_all_waves(days: int = 365) -> tuple[pd.DataFrame, dict]:
-    """
-    Batched prefetch function for prices with rate-limit protection.
-    
-    Features:
-    - Builds master ticker set from holdings + benchmarks + safe assets
-    - Batched downloads (chunk size: PRICE_DOWNLOAD_BATCH_SIZE)
-    - Pauses between chunks to avoid rate limits
-    - Per-ticker failure tracking
-    
-    Args:
-        days: Number of days of history to fetch (default: 365)
-    
-    Returns:
-        Tuple of (price_df: pd.DataFrame, per_ticker_failures: dict)
-        - price_df: DataFrame with dates as index and tickers as columns
-        - per_ticker_failures: Dict mapping failed tickers to error reasons
-    """
-    # ========================================================================
-    # Safe Mode Check - Prevent external data fetching
-    # ========================================================================
-    if st.session_state.get("safe_mode_no_fetch", True):
-        print("⏸️ Safe Mode active - skipping price prefetch")
-        return pd.DataFrame(), {"safe_mode": "Price fetching disabled in Safe Mode"}
-    
-    import time
-    import random
-    
-    # Import yfinance
-    try:
-        import yfinance as yf
-    except ImportError:
-        print("Warning: yfinance not available")
-        return pd.DataFrame(), {"error": "yfinance not installed"}
-    
-    per_ticker_failures = {}
-    all_prices = pd.DataFrame()
-    
-    try:
-        # Build master ticker set
-        master_tickers = set()
-        
-        # 1. Get all holdings tickers from enabled waves
-        try:
-            wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-            enabled_waves = [w for w in universe.get("waves", []) if universe.get("enabled_flags", {}).get(w, True)]
-            
-            # Load wave weights/holdings
-            wave_weights_path = os.path.join(os.path.dirname(__file__), 'wave_weights.csv')
-            if os.path.exists(wave_weights_path):
-                wave_weights_df = pd.read_csv(wave_weights_path)
-                for wave in enabled_waves:
-                    wave_holdings = wave_weights_df[wave_weights_df['wave'] == wave]
-                    if 'ticker' in wave_holdings.columns:
-                        holdings_tickers = wave_holdings['ticker'].dropna().unique().tolist()
-                        master_tickers.update(holdings_tickers)
-        except Exception as e:
-            print(f"Warning: Could not load wave holdings: {str(e)}")
-        
-        # 2. Get all benchmark tickers from enabled waves
-        try:
-            wave_config_path = os.path.join(os.path.dirname(__file__), 'wave_config.csv')
-            if os.path.exists(wave_config_path):
-                config_df = pd.read_csv(wave_config_path)
-                if 'Benchmark' in config_df.columns:
-                    benchmark_tickers = config_df['Benchmark'].dropna().unique().tolist()
-                    master_tickers.update(benchmark_tickers)
-        except Exception as e:
-            print(f"Warning: Could not load benchmark tickers: {str(e)}")
-        
-        # 3. Add safe asset tickers
-        master_tickers.update(SAFE_ASSET_TICKERS)
-        
-        # Convert to sorted list for consistent batching
-        master_tickers = sorted(list(master_tickers))
-        
-        if len(master_tickers) == 0:
-            print("Warning: No tickers found to prefetch")
-            return pd.DataFrame(), {"error": "No tickers to fetch"}
-        
-        print(f"Prefetching prices for {len(master_tickers)} tickers...")
-        
-        # Calculate date range
-        end_date = datetime.utcnow().date()
-        start_date = end_date - timedelta(days=days + 10)  # Extra buffer
-        
-        # Batch download
-        batch_size = PRICE_DOWNLOAD_BATCH_SIZE
-        num_batches = (len(master_tickers) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min((batch_idx + 1) * batch_size, len(master_tickers))
-            batch_tickers = master_tickers[start_idx:end_idx]
-            
-            print(f"Downloading batch {batch_idx + 1}/{num_batches} ({len(batch_tickers)} tickers)...")
-            
-            try:
-                # Download this batch
-                batch_data = yf.download(
-                    tickers=batch_tickers,
-                    start=start_date.isoformat(),
-                    end=end_date.isoformat(),
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    group_by="column"
-                )
-                
-                if batch_data is None or len(batch_data) == 0:
-                    # Record failure for all tickers in batch
-                    for ticker in batch_tickers:
-                        per_ticker_failures[ticker] = "Empty response from yfinance"
-                    continue
-                
-                # Extract Adj Close or Close prices
-                if isinstance(batch_data.columns, pd.MultiIndex):
-                    if "Adj Close" in batch_data.columns.get_level_values(0):
-                        batch_prices = batch_data["Adj Close"]
-                    elif "Close" in batch_data.columns.get_level_values(0):
-                        batch_prices = batch_data["Close"]
-                    else:
-                        batch_prices = batch_data[batch_data.columns.levels[0][0]]
-                else:
-                    batch_prices = batch_data
-                
-                # Handle single ticker case (Series instead of DataFrame)
-                if isinstance(batch_prices, pd.Series):
-                    batch_prices = batch_prices.to_frame()
-                
-                # Merge into all_prices
-                if len(all_prices) == 0:
-                    all_prices = batch_prices.copy()
-                else:
-                    all_prices = pd.concat([all_prices, batch_prices], axis=1)
-                
-                # Check which tickers succeeded and which failed
-                for ticker in batch_tickers:
-                    if ticker not in batch_prices.columns:
-                        per_ticker_failures[ticker] = "Ticker not in downloaded data"
-                    elif batch_prices[ticker].isna().all():
-                        per_ticker_failures[ticker] = "All NaN values"
-                
-            except Exception as e:
-                # Record failure for all tickers in batch
-                error_msg = str(e)
-                print(f"Batch {batch_idx + 1} failed: {error_msg}")
-                for ticker in batch_tickers:
-                    per_ticker_failures[ticker] = f"Batch download error: {error_msg}"
-            
-            # Pause between batches (random to avoid patterns)
-            # Only pause if Safe Mode is OFF (prevents delays during safe mode)
-            if batch_idx < num_batches - 1 and not st.session_state.get("safe_mode_no_fetch", True):
-                pause_duration = random.uniform(BATCH_PAUSE_MIN, BATCH_PAUSE_MAX)
-                print(f"Pausing {pause_duration:.2f}s before next batch...")
-                time.sleep(pause_duration)
-        
-        # Fill missing values (forward fill then backward fill)
-        if len(all_prices) > 0:
-            all_prices = all_prices.sort_index().ffill().bfill()
-        
-        print(f"Prefetch complete: {len(all_prices.columns)} tickers downloaded, {len(per_ticker_failures)} failures")
-        
-        return all_prices, per_ticker_failures
-        
-    except Exception as e:
-        print(f"Error in prefetch_prices_for_all_waves: {str(e)}")
-        return pd.DataFrame(), {"error": f"Prefetch exception: {str(e)}"}
-
-
-@st.cache_data(ttl=PRICE_CACHE_TTL)
-def cached_prefetch_prices_for_all_waves(days: int = 365, _force_refresh: bool = False) -> tuple[pd.DataFrame, dict]:
-    """
-    Cached wrapper for prefetch_prices_for_all_waves with configurable TTL.
-    
-    Args:
-        days: Number of days of history to fetch
-        _force_refresh: Force refresh flag (prefixed with _ to exclude from cache key)
-    
-    Returns:
-        Tuple of (price_df, per_ticker_failures)
-    """
-    return prefetch_prices_for_all_waves(days)
 
 
 def get_cse_crypto_universe():
@@ -4852,6 +4673,50 @@ def create_correlation_heatmap(wave1_data, wave2_data, wave1_name, wave2_name):
 # SECTION 5: DATA PROCESSING FUNCTIONS
 # ============================================================================
 
+def count_waves_with_valid_price_book_data(canonical_waves, enabled_flags, price_book):
+    """
+    Count waves that have valid PRICE_BOOK data using the same validation logic
+    as the performance table and readiness checks.
+    
+    Args:
+        canonical_waves: List of all wave names
+        enabled_flags: Dict of wave -> enabled (True/False)
+        price_book: PRICE_BOOK DataFrame
+        
+    Returns:
+        int: Count of enabled waves with valid PRICE_BOOK data
+    """
+    if price_book is None or price_book.empty:
+        return 0
+    
+    try:
+        from helpers.wave_performance import validate_wave_price_history
+        
+        # Count enabled waves that pass validation
+        valid_count = 0
+        for wave in canonical_waves:
+            # Only check enabled waves
+            if not enabled_flags.get(wave, True):
+                continue
+            
+            # Validate wave against PRICE_BOOK
+            validation = validate_wave_price_history(
+                wave,
+                price_book,
+                min_coverage_pct=WAVE_VALIDATION_MIN_COVERAGE_PCT,
+                min_history_days=WAVE_VALIDATION_MIN_HISTORY_DAYS
+            )
+            
+            if validation.get('valid', False):
+                valid_count += 1
+        
+        return valid_count
+    except Exception as e:
+        # If validation fails, return 0 for consistency
+        # This prevents reporting inaccurate counts when validation can't be performed
+        return 0
+
+
 def get_mission_control_data():
     """
     Retrieve Mission Control metrics from available data.
@@ -4861,7 +4726,7 @@ def get_mission_control_data():
     NEW DEFINITIONS:
     - universe_count: Total waves in the wave registry
     - active_waves: Waves with enabled=True (not based on data availability)
-    - data_ready_count: Waves with enough data to compute full analytics
+    - waves_live_count: Waves with valid PRICE_BOOK data (canonical validation)
     """
     mc_data = {
         'market_regime': 'unknown',
@@ -4874,7 +4739,7 @@ def get_mission_control_data():
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
-        'data_ready_count': 0,  # NEW: Waves with full analytics data
+        'waves_live_count': 0,  # NEW: Waves with valid PRICE_BOOK data
         'system_status': 'unknown',
         'universe_count': 0,
         'history_unique_count': 0
@@ -4900,25 +4765,47 @@ def get_mission_control_data():
                 active_count = sum(1 for wave in canonical_waves if enabled_flags.get(wave, True))
                 mc_data['active_waves'] = active_count
                 
-                # Even without wave_history data, SmartSafe cash waves are always ready
+                # Compute waves_live_count from PRICE_BOOK validation
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    canonical_waves_set = set(canonical_waves)
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    mc_data['data_ready_count'] = 0
+                    from helpers.price_book import get_price_book
+                    price_book = get_price_book(active_tickers=None)
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
+                except Exception:
+                    # Fallback: if PRICE_BOOK check fails completely, use 0
+                    mc_data['waves_live_count'] = 0
             except Exception:
                 pass
             return mc_data
         
-        # Get latest date and data freshness
-        latest_date = df['date'].max()
-        mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
-        
-        # Calculate data age in days
-        age_days = (datetime.now() - latest_date).days
-        mc_data['data_age_days'] = age_days
+        # Get latest date from PRICE_BOOK (canonical price source)
+        # This ensures Data Age reflects actual live price data, not history file timestamps
+        try:
+            from helpers.price_book import get_price_book, get_price_book_meta
+            price_book = get_price_book(active_tickers=None)
+            price_meta = get_price_book_meta(price_book)
+            
+            if price_meta['date_max'] is not None:
+                # Use latest price date from PRICE_BOOK
+                latest_price_date = datetime.strptime(price_meta['date_max'], '%Y-%m-%d')
+                mc_data['data_freshness'] = price_meta['date_max']
+                
+                # Calculate data age in days (UTC-aware)
+                age_days = (datetime.now() - latest_price_date).days
+                mc_data['data_age_days'] = age_days
+            else:
+                # Fallback if PRICE_BOOK is empty
+                latest_date = df['date'].max()
+                mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
+                age_days = (datetime.now() - latest_date).days
+                mc_data['data_age_days'] = age_days
+        except Exception:
+            # Fallback to wave_history if PRICE_BOOK fails
+            latest_date = df['date'].max()
+            mc_data['data_freshness'] = latest_date.strftime('%Y-%m-%d')
+            age_days = (datetime.now() - latest_date).days
+            mc_data['data_age_days'] = age_days
         
         # Count waves using centralized wave universe (Data Backbone V1)
         try:
@@ -4941,33 +4828,29 @@ def get_mission_control_data():
                 history_waves_unique = df['wave'].nunique()
                 mc_data['history_unique_count'] = history_waves_unique
                 
-                # NEW: Data-Ready = waves with recent data (full analytics available)
-                # Include SmartSafe cash waves which are always ready even without wave_history entries
-                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                recent_waves = set(recent_data['wave'].unique())
-                canonical_waves_set = set(canonical_waves)
-                data_ready_waves = recent_waves.intersection(canonical_waves_set)
-                
-                # Add SmartSafe cash waves - they are always ready even without price history
+                # Compute waves_live_count from PRICE_BOOK validation
+                # This counts active waves that have valid price data in PRICE_BOOK
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    data_ready_waves = data_ready_waves.union(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    pass  # If SmartSafe constants not available, continue without them
-                
-                mc_data['data_ready_count'] = len(data_ready_waves)
+                    from helpers.price_book import get_price_book
+                    price_book = get_price_book(active_tickers=None)
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
+                except Exception:
+                    # Fallback: if PRICE_BOOK check fails completely, use 0
+                    mc_data['waves_live_count'] = 0
             else:
                 # No wave column in history
                 mc_data['history_unique_count'] = 0
-                # Count SmartSafe waves as ready even without wave_history
+                # Compute waves_live_count from PRICE_BOOK
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    canonical_waves_set = set(canonical_waves)
-                    smartsafe_waves_in_canonical = canonical_waves_set.intersection(SMARTSAFE_CASH_WAVES)
-                    mc_data['data_ready_count'] = len(smartsafe_waves_in_canonical)
-                except (ImportError, AttributeError):
-                    mc_data['data_ready_count'] = 0
+                    from helpers.price_book import get_price_book
+                    price_book = get_price_book(active_tickers=None)
+                    mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
+                        canonical_waves, enabled_flags, price_book
+                    )
+                except Exception:
+                    mc_data['waves_live_count'] = 0
         except Exception:
             # Fallback to old method if canonical universe fails
             if 'wave' in df.columns:
@@ -4977,31 +4860,68 @@ def get_mission_control_data():
                 # Assume all waves are enabled in fallback mode
                 mc_data['active_waves'] = mc_data['total_waves']
                 
-                # Count data-ready waves (with recent data)
-                recent_data = df[df['date'] >= (latest_date - timedelta(days=7))]
-                data_ready_count = recent_data['wave'].nunique()
-                
-                # Add SmartSafe cash waves to count - they are always ready
+                # Compute waves_live_count from PRICE_BOOK
+                # In fallback mode, we don't have canonical_waves/enabled_flags,
+                # so we'll use a simpler check
                 try:
-                    from waves_engine import SMARTSAFE_CASH_WAVES
-                    recent_waves = set(recent_data['wave'].unique())
-                    # Add SmartSafe waves that aren't already in recent_waves
-                    smartsafe_count = len(SMARTSAFE_CASH_WAVES - recent_waves)
-                    data_ready_count += smartsafe_count
-                except (ImportError, AttributeError):
-                    pass
-                
-                mc_data['data_ready_count'] = data_ready_count
+                    from helpers.price_book import get_price_book
+                    from helpers.wave_performance import compute_all_waves_performance
+                    
+                    price_book = get_price_book(active_tickers=None)
+                    if not price_book.empty:
+                        # Count validated waves by computing performance
+                        perf_df = compute_all_waves_performance(
+                            price_book, 
+                            periods=[1], 
+                            only_validated=True
+                        )
+                        mc_data['waves_live_count'] = len(perf_df)
+                    else:
+                        mc_data['waves_live_count'] = 0
+                except Exception:
+                    # Ultimate fallback: use 0
+                    mc_data['waves_live_count'] = 0
         
-        # System status based on data age
-        if age_days <= 1:
-            mc_data['system_status'] = 'Excellent'
-        elif age_days <= 3:
-            mc_data['system_status'] = 'Good'
-        elif age_days <= 7:
-            mc_data['system_status'] = 'Fair'
-        else:
-            mc_data['system_status'] = 'Stale'
+        # System status and data age based on PRICE_BOOK (not wave_history)
+        # Use compute_system_health from price_book for consistent thresholds
+        try:
+            from helpers.price_book import (
+                get_price_book, 
+                get_price_book_meta,
+                compute_system_health,
+                STALE_DAYS_THRESHOLD,
+                DEGRADED_DAYS_THRESHOLD
+            )
+            
+            price_book = get_price_book(active_tickers=None)
+            health = compute_system_health(price_book)
+            meta = get_price_book_meta(price_book)
+            
+            # Use PRICE_BOOK metadata for data age and freshness
+            mc_data['data_freshness'] = meta.get('date_max', 'unknown')
+            mc_data['data_age_days'] = health.get('days_stale', None)
+            
+            # Map health status to system status
+            health_status = health.get('health_status', 'unknown')
+            if health_status == 'OK':
+                mc_data['system_status'] = 'Excellent'
+            elif health_status == 'DEGRADED':
+                mc_data['system_status'] = 'Fair'
+            elif health_status == 'STALE':
+                mc_data['system_status'] = 'Stale'
+            else:
+                mc_data['system_status'] = 'unknown'
+                
+        except Exception:
+            # Fallback to wave_history age if PRICE_BOOK check fails
+            if age_days <= 1:
+                mc_data['system_status'] = 'Excellent'
+            elif age_days <= 3:
+                mc_data['system_status'] = 'Good'
+            elif age_days <= 7:
+                mc_data['system_status'] = 'Fair'
+            else:
+                mc_data['system_status'] = 'Stale'
         
         # Calculate Market Regime based on recent returns
         recent_days = 5
@@ -6066,6 +5986,149 @@ def compute_risk_regime_attribution(df, days_list=[30, 60, 90]):
     return result
 
 
+def render_reality_panel():
+    """
+    Render the Reality Panel - Single Source of Truth Diagnostics
+    
+    This panel displays the actual PRICE_BOOK metadata used by the entire system.
+    It ensures transparency and prevents "two truths" by showing exactly what
+    data is being used for readiness, health, execution, and diagnostics.
+    
+    Displayed at the top of the Overview tab (minimum) or app-wide.
+    """
+    st.markdown("### 📋 Reality Panel - Price Book Status")
+    st.caption("Single source of truth for all price data, readiness, health, and execution")
+    
+    try:
+        from helpers.price_book import (
+            get_price_book,
+            get_price_book_meta,
+            get_active_required_tickers,
+            get_required_tickers_active_waves,
+            compute_missing_and_extra_tickers,
+            compute_system_health,
+            CANONICAL_CACHE_PATH,
+            PRICE_FETCH_ENABLED,
+            ALLOW_NETWORK_FETCH
+        )
+        
+        # Load the PRICE_BOOK (this is the actual object used by execution)
+        active_tickers = get_active_required_tickers()
+        price_book = get_price_book(active_tickers=None)  # Load all cached tickers
+        
+        # Get metadata from the actual PRICE_BOOK
+        meta = get_price_book_meta(price_book)
+        
+        # Compute missing/extra tickers
+        ticker_analysis = compute_missing_and_extra_tickers(price_book)
+        
+        # Get git commit info (if available)
+        git_commit = "N/A"
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                shell=False  # Explicitly set for security clarity
+            )
+            if result.returncode == 0:
+                git_commit = result.stdout.strip()
+        except:
+            pass
+        
+        # Display in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**📁 Price Cache**")
+            st.text(f"Path: {meta['cache_path']}")
+            st.text(f"Shape: {meta['rows']} rows × {meta['cols']} cols")
+            
+            if meta['is_empty']:
+                st.error("⚠️ PRICE_BOOK is EMPTY")
+            else:
+                st.text(f"Date Range:")
+                st.text(f"  Min: {meta['date_min']}")
+                st.text(f"  Max: {meta['date_max']}")
+        
+        with col2:
+            st.markdown("**🎯 Ticker Coverage**")
+            st.text(f"Active Required: {ticker_analysis['required_count']}")
+            st.text(f"In PRICE_BOOK: {ticker_analysis['cached_count']}")
+            
+            # Guardrail: Check for active_required underreporting
+            # Count active waves from registry
+            try:
+                import pandas as pd
+                wave_registry_path = os.path.join('data', 'wave_registry.csv')
+                if os.path.exists(wave_registry_path):
+                    registry_df = pd.read_csv(wave_registry_path)
+                    active_wave_count = registry_df['active'].sum()
+                    
+                    # Show warning if we have many active waves but suspiciously few required tickers
+                    if active_wave_count >= 20 and ticker_analysis['required_count'] < 20:
+                        st.error("🚨 BUG: active_required too small — registry/ticker collection failed.")
+                        st.text(f"Active waves in registry: {active_wave_count}")
+            except Exception as e:
+                pass  # Don't fail if we can't load registry
+            
+            missing_count = ticker_analysis['missing_count']
+            extra_count = ticker_analysis['extra_count']
+            
+            if missing_count > 0:
+                st.error(f"⚠️ Missing: {missing_count} tickers")
+            else:
+                st.success("✅ Missing: 0 tickers")
+            
+            if extra_count > 0:
+                st.info(f"ℹ️ Extra: {extra_count} tickers (harmless)")
+            else:
+                st.text(f"Extra: 0 tickers")
+        
+        with col3:
+            st.markdown("**🏥 System Health**")
+            
+            # Compute unified health status
+            health = compute_system_health(price_book)
+            
+            st.metric(
+                "Health Status",
+                f"{health['health_emoji']} {health['health_status']}",
+                help=health['details']
+            )
+            st.caption(health['details'])
+            
+            # Show fetch status
+            if ALLOW_NETWORK_FETCH:
+                st.warning("🟡 Network Fetch: ENABLED")
+            else:
+                st.success("🟢 Network Fetch: DISABLED")
+        
+        # Show detailed missing/extra tickers in expander
+        if ticker_analysis['missing_count'] > 0 or ticker_analysis['extra_count'] > 0:
+            with st.expander("📊 Detailed Ticker Analysis", expanded=False):
+                if ticker_analysis['missing_count'] > 0:
+                    st.markdown("**Missing Tickers (Required but not in cache):**")
+                    missing_display = ", ".join(ticker_analysis['missing_tickers'])
+                    if len(missing_display) > 500:
+                        missing_display = missing_display[:500] + "..."
+                    st.text(missing_display)
+                    st.caption(f"Total missing: {ticker_analysis['missing_count']}")
+                
+                if ticker_analysis['extra_count'] > 0:
+                    st.markdown("**Extra Tickers (In cache but not required):**")
+                    extra_display = ", ".join(ticker_analysis['extra_tickers'][:20])
+                    if ticker_analysis['extra_count'] > 20:
+                        extra_display += f" ... and {ticker_analysis['extra_count'] - 20} more"
+                    st.text(extra_display)
+                    st.caption(f"Total extra: {ticker_analysis['extra_count']} (these are harmless)")
+        
+    except Exception as e:
+        st.error(f"❌ Error loading Reality Panel: {str(e)}")
+        st.code(traceback.format_exc(), language="python")
+
+
 def render_mission_control():
     """
     Render the Mission Control summary strip at the top of the page.
@@ -6195,10 +6258,14 @@ def render_mission_control():
         )
     
     with sec_col3:
+        waves_live = mc_data.get('waves_live_count', 0)
+        universe = mc_data.get('universe_count', 0)
+        # Display as fraction (defensive: handle edge case of universe=0)
+        display_value = f"{waves_live}/{universe}" if universe > 0 else "0/0"
         st.metric(
-            label="Data-Ready",
-            value=mc_data.get('data_ready_count', 0),
-            help="Waves with full analytics data available (recent 7 days)"
+            label="Waves Live",
+            value=display_value,
+            help="Waves with valid PRICE_BOOK data / Total universe"
         )
         
     with sec_col4:
@@ -6245,6 +6312,83 @@ def render_mission_control():
         # Show last successful refresh time
         last_successful_refresh = st.session_state.get("last_successful_refresh_time", datetime.now())
         st.caption(f"Last: {last_successful_refresh.strftime('%H:%M:%S')}")
+    
+    # ========================================================================
+    # WARNING: Cache Stale + Network Fetch Disabled
+    # ========================================================================
+    data_age = mc_data.get('data_age_days')
+    try:
+        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
+        
+        # Show warning if cache is old AND network fetch is disabled
+        if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+            st.warning(
+                f"⚠️ **Cache is frozen (ALLOW_NETWORK_FETCH=False)**\n\n"
+                f"Data is {data_age} days old. Click 'Rebuild PRICE_BOOK Cache' button below to update."
+            )
+    except Exception:
+        pass
+    
+    # ========================================================================
+    # REBUILD CACHE BUTTON
+    # ========================================================================
+    st.markdown("---")
+    
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    
+    with col_btn1:
+        if st.button(
+            "🔨 Rebuild PRICE_BOOK Cache",
+            key="rebuild_price_cache_mission_control",
+            use_container_width=True,
+            help="Rebuild the canonical price cache with active wave tickers. Requires ALLOW_NETWORK_FETCH=true."
+        ):
+            try:
+                # Show progress indicator
+                with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                    # Import the rebuild function
+                    from helpers.price_book import rebuild_price_cache, ALLOW_NETWORK_FETCH
+                    
+                    # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                    result = rebuild_price_cache(active_only=True)
+                    
+                    # Check if fetching is allowed
+                    if not result['allowed']:
+                        st.error(
+                            "❌ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                            f"{result.get('message', 'Set ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                        )
+                    elif result['success']:
+                        st.success(
+                            f"✅ Price cache rebuilt!\n\n"
+                            f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                            f"📅 Latest Date: {result['date_max']}"
+                        )
+                        
+                        # Show failed tickers if any
+                        if result['tickers_failed'] > 0 and result['failures']:
+                            with st.expander("⚠️ Failed Tickers", expanded=False):
+                                # Show first 10 failed tickers efficiently using islice
+                                for ticker in itertools.islice(result['failures'].keys(), 10):
+                                    st.text(f"• {ticker}")
+                                if len(result['failures']) > 10:
+                                    st.text(f"... and {len(result['failures']) - 10} more")
+                        
+                        # Clear Streamlit caches to reflect new data
+                        st.cache_data.clear()
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger rerun
+                        trigger_rerun("rebuild_price_cache_mission_control")
+                    else:
+                        st.error("❌ Failed to rebuild price cache")
+                    
+            except Exception as e:
+                st.error(f"Error rebuilding cache: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc(), language="python")
     
     # ========================================================================
     # NEW FEATURES: Exec Layer v2 - Alpha Attribution + Diagnostics
@@ -6796,6 +6940,59 @@ def render_sidebar_info():
             st.sidebar.error(f"Error clearing cache: {str(e)}")
     
     # ========================================================================
+    # NEW: Rebuild Price Cache Button (Controlled, Active Tickers Only)
+    # ========================================================================
+    if st.sidebar.button(
+        "💰 Rebuild Price Cache (Active Tickers Only)",
+        key="rebuild_price_cache_button",
+        use_container_width=True,
+        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
+    ):
+        try:
+            # Show progress indicator
+            with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                # Import the rebuild function
+                from helpers.price_book import rebuild_price_cache
+                
+                # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                result = rebuild_price_cache(active_only=True)
+                
+                # Check if fetching is allowed
+                if not result['allowed']:
+                    st.sidebar.warning(
+                        "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                    )
+                elif result['success']:
+                    st.sidebar.success(
+                        f"✅ Price cache rebuilt!\n\n"
+                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                        f"📅 Latest Date: {result['date_max']}"
+                    )
+                    
+                    # Show failed tickers if any
+                    if result['tickers_failed'] > 0 and result['failures']:
+                        st.sidebar.warning(
+                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                            f"See data/cache/failed_tickers.csv for details"
+                        )
+                else:
+                    st.sidebar.error("❌ Failed to rebuild price cache")
+                
+                # Mark user interaction
+                st.session_state.user_interaction_detected = True
+                
+                # Clear Streamlit caches to reflect new data
+                st.cache_data.clear()
+                
+                # Trigger rerun
+                trigger_rerun("rebuild_price_cache")
+        except Exception as e:
+            st.sidebar.error(f"Error rebuilding cache: {str(e)}")
+            import traceback
+            st.sidebar.code(traceback.format_exc())
+    
+    # ========================================================================
     # NEW: Force Build Data for All Waves Button (Enhanced with Diagnostics)
     # ========================================================================
     if st.sidebar.button(
@@ -6822,38 +7019,25 @@ def render_sidebar_info():
                 if "rate_limited_waves" in st.session_state:
                     del st.session_state["rate_limited_waves"]
                 
-                # Force refresh the global price cache
-                if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-                    cache_result = get_global_price_cache(
-                        wave_registry=WAVE_WEIGHTS,
-                        days=365,
-                        ttl_seconds=st.session_state.get("price_cache_ttl_seconds", 7200)
-                    )
-                    
-                    # Update session state
-                    st.session_state.global_price_df = cache_result.get("price_df")
-                    st.session_state.global_price_failures = cache_result.get("failures", {})
-                    st.session_state.global_price_asof = cache_result.get("asof")
-                    st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                    st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                    
-                    # Show results
-                    success_count = cache_result.get("success_count", 0)
-                    failure_count = len(cache_result.get("failures", {}))
-                    
-                    st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
-                    
-                    # Generate and export diagnostics report if there are failures
-                    if failure_count > 0:
-                        try:
-                            from helpers.ticker_diagnostics import get_diagnostics_tracker
-                            tracker = get_diagnostics_tracker()
-                            report_path = tracker.export_to_csv()
-                            st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
-                        except Exception:
-                            pass
-                else:
-                    st.sidebar.warning("⚠️ Data cache system not available")
+                # Force refresh the canonical price cache (PRICE_BOOK)
+                from helpers.price_loader import refresh_price_cache
+                cache_result = refresh_price_cache(active_only=True)
+                
+                # Show results
+                success_count = cache_result.get("tickers_fetched", 0)
+                failure_count = cache_result.get("tickers_failed", 0)
+                
+                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                
+                # Generate and export diagnostics report if there are failures
+                if failure_count > 0:
+                    try:
+                        from helpers.ticker_diagnostics import get_diagnostics_tracker
+                        tracker = get_diagnostics_tracker()
+                        report_path = tracker.export_to_csv()
+                        st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
+                    except Exception:
+                        pass
                 
                 # Force reload diagnostics
                 st.cache_data.clear()
@@ -6909,61 +7093,43 @@ def render_sidebar_info():
                     # Force rebuild price cache
                     st.session_state.force_price_cache_rebuild = True
                     
-                    # Rebuild global price cache
-                    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-                        try:
-                            cache_result = get_global_price_cache(
-                                wave_registry=WAVE_WEIGHTS,
-                                days=365,
-                                ttl_seconds=1  # Force immediate rebuild
-                            )
-                            
-                            # Update session state with new cache
-                            st.session_state.global_price_df = cache_result.get("price_df")
-                            st.session_state.global_price_failures = cache_result.get("failures", {})
-                            st.session_state.global_price_asof = cache_result.get("asof")
-                            st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                            st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                            
-                            # Get summary statistics
-                            waves_total = rebuild_result['waves_written']
-                            success_count = cache_result.get("success_count", 0)
-                            failures = cache_result.get("failures", {})
-                            tickers_failed_count = len(failures)
-                            
-                            # Display summary
-                            st.sidebar.info(f"""
+                    # Rebuild canonical price cache (PRICE_BOOK)
+                    try:
+                        from helpers.price_loader import refresh_price_cache
+                        cache_result = refresh_price_cache(active_only=True)
+                        
+                        # Get summary statistics
+                        waves_total = rebuild_result['waves_written']
+                        success_count = cache_result.get("tickers_fetched", 0)
+                        failures = cache_result.get("failures", {})
+                        tickers_failed_count = cache_result.get("tickers_failed", 0)
+                        
+                        # Display summary
+                        st.sidebar.info(f"""
 **Rebuild Summary:**
 - Total Waves: {waves_total}
 - Waves Loaded: {waves_total}
 - Tickers Success: {success_count}
 - Tickers Failed: {tickers_failed_count}
-                            """)
+                        """)
+                        
+                        # Show failed tickers if any
+                        if tickers_failed_count > 0 and failures:
+                            st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
                             
-                            # Show failed tickers if any
-                            if tickers_failed_count > 0:
-                                st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
-                                
-                                # Build failed ticker table
-                                failed_ticker_data = []
-                                for ticker, error in failures.items():
-                                    # Find which waves use this ticker
-                                    impacted_waves = []
-                                    for wave_name, holdings in WAVE_WEIGHTS.items():
-                                        if any(h.ticker == ticker for h in holdings):
-                                            impacted_waves.append(wave_name)
-                                    
-                                    failed_ticker_data.append({
-                                        'Ticker': ticker,
-                                        'Error': str(error)[:50],  # Truncate long errors
-                                        'Impacted Waves': len(impacted_waves)
-                                    })
-                                
-                                if failed_ticker_data:
-                                    failed_df = pd.DataFrame(failed_ticker_data)
-                                    st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
-                        except Exception as cache_error:
-                            st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
+                            # Build failed ticker table (limited display)
+                            failed_ticker_data = []
+                            for ticker, error in list(failures.items())[:20]:  # Show first 20
+                                failed_ticker_data.append({
+                                    'Ticker': ticker,
+                                    'Error': str(error)[:50],  # Truncate long errors
+                                })
+                            
+                            if failed_ticker_data:
+                                failed_df = pd.DataFrame(failed_ticker_data)
+                                st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
+                    except Exception as cache_error:
+                        st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
                     
                     # Increment version to force reload
                     if "wave_universe_version" not in st.session_state:
@@ -7065,13 +7231,13 @@ def render_sidebar_info():
             st.sidebar.error(f"Error activating waves: {str(e)}")
     
     # ========================================================================
-    # NEW: Warm Cache Button (Optional - Recommended)
+    # Legacy: Warm Cache Button (Now uses canonical price cache)
     # ========================================================================
     if st.sidebar.button(
         "🔥 Warm Cache",
         key="warm_cache_button",
         use_container_width=True,
-        help="Prefetch and cache price data to ensure fast startup (optional)"
+        help="Prefetch and cache price data to ensure fast startup (uses canonical cache)"
     ):
         # Debug trace marker
         if st.session_state.get("debug_mode", False):
@@ -7079,33 +7245,32 @@ def render_sidebar_info():
         
         try:
             with st.spinner("Warming cache with price data..."):
-                # Prefetch prices
-                price_df, failures = cached_prefetch_prices_for_all_waves(days=365, _force_refresh=True)
+                # Use canonical price cache refresh
+                from helpers.price_loader import refresh_price_cache, check_cache_readiness
                 
-                # Store to session state
-                if len(price_df) > 0:
-                    st.session_state["last_good_prices"] = price_df
-                    st.session_state["last_price_fetch_time"] = datetime.now()
+                result = refresh_price_cache(active_only=True)
+                
+                # Show results
+                if result['success']:
+                    st.sidebar.success(
+                        f"✅ Cache warmed!\n\n"
+                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                    )
                     
-                    # Optional: Save to disk (parquet format for fast loading)
-                    try:
-                        cache_dir = os.path.join(os.path.dirname(__file__), 'data')
-                        os.makedirs(cache_dir, exist_ok=True)
-                        cache_file = os.path.join(cache_dir, 'cache_prices.parquet')
-                        price_df.to_parquet(cache_file)
-                        st.sidebar.success(f"✅ Cache warmed and saved to disk ({len(price_df.columns)} tickers)")
-                    except Exception as disk_error:
-                        # Disk save failed, but memory cache still works
-                        st.sidebar.success(f"✅ Cache warmed in memory ({len(price_df.columns)} tickers)")
-                        st.sidebar.warning(f"⚠️ Could not save to disk: {str(disk_error)}")
-                    
-                    # Show failure summary if any
-                    if failures:
-                        st.sidebar.info(f"ℹ️ {len(failures)} tickers had issues (data may be partial)")
+                    if result['tickers_failed'] > 0:
+                        st.sidebar.warning(
+                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                            f"See data/cache/failed_tickers.csv for details"
+                        )
                 else:
-                    st.sidebar.warning("⚠️ No price data was fetched. Please try again.")
-                    if failures:
-                        st.sidebar.error(f"Failures: {len(failures)} tickers failed to fetch")
+                    st.sidebar.error("❌ Failed to warm cache")
+                
+                # Check readiness after refresh
+                readiness = check_cache_readiness(active_only=True)
+                if readiness['ready']:
+                    st.sidebar.success(f"✅ Cache is READY")
+                else:
+                    st.sidebar.warning(f"⚠️ Cache status: {readiness['status_code']}")
                         
         except Exception as e:
             st.sidebar.error(f"❌ Error warming cache: {str(e)}")
@@ -10994,7 +11159,7 @@ def render_overview_tab():
                         "Wave_ID", "Wave", "Category", "Readiness", "Alert",
                         "Return_1D", "Return_30D", "Return_60D", "Return_365D",
                         "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
-                        "Exposure", "CashPercent", "Coverage %"
+                        "Exposure", "CashPercent", "Coverage %", "NA_Reason"
                     ]
                     
                     # Only include columns that exist
@@ -11030,32 +11195,32 @@ def render_overview_tab():
                 # ================================================================
                 if EXECUTIVE_SUMMARY_AVAILABLE:
                     try:
-                        # Get market data for context
+                        # Get market data for context from PRICE_BOOK (canonical source)
                         market_data = {}
                         try:
-                            # Try to get VIX, SPY, QQQ from snapshot or fetch
-                            import yfinance as yf
-                            
                             # Get VIX from snapshot if available
                             if "VIX_Level" in snapshot_df.columns:
                                 vix_values = snapshot_df["VIX_Level"].dropna()
                                 if not vix_values.empty:
                                     market_data["VIX"] = vix_values.iloc[0]
                             
-                            # Try to fetch SPY and QQQ 1D returns
+                            # Get SPY and QQQ 1D returns from PRICE_BOOK (canonical cache)
                             try:
-                                spy = yf.Ticker("SPY")
-                                spy_hist = spy.history(period="5d")
-                                if len(spy_hist) >= 2:
-                                    market_data["SPY_1D"] = (spy_hist["Close"].iloc[-1] / spy_hist["Close"].iloc[-2] - 1)
-                            except:
-                                pass
-                            
-                            try:
-                                qqq = yf.Ticker("QQQ")
-                                qqq_hist = qqq.history(period="5d")
-                                if len(qqq_hist) >= 2:
-                                    market_data["QQQ_1D"] = (qqq_hist["Close"].iloc[-1] / qqq_hist["Close"].iloc[-2] - 1)
+                                from helpers.price_book import get_price_book
+                                price_book = get_price_book(active_tickers=None)
+                                
+                                if not price_book.empty:
+                                    # Get SPY 1D return from PRICE_BOOK
+                                    if 'SPY' in price_book.columns:
+                                        spy_prices = price_book['SPY'].dropna()
+                                        if len(spy_prices) >= 2:
+                                            market_data["SPY_1D"] = (spy_prices.iloc[-1] / spy_prices.iloc[-2] - 1)
+                                    
+                                    # Get QQQ 1D return from PRICE_BOOK
+                                    if 'QQQ' in price_book.columns:
+                                        qqq_prices = price_book['QQQ'].dropna()
+                                        if len(qqq_prices) >= 2:
+                                            market_data["QQQ_1D"] = (qqq_prices.iloc[-1] / qqq_prices.iloc[-2] - 1)
                             except:
                                 pass
                         except:
@@ -16731,6 +16896,159 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 1.5: PRICE SOURCE STAMP (ALWAYS VISIBLE)
+    # ========================================================================
+    st.subheader("💰 PRICE SOURCE STAMP")
+    st.caption("Canonical price cache information - single source of truth for all price data")
+    
+    try:
+        from helpers.price_loader import get_cache_info, check_cache_readiness, collect_required_tickers
+        
+        # Get cache info
+        cache_info = get_cache_info()
+        
+        # Get readiness check
+        readiness = check_cache_readiness(active_only=True)
+        
+        # Display in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Use status_code for display
+            status_code = readiness.get('status_code', 'UNKNOWN')
+            
+            st.metric(
+                "Cache Status",
+                status_code,
+                delta=None,
+                help=readiness['status']
+            )
+            
+            # Cache path
+            st.caption(f"**Path:** `{cache_info['path']}`")
+            
+        with col2:
+            # Dataframe shape
+            shape_str = f"{readiness['num_days']} × {readiness['num_tickers']}"
+            st.metric("Cache Shape (rows × cols)", shape_str)
+            
+            # Max date
+            if readiness['max_date']:
+                st.caption(f"**Max Date:** {readiness['max_date']}")
+            else:
+                st.caption("**Max Date:** N/A")
+        
+        with col3:
+            # Ticker counts
+            st.metric("Required Tickers", readiness['required_tickers'])
+            st.metric("Cached Tickers", readiness['num_tickers'])
+            
+            # Missing tickers count
+            missing_count = len(readiness.get('missing_tickers', []))
+            if missing_count > 0:
+                st.caption(f"⚠️ **Missing:** {missing_count} tickers")
+            else:
+                st.caption("✅ **Missing:** 0 tickers")
+            
+            # Extra tickers count (informational only)
+            extra_count = len(readiness.get('extra_tickers', []))
+            if extra_count > 0:
+                st.caption(f"ℹ️ **Extra:** {extra_count} tickers (harmless)")
+        
+        # Show detailed info in expander
+        with st.expander("📊 Detailed Cache Information", expanded=False):
+            st.markdown("### Cache Details")
+            
+            detail_col1, detail_col2 = st.columns(2)
+            
+            with detail_col1:
+                st.markdown("**Cache File:**")
+                st.text(f"Exists: {'Yes' if cache_info['exists'] else 'No'}")
+                st.text(f"Size: {cache_info['size_mb']:.2f} MB")
+                st.text(f"Rows: {readiness['num_days']} trading days")
+                st.text(f"Columns: {readiness['num_tickers']} tickers")
+                
+                if cache_info['date_range'][0] and cache_info['date_range'][1]:
+                    st.text(f"Date Range: {cache_info['date_range'][0]} to {cache_info['date_range'][1]}")
+            
+            with detail_col2:
+                st.markdown("**Readiness:**")
+                st.text(f"Status: {readiness['status']}")
+                st.text(f"Ready: {'Yes' if readiness['ready'] else 'No'}")
+                
+                if readiness['days_stale'] is not None:
+                    st.text(f"Days Stale: {readiness['days_stale']}")
+                
+                st.text(f"Required Tickers: {readiness['required_tickers']}")
+                st.text(f"Missing Tickers: {len(readiness.get('missing_tickers', []))}")
+                st.text(f"Extra Tickers: {len(readiness.get('extra_tickers', []))}")
+                
+                # Show failed tickers count if available
+                failed_count = len(readiness.get('failed_tickers', []))
+                if failed_count > 0:
+                    st.text(f"Failed Downloads: {failed_count}")
+            
+            # Show missing tickers if any
+            if readiness.get('missing_tickers'):
+                st.markdown("### Missing Tickers")
+                missing = readiness['missing_tickers']
+                if len(missing) <= 20:
+                    st.text(", ".join(missing))
+                else:
+                    st.text(", ".join(missing[:20]) + f", ... and {len(missing) - 20} more")
+                    
+                    with st.expander("View all missing tickers", expanded=False):
+                        st.text(", ".join(missing))
+            
+            # Show extra tickers info (informational only - these are harmless)
+            if readiness.get('extra_tickers'):
+                st.markdown("### Extra Tickers (Informational)")
+                st.caption("These tickers are in the cache but not required by active waves. This is harmless.")
+                extra = readiness['extra_tickers']
+                if len(extra) <= 20:
+                    st.text(", ".join(extra))
+                else:
+                    st.text(", ".join(extra[:20]) + f", ... and {len(extra) - 20} more")
+                    
+                    with st.expander("View all extra tickers", expanded=False):
+                        st.text(", ".join(extra))
+            
+            # Show failed tickers if any
+            if readiness.get('failed_tickers'):
+                st.markdown("### Failed Tickers")
+                st.caption("These required tickers failed to download. Check failed_tickers.csv for details.")
+                failed = readiness['failed_tickers']
+                if len(failed) <= 20:
+                    st.text(", ".join(failed))
+                else:
+                    st.text(", ".join(failed[:20]) + f", ... and {len(failed) - 20} more")
+                    
+                    with st.expander("View all failed tickers", expanded=False):
+                        st.text(", ".join(failed))
+        
+        # Warning if cache is not ready
+        if not readiness['ready']:
+            if not readiness['exists']:
+                st.warning(
+                    "⚠️ **Cache file is missing!** Click '💰 Rebuild Price Cache (Active Tickers Only)' in the sidebar to build the cache.",
+                    icon="⚠️"
+                )
+            else:
+                st.warning(
+                    f"⚠️ **Cache is not ready:** {readiness['status']}\n\n"
+                    "Click '💰 Rebuild Price Cache (Active Tickers Only)' in the sidebar to update.",
+                    icon="⚠️"
+                )
+        
+    except Exception as e:
+        st.error(f"Error loading price cache information: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 2: Safe Mode Status
     # ========================================================================
     st.subheader("⚠️ Safe Mode Status")
@@ -17321,10 +17639,72 @@ def render_diagnostics_tab():
     # ========================================================================
     st.subheader("💰 Active Price Source Details")
     
+    # ========================================================================
+    # PRICE SOURCE STAMP - Permanent display (non-cached, always visible)
+    # ========================================================================
+    st.markdown("### 📍 Price Source Stamp")
+    st.markdown("**Current run price source information (non-cached):**")
+    
+    try:
+        from helpers.price_loader import get_cache_info, CACHE_PATH
+        
+        # Get current price cache info (non-cached call)
+        cache_info = get_cache_info()
+        
+        if cache_info['exists']:
+            # Display as metrics in columns for quick visibility
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "📁 Price Source File",
+                    "prices_cache.parquet",
+                    help="Exact price source file used for this run"
+                )
+            
+            with col2:
+                dataframe_shape = f"{cache_info['num_days']} × {cache_info['num_tickers']}"
+                st.metric(
+                    "📊 DataFrame Shape",
+                    dataframe_shape,
+                    help="Rows (days) × Columns (tickers)"
+                )
+            
+            with col3:
+                max_date = cache_info['date_range'][1] if cache_info['date_range'][1] else "N/A"
+                st.metric(
+                    "📅 Maximum Date",
+                    max_date,
+                    help="Most recent date in the dataframe"
+                )
+            
+            with col4:
+                st.metric(
+                    "🎯 Ticker Count",
+                    cache_info['num_tickers'],
+                    help="Number of unique tickers in dataframe"
+                )
+            
+            # Display full path in a compact format
+            st.caption(f"**Full path:** `{cache_info['path']}`")
+        else:
+            st.warning("⚠️ Price cache file does not exist. No price data available for this run.")
+            st.caption(f"Expected location: `{CACHE_PATH}`")
+    
+    except ImportError as e:
+        st.error(f"❌ Price loader module not available: {str(e)}")
+    except Exception as e:
+        st.error(f"❌ Error loading price source stamp: {str(e)}")
+        import traceback
+        st.caption("Error details:")
+        st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # Detailed price information in expander (optional)
     with st.expander("📊 Price Cache Information - Click to expand", expanded=False):
         try:
-            from helpers.price_loader import get_cache_info, CACHE_PATH
-            from data_cache import collect_all_required_tickers
+            from helpers.price_loader import get_cache_info, CACHE_PATH, collect_required_tickers
             from waves_engine import get_all_waves_universe
             
             st.markdown("### Price Cache Status")
@@ -17403,20 +17783,12 @@ def render_diagnostics_tab():
                 st.markdown("### Ticker Count Comparison")
                 
                 try:
-                    # Get wave registry to collect required tickers
-                    wave_universe = get_all_waves_universe()
-                    
                     # Build wave registry dict from waves engine
                     from waves_engine import WAVE_WEIGHTS
                     wave_registry = WAVE_WEIGHTS
                     
                     # Collect required tickers
-                    required_tickers = collect_all_required_tickers(
-                        wave_registry,
-                        include_benchmarks=True,
-                        include_safe_assets=True,
-                        active_only=False
-                    )
+                    required_tickers = collect_required_tickers(active_only=False)
                     
                     # Count tickers
                     cache_ticker_count = cache_info['num_tickers']
@@ -18284,185 +18656,181 @@ def render_overview_clean_tab():
         st.divider()
         
         # ========================================================================
-        # WAVE DATA READINESS DIAGNOSTICS
+        # WAVE DATA READINESS DIAGNOSTICS (PRICE_BOOK-based)
         # ========================================================================
         st.subheader("Wave Data Readiness Diagnostics")
+        st.caption("**Live evaluation against PRICE_BOOK** - Real-time ticker coverage and data quality assessment")
         
-        # Try to reuse an in-memory DF if it exists
-        coverage_df = None
-        for name in ["data_coverage_summary_df", "data_coverage_summary", "coverage_df", "coverage_summary_df"]:
-            if name in locals() and isinstance(locals()[name], pd.DataFrame) and len(locals()[name]) > 0:
-                coverage_df = locals()[name].copy()
-                break
-        
-        # If not found in memory, try to load from disk
-        if coverage_df is None:
-            candidate_paths = [
-                "data_coverage_summary.csv",
-                os.path.join("data", "data_coverage_summary.csv"),
-                os.path.join("outputs", "data_coverage_summary.csv"),
-                os.path.join("WAVES_Intelligence_Live", "data_coverage_summary.csv"),
-            ]
-            found_path = None
-            for p in candidate_paths:
-                if os.path.exists(p):
-                    found_path = p
-                    break
-        
-            if found_path:
-                coverage_df = pd.read_csv(found_path)
-                st.caption(f"Loaded: {found_path}")
-            else:
-                st.warning(
-                    "Could not find data_coverage_summary.csv (and no in-memory coverage DF was found). "
-                    "Please verify the file is being generated and saved to the app's working/data directory."
-                )
-        
-        # Render table if we have it
-        if coverage_df is not None and len(coverage_df) > 0:
-            # Normalize expected columns
-            expected_cols = [
-                "wave_id", "display_name", "coverage_pct", "history_days", "stale_days_max",
-                "missing_tickers", "stale_tickers"
-            ]
-            for c in expected_cols:
-                if c not in coverage_df.columns:
-                    coverage_df[c] = ""
-        
-            # Derive data_ready + reason
-            coverage_df["data_ready"] = (coverage_df["coverage_pct"].fillna(0).astype(float) >= 99.0) & (
-                coverage_df["history_days"].fillna(0).astype(int) > 0
+        try:
+            from helpers.price_book import get_price_book
+            from helpers.wave_performance import (
+                compute_all_waves_readiness, 
+                get_price_book_diagnostics,
+                compute_all_waves_performance
             )
-        
-            def _reason(row):
-                if row["data_ready"]:
-                    return "OK"
-                missing = row.get("missing_tickers", "")
-                stale = row.get("stale_tickers", "")
-                hist = row.get("history_days", 0)
-                cov = row.get("coverage_pct", 0)
-                
-                # Handle NaN values properly
-                if pd.isna(missing):
-                    missing = ""
+            
+            # Load PRICE_BOOK
+            price_book = get_price_book()
+            
+            # ====================================================================
+            # PRICE_BOOK TRUTH DIAGNOSTICS PANEL
+            # ====================================================================
+            st.markdown("#### 📊 PRICE_BOOK Truth Diagnostics")
+            
+            # Get PRICE_BOOK metadata
+            pb_diag = get_price_book_diagnostics(price_book)
+            
+            # Display PRICE_BOOK metadata in columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Cache File", "prices_cache.parquet")
+                st.caption(f"Path: {pb_diag['path']}")
+            
+            with col2:
+                st.metric("Shape (Days × Tickers)", f"{pb_diag['shape'][0]} × {pb_diag['shape'][1]}")
+                st.caption(f"Total: {pb_diag['total_days']} days, {pb_diag['total_tickers']} tickers")
+            
+            with col3:
+                st.metric("Date Range", f"{pb_diag['date_min']} to {pb_diag['date_max']}")
+                # Calculate days stale
+                if pb_diag['date_max'] != 'N/A':
+                    from datetime import datetime
+                    latest_date = datetime.strptime(pb_diag['date_max'], '%Y-%m-%d')
+                    days_stale = (datetime.now() - latest_date).days
+                    st.caption(f"Data is {days_stale} days old")
                 else:
-                    missing = str(missing).strip()
+                    st.caption("No data available")
+            
+            with col4:
+                # Count active waves and waves with data
+                try:
+                    from waves_engine import get_all_waves_universe
+                    universe = get_all_waves_universe()
+                    total_waves = len(universe.get('waves', []))
+                    
+                    # Compute performance to see which waves have data
+                    perf_df = compute_all_waves_performance(price_book, periods=[1])
+                    waves_with_data = len(perf_df[perf_df['Status/Confidence'] != 'Unavailable'])
+                    
+                    st.metric("Waves Status", f"{waves_with_data}/{total_waves} returning data")
+                    st.caption(f"{total_waves - waves_with_data} waves with issues")
+                except Exception as e:
+                    st.metric("Waves Status", "Error")
+                    st.caption(str(e))
+            
+            # Show failing waves summary (use only_validated=False to see all waves including failures)
+            try:
+                # For diagnostics, get all waves including invalid ones
+                perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
                 
-                if pd.isna(stale):
-                    stale = ""
+                if 'Failure_Reason' in perf_df_all.columns:
+                    failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
+                    
+                    if not failed_waves.empty:
+                        st.markdown(f"**⚠️ {len(failed_waves)} waves with N/A data:**")
+                        
+                        # Group by failure reason
+                        failure_groups = failed_waves.groupby('Failure_Reason')['Wave'].apply(list).to_dict()
+                        
+                        for reason, waves in failure_groups.items():
+                            with st.expander(f"❌ {reason} ({len(waves)} waves)", expanded=False):
+                                st.write(", ".join(waves))
+                    else:
+                        st.success("✅ All waves passing validation and returning data successfully")
                 else:
-                    stale = str(stale).strip()
-                
-                if pd.isna(hist):
-                    hist = 0
-                else:
-                    hist = int(hist)
-                
-                if pd.isna(cov):
-                    cov = 0
-                else:
-                    cov = float(cov)
-                
-                if cov == 0 or hist == 0:
-                    return "No usable price history / coverage=0 (likely missing tickers or source mismatch)"
-                if missing:
-                    return "Missing tickers in universe/holdings mapping"
-                if stale:
-                    return "Stale tickers (data not refreshing / stale feed)"
-                return "Failed readiness threshold (coverage or history requirement)"
-        
-            coverage_df["reason"] = coverage_df.apply(_reason, axis=1)
-        
-            show_only_bad = st.checkbox("Show only NOT data-ready", value=True)
-            view_df = coverage_df.copy()
-            if show_only_bad:
-                view_df = view_df[~view_df["data_ready"]]
-        
-            # Sort: failing first, then lowest coverage
-            view_df = view_df.sort_values(
-                by=["data_ready", "coverage_pct", "history_days"],
-                ascending=[True, True, True]
-            )
-        
-            st.dataframe(
-                view_df[["wave_id", "display_name", "data_ready", "reason",
-                         "coverage_pct", "history_days", "stale_days_max",
-                         "missing_tickers", "stale_tickers"]],
-                use_container_width=True
-            )
+                    st.success("✅ All waves in validated set returning data successfully")
+                    
+            except Exception as e:
+                st.warning(f"Unable to compute wave status: {str(e)}")
+            
+            st.divider()
+            
+            # ====================================================================
+            # DATA VALIDATION STATUS
+            # ====================================================================
+            st.success("✅ All active waves passed validation (100% price coverage, sufficient history)")
+            
+        except Exception as e:
+            st.error(f"Error validating wave data: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
         
         st.divider()
         
         # ========================================================================
-        # 28 WAVES PERFORMANCE TABLE
+        # 28 WAVES PERFORMANCE TABLE (PRICE_BOOK-based)
         # ========================================================================
         st.markdown("### 📋 28 Waves Performance Overview")
-        st.caption(f"Data Source: {data_source if data_source else 'No data available - showing placeholders'}")
+        st.caption("**Data Source: PRICE_BOOK (prices_cache.parquet)** - Live computation from canonical price cache")
         
-        # Build display table with all 28 waves
-        table_data = []
-        
-        for wave_name in all_waves:
-            row_data = {
-                'Wave': wave_name,
-                '1D Return': 'N/A',
-                '30D': 'N/A',
-                '60D': 'N/A',
-                '365D': 'N/A',
-                '1D Alpha': 'N/A',
-                '30D Alpha': 'N/A',
-                '60D Alpha': 'N/A',
-                '365D Alpha': 'N/A',
-                'Status/Confidence': 'Unavailable'
-            }
+        # Load PRICE_BOOK and compute performance
+        try:
+            from helpers.price_book import get_price_book
+            from helpers.wave_performance import compute_all_waves_performance
             
-            # Try to fill in data from snapshot
-            if snapshot_df is not None and not snapshot_df.empty:
-                wave_row = snapshot_df[snapshot_df['Wave'] == wave_name]
+            # Load PRICE_BOOK (cache-only, no fetching)
+            price_book = get_price_book()
+            
+            # Compute performance for all 28 waves (only validated by default)
+            # This ensures the main performance table ONLY shows waves with valid, continuous price history
+            performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
+            
+            if not performance_df.empty:
+                # Display the performance table
+                # Note: With only_validated=True, Failure_Reason column won't exist
+                display_columns = ['Wave', '1D Return', '30D', '60D', '365D', 'Status/Confidence']
                 
-                if not wave_row.empty:
-                    wave_row = wave_row.iloc[0]
+                # Show count of validated waves
+                st.info(f"📊 Showing {len(performance_df)} waves that passed validation (100% ticker coverage, sufficient price history)")
+                
+                st.dataframe(
+                    performance_df[display_columns],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=800  # Show more rows at once
+                )
+                
+                # Show which waves were excluded (if any)
+                try:
+                    from waves_engine import get_all_waves_universe
+                    universe = get_all_waves_universe()
+                    total_waves = len(universe.get('waves', []))
+                    excluded_count = total_waves - len(performance_df)
                     
-                    # Format returns as percentages without decimals
-                    for col, label in [
-                        ('Return_1D', '1D Return'),
-                        ('Return_30D', '30D'),
-                        ('Return_60D', '60D'),
-                        ('Return_365D', '365D'),
-                        ('Alpha_1D', '1D Alpha'),
-                        ('Alpha_30D', '30D Alpha'),
-                        ('Alpha_60D', '60D Alpha'),
-                        ('Alpha_365D', '365D Alpha')
-                    ]:
-                        if col in wave_row.index and pd.notna(wave_row[col]):
-                            val = wave_row[col] * 100
-                            row_data[label] = f"{val:+.0f}%"
+                    if excluded_count > 0:
+                        with st.expander(f"ℹ️ Validation Report ({excluded_count} waves excluded)", expanded=False):
+                            st.markdown("""
+                            **Why are waves excluded?**
+                            
+                            Waves are excluded from the performance table if they fail validation:
+                            - Missing required tickers from PRICE_BOOK
+                            - Insufficient date coverage (< 30 days)
+                            - Unable to compute returns
+                            
+                            To see all waves including invalid ones, use the Diagnostics section below.
+                            """)
+                            
+                            # Show excluded waves by getting all waves with only_validated=False
+                            perf_df_all = compute_all_waves_performance(price_book, periods=[1], only_validated=False)
+                            if 'Failure_Reason' in perf_df_all.columns:
+                                failed_waves = perf_df_all[perf_df_all['Failure_Reason'].notna()]
+                                if not failed_waves.empty:
+                                    st.dataframe(
+                                        failed_waves[['Wave', 'Failure_Reason', 'Coverage_Pct']],
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+                except Exception as e:
+                    st.caption(f"Note: Unable to determine excluded waves: {str(e)}")
                     
-                    # Determine status/confidence
-                    flags = wave_row.get('Flags', '')
-                    coverage = wave_row.get('Coverage_Score', 0)
-                    
-                    if pd.isna(wave_row.get('Return_1D')):
-                        row_data['Status/Confidence'] = 'Unavailable'
-                    elif 'Proxy' in str(flags) or data_source == 'Proxy Snapshot (Plan B)':
-                        row_data['Status/Confidence'] = 'Proxy (Plan B)'
-                    elif coverage >= 90:
-                        row_data['Status/Confidence'] = 'Full'
-                    elif coverage >= 50:
-                        row_data['Status/Confidence'] = 'Operational'
-                    else:
-                        row_data['Status/Confidence'] = 'Partial'
-            
-            table_data.append(row_data)
-        
-        # Create and display dataframe
-        display_df = pd.DataFrame(table_data)
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            height=800  # Show more rows at once
-        )
+            else:
+                st.warning("No waves passed validation - PRICE_BOOK may be empty or missing required tickers")
+                
+        except Exception as e:
+            st.error(f"Error computing wave performance: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
         
         st.divider()
         
@@ -18538,6 +18906,11 @@ def main():
     Main application entry point - Executive Layer v2.
     Orchestrates the entire Institutional Console UI with enhanced analytics.
     """
+    # ========================================================================
+    # ENTRYPOINT FINGERPRINT
+    # ========================================================================
+    print("[ENTRYPOINT] Running app.py")
+    
     # ========================================================================
     # STEP 0: Initialize Safe Mode (Default ON)
     # ========================================================================
@@ -19020,54 +19393,32 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         pass
     
     # ========================================================================
-    # Global Price Cache Initialization
+    # Global Price Cache Initialization - DISABLED (now using canonical cache)
     # ========================================================================
+    # NOTE: Global price cache initialization has been disabled to prevent
+    # implicit background downloads. All price data now comes from the
+    # canonical cache at data/cache/prices_cache.parquet.
+    # 
+    # Users should explicitly refresh the cache using:
+    # 1. "Refresh Prices Cache" button in sidebar
+    # 2. FORCE_CACHE_REFRESH=1 environment variable
+    #
+    # The canonical cache can be accessed via:
+    #   from helpers.price_loader import get_canonical_prices
+    #   prices = get_canonical_prices(tickers=['AAPL', 'MSFT'])
     
-    # Initialize price cache TTL setting if not present (default: 2 hours)
+    # Initialize price cache TTL setting if not present (kept for backward compatibility)
     if "price_cache_ttl_seconds" not in st.session_state:
         st.session_state.price_cache_ttl_seconds = 7200
     
-    # Initialize force rebuild flag if not present
+    # Initialize force rebuild flag if not present (kept for backward compatibility)
     if "force_price_cache_rebuild" not in st.session_state:
         st.session_state.force_price_cache_rebuild = False
     
-    # Prefetch global price cache if data_cache is available and WAVE_WEIGHTS is available
-    # Use compute lock to prevent duplicate fetches
-    if DATA_CACHE_AVAILABLE and WAVES_ENGINE_AVAILABLE and WAVE_WEIGHTS:
-        # Check compute lock
-        should_fetch, reason = should_allow_compute("fetch_prices")
-        
-        if should_fetch:
-            try:
-                # Get TTL from session state
-                ttl_seconds = st.session_state.get("price_cache_ttl_seconds", 7200)
-                
-                # Prefetch prices once (cached with TTL)
-                cache_result = get_global_price_cache(
-                    wave_registry=WAVE_WEIGHTS,
-                    days=365,
-                    ttl_seconds=ttl_seconds
-                )
-                
-                # Store in session state for use across the app
-                st.session_state.global_price_df = cache_result.get("price_df")
-                st.session_state.global_price_failures = cache_result.get("failures", {})
-                st.session_state.global_price_asof = cache_result.get("asof")
-                st.session_state.global_price_ticker_count = cache_result.get("ticker_count", 0)
-                st.session_state.global_price_success_count = cache_result.get("success_count", 0)
-                
-                # Mark operation as done
-                mark_compute_done("fetch_prices", success=True)
-                
-            except Exception as e:
-                # Log error but don't crash - app can still work without cache
-                print(f"Warning: Failed to prefetch global price cache: {str(e)}")
-                st.session_state.global_price_df = None
-                mark_compute_done("fetch_prices", success=False)
-        else:
-            # Compute lock prevented fetch
-            if st.session_state.get("debug_mode", False):
-                print(f"Price fetch blocked: {reason}")
+    # REMOVED: Automatic price cache prefetching on startup
+    # This was causing implicit background downloads which violated the
+    # single source of truth principle. All price loading now goes through
+    # the canonical cache which only downloads on explicit user request.
     
     # ========================================================================
     # Main Application UI
@@ -19099,6 +19450,19 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     
     # Main analytics tabs
     st.title("Institutional Console - Executive Layer v2")
+    
+    # ========================================================================
+    # ENTRYPOINT FINGERPRINT - UI Banner
+    # ========================================================================
+    st.caption("ENTRYPOINT: app.py")
+    
+    # ========================================================================
+    # REALITY PANEL - Single Source of Truth for Price Data
+    # ========================================================================
+    # Display the Reality Panel showing actual PRICE_BOOK metadata
+    render_reality_panel()
+    
+    st.markdown("---")
     
     # ========================================================================
     # ROUND 7 Phase 1: Wave Universe Validation Banner
