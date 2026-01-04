@@ -18692,7 +18692,12 @@ Market conditions reflect {risk_assessment}, with {positive_count} of {total_cou
         
         signal_col1, signal_col2, signal_col3, signal_col4 = st.columns(4)
         
-        # Calculate signals
+        # Calculate signals - define these at function scope for use in recommendations
+        alpha_quality = "Mixed"  # Default
+        risk_regime = "Neutral"  # Default
+        data_integrity = "Degraded"  # Default
+        confidence = "Moderate"  # Default
+        
         try:
             # System Confidence: Based on data coverage and freshness
             if not performance_df.empty:
