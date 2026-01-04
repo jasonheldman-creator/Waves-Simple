@@ -77,6 +77,29 @@ REQUEST_TIMEOUT = 15  # Timeout for yfinance requests (seconds)
 # Check environment variable for force cache refresh
 FORCE_CACHE_REFRESH = os.environ.get('FORCE_CACHE_REFRESH', '0') == '1'
 
+# Option B: Staleness threshold configuration (read from environment variables)
+# OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+try:
+    PRICE_CACHE_OK_DAYS = int(os.environ.get('PRICE_CACHE_OK_DAYS', '14'))
+except (ValueError, TypeError):
+    logger.warning("Invalid PRICE_CACHE_OK_DAYS environment variable, using default: 14")
+    PRICE_CACHE_OK_DAYS = 14
+
+try:
+    PRICE_CACHE_DEGRADED_DAYS = int(os.environ.get('PRICE_CACHE_DEGRADED_DAYS', '30'))
+except (ValueError, TypeError):
+    logger.warning("Invalid PRICE_CACHE_DEGRADED_DAYS environment variable, using default: 30")
+    PRICE_CACHE_DEGRADED_DAYS = 30
+
+# Validate threshold constraint: DEGRADED_DAYS must be greater than OK_DAYS
+if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
+    logger.warning(
+        f"PRICE_CACHE_DEGRADED_DAYS ({PRICE_CACHE_DEGRADED_DAYS}) must be greater than "
+        f"PRICE_CACHE_OK_DAYS ({PRICE_CACHE_OK_DAYS}). Using defaults: OK=14, DEGRADED=30"
+    )
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
+
 
 def ensure_cache_directory() -> None:
     """Ensure the cache directory exists."""
@@ -1108,12 +1131,15 @@ def check_cache_readiness(
     Readiness criteria:
     - Cache file exists
     - Has minimum trading days of data
-    - Data is not too stale (within max_stale_days)
+    - Data staleness is evaluated using Option B thresholds (calendar days):
+      * OK: ≤14 days (PRICE_CACHE_OK_DAYS)
+      * DEGRADED: 15-30 days (PRICE_CACHE_DEGRADED_DAYS)
+      * STALE: >30 days
     - Contains required tickers for active waves
     
     Args:
         min_trading_days: Minimum trading days required (default: 60)
-        max_stale_days: Maximum age in days before data is stale (default: 5)
+        max_stale_days: Legacy parameter, retained for compatibility (default: 2)
         active_only: If True, only check tickers for active waves (default: True)
         
     Returns:
@@ -1123,7 +1149,7 @@ def check_cache_readiness(
         - num_days: int - Number of trading days in cache
         - num_tickers: int - Number of tickers in cache
         - max_date: str - Most recent date in cache
-        - days_stale: int - Days since most recent data
+        - days_stale: int - Calendar days since most recent data
         - required_tickers: int - Number of tickers required for active waves
         - missing_tickers: List[str] - Required tickers not in cache
         - extra_tickers: List[str] - Tickers in cache but not required (harmless)
@@ -1165,13 +1191,9 @@ def check_cache_readiness(
     result['num_tickers'] = len(cache_df.columns)
     result['max_date'] = cache_df.index[-1].strftime('%Y-%m-%d')
     
-    # Calculate staleness using trading days (not calendar days)
-    # max_stale_days parameter is interpreted as trading days
+    # Calculate staleness (calendar days)
     max_date = cache_df.index[-1].to_pydatetime()
     now = datetime.utcnow()
-    
-    # Calculate the cutoff date (N trading days ago from now)
-    cutoff_date = get_trading_days_ago(now, trading_days_back=max_stale_days)
     
     # Calculate calendar days for reporting purposes
     days_since_update = (now - max_date).days
@@ -1183,12 +1205,19 @@ def check_cache_readiness(
         result['status_code'] = 'INSUFFICIENT'
         return result
     
-    # Check staleness based on trading days
-    # If max_date is older than the cutoff (N trading days ago), it's stale
-    if max_date < cutoff_date:
-        result['status'] = f'STALE - Data is {days_since_update} calendar days old (>{max_stale_days} trading days)'
+    # Option B: Check staleness using three-tier system (calendar days)
+    # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+    # Use environment-configurable thresholds
+    staleness_status = None
+    if days_since_update > PRICE_CACHE_DEGRADED_DAYS:
+        # Data is older than 30 days (DEGRADED threshold) → STALE
+        result['status'] = f'STALE - Data is {days_since_update} days old (>{PRICE_CACHE_DEGRADED_DAYS} days)'
         result['status_code'] = 'STALE'
-        # Don't return yet - still report missing tickers
+        staleness_status = 'STALE'
+    elif days_since_update > PRICE_CACHE_OK_DAYS:
+        # Data is 15-30 days old → DEGRADED (don't return yet, check for missing tickers)
+        staleness_status = 'DEGRADED'
+    # else: Data is ≤14 days old → OK (no staleness issue)
     
     # Check required tickers
     cached_tickers = set(cache_df.columns)
@@ -1218,19 +1247,27 @@ def check_cache_readiness(
         except Exception as e:
             logger.error(f"Error loading failed tickers: {e}")
     
-    # Determine final readiness
+    # Determine final readiness based on missing tickers and staleness
     if missing:
         result['status'] = f'DEGRADED - Missing {len(missing)} required tickers'
         result['status_code'] = 'DEGRADED'
         result['ready'] = False
         return result
     
-    # If we got here and status was STALE, keep that status but mark as not ready
-    if result['status_code'] == 'STALE':
+    # If data is STALE (>30 days), mark as not ready
+    if staleness_status == 'STALE':
         result['ready'] = False
         return result
     
-    # All checks passed
+    # If data is DEGRADED (15-30 days), mark as ready but with degraded status
+    if staleness_status == 'DEGRADED':
+        result['ready'] = True  # Still operational
+        # Note: PRICE_CACHE_OK_DAYS + 1 represents the lower bound of DEGRADED range
+        result['status'] = f'DEGRADED - Data is {days_since_update} days old ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days)'
+        result['status_code'] = 'DEGRADED'
+        return result
+    
+    # All checks passed - data is OK (≤14 days old)
     result['ready'] = True
     result['status'] = 'READY'
     result['status_code'] = 'READY'

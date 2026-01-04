@@ -6352,16 +6352,31 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
-            # Add STALE indicator for old data (with type safety)
+            # Option B: Three-tier staleness display
+            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
-                age_display = f"⚠️ {data_age} days (STALE)"
+                # STALE: >30 days
+                age_display = f"❌ {data_age} days (STALE)"
+            elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD:
+                # DEGRADED: 15-30 days
+                age_display = f"⚠️ {data_age} days (DEGRADED)"
+            # else: OK: ≤14 days (no special indicator)
         else:
             age_display = "Unknown"
+        
+        # Build help text for data age metric
+        help_text = (
+            f"Time since last data update (UTC). Three-tier staleness system: "
+            f"OK (≤{DEGRADED_DAYS_THRESHOLD} days), "
+            f"DEGRADED ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days), "
+            f"STALE (>{STALE_DAYS_THRESHOLD} days). "
+            f"Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
+        )
         
         st.metric(
             label="Data Age",
             value=age_display,
-            help="Time since last data update (UTC). STALE if > 10 days old."
+            help=help_text
         )
     
     with sec_col5:
@@ -6410,12 +6425,19 @@ def render_mission_control():
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is old AND network fetch is disabled (with type safety)
+        # Show warning if cache is STALE (>30 days) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
-                f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
-                f"Data is {data_age} days old. Network fetching is disabled (safe_mode), "
+                f"⚠️ **STALE DATA WARNING**\n\n"
+                f"Data is {data_age} days old (>{STALE_DAYS_THRESHOLD} days). Network fetching is disabled (safe_mode), "
                 f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
+            )
+        elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+            # Info message for DEGRADED (15-30 days)
+            st.info(
+                f"ℹ️ **DEGRADED DATA NOTICE**\n\n"
+                f"Data is {data_age} days old ({DEGRADED_DAYS_THRESHOLD + 1}-{STALE_DAYS_THRESHOLD} days). "
+                f"Consider refreshing using the 'Rebuild PRICE_BOOK Cache' button below for fresher data."
             )
     except Exception:
         pass
@@ -18647,11 +18669,13 @@ def render_overview_clean_tab():
             # Compute system status based on multiple signals
             status_issues = []
             
-            # Check 1: Price book staleness
-            if data_age_days is not None and data_age_days > 7:
-                status_issues.append(f"Price data is {data_age_days} days stale")
-            elif data_age_days is not None and data_age_days > 1:
-                status_issues.append(f"Price data is {data_age_days} days old")
+            # Check 1: Price book staleness (Option B: three-tier system)
+            # OK: ≤14 days, DEGRADED: 15-30 days, STALE: >30 days
+            if data_age_days is not None and data_age_days > STALE_DAYS_THRESHOLD:
+                status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
+            elif data_age_days is not None and data_age_days > DEGRADED_DAYS_THRESHOLD:
+                status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
+            # else: data_age_days ≤ 14 days → OK, no issue to report
             
             # Check 2: Missing tickers / data coverage
             total_waves = len(performance_df) if not performance_df.empty else 0
@@ -18683,13 +18707,13 @@ def render_overview_clean_tab():
                     if valid_data_pct < 70:
                         status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
             
-            # Determine overall system status
+            # Determine overall system status (Option B aligned)
             if len(status_issues) == 0 and data_current:
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
                 status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= 3):
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= DEGRADED_DAYS_THRESHOLD):
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
