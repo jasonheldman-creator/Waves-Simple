@@ -1,0 +1,184 @@
+name: Update Price Cache (PRICE_BOOK Freshness Option A1)
+
+on:
+  # Schedule: Daily after market close (9 PM ET / 2 AM UTC Tue-Sat)
+  # Markets close 4 PM ET Mon-Fri, so 9 PM ET gives 5h buffer
+  # 9 PM ET = 2 AM UTC (next day due to timezone)
+  schedule:
+    - cron: "0 2 * * 2-6"  # 2 AM UTC Tuesday-Saturday (covers Mon-Fri market closes)
+  
+  # Manual trigger with optional days parameter
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days of historical data to fetch (default: 365)'
+        required: false
+        default: '365'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update-price-cache:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      
+      - name: Determine days parameter
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DAYS="${{ github.event.inputs.days }}"
+            echo "days=${DAYS:-365}" >> $GITHUB_OUTPUT
+          else
+            # Default for scheduled runs: 365 days
+            echo "days=365" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run price cache builder
+        id: build_cache
+        run: |
+          set -e  # Fail on any error
+          
+          echo "Building price cache with ${{ steps.params.outputs.days }} days of data..."
+          
+          # Run build_price_cache.py (the existing script that creates the parquet file)
+          python build_price_cache.py --force --years $(( ${{ steps.params.outputs.days }} / 365 + 1 ))
+          
+          # Verify the cache file was created
+          if [ ! -f "data/cache/prices_cache.parquet" ]; then
+            echo "ERROR: Cache file was not created at data/cache/prices_cache.parquet"
+            exit 1
+          fi
+          
+          echo "✓ Price cache built successfully"
+      
+      - name: Extract cache statistics
+        id: stats
+        run: |
+          python << 'EOF'
+          import os
+          import pandas as pd
+          from datetime import datetime
+          
+          cache_path = "data/cache/prices_cache.parquet"
+          
+          if not os.path.exists(cache_path):
+              print("ERROR: Cache file not found")
+              exit(1)
+          
+          try:
+              # Load the cache
+              df = pd.read_parquet(cache_path)
+              
+              # Get statistics
+              num_rows = len(df)
+              num_cols = len(df.columns)
+              file_size_bytes = os.path.getsize(cache_path)
+              file_size_mb = file_size_bytes / (1024 * 1024)
+              
+              # Get last price date (most recent date in index)
+              if isinstance(df.index, pd.DatetimeIndex):
+                  last_date = df.index.max().strftime('%Y-%m-%d')
+                  first_date = df.index.min().strftime('%Y-%m-%d')
+              else:
+                  last_date = "Unknown"
+                  first_date = "Unknown"
+              
+              # Calculate data age
+              if last_date != "Unknown":
+                  last_dt = pd.to_datetime(last_date)
+                  today = pd.Timestamp.now().normalize()
+                  age_days = (today - last_dt).days
+              else:
+                  age_days = -1
+              
+              # Write to GitHub output
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"last_date={last_date}\n")
+                  f.write(f"first_date={first_date}\n")
+                  f.write(f"num_rows={num_rows}\n")
+                  f.write(f"num_cols={num_cols}\n")
+                  f.write(f"file_size_mb={file_size_mb:.2f}\n")
+                  f.write(f"age_days={age_days}\n")
+              
+              print(f"Last Price Date: {last_date}")
+              print(f"Date Range: {first_date} to {last_date}")
+              print(f"Dimensions: {num_rows} rows × {num_cols} columns")
+              print(f"Tickers: {num_cols}")
+              print(f"File Size: {file_size_mb:.2f} MB")
+              print(f"Data Age: {age_days} days")
+              
+          except Exception as e:
+              print(f"ERROR: Failed to extract statistics: {e}")
+              exit(1)
+          EOF
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git diff --quiet data/cache/prices_cache.parquet && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name "waves-bot"
+          git config user.email "actions@github.com"
+          git add data/cache/prices_cache.parquet
+          
+          # Also commit failed_tickers.csv if it exists and was updated
+          if [ -f data/cache/failed_tickers.csv ]; then
+            git add data/cache/failed_tickers.csv
+          fi
+          
+          git commit -m "Update price cache - ${{ steps.stats.outputs.last_date }} [auto]" || echo "No changes to commit"
+          git push
+      
+      - name: Workflow Summary
+        if: always()
+        run: |
+          echo "## 📊 Price Cache Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.build_cache.outcome }}" = "success" ]; then
+            echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Cache Statistics" >> $GITHUB_STEP_SUMMARY
+            echo "- **Last Price Date:** ${{ steps.stats.outputs.last_date }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Date Range:** ${{ steps.stats.outputs.first_date }} to ${{ steps.stats.outputs.last_date }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Dimensions:** ${{ steps.stats.outputs.num_rows }} rows × ${{ steps.stats.outputs.num_cols }} columns" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tickers Count:** ${{ steps.stats.outputs.num_cols }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **File Size:** ${{ steps.stats.outputs.file_size_mb }} MB" >> $GITHUB_STEP_SUMMARY
+            echo "- **Data Age:** ${{ steps.stats.outputs.age_days }} days" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ steps.check_changes.outputs.changed }}" = "true" ]; then
+              echo "✅ **Cache Updated:** Changes committed and pushed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ **Cache Status:** No changes detected" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The price cache update failed. Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Common issues:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Network connectivity to Yahoo Finance" >> $GITHUB_STEP_SUMMARY
+            echo "- Missing or invalid ticker symbols" >> $GITHUB_STEP_SUMMARY
+            echo "- Insufficient API rate limits" >> $GITHUB_STEP_SUMMARY
+          fi
