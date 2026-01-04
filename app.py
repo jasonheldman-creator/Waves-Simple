@@ -18724,12 +18724,15 @@ def render_overview_clean_tab():
             
             # Determine overall system status using canonical price_book thresholds
             # UI uses price_book as source of truth to prevent divergence
-            if len(status_issues) == 0 and data_current:
+            # STABLE: No issues AND data age ≤ PRICE_CACHE_OK_DAYS (14 days)
+            # WATCH: Minor issues (≤2) AND data age ≤ PRICE_CACHE_DEGRADED_DAYS (30 days)
+            # DEGRADED: Multiple issues OR data age > PRICE_CACHE_DEGRADED_DAYS
+            if len(status_issues) == 0 and (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS):
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
                 status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS):
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS):
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
@@ -18943,13 +18946,13 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             
             # Data Integrity: Based on coverage and age using canonical price_book thresholds
             # UI uses price_book as source of truth to prevent divergence
-            # OK: data current AND age ≤ PRICE_CACHE_OK_DAYS (14 days), coverage ≥ 95%
-            # DEGRADED: coverage ≥ 80% OR age > PRICE_CACHE_OK_DAYS but ≤ PRICE_CACHE_DEGRADED_DAYS
-            # COMPROMISED: coverage < 80% OR age > PRICE_CACHE_DEGRADED_DAYS
-            if data_current and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE and (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS):
+            # OK: age ≤ PRICE_CACHE_OK_DAYS (14 days) AND coverage ≥ 95%
+            # DEGRADED: (age > PRICE_CACHE_OK_DAYS but ≤ PRICE_CACHE_DEGRADED_DAYS) OR (coverage ≥ 80% but < 95%)
+            # COMPROMISED: age > PRICE_CACHE_DEGRADED_DAYS OR coverage < 80%
+            if (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS) and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
                 data_integrity = "Verified"
                 integrity_color = "🟢"
-            elif valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE and (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS):
+            elif (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS) and valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
                 data_integrity = "Degraded"
                 integrity_color = "🟡"
             else:
