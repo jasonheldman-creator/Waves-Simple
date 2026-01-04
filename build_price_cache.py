@@ -30,6 +30,9 @@ import pandas as pd
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Threshold configuration
+MIN_SUCCESS_RATE = float(os.getenv("MIN_SUCCESS_RATE", "0.95"))
+
 from helpers.price_loader import (
     deduplicate_tickers,
     load_cache,
@@ -173,7 +176,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         years: Number of years of history to keep
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, success_rate: float)
     """
     logger.info("=" * 70)
     logger.info("BUILD PRICE CACHE")
@@ -192,10 +195,11 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         user_input = input("\nCache exists. Rebuild? (y/N): ").strip().lower()
         if user_input != 'y':
             logger.info("Keeping existing cache")
-            return True
+            return True, 1.0
     
     # Step 1: Collect all tickers
     all_tickers, wave_tickers, benchmark_tickers = collect_all_tickers()
+    total_requested = len(all_tickers)
     
     # Step 2: Load existing price data
     existing_prices = load_existing_price_files()
@@ -221,6 +225,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     logger.info(f"Missing tickers: {len(missing_tickers)}/{len(all_tickers)}")
     
     # Step 5: Fetch missing data (if network is available)
+    all_failures = {}
     if missing_tickers:
         logger.info("Attempting to fetch missing tickers from yfinance...")
         
@@ -232,7 +237,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         
         # Fetch in batches
         all_new_data = []
-        all_failures = {}
         
         for i in range(0, len(missing_tickers), BATCH_SIZE):
             batch = missing_tickers[i:i + BATCH_SIZE]
@@ -265,17 +269,19 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             
             cache_df = merge_cache_and_new_data(cache_df, new_data_df)
         
-        # Log failures
+        # Log failures with ticker + reason
         if all_failures:
             logger.warning(f"Failed to fetch {len(all_failures)} tickers:")
-            for ticker in list(all_failures.keys())[:10]:
-                logger.warning(f"  {ticker}: {all_failures[ticker]}")
-            if len(all_failures) > 10:
-                logger.warning(f"  ... and {len(all_failures) - 10} more")
+            for ticker, reason in sorted(all_failures.items()):
+                logger.warning(f"  {ticker}: {reason}")
     
     # Step 6: Trim cache to date range
     if not cache_df.empty:
         cache_df = trim_cache_to_date_range(cache_df, years)
+    
+    # Calculate success metrics
+    successful_downloads = total_requested - len(all_failures)
+    success_rate = successful_downloads / total_requested if total_requested > 0 else 0.0
     
     # Step 7: Save cache
     if not cache_df.empty:
@@ -285,23 +291,39 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         # Print summary
         info = get_cache_info()
         logger.info("=" * 70)
-        logger.info("CACHE BUILD COMPLETE")
+        logger.info("CACHE BUILD SUMMARY")
         logger.info("=" * 70)
         logger.info(f"  Path: {info['path']}")
         logger.info(f"  Size: {info['size_mb']:.2f} MB")
         logger.info(f"  Tickers: {info['num_tickers']}")
         logger.info(f"  Days: {info['num_days']}")
         logger.info(f"  Date range: {info['date_range'][0]} to {info['date_range'][1]}")
+        logger.info("")
+        logger.info(f"  Total tickers: {total_requested}")
+        logger.info(f"  Successful tickers: {successful_downloads}")
+        logger.info(f"  Failed tickers: {len(all_failures)}")
+        logger.info(f"  Success rate: {success_rate * 100:.2f}%")
+        logger.info(f"  Threshold: {MIN_SUCCESS_RATE * 100:.2f}%")
         
-        # Calculate coverage
-        coverage = info['num_tickers'] / len(all_tickers) * 100 if len(all_tickers) > 0 else 0
-        logger.info(f"  Coverage: {coverage:.1f}% ({info['num_tickers']}/{len(all_tickers)} tickers)")
+        if all_failures:
+            logger.info("")
+            logger.info(f"  Failed tickers list ({len(all_failures)}):")
+            for ticker in sorted(all_failures.keys()):
+                logger.info(f"    - {ticker}")
+        
         logger.info("=" * 70)
         
-        return True
+        # Determine success based on threshold
+        meets_threshold = success_rate >= MIN_SUCCESS_RATE
+        if meets_threshold:
+            logger.info(f"✓ SUCCESS: Success rate {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+        else:
+            logger.error(f"✗ FAILURE: Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+        
+        return meets_threshold, success_rate
     else:
         logger.error("No data available to build cache")
-        return False
+        return False, 0.0
 
 
 def main():
@@ -312,9 +334,15 @@ def main():
     
     args = parser.parse_args()
     
-    success = build_initial_cache(force_rebuild=args.force, years=args.years)
+    success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
     
-    sys.exit(0 if success else 1)
+    # Exit with code 0 if success_rate >= MIN_SUCCESS_RATE, otherwise exit with code 1
+    if success:
+        logger.info(f"Exiting with code 0 (success rate: {success_rate * 100:.2f}%)")
+        sys.exit(0)
+    else:
+        logger.error(f"Exiting with code 1 (success rate: {success_rate * 100:.2f}%)")
+        sys.exit(1)
 
 
 if __name__ == '__main__':

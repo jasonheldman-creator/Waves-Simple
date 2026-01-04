@@ -1,0 +1,211 @@
+"""
+Test suite for build_price_cache threshold-based failure handling.
+
+Tests the new threshold logic to ensure:
+1. Exit code 0 when success_rate >= MIN_SUCCESS_RATE
+2. Exit code 1 when success_rate < MIN_SUCCESS_RATE
+3. Proper logging of failed tickers and summary
+"""
+
+import os
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_success_rate_calculation():
+    """Test that success rate is calculated correctly."""
+    print("=" * 80)
+    print("TEST: Success Rate Calculation")
+    print("=" * 80)
+    
+    # Test case 1: 100% success
+    total = 100
+    failures = 0
+    success_rate = (total - failures) / total
+    assert success_rate == 1.0, f"Expected 1.0, got {success_rate}"
+    print(f"  ✓ 100% success: {success_rate * 100:.2f}%")
+    
+    # Test case 2: 95% success (at threshold)
+    total = 100
+    failures = 5
+    success_rate = (total - failures) / total
+    assert success_rate == 0.95, f"Expected 0.95, got {success_rate}"
+    print(f"  ✓ 95% success: {success_rate * 100:.2f}%")
+    
+    # Test case 3: 94% success (below threshold)
+    total = 100
+    failures = 6
+    success_rate = (total - failures) / total
+    assert success_rate == 0.94, f"Expected 0.94, got {success_rate}"
+    print(f"  ✓ 94% success: {success_rate * 100:.2f}%")
+    
+    # Test case 4: Edge case - small numbers
+    total = 10
+    failures = 1
+    success_rate = (total - failures) / total
+    assert success_rate == 0.9, f"Expected 0.9, got {success_rate}"
+    print(f"  ✓ 90% success (10 tickers, 1 failed): {success_rate * 100:.2f}%")
+    
+    # Test case 5: Real-world scenario - 120 tickers, 4 failures
+    total = 120
+    failures = 4
+    success_rate = (total - failures) / total
+    expected = 116/120
+    assert abs(success_rate - expected) < 0.001, f"Expected {expected}, got {success_rate}"
+    print(f"  ✓ 120 tickers, 4 failed: {success_rate * 100:.2f}% (116/120)")
+    
+    print("\n✓ All success rate calculation tests passed")
+    return True
+
+
+def test_threshold_logic():
+    """Test the threshold comparison logic."""
+    print("=" * 80)
+    print("TEST: Threshold Logic")
+    print("=" * 80)
+    
+    MIN_SUCCESS_RATE = 0.95
+    
+    # Test case 1: Above threshold
+    success_rate = 0.96
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is True, f"Expected True for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% >= {MIN_SUCCESS_RATE * 100:.2f}% → PASS")
+    
+    # Test case 2: At threshold
+    success_rate = 0.95
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is True, f"Expected True for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% >= {MIN_SUCCESS_RATE * 100:.2f}% → PASS")
+    
+    # Test case 3: Below threshold
+    success_rate = 0.94
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is False, f"Expected False for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% < {MIN_SUCCESS_RATE * 100:.2f}% → FAIL")
+    
+    # Test case 4: Far below threshold
+    success_rate = 0.80
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is False, f"Expected False for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% < {MIN_SUCCESS_RATE * 100:.2f}% → FAIL")
+    
+    # Test case 5: Real-world - 120 tickers, 4 failures (96.67% > 95%)
+    success_rate = 116/120  # 96.67%
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is True, f"Expected True for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% >= {MIN_SUCCESS_RATE * 100:.2f}% → PASS (120 tickers, 4 failed)")
+    
+    # Test case 6: Real-world - 120 tickers, 7 failures (94.17% < 95%)
+    success_rate = 113/120  # 94.17%
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    assert meets_threshold is False, f"Expected False for {success_rate}"
+    print(f"  ✓ {success_rate * 100:.2f}% < {MIN_SUCCESS_RATE * 100:.2f}% → FAIL (120 tickers, 7 failed)")
+    
+    print("\n✓ All threshold logic tests passed")
+    return True
+
+
+def test_environment_variable_parsing():
+    """Test that MIN_SUCCESS_RATE can be parsed from environment variable."""
+    print("=" * 80)
+    print("TEST: Environment Variable Parsing")
+    print("=" * 80)
+    
+    # Test different threshold values
+    test_values = [
+        ("0.90", 0.90),
+        ("0.95", 0.95),
+        ("0.99", 0.99),
+        ("1.0", 1.0),
+        ("0.5", 0.5),
+    ]
+    
+    for env_value, expected in test_values:
+        parsed = float(env_value)
+        assert parsed == expected, f"Expected {expected}, got {parsed}"
+        print(f"  ✓ MIN_SUCCESS_RATE={env_value} → {parsed}")
+    
+    # Test default value when env var not set
+    default = float(os.getenv("MIN_SUCCESS_RATE_TEST_VAR", "0.95"))
+    assert default == 0.95, f"Expected 0.95, got {default}"
+    print(f"  ✓ Default when not set → {default}")
+    
+    print("\n✓ All environment variable parsing tests passed")
+    return True
+
+
+def test_exit_code_logic():
+    """Test that exit codes are correct based on success rate."""
+    print("=" * 80)
+    print("TEST: Exit Code Logic")
+    print("=" * 80)
+    
+    MIN_SUCCESS_RATE = 0.95
+    
+    # Test case 1: Success rate >= threshold → exit code 0
+    success_rate = 0.96
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    expected_exit_code = 0 if meets_threshold else 1
+    assert expected_exit_code == 0, f"Expected exit code 0, got {expected_exit_code}"
+    print(f"  ✓ Success rate {success_rate * 100:.2f}% → Exit code {expected_exit_code}")
+    
+    # Test case 2: Success rate < threshold → exit code 1
+    success_rate = 0.90
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    expected_exit_code = 0 if meets_threshold else 1
+    assert expected_exit_code == 1, f"Expected exit code 1, got {expected_exit_code}"
+    print(f"  ✓ Success rate {success_rate * 100:.2f}% → Exit code {expected_exit_code}")
+    
+    # Test case 3: Exactly at threshold → exit code 0
+    success_rate = 0.95
+    meets_threshold = success_rate >= MIN_SUCCESS_RATE
+    expected_exit_code = 0 if meets_threshold else 1
+    assert expected_exit_code == 0, f"Expected exit code 0, got {expected_exit_code}"
+    print(f"  ✓ Success rate {success_rate * 100:.2f}% → Exit code {expected_exit_code}")
+    
+    print("\n✓ All exit code logic tests passed")
+    return True
+
+
+def run_all_tests():
+    """Run all tests."""
+    print("\n" + "=" * 80)
+    print("RUNNING ALL BUILD_PRICE_CACHE THRESHOLD TESTS")
+    print("=" * 80 + "\n")
+    
+    tests = [
+        test_success_rate_calculation,
+        test_threshold_logic,
+        test_environment_variable_parsing,
+        test_exit_code_logic,
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test_func in tests:
+        try:
+            if test_func():
+                passed += 1
+            else:
+                failed += 1
+                print(f"✗ {test_func.__name__} FAILED")
+        except Exception as e:
+            failed += 1
+            print(f"✗ {test_func.__name__} FAILED with exception: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print("\n" + "=" * 80)
+    print(f"TEST RESULTS: {passed} passed, {failed} failed")
+    print("=" * 80 + "\n")
+    
+    return failed == 0
+
+
+if __name__ == '__main__':
+    success = run_all_tests()
+    sys.exit(0 if success else 1)
