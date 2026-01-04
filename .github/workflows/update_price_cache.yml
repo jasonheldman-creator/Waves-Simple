@@ -35,6 +35,10 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add data/cache/prices_cache.parquet
-          git diff --staged --quiet || git commit -m "Update price cache [automated]"
-          git push
+          if [ -f data/cache/prices_cache.parquet ]; then
+            git add data/cache/prices_cache.parquet
+            git diff --staged --quiet || git commit -m "Update price cache [automated]"
+            git push
+          else
+            echo "Cache file not found, skipping commit"
+          fi

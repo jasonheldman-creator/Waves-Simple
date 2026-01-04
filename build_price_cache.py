@@ -304,13 +304,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Failed tickers: {len(all_failures)}")
         logger.info(f"  Success rate: {success_rate * 100:.2f}%")
         logger.info(f"  Threshold: {MIN_SUCCESS_RATE * 100:.2f}%")
-        
-        if all_failures:
-            logger.info("")
-            logger.info(f"  Failed tickers list ({len(all_failures)}):")
-            for ticker in sorted(all_failures.keys()):
-                logger.info(f"    - {ticker}")
-        
         logger.info("=" * 70)
         
         # Determine success based on threshold
