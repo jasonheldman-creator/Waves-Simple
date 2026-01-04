@@ -18575,7 +18575,7 @@ def render_overview_clean_tab():
             # Build / Branch / UTC Timestamp
             try:
                 import subprocess
-                branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd='/home/runner/work/Waves-Simple/Waves-Simple').decode('utf-8').strip()
+                branch = subprocess.check_output(['git', 'branch', '--show-current']).decode('utf-8').strip()
             except:
                 branch = "N/A"
             
@@ -18665,17 +18665,19 @@ def render_overview_clean_tab():
                 portfolio_365d = returns_365d.mean() if len(returns_365d) > 0 else None
                 
                 # Additional metrics
-                # Alpha (vs SPY benchmark - simplified)
-                alpha_30d = portfolio_30d if portfolio_30d is not None else None
-                alpha_60d = portfolio_60d if portfolio_60d is not None else None
-                alpha_365d = portfolio_365d if portfolio_365d is not None else None
+                # Alpha: For now set to N/A - would need benchmark comparison
+                # TODO: Compute actual alpha vs SPY benchmark
+                alpha_30d = None  # Simplified - actual alpha requires benchmark
+                alpha_60d = None
+                alpha_365d = None
                 
-                # Beta, Volatility, Drawdown (placeholders - would need more complex calculations)
-                beta = 1.0  # Default neutral
-                max_drawdown = -5.0  # Placeholder
-                volatility = 15.0  # Placeholder annualized volatility
-                exposure = 80.0  # Placeholder current exposure %
-                cash_pct = 20.0  # Placeholder cash %
+                # Beta, Volatility, Drawdown (set to N/A - complex calculations)
+                # TODO: Compute from historical data when needed
+                beta = None  # Requires correlation analysis with benchmark
+                max_drawdown = None  # Requires cumulative return analysis
+                volatility = None  # Requires standard deviation of returns
+                exposure = None  # Requires wave position data
+                cash_pct = None  # Requires wave position data
             else:
                 portfolio_1d = portfolio_30d = portfolio_60d = portfolio_365d = None
                 alpha_30d = alpha_60d = alpha_365d = None
@@ -18798,16 +18800,16 @@ def render_overview_clean_tab():
             if ALPHA_ATTRIBUTION_AVAILABLE:
                 st.info("**Alpha Driver Model:** Overlay vs. Selection Split")
                 
-                # Placeholder attribution breakdown
+                # Display N/A for attribution - requires implementation
                 attr_col1, attr_col2 = st.columns(2)
                 
                 with attr_col1:
-                    st.metric("Overlay Alpha", "+2.5%")
-                    st.caption("VIX regime timing + exposure management")
+                    st.metric("Overlay Alpha", "N/A")
+                    st.caption("VIX regime timing + exposure management (computation pending)")
                 
                 with attr_col2:
-                    st.metric("Selection Alpha", "+1.3%")
-                    st.caption("Asset selection + wave composition")
+                    st.metric("Selection Alpha", "N/A")
+                    st.caption("Asset selection + wave composition (computation pending)")
             else:
                 st.info("**Alpha Driver Model Not Enabled** - Attribution module not available")
         except Exception as e:
