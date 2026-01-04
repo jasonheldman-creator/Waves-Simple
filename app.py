@@ -6147,6 +6147,14 @@ def render_mission_control():
     Enhanced with additional system metrics and visual indicators.
     Enhanced with Alpha Attribution + Diagnostics features (Exec Layer v2).
     """
+    # Import constants at the beginning to avoid UnboundLocalError
+    try:
+        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
+    except ImportError:
+        # Fallback defaults if import fails
+        ALLOW_NETWORK_FETCH = False
+        STALE_DAYS_THRESHOLD = 10
+    
     st.markdown("### 🎯 Mission Control - Executive Layer v2")
     
     # RUN COUNTER + Timestamp Indicator (ALWAYS VISIBLE - Production requirement)
@@ -6355,10 +6363,10 @@ def render_mission_control():
     # WARNING: Cache Stale + Network Fetch Disabled
     # ========================================================================
     data_age = mc_data.get('data_age_days')
+    
+    # Show warning if cache is old AND network fetch is disabled
+    # Note: STALE_DAYS_THRESHOLD and ALLOW_NETWORK_FETCH are imported at the top of this function
     try:
-        from helpers.price_book import ALLOW_NETWORK_FETCH, STALE_DAYS_THRESHOLD
-        
-        # Show warning if cache is old AND network fetch is disabled
         if data_age is not None and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
                 f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
