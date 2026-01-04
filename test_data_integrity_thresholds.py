@@ -27,9 +27,23 @@ def test_validation_scenarios():
     """Test the validation scenarios specified in the problem statement"""
     from helpers.price_book import PRICE_CACHE_OK_DAYS, PRICE_CACHE_DEGRADED_DAYS
     
-    # Constants for coverage thresholds (from app.py)
-    DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0
-    DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0
+    # Read constants directly from app.py to avoid hardcoding
+    # This ensures the test stays in sync with the actual implementation
+    app_path = os.path.join(os.path.dirname(__file__), 'app.py')
+    with open(app_path, 'r') as f:
+        content = f.read()
+    
+    # Extract the coverage constants from app.py
+    import re
+    verified_match = re.search(r'DATA_INTEGRITY_VERIFIED_COVERAGE\s*=\s*(\d+\.?\d*)', content)
+    degraded_match = re.search(r'DATA_INTEGRITY_DEGRADED_COVERAGE\s*=\s*(\d+\.?\d*)', content)
+    
+    DATA_INTEGRITY_VERIFIED_COVERAGE = float(verified_match.group(1)) if verified_match else 95.0
+    DATA_INTEGRITY_DEGRADED_COVERAGE = float(degraded_match.group(1)) if degraded_match else 80.0
+    
+    print(f"\nExtracted constants from app.py:")
+    print(f"  DATA_INTEGRITY_VERIFIED_COVERAGE = {DATA_INTEGRITY_VERIFIED_COVERAGE}%")
+    print(f"  DATA_INTEGRITY_DEGRADED_COVERAGE = {DATA_INTEGRITY_DEGRADED_COVERAGE}%")
     
     # Test scenarios: (cache_age_days, expected_badge_status)
     scenarios = [
@@ -101,11 +115,31 @@ def test_imports_from_price_book():
     if import_start == -1:
         raise AssertionError("Import from helpers.price_book not found")
     
-    # Find the end of the import statement (look for closing paren or newline)
-    import_end = content.find(")", import_start)
-    if import_end == -1:
-        import_end = content.find("\n", import_start)
-    import_section = content[import_start:import_end + 50]  # Add small buffer
+    # Find the end of the import statement by looking for the closing paren
+    # or the first occurrence of a line that doesn't continue the import
+    import_end = import_start
+    paren_depth = 0
+    in_import = False
+    
+    for i, char in enumerate(content[import_start:], start=import_start):
+        if char == '(':
+            paren_depth += 1
+            in_import = True
+        elif char == ')':
+            paren_depth -= 1
+            if paren_depth == 0 and in_import:
+                import_end = i + 1
+                break
+        elif char == '\n' and paren_depth == 0:
+            # Single-line import without parentheses
+            import_end = i
+            break
+    
+    if import_end == import_start:
+        # Fallback: just grab next 500 chars if parsing fails
+        import_end = import_start + 500
+    
+    import_section = content[import_start:import_end]
     
     assert "PRICE_CACHE_OK_DAYS" in import_section, \
         "PRICE_CACHE_OK_DAYS not imported from helpers.price_book"
