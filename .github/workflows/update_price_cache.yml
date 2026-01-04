@@ -24,6 +24,10 @@ jobs:
     name: Update PRICE_BOOK Cache
     runs-on: ubuntu-latest
     
+    # Limit permissions for security
+    permissions:
+      contents: write  # Needed to commit and push cache updates
+    
     # Set timeout to prevent runaway jobs
     timeout-minutes: 20
     
