@@ -57,8 +57,14 @@ jobs:
           
           echo "Building price cache with ${{ steps.params.outputs.days }} days of data..."
           
+          # Convert days to years (round up to ensure we get at least the requested days)
+          # E.g., 365 days -> 2 years, 400 days -> 2 years, 730 days -> 3 years
+          # This ensures we always fetch enough historical data
+          YEARS=$(( (${{ steps.params.outputs.days }} + 364) / 365 ))
+          echo "Fetching $YEARS year(s) of data (covers ${{ steps.params.outputs.days }} days)"
+          
           # Run build_price_cache.py (the existing script that creates the parquet file)
-          python build_price_cache.py --force --years $(( ${{ steps.params.outputs.days }} / 365 + 1 ))
+          python build_price_cache.py --force --years $YEARS
           
           # Verify the cache file was created
           if [ ! -f "data/cache/prices_cache.parquet" ]; then
@@ -132,7 +138,11 @@ jobs:
       - name: Check for changes
         id: check_changes
         run: |
-          git diff --quiet data/cache/prices_cache.parquet && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+          if git diff --quiet data/cache/prices_cache.parquet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
       
       - name: Commit and push changes
         if: steps.check_changes.outputs.changed == 'true'

@@ -90,8 +90,15 @@ def validate_workflow_configuration():
             warnings.append("Workflow name not specified")
         
         # Check triggers (on)
-        # Note: YAML may parse 'on' as boolean True, so check both
-        triggers = workflow.get('on') or workflow.get(True)
+        # Note: Due to YAML spec, the key 'on' may be parsed as boolean True
+        # when using safe_load. We check for both possible keys.
+        # See: https://yaml.org/type/bool.html
+        triggers = None
+        if 'on' in workflow:
+            triggers = workflow['on']
+        elif True in workflow:
+            # YAML parsed 'on:' as True key
+            triggers = workflow[True]
         
         if not triggers:
             errors.append("No triggers ('on') defined in workflow")
