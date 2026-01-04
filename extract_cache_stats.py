@@ -35,6 +35,8 @@ def extract_statistics(cache_path):
         
         # Get statistics
         num_rows = len(df)
+        # Number of tickers = number of columns (since index is dates, columns are tickers)
+        # This assumes the canonical price book format where index=dates, columns=tickers
         num_cols = len(df.columns)
         file_size_bytes = os.path.getsize(cache_path)
         file_size_mb = file_size_bytes / (1024 * 1024)

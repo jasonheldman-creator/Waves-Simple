@@ -94,11 +94,13 @@
 - ✅ No changes to tab/navigation structure
 - ✅ No changes to `st.stop()`, returns, or minimal app structure
 
-**Files Changed (4 total):**
+**Files Changed (6 total):**
 1. `.github/workflows/update_price_cache.yml` (NEW)
 2. `PROOF_ARTIFACTS_GUIDE.md` (NEW)
 3. `PRICE_BOOK_OPTION_A1_IMPLEMENTATION.md` (NEW)
 4. `validate_pr352_implementation.py` (NEW)
+5. `extract_cache_stats.py` (NEW)
+6. `PR_352_IMPLEMENTATION_SUMMARY.md` (NEW)
 
 **Files NOT Changed:**
 - ❌ app.py

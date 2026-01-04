@@ -78,7 +78,12 @@ def validate_workflow_configuration():
             content = f.read()
         
         # Pre-process YAML to handle 'on:' being parsed as boolean True
-        # Replace 'on:' with 'trigger_on:' for reliable parsing
+        # We replace the workflow trigger 'on:' with 'trigger_on:' for reliable parsing
+        # This is safer than handling the True key since we control the exact pattern
+        if '\non:' not in content:
+            # If 'on:' is not found, the YAML might already use a different key or be malformed
+            print_warning("YAML doesn't contain expected 'on:' trigger key pattern")
+        
         content_safe = content.replace('\non:', '\ntrigger_on:')
         workflow = yaml.safe_load(content_safe)
         
