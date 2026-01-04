@@ -83,7 +83,8 @@ try:
 except ImportError:
     AUTO_REFRESH_CONFIG_AVAILABLE = False
     # Fallback defaults if config module is unavailable
-    DEFAULT_AUTO_REFRESH_ENABLED = True
+    # Auto-refresh OFF by default to prevent infinite reruns
+    DEFAULT_AUTO_REFRESH_ENABLED = False
     DEFAULT_REFRESH_INTERVAL_MS = 60000
     REFRESH_INTERVAL_OPTIONS = {"1 minute": 60000, "2 minutes": 120000}
     AUTO_PAUSE_ON_ERROR = True
@@ -6412,8 +6413,8 @@ def render_mission_control():
                             # Mark user interaction
                             st.session_state.user_interaction_detected = True
                             
-                            # Clear rebuild flag before rerun
-                            st.session_state.rebuilding_price_book = False
+                            # Note: Flag will be cleared in finally block after rerun
+                            # This prevents race conditions
                             
                             # Trigger rerun
                             trigger_rerun("rebuild_price_cache_mission_control")
