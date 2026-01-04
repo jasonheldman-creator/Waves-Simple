@@ -18891,10 +18891,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                     regime_color = "🟡"
             
             # Alpha Quality: Based on performance distribution
-            if avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
+            if total_count > 0 and avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
                 alpha_quality = "Strong"
                 alpha_color = "🟢"
-            elif avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO:
+            elif total_count > 0 and (avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO):
                 alpha_quality = "Mixed"
                 alpha_color = "🟡"
             else:
