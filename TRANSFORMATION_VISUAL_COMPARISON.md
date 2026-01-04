@@ -58,7 +58,7 @@ Cache & Data Status          │  Next Actions
 ⚠️ 3 waves with missing      │  - 🔄 Rebuild cache if stale
    tickers                   │  - 📊 Check Details tab
 ⚠️ Universe mismatch:        │  - 🔍 Review Diagnostics
-   Expected 28, Found 25     │
+   Configured: 27, Found: 25 │
 
 📈 Market Context
 ┌─────┬─────┬─────┬─────┬─────┬─────┐

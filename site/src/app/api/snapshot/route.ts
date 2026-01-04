@@ -34,12 +34,12 @@ export async function GET(request: NextRequest) {
     const lines = csvContent.trim().split("\n");
     const dataRowCount = lines.length - 1;
 
-    // Validate exactly 28 waves
-    if (dataRowCount !== 28) {
+    // Validate snapshot is not empty (dynamic validation, no hard-coded wave count)
+    if (dataRowCount < 1) {
       return NextResponse.json(
         {
           error: "Invalid snapshot",
-          message: `Expected 28 waves but found ${dataRowCount}`,
+          message: `Snapshot is empty (found ${dataRowCount} waves)`,
           details: "The snapshot file is corrupted or incomplete",
         },
         { status: 500 }
