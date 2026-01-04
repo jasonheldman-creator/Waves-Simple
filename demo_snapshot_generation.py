@@ -96,13 +96,16 @@ def demo_snapshot_structure():
     # Step 4: Validate structure
     print("\n[Step 4] Validating snapshot structure...")
     
-    # Check row count
-    assert len(df) == 28, f"Expected 28 rows, got {len(df)}"
-    print("✓ Exactly 28 rows")
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
     
-    # Check unique wave_ids
-    assert df['wave_id'].nunique() == 28, f"Expected 28 unique wave_ids"
-    print("✓ All 28 wave_ids are unique")
+    # Check row count (dynamic)
+    assert len(df) == expected_count, f"Expected {expected_count} rows, got {len(df)}"
+    print(f"✓ Exactly {expected_count} rows (from WAVE_ID_REGISTRY)")
+    
+    # Check unique wave_ids (dynamic)
+    assert df['wave_id'].nunique() == expected_count, f"Expected {expected_count} unique wave_ids"
+    print(f"✓ All {expected_count} wave_ids are unique")
     
     # Check required columns
     required_cols = [

@@ -455,10 +455,10 @@ def generate_live_snapshot_csv(
     
     This function:
     1. Loads wave_weights.csv
-    2. Determines expected 28 waves
+    2. Determines expected wave count from WAVE_ID_REGISTRY
     3. Fetches live market data for all tickers (equity via yfinance, crypto via CoinGecko)
     4. Computes wave returns with proper handling of failed tickers
-    5. Generates DataFrame with exactly 28 rows
+    5. Generates DataFrame with exactly one row per wave
     6. Writes to out_path
     
     Args:
@@ -553,9 +553,12 @@ def generate_live_snapshot_csv(
     if len(df) != 28:
         raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
     
-    # Validate unique wave_ids
-    if df['wave_id'].nunique() != 28:
-        raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
+    # Validate unique wave_ids (dynamic)
+    if df['wave_id'].nunique() != expected_count:
+        raise AssertionError(f"Expected {expected_count} unique wave_ids, got {df['wave_id'].nunique()}")
     
     print(f"✓ Created DataFrame with {len(df)} rows")
     print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
@@ -1048,11 +1051,13 @@ def _get_all_28_wave_ids() -> List[str]:
     """
     if WAVES_ENGINE_AVAILABLE and get_all_wave_ids is not None:
         try:
+            from waves_engine import WAVE_ID_REGISTRY
             wave_ids = get_all_wave_ids()
-            if len(wave_ids) == 28:
+            expected_count = len(WAVE_ID_REGISTRY)
+            if len(wave_ids) == expected_count:
                 return wave_ids
             else:
-                print(f"Warning: Expected 28 waves, got {len(wave_ids)}")
+                print(f"Warning: Expected {expected_count} waves from WAVE_ID_REGISTRY, got {len(wave_ids)}")
                 return wave_ids
         except Exception as e:
             print(f"Warning: Failed to get wave IDs from engine: {e}")

@@ -74,10 +74,13 @@ def validate_proxy_registry_demo():
     # Get enabled waves
     waves = get_enabled_proxy_waves()
     
-    if len(waves) == 28:
-        print(f"\n✅ SUCCESS: Proxy registry contains exactly 28 waves")
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
+    if len(waves) == expected_count:
+        print(f"\n✅ SUCCESS: Proxy registry contains exactly {expected_count} waves (from WAVE_ID_REGISTRY)")
     else:
-        print(f"\n⚠️  WARNING: Expected 28 waves, found {len(waves)}")
+        print(f"\n⚠️  WARNING: Expected {expected_count} waves from WAVE_ID_REGISTRY, found {len(waves)}")
     
     # List all waves by category
     categories = {}

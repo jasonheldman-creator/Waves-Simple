@@ -4,7 +4,7 @@ test_snapshot_ledger.py
 Tests for Wave Snapshot Ledger functionality.
 
 This test suite validates:
-1. Snapshot generation with all 28 waves
+1. Snapshot generation with all waves (dynamic count)
 2. Tiered fallback logic (A -> B -> C -> D)
 3. Snapshot persistence and loading
 4. Metadata tracking
@@ -39,21 +39,23 @@ from snapshot_ledger import (
 class TestSnapshotLedger:
     """Test suite for Wave Snapshot Ledger."""
     
-    def test_generate_snapshot_all_28_waves(self):
-        """Test that snapshot generation always produces 28 waves."""
+    def test_generate_snapshot_all_waves(self):
+        """Test that snapshot generation always produces all waves."""
+        from waves_engine import WAVE_ID_REGISTRY
         print("\n" + "="*80)
-        print("TEST: Generate snapshot with all 28 waves")
+        print(f"TEST: Generate snapshot with all {len(WAVE_ID_REGISTRY)} waves")
         print("="*80)
         
+        expected_count = len(WAVE_ID_REGISTRY)
         # Generate snapshot
         snapshot_df = generate_snapshot(force_refresh=True, max_runtime_seconds=60)
         
         # Validate
         assert snapshot_df is not None, "Snapshot should not be None"
         assert not snapshot_df.empty, "Snapshot should not be empty"
-        assert len(snapshot_df) == 28, f"Expected 28 waves, got {len(snapshot_df)}"
+        assert len(snapshot_df) == expected_count, f"Expected {expected_count} waves, got {len(snapshot_df)}"
         
-        print(f"✓ Snapshot has exactly 28 waves")
+        print(f"✓ Snapshot has exactly {expected_count} waves (from WAVE_ID_REGISTRY)")
         print(f"✓ Data Regime breakdown:")
         print(snapshot_df['Data_Regime_Tag'].value_counts())
     
@@ -99,6 +101,9 @@ class TestSnapshotLedger:
         # Check file exists
         assert os.path.exists(SNAPSHOT_FILE), f"Snapshot file not found: {SNAPSHOT_FILE}"
         
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
         # Check file is recent
         mtime = os.path.getmtime(SNAPSHOT_FILE)
         age_seconds = time.time() - mtime
@@ -106,7 +111,7 @@ class TestSnapshotLedger:
         
         # Load from disk
         loaded_df = pd.read_csv(SNAPSHOT_FILE)
-        assert len(loaded_df) == 28, f"Loaded snapshot has {len(loaded_df)} waves, expected 28"
+        assert len(loaded_df) == expected_count, f"Loaded snapshot has {len(loaded_df)} waves, expected {expected_count}"
         
         print(f"✓ Snapshot persisted to {SNAPSHOT_FILE}")
         print(f"✓ Snapshot age: {age_seconds:.1f} seconds")
@@ -129,9 +134,12 @@ class TestSnapshotLedger:
         assert "wave_count" in metadata, "Metadata should have 'wave_count' key"
         assert "is_stale" in metadata, "Metadata should have 'is_stale' key"
         
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
         # If snapshot exists, validate values
         if metadata["exists"]:
-            assert metadata["wave_count"] == 28, f"Expected 28 waves, got {metadata['wave_count']}"
+            assert metadata["wave_count"] == expected_count, f"Expected {expected_count} waves, got {metadata['wave_count']}"
             assert metadata["age_hours"] is not None, "Age hours should not be None"
         
         print(f"✓ Metadata retrieved successfully")
@@ -284,8 +292,11 @@ class TestSnapshotLedger:
         print(f"✓ Snapshot generation completed in {elapsed:.1f} seconds")
         print(f"✓ Timeout was set to 5 seconds")
         
-        # Validate snapshot still has 28 waves (even with timeout)
-        assert len(snapshot_df) == 28, f"Expected 28 waves even with timeout, got {len(snapshot_df)}"
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
+        # Validate snapshot still has all waves (even with timeout)
+        assert len(snapshot_df) == expected_count, f"Expected {expected_count} waves even with timeout, got {len(snapshot_df)}"
         
         # With very short timeout, expect more Tier D fallbacks
         tier_d_count = (snapshot_df["Data_Regime_Tag"] == "Unavailable").sum()
@@ -357,7 +368,10 @@ class TestSnapshotLedger:
         snapshot_loaded = pd.read_csv(SNAPSHOT_FILE)
         broken_loaded = pd.read_csv(BROKEN_TICKERS_FILE)
         
-        assert len(snapshot_loaded) == 28, f"Expected 28 waves in snapshot, got {len(snapshot_loaded)}"
+        from waves_engine import WAVE_ID_REGISTRY
+        expected_count = len(WAVE_ID_REGISTRY)
+        
+        assert len(snapshot_loaded) == expected_count, f"Expected {expected_count} waves in snapshot, got {len(snapshot_loaded)}"
         
         print(f"✓ Snapshot has {len(snapshot_loaded)} waves")
         print(f"✓ Broken tickers has {len(broken_loaded)} entries")
@@ -373,7 +387,7 @@ def run_all_tests():
     test_suite = TestSnapshotLedger()
     
     tests = [
-        ("Generate snapshot with all 28 waves", test_suite.test_generate_snapshot_all_28_waves),
+        ("Generate snapshot with all waves", test_suite.test_generate_snapshot_all_waves),
         ("Snapshot columns validation", test_suite.test_snapshot_columns),
         ("Snapshot persistence", test_suite.test_snapshot_persistence),
         ("Snapshot metadata", test_suite.test_snapshot_metadata),

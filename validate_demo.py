@@ -40,11 +40,14 @@ def test_proxy_registry():
     with open(registry_path, 'r') as f:
         lines = [line.strip() for line in f if line.strip()]
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     # Subtract 1 for header
     wave_count = len(lines) - 1
     
-    passed = wave_count == 28
-    print(f"  {check_mark(passed)} Wave count: {wave_count} (expected 28)")
+    passed = wave_count == expected_count
+    print(f"  {check_mark(passed)} Wave count: {wave_count} (expected {expected_count} from WAVE_ID_REGISTRY)")
     
     return passed
 
@@ -113,10 +116,13 @@ def test_snapshot_structure():
     header_ok = all(col in header for col in required_columns)
     print(f"  {check_mark(header_ok)} Required columns present")
     
+    from waves_engine import WAVE_ID_REGISTRY
+    expected_count = len(WAVE_ID_REGISTRY)
+    
     # Check wave count
     wave_count = len(lines) - 1
-    count_ok = wave_count == 28
-    print(f"  {check_mark(count_ok)} Wave count: {wave_count} (expected 28)")
+    count_ok = wave_count == expected_count
+    print(f"  {check_mark(count_ok)} Wave count: {wave_count} (expected {expected_count} from WAVE_ID_REGISTRY)")
     
     return header_ok and count_ok
 
