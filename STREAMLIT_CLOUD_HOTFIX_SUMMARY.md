@@ -5,7 +5,7 @@ This hotfix addresses persistent rerun loop issues and unreliable sidebar wave s
 
 ## Changes Made
 
-### 1. Session State Initialization Guard (Lines 20292-20334)
+### 1. Session State Initialization Guard (Lines 20276-20331)
 
 **Before:**
 - Multiple `if "key" not in st.session_state:` blocks scattered throughout initialization
@@ -18,7 +18,7 @@ This hotfix addresses persistent rerun loop issues and unreliable sidebar wave s
 - Initialization only happens once per session
 - Added hotfix comment: "Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state."
 
-### 2. Hard-Disable Auto-Refresh (Lines 20336-20346)
+### 2. Hard-Disable Auto-Refresh (Lines 20333-20343)
 
 **Before:**
 - Complex conditional logic with multiple branches

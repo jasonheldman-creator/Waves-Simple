@@ -20270,7 +20270,6 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Session State Initialization
     # ========================================================================
-    # Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state.
     
     # Initialize session state guard to prevent reinitialization during reruns
     if "initialized" not in st.session_state:
