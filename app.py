@@ -249,6 +249,15 @@ DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
 DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
 DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
 
+# ============================================================================
+# PORTFOLIO VIEW CONFIGURATION
+# ============================================================================
+# Constants for portfolio-level snapshot rendering
+PORTFOLIO_VIEW_PLACEHOLDER = "NONE"  # Placeholder value indicating no wave selected
+PORTFOLIO_VIEW_TITLE = "Portfolio Snapshot (All Waves)"  # Display title for portfolio view
+PORTFOLIO_VIEW_ICON = "🏛️"  # Icon for portfolio view
+WAVE_VIEW_ICON = "🌊"  # Icon for individual wave view
+
 # Leaderboard thresholds
 NEGLIGIBLE_RETURN_THRESHOLD = 0.1  # Return % below which to show context message
 
@@ -783,6 +792,23 @@ WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wa
 
 
 # ============================================================================
+# PORTFOLIO VIEW HELPER FUNCTIONS
+# ============================================================================
+
+def is_portfolio_context(selected_wave: str) -> bool:
+    """
+    Determine if the current context is portfolio-level (no specific wave selected).
+    
+    Args:
+        selected_wave: The currently selected wave name (None or placeholder for portfolio)
+    
+    Returns:
+        True if portfolio context, False if specific wave is selected
+    """
+    return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
+
+
+# ============================================================================
 # WAVE PROFILE BANNER - Enhanced Header Display with Quick Stats
 # ============================================================================
 
@@ -802,7 +828,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     """
     try:
         # Determine if we're in portfolio context (no specific wave selected)
-        is_portfolio_view = selected_wave is None or selected_wave == "NONE"
+        is_portfolio_view = is_portfolio_context(selected_wave)
         
         # Get wave data for metrics (only if specific wave is selected)
         wave_data_30d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=30)
@@ -899,8 +925,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # Mode color pill
         mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
         
-        # Set display title based on context
-        display_title = "Portfolio Snapshot (All Waves)" if is_portfolio_view else selected_wave
+        # Set display title and icon based on context
+        display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
+        display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
         
         # Wave-specific metrics HTML (shown only for individual waves)
         wave_specific_metrics_html = ""
@@ -925,7 +952,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # Informational message for portfolio view
         portfolio_info_html = ""
         if is_portfolio_view:
-            portfolio_info_html = '''<div style="text-align: center; margin-top: 12px; color: #a8dadc; font-size: 11px; font-style: italic;">
+            portfolio_info_html = '''<div class="portfolio-info">
                 ℹ️ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
             </div>'''
         
@@ -995,6 +1022,14 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                 font-weight: bold;
             }}
             
+            .portfolio-info {{
+                text-align: center;
+                margin-top: 12px;
+                color: #a8dadc;
+                font-size: 11px;
+                font-style: italic;
+            }}
+            
             /* Mobile responsiveness */
             @media only screen and (max-width: 768px) {{
                 .wave-banner {{
@@ -1040,7 +1075,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
         <div class="wave-banner">
             <div class="wave-title">
-                <span style="color: #00d9ff;">{'🏛️' if is_portfolio_view else '🌊'}</span> {display_title}
+                <span style="color: #00d9ff;">{display_icon}</span> {display_title}
                 <span class="mode-pill">{mode}</span>
             </div>
             
@@ -1102,11 +1137,11 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
         mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
     """
     # Determine if we're in portfolio context (no specific wave selected)
-    is_portfolio_view = selected_wave is None or selected_wave == "NONE"
+    is_portfolio_view = is_portfolio_context(selected_wave)
     
-    # Set display title based on context
-    display_title = "Portfolio Snapshot (All Waves)" if is_portfolio_view else selected_wave
-    display_icon = "🏛️" if is_portfolio_view else "🌊"
+    # Set display title and icon based on context
+    display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
+    display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
     
     # Safe HTML/CSS rendering with dark gradient background and neon accent border
     banner_html = f"""
