@@ -20241,6 +20241,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave registry CSV: {e}")
             st.session_state.wave_registry_validated = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Registry Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
     # Wave Universe Validation - Verify Active Waves (UPDATED for Active/Inactive Split)
@@ -20318,6 +20326,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave universe: {e}")
             st.session_state.wave_universe_validation_failed = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Universe Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
     # Global Compute Lock - Prevent duplicate heavy computations
@@ -20368,6 +20384,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
                 print(f"⚠️ Warning: Could not check snapshot age: {e}")
                 st.session_state.snapshot_exists = True
                 st.session_state.snapshot_fresh = False
+                # Store exception for debug panel
+                if "data_load_exceptions" not in st.session_state:
+                    st.session_state.data_load_exceptions = []
+                st.session_state.data_load_exceptions.append({
+                    "component": "Snapshot Age Check",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
         else:
             st.session_state.snapshot_exists = False
             st.session_state.snapshot_fresh = False
@@ -20394,6 +20418,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             print_readiness_report()
         except Exception as e:
             print(f"Warning: Could not generate readiness report: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Readiness Report",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
         finally:
             st.session_state.readiness_report_logged = True
         
@@ -20402,6 +20434,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             create_last_known_good_backup()
         except Exception as e:
             print(f"Warning: Could not create backup: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Backup Creation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
         finally:
             st.session_state.backup_created = True
         
