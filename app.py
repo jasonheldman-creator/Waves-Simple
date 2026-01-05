@@ -20339,7 +20339,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     count = None
     
     # Skip all auto-refresh logic to prevent reruns
-    # Note: DEFAULT_AUTO_REFRESH_ENABLED is set to False in auto_refresh_config.py
+    # Note: DEFAULT_AUTO_REFRESH_ENABLED constant is False (set in auto_refresh_config.py or fallback)
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
