@@ -1084,7 +1084,25 @@ def compute_portfolio_snapshot(
         - has_overlay_alpha_series: bool - Whether overlay alpha component exists
         - latest_date: str - Latest data date
         - data_age_days: int - Age of data in days
+        - debug: Dict - Diagnostic information for troubleshooting
     """
+    # Initialize debug dict to track computation details
+    debug = {
+        'price_book_source': 'get_price_book()',
+        'price_book_shape': None,
+        'price_book_index_min': None,
+        'price_book_index_max': None,
+        'spy_present': False,
+        'requested_periods': periods,
+        'active_waves_count': 0,
+        'portfolio_rows_count': None,
+        'tickers_requested_count': 0,
+        'tickers_intersection_count': 0,
+        'tickers_missing_sample': [],
+        'filtered_price_book_shape': None,
+        'reason_if_failure': None
+    }
+    
     result = {
         'success': False,
         'failure_reason': None,
@@ -1098,13 +1116,26 @@ def compute_portfolio_snapshot(
         'has_portfolio_benchmark_series': False,
         'has_overlay_alpha_series': False,
         'latest_date': None,
-        'data_age_days': None
+        'data_age_days': None,
+        'debug': debug
     }
     
     # Validate PRICE_BOOK
     if price_book is None or price_book.empty:
         result['failure_reason'] = 'PRICE_BOOK is empty'
+        debug['reason_if_failure'] = 'PRICE_BOOK is empty or None'
         return result
+    
+    # Record price_book debug info
+    debug['price_book_shape'] = f"{len(price_book)} x {len(price_book.columns)}"
+    try:
+        debug['price_book_index_min'] = price_book.index[0].strftime('%Y-%m-%d')
+        debug['price_book_index_max'] = price_book.index[-1].strftime('%Y-%m-%d')
+    except (IndexError, AttributeError) as e:
+        logger.warning(f"Failed to get price_book index range: {e}")
+    
+    # Check if SPY is present
+    debug['spy_present'] = DEFAULT_BENCHMARK_TICKER in price_book.columns
     
     # Get latest date and data age
     try:
@@ -1118,17 +1149,21 @@ def compute_portfolio_snapshot(
     # Get all waves
     if not WAVES_ENGINE_AVAILABLE:
         result['failure_reason'] = 'waves_engine not available'
+        debug['reason_if_failure'] = 'waves_engine not available'
         return result
     
     try:
         universe = get_all_waves_universe()
         all_waves = universe.get('waves', [])
+        debug['active_waves_count'] = len(all_waves)
     except Exception as e:
         result['failure_reason'] = f'Error getting wave universe: {str(e)}'
+        debug['reason_if_failure'] = f'Error getting wave universe: {str(e)}'
         return result
     
     if not all_waves:
         result['failure_reason'] = 'No waves found in universe'
+        debug['reason_if_failure'] = 'No waves found in universe'
         return result
     
     # ========================================================================
@@ -1145,6 +1180,10 @@ def compute_portfolio_snapshot(
     wave_return_series_dict = {}  # {wave_name: pd.Series of daily returns}
     wave_benchmark_return_dict = {}  # {wave_name: pd.Series of benchmark daily returns}
     
+    # Track all tickers across all waves for debugging
+    all_requested_tickers = set()
+    all_available_tickers = set()
+    
     for wave_name in all_waves:
         # Get wave tickers and weights
         if wave_name not in WAVE_WEIGHTS:
@@ -1159,6 +1198,9 @@ def compute_portfolio_snapshot(
             tickers = [h.ticker for h in wave_holdings]
             weights = [h.weight for h in wave_holdings]
             
+            # Track requested tickers for debugging
+            all_requested_tickers.update(tickers)
+            
             # Normalize weights
             total_weight = sum(weights)
             if total_weight == 0:
@@ -1172,6 +1214,7 @@ def compute_portfolio_snapshot(
                 if ticker in price_book.columns:
                     available_tickers.append(ticker)
                     available_weights.append(weight)
+                    all_available_tickers.add(ticker)  # Track for debugging
             
             if not available_tickers:
                 continue
@@ -1217,9 +1260,18 @@ def compute_portfolio_snapshot(
             logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
             continue
     
+    # Update debug info with ticker statistics
+    debug['tickers_requested_count'] = len(all_requested_tickers)
+    debug['tickers_intersection_count'] = len(all_available_tickers)
+    
+    # Get missing tickers (first 10 as sample)
+    missing_tickers = all_requested_tickers - all_available_tickers
+    debug['tickers_missing_sample'] = sorted(list(missing_tickers))[:10]
+    
     # Check if we got any valid waves
     if not wave_return_series_dict:
         result['failure_reason'] = 'No valid wave return series computed'
+        debug['reason_if_failure'] = f'no tickers intersect (requested={len(all_requested_tickers)}, available={len(all_available_tickers)})'
         return result
     
     result['wave_count'] = len(wave_return_series_dict)
@@ -1229,6 +1281,10 @@ def compute_portfolio_snapshot(
         # Concatenate all wave return series into a DataFrame
         return_matrix = pd.DataFrame(wave_return_series_dict)
         benchmark_matrix = pd.DataFrame(wave_benchmark_return_dict)
+        
+        # Record portfolio rows count for debugging
+        debug['portfolio_rows_count'] = len(return_matrix)
+        debug['filtered_price_book_shape'] = f"{len(return_matrix)} x {len(return_matrix.columns)}"
         
         # Compute equal-weight portfolio return: mean across waves (skipna=True)
         portfolio_returns = return_matrix.mean(axis=1, skipna=True)
@@ -1246,6 +1302,7 @@ def compute_portfolio_snapshot(
         # Check if we have sufficient data
         if len(portfolio_returns) < MIN_DATES_FOR_PORTFOLIO:
             result['failure_reason'] = f'Insufficient dates after aggregation: {len(portfolio_returns)} (need at least {MIN_DATES_FOR_PORTFOLIO})'
+            debug['reason_if_failure'] = f'filtered df empty or too small ({len(portfolio_returns)} dates)'
             return result
         
         # Record that we have these series
@@ -1309,6 +1366,7 @@ def compute_portfolio_snapshot(
         valid_returns = [v for v in result['portfolio_returns'].values() if v is not None]
         if not valid_returns:
             result['failure_reason'] = 'No valid returns computed (insufficient history or all NaN)'
+            debug['reason_if_failure'] = 'no valid returns (insufficient history or all NaN)'
             return result
         
         # Success!
@@ -1317,7 +1375,11 @@ def compute_portfolio_snapshot(
         
     except Exception as e:
         result['failure_reason'] = f'Error computing portfolio metrics: {str(e)}'
+        debug['reason_if_failure'] = f'exception: {str(e)}'
         return result
+    
+    # Log debug info for troubleshooting (using debug level to avoid performance impact)
+    logger.debug(f"Portfolio snapshot debug: {debug}")
     
     return result
 
