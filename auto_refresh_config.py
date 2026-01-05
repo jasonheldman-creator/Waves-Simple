@@ -21,10 +21,9 @@ Design Principles:
 # ============================================================================
 
 # Default auto-refresh state (True = enabled by default for live decision support)
-DEFAULT_AUTO_REFRESH_ENABLED = True
+DEFAULT_AUTO_REFRESH_ENABLED = False
 
 # Default refresh interval in milliseconds (30000ms = 30 seconds)
-DEFAULT_REFRESH_INTERVAL_MS = 30000
 
 # Available refresh interval options (in seconds)
 REFRESH_INTERVAL_OPTIONS = {
