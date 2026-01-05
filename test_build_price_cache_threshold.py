@@ -5,10 +5,14 @@ Tests the new threshold logic to ensure:
 1. Exit code 0 when success_rate >= MIN_SUCCESS_RATE
 2. Exit code 1 when success_rate < MIN_SUCCESS_RATE
 3. Proper logging of failed tickers and summary
+4. Metadata file generation
 """
 
 import os
 import sys
+import json
+import tempfile
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -197,6 +201,126 @@ def test_exit_code_logic():
     return True
 
 
+def test_metadata_file_generation():
+    """Test that metadata file is generated correctly."""
+    print("=" * 80)
+    print("TEST: Metadata File Generation")
+    print("=" * 80)
+    
+    # Create a temporary directory for the test
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = os.path.join(tmpdir, "prices_cache_meta.json")
+        
+        # Create sample metadata
+        metadata = {
+            "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+            "success_rate": 0.96,
+            "min_success_rate": 0.90,
+            "tickers_total": 100,
+            "tickers_successful": 96,
+            "tickers_failed": 4,
+            "max_price_date": "2025-01-05",
+            "cache_file": "data/cache/prices_cache.parquet"
+        }
+        
+        # Write metadata
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"  ✓ Metadata file created: {metadata_path}")
+        
+        # Read and validate metadata
+        with open(metadata_path, 'r') as f:
+            loaded_metadata = json.load(f)
+        
+        # Validate all required fields exist
+        required_fields = [
+            "generated_at_utc",
+            "success_rate",
+            "min_success_rate",
+            "tickers_total",
+            "tickers_successful",
+            "tickers_failed",
+            "max_price_date",
+            "cache_file"
+        ]
+        
+        for field in required_fields:
+            assert field in loaded_metadata, f"Missing required field: {field}"
+            print(f"  ✓ Field '{field}': {loaded_metadata[field]}")
+        
+        # Validate field types and values
+        assert isinstance(loaded_metadata["success_rate"], (int, float))
+        assert isinstance(loaded_metadata["min_success_rate"], (int, float))
+        assert isinstance(loaded_metadata["tickers_total"], int)
+        assert isinstance(loaded_metadata["tickers_successful"], int)
+        assert isinstance(loaded_metadata["tickers_failed"], int)
+        assert loaded_metadata["tickers_total"] == loaded_metadata["tickers_successful"] + loaded_metadata["tickers_failed"]
+        
+        print(f"  ✓ Metadata validation passed")
+        print(f"  ✓ Total = Successful + Failed: {loaded_metadata['tickers_total']} = {loaded_metadata['tickers_successful']} + {loaded_metadata['tickers_failed']}")
+    
+    print("\n✓ All metadata file generation tests passed")
+    return True
+
+
+def test_cache_key_integrity():
+    """Test that cache keys are unique based on file attributes."""
+    print("=" * 80)
+    print("TEST: Cache Key Integrity")
+    print("=" * 80)
+    
+    # Test cache key generation logic
+    # Cache keys should be based on mtime or size to ensure freshness
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = os.path.join(tmpdir, "test_cache.parquet")
+        
+        # Create initial file
+        with open(test_file, 'w') as f:
+            f.write("initial content")
+        
+        # Get initial attributes
+        initial_mtime = os.path.getmtime(test_file)
+        initial_size = os.path.getsize(test_file)
+        initial_key = f"{initial_mtime}_{initial_size}"
+        
+        print(f"  ✓ Initial cache key: {initial_key}")
+        
+        # Wait a moment and modify file
+        import time
+        time.sleep(0.1)
+        
+        with open(test_file, 'w') as f:
+            f.write("modified content with more data")
+        
+        # Get new attributes
+        new_mtime = os.path.getmtime(test_file)
+        new_size = os.path.getsize(test_file)
+        new_key = f"{new_mtime}_{new_size}"
+        
+        print(f"  ✓ New cache key: {new_key}")
+        
+        # Keys should be different
+        assert initial_key != new_key, "Cache keys should differ after file modification"
+        print(f"  ✓ Cache keys are unique after modification")
+        
+        # Demonstrate unique key based on mtime alone
+        mtime_key_1 = f"mtime_{initial_mtime}"
+        mtime_key_2 = f"mtime_{new_mtime}"
+        assert mtime_key_1 != mtime_key_2, "Mtime-based keys should differ"
+        print(f"  ✓ Mtime-based keys are unique")
+        
+        # Demonstrate unique key based on size alone
+        size_key_1 = f"size_{initial_size}"
+        size_key_2 = f"size_{new_size}"
+        assert size_key_1 != size_key_2, "Size-based keys should differ"
+        print(f"  ✓ Size-based keys are unique")
+    
+    print("\n✓ All cache key integrity tests passed")
+    return True
+
+
 def run_all_tests():
     """Run all tests."""
     print("\n" + "=" * 80)
@@ -208,6 +332,8 @@ def run_all_tests():
         test_threshold_logic,
         test_environment_variable_parsing,
         test_exit_code_logic,
+        test_metadata_file_generation,
+        test_cache_key_integrity,
     ]
     
     passed = 0

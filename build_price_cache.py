@@ -22,6 +22,7 @@ import os
 import sys
 import argparse
 import logging
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from helpers.price_loader import (
     trim_cache_to_date_range,
     get_cache_info,
     CACHE_PATH,
+    CACHE_DIR,
     DEFAULT_CACHE_YEARS,
     BATCH_SIZE
 )
@@ -58,6 +60,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Metadata file path
+METADATA_PATH = os.path.join(CACHE_DIR, "prices_cache_meta.json")
 
 
 def collect_all_tickers():
@@ -169,6 +174,49 @@ def load_existing_price_files():
     logger.info(f"Merged data: {len(merged)} days, {len(merged.columns)} tickers")
     
     return merged
+
+
+def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date):
+    """
+    Save metadata file next to the cache file.
+    
+    Args:
+        total_tickers: Total number of tickers requested
+        successful_tickers: Number of successfully downloaded tickers
+        failed_tickers: Number of failed tickers
+        success_rate: Success rate (0.0 to 1.0)
+        max_price_date: Latest date in the cache (datetime or string)
+    """
+    try:
+        # Ensure cache directory exists
+        Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+        
+        # Convert max_price_date to string if it's a datetime
+        if isinstance(max_price_date, datetime):
+            max_price_date_str = max_price_date.strftime('%Y-%m-%d')
+        elif hasattr(max_price_date, 'strftime'):
+            max_price_date_str = max_price_date.strftime('%Y-%m-%d')
+        else:
+            max_price_date_str = str(max_price_date) if max_price_date else None
+        
+        metadata = {
+            "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+            "success_rate": success_rate,
+            "min_success_rate": MIN_SUCCESS_RATE,
+            "tickers_total": total_tickers,
+            "tickers_successful": successful_tickers,
+            "tickers_failed": failed_tickers,
+            "max_price_date": max_price_date_str,
+            "cache_file": CACHE_PATH
+        }
+        
+        with open(METADATA_PATH, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        logger.info(f"Saved metadata to {METADATA_PATH}")
+        
+    except Exception as e:
+        logger.error(f"Error saving metadata: {e}")
 
 
 def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
@@ -287,10 +335,24 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     successful_downloads = total_requested - len(all_failures)
     success_rate = successful_downloads / total_requested if total_requested > 0 else 0.0
     
-    # Step 7: Save cache
+    # Get the latest date in cache for metadata
+    max_price_date = None
+    if not cache_df.empty:
+        max_price_date = cache_df.index[-1]
+    
+    # Step 7: Save cache and metadata
     if not cache_df.empty:
         logger.info("Saving cache...")
         save_cache(cache_df)
+        
+        # Save metadata file
+        save_metadata(
+            total_tickers=total_requested,
+            successful_tickers=successful_downloads,
+            failed_tickers=len(all_failures),
+            success_rate=success_rate,
+            max_price_date=max_price_date
+        )
         
         # Print summary
         info = get_cache_info()
@@ -303,11 +365,12 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Days: {info['num_days']}")
         logger.info(f"  Date range: {info['date_range'][0]} to {info['date_range'][1]}")
         logger.info("")
-        logger.info(f"  Total tickers: {total_requested}")
+        logger.info(f"  Total tickers requested: {total_requested}")
         logger.info(f"  Successful tickers: {successful_downloads}")
         logger.info(f"  Failed tickers: {len(all_failures)}")
         logger.info(f"  Success rate: {success_rate * 100:.2f}%")
         logger.info(f"  Threshold: {MIN_SUCCESS_RATE * 100:.2f}%")
+        logger.info(f"  Latest price date: {max_price_date.strftime('%Y-%m-%d') if max_price_date else 'N/A'}")
         logger.info("=" * 70)
         
         # Determine success based on threshold
@@ -320,6 +383,15 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         return meets_threshold, success_rate
     else:
         logger.error("No data available to build cache")
+        # total_requested is defined earlier in the function (Step 1: Collect all tickers)
+        # Still write metadata even on failure
+        save_metadata(
+            total_tickers=total_requested,
+            successful_tickers=0,
+            failed_tickers=total_requested,
+            success_rate=0.0,
+            max_price_date=None
+        )
         return False, 0.0
 
 
@@ -333,12 +405,19 @@ def main():
     
     success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
     
-    # Exit with code 0 if success_rate >= MIN_SUCCESS_RATE, otherwise exit with code 1
-    if success:
-        logger.info(f"Exiting with code 0 (success rate: {success_rate * 100:.2f}%)")
+    # Strict exit codes:
+    # - Exit 0 if success rate >= MIN_SUCCESS_RATE AND cache file exists
+    # - Exit 1 otherwise
+    cache_exists = os.path.exists(CACHE_PATH) and os.path.getsize(CACHE_PATH) > 0
+    
+    if success and cache_exists:
+        logger.info(f"✓ Exiting with code 0 (success rate: {success_rate * 100:.2f}%, cache exists)")
         sys.exit(0)
     else:
-        logger.error(f"Exiting with code 1 (success rate: {success_rate * 100:.2f}%)")
+        if not cache_exists:
+            logger.error(f"✗ Exiting with code 1 (cache file missing or empty)")
+        else:
+            logger.error(f"✗ Exiting with code 1 (success rate: {success_rate * 100:.2f}% below threshold)")
         sys.exit(1)
 
 

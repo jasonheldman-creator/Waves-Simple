@@ -36,16 +36,45 @@ jobs:
         run: |
           python build_price_cache.py --force
 
+      - name: Validate cache file
+        run: |
+          echo "=== Cache Validation ==="
+          if [ ! -f data/cache/prices_cache.parquet ]; then
+            echo "ERROR: Cache file does not exist"
+            exit 1
+          fi
+          
+          CACHE_SIZE=$(stat -f%z data/cache/prices_cache.parquet 2>/dev/null || stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+          if [ "$CACHE_SIZE" -eq 0 ]; then
+            echo "ERROR: Cache file is empty"
+            exit 1
+          fi
+          
+          echo "✓ Cache file exists and is non-empty (${CACHE_SIZE} bytes)"
+          
+          # Display metadata if it exists
+          if [ -f data/cache/prices_cache_meta.json ]; then
+            echo ""
+            echo "=== Cache Metadata ==="
+            cat data/cache/prices_cache_meta.json
+          fi
+
       - name: Commit and push updated cache
         # Only commit on main branch for scheduled or manual runs (not for PR builds)
         if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          if [ -f data/cache/prices_cache.parquet ]; then
-            git add data/cache/prices_cache.parquet
-            git diff --staged --quiet || git commit -m "Update price cache [automated]"
-            git push
+          
+          # Add cache files
+          git add data/cache/prices_cache.parquet
+          git add data/cache/prices_cache_meta.json
+          
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to cache files, skipping commit"
           else
-            echo "Cache file not found, skipping commit"
+            git commit -m "Update prices cache (auto)"
+            git push
+            echo "✓ Cache files committed and pushed"
           fi
