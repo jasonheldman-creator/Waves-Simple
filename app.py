@@ -133,7 +133,8 @@ try:
     from helpers.price_book import (
         PRICE_CACHE_OK_DAYS, 
         PRICE_CACHE_DEGRADED_DAYS,
-        compute_system_health
+        compute_system_health,
+        get_price_book
     )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
     # Legacy aliases for backward compatibility - mapping to canonical names:
@@ -150,6 +151,15 @@ except ImportError:
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
     compute_system_health = None
+    get_price_book = None
+
+# Import wave performance functions for portfolio metrics
+try:
+    from helpers.wave_performance import compute_portfolio_snapshot
+    WAVE_PERFORMANCE_AVAILABLE = True
+except ImportError:
+    WAVE_PERFORMANCE_AVAILABLE = False
+    compute_portfolio_snapshot = None
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -997,116 +1007,118 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # PORTFOLIO VIEW: Compute portfolio-level metrics using compute_portfolio_snapshot
         # ========================================================================
         if is_portfolio_view:
-            try:
-                from helpers.wave_performance import compute_portfolio_snapshot
-                from helpers.price_book import get_price_book
-                
-                # Load PRICE_BOOK
-                price_book = get_price_book()
-                
-                # Compute portfolio snapshot with all periods
-                snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
-                
-                if snapshot['success']:
-                    # Extract portfolio returns
-                    ret_1d = snapshot['portfolio_returns'].get('1D')
-                    ret_30d = snapshot['portfolio_returns'].get('30D')
-                    ret_60d = snapshot['portfolio_returns'].get('60D')
-                    ret_365d = snapshot['portfolio_returns'].get('365D')
+            # Use module-level imports if available
+            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and compute_portfolio_snapshot and get_price_book:
+                try:
+                    # Load PRICE_BOOK
+                    price_book = get_price_book()
                     
-                    # Extract alphas
-                    alpha_1d = snapshot['alphas'].get('1D')
-                    alpha_30d = snapshot['alphas'].get('30D')
-                    alpha_60d = snapshot['alphas'].get('60D')
-                    alpha_365d = snapshot['alphas'].get('365D')
+                    # Compute portfolio snapshot with all periods
+                    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                     
-                    # Format return strings
-                    ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                    ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                    ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                    ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
-                    
-                    # Format alpha strings
-                    alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                    alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                    alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                    alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
-            except Exception as e:
-                # Log error but keep N/A values (graceful degradation)
-                logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
+                    if snapshot['success']:
+                        # Extract portfolio returns
+                        ret_1d = snapshot['portfolio_returns'].get('1D')
+                        ret_30d = snapshot['portfolio_returns'].get('30D')
+                        ret_60d = snapshot['portfolio_returns'].get('60D')
+                        ret_365d = snapshot['portfolio_returns'].get('365D')
+                        
+                        # Extract alphas
+                        alpha_1d = snapshot['alphas'].get('1D')
+                        alpha_30d = snapshot['alphas'].get('30D')
+                        alpha_60d = snapshot['alphas'].get('60D')
+                        alpha_365d = snapshot['alphas'].get('365D')
+                        
+                        # Format return strings
+                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                        
+                        # Format alpha strings
+                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                except Exception as e:
+                    # Log error but keep N/A values (graceful degradation)
+                    logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
         
         # ========================================================================
-        # WAVE VIEW: Calculate from 30-day data
-        if wave_data_30d is not None and len(wave_data_30d) > 0:
-            # 1D return (latest day)
-            if 'portfolio_return' in wave_data_30d.columns:
-                latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                ret_1d_str = f"{latest_return*100:.2f}%"
+        # WAVE VIEW: Calculate wave-specific metrics from historical data
+        # ========================================================================
+        else:
+            # Calculate from 30-day data
+            if wave_data_30d is not None and len(wave_data_30d) > 0:
+                # 1D return (latest day)
+                if 'portfolio_return' in wave_data_30d.columns:
+                    latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    ret_1d_str = f"{latest_return*100:.2f}%"
+                    
+                    # 30D return
+                    ret_30d = wave_data_30d['portfolio_return'].sum()
+                    ret_30d_str = f"{ret_30d*100:.2f}%"
                 
-                # 30D return
-                ret_30d = wave_data_30d['portfolio_return'].sum()
-                ret_30d_str = f"{ret_30d*100:.2f}%"
-            
-            # Alpha calculations
-            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
-                # 1D alpha
-                latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                alpha_1d_str = f"{latest_alpha*100:.2f}%"
+                # Alpha calculations
+                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                    # 1D alpha
+                    latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    alpha_1d_str = f"{latest_alpha*100:.2f}%"
+                    
+                    # 30D alpha
+                    alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
+                    alpha_30d_str = f"{alpha_30d*100:.2f}%"
                 
-                # 30D alpha
-                alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
-                alpha_30d_str = f"{alpha_30d*100:.2f}%"
+                # Exposure and cash
+                if 'exposure' in wave_data_30d.columns:
+                    avg_exposure = wave_data_30d['exposure'].mean()
+                    exposure_str = f"{avg_exposure*100:.1f}%"
+                    cash_str = f"{(1-avg_exposure)*100:.1f}%"
+                
+                # VIX regime
+                if 'vix' in wave_data_30d.columns:
+                    latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    if latest_vix < 15:
+                        vix_regime_str = "Low"
+                    elif latest_vix < 20:
+                        vix_regime_str = "Normal"
+                    elif latest_vix < 30:
+                        vix_regime_str = "Elevated"
+                    else:
+                        vix_regime_str = "High"
+                
+                # Beta calculation (simplified)
+                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                    try:
+                        port_returns = wave_data_30d['portfolio_return']
+                        bench_returns = wave_data_30d['benchmark_return']
+                        covariance = np.cov(port_returns, bench_returns)[0][1]
+                        variance = np.var(bench_returns)
+                        if variance > 0:
+                            beta = covariance / variance
+                            beta_str = f"{beta:.2f}"
+                    except:
+                        pass
             
-            # Exposure and cash
-            if 'exposure' in wave_data_30d.columns:
-                avg_exposure = wave_data_30d['exposure'].mean()
-                exposure_str = f"{avg_exposure*100:.1f}%"
-                cash_str = f"{(1-avg_exposure)*100:.1f}%"
+            # 60D return
+            if wave_data_60d is not None and len(wave_data_60d) > 0:
+                if 'portfolio_return' in wave_data_60d.columns:
+                    ret_60d = wave_data_60d['portfolio_return'].sum()
+                    ret_60d_str = f"{ret_60d*100:.2f}%"
+                
+                if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
+                    alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
+                    alpha_60d_str = f"{alpha_60d*100:.2f}%"
             
-            # VIX regime
-            if 'vix' in wave_data_30d.columns:
-                latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                if latest_vix < 15:
-                    vix_regime_str = "Low"
-                elif latest_vix < 20:
-                    vix_regime_str = "Normal"
-                elif latest_vix < 30:
-                    vix_regime_str = "Elevated"
-                else:
-                    vix_regime_str = "High"
-            
-            # Beta calculation (simplified)
-            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
-                try:
-                    port_returns = wave_data_30d['portfolio_return']
-                    bench_returns = wave_data_30d['benchmark_return']
-                    covariance = np.cov(port_returns, bench_returns)[0][1]
-                    variance = np.var(bench_returns)
-                    if variance > 0:
-                        beta = covariance / variance
-                        beta_str = f"{beta:.2f}"
-                except:
-                    pass
-        
-        # 60D return
-        if wave_data_60d is not None and len(wave_data_60d) > 0:
-            if 'portfolio_return' in wave_data_60d.columns:
-                ret_60d = wave_data_60d['portfolio_return'].sum()
-                ret_60d_str = f"{ret_60d*100:.2f}%"
-            
-            if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
-                alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
-                alpha_60d_str = f"{alpha_60d*100:.2f}%"
-        
-        # 365D return
-        if wave_data_365d is not None and len(wave_data_365d) > 0:
-            if 'portfolio_return' in wave_data_365d.columns:
-                ret_365d = wave_data_365d['portfolio_return'].sum()
-                ret_365d_str = f"{ret_365d*100:.2f}%"
-            
-            if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
-                alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
-                alpha_365d_str = f"{alpha_365d*100:.2f}%"
+            # 365D return
+            if wave_data_365d is not None and len(wave_data_365d) > 0:
+                if 'portfolio_return' in wave_data_365d.columns:
+                    ret_365d = wave_data_365d['portfolio_return'].sum()
+                    ret_365d_str = f"{ret_365d*100:.2f}%"
+                
+                if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
+                    alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
+                    alpha_365d_str = f"{alpha_365d*100:.2f}%"
         
         # Mode color pill
         mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
