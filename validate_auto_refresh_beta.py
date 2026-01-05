@@ -31,7 +31,7 @@ def validate_auto_refresh_config():
     
     # Check 1: Auto-refresh enabled by default
     print("\n1. Checking DEFAULT_AUTO_REFRESH_ENABLED...")
-    if DEFAULT_AUTO_REFRESH_ENABLED == True:
+    if DEFAULT_AUTO_REFRESH_ENABLED:
         print("   ✅ Auto-refresh is enabled by default (True)")
     else:
         print(f"   ❌ Expected True, got {DEFAULT_AUTO_REFRESH_ENABLED}")

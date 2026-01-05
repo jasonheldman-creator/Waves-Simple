@@ -11,7 +11,7 @@ This module provides:
 
 Design Principles:
 - Auto-refresh is enabled by default for live decision support
-- Refresh interval is set to 1 minute (60 seconds) to balance real-time updates with performance
+- Refresh interval is set to 30 seconds to balance real-time updates with performance
 - Errors automatically pause auto-refresh to maintain system stability
 - Caching behavior is preserved to avoid unnecessary recomputations
 """
