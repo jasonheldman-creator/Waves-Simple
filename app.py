@@ -290,7 +290,7 @@ def get_selected_wave_display_name():
     try:
         from waves_engine import get_display_name_from_wave_id
         return get_display_name_from_wave_id(selected_wave_id)
-    except Exception:
+    except (KeyError, ValueError, AttributeError):
         # Fallback: return the wave_id itself if conversion fails
         return selected_wave_id
 
@@ -7021,7 +7021,7 @@ def render_sidebar_info():
                 else:
                     # Invalid wave_id, default to portfolio
                     default_index = 0
-            except Exception:
+            except (KeyError, ValueError, AttributeError):
                 # Error converting wave_id, default to portfolio
                 default_index = 0
         
@@ -7055,11 +7055,12 @@ def render_sidebar_info():
             try:
                 display_name = get_display_name_from_wave_id(st.session_state.selected_wave)
                 st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {display_name}")
-            except Exception:
+            except (KeyError, ValueError, AttributeError):
                 st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {st.session_state.selected_wave}")
         
-        # Debug caption to prove persistence
-        st.sidebar.caption(f"selected_wave (session): {st.session_state.get('selected_wave')}")
+        # Debug caption to prove persistence (only in debug mode)
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.caption(f"selected_wave (session): {st.session_state.get('selected_wave')}")
     
     except Exception as e:
         # Fallback if wave loading fails
