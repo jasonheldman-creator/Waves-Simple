@@ -10,7 +10,7 @@ This module provides:
 - Performance safeguards
 
 Design Principles:
-- Auto-refresh is enabled by default for live decision support
+- Auto-refresh is disabled by default to prevent infinite rerun loops
 - Refresh interval is set to 30 seconds to balance real-time updates with performance
 - Errors automatically pause auto-refresh to maintain system stability
 - Caching behavior is preserved to avoid unnecessary recomputations
