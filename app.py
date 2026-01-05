@@ -902,6 +902,33 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # Set display title based on context
         display_title = "Portfolio Snapshot (All Waves)" if is_portfolio_view else selected_wave
         
+        # Wave-specific metrics HTML (shown only for individual waves)
+        wave_specific_metrics_html = ""
+        if not is_portfolio_view:
+            wave_specific_metrics_html = f'''<div class="stat-tile">
+                    <div class="stat-label">Beta</div>
+                    <div class="stat-value">{beta_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">VIX Regime</div>
+                    <div class="stat-value">{vix_regime_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Exposure</div>
+                    <div class="stat-value">{exposure_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Cash</div>
+                    <div class="stat-value">{cash_str}</div>
+                </div>'''
+        
+        # Informational message for portfolio view
+        portfolio_info_html = ""
+        if is_portfolio_view:
+            portfolio_info_html = '''<div style="text-align: center; margin-top: 12px; color: #a8dadc; font-size: 11px; font-style: italic;">
+                ℹ️ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
+            </div>'''
+        
         # Enhanced banner with stats
         banner_html = f"""
         <style>
@@ -1050,26 +1077,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     <div class="stat-label">Alpha 365D</div>
                     <div class="stat-value">{alpha_365d_str}</div>
                 </div>
-                {'<!-- Portfolio-level metrics: Beta, VIX regime, Exposure, Cash not applicable -->' if is_portfolio_view else f'''<div class="stat-tile">
-                    <div class="stat-label">Beta</div>
-                    <div class="stat-value">{beta_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">VIX Regime</div>
-                    <div class="stat-value">{vix_regime_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Exposure</div>
-                    <div class="stat-value">{exposure_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Cash</div>
-                    <div class="stat-value">{cash_str}</div>
-                </div>'''}
+                {wave_specific_metrics_html}
             </div>
-            {'''<div style="text-align: center; margin-top: 12px; color: #a8dadc; font-size: 11px; font-style: italic;">
-                ℹ️ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
-            </div>''' if is_portfolio_view else ''}
+            {portfolio_info_html}
         </div>
         """
         
