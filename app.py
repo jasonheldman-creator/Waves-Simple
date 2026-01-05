@@ -20370,13 +20370,8 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     #   from helpers.price_loader import get_canonical_prices
     #   prices = get_canonical_prices(tickers=['AAPL', 'MSFT'])
     
-    # Initialize price cache TTL setting if not present (kept for backward compatibility)
-    if "price_cache_ttl_seconds" not in st.session_state:
-        st.session_state.price_cache_ttl_seconds = 7200
-    
-    # Initialize force rebuild flag if not present (kept for backward compatibility)
-    if "force_price_cache_rebuild" not in st.session_state:
-        st.session_state.force_price_cache_rebuild = False
+    # REMOVED: Duplicate price cache initialization (now in consolidated block)
+    # These values are initialized in the "initialized" guard above
     
     # REMOVED: Automatic price cache prefetching on startup
     # This was causing implicit background downloads which violated the
