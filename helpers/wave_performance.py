@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
+MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
 
 # Import wave definitions
 try:
@@ -1191,7 +1192,9 @@ def compute_portfolio_snapshot(
             wave_returns = pd.Series(0.0, index=ticker_returns.index)
             for i, ticker in enumerate(available_tickers):
                 weight = renormalized_weights[i]
-                wave_returns += ticker_returns[ticker].fillna(0.0) * weight
+                # Don't fill NaN - let them propagate naturally
+                ticker_ret = ticker_returns[ticker]
+                wave_returns = wave_returns.add(ticker_ret * weight, fill_value=0.0)
             
             # Drop the first row (which is NaN from pct_change)
             wave_returns = wave_returns.iloc[1:]
@@ -1241,8 +1244,8 @@ def compute_portfolio_snapshot(
         benchmark_returns = benchmark_returns.sort_index()
         
         # Check if we have sufficient data
-        if len(portfolio_returns) < 2:
-            result['failure_reason'] = f'Insufficient dates after aggregation: {len(portfolio_returns)} (need at least 2)'
+        if len(portfolio_returns) < MIN_DATES_FOR_PORTFOLIO:
+            result['failure_reason'] = f'Insufficient dates after aggregation: {len(portfolio_returns)} (need at least {MIN_DATES_FOR_PORTFOLIO})'
             return result
         
         # Record that we have these series
