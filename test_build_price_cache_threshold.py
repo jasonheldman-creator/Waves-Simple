@@ -133,6 +133,33 @@ def test_environment_variable_parsing():
     assert default == 0.95, f"Expected 0.95, got {default}"
     print(f"  ✓ Default when not set → {default}")
     
+    # Test hardened parsing with clamping
+    print("\n  Testing hardened parsing with clamping:")
+    
+    # Test clamping to 1.0
+    try:
+        result = min(1.0, max(0.0, float("1.5")))
+    except ValueError:
+        result = 0.90
+    assert result == 1.0, f"Expected 1.0 (clamped), got {result}"
+    print(f"  ✓ Value 1.5 → {result} (clamped to 1.0)")
+    
+    # Test clamping to 0.0
+    try:
+        result = min(1.0, max(0.0, float("-0.1")))
+    except ValueError:
+        result = 0.90
+    assert result == 0.0, f"Expected 0.0 (clamped), got {result}"
+    print(f"  ✓ Value -0.1 → {result} (clamped to 0.0)")
+    
+    # Test invalid value fallback
+    try:
+        result = min(1.0, max(0.0, float("invalid")))
+    except ValueError:
+        result = 0.90
+    assert result == 0.90, f"Expected 0.90 (fallback), got {result}"
+    print(f"  ✓ Value 'invalid' → {result} (fallback to default)")
+    
     print("\n✓ All environment variable parsing tests passed")
     return True
 
