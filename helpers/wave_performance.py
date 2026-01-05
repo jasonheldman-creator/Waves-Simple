@@ -1130,10 +1130,19 @@ def compute_portfolio_snapshot(
         result['failure_reason'] = 'No waves found in universe'
         return result
     
-    # Compute returns for each wave
-    wave_portfolio_series = []
-    wave_benchmark_series = []
-    waves_included = []
+    # ========================================================================
+    # DETERMINISTIC PORTFOLIO AGGREGATION (PR #406 spec)
+    # ========================================================================
+    # For each wave:
+    #   1. Get daily return series aligned on date
+    #   2. Concatenate into matrix R (rows=dates, cols=waves)
+    #   3. Compute portfolio_return = R.mean(axis=1, skipna=True) (equal weight)
+    #   4. Drop dates where all waves are NaN
+    #   5. Sort index ascending
+    # ========================================================================
+    
+    wave_return_series_dict = {}  # {wave_name: pd.Series of daily returns}
+    wave_benchmark_return_dict = {}  # {wave_name: pd.Series of benchmark daily returns}
     
     for wave_name in all_waves:
         # Get wave tickers and weights
@@ -1170,67 +1179,89 @@ def compute_portfolio_snapshot(
             total_available = sum(available_weights)
             renormalized_weights = [w / total_available for w in available_weights]
             
-            # Compute wave portfolio values
+            # Get price data for available tickers
             ticker_prices = price_book[available_tickers].copy()
             if len(ticker_prices) < 2:
                 continue
             
-            first_prices = ticker_prices.iloc[0]
-            normalized_prices = ticker_prices.div(first_prices, axis=1) * 100
+            # Compute daily returns for each ticker
+            ticker_returns = ticker_prices.pct_change()
             
-            wave_portfolio = pd.Series(0.0, index=ticker_prices.index)
+            # Compute weighted portfolio returns for this wave
+            wave_returns = pd.Series(0.0, index=ticker_returns.index)
             for i, ticker in enumerate(available_tickers):
                 weight = renormalized_weights[i]
-                wave_portfolio += normalized_prices[ticker].ffill() * weight
+                wave_returns += ticker_returns[ticker].fillna(0.0) * weight
             
-            wave_portfolio_series.append(wave_portfolio)
+            # Drop the first row (which is NaN from pct_change)
+            wave_returns = wave_returns.iloc[1:]
             
-            # Get benchmark for this wave (use default benchmark)
-            # In a real implementation, this would come from wave metadata
-            benchmark_ticker = DEFAULT_BENCHMARK_TICKER
-            if benchmark_ticker in price_book.columns:
-                benchmark_prices = price_book[benchmark_ticker].copy()
-                first_benchmark = benchmark_prices.iloc[0]
-                benchmark_normalized = (benchmark_prices / first_benchmark) * 100
-                wave_benchmark_series.append(benchmark_normalized)
-            else:
-                # Use the wave itself as benchmark if default not available
-                wave_benchmark_series.append(wave_portfolio)
-            
-            waves_included.append(wave_name)
+            # Store if we have valid data
+            if len(wave_returns) > 0 and wave_returns.notna().any():
+                wave_return_series_dict[wave_name] = wave_returns
+                
+                # Compute benchmark returns (use default benchmark ticker)
+                benchmark_ticker = DEFAULT_BENCHMARK_TICKER
+                if benchmark_ticker in price_book.columns:
+                    benchmark_prices = price_book[benchmark_ticker].copy()
+                    benchmark_returns = benchmark_prices.pct_change().iloc[1:]
+                    wave_benchmark_return_dict[wave_name] = benchmark_returns
+                else:
+                    # Use wave itself as benchmark if default not available
+                    wave_benchmark_return_dict[wave_name] = wave_returns
             
         except Exception as e:
             logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
             continue
     
     # Check if we got any valid waves
-    if not wave_portfolio_series:
-        result['failure_reason'] = 'No valid wave portfolios computed'
+    if not wave_return_series_dict:
+        result['failure_reason'] = 'No valid wave return series computed'
         return result
     
-    result['wave_count'] = len(waves_included)
+    result['wave_count'] = len(wave_return_series_dict)
     
-    # Compute equal-weight portfolio across all waves
+    # Build return matrix R (rows=dates, cols=waves)
     try:
-        # Average all wave portfolios (equal weight)
-        portfolio_values = pd.concat(wave_portfolio_series, axis=1).mean(axis=1)
-        benchmark_values = pd.concat(wave_benchmark_series, axis=1).mean(axis=1)
+        # Concatenate all wave return series into a DataFrame
+        return_matrix = pd.DataFrame(wave_return_series_dict)
+        benchmark_matrix = pd.DataFrame(wave_benchmark_return_dict)
+        
+        # Compute equal-weight portfolio return: mean across waves (skipna=True)
+        portfolio_returns = return_matrix.mean(axis=1, skipna=True)
+        benchmark_returns = benchmark_matrix.mean(axis=1, skipna=True)
+        
+        # Drop dates where all waves are NaN
+        valid_dates = ~portfolio_returns.isna()
+        portfolio_returns = portfolio_returns[valid_dates]
+        benchmark_returns = benchmark_returns[valid_dates]
+        
+        # Sort index ascending
+        portfolio_returns = portfolio_returns.sort_index()
+        benchmark_returns = benchmark_returns.sort_index()
+        
+        # Check if we have sufficient data
+        if len(portfolio_returns) < 2:
+            result['failure_reason'] = f'Insufficient dates after aggregation: {len(portfolio_returns)} (need at least 2)'
+            return result
         
         # Record that we have these series
         result['has_portfolio_returns_series'] = True
         result['has_portfolio_benchmark_series'] = True
-        
-        # For now, overlay_alpha_component is not computed (would require VIX data)
-        result['has_overlay_alpha_series'] = False
+        result['has_overlay_alpha_series'] = False  # VIX overlay not yet implemented
         
         # Record date range
         result['date_range'] = (
-            portfolio_values.index[0].strftime('%Y-%m-%d'),
-            portfolio_values.index[-1].strftime('%Y-%m-%d')
+            portfolio_returns.index[0].strftime('%Y-%m-%d'),
+            portfolio_returns.index[-1].strftime('%Y-%m-%d')
         )
         
-        # Compute returns for each period
-        max_available_days = len(portfolio_values)
+        # Compute cumulative returns for each period
+        # Convert daily returns to cumulative index starting at 100
+        portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
+        benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100
+        
+        max_available_days = len(portfolio_cumulative)
         
         for period in periods:
             try:
@@ -1241,11 +1272,11 @@ def compute_portfolio_snapshot(
                     result['alphas'][f'{period}D'] = None
                     continue
                 
-                # Get values from 'period' days ago and current value
-                current_portfolio = portfolio_values.iloc[-1]
-                past_portfolio = portfolio_values.iloc[-(period + 1)]
-                current_benchmark = benchmark_values.iloc[-1]
-                past_benchmark = benchmark_values.iloc[-(period + 1)]
+                # Get cumulative values from 'period' days ago and current value
+                current_portfolio = portfolio_cumulative.iloc[-1]
+                past_portfolio = portfolio_cumulative.iloc[-(period + 1)]
+                current_benchmark = benchmark_cumulative.iloc[-1]
+                past_benchmark = benchmark_cumulative.iloc[-(period + 1)]
                 
                 # Handle NaN values
                 if (pd.isna(current_portfolio) or pd.isna(past_portfolio) or 
