@@ -993,7 +993,52 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         exposure_str = "N/A"
         cash_str = "N/A"
         
-        # Calculate from 30-day data
+        # ========================================================================
+        # PORTFOLIO VIEW: Compute portfolio-level metrics using compute_portfolio_snapshot
+        # ========================================================================
+        if is_portfolio_view:
+            try:
+                from helpers.wave_performance import compute_portfolio_snapshot
+                from helpers.price_book import get_price_book
+                
+                # Load PRICE_BOOK
+                price_book = get_price_book()
+                
+                # Compute portfolio snapshot with all periods
+                snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
+                
+                if snapshot['success']:
+                    # Extract portfolio returns
+                    ret_1d = snapshot['portfolio_returns'].get('1D')
+                    ret_30d = snapshot['portfolio_returns'].get('30D')
+                    ret_60d = snapshot['portfolio_returns'].get('60D')
+                    ret_365d = snapshot['portfolio_returns'].get('365D')
+                    
+                    # Extract alphas
+                    alpha_1d = snapshot['alphas'].get('1D')
+                    alpha_30d = snapshot['alphas'].get('30D')
+                    alpha_60d = snapshot['alphas'].get('60D')
+                    alpha_365d = snapshot['alphas'].get('365D')
+                    
+                    # Format return strings
+                    ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                    ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                    ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                    ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                    
+                    # Format alpha strings
+                    alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                    alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                    alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                    alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+            except Exception as e:
+                # Log error but keep N/A values (graceful degradation)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to compute portfolio snapshot for banner: {e}")
+        
+        # ========================================================================
+        # WAVE VIEW: Calculate from 30-day data
         if wave_data_30d is not None and len(wave_data_30d) > 0:
             # 1D return (latest day)
             if 'portfolio_return' in wave_data_30d.columns:
