@@ -1,194 +1,226 @@
-# Wave Selection Control - Implementation Summary
+# Wave Selection Context Resolver - Implementation Summary
 
-## Problem Statement
-The application currently lacks a UI control to select an individual wave, and remains permanently locked in portfolio context. Users could not access wave-specific metrics or switch to individual wave views.
+## Overview
+This implementation addresses stability and resolves critical issues with the app's wave selection logic and infinite rerun loops by introducing a canonical context resolver that makes wave selection the authoritative context driver.
 
-## Solution Implemented
-Added a wave selection dropdown control at the top of the sidebar that enables users to:
-1. View portfolio-level metrics (default)
-2. Switch to any individual wave to see wave-specific metrics
-3. Easily switch back to portfolio view
+## Changes Implemented
 
-## Changes Made
+### 1. Core Context Resolver (`resolve_app_context()`)
+**Location:** `app.py`, lines 291-346
 
-### 1. Code Changes (app.py)
-- **Modified function**: `render_sidebar_info()` at lines 6952-7012
-- **Lines added**: 59 lines
-- **Location**: Top of sidebar (before Safe Mode controls)
+A canonical function that serves as the single source of truth for application context:
 
-**Key features**:
-- Dropdown selector with "Portfolio (All Waves)" as first option
-- Lists all active waves from wave registry (sorted alphabetically)
-- Stores selection in `st.session_state.selected_wave`
-- Visual feedback with icons (🏛️ portfolio, 🌊 wave)
-- Error handling with graceful fallback
-- Help text for user guidance
+```python
+ctx = resolve_app_context()
+# Returns:
+# {
+#     'selected_wave_id': wave_id or None,
+#     'selected_wave_name': display_name or None,
+#     'mode': 'Standard',
+#     'context_key': 'Standard:wave_gold' or 'Standard:PORTFOLIO'
+# }
+```
 
-### 2. Tests Created
+**Key Features:**
+- Returns consistent context dictionary with standardized keys
+- Derives `selected_wave_name` from `selected_wave_id` (never stores names in state)
+- Generates normalized cache key: `{mode}:{selected_wave_id or 'PORTFOLIO'}`
+- Handles fallbacks gracefully when waves_engine unavailable
 
-#### test_wave_selector.py
-- Basic logic tests
-- Verifies selector behavior with mock data
-- 84 lines
+### 2. Sidebar Wave Selection Refactor
+**Location:** `app.py`, lines 7048-7163
 
-#### test_wave_selection_control.py  
-- Comprehensive test suite with 7 tests
-- Extracts constants from app.py to avoid duplication
-- Tests all aspects: defaults, selection, switching, persistence
-- 265 lines
-- **All tests passing ✅**
+**Changes:**
+- **Authoritative State Key:** Uses `st.session_state["selected_wave_id"]` exclusively
+- **No Display Names in State:** Maps UI selections to wave_id, never stores display names
+- **Unique Widget Key:** `wave_selector_unique_key` prevents rerun conflicts
+- **State Change Detection:** Only updates state when value actually changes
+- **Prevents Overwrites:** Guards against initialization overwrites
 
-### 3. Documentation
+**Code Example:**
+```python
+# Only update if value changed (prevent overwrite during initialization)
+if st.session_state.get("selected_wave_id") != new_wave_id:
+    st.session_state.selected_wave_id = new_wave_id
+```
 
-#### WAVE_SELECTION_CONTROL_GUIDE.md
-- Complete implementation guide
-- User interface description with ASCII diagrams
-- Behavior explanation with examples
-- Technical implementation details
-- Testing and security information
-- 243 lines
+### 3. Main Render Pipeline Updates
+**Location:** `app.py`, lines 20443-20766
 
-## How It Works
+**Changes:**
+- All render functions now use `ctx = resolve_app_context()` 
+- Replaced 25+ references to `selected_wave_display_name` with `ctx["selected_wave_name"]`
+- Banner rendering uses context values: `ctx["selected_wave_name"]` and `ctx["mode"]`
+- Sticky headers use context throughout all tabs
 
-### User Flow
-1. **Initial Load**: Shows "Portfolio Snapshot (All Waves)" (default)
-2. **Select Wave**: User chooses a wave from dropdown (e.g., "Gold Wave")
-3. **View Updates**: 
-   - Banner updates to show wave name
-   - Wave-specific metrics appear (Beta, VIX Regime, Exposure, Cash)
-   - All tabs show wave-specific data
-4. **Return to Portfolio**: User selects "Portfolio Snapshot (All Waves)"
-   - Banner updates to show "Portfolio Snapshot"
-   - Wave-specific metrics disappear
-   - Shows aggregated portfolio view
+### 4. Session State Initialization
+**Location:** `app.py`, lines 20309-20316
 
-### Technical Flow
-1. `get_canonical_wave_universe()` → Get list of active waves
-2. Build options: `[PORTFOLIO_VIEW_TITLE] + sorted(all_waves)`
-3. Render selectbox with current selection
-4. On selection change:
-   - If Portfolio → `selected_wave = None`
-   - If Wave → `selected_wave = wave_name`
-5. Existing code checks `is_portfolio_context(selected_wave)`
-6. Banner and metrics adjust automatically
+**Changes:**
+```python
+# OLD: if "selected_wave" not in st.session_state
+# NEW: if "selected_wave_id" not in st.session_state
+if "selected_wave_id" not in st.session_state:
+    st.session_state.selected_wave_id = None  # Portfolio view by default
+```
 
-## Integration with Existing Code
+### 5. Backward Compatibility
+**Location:** `app.py`, lines 347-381
 
-### No Changes Required To:
-- ✅ Calculations or analytics pipelines
-- ✅ Data processing functions
-- ✅ Snapshot generation logic
-- ✅ Existing metrics display logic
-- ✅ Any core business logic
+- Kept `get_selected_wave_display_name()` for backward compatibility
+- Added proper Python `DeprecationWarning` with version info
+- Function delegates to canonical resolver: `resolve_app_context()`
 
-### Leveraged Existing Infrastructure:
-- ✅ `is_portfolio_context()` helper function
-- ✅ `get_canonical_wave_universe()` for wave list
-- ✅ `render_selected_wave_banner_enhanced()` for banner
-- ✅ Session state management
-- ✅ Wave-specific metrics conditional rendering
+### 6. Infinite Loop Prevention
+**Already Existing Guards:**
+- Run guard counter (lines 19850-19872)
+- Loop detection flag (lines 19843-19844)
+- Safe mode default ON (lines 19838-19840)
+- Auto-refresh OFF by default (`auto_refresh_config.py`, line 24)
 
-## Testing & Quality
+**New Guards:**
+- Unique widget keys prevent selector conflicts
+- State change detection prevents unnecessary updates
+- Context resolver called once per render cycle
 
-### Unit Tests
-- **Total tests**: 7
-- **Pass rate**: 100% ✅
-- **Coverage**:
-  - Default to portfolio mode
-  - Select individual wave
-  - Switch back to portfolio
-  - Helper function logic
-  - Metrics visibility
-  - Selector options
-  - Session persistence
+## Testing
 
-### Code Review
-- Addressed code duplication in tests
-- Extracted constants to avoid maintenance issues
-- Clean, readable implementation
-- Proper error handling
+### Automated Tests
+**File:** `test_context_resolver.py`
 
-### Security
-- **CodeQL scan**: 0 alerts ✅
-- No vulnerabilities introduced
-- Safe handling of user input
-- Graceful error handling
+5 comprehensive tests covering:
+1. Portfolio mode context resolution
+2. Wave selected context resolution
+3. Different modes (Standard, Aggressive, Conservative)
+4. Cache key normalization
+5. State persistence
 
-## Acceptance Criteria - ALL MET ✅
+**Results:** ✅ All 5 tests passed
 
-From the original problem statement:
+### Validation Script
+**File:** `validate_context_resolver.py`
 
-| Criterion | Status | Notes |
-|-----------|--------|-------|
-| Users can switch between Portfolio and any individual Wave | ✅ | Dropdown provides easy switching |
-| Default selection is "Portfolio (All Waves)" | ✅ | `selected_wave = None` on first load |
-| Selecting a wave switches context to wave-level view | ✅ | Updates session state and triggers rerender |
-| Wave-specific metrics re-enabled | ✅ | Beta, VIX, Exposure, Cash shown only for waves |
-| Portfolio mode remains default | ✅ | Always first option, index 0 |
-| Portfolio does NOT suppress wave selection | ✅ | Selector always visible and functional |
-| No modifications to calculations/analytics/pipelines | ✅ | Strictly UI/context switching |
-| Selector available in Executive/Institutional mode | ✅ | Placed at top of sidebar, independent of modes |
+9 validation checks covering:
+1. ✅ resolve_app_context() function exists
+2. ✅ selected_wave_id usage (40 occurrences)
+3. ✅ Unique widget key present
+4. ✅ context_key normalization
+5. ✅ Auto-refresh disabled by default
+6. ✅ Context resolver called in main
+7. ✅ State change detection implemented
+8. ✅ Proper deprecation warning
+9. ✅ Old selected_wave key minimally used
 
-## Statistics
+**Results:** ✅ All 9 checks passed
 
-### Code Impact
-- **Files modified**: 1 (app.py)
-- **Files created**: 3 (tests + docs)
-- **Total lines added**: 651
-- **Lines changed in app.py**: 59 (0.3% of 20,000+ line file)
-- **Functions modified**: 1 (`render_sidebar_info`)
-- **Breaking changes**: 0
-- **Behavioral changes**: Wave selection now possible (was locked)
+### Code Quality
+- **Syntax Check:** ✅ Passed
+- **Code Review:** ✅ Passed (3 minor comments addressed)
+- **CodeQL Security:** ✅ Passed (0 alerts)
 
-### Quality Metrics
-- **Test coverage**: 7 comprehensive tests
-- **Test pass rate**: 100%
-- **Security alerts**: 0
-- **Code review issues resolved**: 2 (duplication)
-- **Documentation**: Complete guide with examples
+## Key Behavioral Fixes
 
-## Benefits
+### Fix 1: Wave Selection Drives Page Context ✅
+- Selecting a wave immediately updates visible output
+- Header changes from "Portfolio Snapshot" to "Wave View: {name}"
+- All tabs reflect the selected wave context
+- State persists across reruns
 
-### User Experience
-1. **Accessibility**: Always visible, easy to find
-2. **Simplicity**: Single dropdown, clear options
-3. **Feedback**: Visual indicators show current mode
-4. **Persistence**: Selection remembered across reruns
-5. **Reliability**: Graceful error handling
+### Fix 2: Normalized Cache Keys ✅
+- Format: `{mode}:{selected_wave_id or 'PORTFOLIO'}`
+- Examples:
+  - `Standard:PORTFOLIO`
+  - `Standard:wave_gold`
+  - `Aggressive:wave_income`
+- Enables proper caching and context isolation
 
-### Developer Experience
-1. **Minimal changes**: Only 59 lines in one function
-2. **Clean integration**: Leverages existing patterns
-3. **Well tested**: Comprehensive test suite
-4. **Well documented**: Complete guide with examples
-5. **Maintainable**: No code duplication, clear structure
+### Fix 3: No Infinite Rerun Loops ✅
+- Unique widget keys prevent selector conflicts
+- State change detection prevents unnecessary updates
+- Auto-refresh disabled by default
+- Existing loop guards remain active
 
-### Business Value
-1. **Feature unlocked**: Wave-specific analytics now accessible
-2. **No regressions**: Existing portfolio mode unchanged
-3. **Low risk**: Minimal code changes, thoroughly tested
-4. **Future ready**: Foundation for wave comparison features
+### Fix 4: Single Source of Truth ✅
+- `resolve_app_context()` is the canonical source
+- All render functions use context resolver
+- Display names derived, never stored
+- Wave_id is the authoritative identifier
+
+## Migration Notes
+
+### For Developers
+If you have code that uses the old patterns, update as follows:
+
+**OLD:**
+```python
+selected_wave = st.session_state.get("selected_wave")
+display_name = get_selected_wave_display_name()
+mode = st.session_state.get("mode")
+```
+
+**NEW:**
+```python
+ctx = resolve_app_context()
+selected_wave_id = ctx["selected_wave_id"]
+selected_wave_name = ctx["selected_wave_name"]
+mode = ctx["mode"]
+cache_key = ctx["context_key"]
+```
+
+### Breaking Changes
+None - backward compatibility maintained via deprecated function.
+
+### Deprecation Timeline
+- **v2.0:** `get_selected_wave_display_name()` deprecated with warning
+- **v3.0:** Function will be removed (use `resolve_app_context()` instead)
+
+## Verification
+
+Run the following to verify the implementation:
+
+```bash
+# Run context resolver tests
+python test_context_resolver.py
+
+# Run validation script
+python validate_context_resolver.py
+
+# Check syntax
+python -m py_compile app.py
+```
+
+All should pass without errors.
+
+## Files Changed
+1. `app.py` - Main application file (core changes)
+2. `test_context_resolver.py` - New test file
+3. `validate_context_resolver.py` - New validation script
+4. `WAVE_SELECTION_IMPLEMENTATION_SUMMARY.md` - This document
+
+## Files Reviewed
+- `auto_refresh_config.py` - Verified default settings
+- `requirements.txt` - No changes needed
+
+## Performance Impact
+- **Positive:** Fewer unnecessary reruns due to state change detection
+- **Positive:** Cleaner cache invalidation with normalized keys
+- **Neutral:** Context resolver adds minimal overhead (dictionary lookup)
+- **Positive:** No auto-refresh by default reduces server load
+
+## Security
+- CodeQL analysis: 0 alerts
+- No new security vulnerabilities introduced
+- Proper input validation maintained
+- State guards prevent injection
 
 ## Conclusion
+The canonical context resolver successfully addresses all requirements from the problem statement:
+- ✅ Wave selection drives page context
+- ✅ Normalized cache keys
+- ✅ Infinite loop prevention
+- ✅ Single source of truth
+- ✅ Backward compatibility
+- ✅ Comprehensive testing
+- ✅ Security validated
 
-This implementation successfully addresses all requirements from the problem statement with a minimal, clean solution. The wave selection control is:
-
-- ✅ **Always visible** in the sidebar
-- ✅ **Defaults to portfolio** mode
-- ✅ **Enables wave selection** without suppression
-- ✅ **Shows wave-specific metrics** when appropriate
-- ✅ **Works in all modes** (Executive/Institutional/etc.)
-- ✅ **UI only** - no changes to calculations or pipelines
-- ✅ **Thoroughly tested** with 100% pass rate
-- ✅ **Secure** with 0 vulnerabilities
-- ✅ **Well documented** with complete guide
-
-The implementation follows best practices:
-- Minimal code changes
-- Leverages existing infrastructure
-- Comprehensive testing
-- Clear documentation
-- Proper error handling
-- No security issues
-
-Total development effort: ~650 lines across code, tests, and documentation.
+The implementation is ready for production use.
