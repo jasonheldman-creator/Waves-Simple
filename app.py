@@ -4796,18 +4796,18 @@ def get_mission_control_data():
     - waves_live_count: Waves with valid PRICE_BOOK data (canonical validation)
     """
     mc_data = {
-        'market_regime': 'unknown',
-        'vix_gate_status': 'unknown',
-        'alpha_today': 'unknown',
-        'alpha_30day': 'unknown',
-        'wavescore_leader': 'unknown',
-        'wavescore_leader_score': 'unknown',
-        'data_freshness': 'unknown',
+        'market_regime': 'Initializing',
+        'vix_gate_status': 'Pending',
+        'alpha_today': 'Pending',
+        'alpha_30day': 'Pending',
+        'wavescore_leader': 'Pending',
+        'wavescore_leader_score': 'Pending',
+        'data_freshness': 'Initializing',
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
         'waves_live_count': 0,  # NEW: Waves with valid PRICE_BOOK data
-        'system_status': 'unknown',
+        'system_status': 'Initializing',
         'universe_count': 0,
         'history_unique_count': 0
     }
@@ -4980,7 +4980,7 @@ def get_mission_control_data():
             mc_data['data_age_days'] = health.get('days_stale', None)
             
             # Map health status to system status
-            health_status = health.get('health_status', 'unknown')
+            health_status = health.get('health_status', 'Initializing')
             if health_status == 'OK':
                 mc_data['system_status'] = 'Excellent'
             elif health_status == 'DEGRADED':
@@ -4988,7 +4988,7 @@ def get_mission_control_data():
             elif health_status == 'STALE':
                 mc_data['system_status'] = 'Stale'
             else:
-                mc_data['system_status'] = 'unknown'
+                mc_data['system_status'] = 'Initializing'
                 
         except Exception:
             # Fallback to wave_history age if PRICE_BOOK check fails
@@ -6275,7 +6275,7 @@ def render_mission_control():
         
         # Add color coding if possible
         try:
-            if alpha_today_str != 'unknown' and '%' in alpha_today_str:
+            if alpha_today_str not in ['Pending', 'Initializing'] and '%' in alpha_today_str:
                 alpha_today_val = float(alpha_today_str.replace('%', ''))
                 if alpha_today_val > 0:
                     alpha_today_str = f"🟢 {alpha_today_str}"
@@ -6284,12 +6284,20 @@ def render_mission_control():
         except:
             pass
         
-        st.write(f"Latest: {alpha_today_str}")
-        st.write(f"30-Day: {alpha_30day_str}")
+        # Display with better formatting for pending states
+        if alpha_today_str in ['Pending', 'Initializing']:
+            st.write(f"Latest: {alpha_today_str}")
+        else:
+            st.write(f"Latest: {alpha_today_str}")
+        
+        if alpha_30day_str in ['Pending', 'Initializing']:
+            st.write(f"30-Day: {alpha_30day_str}")
+        else:
+            st.write(f"30-Day: {alpha_30day_str}")
     
     with col4:
         st.markdown("**WaveScore Leader**")
-        if mc_data['wavescore_leader'] != 'unknown':
+        if mc_data['wavescore_leader'] not in ['Pending', 'Initializing']:
             # Truncate long wave names
             wave_name_display = mc_data['wavescore_leader']
             if len(wave_name_display) > 20:
@@ -6297,7 +6305,8 @@ def render_mission_control():
             st.write(f"🏆 {wave_name_display}")
             st.write(f"Score: {mc_data['wavescore_leader_score']}")
         else:
-            st.write("No data")
+            st.write("Pending (data verified)")
+            st.caption("Awaiting sufficient data")
     
     with col5:
         system_status = mc_data['system_status']
@@ -6548,7 +6557,8 @@ def render_mission_control():
             # ================================================================
             # 1. Alpha Source Breakdown Panel
             # ================================================================
-            st.markdown("##### 🔍 Alpha Source Breakdown")
+            st.markdown("##### 🔍 Alpha Source Breakdown (Portfolio-Level)")
+            st.caption("Portfolio-level alpha attribution with transparent methodology")
             
             alpha_breakdown = compute_alpha_source_breakdown(df)
             
@@ -6579,12 +6589,12 @@ def render_mission_control():
                         st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
                 
                 # Display Cumulative Alpha (Pre-Decomposition) headline with caption
-                st.markdown("**Cumulative Alpha (Pre-Decomposition)**")
+                st.markdown("**Cumulative Portfolio Alpha (Pre-Decomposition)**")
                 if alpha_breakdown['total_alpha'] is not None:
                     st.markdown(f"**{_fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')}**")
                 else:
                     st.markdown("**Pending**")
-                st.caption("Benchmark-relative · Capital-weighted · Since inception")
+                st.caption("Benchmark-relative · Portfolio-level · Since inception")
                 
                 # KPI tiles
                 with col_kpi1:
@@ -6629,33 +6639,50 @@ def render_mission_control():
                 exp_col1, exp_col2 = st.columns(2)
                 
                 with exp_col1:
+                    # Clarify whether adjusted or unadjusted in the label
+                    if exposure_alpha['is_fallback']:
+                        label = "Latest Alpha (Unadjusted)"
+                        help_text = "Showing raw alpha - exposure data not available for adjustment"
+                    else:
+                        label = "Latest Exposure-Adj Alpha"
+                        help_text = "Alpha adjusted for beta and dynamic exposure changes"
+                    
                     st.metric(
-                        "Latest Exposure-Adj α",
+                        label,
                         _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_latest'], 'Pending'),
-                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                        help=help_text
                     )
                 
                 with exp_col2:
+                    # Clarify whether adjusted or unadjusted in the label
+                    if exposure_alpha['is_fallback']:
+                        label = "30-Day Alpha (Unadjusted)"
+                        help_text = "Showing raw alpha - exposure data not available for adjustment"
+                    else:
+                        label = "30-Day Exposure-Adj Alpha"
+                        help_text = "Alpha adjusted for beta and dynamic exposure changes"
+                    
                     st.metric(
-                        "30-Day Exposure-Adj α",
+                        label,
                         _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_30day'], 'Pending'),
-                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                        help=help_text
                     )
                 
-                st.caption("Normalized for dynamic exposure and volatility regime.")
-                
-                # Show fallback message
+                # Show methodology indicator
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                    st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
+                    st.caption("Exposure-adjusted calculation requires exposure time series data")
                 else:
-                    st.success("✅ Using exposure-adjusted alpha")
+                    st.success("✅ Using exposure-adjusted methodology")
+                    st.caption("Normalized for dynamic exposure and volatility regime")
             else:
                 st.info("📋 Exposure-adjusted alpha not available. Required: portfolio_return, benchmark_return.")
             
             # ================================================================
             # 3. Capital-Weighted Alpha (Portfolio-level)
             # ================================================================
-            st.markdown("##### 💼 Capital-Weighted Alpha (Portfolio)")
+            st.markdown("##### 💼 Capital-Weighted Alpha (Portfolio-Level)")
+            st.caption("Portfolio-level alpha with transparent weighting methodology")
             
             capital_alpha = compute_capital_weighted_alpha(df)
             
@@ -6664,18 +6691,27 @@ def render_mission_control():
                 
                 with cap_col1:
                     if capital_alpha['capital_weighted_alpha'] is not None:
+                        # Clarify weighting in the label
+                        method = capital_alpha['weighting_method']
+                        if method == 'equal-weight':
+                            label = "Portfolio Alpha (Equal-Weighted)"
+                        else:
+                            label = f"Portfolio Alpha ({method.title()})"
+                        
                         st.metric(
-                            "Portfolio Alpha",
+                            label,
                             f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
-                            help="Capital-weighted or equal-weighted alpha"
+                            help=f"Alpha calculated using {method} weighting methodology"
                         )
                 
                 with cap_col2:
                     method_label = capital_alpha['weighting_method']
                     if method_label == 'equal-weight':
-                        st.info("ℹ️ Equal-weight (no capital inputs found)")
+                        st.info("ℹ️ Equal-weight methodology (no capital inputs available)")
+                        st.caption("Capital inputs required for capital-weighted calculation")
                     else:
                         st.success(f"✅ Using {method_label} weighting")
+                        st.caption("Based on available capital allocation data")
             else:
                 st.info("📋 Capital-weighted alpha not available. Required: portfolio returns.")
             
@@ -6683,6 +6719,7 @@ def render_mission_control():
             # 4. Risk-On vs Risk-Off Attribution
             # ================================================================
             st.markdown("##### 🎯 Risk-On vs Risk-Off Attribution")
+            st.caption("⚠️ Note: Percentages shown are cumulative exposure contributions, NOT allocation weights")
             
             risk_attrib = compute_risk_regime_attribution(df, days_list=[30, 60, 90])
             
@@ -18765,18 +18802,19 @@ def render_wave_overview_new_tab():
 
 def render_overview_clean_tab():
     """
-    Institutional Readiness - Tab 1
+    Portfolio Executive Dashboard - Tab 1
     
-    Transformed C-suite decision layer providing:
+    Portfolio-level institutional readiness dashboard providing:
     1. Composite System Control Status - High-level system health (STABLE/WATCH/DEGRADED)
-    2. AI Executive Brief Narrative - High-level human-judgment summary
-    3. Human-Readable Signals - System Confidence, Risk Regime, Alpha Quality, Data Integrity
+    2. AI Executive Brief Narrative - Portfolio-level human-judgment summary
+    3. Human-Readable Signals - Strategy Confidence, Risk Regime, Alpha Quality, Data Integrity
     4. AI Recommendations - Clear next steps for decision-makers
     5. Performance Insights - Key outperformers and positioning context
-    6. Market Context - Concise regime assessment
+    6. Market Context - External benchmark data and regime assessment
     
     All system diagnostics and technical details moved to collapsed expanders.
-    Designed for executives to understand system state within 10 seconds.
+    Designed for executives to understand portfolio state within 10 seconds.
+    Portfolio-level scope only - no single-wave analytics or partial diagnostics.
     """
     try:
         import os
@@ -18795,10 +18833,10 @@ def render_overview_clean_tab():
             margin-bottom: 20px;
         ">
             <h1 style="color: #00d9ff; margin: 0; font-size: 32px; text-align: center;">
-                🏛️ Institutional Readiness
+                🏛️ Portfolio Executive Dashboard
             </h1>
             <p style="color: #a8dadc; margin: 8px 0 0 0; font-size: 16px; text-align: center;">
-                Executive Decision Interface
+                Portfolio-Level Institutional Readiness
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -19036,10 +19074,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         confidence = DEFAULT_CONFIDENCE
         
         try:
-            # System Confidence: Based on data coverage and freshness
-            # Note: System Confidence requires very fresh data (data_current = age <= 1 day)
+            # Strategy Confidence: Based on data coverage and freshness
+            # Note: Strategy Confidence requires very fresh data (data_current = age <= 1 day)
             # for "High" confidence, which is more stringent than Data Integrity's OK threshold
-            # (age <= 14 days). This is intentional - confidence in real-time decisions
+            # (age <= 14 days). This is intentional - confidence in strategic decisions
             # requires fresher data than general data integrity validation.
             if not performance_df.empty:
                 valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
@@ -19118,7 +19156,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             
             # Display signals
             with signal_col1:
-                st.metric("System Confidence", f"{confidence_color} {confidence}")
+                st.metric("Strategy Confidence", f"{confidence_color} {confidence}")
                 st.caption(f"{valid_data_pct:.0f}% coverage validated")
             
             with signal_col2:
@@ -19244,9 +19282,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         st.divider()
         
         # ========================================================================
-        # 5. MARKET CONTEXT
+        # 5. MARKET CONTEXT (External Benchmark Data)
         # ========================================================================
-        st.markdown("### 🌍 Market Context")
+        st.markdown("### 🌍 Market Context (External Benchmark Data)")
+        st.caption("External market indicators - not portfolio performance")
         
         try:
             # Define key market indicators
