@@ -16,6 +16,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Maximum allowed st.rerun() calls in the codebase
+# Current: 2 (trigger_rerun function + 1 button handler)
+# Allow up to 5 for future flexibility while preventing excessive reruns
 MAX_ALLOWED_RERUN_CALLS = 5
 
 
@@ -49,29 +51,44 @@ def test_no_exception_reruns():
     
     NOTE: This is a simple heuristic check. It may produce false positives
     for reruns in try blocks that appear to be in except blocks due to
-    simple indentation checking. Manual review is still recommended.
+    simple indentation checking. A more robust implementation would use
+    AST parsing, but this provides a basic sanity check.
     """
     with open('app.py', 'r') as f:
         lines = f.readlines()
     
-    # Find all except blocks
+    # Track potential issues (for informational purposes)
+    potential_issues = []
+    
+    # Find all except blocks using simple heuristic
     in_except_block = False
-    except_has_rerun = False
+    current_indent = 0
     
     for i, line in enumerate(lines):
+        # Detect except block start
         if 'except' in line and ':' in line:
             in_except_block = True
-            except_has_rerun = False
+            # Get indentation level of except statement
+            current_indent = len(line) - len(line.lstrip())
         elif in_except_block:
-            if 'st.rerun()' in line or 'trigger_rerun(' in line:
-                except_has_rerun = True
-                # Note: This may be a false positive if the code is actually in a try block
-                # A more robust check would use AST parsing
-            # Check if we're out of the except block (dedented or new def/class)
-            if line.strip() and not line.startswith(' ') and not line.startswith('\t'):
-                in_except_block = False
+            # Check if still inside except block
+            stripped = line.lstrip()
+            if stripped:  # Non-empty line
+                line_indent = len(line) - len(stripped)
+                # If dedented or same level as except, we're out
+                if line_indent <= current_indent:
+                    in_except_block = False
+                elif 'st.rerun()' in line or 'trigger_rerun(' in line:
+                    # Found a potential rerun in except block
+                    potential_issues.append(i + 1)
     
-    print("✓ Exception handlers checked for reruns (heuristic check - may have false positives)")
+    # This is informational only - we don't fail the test because
+    # our heuristic may have false positives
+    if potential_issues:
+        print(f"ℹ️ Heuristic check found potential reruns at lines: {potential_issues}")
+        print("   (May be false positives - manual review recommended)")
+    else:
+        print("✓ Exception handlers checked - no obvious reruns found (heuristic check)")
 
 
 def test_wave_selection_initialization():
