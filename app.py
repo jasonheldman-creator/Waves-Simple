@@ -20444,20 +20444,20 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Main Application UI
     # ========================================================================
     
-    # Get selected wave display name for rendering (converts wave_id to display_name)
-    selected_wave_display_name = get_selected_wave_display_name()
+    # Resolve canonical app context (single source of truth)
+    ctx = resolve_app_context()
     
     # Render selected wave banner at the very top (above all tabs)
     # Use enhanced banner if ENABLE_WAVE_PROFILE is True, otherwise use simple banner
     if ENABLE_WAVE_PROFILE:
         render_selected_wave_banner_enhanced(
-            selected_wave=selected_wave_display_name,
-            mode=st.session_state.mode
+            selected_wave=ctx["selected_wave_name"],
+            mode=ctx["mode"]
         )
     else:
         render_selected_wave_banner_simple(
-            selected_wave=selected_wave_display_name,
-            mode=st.session_state.mode
+            selected_wave=ctx["selected_wave_name"],
+            mode=ctx["mode"]
         )
     
     # Render Mission Control at the top
@@ -20530,47 +20530,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab
         with analytics_tabs[1]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Overview tab
         with analytics_tabs[2]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -20629,47 +20629,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (fourth)
         with analytics_tabs[3]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[4]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[5]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[6]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[7]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[9]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[10]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -20727,42 +20727,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(selected_wave_display_name, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
