@@ -1085,7 +1085,6 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
-                    import traceback
                     logging.warning(traceback.format_exc())
         
         # ========================================================================
@@ -2535,7 +2534,13 @@ def safe_load_wave_history(_wave_universe_version=1):
 
 
 def get_latest_data_timestamp():
-    """Get the latest available 'as of' data timestamp from PRICE_BOOK (single source of truth)."""
+    """
+    Get the latest available 'as of' data timestamp from PRICE_BOOK (single source of truth).
+    
+    Returns:
+        str: Latest date in YYYY-MM-DD format from price_book.index.max(), 
+             or "unknown" if PRICE_BOOK is unavailable or empty.
+    """
     try:
         # Use PRICE_BOOK as the single source of truth for dates
         from helpers.price_book import get_price_book

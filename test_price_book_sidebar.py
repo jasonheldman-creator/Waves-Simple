@@ -27,6 +27,7 @@ class TestSidebarDateIntegration(unittest.TestCase):
         import pandas as pd
         import numpy as np
         from datetime import datetime, timedelta
+        import importlib
         
         # Create mock price_book with known max date
         expected_date = datetime(2024, 1, 15)
@@ -39,8 +40,10 @@ class TestSidebarDateIntegration(unittest.TestCase):
         
         # Mock get_price_book to return our test data
         with patch('helpers.price_book.get_price_book', return_value=price_book):
-            # Import after patching to ensure the mock is in place
+            # Import app module
             import app
+            # Reload to ensure patch is applied
+            importlib.reload(app)
             
             # Call the function
             result = app.get_latest_data_timestamp()
@@ -58,12 +61,15 @@ class TestSidebarDateIntegration(unittest.TestCase):
         print("\n=== Test: get_latest_data_timestamp handles empty PRICE_BOOK ===")
         
         import pandas as pd
+        import importlib
         
         # Mock get_price_book to return empty DataFrame
         empty_df = pd.DataFrame()
         
         with patch('helpers.price_book.get_price_book', return_value=empty_df):
             import app
+            # Reload to ensure patch is applied
+            importlib.reload(app)
             
             # Call the function
             result = app.get_latest_data_timestamp()
