@@ -1033,9 +1033,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
             except Exception as e:
                 # Log error but keep N/A values (graceful degradation)
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to compute portfolio snapshot for banner: {e}")
+                logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
         
         # ========================================================================
         # WAVE VIEW: Calculate from 30-day data
