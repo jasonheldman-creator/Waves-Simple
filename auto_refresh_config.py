@@ -24,6 +24,7 @@ Design Principles:
 DEFAULT_AUTO_REFRESH_ENABLED = False
 
 # Default refresh interval in milliseconds (30000ms = 30 seconds)
+DEFAULT_REFRESH_INTERVAL_MS = 30000
 
 # Available refresh interval options (in seconds)
 REFRESH_INTERVAL_OPTIONS = {

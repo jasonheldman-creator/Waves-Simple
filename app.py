@@ -20377,10 +20377,9 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             
             # Execute auto-refresh
             if st.session_state.get("auto_refresh_enabled", False) and not st.session_state.get("auto_refresh_paused", False):
-    #count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
-    pass
-else:
-    count = None  # HARD STOP: no st_autorefresh call when OFF
+                count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
+            else:
+                count = None  # HARD STOP: no st_autorefresh call when OFF
             
             # Update last refresh time on successful refresh
             st.session_state.last_refresh_time = datetime.now()
