@@ -30,51 +30,204 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Pre-build cache inspection
+        run: |
+          echo "========================================================================"
+          echo "PRE-BUILD CACHE INSPECTION"
+          echo "========================================================================"
+          
+          # Check if cache exists
+          if [ -f data/cache/prices_cache.parquet ]; then
+            echo "✓ Cache file exists"
+            CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+            echo "  Size: ${CACHE_SIZE} bytes"
+            
+            # Display existing metadata
+            if [ -f data/cache/prices_cache_meta.json ]; then
+              echo ""
+              echo "Existing Cache Metadata:"
+              cat data/cache/prices_cache_meta.json | python3 -m json.tool
+            fi
+            
+            # Extract key info using Python
+            echo ""
+            python3 << 'EOF'
+          import pandas as pd
+          import os
+          try:
+              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              print(f"  Symbol count: {len(df.columns)}")
+              print(f"  Date range: {df.index.min()} to {df.index.max()}")
+              print(f"  Latest date: {df.index.max()}")
+          except Exception as e:
+              print(f"  Error reading cache: {e}")
+          EOF
+          else
+            echo "✗ Cache file does not exist"
+          fi
+          echo "========================================================================"
+
       - name: Build price cache
         env:
           MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
           python build_price_cache.py --force
 
-      - name: Validate cache file
+      - name: Validate cache file and contents
         run: |
-          echo "=== Cache Validation ==="
+          echo "========================================================================"
+          echo "POST-BUILD CACHE VALIDATION"
+          echo "========================================================================"
+          
+          # Check cache file existence
           if [ ! -f data/cache/prices_cache.parquet ]; then
-            echo "ERROR: Cache file does not exist"
+            echo "✗ ERROR: Cache file does not exist"
             exit 1
           fi
           
-          CACHE_SIZE=$(stat -f%z data/cache/prices_cache.parquet 2>/dev/null || stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+          # Check cache file size
+          CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
           if [ "$CACHE_SIZE" -eq 0 ]; then
-            echo "ERROR: Cache file is empty"
+            echo "✗ ERROR: Cache file is empty"
             exit 1
           fi
           
-          echo "✓ Cache file exists and is non-empty (${CACHE_SIZE} bytes)"
+          echo "✓ Cache file exists and is non-empty"
+          echo "  Path: data/cache/prices_cache.parquet"
+          echo "  Size: ${CACHE_SIZE} bytes"
           
-          # Display metadata if it exists
+          # Display metadata
           if [ -f data/cache/prices_cache_meta.json ]; then
             echo ""
-            echo "=== Cache Metadata ==="
-            cat data/cache/prices_cache_meta.json
+            echo "Cache Metadata:"
+            cat data/cache/prices_cache_meta.json | python3 -m json.tool
+            
+            # Check for missing required symbols
+            if grep -q "missing_required_symbols" data/cache/prices_cache_meta.json; then
+              echo ""
+              echo "⚠ WARNING: Missing required symbols detected"
+              python3 << 'EOF'
+          import json
+          with open('data/cache/prices_cache_meta.json', 'r') as f:
+              meta = json.load(f)
+              if 'missing_required_symbols' in meta and meta['missing_required_symbols']:
+                  print("Missing symbols by category:")
+                  for category, symbols in meta['missing_required_symbols'].items():
+                      print(f"  {category}: {symbols}")
+          EOF
+            fi
           fi
+          
+          # Detailed cache contents inspection
+          echo ""
+          echo "Cache Contents Details:"
+          python3 << 'EOF'
+          import pandas as pd
+          import json
+          
+          try:
+              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              
+              print(f"  Total symbols: {len(df.columns)}")
+              print(f"  Total days: {len(df)}")
+              print(f"  Date range: {df.index.min()} to {df.index.max()}")
+              
+              # Check required symbols
+              required_volatility = ['^VIX', 'VIXY', 'VXX']
+              required_benchmarks = ['SPY', 'QQQ', 'IWM']
+              required_cash = ['BIL', 'SHY']
+              
+              print("")
+              print("  Required symbol verification:")
+              
+              vols_present = [s for s in required_volatility if s in df.columns]
+              print(f"    Volatility regime ({len(vols_present)}/{len(required_volatility)}): {vols_present}")
+              if not vols_present:
+                  print(f"      ✗ MISSING ALL: {required_volatility}")
+              
+              bench_present = [s for s in required_benchmarks if s in df.columns]
+              bench_missing = [s for s in required_benchmarks if s not in df.columns]
+              print(f"    Benchmarks ({len(bench_present)}/{len(required_benchmarks)}): {bench_present}")
+              if bench_missing:
+                  print(f"      ✗ MISSING: {bench_missing}")
+              
+              cash_present = [s for s in required_cash if s in df.columns]
+              cash_missing = [s for s in required_cash if s not in df.columns]
+              print(f"    Cash proxies ({len(cash_present)}/{len(required_cash)}): {cash_present}")
+              if cash_missing:
+                  print(f"      ✗ MISSING: {cash_missing}")
+                  
+          except Exception as e:
+              print(f"  Error inspecting cache: {e}")
+          EOF
+          
+          echo "========================================================================"
+
+      - name: Check for changes and determine action
+        id: check_changes
+        run: |
+          echo "========================================================================"
+          echo "CHANGE DETECTION AND FRESHNESS CHECK"
+          echo "========================================================================"
+          
+          # Check if there are changes to commit
+          git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json
+          
+          if git diff --staged --quiet; then
+            echo "status=no_changes" >> $GITHUB_OUTPUT
+            echo "ℹ No changes detected in cache files"
+            
+            # Check if cache is fresh or stale
+            python3 << 'EOF'
+          import json
+          import sys
+          from datetime import datetime
+          
+          try:
+              with open('data/cache/prices_cache_meta.json', 'r') as f:
+                  meta = json.load(f)
+              
+              max_date_str = meta.get('max_price_date')
+              if max_date_str:
+                  max_date = datetime.strptime(max_date_str, '%Y-%m-%d')
+                  today = datetime.now()
+                  days_old = (today - max_date).days
+                  
+                  print(f"Cache max_date: {max_date_str}")
+                  print(f"Days old: {days_old}")
+                  
+                  if days_old <= 5:
+                      print("✓ Cache is fresh (no changes needed)")
+                      sys.exit(0)
+                  else:
+                      print(f"✗ ERROR: Cache is stale ({days_old} days old) AND unchanged")
+                      print("This indicates a failure to fetch new data.")
+                      sys.exit(1)
+              else:
+                  print("⚠ WARNING: Unable to determine cache age")
+                  sys.exit(0)
+          except Exception as e:
+              print(f"Error checking cache freshness: {e}")
+              sys.exit(0)
+          EOF
+          else
+            echo "status=has_changes" >> $GITHUB_OUTPUT
+            echo "✓ Changes detected in cache files"
+            
+            # Show git diff summary
+            echo ""
+            echo "Git diff summary:"
+            git diff --staged --stat
+          fi
+          
+          echo "========================================================================"
 
       - name: Commit and push updated cache
-        # Only commit on main branch for scheduled or manual runs (not for PR builds)
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: steps.check_changes.outputs.status == 'has_changes' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add cache files
-          git add data/cache/prices_cache.parquet
-          git add data/cache/prices_cache_meta.json
-          
-          # Only commit if there are changes
-          if git diff --staged --quiet; then
-            echo "No changes to cache files, skipping commit"
-          else
-            git commit -m "Update prices cache (auto)"
-            git push
-            echo "✓ Cache files committed and pushed"
-          fi
+          git commit -m "Update prices cache (auto)"
+          git push
+          echo "✓ Cache files committed and pushed"
