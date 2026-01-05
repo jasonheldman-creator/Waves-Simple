@@ -303,14 +303,14 @@ def get_selected_wave_display_name():
         return None
     
     if not WAVES_ENGINE_AVAILABLE or get_display_name_from_wave_id is None:
-        # Fallback: return the wave_id itself if waves_engine is unavailable
-        return selected_wave_id
+        # Fallback: return a user-friendly message if waves_engine is unavailable
+        return f"Wave ({selected_wave_id})"
     
     try:
         return get_display_name_from_wave_id(selected_wave_id)
     except (KeyError, ValueError, AttributeError):
-        # Fallback: return the wave_id itself if conversion fails
-        return selected_wave_id
+        # Fallback: return a user-friendly message if conversion fails
+        return f"Wave ({selected_wave_id})"
 
 # Cache TTL for price downloads (in seconds) - 1 hour default
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
@@ -7005,6 +7005,8 @@ def render_sidebar_info():
         # Check if required modules are available
         if not WAVE_REGISTRY_MANAGER_AVAILABLE or not WAVES_ENGINE_AVAILABLE:
             st.sidebar.warning("⚠️ Wave selection unavailable - required modules not loaded")
+            # Ensure consistent state - default to portfolio view
+            st.session_state.selected_wave = None
             return
         
         # Load active waves with wave_id and display_name
@@ -7080,7 +7082,15 @@ def render_sidebar_info():
         
         # Debug caption to prove persistence (only in debug mode)
         if st.session_state.get("debug_mode", False):
-            st.sidebar.caption(f"selected_wave (session): {st.session_state.get('selected_wave')}")
+            wave_id = st.session_state.get('selected_wave')
+            if wave_id:
+                try:
+                    display_name = get_display_name_from_wave_id(wave_id)
+                    st.sidebar.caption(f"selected_wave (session): {wave_id} → {display_name}")
+                except (KeyError, ValueError, AttributeError):
+                    st.sidebar.caption(f"selected_wave (session): {wave_id}")
+            else:
+                st.sidebar.caption(f"selected_wave (session): None (Portfolio)")
     
     except (ImportError, KeyError, ValueError, AttributeError) as e:
         # Fallback if wave loading fails
