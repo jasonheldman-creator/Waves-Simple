@@ -8923,6 +8923,89 @@ def render_executive_brief_tab():
                 # Show ticker failure summary if available
                 if broken_tickers_count > 0:
                     st.warning(f"⚠️ {broken_tickers_count} ticker(s) failed to download - waves still visible with available data")
+                
+                # ========================================================================
+                # PORTFOLIO SNAPSHOT DIAGNOSTICS
+                # ========================================================================
+                st.divider()
+                st.markdown("**Portfolio Snapshot Diagnostics:**")
+                
+                try:
+                    from helpers.wave_performance import validate_portfolio_diagnostics
+                    from helpers.price_book import get_price_book
+                    
+                    price_book = get_price_book()
+                    diagnostics = validate_portfolio_diagnostics(price_book, mode='Standard')
+                    
+                    # Display key diagnostics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric(
+                            label="Latest Date",
+                            value=diagnostics['latest_date'] if diagnostics['latest_date'] else "N/A",
+                            help="Latest data date in PRICE_BOOK"
+                        )
+                    
+                    with col2:
+                        data_age = diagnostics['data_age_days']
+                        quality = diagnostics['data_quality']
+                        if data_age is not None:
+                            if quality == 'OK':
+                                delta_icon = "🟢"
+                            elif quality == 'DEGRADED':
+                                delta_icon = "🟡"
+                            else:
+                                delta_icon = "🔴"
+                            st.metric(
+                                label="Data Age",
+                                value=f"{data_age}d",
+                                delta=delta_icon,
+                                help=f"Data quality: {quality}"
+                            )
+                        else:
+                            st.metric("Data Age", "N/A")
+                    
+                    with col3:
+                        st.metric(
+                            label="Portfolio Waves",
+                            value=diagnostics['wave_count'],
+                            help="Number of waves in portfolio"
+                        )
+                    
+                    with col4:
+                        st.metric(
+                            label="History Days",
+                            value=diagnostics['min_history_days'],
+                            help="Total trading days available"
+                        )
+                    
+                    # Show series status
+                    st.markdown("**Required Series Status:**")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        icon = "✅" if diagnostics['has_portfolio_returns_series'] else "❌"
+                        st.markdown(f"{icon} Portfolio Returns")
+                    
+                    with col2:
+                        icon = "✅" if diagnostics['has_portfolio_benchmark_series'] else "❌"
+                        st.markdown(f"{icon} Benchmark Series")
+                    
+                    with col3:
+                        icon = "✅" if diagnostics['has_overlay_alpha_series'] else "⚠️"
+                        st.markdown(f"{icon} Overlay Alpha")
+                    
+                    # Show issues if any
+                    if diagnostics['issues']:
+                        st.markdown("**Issues:**")
+                        for issue in diagnostics['issues']:
+                            # Skip expected issues
+                            if "Overlay alpha component series missing (expected" not in issue:
+                                st.caption(f"⚠️ {issue}")
+                    
+                except Exception as e:
+                    st.warning(f"Portfolio diagnostics unavailable: {str(e)}")
                     
             except Exception as e:
                 st.warning(f"Diagnostics panel temporarily unavailable: {str(e)}")
@@ -9100,6 +9183,177 @@ def render_executive_brief_tab():
         
         except Exception as e:
             st.info("Executive summary unavailable - data loading error.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
+        # ========================================================================
+        st.markdown("### 💼 Portfolio Snapshot")
+        st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
+        
+        try:
+            from helpers.wave_performance import compute_portfolio_snapshot, compute_portfolio_alpha_attribution
+            from helpers.price_book import get_price_book
+            
+            # Load PRICE_BOOK
+            price_book = get_price_book()
+            
+            # Compute portfolio snapshot
+            snapshot = compute_portfolio_snapshot(price_book, mode='Standard', periods=[1, 30, 60, 365])
+            
+            if snapshot['success']:
+                # Display in blue box with metrics
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                    border: 2px solid #00d9ff;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                ">
+                """, unsafe_allow_html=True)
+                
+                # Portfolio Returns Row
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    ret_1d = snapshot['portfolio_returns']['1D']
+                    if ret_1d is not None:
+                        st.metric("1D Return", f"{ret_1d:+.2%}", 
+                                 help="Portfolio return over 1 day")
+                    else:
+                        st.metric("1D Return", "N/A", 
+                                 help="Insufficient history for 1D return")
+                
+                with col2:
+                    ret_30d = snapshot['portfolio_returns']['30D']
+                    if ret_30d is not None:
+                        st.metric("30D Return", f"{ret_30d:+.2%}",
+                                 help="Portfolio return over 30 days")
+                    else:
+                        st.metric("30D Return", "N/A",
+                                 help="Insufficient history for 30D return")
+                
+                with col3:
+                    ret_60d = snapshot['portfolio_returns']['60D']
+                    if ret_60d is not None:
+                        st.metric("60D Return", f"{ret_60d:+.2%}",
+                                 help="Portfolio return over 60 days")
+                    else:
+                        st.metric("60D Return", "N/A",
+                                 help="Insufficient history for 60D return")
+                
+                with col4:
+                    ret_365d = snapshot['portfolio_returns']['365D']
+                    if ret_365d is not None:
+                        st.metric("365D Return", f"{ret_365d:+.2%}",
+                                 help="Portfolio return over 365 days")
+                    else:
+                        st.metric("365D Return", "N/A",
+                                 help="Insufficient history for 365D return")
+                
+                # Alpha Row
+                st.markdown("**Alpha vs Benchmark:**")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    alpha_1d = snapshot['alphas']['1D']
+                    if alpha_1d is not None:
+                        st.metric("1D Alpha", f"{alpha_1d:+.2%}",
+                                 help="Alpha vs benchmark over 1 day")
+                    else:
+                        st.metric("1D Alpha", "N/A")
+                
+                with col2:
+                    alpha_30d = snapshot['alphas']['30D']
+                    if alpha_30d is not None:
+                        st.metric("30D Alpha", f"{alpha_30d:+.2%}",
+                                 help="Alpha vs benchmark over 30 days")
+                    else:
+                        st.metric("30D Alpha", "N/A")
+                
+                with col3:
+                    alpha_60d = snapshot['alphas']['60D']
+                    if alpha_60d is not None:
+                        st.metric("60D Alpha", f"{alpha_60d:+.2%}",
+                                 help="Alpha vs benchmark over 60 days")
+                    else:
+                        st.metric("60D Alpha", "N/A")
+                
+                with col4:
+                    alpha_365d = snapshot['alphas']['365D']
+                    if alpha_365d is not None:
+                        st.metric("365D Alpha", f"{alpha_365d:+.2%}",
+                                 help="Alpha vs benchmark over 365 days")
+                    else:
+                        st.metric("365D Alpha", "N/A")
+                
+                # Alpha Attribution Row
+                st.markdown("**Alpha Attribution:**")
+                
+                # Compute alpha attribution
+                attribution = compute_portfolio_alpha_attribution(price_book, mode='Standard', min_waves=3)
+                
+                if attribution['success']:
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        cum_alpha = attribution['cumulative_alpha']
+                        st.metric("Cumulative Alpha", f"{cum_alpha:+.2%}" if cum_alpha is not None else "N/A",
+                                 help="Total alpha over measurement period")
+                    
+                    with col2:
+                        sel_alpha = attribution['selection_alpha']
+                        st.metric("Selection Alpha", f"{sel_alpha:+.2%}" if sel_alpha is not None else "N/A",
+                                 help="Alpha from asset selection")
+                    
+                    with col3:
+                        ovr_alpha = attribution['overlay_alpha']
+                        st.metric("Overlay Alpha", f"{ovr_alpha:+.2%}" if ovr_alpha is not None else "N/A",
+                                 help="Alpha from VIX/regime overlay (not yet implemented)")
+                else:
+                    st.warning(f"⚠️ Alpha attribution unavailable: {attribution['failure_reason']}")
+                
+                # Metadata
+                st.caption(f"📊 Portfolio: {snapshot['wave_count']} waves | "
+                          f"Data: {snapshot['latest_date']} ({snapshot['data_age_days']}d old) | "
+                          f"Period: {snapshot['date_range'][0]} to {snapshot['date_range'][1]}")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+            else:
+                # Display error message
+                st.error(f"⚠️ Portfolio snapshot computation failed: {snapshot['failure_reason']}")
+                
+                # Show placeholder values with explicit error
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    border: 2px solid #ff6b6b;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                ">
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("1D Return", "Error", help=snapshot['failure_reason'])
+                with col2:
+                    st.metric("30D Return", "Error", help=snapshot['failure_reason'])
+                with col3:
+                    st.metric("60D Return", "Error", help=snapshot['failure_reason'])
+                with col4:
+                    st.metric("365D Return", "Error", help=snapshot['failure_reason'])
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+        except Exception as e:
+            st.error(f"⚠️ Portfolio snapshot module error: {str(e)}")
+            if st.session_state.get("debug_mode", False):
+                import traceback
+                st.code(traceback.format_exc())
         
         st.divider()
         
