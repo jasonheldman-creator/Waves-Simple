@@ -2519,7 +2519,6 @@ def get_latest_data_timestamp():
     except Exception as e:
         # Log error and return unknown
         logging.warning(f"Failed to get latest data timestamp: {e}")
-        pass
     return "unknown"
 
 

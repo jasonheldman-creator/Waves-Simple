@@ -1244,15 +1244,15 @@ def compute_portfolio_snapshot(
         return result
     
     # Debug Print 2: List of tickers being selected
+    sorted_tickers = sorted(list(all_selected_tickers))
     logger.info(f"✅ 2. LIST OF TICKERS BEING SELECTED: {len(all_selected_tickers)} unique tickers")
-    logger.info(f"   - Tickers: {sorted(list(all_selected_tickers))}")
+    logger.info(f"   - Tickers: {sorted_tickers}")
     
     # Debug Print 3: Resulting filtered DataFrame shape
-    # Create a filtered price_book with only the selected tickers
-    filtered_price_book = price_book[sorted(list(all_selected_tickers))]
-    logger.info(f"✅ 3. RESULTING FILTERED DataFrame shape: {filtered_price_book.shape}")
-    logger.info(f"   - Rows (dates): {filtered_price_book.shape[0]}")
-    logger.info(f"   - Columns (selected tickers): {filtered_price_book.shape[1]}")
+    # Note: We just report the shape, not create a new DataFrame (to avoid performance impact)
+    logger.info(f"✅ 3. RESULTING FILTERED DataFrame shape: ({price_book.shape[0]}, {len(sorted_tickers)})")
+    logger.info(f"   - Rows (dates): {price_book.shape[0]}")
+    logger.info(f"   - Columns (selected tickers): {len(sorted_tickers)}")
     logger.info("=" * 80)
     
     result['wave_count'] = len(wave_return_series_dict)

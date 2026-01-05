@@ -120,10 +120,6 @@ print()
 
 print("Testing get_latest_data_timestamp() (used by Sidebar 'Data as of'):")
 try:
-    # Import and test the function used by sidebar
-    import sys
-    sys.path.insert(0, '/home/runner/work/Waves-Simple/Waves-Simple')
-    
     # We need to check if app.py's get_latest_data_timestamp() uses price_book
     print("  - The get_latest_data_timestamp() function has been updated to use price_book")
     print(f"  - Expected to return: {price_meta['date_max']}")
