@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +38,9 @@ try:
     MIN_SUCCESS_RATE = min(1.0, max(0.0, float(os.getenv("MIN_SUCCESS_RATE", str(DEFAULT_MIN_SUCCESS_RATE)))))
 except ValueError:
     MIN_SUCCESS_RATE = DEFAULT_MIN_SUCCESS_RATE
+
+# Staleness configuration - max days old for "recent" data (accounting for weekends/holidays)
+MAX_STALE_DAYS = 5  # Allow up to 5 calendar days to account for weekends + 1 holiday
 
 from helpers.price_loader import (
     deduplicate_tickers,
@@ -219,6 +223,130 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         logger.error(f"Error saving metadata: {e}")
 
 
+# Required symbol categories for app functionality
+REQUIRED_SYMBOLS = {
+    "volatility_proxies": ["^VIX"],  # VIX for volatility/regime detection
+    "benchmark_indices": ["SPY", "QQQ"],  # Core market benchmarks
+    "cash_safe_instruments": ["BIL", "SHV", "SUB", "MUB"],  # Cash/safe instruments for overlays
+    "crypto_benchmarks": ["BTC-USD", "ETH-USD"],  # Crypto market benchmarks
+}
+
+
+def get_all_required_symbols():
+    """
+    Get a flat list of all required symbols across all categories.
+    
+    Returns:
+        List of required ticker symbols
+    """
+    all_symbols = []
+    for category, symbols in REQUIRED_SYMBOLS.items():
+        all_symbols.extend(symbols)
+    return all_symbols
+
+
+def validate_required_symbols(cache_df):
+    """
+    Validate that all required symbol categories are present in the cache.
+    
+    Args:
+        cache_df: DataFrame with ticker symbols as columns
+        
+    Returns:
+        Tuple of (success: bool, missing_by_category: dict)
+    """
+    if cache_df is None or cache_df.empty:
+        logger.error("Cannot validate required symbols: cache is empty")
+        return False, {cat: syms for cat, syms in REQUIRED_SYMBOLS.items()}
+    
+    available_tickers = set(cache_df.columns)
+    missing_by_category = {}
+    
+    for category, required_syms in REQUIRED_SYMBOLS.items():
+        missing = [sym for sym in required_syms if sym not in available_tickers]
+        if missing:
+            missing_by_category[category] = missing
+    
+    if missing_by_category:
+        logger.error("REQUIRED SYMBOL COVERAGE CHECK FAILED:")
+        for category, missing in missing_by_category.items():
+            logger.error(f"  {category}: Missing {missing}")
+        return False, missing_by_category
+    else:
+        logger.info("✓ All required symbol categories are present in cache")
+        return True, {}
+
+
+def validate_cache_freshness(cache_df, max_stale_days=MAX_STALE_DAYS):
+    """
+    Validate that the cache contains recent data.
+    
+    Args:
+        cache_df: DataFrame with DatetimeIndex
+        max_stale_days: Maximum age in calendar days for data to be considered fresh
+        
+    Returns:
+        Tuple of (is_fresh: bool, max_date: datetime, days_old: int)
+    """
+    if cache_df is None or cache_df.empty:
+        logger.error("Cannot validate freshness: cache is empty")
+        return False, None, None
+    
+    max_date = cache_df.index[-1]
+    now = pd.Timestamp.now(tz=max_date.tz if max_date.tz else None).normalize()
+    
+    # Remove timezone info for comparison if present
+    if hasattr(max_date, 'tz_localize'):
+        max_date = max_date.tz_localize(None) if max_date.tz else max_date
+        now = now.tz_localize(None) if now.tz else now
+    
+    days_old = (now - max_date).days
+    is_fresh = days_old <= max_stale_days
+    
+    if is_fresh:
+        logger.info(f"✓ Cache is fresh: max date {max_date.date()} is {days_old} days old (threshold: {max_stale_days} days)")
+    else:
+        logger.error(f"✗ Cache is stale: max date {max_date.date()} is {days_old} days old (threshold: {max_stale_days} days)")
+    
+    return is_fresh, max_date, days_old
+
+
+def detect_cache_changes(new_cache_path, old_cache_path=None):
+    """
+    Detect if the cache file has changed compared to a previous version.
+    
+    Args:
+        new_cache_path: Path to the new cache file
+        old_cache_path: Path to the old cache file (defaults to CACHE_PATH)
+        
+    Returns:
+        Tuple of (has_changes: bool, reason: str)
+    """
+    if old_cache_path is None:
+        old_cache_path = CACHE_PATH
+    
+    # If old cache doesn't exist, this is a new cache (always changes)
+    if not os.path.exists(old_cache_path):
+        return True, "New cache file created"
+    
+    # Compare file sizes first (fast check)
+    new_size = os.path.getsize(new_cache_path)
+    old_size = os.path.getsize(old_cache_path)
+    
+    if new_size != old_size:
+        return True, f"File size changed: {old_size} -> {new_size} bytes"
+    
+    # If sizes match, compare modification times
+    new_mtime = os.path.getmtime(new_cache_path)
+    old_mtime = os.path.getmtime(old_cache_path)
+    
+    if new_mtime > old_mtime:
+        return True, "File was modified"
+    
+    # Files appear identical
+    return False, "No changes detected (same size and mtime)"
+
+
 def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     """
     Build the initial price cache.
@@ -340,8 +468,18 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     if not cache_df.empty:
         max_price_date = cache_df.index[-1]
     
-    # Step 7: Save cache and metadata
+    # Step 7: Save cache and run strict validations
     if not cache_df.empty:
+        # Store old cache path for change detection
+        old_cache_exists = os.path.exists(CACHE_PATH)
+        old_cache_backup = None
+        
+        if old_cache_exists:
+            # Create a backup for comparison
+            old_cache_backup = CACHE_PATH + ".old"
+            import shutil
+            shutil.copy2(CACHE_PATH, old_cache_backup)
+        
         logger.info("Saving cache...")
         save_cache(cache_df)
         
@@ -373,14 +511,71 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Latest price date: {max_price_date.strftime('%Y-%m-%d') if max_price_date else 'N/A'}")
         logger.info("=" * 70)
         
-        # Determine success based on threshold
+        # STRICT VALIDATION CHECKS
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("STRICT VALIDATION CHECKS")
+        logger.info("=" * 70)
+        
+        validation_failures = []
+        
+        # Check 1: Success rate threshold
         meets_threshold = success_rate >= MIN_SUCCESS_RATE
         if meets_threshold:
-            logger.info(f"✓ SUCCESS: Success rate {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+            logger.info(f"✓ Success rate check: {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
         else:
-            logger.error(f"✗ FAILURE: Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+            logger.error(f"✗ Success rate check: {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
+            validation_failures.append(f"Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
         
-        return meets_threshold, success_rate
+        # Check 2: Cache file exists and non-empty
+        if os.path.exists(CACHE_PATH) and os.path.getsize(CACHE_PATH) > 0:
+            logger.info(f"✓ Cache file exists and is non-empty ({os.path.getsize(CACHE_PATH)} bytes)")
+        else:
+            logger.error("✗ Cache file is missing or empty")
+            validation_failures.append("Cache file is missing or empty")
+        
+        # Check 3: Required symbol coverage
+        symbols_ok, missing_symbols = validate_required_symbols(cache_df)
+        if not symbols_ok:
+            validation_failures.append(f"Missing required symbols: {missing_symbols}")
+        
+        # Check 4: Cache freshness (max date within last few days)
+        is_fresh, max_date, days_old = validate_cache_freshness(cache_df, MAX_STALE_DAYS)
+        if not is_fresh:
+            validation_failures.append(f"Cache is stale: max date {max_date.date()} is {days_old} days old (threshold: {MAX_STALE_DAYS} days)")
+        
+        # Check 5: No-change detection (only applies if old cache existed)
+        if old_cache_backup:
+            has_changes, change_reason = detect_cache_changes(CACHE_PATH, old_cache_backup)
+            if has_changes:
+                logger.info(f"✓ Cache has changes: {change_reason}")
+            else:
+                logger.error(f"✗ No changes detected: {change_reason}")
+                validation_failures.append("Price cache was not updated (no new data or no changes detected)")
+            
+            # Clean up backup
+            try:
+                os.remove(old_cache_backup)
+            except:
+                pass
+        else:
+            logger.info("✓ New cache file created (no change detection needed)")
+        
+        logger.info("=" * 70)
+        
+        # Final validation result
+        if validation_failures:
+            logger.error("")
+            logger.error("VALIDATION FAILED:")
+            for i, failure in enumerate(validation_failures, 1):
+                logger.error(f"  {i}. {failure}")
+            logger.error("")
+            return False, success_rate
+        else:
+            logger.info("")
+            logger.info("✓ ALL VALIDATION CHECKS PASSED")
+            logger.info("")
+            return True, success_rate
     else:
         logger.error("No data available to build cache")
         # total_requested is defined earlier in the function (Step 1: Collect all tickers)
@@ -405,19 +600,23 @@ def main():
     
     success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
     
-    # Strict exit codes:
-    # - Exit 0 if success rate >= MIN_SUCCESS_RATE AND cache file exists
-    # - Exit 1 otherwise
-    cache_exists = os.path.exists(CACHE_PATH) and os.path.getsize(CACHE_PATH) > 0
+    # Strict exit codes based on comprehensive validation:
+    # - Exit 0 ONLY if all validations pass (success rate, cache exists, required symbols, freshness, changes detected)
+    # - Exit 1 if ANY validation fails
     
-    if success and cache_exists:
-        logger.info(f"✓ Exiting with code 0 (success rate: {success_rate * 100:.2f}%, cache exists)")
+    if success:
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("✓ BUILD SUCCESSFUL - All validation checks passed")
+        logger.info("=" * 70)
+        logger.info("")
         sys.exit(0)
     else:
-        if not cache_exists:
-            logger.error(f"✗ Exiting with code 1 (cache file missing or empty)")
-        else:
-            logger.error(f"✗ Exiting with code 1 (success rate: {success_rate * 100:.2f}% below threshold)")
+        logger.error("")
+        logger.error("=" * 70)
+        logger.error("✗ BUILD FAILED - One or more validation checks failed")
+        logger.error("=" * 70)
+        logger.error("")
         sys.exit(1)
 
 

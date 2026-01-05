@@ -36,45 +36,76 @@ jobs:
         run: |
           python build_price_cache.py --force
 
-      - name: Validate cache file
+      - name: Validate cache file and log details
         run: |
-          echo "=== Cache Validation ==="
-          if [ ! -f data/cache/prices_cache.parquet ]; then
-            echo "ERROR: Cache file does not exist"
+          echo "=========================================="
+          echo "CACHE VALIDATION AND DIAGNOSTICS"
+          echo "=========================================="
+          
+          CACHE_PATH="data/cache/prices_cache.parquet"
+          META_PATH="data/cache/prices_cache_meta.json"
+          
+          # Check cache file existence
+          if [ ! -f "$CACHE_PATH" ]; then
+            echo "ERROR: Cache file does not exist at $CACHE_PATH"
             exit 1
           fi
+          echo "✓ Cache file exists: $CACHE_PATH"
           
-          CACHE_SIZE=$(stat -f%z data/cache/prices_cache.parquet 2>/dev/null || stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+          # Check cache file size
+          CACHE_SIZE=$(stat -f%z "$CACHE_PATH" 2>/dev/null || stat -c%s "$CACHE_PATH" 2>/dev/null || echo "0")
           if [ "$CACHE_SIZE" -eq 0 ]; then
             echo "ERROR: Cache file is empty"
             exit 1
           fi
+          echo "✓ Cache file is non-empty: ${CACHE_SIZE} bytes"
           
-          echo "✓ Cache file exists and is non-empty (${CACHE_SIZE} bytes)"
-          
-          # Display metadata if it exists
-          if [ -f data/cache/prices_cache_meta.json ]; then
+          # Display metadata if available
+          if [ -f "$META_PATH" ]; then
             echo ""
-            echo "=== Cache Metadata ==="
-            cat data/cache/prices_cache_meta.json
+            echo "=========================================="
+            echo "CACHE METADATA"
+            echo "=========================================="
+            cat "$META_PATH"
+            echo ""
+            
+            # Extract and validate max_price_date from metadata
+            MAX_DATE=$(python3 -c "import json; print(json.load(open('$META_PATH'))['max_price_date'])" 2>/dev/null || echo "")
+            if [ -n "$MAX_DATE" ]; then
+              echo "Max price date in cache: $MAX_DATE"
+              
+              # Calculate days old (simple check - actual validation done in Python script)
+              CURRENT_DATE=$(date +%Y-%m-%d)
+              echo "Current date: $CURRENT_DATE"
+            fi
+          else
+            echo "WARNING: Metadata file not found at $META_PATH"
+          fi
+          
+          echo "=========================================="
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json
+          
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "ERROR: No changes to cache files detected"
+            echo "This indicates the cache was not updated with new data."
+            exit 1
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✓ Changes detected in cache files"
           fi
 
       - name: Commit and push updated cache
         # Only commit on main branch for scheduled or manual runs (not for PR builds)
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: steps.check_changes.outputs.has_changes == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add cache files
-          git add data/cache/prices_cache.parquet
-          git add data/cache/prices_cache_meta.json
-          
-          # Only commit if there are changes
-          if git diff --staged --quiet; then
-            echo "No changes to cache files, skipping commit"
-          else
-            git commit -m "Update prices cache (auto)"
-            git push
-            echo "✓ Cache files committed and pushed"
-          fi
+          git commit -m "Update prices cache (auto)"
+          git push
+          echo "✓ Cache files committed and pushed"
