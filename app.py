@@ -249,6 +249,9 @@ DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
 DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
 DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
 
+# Leaderboard thresholds
+NEGLIGIBLE_RETURN_THRESHOLD = 0.1  # Return % below which to show context message
+
 # Default signal values (used if calculation fails)
 DEFAULT_ALPHA_QUALITY = "Mixed"
 DEFAULT_RISK_REGIME = "Neutral"
@@ -5032,9 +5035,9 @@ def get_mission_control_data():
                 current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
                 
                 if current_vix is not None:
-                    if current_vix < 15:
+                    if current_vix < RISK_REGIME_VIX_LOW:
                         mc_data['vix_gate_status'] = f'GREEN ({current_vix:.1f})'
-                    elif current_vix < 25:
+                    elif current_vix < RISK_REGIME_VIX_HIGH:
                         mc_data['vix_gate_status'] = f'YELLOW ({current_vix:.1f})'
                     else:
                         mc_data['vix_gate_status'] = f'RED ({current_vix:.1f})'
@@ -19271,7 +19274,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 if not top_performers.empty:
                     # Check if returns are negligible across the board
                     max_return = top_performers['1D_Return_Numeric'].max() if len(top_performers) > 0 else 0
-                    returns_negligible = abs(max_return) < 0.1  # Less than 0.1%
+                    returns_negligible = abs(max_return) < NEGLIGIBLE_RETURN_THRESHOLD  # Less than 0.1%
                     
                     if returns_negligible:
                         st.info("📊 Returns are minimal across strategies - showing relative positioning and momentum")
