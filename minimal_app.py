@@ -24,7 +24,6 @@ import pandas as pd
 import os
 import traceback
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 
 # ============================================================================
 # CONFIGURATION
@@ -704,6 +703,15 @@ def render_diagnostics_tab(df):
 def main():
     """Main application entry point."""
     
+    # ========================================================================
+    # Initialize Session State (Prevent unnecessary background reruns)
+    # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
+    
+    if "initialized" not in st.session_state:
+        st.session_state["initialized"] = True
+        # Note: Circuit breaker state is initialized by initialize_circuit_breaker() which has its own guards
+    
     # Page configuration
     st.set_page_config(
         page_title=PAGE_TITLE,
@@ -827,10 +835,12 @@ def main():
         # Show last update time
         st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
     
-    # SINGLE auto-refresh call - only active when enabled and circuit is closed
-    # This is the ONLY st_autorefresh call in the entire file
-    if auto_refresh_enabled and not is_circuit_open():
-        st_autorefresh(interval=MIN_REFRESH_INTERVAL, key="minimal_console_refresh")
+    # ========================================================================
+    # Auto-Refresh - DISABLED BY DEFAULT
+    # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
+    # Auto-refresh is completely disabled by default to prevent infinite reruns.
+    # To enable auto-refresh, the code would need to be modified to call st_autorefresh() with appropriate conditions.
     
     # Load data
     try:
