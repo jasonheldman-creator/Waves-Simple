@@ -35,6 +35,9 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
+
 # Import wave definitions
 try:
     from waves_engine import WAVE_WEIGHTS, get_all_waves_universe
@@ -1106,7 +1109,6 @@ def compute_portfolio_snapshot(
     try:
         latest_date = price_book.index[-1]
         result['latest_date'] = latest_date.strftime('%Y-%m-%d')
-        from datetime import datetime
         data_age_days = (datetime.now().date() - latest_date.date()).days
         result['data_age_days'] = data_age_days
     except Exception as e:
@@ -1183,16 +1185,16 @@ def compute_portfolio_snapshot(
             
             wave_portfolio_series.append(wave_portfolio)
             
-            # Get benchmark for this wave (use SPY as default benchmark)
+            # Get benchmark for this wave (use default benchmark)
             # In a real implementation, this would come from wave metadata
-            benchmark_ticker = 'SPY'
+            benchmark_ticker = DEFAULT_BENCHMARK_TICKER
             if benchmark_ticker in price_book.columns:
                 benchmark_prices = price_book[benchmark_ticker].copy()
                 first_benchmark = benchmark_prices.iloc[0]
                 benchmark_normalized = (benchmark_prices / first_benchmark) * 100
                 wave_benchmark_series.append(benchmark_normalized)
             else:
-                # Use the wave itself as benchmark if SPY not available
+                # Use the wave itself as benchmark if default not available
                 wave_benchmark_series.append(wave_portfolio)
             
             waves_included.append(wave_name)
@@ -1449,7 +1451,9 @@ def validate_portfolio_diagnostics(
                 result['issues'].append('Portfolio benchmark series missing')
             
             if not result['has_overlay_alpha_series']:
-                result['issues'].append('Overlay alpha component series missing (expected - not yet implemented)')
+                # Note: Overlay alpha component requires VIX overlay integration
+                # This is a known limitation - see PORTFOLIO_SNAPSHOT_IMPLEMENTATION.md Future Enhancements
+                result['issues'].append('Overlay alpha component series missing (requires VIX overlay integration)')
             
             # Validate wave count
             if result['wave_count'] < 3:
