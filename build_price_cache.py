@@ -224,10 +224,11 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
 
 
 # Required symbol categories for app functionality
+# These are the MINIMUM symbols needed for the app to function properly
 REQUIRED_SYMBOLS = {
     "volatility_proxies": ["^VIX"],  # VIX for volatility/regime detection
     "benchmark_indices": ["SPY", "QQQ"],  # Core market benchmarks
-    "cash_safe_instruments": ["BIL", "SHV", "SUB", "MUB"],  # Cash/safe instruments for overlays
+    "cash_safe_instruments": ["BIL", "SUB"],  # Primary cash/safe instruments (BIL for treasury, SUB for muni)
     "crypto_benchmarks": ["BTC-USD", "ETH-USD"],  # Crypto market benchmarks
 }
 
