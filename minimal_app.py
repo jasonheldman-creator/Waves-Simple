@@ -839,11 +839,8 @@ def main():
     # Auto-Refresh - DISABLED BY DEFAULT
     # ========================================================================
     # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
-    # SINGLE auto-refresh call - DISABLED by default to prevent infinite reruns
-    # This is the ONLY st_autorefresh call in the entire file
-    # Uncomment the line below to enable auto-refresh (not recommended)
-    # if auto_refresh_enabled and not is_circuit_open():
-    #     st_autorefresh(interval=MIN_REFRESH_INTERVAL, key="minimal_console_refresh")
+    # Auto-refresh is completely disabled by default to prevent infinite reruns.
+    # To enable auto-refresh, the code would need to be modified to call st_autorefresh() with appropriate conditions.
     
     # Load data
     try:
