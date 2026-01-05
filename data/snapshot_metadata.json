@@ -1,15 +1,15 @@
 {
-  "snapshot_id": "snap-8b7fff704ddd43ba",
-  "snapshot_hash": "1715281278ace486",
+  "snapshot_id": "snap-b04f4ebb90924eb2",
+  "snapshot_hash": "baba2092b0fb9094",
   "generation_reason": "auto",
-  "timestamp": "2026-01-04T04:35:46.322062",
-  "software_version": "4f4ec1e",
-  "git_branch": "copilot/fix-data-age-and-remove-russell-3000-wave",
+  "timestamp": "2026-01-05T20:19:44.800279",
+  "software_version": "caddc79",
+  "git_branch": "copilot/add-portfolio-snapshot-debug",
   "registry_version": "v20260102_214700",
   "benchmark_version": "v20260102_214700",
   "data_regime": "SANDBOX",
   "safe_mode": "OFF",
   "wave_count": 28,
   "degraded_wave_count": 0,
-  "broken_ticker_count": 128
+  "broken_ticker_count": 127
 }
