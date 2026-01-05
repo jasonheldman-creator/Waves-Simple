@@ -71,6 +71,7 @@ jobs:
         env:
           MIN_SUCCESS_RATE: ${{ env.MIN_SUCCESS_RATE }}
         run: |
+          echo "=== Building Price Cache ==="
           python build_price_cache.py --force
 
       - name: Validate cache file and contents
