@@ -711,11 +711,6 @@ def main():
     
     if "initialized" not in st.session_state:
         st.session_state["initialized"] = True
-        
-        # Initialize circuit breaker state
-        st.session_state.error_count = 0
-        st.session_state.circuit_open = False
-        st.session_state.last_error_time = None
     
     # Page configuration
     st.set_page_config(
@@ -725,7 +720,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Initialize circuit breaker (ensure it's set even if already initialized)
+    # Initialize circuit breaker
     initialize_circuit_breaker()
     
     # Title
