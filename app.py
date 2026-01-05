@@ -18518,15 +18518,20 @@ def render_diagnostics_tab():
             trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
-        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
-            # Clear session state
+        if st.button("🗑️ Clear Cache & Restart", help="Clear all st.cache and session state, then restart"):
+            # Clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            # Clear session state (preserve only essential items)
             for key in list(st.session_state.keys()):
                 if key not in ["safe_mode_enabled", "session_start_time"]:
                     del st.session_state[key]
-            st.success("Cache cleared. Refreshing...")
+            
+            st.success("✅ All caches cleared. Restarting...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            trigger_rerun("diagnostics_clear_cache")
+            trigger_rerun("diagnostics_clear_cache_restart")
     
     st.markdown("---")
     
