@@ -704,6 +704,19 @@ def render_diagnostics_tab(df):
 def main():
     """Main application entry point."""
     
+    # ========================================================================
+    # Initialize Session State (Prevent unnecessary background reruns)
+    # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
+    
+    if "initialized" not in st.session_state:
+        st.session_state["initialized"] = True
+        
+        # Initialize circuit breaker state
+        st.session_state.error_count = 0
+        st.session_state.circuit_open = False
+        st.session_state.last_error_time = None
+    
     # Page configuration
     st.set_page_config(
         page_title=PAGE_TITLE,
@@ -712,7 +725,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Initialize circuit breaker
+    # Initialize circuit breaker (ensure it's set even if already initialized)
     initialize_circuit_breaker()
     
     # Title
@@ -827,10 +840,15 @@ def main():
         # Show last update time
         st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')}")
     
-    # SINGLE auto-refresh call - only active when enabled and circuit is closed
+    # ========================================================================
+    # Auto-Refresh - DISABLED BY DEFAULT
+    # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
+    # SINGLE auto-refresh call - DISABLED by default to prevent infinite reruns
     # This is the ONLY st_autorefresh call in the entire file
-    if auto_refresh_enabled and not is_circuit_open():
-        st_autorefresh(interval=MIN_REFRESH_INTERVAL, key="minimal_console_refresh")
+    # Uncomment the line below to enable auto-refresh (not recommended)
+    # if auto_refresh_enabled and not is_circuit_open():
+    #     st_autorefresh(interval=MIN_REFRESH_INTERVAL, key="minimal_console_refresh")
     
     # Load data
     try:

@@ -19908,28 +19908,28 @@ def main():
     print("[ENTRYPOINT] Running app.py")
     
     # ========================================================================
-    # STEP 0: Initialize Safe Mode (Default ON)
+    # STEP 0: Initialize Session State (Prevent unnecessary background reruns)
     # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
     
-    # Initialize Safe Mode flag (default: ON for stability)
-    if "safe_mode_no_fetch" not in st.session_state:
+    if "initialized" not in st.session_state:
+        st.session_state["initialized"] = True
+        
+        # Initialize Safe Mode flag (default: ON for stability)
         st.session_state.safe_mode_no_fetch = True  # Default to ON
-    
-    # Initialize loop detection flag
-    if "loop_detected" not in st.session_state:
+        
+        # Initialize loop detection flag
         st.session_state.loop_detected = False
+        
+        # Initialize run_count (tracks consecutive runs without user action)
+        st.session_state.run_count = 0
+        
+        # Initialize user_interaction_detected flag
+        st.session_state.user_interaction_detected = False
     
     # ========================================================================
     # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
     # ========================================================================
-    
-    # Initialize run_count if not present (tracks consecutive runs without user action)
-    if "run_count" not in st.session_state:
-        st.session_state.run_count = 0
-    
-    # Initialize user_interaction_detected flag
-    if "user_interaction_detected" not in st.session_state:
-        st.session_state.user_interaction_detected = False
     
     # Reset run_count if user interaction was detected in previous run
     if st.session_state.user_interaction_detected:
@@ -20343,70 +20343,12 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         st.session_state.mode = "Standard"
     
     # ========================================================================
-    # Auto-Refresh Logic with Error Handling
+    # Auto-Refresh Logic - DISABLED BY DEFAULT
     # ========================================================================
+    # Prevent unnecessary background reruns, stabilize session state, and leave auto-refresh deactivated by default for stable load handling.
     
-    # HARD-DISABLE auto-refresh when Safe Mode is ON or auto-refresh is explicitly disabled
-    # Auto-refresh is now ON by default (30 seconds) but disabled when Safe Mode is active
-    # Users can adjust interval or disable in sidebar
-    if st.session_state.get("safe_mode_no_fetch", True) or not st.session_state.get("auto_refresh_enabled", False):
-        # Auto-refresh is completely disabled
-        # Debug trace marker
-        if st.session_state.get("debug_mode", False):
-            if st.session_state.get("safe_mode_no_fetch", True):
-                st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
-            else:
-                st.caption("🔍 Trace: Auto-refresh disabled (Flag OFF)")
-        pass  # Skip all auto-refresh logic
-    # Check if auto-refresh is enabled, not paused, and supported
-    elif not st.session_state.get("auto_refresh_paused", False):
-        # Debug trace marker
-        if st.session_state.get("debug_mode", False):
-            st.caption("🔍 Trace: Entering refresh block")
-        
-        try:
-            # Try using streamlit-autorefresh if available
-            from streamlit_autorefresh import st_autorefresh
-            
-            # Get current refresh interval from session state
-            refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
-            
-            # Validate interval
-            if AUTO_REFRESH_CONFIG_AVAILABLE:
-                refresh_interval = validate_refresh_interval(refresh_interval)
-            
-            # Execute auto-refresh
-            if st.session_state.get("auto_refresh_enabled", False) and not st.session_state.get("auto_refresh_paused", False):
-                count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
-            else:
-                count = None  # HARD STOP: no st_autorefresh call when OFF
-            
-            # Update last refresh time on successful refresh
-            st.session_state.last_refresh_time = datetime.now()
-            st.session_state.last_successful_refresh_time = datetime.now()
-            
-            # Reset error count on successful refresh
-            if count > 0:
-                st.session_state.auto_refresh_error_count = 0
-                st.session_state.auto_refresh_error_message = None
-            
-        except ImportError:
-            # Fallback: Check if built-in autorefresh is available
-            if hasattr(st, 'autorefresh'):
-                refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
-                st.autorefresh(interval=refresh_interval)
-                st.session_state.last_refresh_time = datetime.now()
-                st.session_state.last_successful_refresh_time = datetime.now()
-            # If neither is available, auto-refresh is disabled (silent fail)
-        except Exception as e:
-            # Error during auto-refresh - handle according to config
-            st.session_state.auto_refresh_error_count = st.session_state.get("auto_refresh_error_count", 0) + 1
-            st.session_state.auto_refresh_error_message = str(e)
-            
-            # Auto-pause if enabled and error threshold reached
-            if AUTO_PAUSE_ON_ERROR and st.session_state.auto_refresh_error_count >= MAX_CONSECUTIVE_ERRORS:
-                st.session_state.auto_refresh_paused = True
-                st.session_state.auto_refresh_enabled = False
+    # HARD-DISABLE auto-refresh by default to prevent infinite reruns
+    count = None  # No st_autorefresh call - disabled by default
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
