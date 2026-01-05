@@ -785,3 +785,253 @@ def generate_wave_validation_report(
             logger.error(f"Error saving validation report to {output_file}: {e}")
     
     return report
+
+
+def compute_beta(
+    wave_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    min_n: int = 60
+) -> Dict[str, Any]:
+    """
+    Compute beta for a wave relative to a benchmark.
+    
+    Beta measures the sensitivity of wave returns to benchmark returns.
+    Formula: beta = cov(wave, benchmark) / var(benchmark)
+    
+    Args:
+        wave_returns: Daily returns for the wave (pandas Series with DatetimeIndex)
+        benchmark_returns: Daily returns for the benchmark (pandas Series with DatetimeIndex)
+        min_n: Minimum number of overlapping observations required (default: 60)
+        
+    Returns:
+        Dictionary with:
+        - success: bool - Whether computation succeeded
+        - beta: float or None - Beta value if successful
+        - n_observations: int - Number of overlapping observations used
+        - failure_reason: str or None - Reason for failure if unsuccessful
+        - r_squared: float or None - R-squared value (correlation^2)
+        - correlation: float or None - Correlation between wave and benchmark returns
+    """
+    result = {
+        'success': False,
+        'beta': None,
+        'n_observations': 0,
+        'failure_reason': None,
+        'r_squared': None,
+        'correlation': None
+    }
+    
+    # Input validation
+    if wave_returns is None or wave_returns.empty:
+        result['failure_reason'] = 'Wave returns are empty'
+        return result
+    
+    if benchmark_returns is None or benchmark_returns.empty:
+        result['failure_reason'] = 'Benchmark returns are empty'
+        return result
+    
+    # Align time series - find intersecting dates
+    try:
+        # Ensure both series have datetime index
+        if not isinstance(wave_returns.index, pd.DatetimeIndex):
+            result['failure_reason'] = 'Wave returns index is not DatetimeIndex'
+            return result
+        
+        if not isinstance(benchmark_returns.index, pd.DatetimeIndex):
+            result['failure_reason'] = 'Benchmark returns index is not DatetimeIndex'
+            return result
+        
+        # Combine and align the two series
+        aligned_data = pd.DataFrame({
+            'wave': wave_returns,
+            'benchmark': benchmark_returns
+        })
+        
+        # Drop rows where either is NaN
+        aligned_data = aligned_data.dropna()
+        
+        # Check if we have sufficient observations
+        n_obs = len(aligned_data)
+        result['n_observations'] = n_obs
+        
+        if n_obs < min_n:
+            result['failure_reason'] = f'Insufficient data: {n_obs} observations (minimum: {min_n})'
+            return result
+        
+        # Extract aligned returns
+        wave_aligned = aligned_data['wave'].values
+        benchmark_aligned = aligned_data['benchmark'].values
+        
+        # Compute variance of benchmark returns
+        benchmark_var = np.var(benchmark_aligned, ddof=1)
+        
+        if benchmark_var == 0 or np.isnan(benchmark_var):
+            result['failure_reason'] = 'Benchmark variance is zero or NaN'
+            return result
+        
+        # Compute covariance between wave and benchmark
+        covariance = np.cov(wave_aligned, benchmark_aligned, ddof=1)[0, 1]
+        
+        if np.isnan(covariance):
+            result['failure_reason'] = 'Covariance is NaN'
+            return result
+        
+        # Compute beta
+        beta = covariance / benchmark_var
+        
+        # Compute correlation and r-squared
+        correlation = np.corrcoef(wave_aligned, benchmark_aligned)[0, 1]
+        r_squared = correlation ** 2 if not np.isnan(correlation) else None
+        
+        # Success!
+        result['success'] = True
+        result['beta'] = float(beta)
+        result['correlation'] = float(correlation) if not np.isnan(correlation) else None
+        result['r_squared'] = float(r_squared) if r_squared is not None else None
+        result['failure_reason'] = None
+        
+        return result
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing beta: {str(e)}'
+        return result
+
+
+def compute_wave_beta(
+    wave_name: str,
+    benchmark_name: str,
+    price_book: pd.DataFrame,
+    lookback_days: int = 252,
+    min_n: int = 60
+) -> Dict[str, Any]:
+    """
+    Compute beta for a wave against a benchmark using price_book data.
+    
+    This is a convenience function that:
+    1. Computes daily returns for both wave and benchmark from price_book
+    2. Aligns the time series
+    3. Calls compute_beta to get the beta value
+    
+    Args:
+        wave_name: Name of the wave (must exist in WAVE_WEIGHTS)
+        benchmark_name: Name of the benchmark wave (must exist in WAVE_WEIGHTS)
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        lookback_days: Number of days to look back for returns computation (default: 252 = 1 year)
+        min_n: Minimum number of overlapping observations required (default: 60)
+        
+    Returns:
+        Dictionary with beta computation results (see compute_beta for details)
+    """
+    result = {
+        'success': False,
+        'beta': None,
+        'n_observations': 0,
+        'failure_reason': None,
+        'r_squared': None,
+        'correlation': None,
+        'wave_name': wave_name,
+        'benchmark_name': benchmark_name
+    }
+    
+    # Check inputs
+    if price_book is None or price_book.empty:
+        result['failure_reason'] = 'PRICE_BOOK is empty'
+        return result
+    
+    # Get wave holdings for both wave and benchmark
+    if not WAVES_ENGINE_AVAILABLE or not WAVE_WEIGHTS:
+        result['failure_reason'] = 'waves_engine not available'
+        return result
+    
+    if wave_name not in WAVE_WEIGHTS:
+        result['failure_reason'] = f'Wave "{wave_name}" not found in WAVE_WEIGHTS'
+        return result
+    
+    if benchmark_name not in WAVE_WEIGHTS:
+        result['failure_reason'] = f'Benchmark "{benchmark_name}" not found in WAVE_WEIGHTS'
+        return result
+    
+    try:
+        # Get recent price data (last lookback_days)
+        recent_prices = price_book.tail(lookback_days + 1).copy()
+        
+        # Compute portfolio values for wave
+        wave_holdings = WAVE_WEIGHTS[wave_name]
+        wave_tickers = [h.ticker for h in wave_holdings]
+        wave_weights_list = [h.weight for h in wave_holdings]
+        
+        # Normalize weights
+        total_wave_weight = sum(wave_weights_list)
+        if total_wave_weight == 0:
+            result['failure_reason'] = 'Wave total weight is zero'
+            return result
+        wave_weights_norm = [w / total_wave_weight for w in wave_weights_list]
+        
+        # Filter to available tickers
+        wave_available = [(t, w) for t, w in zip(wave_tickers, wave_weights_norm) if t in recent_prices.columns]
+        if not wave_available:
+            result['failure_reason'] = 'No wave tickers found in PRICE_BOOK'
+            return result
+        
+        wave_tickers_avail = [t for t, w in wave_available]
+        wave_weights_avail = [w for t, w in wave_available]
+        total_avail = sum(wave_weights_avail)
+        wave_weights_renorm = [w / total_avail for w in wave_weights_avail]
+        
+        # Compute wave portfolio values
+        wave_prices = recent_prices[wave_tickers_avail].copy()
+        first_wave_prices = wave_prices.iloc[0]
+        wave_normalized = wave_prices.div(first_wave_prices, axis=1) * 100
+        wave_portfolio = pd.Series(0.0, index=wave_prices.index)
+        for ticker, weight in zip(wave_tickers_avail, wave_weights_renorm):
+            wave_portfolio += wave_normalized[ticker].ffill() * weight
+        
+        # Compute wave returns
+        wave_returns = wave_portfolio.pct_change().dropna()
+        
+        # Compute portfolio values for benchmark
+        benchmark_holdings = WAVE_WEIGHTS[benchmark_name]
+        benchmark_tickers = [h.ticker for h in benchmark_holdings]
+        benchmark_weights_list = [h.weight for h in benchmark_holdings]
+        
+        # Normalize weights
+        total_benchmark_weight = sum(benchmark_weights_list)
+        if total_benchmark_weight == 0:
+            result['failure_reason'] = 'Benchmark total weight is zero'
+            return result
+        benchmark_weights_norm = [w / total_benchmark_weight for w in benchmark_weights_list]
+        
+        # Filter to available tickers
+        benchmark_available = [(t, w) for t, w in zip(benchmark_tickers, benchmark_weights_norm) if t in recent_prices.columns]
+        if not benchmark_available:
+            result['failure_reason'] = 'No benchmark tickers found in PRICE_BOOK'
+            return result
+        
+        benchmark_tickers_avail = [t for t, w in benchmark_available]
+        benchmark_weights_avail = [w for t, w in benchmark_available]
+        total_avail_bm = sum(benchmark_weights_avail)
+        benchmark_weights_renorm = [w / total_avail_bm for w in benchmark_weights_avail]
+        
+        # Compute benchmark portfolio values
+        benchmark_prices = recent_prices[benchmark_tickers_avail].copy()
+        first_benchmark_prices = benchmark_prices.iloc[0]
+        benchmark_normalized = benchmark_prices.div(first_benchmark_prices, axis=1) * 100
+        benchmark_portfolio = pd.Series(0.0, index=benchmark_prices.index)
+        for ticker, weight in zip(benchmark_tickers_avail, benchmark_weights_renorm):
+            benchmark_portfolio += benchmark_normalized[ticker].ffill() * weight
+        
+        # Compute benchmark returns
+        benchmark_returns = benchmark_portfolio.pct_change().dropna()
+        
+        # Now compute beta using the aligned returns
+        beta_result = compute_beta(wave_returns, benchmark_returns, min_n=min_n)
+        
+        # Add wave and benchmark names to result
+        beta_result['wave_name'] = wave_name
+        beta_result['benchmark_name'] = benchmark_name
+        
+        return beta_result
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing wave beta: {str(e)}'
+        return result
