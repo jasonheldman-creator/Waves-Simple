@@ -349,7 +349,7 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             max_price_date_str = str(max_price_date) if max_price_date else None
         
         metadata = {
-            "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+            "generated_at_utc": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
             "success_rate": success_rate,
             "min_success_rate": MIN_SUCCESS_RATE,
             "tickers_total": total_tickers,
