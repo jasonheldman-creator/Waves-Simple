@@ -18524,7 +18524,7 @@ def render_diagnostics_tab():
             trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
-        if st.button("🗑️ Clear Cache & Restart", help="Clear all st.cache and session state, then restart"):
+        if st.button("🗑️ Clear Cache & Restart", help="Clear all st.cache_data and st.cache_resource, then restart"):
             # Clear Streamlit caches
             st.cache_data.clear()
             st.cache_resource.clear()
