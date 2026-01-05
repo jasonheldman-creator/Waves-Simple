@@ -70,7 +70,12 @@ jobs:
             echo ""
             
             # Extract and validate max_price_date from metadata
-            MAX_DATE=$(python3 -c "import json; print(json.load(open('$META_PATH'))['max_price_date'])" 2>/dev/null || echo "")
+            MAX_DATE=$(python3 -c "
+import json
+with open('$META_PATH', 'r') as f:
+    meta = json.load(f)
+    print(meta.get('max_price_date', ''))
+" 2>/dev/null || echo "")
             if [ -n "$MAX_DATE" ]; then
               echo "Max price date in cache: $MAX_DATE"
               

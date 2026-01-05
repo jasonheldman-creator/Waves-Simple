@@ -23,11 +23,11 @@ import sys
 import argparse
 import logging
 import json
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -293,6 +293,10 @@ def validate_cache_freshness(cache_df, max_stale_days=MAX_STALE_DAYS):
         logger.error("Cannot validate freshness: cache is empty")
         return False, None, None
     
+    # Ensure index is sorted before getting max date
+    if not cache_df.index.is_monotonic_increasing:
+        cache_df = cache_df.sort_index()
+    
     max_date = cache_df.index[-1]
     now = pd.Timestamp.now(tz=max_date.tz if max_date.tz else None).normalize()
     
@@ -478,7 +482,6 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         if old_cache_exists:
             # Create a backup for comparison
             old_cache_backup = CACHE_PATH + ".old"
-            import shutil
             shutil.copy2(CACHE_PATH, old_cache_backup)
         
         logger.info("Saving cache...")
@@ -557,8 +560,8 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
             # Clean up backup
             try:
                 os.remove(old_cache_backup)
-            except:
-                pass
+            except (FileNotFoundError, OSError) as e:
+                logger.warning(f"Could not remove backup file: {e}")
         else:
             logger.info("✓ New cache file created (no change detection needed)")
         

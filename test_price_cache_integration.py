@@ -6,6 +6,7 @@ This test validates the strict validation logic against the actual cache in the 
 
 import os
 import sys
+import traceback
 import pandas as pd
 from datetime import datetime
 
@@ -161,7 +162,6 @@ def main():
         except Exception as e:
             failed += 1
             print(f"\n✗ {test_func.__name__} FAILED with exception: {e}")
-            import traceback
             traceback.print_exc()
     
     print("\n" + "=" * 80)

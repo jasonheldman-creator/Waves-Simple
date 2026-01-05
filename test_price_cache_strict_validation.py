@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 import shutil
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -362,7 +363,6 @@ def run_all_tests():
         except Exception as e:
             failed += 1
             print(f"✗ {test_func.__name__} FAILED with exception: {e}")
-            import traceback
             traceback.print_exc()
     
     print("\n" + "=" * 80)
