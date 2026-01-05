@@ -831,9 +831,14 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         is_portfolio_view = is_portfolio_context(selected_wave)
         
         # Get wave data for metrics (only if specific wave is selected)
-        wave_data_30d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=30)
-        wave_data_60d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=60)
-        wave_data_365d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=365)
+        wave_data_30d = None
+        wave_data_60d = None
+        wave_data_365d = None
+        
+        if not is_portfolio_view and selected_wave is not None:
+            wave_data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+            wave_data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
+            wave_data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
         
         # Calculate metrics
         nav_str = "N/A"
@@ -953,7 +958,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         portfolio_info_html = ""
         if is_portfolio_view:
             portfolio_info_html = '''<div class="portfolio-info">
-                ℹ️ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
+                &#9432; Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
             </div>'''
         
         # Enhanced banner with stats
