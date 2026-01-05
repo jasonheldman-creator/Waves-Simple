@@ -20266,12 +20266,6 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
     
     # ========================================================================
-    # Wave Readiness Report - Log on startup
-    # ========================================================================
-    # Wave Readiness Report - Log on startup
-    # ========================================================================
-    
-    # ========================================================================
     # Session State Initialization
     # ========================================================================
     
@@ -20283,18 +20277,18 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         try:
             from analytics_pipeline import print_readiness_report
             print_readiness_report()
-            st.session_state.readiness_report_logged = True
         except Exception as e:
             print(f"Warning: Could not generate readiness report: {e}")
-            st.session_state.readiness_report_logged = False
+        finally:
+            st.session_state.readiness_report_logged = True
         
         # Create backup on successful startup
         try:
             create_last_known_good_backup()
-            st.session_state.backup_created = True
         except Exception as e:
             print(f"Warning: Could not create backup: {e}")
-            st.session_state.backup_created = False
+        finally:
+            st.session_state.backup_created = True
         
         # Initialize wave_intelligence_center error flag
         st.session_state.wave_ic_has_errors = False
@@ -20345,7 +20339,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     count = None
     
     # Skip all auto-refresh logic to prevent reruns
-    # Auto-refresh is disabled by default in session state initialization
+    # Note: DEFAULT_AUTO_REFRESH_ENABLED is set to False in auto_refresh_config.py
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
