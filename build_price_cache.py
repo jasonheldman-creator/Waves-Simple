@@ -400,25 +400,68 @@ def main():
     parser = argparse.ArgumentParser(description='Build initial price cache')
     parser.add_argument('--force', action='store_true', help='Force rebuild even if cache exists')
     parser.add_argument('--years', type=int, default=DEFAULT_CACHE_YEARS, help='Number of years of history')
+    parser.add_argument('--skip-validation', action='store_true', help='Skip strict validation checks')
     
     args = parser.parse_args()
     
     success, success_rate = build_initial_cache(force_rebuild=args.force, years=args.years)
     
     # Strict exit codes:
-    # - Exit 0 if success rate >= MIN_SUCCESS_RATE AND cache file exists
+    # - Exit 0 if success rate >= MIN_SUCCESS_RATE AND cache file exists AND validations pass
     # - Exit 1 otherwise
     cache_exists = os.path.exists(CACHE_PATH) and os.path.getsize(CACHE_PATH) > 0
     
-    if success and cache_exists:
-        logger.info(f"✓ Exiting with code 0 (success rate: {success_rate * 100:.2f}%, cache exists)")
-        sys.exit(0)
-    else:
+    if not success or not cache_exists:
         if not cache_exists:
             logger.error(f"✗ Exiting with code 1 (cache file missing or empty)")
         else:
             logger.error(f"✗ Exiting with code 1 (success rate: {success_rate * 100:.2f}% below threshold)")
         sys.exit(1)
+    
+    # Run comprehensive validations (unless skipped)
+    if not args.skip_validation:
+        logger.info("\n" + "=" * 70)
+        logger.info("RUNNING COMPREHENSIVE VALIDATIONS")
+        logger.info("=" * 70)
+        
+        try:
+            from helpers.cache_validation import (
+                validate_trading_day_freshness,
+                validate_required_symbols,
+                validate_cache_integrity
+            )
+            
+            # Validation 1: Cache integrity
+            integrity_result = validate_cache_integrity(CACHE_PATH)
+            if not integrity_result['valid']:
+                logger.error(f"✗ Cache integrity validation FAILED: {integrity_result['error']}")
+                sys.exit(1)
+            
+            # Validation 2: Required symbols
+            symbols_result = validate_required_symbols(CACHE_PATH)
+            if not symbols_result['valid']:
+                logger.error(f"✗ Required symbols validation FAILED: {symbols_result['error']}")
+                sys.exit(1)
+            
+            # Validation 3: Trading-day freshness
+            freshness_result = validate_trading_day_freshness(CACHE_PATH, max_market_feed_gap_days=5)
+            if not freshness_result['valid']:
+                logger.error(f"✗ Trading-day freshness validation FAILED: {freshness_result['error']}")
+                sys.exit(1)
+            
+            logger.info("\n" + "=" * 70)
+            logger.info("✓ ALL VALIDATIONS PASSED")
+            logger.info("=" * 70)
+            
+        except ImportError as e:
+            logger.warning(f"⚠️  Validation module not available: {e}")
+            logger.warning("Skipping comprehensive validations")
+        except Exception as e:
+            logger.error(f"✗ Validation error: {e}")
+            sys.exit(1)
+    
+    logger.info(f"✓ Exiting with code 0 (success rate: {success_rate * 100:.2f}%, cache valid)")
+    sys.exit(0)
 
 
 if __name__ == '__main__':
