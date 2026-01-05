@@ -1101,10 +1101,25 @@ def compute_portfolio_snapshot(
         'data_age_days': None
     }
     
+    # ========================================================================
+    # DEBUG PRINTS - Portfolio Snapshot Data Flow
+    # ========================================================================
+    logger.info("=" * 80)
+    logger.info("COMPUTE_PORTFOLIO_SNAPSHOT - Debug Information")
+    logger.info("=" * 80)
+    
     # Validate PRICE_BOOK
     if price_book is None or price_book.empty:
+        logger.info("❌ INCOMING PRICE_BOOK: None or Empty")
         result['failure_reason'] = 'PRICE_BOOK is empty'
         return result
+    
+    # Debug Print 1: Incoming price_book.shape
+    logger.info(f"✅ 1. INCOMING price_book.shape: {price_book.shape}")
+    logger.info(f"   - Rows (dates): {price_book.shape[0]}")
+    logger.info(f"   - Columns (tickers): {price_book.shape[1]}")
+    if not price_book.empty:
+        logger.info(f"   - Date range: {price_book.index[0].date()} to {price_book.index[-1].date()}")
     
     # Get latest date and data age
     try:
@@ -1145,6 +1160,9 @@ def compute_portfolio_snapshot(
     wave_return_series_dict = {}  # {wave_name: pd.Series of daily returns}
     wave_benchmark_return_dict = {}  # {wave_name: pd.Series of benchmark daily returns}
     
+    # Debug Print 2: Collect list of all tickers being selected
+    all_selected_tickers = set()
+    
     for wave_name in all_waves:
         # Get wave tickers and weights
         if wave_name not in WAVE_WEIGHTS:
@@ -1172,6 +1190,8 @@ def compute_portfolio_snapshot(
                 if ticker in price_book.columns:
                     available_tickers.append(ticker)
                     available_weights.append(weight)
+                    # Track all selected tickers for debug output
+                    all_selected_tickers.add(ticker)
             
             if not available_tickers:
                 continue
@@ -1219,8 +1239,21 @@ def compute_portfolio_snapshot(
     
     # Check if we got any valid waves
     if not wave_return_series_dict:
+        logger.info("❌ No valid wave return series computed")
         result['failure_reason'] = 'No valid wave return series computed'
         return result
+    
+    # Debug Print 2: List of tickers being selected
+    logger.info(f"✅ 2. LIST OF TICKERS BEING SELECTED: {len(all_selected_tickers)} unique tickers")
+    logger.info(f"   - Tickers: {sorted(list(all_selected_tickers))}")
+    
+    # Debug Print 3: Resulting filtered DataFrame shape
+    # Create a filtered price_book with only the selected tickers
+    filtered_price_book = price_book[sorted(list(all_selected_tickers))]
+    logger.info(f"✅ 3. RESULTING FILTERED DataFrame shape: {filtered_price_book.shape}")
+    logger.info(f"   - Rows (dates): {filtered_price_book.shape[0]}")
+    logger.info(f"   - Columns (selected tickers): {filtered_price_book.shape[1]}")
+    logger.info("=" * 80)
     
     result['wave_count'] = len(wave_return_series_dict)
     
