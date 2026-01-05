@@ -5023,15 +5023,29 @@ def get_mission_control_data():
             else:
                 mc_data['market_regime'] = 'Neutral'
         
-        # VIX Gate Status estimation (based on volatility)
-        if 'portfolio_return' in df.columns and len(recent_data) > 0:
-            recent_vol = recent_data['portfolio_return'].std() * np.sqrt(252) * 100
-            if recent_vol < 15:
-                mc_data['vix_gate_status'] = 'GREEN (Low Vol)'
-            elif recent_vol < 25:
-                mc_data['vix_gate_status'] = 'YELLOW (Med Vol)'
+        # VIX Gate Status - only calculate if actual VIX data is available
+        # Changed to gate incomplete metrics per institutional readiness requirements
+        try:
+            from helpers.price_book import get_price_book
+            price_book_vix = get_price_book(active_tickers=None)
+            if 'VIX' in price_book_vix.columns and not price_book_vix['VIX'].dropna().empty:
+                vix_prices = price_book_vix['VIX'].dropna()
+                current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
+                
+                if current_vix is not None:
+                    if current_vix < 15:
+                        mc_data['vix_gate_status'] = f'GREEN ({current_vix:.1f})'
+                    elif current_vix < 25:
+                        mc_data['vix_gate_status'] = f'YELLOW ({current_vix:.1f})'
+                    else:
+                        mc_data['vix_gate_status'] = f'RED ({current_vix:.1f})'
+                else:
+                    mc_data['vix_gate_status'] = 'Pending'
             else:
-                mc_data['vix_gate_status'] = 'RED (High Vol)'
+                # VIX data not available - do not estimate from volatility
+                mc_data['vix_gate_status'] = 'Pending'
+        except Exception:
+            mc_data['vix_gate_status'] = 'Pending'
         
         # Calculate Alpha metrics
         if 'portfolio_return' in df.columns and 'benchmark_return' in df.columns:
@@ -6259,14 +6273,20 @@ def render_mission_control():
             vix_display = f"🟡 {vix_value}"
         elif 'RED' in vix_value:
             vix_display = f"🔴 {vix_value}"
+        elif vix_value in ['Pending', 'Initializing']:
+            vix_display = vix_value
         else:
             vix_display = vix_value
         
         st.metric(
             label="VIX Gate Status",
             value=vix_display,
-            help="Volatility-based risk gate (Green=Low, Yellow=Medium, Red=High)"
+            help="VIX-based volatility gate (requires VIX data)"
         )
+        
+        # Add caption for pending state
+        if vix_value in ['Pending', 'Initializing']:
+            st.caption("Awaiting VIX data")
     
     with col3:
         st.markdown("**Alpha Captured**")
@@ -19018,13 +19038,15 @@ def render_overview_clean_tab():
                 elif dispersion < DISPERSION_LOW:
                     risk_assessment = "low volatility regime"
             
-            # Alpha source narrative
+            # Alpha source narrative with capital preservation emphasis
             if avg_1d > 0.3:
                 alpha_narrative = "Platform strategies are capturing meaningful outperformance across multiple factor exposures."
             elif avg_1d > 0:
                 alpha_narrative = "Platform strategies demonstrate selective alpha generation with disciplined risk management."
-            else:
+            elif avg_1d > POSTURE_WEAK_NEGATIVE:
                 alpha_narrative = "Platform strategies are prioritizing capital preservation while maintaining strategic positioning."
+            else:
+                alpha_narrative = "Platform strategies have prioritized capital preservation during this risk regime, with positioning for subsequent opportunities."
             
             # Construct executive narrative
             current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
@@ -19235,6 +19257,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
         # ========================================================================
         st.markdown("### ⭐ Top Performing Strategies")
+        st.caption("Relative performance ranking - emphasizes momentum and positioning")
         
         try:
             if not performance_df.empty and '1D Return' in performance_df.columns:
@@ -19254,6 +19277,13 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
                 
                 if not top_performers.empty:
+                    # Check if returns are negligible across the board
+                    max_return = top_performers['1D_Return_Numeric'].max() if len(top_performers) > 0 else 0
+                    returns_negligible = abs(max_return) < 0.1  # Less than 0.1%
+                    
+                    if returns_negligible:
+                        st.info("📊 Returns are minimal across strategies - showing relative positioning and momentum")
+                    
                     # Display as simple cards
                     perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
                     
@@ -19264,8 +19294,11 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                             return_1d = row.get('1D_Return_Numeric', 0)
                             return_30d = parse_return_value(row.get('30D', 'N/A'))
                             
+                            # Add rank indicator
+                            rank_label = f"#{idx + 1} {wave_name}" if len(wave_name) < 17 else f"#{idx + 1} {wave_name[:14]}..."
+                            
                             st.metric(
-                                label=wave_name if len(wave_name) < 20 else wave_name[:17] + "...",
+                                label=rank_label,
                                 value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
                                 delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
                             )
