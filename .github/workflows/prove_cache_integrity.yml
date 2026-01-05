@@ -1,0 +1,66 @@
+name: Prove Cache Integrity
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  check_cache:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: |
+          pip install pandas pyarrow
+
+      - name: Diagnose prices_cache.parquet
+        run: |
+          python - <<'PY'
+          import os
+          import pandas as pd
+
+          FILE_PATH = "data/cache/prices_cache.parquet"
+
+          print("=== PRICE CACHE DIAGNOSTICS ===")
+
+          if not os.path.exists(FILE_PATH):
+              print(f"❌ Cache file NOT FOUND: {FILE_PATH}")
+              raise SystemExit(1)
+
+          file_size = os.path.getsize(FILE_PATH)
+          print(f"📦 File size: {file_size} bytes ({file_size/1024/1024:.2f} MB)")
+
+          df = pd.read_parquet(FILE_PATH)
+
+          print(f"📐 DataFrame shape: {df.shape}")
+          print(f"📊 Number of columns: {df.shape[1]}")
+
+          try:
+              idx = pd.to_datetime(df.index)
+              print(f"📅 Index MIN: {idx.min()}")
+              print(f"📅 Index MAX: {idx.max()}")
+          except Exception as e:
+              print("⚠️ Index is not datetime-like:", e)
+
+          print(f"🔎 SPY present: {'SPY' in df.columns}")
+
+          if df.empty:
+              print("❌ DataFrame is EMPTY")
+
+          print("=== END PRICE CACHE DIAGNOSTICS ===")
+          PY
+
+      - name: Git Status (prove commit behavior)
+        run: |
+          echo "=== GIT STATUS ==="
+          git status --porcelain
