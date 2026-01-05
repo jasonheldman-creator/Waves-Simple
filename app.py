@@ -20336,8 +20336,8 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     
     # HARD-DISABLE auto-refresh when Safe Mode is ON or auto-refresh is explicitly disabled
-    # Auto-refresh is now OFF by default to prevent infinite reruns
-    # Users must explicitly enable it and disable Safe Mode
+    # Auto-refresh is now ON by default (30 seconds) but disabled when Safe Mode is active
+    # Users can adjust interval or disable in sidebar
     if st.session_state.get("safe_mode_no_fetch", True) or not st.session_state.get("auto_refresh_enabled", False):
         # Auto-refresh is completely disabled
         # Debug trace marker
