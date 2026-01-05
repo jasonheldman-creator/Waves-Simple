@@ -1,10 +1,10 @@
 {
-  "generated_at_utc": "2026-01-05T15:28:47.987315Z",
-  "success_rate": 0.9838709677419355,
+  "generated_at_utc": "2026-01-05T15:56:39.663401Z",
+  "success_rate": 1.0,
   "min_success_rate": 0.9,
   "tickers_total": 124,
-  "tickers_successful": 122,
-  "tickers_failed": 2,
-  "max_price_date": "2025-12-26",
+  "tickers_successful": 124,
+  "tickers_failed": 0,
+  "max_price_date": "2026-01-05",
   "cache_file": "data/cache/prices_cache.parquet"
 }
