@@ -20268,26 +20268,6 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Wave Readiness Report - Log on startup
     # ========================================================================
-    
-    # Print readiness report to logs (only once per session)
-    if "readiness_report_logged" not in st.session_state:
-        try:
-            from analytics_pipeline import print_readiness_report
-            print_readiness_report()
-            st.session_state.readiness_report_logged = True
-        except Exception as e:
-            print(f"Warning: Could not generate readiness report: {e}")
-    
-    # ========================================================================
-    # Last Known Good Backup Creation
-    # ========================================================================
-    
-    # Create backup on successful startup (only once per session)
-    if "backup_created" not in st.session_state:
-        create_last_known_good_backup()
-        st.session_state.backup_created = True
-    
-    # ========================================================================
     # Session State Initialization
     # ========================================================================
     # Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state.
@@ -20296,25 +20276,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     if "initialized" not in st.session_state:
         st.session_state.initialized = True
         
-        # Initialize wave_intelligence_center error flag if not present
+        # One-time operations on first session startup
+        try:
+            from analytics_pipeline import print_readiness_report
+            print_readiness_report()
+            st.session_state.readiness_report_logged = True
+        except Exception as e:
+            print(f"Warning: Could not generate readiness report: {e}")
+            st.session_state.readiness_report_logged = False
+        
+        # Create backup on successful startup
+        try:
+            create_last_known_good_backup()
+            st.session_state.backup_created = True
+        except Exception as e:
+            print(f"Warning: Could not create backup: {e}")
+            st.session_state.backup_created = False
+        
+        # Initialize wave_intelligence_center error flag
         st.session_state.wave_ic_has_errors = False
         
-        # Initialize wave_universe_version if not present
+        # Initialize wave_universe_version
         st.session_state.wave_universe_version = 1
         
-        # Initialize last_refresh_time if not present
+        # Initialize last_refresh_time
         st.session_state.last_refresh_time = datetime.now()
         
-        # Initialize last_successful_refresh_time if not present
+        # Initialize last_successful_refresh_time
         st.session_state.last_successful_refresh_time = datetime.now()
         
-        # Initialize auto_refresh_enabled if not present (default: OFF to prevent rerun loops)
+        # Initialize auto_refresh_enabled (default: OFF to prevent rerun loops)
         st.session_state.auto_refresh_enabled = False
         
-        # Initialize auto_refresh_interval if not present (default: 60 seconds)
+        # Initialize auto_refresh_interval (default: 60 seconds)
         st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
         
-        # Initialize auto_refresh_error_count for error handling
+        # Initialize auto_refresh_error_count
         st.session_state.auto_refresh_error_count = 0
         
         # Initialize auto_refresh_paused flag
@@ -20323,14 +20320,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Initialize auto_refresh_error_message
         st.session_state.auto_refresh_error_message = None
         
-        # Initialize show_bottom_ticker if not present (default: ON)
+        # Initialize show_bottom_ticker (default: ON)
         st.session_state.show_bottom_ticker = True
         
-        # Initialize selected_wave_id if not present (default: None - portfolio view)
+        # Initialize selected_wave_id (default: None - portfolio view)
         # UPDATED: Use selected_wave_id as the authoritative state key
         st.session_state.selected_wave_id = None
         
-        # Initialize mode if not present (default: Standard)
+        # Initialize mode (default: Standard)
         st.session_state.mode = "Standard"
     
     # ========================================================================
