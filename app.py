@@ -9202,6 +9202,35 @@ def render_executive_brief_tab():
             # Compute portfolio snapshot
             snapshot = compute_portfolio_snapshot(price_book, mode='Standard', periods=[1, 30, 60, 365])
             
+            # Add diagnostic information
+            if snapshot['success']:
+                n_waves_used = snapshot['wave_count']
+                date_range = snapshot['date_range']
+                # Calculate number of dates from date range
+                try:
+                    import pandas as pd
+                    start_date = pd.to_datetime(date_range[0])
+                    end_date = pd.to_datetime(date_range[1])
+                    n_dates = (end_date - start_date).days
+                except Exception:
+                    n_dates = 0
+                
+                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start={date_range[0]}, end={date_range[1]}")
+            else:
+                # Check for empty result condition
+                n_waves_used = snapshot.get('wave_count', 0)
+                # Estimate dates from price_book if available
+                try:
+                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
+                except Exception:
+                    n_dates = 0
+                
+                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start=N/A, end=N/A")
+                
+                # Check for specific error conditions
+                if n_waves_used == 0 or n_dates < 2:
+                    st.error(f"❌ Portfolio Snapshot unavailable: aggregation produced no usable series ({n_waves_used} waves, {n_dates} dates available).")
+            
             if snapshot['success']:
                 # Display in blue box with metrics
                 st.markdown("""
@@ -9223,7 +9252,7 @@ def render_executive_brief_tab():
                         st.metric("1D Return", f"{ret_1d:+.2%}", 
                                  help="Portfolio return over 1 day")
                     else:
-                        st.metric("1D Return", "N/A", 
+                        st.metric("1D Return", "—", 
                                  help="Insufficient history for 1D return")
                 
                 with col2:
@@ -9232,7 +9261,7 @@ def render_executive_brief_tab():
                         st.metric("30D Return", f"{ret_30d:+.2%}",
                                  help="Portfolio return over 30 days")
                     else:
-                        st.metric("30D Return", "N/A",
+                        st.metric("30D Return", "—",
                                  help="Insufficient history for 30D return")
                 
                 with col3:
@@ -9241,7 +9270,7 @@ def render_executive_brief_tab():
                         st.metric("60D Return", f"{ret_60d:+.2%}",
                                  help="Portfolio return over 60 days")
                     else:
-                        st.metric("60D Return", "N/A",
+                        st.metric("60D Return", "—",
                                  help="Insufficient history for 60D return")
                 
                 with col4:
@@ -9250,7 +9279,7 @@ def render_executive_brief_tab():
                         st.metric("365D Return", f"{ret_365d:+.2%}",
                                  help="Portfolio return over 365 days")
                     else:
-                        st.metric("365D Return", "N/A",
+                        st.metric("365D Return", "—",
                                  help="Insufficient history for 365D return")
                 
                 # Alpha Row
@@ -9263,7 +9292,7 @@ def render_executive_brief_tab():
                         st.metric("1D Alpha", f"{alpha_1d:+.2%}",
                                  help="Alpha vs benchmark over 1 day")
                     else:
-                        st.metric("1D Alpha", "N/A")
+                        st.metric("1D Alpha", "—")
                 
                 with col2:
                     alpha_30d = snapshot['alphas']['30D']
@@ -9271,7 +9300,7 @@ def render_executive_brief_tab():
                         st.metric("30D Alpha", f"{alpha_30d:+.2%}",
                                  help="Alpha vs benchmark over 30 days")
                     else:
-                        st.metric("30D Alpha", "N/A")
+                        st.metric("30D Alpha", "—")
                 
                 with col3:
                     alpha_60d = snapshot['alphas']['60D']
@@ -9279,7 +9308,7 @@ def render_executive_brief_tab():
                         st.metric("60D Alpha", f"{alpha_60d:+.2%}",
                                  help="Alpha vs benchmark over 60 days")
                     else:
-                        st.metric("60D Alpha", "N/A")
+                        st.metric("60D Alpha", "—")
                 
                 with col4:
                     alpha_365d = snapshot['alphas']['365D']
@@ -9287,7 +9316,7 @@ def render_executive_brief_tab():
                         st.metric("365D Alpha", f"{alpha_365d:+.2%}",
                                  help="Alpha vs benchmark over 365 days")
                     else:
-                        st.metric("365D Alpha", "N/A")
+                        st.metric("365D Alpha", "—")
                 
                 # Alpha Attribution Row
                 st.markdown("**Alpha Attribution:**")
@@ -9300,17 +9329,17 @@ def render_executive_brief_tab():
                     
                     with col1:
                         cum_alpha = attribution['cumulative_alpha']
-                        st.metric("Cumulative Alpha", f"{cum_alpha:+.2%}" if cum_alpha is not None else "N/A",
+                        st.metric("Cumulative Alpha", f"{cum_alpha:+.2%}" if cum_alpha is not None else "—",
                                  help="Total alpha over measurement period")
                     
                     with col2:
                         sel_alpha = attribution['selection_alpha']
-                        st.metric("Selection Alpha", f"{sel_alpha:+.2%}" if sel_alpha is not None else "N/A",
+                        st.metric("Selection Alpha", f"{sel_alpha:+.2%}" if sel_alpha is not None else "—",
                                  help="Alpha from asset selection")
                     
                     with col3:
                         ovr_alpha = attribution['overlay_alpha']
-                        st.metric("Overlay Alpha", f"{ovr_alpha:+.2%}" if ovr_alpha is not None else "N/A",
+                        st.metric("Overlay Alpha", f"{ovr_alpha:+.2%}" if ovr_alpha is not None else "—",
                                  help="Alpha from VIX/regime overlay (not yet implemented)")
                 else:
                     st.warning(f"⚠️ Alpha attribution unavailable: {attribution['failure_reason']}")
