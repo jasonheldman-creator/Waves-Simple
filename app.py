@@ -7058,7 +7058,13 @@ def render_mission_control():
 
 
 def render_sidebar_info():
-    """Render sidebar information including build info and menu."""
+    """
+    Render sidebar information including build info and menu.
+    
+    NOTE: Wave selection changes will trigger ONE rerun to update the page context.
+    This is expected Streamlit behavior and not an infinite loop.
+    The loop detection mechanism will prevent multiple consecutive reruns.
+    """
     
     # ========================================================================
     # WAVE SELECTION CONTROL - Always Visible
@@ -18583,15 +18589,20 @@ def render_diagnostics_tab():
             trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
-        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
-            # Clear session state
+        if st.button("🗑️ Clear Cache & Restart", help="Clear all st.cache_data and st.cache_resource, then restart"):
+            # Clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            # Clear session state (preserve only essential items)
             for key in list(st.session_state.keys()):
                 if key not in ["safe_mode_enabled", "session_start_time"]:
                     del st.session_state[key]
-            st.success("Cache cleared. Refreshing...")
+            
+            st.success("✅ All caches cleared. Restarting...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            trigger_rerun("diagnostics_clear_cache")
+            trigger_rerun("diagnostics_clear_cache_restart")
     
     st.markdown("---")
     
