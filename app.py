@@ -51,12 +51,27 @@ except ImportError:
 
 # Import waves engine for wave definitions (single source of truth)
 try:
-    from waves_engine import get_all_waves as engine_get_all_waves, WAVE_WEIGHTS
+    from waves_engine import (
+        get_all_waves as engine_get_all_waves, 
+        WAVE_WEIGHTS,
+        get_wave_id_from_display_name,
+        get_display_name_from_wave_id
+    )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
+    get_wave_id_from_display_name = None
+    get_display_name_from_wave_id = None
+
+# Import wave registry manager
+try:
+    from wave_registry_manager import get_active_wave_registry
+    WAVE_REGISTRY_MANAGER_AVAILABLE = True
+except ImportError:
+    WAVE_REGISTRY_MANAGER_AVAILABLE = False
+    get_active_wave_registry = None
 
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
@@ -268,6 +283,34 @@ DEFAULT_DATA_INTEGRITY = "Degraded"
 DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
+
+# ============================================================================
+# WAVE SELECTION HELPER FUNCTIONS
+# ============================================================================
+
+def get_selected_wave_display_name():
+    """
+    Get the display name for the currently selected wave.
+    
+    Returns None if portfolio view is active, otherwise returns the
+    display name corresponding to the wave_id stored in session_state.
+    
+    Returns:
+        str or None: Display name of selected wave, or None for portfolio view
+    """
+    selected_wave_id = st.session_state.get("selected_wave")
+    if selected_wave_id is None:
+        return None
+    
+    if not WAVES_ENGINE_AVAILABLE or get_display_name_from_wave_id is None:
+        # Fallback: return a user-friendly message if waves_engine is unavailable
+        return f"Wave ({selected_wave_id})"
+    
+    try:
+        return get_display_name_from_wave_id(selected_wave_id)
+    except (KeyError, ValueError, AttributeError):
+        # Fallback: return a user-friendly message if conversion fails
+        return f"Wave ({selected_wave_id})"
 
 # Cache TTL for price downloads (in seconds) - 1 hour default
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
@@ -6957,53 +7000,99 @@ def render_sidebar_info():
     # ========================================================================
     st.sidebar.markdown("### 🌊 Wave Selection")
     
-    # Get all active waves from the registry
+    # Get all active waves from the registry with wave_id mapping
     try:
-        wave_universe_version = st.session_state.get("wave_universe_version", 1)
-        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-        all_waves = universe.get("waves", [])
+        # Check if required modules are available
+        if not WAVE_REGISTRY_MANAGER_AVAILABLE or not WAVES_ENGINE_AVAILABLE:
+            st.sidebar.warning("⚠️ Wave selection unavailable - required modules not loaded")
+            # Ensure consistent state - default to portfolio view
+            st.session_state.selected_wave = None
+            return
         
-        # Build options list with Portfolio as first option
-        wave_options = [PORTFOLIO_VIEW_TITLE] + sorted(all_waves)
+        # Load active waves with wave_id and display_name
+        active_waves_df = get_active_wave_registry()
         
-        # Get current selection (default to portfolio)
-        current_selection = st.session_state.get("selected_wave")
+        # Build list of wave objects with both wave_id and display_name
+        active_waves = []
+        for _, row in active_waves_df.iterrows():
+            active_waves.append({
+                'wave_id': row['wave_id'],
+                'display_name': row['wave_name']
+            })
         
-        # Determine the index for the selectbox
-        if current_selection is None or current_selection == PORTFOLIO_VIEW_PLACEHOLDER:
+        # Build options list for selectbox (display names only)
+        wave_display_names = [wave['display_name'] for wave in active_waves]
+        wave_options = [PORTFOLIO_VIEW_TITLE] + sorted(wave_display_names)
+        
+        # Create mapping dictionary: display_name -> wave_id
+        name_to_id = {wave['display_name']: wave['wave_id'] for wave in active_waves}
+        
+        # Get current selection from session state (stored as wave_id)
+        current_wave_id = st.session_state.get("selected_wave")
+        
+        # Determine the index for the selectbox based on stored wave_id
+        if current_wave_id is None:
             # Portfolio mode
             default_index = 0
-        elif current_selection in wave_options:
-            # Specific wave selected
-            default_index = wave_options.index(current_selection)
         else:
-            # Invalid selection, default to portfolio
-            default_index = 0
+            # Convert wave_id back to display_name to find index
+            try:
+                current_display_name = get_display_name_from_wave_id(current_wave_id)
+                if current_display_name in wave_options:
+                    default_index = wave_options.index(current_display_name)
+                else:
+                    # Invalid wave_id, default to portfolio
+                    default_index = 0
+            except (KeyError, ValueError, AttributeError):
+                # Error converting wave_id, default to portfolio
+                default_index = 0
         
         # Render wave selector
         selected_option = st.sidebar.selectbox(
             "Select Context",
             options=wave_options,
             index=default_index,
-            key="wave_selector",
+            key="selected_wave_ui",
             help="Choose Portfolio for all-waves view, or select an individual wave for wave-specific metrics"
         )
         
-        # Update session state based on selection
+        # Update session state based on selection (store wave_id, not display_name)
         if selected_option == PORTFOLIO_VIEW_TITLE:
             # Portfolio mode selected
             st.session_state.selected_wave = None
         else:
-            # Individual wave selected
-            st.session_state.selected_wave = selected_option
+            # Individual wave selected - map display_name to wave_id
+            wave_id = name_to_id.get(selected_option)
+            if wave_id:
+                st.session_state.selected_wave = wave_id
+            else:
+                # Fallback if mapping fails
+                st.session_state.selected_wave = None
         
         # Display current context
         if st.session_state.selected_wave is None:
             st.sidebar.info(f"{PORTFOLIO_VIEW_ICON} Portfolio View Active")
         else:
-            st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {st.session_state.selected_wave}")
+            # Convert wave_id back to display_name for display
+            try:
+                display_name = get_display_name_from_wave_id(st.session_state.selected_wave)
+                st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {display_name}")
+            except (KeyError, ValueError, AttributeError):
+                st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {st.session_state.selected_wave}")
+        
+        # Debug caption to prove persistence (only in debug mode)
+        if st.session_state.get("debug_mode", False):
+            wave_id = st.session_state.get('selected_wave')
+            if wave_id:
+                try:
+                    display_name = get_display_name_from_wave_id(wave_id)
+                    st.sidebar.caption(f"selected_wave (session): {wave_id} → {display_name}")
+                except (KeyError, ValueError, AttributeError):
+                    st.sidebar.caption(f"selected_wave (session): {wave_id}")
+            else:
+                st.sidebar.caption(f"selected_wave (session): None (Portfolio)")
     
-    except Exception as e:
+    except (ImportError, KeyError, ValueError, AttributeError) as e:
         # Fallback if wave loading fails
         st.sidebar.warning("⚠️ Could not load wave list")
         if st.session_state.get("debug_mode", False):
@@ -20305,16 +20394,19 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Main Application UI
     # ========================================================================
     
+    # Get selected wave display name for rendering (converts wave_id to display_name)
+    selected_wave_display_name = get_selected_wave_display_name()
+    
     # Render selected wave banner at the very top (above all tabs)
     # Use enhanced banner if ENABLE_WAVE_PROFILE is True, otherwise use simple banner
     if ENABLE_WAVE_PROFILE:
         render_selected_wave_banner_enhanced(
-            selected_wave=st.session_state.selected_wave,
+            selected_wave=selected_wave_display_name,
             mode=st.session_state.mode
         )
     else:
         render_selected_wave_banner_simple(
-            selected_wave=st.session_state.selected_wave,
+            selected_wave=selected_wave_display_name,
             mode=st.session_state.mode
         )
     
@@ -20388,47 +20480,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab
         with analytics_tabs[1]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
         # Overview tab
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -20487,47 +20579,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (fourth)
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[10]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -20585,42 +20677,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Executive Console", render_executive_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(selected_wave_display_name, st.session_state.mode)
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
