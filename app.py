@@ -5025,11 +5025,10 @@ def get_mission_control_data():
         
         # VIX Gate Status - only calculate if actual VIX data is available
         # Changed to gate incomplete metrics per institutional readiness requirements
+        # Reuse price_book from earlier in function to avoid redundant loading
         try:
-            from helpers.price_book import get_price_book
-            price_book_vix = get_price_book(active_tickers=None)
-            if 'VIX' in price_book_vix.columns and not price_book_vix['VIX'].dropna().empty:
-                vix_prices = price_book_vix['VIX'].dropna()
+            if 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+                vix_prices = price_book['VIX'].dropna()
                 current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
                 
                 if current_vix is not None:
@@ -6304,16 +6303,9 @@ def render_mission_control():
         except:
             pass
         
-        # Display with better formatting for pending states
-        if alpha_today_str in ['Pending', 'Initializing']:
-            st.write(f"Latest: {alpha_today_str}")
-        else:
-            st.write(f"Latest: {alpha_today_str}")
-        
-        if alpha_30day_str in ['Pending', 'Initializing']:
-            st.write(f"30-Day: {alpha_30day_str}")
-        else:
-            st.write(f"30-Day: {alpha_30day_str}")
+        # Display alpha metrics
+        st.write(f"Latest: {alpha_today_str}")
+        st.write(f"30-Day: {alpha_30day_str}")
     
     with col4:
         st.markdown("**WaveScore Leader**")
