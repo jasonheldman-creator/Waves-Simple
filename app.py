@@ -7297,12 +7297,23 @@ def render_sidebar_info():
                     except Exception as e:
                         st.warning(f"Force reload unavailable: {str(e)}")
                 
-                # Force Reload Data Button (Clear All Caches)
+                st.markdown("---")
+                
+                # Force Reload Data Button (Clear All Caches) - WITH CONFIRMATION
+                st.caption("⚠️ Destructive Actions Require Confirmation")
+                clear_cache_confirm = st.checkbox(
+                    "I understand this will clear all cached data",
+                    key="clear_cache_confirm",
+                    value=False,
+                    help="Check this box to enable cache clearing (will reload all data)"
+                )
+                
                 if st.button(
-                    "🧹 Force Reload Data (Clear Cache)",
+                    "🧹 Clear Cache & Reload Data",
                     key="force_reload_data_button",
                     use_container_width=True,
-                    help="Clear all cached data and reload from files"
+                    disabled=not clear_cache_confirm,
+                    help="Clear all cached data and reload from files. Requires confirmation."
                 ):
                     try:
                         # Clear all Streamlit caches
