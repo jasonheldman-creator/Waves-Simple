@@ -183,7 +183,13 @@ def is_cache_fresh(max_price_date):
         max_price_date = pd.to_datetime(max_price_date)
     
     # Convert to date object for consistent comparison
-    max_price_only_date = max_price_date.date() if hasattr(max_price_date, 'date') else max_price_date
+    if isinstance(max_price_date, datetime):
+        max_price_only_date = max_price_date.date()
+    elif hasattr(max_price_date, 'date'):
+        max_price_only_date = max_price_date.date()
+    else:
+        # Assume it's already a date object
+        max_price_only_date = max_price_date
     
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).date()
     days_old = (today - max_price_only_date).days
