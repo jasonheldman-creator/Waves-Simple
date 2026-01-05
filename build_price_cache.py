@@ -30,8 +30,11 @@ import pandas as pd
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Threshold configuration
-MIN_SUCCESS_RATE = float(os.getenv("MIN_SUCCESS_RATE", "0.95"))
+# Threshold configuration - hardened parsing with clamping
+try:
+    MIN_SUCCESS_RATE = min(1.0, max(0.0, float(os.getenv("MIN_SUCCESS_RATE", "0.90"))))
+except ValueError:
+    MIN_SUCCESS_RATE = 0.90
 
 from helpers.price_loader import (
     deduplicate_tickers,

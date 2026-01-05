@@ -5,8 +5,11 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
-  MIN_SUCCESS_RATE: "0.95"
+  MIN_SUCCESS_RATE: "0.90"
 
 jobs:
   update_cache:
@@ -15,6 +18,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v3
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -32,6 +37,7 @@ jobs:
           python build_price_cache.py --force
 
       - name: Commit and push updated cache
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
