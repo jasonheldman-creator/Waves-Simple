@@ -813,6 +813,36 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
 # ============================================================================
+# PROOF BANNER - Diagnostics and Visibility
+# ============================================================================
+# Initialize run counter in session state
+if "proof_run_counter" not in st.session_state:
+    st.session_state.proof_run_counter = 0
+else:
+    st.session_state.proof_run_counter += 1
+
+# Get GIT SHA from environment or use hardcoded diagnostic string
+git_sha_proof = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+
+# Display Proof Banner
+st.markdown(
+    f"""
+    <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
+        <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+            🔍 PROOF BANNER - DIAGNOSTICS MODE
+        </div>
+        <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+            <strong>APP FILE:</strong> app.py<br>
+            <strong>GIT SHA:</strong> {git_sha_proof}<br>
+            <strong>TIMESTAMP:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+            <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# ============================================================================
 # WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
 # ============================================================================
 # Record start time immediately after page config for watchdog
@@ -8219,6 +8249,91 @@ def render_sidebar_info():
                 st.info("Wave universe not yet initialized")
         except Exception as e:
             st.error(f"Debug display error: {str(e)}")
+    
+    # ========================================================================
+    # DIAGNOSTICS DEBUG PANEL - Collapsible
+    # ========================================================================
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+        st.markdown("**Diagnostics & Visibility Panel**")
+        
+        # Initialize exception storage in session state
+        if "data_load_exceptions" not in st.session_state:
+            st.session_state.data_load_exceptions = []
+        
+        try:
+            # Display selected_wave_id
+            selected_wave_id = st.session_state.get("selected_wave_id", "None")
+            st.text(f"selected_wave_id: {selected_wave_id}")
+            
+            # Display selectbox key being used
+            st.text(f"Selectbox key: selected_wave_id_display")
+            
+            # Check wave registry status
+            try:
+                if WAVE_REGISTRY_MANAGER_AVAILABLE:
+                    active_waves_df = get_active_wave_registry()
+                    wave_count = len(active_waves_df)
+                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
+                else:
+                    st.text("Wave Registry: Module unavailable")
+            except Exception as e:
+                st.text(f"Wave Registry: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Wave Registry",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Check portfolio snapshot status
+            try:
+                snapshot_path = "data/live_snapshot.csv"
+                if os.path.exists(snapshot_path):
+                    snapshot_df = pd.read_csv(snapshot_path)
+                    row_count = len(snapshot_df)
+                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                else:
+                    st.text("Portfolio Snapshot: File not found")
+            except Exception as e:
+                st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Portfolio Snapshot",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Check price cache status
+            try:
+                price_cache_path = "data/cache/prices_cache.parquet"
+                cache_exists = os.path.exists(price_cache_path)
+                st.text(f"Price Cache Path: {price_cache_path}")
+                st.text(f"Price Cache Exists: {cache_exists}")
+                
+                if cache_exists:
+                    # Get file size
+                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                    st.text(f"Price Cache Size: {file_size:.2f} MB")
+            except Exception as e:
+                st.text(f"Price Cache: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Price Cache",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Display all captured exceptions
+            if st.session_state.data_load_exceptions:
+                st.markdown("---")
+                st.markdown("**🚨 Captured Exceptions:**")
+                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                        st.error(f"**Error:** {exc['error']}")
+                        st.code(exc['traceback'], language="python")
+                        
+        except Exception as e:
+            st.error(f"Debug panel error: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
 
 # ============================================================================
@@ -20126,6 +20241,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave registry CSV: {e}")
             st.session_state.wave_registry_validated = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Registry Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
     # Wave Universe Validation - Verify Active Waves (UPDATED for Active/Inactive Split)
@@ -20203,6 +20326,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave universe: {e}")
             st.session_state.wave_universe_validation_failed = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Universe Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
     # Global Compute Lock - Prevent duplicate heavy computations
@@ -20253,6 +20384,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
                 print(f"⚠️ Warning: Could not check snapshot age: {e}")
                 st.session_state.snapshot_exists = True
                 st.session_state.snapshot_fresh = False
+                # Store exception for debug panel
+                if "data_load_exceptions" not in st.session_state:
+                    st.session_state.data_load_exceptions = []
+                st.session_state.data_load_exceptions.append({
+                    "component": "Snapshot Age Check",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
         else:
             st.session_state.snapshot_exists = False
             st.session_state.snapshot_fresh = False
@@ -20279,6 +20418,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             print_readiness_report()
         except Exception as e:
             print(f"Warning: Could not generate readiness report: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Readiness Report",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
         finally:
             st.session_state.readiness_report_logged = True
         
@@ -20287,6 +20434,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             create_last_known_good_backup()
         except Exception as e:
             print(f"Warning: Could not create backup: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Backup Creation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
         finally:
             st.session_state.backup_created = True
         
