@@ -6,6 +6,9 @@ Tests for the new price cache infrastructure including:
 - Explicit cache refresh
 - Cache readiness checks
 - Failed ticker tracking
+- Trading-day freshness validation
+- Required symbol validation
+- No-change logic
 """
 
 import os
@@ -148,6 +151,93 @@ def test_failed_tickers_path():
         return False
 
 
+def test_cache_validation_imports():
+    """Test that we can import the cache validation functions."""
+    try:
+        from helpers.cache_validation import (
+            validate_trading_day_freshness,
+            validate_required_symbols,
+            validate_cache_integrity,
+            validate_no_change_logic,
+            fetch_spy_trading_days,
+            get_cache_max_date
+        )
+        print("✅ Successfully imported cache validation functions")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to import cache validation functions: {e}")
+        return False
+
+
+def test_required_symbol_constants():
+    """Test that required symbol constants are defined correctly."""
+    try:
+        from helpers.cache_validation import (
+            REQUIRED_SYMBOLS_ALL,
+            REQUIRED_SYMBOLS_VIX_ANY,
+            REQUIRED_SYMBOLS_TBILL_ANY
+        )
+        
+        print(f"REQUIRED_SYMBOLS_ALL: {REQUIRED_SYMBOLS_ALL}")
+        print(f"REQUIRED_SYMBOLS_VIX_ANY: {REQUIRED_SYMBOLS_VIX_ANY}")
+        print(f"REQUIRED_SYMBOLS_TBILL_ANY: {REQUIRED_SYMBOLS_TBILL_ANY}")
+        
+        assert "SPY" in REQUIRED_SYMBOLS_ALL, "SPY should be in ALL group"
+        assert "QQQ" in REQUIRED_SYMBOLS_ALL, "QQQ should be in ALL group"
+        assert "IWM" in REQUIRED_SYMBOLS_ALL, "IWM should be in ALL group"
+        
+        assert "^VIX" in REQUIRED_SYMBOLS_VIX_ANY, "^VIX should be in VIX ANY group"
+        assert "BIL" in REQUIRED_SYMBOLS_TBILL_ANY or "SHY" in REQUIRED_SYMBOLS_TBILL_ANY, "BIL or SHY should be in T-bill ANY group"
+        
+        print("✅ Required symbol constants defined correctly")
+        return True
+    except AssertionError as e:
+        print(f"❌ Constant validation failed: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to test constants: {e}")
+        return False
+
+
+def test_no_change_logic_function():
+    """Test the no-change logic validation function."""
+    try:
+        from helpers.cache_validation import validate_no_change_logic
+        
+        # Test: fresh + unchanged → success, no commit
+        result = validate_no_change_logic(cache_freshness_valid=True, has_changes=False)
+        assert result['should_commit'] is False, "Fresh+unchanged should not commit"
+        assert result['should_succeed'] is True, "Fresh+unchanged should succeed"
+        print("✅ Test 1 passed: fresh+unchanged → success, no commit")
+        
+        # Test: stale + unchanged → fail, no commit
+        result = validate_no_change_logic(cache_freshness_valid=False, has_changes=False)
+        assert result['should_commit'] is False, "Stale+unchanged should not commit"
+        assert result['should_succeed'] is False, "Stale+unchanged should fail"
+        print("✅ Test 2 passed: stale+unchanged → fail, no commit")
+        
+        # Test: fresh + changed → success, commit
+        result = validate_no_change_logic(cache_freshness_valid=True, has_changes=True)
+        assert result['should_commit'] is True, "Fresh+changed should commit"
+        assert result['should_succeed'] is True, "Fresh+changed should succeed"
+        print("✅ Test 3 passed: fresh+changed → success, commit")
+        
+        # Test: stale + changed → success, commit
+        result = validate_no_change_logic(cache_freshness_valid=False, has_changes=True)
+        assert result['should_commit'] is True, "Stale+changed should commit"
+        assert result['should_succeed'] is True, "Stale+changed should succeed"
+        print("✅ Test 4 passed: stale+changed → success, commit")
+        
+        print("✅ No-change logic function works correctly")
+        return True
+    except AssertionError as e:
+        print(f"❌ No-change logic test failed: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to test no-change logic: {e}")
+        return False
+
+
 def main():
     """Run all tests."""
     print("=" * 70)
@@ -162,6 +252,9 @@ def main():
         ("Constants updated", test_constants_updated),
         ("FORCE_CACHE_REFRESH env var", test_force_cache_refresh_env_var),
         ("Failed tickers path", test_failed_tickers_path),
+        ("Cache validation imports", test_cache_validation_imports),
+        ("Required symbol constants", test_required_symbol_constants),
+        ("No-change logic function", test_no_change_logic_function),
     ]
     
     results = []
