@@ -6993,7 +6993,13 @@ def render_mission_control():
 
 
 def render_sidebar_info():
-    """Render sidebar information including build info and menu."""
+    """
+    Render sidebar information including build info and menu.
+    
+    NOTE: Wave selection changes will trigger ONE rerun to update the page context.
+    This is expected Streamlit behavior and not an infinite loop.
+    The loop detection mechanism will prevent multiple consecutive reruns.
+    """
     
     # ========================================================================
     # WAVE SELECTION CONTROL - Always Visible
