@@ -24,7 +24,7 @@ import traceback
 import logging
 import time
 import itertools
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -7018,18 +7018,23 @@ def render_sidebar_info():
     
     # Display read-only health information
     try:
-        # Universe count
+        # Universe count - with freshness indicator
         wave_universe_version = st.session_state.get("wave_universe_version", 1)
         universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
         all_waves = universe.get("waves", [])
         active_wave_count = len(all_waves)
         
+        # Get timestamp if available
+        universe_timestamp = universe.get("timestamp", "Unknown")
+        
         st.sidebar.metric("Active Waves", active_wave_count)
+        if universe_timestamp != "Unknown":
+            st.sidebar.caption(f"Updated: {universe_timestamp}")
         
         # Data Age
         if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
             asof_time = st.session_state.global_price_asof
-            time_diff = datetime.utcnow() - asof_time
+            time_diff = datetime.now(timezone.utc) - asof_time
             minutes_ago = int(time_diff.total_seconds() / 60)
             
             if minutes_ago < 60:
@@ -7054,12 +7059,13 @@ def render_sidebar_info():
     # ========================================================================
     # OPERATOR MODE (Admin-Gated)
     # Operator Mode hidden by default; enable via OPERATOR_MODE secret.
+    # Set OPERATOR_MODE = true in .streamlit/secrets.toml to enable.
     # ========================================================================
     operator_mode_allowed = False
     try:
         operator_mode_allowed = st.secrets.get('OPERATOR_MODE', False)
     except Exception:
-        # Secrets not available or OPERATOR_MODE not set
+        # Secrets not available, OPERATOR_MODE not set, or secrets parsing error
         pass
     
     if operator_mode_allowed:
@@ -7577,7 +7583,7 @@ def render_sidebar_info():
                 # Show cache status if available
                 if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
                     asof_time = st.session_state.global_price_asof
-                    time_diff = datetime.utcnow() - asof_time
+                    time_diff = datetime.now(timezone.utc) - asof_time
                     minutes_ago = int(time_diff.total_seconds() / 60)
                     
                     if minutes_ago < 60:
