@@ -12,7 +12,7 @@ import sys
 import json
 import tempfile
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -248,7 +248,7 @@ def test_metadata_with_missing_symbols():
         
         # Create metadata
         metadata = {
-            "generated_at_utc": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "generated_at_utc": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "success_rate": 0.95,
             "min_success_rate": 0.90,
             "tickers_total": 100,

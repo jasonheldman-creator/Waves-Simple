@@ -23,7 +23,7 @@ import sys
 import argparse
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -178,32 +178,33 @@ def is_cache_fresh(max_price_date):
     if max_price_date is None:
         return False, "Cache is empty (no max_price_date)"
     
-    # Ensure max_price_date is a datetime
+    # Ensure max_price_date is a datetime and normalize to date only
     if isinstance(max_price_date, str):
         max_price_date = pd.to_datetime(max_price_date)
     
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    days_old = (today - max_price_date.replace(tzinfo=None)).days
+    # Convert to date object for consistent comparison
+    max_price_only_date = max_price_date.date() if hasattr(max_price_date, 'date') else max_price_date
+    
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).date()
+    days_old = (today - max_price_only_date).days
     
     # Check calendar day threshold
     if days_old <= MAX_STALE_CALENDAR_DAYS:
-        return True, f"Cache is fresh (max_date {max_price_date.strftime('%Y-%m-%d')} is {days_old} days old, within {MAX_STALE_CALENDAR_DAYS} day threshold)"
+        return True, f"Cache is fresh (max_date {max_price_only_date} is {days_old} days old, within {MAX_STALE_CALENDAR_DAYS} day threshold)"
     
     # Check against last trading day
     last_trading_day = get_last_trading_day()
     if last_trading_day is not None:
-        # Normalize to date only for comparison
         last_trading_date = last_trading_day.date()
-        max_price_only_date = max_price_date.date() if hasattr(max_price_date, 'date') else max_price_date
         
         if max_price_only_date >= last_trading_date:
-            return True, f"Cache is fresh (max_date {max_price_date.strftime('%Y-%m-%d')} matches last trading day {last_trading_date})"
+            return True, f"Cache is fresh (max_date {max_price_only_date} matches last trading day {last_trading_date})"
         else:
             days_behind = (last_trading_date - max_price_only_date).days
-            return False, f"Cache is stale (max_date {max_price_date.strftime('%Y-%m-%d')} is {days_behind} trading days behind {last_trading_date})"
+            return False, f"Cache is stale (max_date {max_price_only_date} is {days_behind} trading days behind {last_trading_date})"
     
     # Fallback to calendar day check only
-    return False, f"Cache is stale (max_date {max_price_date.strftime('%Y-%m-%d')} is {days_old} days old, exceeds {MAX_STALE_CALENDAR_DAYS} day threshold)"
+    return False, f"Cache is stale (max_date {max_price_only_date} is {days_old} days old, exceeds {MAX_STALE_CALENDAR_DAYS} day threshold)"
 
 
 def collect_all_tickers():
@@ -349,7 +350,7 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             max_price_date_str = str(max_price_date) if max_price_date else None
         
         metadata = {
-            "generated_at_utc": datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+            "generated_at_utc": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "success_rate": success_rate,
             "min_success_rate": MIN_SUCCESS_RATE,
             "tickers_total": total_tickers,
