@@ -334,15 +334,16 @@ def load_cache() -> Optional[pd.DataFrame]:
             cache_key = f"price_cache_{cache_mtime}_{cache_size}"
             
             # Use st.cache_data with a unique key
-            # Note: The cache_key parameter ensures cache invalidation when file changes
+            # The cache_key parameter changes when the file changes (different mtime/size),
+            # which causes Streamlit to invalidate the cache and reload the data
             @st.cache_data(ttl=None, show_spinner=False)
             def _load_cached_parquet(path: str, cache_key: str) -> pd.DataFrame:
                 """
-                Load parquet with cache key for freshness.
+                Load parquet with cache invalidation based on file attributes.
                 
                 Args:
                     path: Path to parquet file
-                    cache_key: Unique key based on file mtime and size (used by Streamlit's cache)
+                    cache_key: Unique key that changes when file is modified (triggers cache invalidation)
                 
                 Returns:
                     DataFrame with price data

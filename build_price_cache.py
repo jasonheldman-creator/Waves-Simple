@@ -383,8 +383,7 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         return meets_threshold, success_rate
     else:
         logger.error("No data available to build cache")
-        # Use the total_requested that was calculated earlier
-        # (total_requested is defined at line ~242)
+        # total_requested is defined earlier in the function (Step 1: Collect all tickers)
         # Still write metadata even on failure
         save_metadata(
             total_tickers=total_requested,

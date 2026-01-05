@@ -11194,7 +11194,7 @@ def render_overview_tab():
                 git_sha = subprocess.check_output(
                     ['git', 'rev-parse', '--short', 'HEAD'],
                     cwd=os.path.dirname(os.path.abspath(__file__)),
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.STDOUT
                 ).decode('utf-8').strip()
             except Exception:
                 git_sha = "Unknown"
