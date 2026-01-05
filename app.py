@@ -1016,6 +1016,10 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     # Compute portfolio snapshot with all periods
                     snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                     
+                    # Store debug info in session state for diagnostics panel
+                    if 'debug' in snapshot:
+                        st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
+                    
                     if snapshot['success']:
                         # Extract portfolio returns
                         ret_1d = snapshot['portfolio_returns'].get('1D')
@@ -8375,6 +8379,20 @@ def render_sidebar_info():
                     "error": str(e),
                     "traceback": traceback.format_exc()
                 })
+            
+            # Portfolio Snapshot Debug Section
+            st.markdown("---")
+            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+            try:
+                if "portfolio_snapshot_debug" in st.session_state:
+                    debug_info = st.session_state.portfolio_snapshot_debug
+                    import json
+                    st.json(debug_info)
+                else:
+                    st.text("No portfolio snapshot debug info available yet")
+                    st.caption("Navigate to Portfolio View to generate debug data")
+            except Exception as e:
+                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
             
             # Display all captured exceptions
             if st.session_state.data_load_exceptions:
