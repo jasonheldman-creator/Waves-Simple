@@ -51,12 +51,27 @@ except ImportError:
 
 # Import waves engine for wave definitions (single source of truth)
 try:
-    from waves_engine import get_all_waves as engine_get_all_waves, WAVE_WEIGHTS
+    from waves_engine import (
+        get_all_waves as engine_get_all_waves, 
+        WAVE_WEIGHTS,
+        get_wave_id_from_display_name,
+        get_display_name_from_wave_id
+    )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
+    get_wave_id_from_display_name = None
+    get_display_name_from_wave_id = None
+
+# Import wave registry manager
+try:
+    from wave_registry_manager import get_active_wave_registry
+    WAVE_REGISTRY_MANAGER_AVAILABLE = True
+except ImportError:
+    WAVE_REGISTRY_MANAGER_AVAILABLE = False
+    get_active_wave_registry = None
 
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
@@ -287,8 +302,11 @@ def get_selected_wave_display_name():
     if selected_wave_id is None:
         return None
     
+    if not WAVES_ENGINE_AVAILABLE or get_display_name_from_wave_id is None:
+        # Fallback: return the wave_id itself if waves_engine is unavailable
+        return selected_wave_id
+    
     try:
-        from waves_engine import get_display_name_from_wave_id
         return get_display_name_from_wave_id(selected_wave_id)
     except (KeyError, ValueError, AttributeError):
         # Fallback: return the wave_id itself if conversion fails
@@ -6984,8 +7002,10 @@ def render_sidebar_info():
     
     # Get all active waves from the registry with wave_id mapping
     try:
-        from wave_registry_manager import get_active_wave_registry
-        from waves_engine import get_wave_id_from_display_name, get_display_name_from_wave_id
+        # Check if required modules are available
+        if not WAVE_REGISTRY_MANAGER_AVAILABLE or not WAVES_ENGINE_AVAILABLE:
+            st.sidebar.warning("⚠️ Wave selection unavailable - required modules not loaded")
+            return
         
         # Load active waves with wave_id and display_name
         active_waves_df = get_active_wave_registry()
@@ -7062,7 +7082,7 @@ def render_sidebar_info():
         if st.session_state.get("debug_mode", False):
             st.sidebar.caption(f"selected_wave (session): {st.session_state.get('selected_wave')}")
     
-    except Exception as e:
+    except (ImportError, KeyError, ValueError, AttributeError) as e:
         # Fallback if wave loading fails
         st.sidebar.warning("⚠️ Could not load wave list")
         if st.session_state.get("debug_mode", False):
