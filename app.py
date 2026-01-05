@@ -20268,6 +20268,10 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Wave Readiness Report - Log on startup
     # ========================================================================
+    # Wave Readiness Report - Log on startup
+    # ========================================================================
+    
+    # ========================================================================
     # Session State Initialization
     # ========================================================================
     
@@ -20304,10 +20308,10 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         # Initialize last_successful_refresh_time
         st.session_state.last_successful_refresh_time = datetime.now()
         
-        # Initialize auto_refresh_enabled (default: OFF to prevent rerun loops)
-        st.session_state.auto_refresh_enabled = False
+        # Initialize auto_refresh_enabled using config constant (default: OFF to prevent rerun loops)
+        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
         
-        # Initialize auto_refresh_interval (default: 60 seconds)
+        # Initialize auto_refresh_interval using config constant
         st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
         
         # Initialize auto_refresh_error_count
@@ -20336,6 +20340,8 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Hard-disable all auto-refresh execution to prevent rerun loops
     
     # Set count to None to completely disable auto-refresh
+    # Note: count is used internally by Streamlit's rerun logic. Setting it to None
+    # ensures no auto-refresh timer is triggered, preventing automatic reruns.
     count = None
     
     # Skip all auto-refresh logic to prevent reruns
