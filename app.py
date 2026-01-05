@@ -1013,36 +1013,79 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     # Load PRICE_BOOK
                     price_book = get_price_book()
                     
-                    # Compute portfolio snapshot with all periods
-                    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
-                    
-                    if snapshot['success']:
-                        # Extract portfolio returns
-                        ret_1d = snapshot['portfolio_returns'].get('1D')
-                        ret_30d = snapshot['portfolio_returns'].get('30D')
-                        ret_60d = snapshot['portfolio_returns'].get('60D')
-                        ret_365d = snapshot['portfolio_returns'].get('365D')
+                    # Validate that price_book is available and non-empty
+                    if price_book is None or price_book.empty:
+                        error_msg = "⚠️ **Portfolio Snapshot Error**: PRICE_BOOK is empty or unavailable"
+                        st.error(error_msg)
+                        st.caption("**Diagnostics**: Cannot compute portfolio metrics without price data")
+                    else:
+                        # Compute portfolio snapshot with all periods explicitly
+                        snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                         
-                        # Extract alphas
-                        alpha_1d = snapshot['alphas'].get('1D')
-                        alpha_30d = snapshot['alphas'].get('30D')
-                        alpha_60d = snapshot['alphas'].get('60D')
-                        alpha_365d = snapshot['alphas'].get('365D')
-                        
-                        # Format return strings
-                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
-                        
-                        # Format alpha strings
-                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        if snapshot['success']:
+                            # Extract portfolio returns
+                            ret_1d = snapshot['portfolio_returns'].get('1D')
+                            ret_30d = snapshot['portfolio_returns'].get('30D')
+                            ret_60d = snapshot['portfolio_returns'].get('60D')
+                            ret_365d = snapshot['portfolio_returns'].get('365D')
+                            
+                            # Extract alphas
+                            alpha_1d = snapshot['alphas'].get('1D')
+                            alpha_30d = snapshot['alphas'].get('30D')
+                            alpha_60d = snapshot['alphas'].get('60D')
+                            alpha_365d = snapshot['alphas'].get('365D')
+                            
+                            # Format return strings
+                            ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                            ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                            ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                            ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                            
+                            # Format alpha strings
+                            alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                            alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                            alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                            alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        else:
+                            # Snapshot computation failed - show diagnostics
+                            error_msg = f"⚠️ **Portfolio Snapshot Error**: {snapshot.get('failure_reason', 'Unknown error')}"
+                            st.error(error_msg)
+                            
+                            # Build diagnostics info
+                            diagnostics = []
+                            diagnostics.append(f"**Shape**: {price_book.shape[0]} days × {price_book.shape[1]} tickers")
+                            
+                            max_date = price_book.index.max() if not price_book.empty else None
+                            diagnostics.append(f"**Max Date**: {max_date.strftime('%Y-%m-%d') if max_date else 'N/A'}")
+                            
+                            has_spy = 'SPY' in price_book.columns if price_book is not None else False
+                            diagnostics.append(f"**SPY exists**: {'Yes' if has_spy else 'No'}")
+                            
+                            st.caption(" | ".join(diagnostics))
                 except Exception as e:
+                    # Exception during snapshot computation - show detailed diagnostics
+                    error_msg = f"⚠️ **Portfolio Snapshot Exception**: {str(e)}"
+                    st.error(error_msg)
+                    
+                    # Try to gather diagnostics even if snapshot failed
+                    try:
+                        diagnostics = []
+                        if 'price_book' in locals() and price_book is not None:
+                            diagnostics.append(f"**Shape**: {price_book.shape[0]} days × {price_book.shape[1]} tickers")
+                            max_date = price_book.index.max() if not price_book.empty else None
+                            diagnostics.append(f"**Max Date**: {max_date.strftime('%Y-%m-%d') if max_date else 'N/A'}")
+                            has_spy = 'SPY' in price_book.columns
+                            diagnostics.append(f"**SPY exists**: {'Yes' if has_spy else 'No'}")
+                        else:
+                            diagnostics.append("**PRICE_BOOK**: Not loaded")
+                        
+                        st.caption(" | ".join(diagnostics))
+                    except:
+                        pass
+                    
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
+                    logging.warning(traceback.format_exc())
         
         # ========================================================================
         # WAVE VIEW: Calculate wave-specific metrics from historical data
@@ -2491,11 +2534,19 @@ def safe_load_wave_history(_wave_universe_version=1):
 
 
 def get_latest_data_timestamp():
-    """Get the latest available 'as of' data timestamp from wave_history.csv."""
+    """
+    Get the latest available 'as of' data timestamp from PRICE_BOOK (single source of truth).
+    
+    Returns:
+        str: Latest date in YYYY-MM-DD format from price_book.index.max(), 
+             or "unknown" if PRICE_BOOK is unavailable or empty.
+    """
     try:
-        df = safe_load_wave_history()
-        if df is not None and 'date' in df.columns and len(df) > 0:
-            latest_date = df['date'].max()
+        # Use PRICE_BOOK as the single source of truth for dates
+        from helpers.price_book import get_price_book
+        price_book = get_price_book()
+        if price_book is not None and not price_book.empty:
+            latest_date = price_book.index.max()
             return latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "unknown"
     except Exception:
         pass
@@ -20076,12 +20127,13 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         # ========================================================================
         # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
         # ========================================================================
-        st.markdown("### ⭐ Top Performing Strategies")
-        st.caption("Relative performance ranking - emphasizes momentum and positioning")
+        # Use 30D Return as the metric (alpha per wave not readily available in performance_df)
+        st.markdown("### ⭐ Top Waves (30D Return)")
+        st.caption("Top 5 performers ranked by 30-day momentum")
         
         try:
-            if not performance_df.empty and '1D Return' in performance_df.columns:
-                # Get top 5 performers
+            if not performance_df.empty and '30D' in performance_df.columns:
+                # Get top 5 performers by 30D return
                 def parse_return_value(val):
                     if pd.isna(val) or val == "N/A":
                         return None
@@ -20091,37 +20143,21 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                         return None
                 
                 # Create numeric column for sorting
-                performance_df['1D_Return_Numeric'] = performance_df['1D Return'].apply(parse_return_value)
+                performance_df['30D_Return_Numeric'] = performance_df['30D'].apply(parse_return_value)
                 
-                # Sort and get top performers
-                top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
+                # Sort and get top performers by 30D
+                top_performers = performance_df.nlargest(5, '30D_Return_Numeric')
                 
-                if not top_performers.empty:
-                    # Check if returns are negligible across the board
-                    max_return = top_performers['1D_Return_Numeric'].max() if len(top_performers) > 0 else 0
-                    returns_negligible = abs(max_return) < NEGLIGIBLE_RETURN_THRESHOLD  # Less than 0.1%
-                    
-                    if returns_negligible:
-                        st.info("📊 Returns are minimal across strategies - showing relative positioning and momentum")
-                    
-                    # Display as simple cards
-                    perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
-                    
-                    for idx, (_, row) in enumerate(top_performers.iterrows()):
-                        col = [perf_col1, perf_col2, perf_col3, perf_col4, perf_col5][idx]
-                        with col:
-                            wave_name = row.get('Wave', 'N/A')
-                            return_1d = row.get('1D_Return_Numeric', 0)
-                            return_30d = parse_return_value(row.get('30D', 'N/A'))
-                            
-                            # Add rank indicator
-                            rank_label = f"#{idx + 1} {wave_name}" if len(wave_name) < 17 else f"#{idx + 1} {wave_name[:14]}..."
-                            
-                            st.metric(
-                                label=rank_label,
-                                value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
-                                delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
-                            )
+                if not top_performers.empty and len(top_performers) > 0:
+                    # Display top 5 waves with their 30D return
+                    for idx, (_, row) in enumerate(top_performers.iterrows(), start=1):
+                        wave_name = row.get('Wave', 'N/A')
+                        return_30d = row.get('30D_Return_Numeric')
+                        
+                        if return_30d is not None:
+                            st.markdown(f"**{idx}. {wave_name}**: {return_30d:+.2f}%")
+                        else:
+                            st.markdown(f"**{idx}. {wave_name}**: N/A")
                 else:
                     st.info("Performance data is being compiled. Check back shortly.")
             else:
