@@ -710,6 +710,7 @@ def main():
     
     if "initialized" not in st.session_state:
         st.session_state["initialized"] = True
+        # Note: Circuit breaker state is initialized by initialize_circuit_breaker() which has its own guards
     
     # Page configuration
     st.set_page_config(

@@ -19933,6 +19933,19 @@ def main():
         st.session_state.auto_refresh_error_count = 0
         st.session_state.auto_refresh_paused = False
         st.session_state.auto_refresh_error_message = None
+        st.session_state.last_refresh_time = datetime.now()
+        st.session_state.last_successful_refresh_time = datetime.now()
+        
+        # Initialize wave intelligence center error flag
+        st.session_state.wave_ic_has_errors = False
+        
+        # Initialize wave universe version
+        st.session_state.wave_universe_version = 1
+        
+        # Initialize UI preferences
+        st.session_state.show_bottom_ticker = True
+        st.session_state.selected_wave_id = None  # Portfolio view
+        st.session_state.mode = "Standard"
     
     # ========================================================================
     # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
@@ -20299,35 +20312,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # Session State Initialization
     # ========================================================================
-    
-    # Initialize wave_intelligence_center error flag if not present
-    if "wave_ic_has_errors" not in st.session_state:
-        st.session_state.wave_ic_has_errors = False
-    
-    # Initialize wave_universe_version if not present
-    if "wave_universe_version" not in st.session_state:
-        st.session_state.wave_universe_version = 1
-    
-    # Initialize last_refresh_time if not present
-    if "last_refresh_time" not in st.session_state:
-        st.session_state.last_refresh_time = datetime.now()
-    
-    # Initialize last_successful_refresh_time if not present
-    if "last_successful_refresh_time" not in st.session_state:
-        st.session_state.last_successful_refresh_time = datetime.now()
-    
-    # Initialize show_bottom_ticker if not present (default: ON)
-    if "show_bottom_ticker" not in st.session_state:
-        st.session_state.show_bottom_ticker = True
-    
-    # Initialize selected_wave_id if not present (default: None - portfolio view)
-    # UPDATED: Use selected_wave_id as the authoritative state key
-    if "selected_wave_id" not in st.session_state:
-        st.session_state.selected_wave_id = None
-    
-    # Initialize mode if not present (default: Standard)
-    if "mode" not in st.session_state:
-        st.session_state.mode = "Standard"
+    # All default session state variables are initialized in the "initialized" guard at the start of main()
     
     # ========================================================================
     # Auto-Refresh Logic - DISABLED BY DEFAULT
