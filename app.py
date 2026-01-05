@@ -1067,6 +1067,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     <div class="stat-value">{cash_str}</div>
                 </div>'''}
             </div>
+            {'''<div style="text-align: center; margin-top: 12px; color: #a8dadc; font-size: 11px; font-style: italic;">
+                ℹ️ Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
+            </div>''' if is_portfolio_view else ''}
         </div>
         """
         
