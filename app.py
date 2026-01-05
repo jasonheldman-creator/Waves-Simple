@@ -1017,6 +1017,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                     
                     # Store debug info in session state for diagnostics panel
+                    # Always update to ensure fresh debug data (even on failure)
                     if 'debug' in snapshot:
                         st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
                     

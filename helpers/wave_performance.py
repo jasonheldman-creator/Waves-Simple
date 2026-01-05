@@ -1378,8 +1378,8 @@ def compute_portfolio_snapshot(
         debug['reason_if_failure'] = f'exception: {str(e)}'
         return result
     
-    # Log debug info for troubleshooting
-    logger.info(f"Portfolio snapshot debug: {debug}")
+    # Log debug info for troubleshooting (using debug level to avoid performance impact)
+    logger.debug(f"Portfolio snapshot debug: {debug}")
     
     return result
 
