@@ -11206,6 +11206,7 @@ def render_overview_tab():
             
             if cache_exists:
                 cache_stat = os.stat(CACHE_PATH)
+                # Use local time for mtime (consistent with file system)
                 cache_mtime = datetime.fromtimestamp(cache_stat.st_mtime)
                 cache_size = cache_stat.st_size
             
@@ -11227,6 +11228,7 @@ def render_overview_tab():
             
             with col2:
                 if cache_mtime:
+                    # Both cache_mtime and datetime.now() are in local time
                     age_minutes = (datetime.now() - cache_mtime).total_seconds() / 60
                     if age_minutes < 60:
                         age_str = f"{age_minutes:.0f}m ago"
@@ -11242,10 +11244,10 @@ def render_overview_tab():
                 if metadata:
                     last_price_date = metadata.get("max_price_date", "N/A")
                     if last_price_date != "N/A":
-                        # Calculate data age
+                        # Calculate data age (date-only comparison)
                         try:
-                            price_date = datetime.strptime(last_price_date, "%Y-%m-%d")
-                            data_age_days = (datetime.now() - price_date).days
+                            price_date = datetime.strptime(last_price_date, "%Y-%m-%d").date()
+                            data_age_days = (datetime.now().date() - price_date).days
                             
                             # Color based on staleness
                             if data_age_days <= 3:
