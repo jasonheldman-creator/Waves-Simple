@@ -9,6 +9,8 @@ Key Features:
 - Uses wave tickers and weights from waves_engine
 - Returns N/A with explicit failure_reason for any issues
 - Single source of truth: PRICE_BOOK only
+- Portfolio-level snapshot computation with alpha attribution
+- Diagnostics validation for data quality
 
 Usage:
     from helpers.wave_performance import compute_wave_returns, compute_all_waves_performance
@@ -20,6 +22,9 @@ Usage:
         price_book=price_book,
         periods=[1, 30, 60, 365]
     )
+    
+    # Portfolio snapshot
+    snapshot = compute_portfolio_snapshot(price_book, mode='Standard')
 """
 
 import logging
@@ -29,6 +34,9 @@ import numpy as np
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+# Configuration constants
+DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
 
 # Import wave definitions
 try:
@@ -1035,3 +1043,430 @@ def compute_wave_beta(
     except Exception as e:
         result['failure_reason'] = f'Error computing wave beta: {str(e)}'
         return result
+
+
+def compute_portfolio_snapshot(
+    price_book: pd.DataFrame,
+    mode: str = 'Standard',
+    periods: List[int] = [1, 30, 60, 365]
+) -> Dict[str, Any]:
+    """
+    Compute portfolio-level snapshot with returns and alpha attribution.
+    
+    This is the deterministic computation pipeline that runs on first load.
+    It builds portfolio_daily_returns and portfolio_benchmark_daily_returns
+    from PRICE_BOOK for the selected mode, then computes multi-window metrics.
+    
+    Key Features:
+    - Equal-weight portfolio across all active waves
+    - Equal-weight benchmark across all wave benchmarks
+    - Handles insufficient history by showing N/A for specific windows
+    - Returns structured data ready for UI rendering
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers)
+        mode: Operating mode (e.g., 'Standard', 'Safe', 'Aggressive')
+        periods: List of lookback periods in days [1, 30, 60, 365]
+        
+    Returns:
+        Dictionary with:
+        - success: bool - Whether computation succeeded
+        - failure_reason: str - Reason for failure (if success=False)
+        - mode: str - Operating mode
+        - portfolio_returns: Dict[str, float] - Portfolio returns by period (e.g., {'1D': 0.02})
+        - benchmark_returns: Dict[str, float] - Benchmark returns by period
+        - alphas: Dict[str, float] - Alpha by period (portfolio - benchmark)
+        - wave_count: int - Number of waves included
+        - date_range: Tuple[str, str] - Date range used
+        - has_portfolio_returns_series: bool - Whether daily returns series exists
+        - has_portfolio_benchmark_series: bool - Whether daily benchmark series exists
+        - has_overlay_alpha_series: bool - Whether overlay alpha component exists
+        - latest_date: str - Latest data date
+        - data_age_days: int - Age of data in days
+    """
+    result = {
+        'success': False,
+        'failure_reason': None,
+        'mode': mode,
+        'portfolio_returns': {f'{p}D': None for p in periods},
+        'benchmark_returns': {f'{p}D': None for p in periods},
+        'alphas': {f'{p}D': None for p in periods},
+        'wave_count': 0,
+        'date_range': (None, None),
+        'has_portfolio_returns_series': False,
+        'has_portfolio_benchmark_series': False,
+        'has_overlay_alpha_series': False,
+        'latest_date': None,
+        'data_age_days': None
+    }
+    
+    # Validate PRICE_BOOK
+    if price_book is None or price_book.empty:
+        result['failure_reason'] = 'PRICE_BOOK is empty'
+        return result
+    
+    # Get latest date and data age
+    try:
+        latest_date = price_book.index[-1]
+        result['latest_date'] = latest_date.strftime('%Y-%m-%d')
+        data_age_days = (datetime.now().date() - latest_date.date()).days
+        result['data_age_days'] = data_age_days
+    except Exception as e:
+        logger.warning(f"Failed to compute data age: {e}")
+    
+    # Get all waves
+    if not WAVES_ENGINE_AVAILABLE:
+        result['failure_reason'] = 'waves_engine not available'
+        return result
+    
+    try:
+        universe = get_all_waves_universe()
+        all_waves = universe.get('waves', [])
+    except Exception as e:
+        result['failure_reason'] = f'Error getting wave universe: {str(e)}'
+        return result
+    
+    if not all_waves:
+        result['failure_reason'] = 'No waves found in universe'
+        return result
+    
+    # Compute returns for each wave
+    wave_portfolio_series = []
+    wave_benchmark_series = []
+    waves_included = []
+    
+    for wave_name in all_waves:
+        # Get wave tickers and weights
+        if wave_name not in WAVE_WEIGHTS:
+            continue
+        
+        wave_holdings = WAVE_WEIGHTS[wave_name]
+        if not wave_holdings:
+            continue
+        
+        try:
+            # Extract tickers and weights
+            tickers = [h.ticker for h in wave_holdings]
+            weights = [h.weight for h in wave_holdings]
+            
+            # Normalize weights
+            total_weight = sum(weights)
+            if total_weight == 0:
+                continue
+            normalized_weights = [w / total_weight for w in weights]
+            
+            # Filter to available tickers
+            available_tickers = []
+            available_weights = []
+            for ticker, weight in zip(tickers, normalized_weights):
+                if ticker in price_book.columns:
+                    available_tickers.append(ticker)
+                    available_weights.append(weight)
+            
+            if not available_tickers:
+                continue
+            
+            # Renormalize weights for available tickers
+            total_available = sum(available_weights)
+            renormalized_weights = [w / total_available for w in available_weights]
+            
+            # Compute wave portfolio values
+            ticker_prices = price_book[available_tickers].copy()
+            if len(ticker_prices) < 2:
+                continue
+            
+            first_prices = ticker_prices.iloc[0]
+            normalized_prices = ticker_prices.div(first_prices, axis=1) * 100
+            
+            wave_portfolio = pd.Series(0.0, index=ticker_prices.index)
+            for i, ticker in enumerate(available_tickers):
+                weight = renormalized_weights[i]
+                wave_portfolio += normalized_prices[ticker].ffill() * weight
+            
+            wave_portfolio_series.append(wave_portfolio)
+            
+            # Get benchmark for this wave (use default benchmark)
+            # In a real implementation, this would come from wave metadata
+            benchmark_ticker = DEFAULT_BENCHMARK_TICKER
+            if benchmark_ticker in price_book.columns:
+                benchmark_prices = price_book[benchmark_ticker].copy()
+                first_benchmark = benchmark_prices.iloc[0]
+                benchmark_normalized = (benchmark_prices / first_benchmark) * 100
+                wave_benchmark_series.append(benchmark_normalized)
+            else:
+                # Use the wave itself as benchmark if default not available
+                wave_benchmark_series.append(wave_portfolio)
+            
+            waves_included.append(wave_name)
+            
+        except Exception as e:
+            logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
+            continue
+    
+    # Check if we got any valid waves
+    if not wave_portfolio_series:
+        result['failure_reason'] = 'No valid wave portfolios computed'
+        return result
+    
+    result['wave_count'] = len(waves_included)
+    
+    # Compute equal-weight portfolio across all waves
+    try:
+        # Average all wave portfolios (equal weight)
+        portfolio_values = pd.concat(wave_portfolio_series, axis=1).mean(axis=1)
+        benchmark_values = pd.concat(wave_benchmark_series, axis=1).mean(axis=1)
+        
+        # Record that we have these series
+        result['has_portfolio_returns_series'] = True
+        result['has_portfolio_benchmark_series'] = True
+        
+        # For now, overlay_alpha_component is not computed (would require VIX data)
+        result['has_overlay_alpha_series'] = False
+        
+        # Record date range
+        result['date_range'] = (
+            portfolio_values.index[0].strftime('%Y-%m-%d'),
+            portfolio_values.index[-1].strftime('%Y-%m-%d')
+        )
+        
+        # Compute returns for each period
+        max_available_days = len(portfolio_values)
+        
+        for period in periods:
+            try:
+                if period >= max_available_days:
+                    # Not enough history for this period
+                    result['portfolio_returns'][f'{period}D'] = None
+                    result['benchmark_returns'][f'{period}D'] = None
+                    result['alphas'][f'{period}D'] = None
+                    continue
+                
+                # Get values from 'period' days ago and current value
+                current_portfolio = portfolio_values.iloc[-1]
+                past_portfolio = portfolio_values.iloc[-(period + 1)]
+                current_benchmark = benchmark_values.iloc[-1]
+                past_benchmark = benchmark_values.iloc[-(period + 1)]
+                
+                # Handle NaN values
+                if (pd.isna(current_portfolio) or pd.isna(past_portfolio) or 
+                    pd.isna(current_benchmark) or pd.isna(past_benchmark) or
+                    past_portfolio == 0 or past_benchmark == 0):
+                    result['portfolio_returns'][f'{period}D'] = None
+                    result['benchmark_returns'][f'{period}D'] = None
+                    result['alphas'][f'{period}D'] = None
+                    continue
+                
+                # Calculate returns
+                portfolio_ret = (current_portfolio - past_portfolio) / past_portfolio
+                benchmark_ret = (current_benchmark - past_benchmark) / past_benchmark
+                alpha = portfolio_ret - benchmark_ret
+                
+                result['portfolio_returns'][f'{period}D'] = portfolio_ret
+                result['benchmark_returns'][f'{period}D'] = benchmark_ret
+                result['alphas'][f'{period}D'] = alpha
+                
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Error computing {period}D portfolio return: {e}")
+                result['portfolio_returns'][f'{period}D'] = None
+                result['benchmark_returns'][f'{period}D'] = None
+                result['alphas'][f'{period}D'] = None
+        
+        # Check if we got at least one valid return
+        valid_returns = [v for v in result['portfolio_returns'].values() if v is not None]
+        if not valid_returns:
+            result['failure_reason'] = 'No valid returns computed (insufficient history or all NaN)'
+            return result
+        
+        # Success!
+        result['success'] = True
+        result['failure_reason'] = None
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing portfolio metrics: {str(e)}'
+        return result
+    
+    return result
+
+
+def compute_portfolio_alpha_attribution(
+    price_book: pd.DataFrame,
+    mode: str = 'Standard',
+    min_waves: int = 3
+) -> Dict[str, Any]:
+    """
+    Compute portfolio-level alpha attribution by aggregating wave-level metrics.
+    
+    This implements simplified alpha attribution:
+    - total_alpha = actual_return - benchmark_return
+    - overlay_alpha = 0 (temporary fallback until VIX overlay data available)
+    - selection_alpha = total_alpha - overlay_alpha = total_alpha
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame
+        mode: Operating mode
+        min_waves: Minimum number of waves required (default: 3)
+        
+    Returns:
+        Dictionary with:
+        - success: bool
+        - failure_reason: str
+        - cumulative_alpha: float - Total alpha
+        - selection_alpha: float - Asset selection alpha
+        - overlay_alpha: float - VIX/regime overlay alpha (0 for now)
+        - wave_count: int - Number of waves included
+        - wave_attributions: List[Dict] - Per-wave attribution data
+    """
+    result = {
+        'success': False,
+        'failure_reason': None,
+        'cumulative_alpha': None,
+        'selection_alpha': None,
+        'overlay_alpha': 0.0,  # Temporary fallback
+        'wave_count': 0,
+        'wave_attributions': []
+    }
+    
+    # Get portfolio snapshot first
+    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[30, 60, 365])
+    
+    if not snapshot['success']:
+        result['failure_reason'] = f"Portfolio snapshot failed: {snapshot['failure_reason']}"
+        return result
+    
+    # Use 60D alpha as the cumulative alpha (or 30D if 60D not available)
+    cumulative_alpha = snapshot['alphas'].get('60D')
+    if cumulative_alpha is None:
+        cumulative_alpha = snapshot['alphas'].get('30D')
+    
+    if cumulative_alpha is None:
+        result['failure_reason'] = 'No valid alpha metrics computed'
+        return result
+    
+    result['cumulative_alpha'] = cumulative_alpha
+    result['wave_count'] = snapshot['wave_count']
+    
+    # Temporary fallback: selection_alpha = total_alpha, overlay_alpha = 0
+    result['selection_alpha'] = cumulative_alpha
+    result['overlay_alpha'] = 0.0
+    
+    # Check minimum wave requirement
+    if result['wave_count'] < min_waves:
+        result['failure_reason'] = f'Insufficient waves (got {result["wave_count"]}, need {min_waves})'
+        return result
+    
+    result['success'] = True
+    return result
+
+
+def validate_portfolio_diagnostics(
+    price_book: pd.DataFrame,
+    mode: str = 'Standard'
+) -> Dict[str, Any]:
+    """
+    Validate key data points for portfolio snapshot diagnostics panel.
+    
+    This function confirms:
+    - Latest date and data age
+    - Existence of required series (portfolio returns, benchmark, alpha components)
+    - Data quality and readiness
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame
+        mode: Operating mode
+        
+    Returns:
+        Dictionary with:
+        - latest_date: str - Latest data date in YYYY-MM-DD format
+        - data_age_days: int - Age of data in days
+        - has_portfolio_returns_series: bool - Portfolio returns series exists
+        - has_portfolio_benchmark_series: bool - Benchmark series exists
+        - has_overlay_alpha_series: bool - Overlay alpha component exists
+        - wave_count: int - Number of waves with valid data
+        - min_history_days: int - Minimum history available
+        - data_quality: str - Overall data quality ('OK', 'DEGRADED', 'STALE')
+        - issues: List[str] - List of any issues found
+    """
+    result = {
+        'latest_date': None,
+        'data_age_days': None,
+        'has_portfolio_returns_series': False,
+        'has_portfolio_benchmark_series': False,
+        'has_overlay_alpha_series': False,
+        'wave_count': 0,
+        'min_history_days': 0,
+        'data_quality': 'UNKNOWN',
+        'issues': []
+    }
+    
+    # Validate PRICE_BOOK exists
+    if price_book is None or price_book.empty:
+        result['issues'].append('PRICE_BOOK is empty')
+        result['data_quality'] = 'STALE'
+        return result
+    
+    # Get latest date and data age
+    try:
+        latest_date = price_book.index[-1]
+        result['latest_date'] = latest_date.strftime('%Y-%m-%d')
+        data_age_days = (datetime.now().date() - latest_date.date()).days
+        result['data_age_days'] = data_age_days
+        
+        # Determine data quality based on age
+        if data_age_days <= 3:
+            result['data_quality'] = 'OK'
+        elif data_age_days <= 14:
+            result['data_quality'] = 'DEGRADED'
+            result['issues'].append(f'Data is {data_age_days} days old')
+        else:
+            result['data_quality'] = 'STALE'
+            result['issues'].append(f'Data is {data_age_days} days old (>14 days)')
+    except Exception as e:
+        result['issues'].append(f'Failed to get latest date: {str(e)}')
+        result['data_quality'] = 'STALE'
+        return result
+    
+    # Get minimum history
+    result['min_history_days'] = len(price_book)
+    
+    if result['min_history_days'] < 60:
+        result['issues'].append(f'Insufficient history: {result["min_history_days"]} days (need 60)')
+        if result['data_quality'] == 'OK':
+            result['data_quality'] = 'DEGRADED'
+    
+    # Try to compute portfolio snapshot to validate series existence
+    try:
+        snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60])
+        
+        if snapshot['success']:
+            result['has_portfolio_returns_series'] = snapshot['has_portfolio_returns_series']
+            result['has_portfolio_benchmark_series'] = snapshot['has_portfolio_benchmark_series']
+            result['has_overlay_alpha_series'] = snapshot['has_overlay_alpha_series']
+            result['wave_count'] = snapshot['wave_count']
+            
+            # Check for missing series
+            if not result['has_portfolio_returns_series']:
+                result['issues'].append('Portfolio returns series missing')
+            
+            if not result['has_portfolio_benchmark_series']:
+                result['issues'].append('Portfolio benchmark series missing')
+            
+            if not result['has_overlay_alpha_series']:
+                # Note: Overlay alpha component requires VIX overlay integration
+                # This is a known limitation - see PORTFOLIO_SNAPSHOT_IMPLEMENTATION.md Future Enhancements
+                result['issues'].append('Overlay alpha component series missing (requires VIX overlay integration)')
+            
+            # Validate wave count
+            if result['wave_count'] < 3:
+                result['issues'].append(f'Insufficient waves: {result["wave_count"]} (need 3+)')
+                if result['data_quality'] == 'OK':
+                    result['data_quality'] = 'DEGRADED'
+        else:
+            result['issues'].append(f'Portfolio snapshot failed: {snapshot["failure_reason"]}')
+            if result['data_quality'] == 'OK':
+                result['data_quality'] = 'DEGRADED'
+    except Exception as e:
+        result['issues'].append(f'Failed to compute portfolio snapshot: {str(e)}')
+        if result['data_quality'] == 'OK':
+            result['data_quality'] = 'DEGRADED'
+    
+    return result
