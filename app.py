@@ -6953,6 +6953,65 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
+    # Wave Selection Control - Always Visible
+    # ========================================================================
+    st.sidebar.markdown("### 🌊 Wave Selection")
+    
+    # Get all active waves from the registry
+    try:
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        
+        # Build options list with Portfolio as first option
+        wave_options = [PORTFOLIO_VIEW_TITLE] + sorted(all_waves)
+        
+        # Get current selection (default to portfolio)
+        current_selection = st.session_state.get("selected_wave")
+        
+        # Determine the index for the selectbox
+        if current_selection is None or current_selection == PORTFOLIO_VIEW_PLACEHOLDER:
+            # Portfolio mode
+            default_index = 0
+        elif current_selection in wave_options:
+            # Specific wave selected
+            default_index = wave_options.index(current_selection)
+        else:
+            # Invalid selection, default to portfolio
+            default_index = 0
+        
+        # Render wave selector
+        selected_option = st.sidebar.selectbox(
+            "Select Context",
+            options=wave_options,
+            index=default_index,
+            key="wave_selector",
+            help="Choose Portfolio for all-waves view, or select an individual wave for wave-specific metrics"
+        )
+        
+        # Update session state based on selection
+        if selected_option == PORTFOLIO_VIEW_TITLE:
+            # Portfolio mode selected
+            st.session_state.selected_wave = None
+        else:
+            # Individual wave selected
+            st.session_state.selected_wave = selected_option
+        
+        # Display current context
+        if st.session_state.selected_wave is None:
+            st.sidebar.info(f"{PORTFOLIO_VIEW_ICON} Portfolio View Active")
+        else:
+            st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {st.session_state.selected_wave}")
+    
+    except Exception as e:
+        # Fallback if wave loading fails
+        st.sidebar.warning("⚠️ Could not load wave list")
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.error(f"Error: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # NEW: Safe Mode Switch (Default ON)
     # ========================================================================
     st.sidebar.markdown("### 🛡️ Safe Mode")
