@@ -6953,7 +6953,7 @@ def render_sidebar_info():
     """Render sidebar information including build info and menu."""
     
     # ========================================================================
-    # Wave Selection Control - Always Visible
+    # WAVE SELECTION CONTROL - Always Visible
     # ========================================================================
     st.sidebar.markdown("### 🌊 Wave Selection")
     
@@ -7012,374 +7012,445 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
-    # NEW: Safe Mode Switch (Default ON)
+    # CLIENT MODE - Read-Only Health Information
     # ========================================================================
-    st.sidebar.markdown("### 🛡️ Safe Mode")
+    st.sidebar.markdown("### 📊 System Health")
     
-    # Safe Mode (No Fetch / No Compute) - Default ON
-    safe_mode_no_fetch = st.sidebar.checkbox(
-        "Safe Mode (No Fetch / No Compute)",
-        value=st.session_state.get("safe_mode_no_fetch", True),
-        key="safe_mode_no_fetch_toggle",
-        help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
-    )
-    st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
-    
-    if safe_mode_no_fetch:
-        st.sidebar.info("🛡️ SAFE MODE ACTIVE - No external data calls")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Debug Mode: Allow Continuous Reruns
-    # ========================================================================
-    st.sidebar.markdown("### 🐛 Debug Mode")
-    
-    # Allow Continuous Reruns checkbox (default OFF)
-    allow_continuous_reruns = st.sidebar.checkbox(
-        "Allow Continuous Reruns (Debug)",
-        value=st.session_state.get("allow_continuous_reruns", False),
-        key="allow_continuous_reruns_toggle",
-        help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
-    )
-    st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
-    
-    if not allow_continuous_reruns:
-        st.sidebar.warning("⚠️ Loop Trap Active - Max 2 runs")
-    else:
-        st.sidebar.info("🔄 Continuous reruns enabled")
-    
-    # Reset Compute Lock button (for diagnostics)
-    if st.sidebar.button(
-        "Reset Compute Lock",
-        key="reset_compute_lock_button",
-        use_container_width=True,
-        help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
-    ):
-        st.session_state["compute_lock"] = False
-        st.session_state["compute_lock_reason"] = None
-        st.sidebar.success("✅ Compute lock reset")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Manual Snapshot Rebuild Buttons
-    # ========================================================================
-    st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
-    
-    # Main Snapshot Rebuild Button
-    if st.sidebar.button(
-        "Rebuild Snapshot Now (Manual)",
-        key="manual_rebuild_snapshot_button",
-        use_container_width=True,
-        disabled=safe_mode_no_fetch,
-        help="Manually rebuild the main snapshot. Safe Mode must be OFF."
-    ):
-        try:
-            from analytics_pipeline import generate_live_snapshot
+    # Display read-only health information
+    try:
+        # Universe count
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        active_wave_count = len(all_waves)
+        
+        st.sidebar.metric("Active Waves", active_wave_count)
+        
+        # Data Age
+        if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+            asof_time = st.session_state.global_price_asof
+            time_diff = datetime.utcnow() - asof_time
+            minutes_ago = int(time_diff.total_seconds() / 60)
             
-            st.sidebar.info("⏳ Building snapshot...")
-            
-            # Temporarily allow the build by creating a temporary session state
-            temp_session_state = dict(st.session_state)
-            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
-            
-            snapshot_df = generate_live_snapshot(
-                output_path="data/live_snapshot.csv",
-                session_state=temp_session_state
-            )
-            
-            if snapshot_df is not None and not snapshot_df.empty:
-                st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
-                # Reset run guard counter on successful rebuild
-                st.session_state.run_count = 0
-                st.session_state.loop_detected = False
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("rebuild_snapshot_manual")
+            if minutes_ago < 60:
+                age_str = f"{minutes_ago} min"
             else:
-                st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
-        except Exception as e:
-            st.sidebar.error(f"❌ Snapshot rebuild failed: {str(e)}")
+                hours_ago = minutes_ago // 60
+                age_str = f"{hours_ago}h {minutes_ago % 60}m"
+            
+            st.sidebar.metric("Data Age", age_str)
+        
+        # Last Price Date
+        data_timestamp = get_latest_data_timestamp()
+        st.sidebar.metric("Last Price Date", data_timestamp)
+        
+    except Exception as e:
+        st.sidebar.warning("⚠️ Health info unavailable")
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.error(f"Error: {str(e)}")
     
-    # Proxy Snapshot Rebuild Button
-    if st.sidebar.button(
-        "Rebuild Proxy Snapshot Now (Manual)",
-        key="manual_rebuild_proxy_snapshot_button",
-        use_container_width=True,
-        disabled=safe_mode_no_fetch,
-        help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
-    ):
-        try:
-            from planb_proxy_pipeline import build_proxy_snapshot
-            
-            st.sidebar.info("⏳ Building proxy snapshot...")
-            
-            # Temporarily allow the build by creating a temporary session state
-            temp_session_state = dict(st.session_state)
-            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
-            
-            # Build proxy snapshot with explicit button click flag
-            proxy_df = build_proxy_snapshot(
-                days=365,
-                session_state=temp_session_state,
-                explicit_button_click=True
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR MODE (Admin-Gated)
+    # Operator Mode hidden by default; enable via OPERATOR_MODE secret.
+    # ========================================================================
+    operator_mode_allowed = False
+    try:
+        operator_mode_allowed = st.secrets.get('OPERATOR_MODE', False)
+    except Exception:
+        # Secrets not available or OPERATOR_MODE not set
+        pass
+    
+    if operator_mode_allowed:
+        with st.sidebar.expander("⚙️ Operator Controls (Admin)", expanded=False):
+            operator_mode_enabled = st.checkbox(
+                "Enable Operator Mode",
+                value=st.session_state.get("operator_mode_enabled", False),
+                key="operator_mode_toggle",
+                help="Enable advanced operator controls and tools"
             )
+            st.session_state["operator_mode_enabled"] = operator_mode_enabled
             
-            if proxy_df is not None and not proxy_df.empty:
-                st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
-                # Reset run guard counter on successful rebuild
-                st.session_state.run_count = 0
-                st.session_state.loop_detected = False
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("rebuild_proxy_snapshot_manual")
-            else:
-                st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
-        except Exception as e:
-            st.sidebar.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Feature Toggles - Wave Intelligence Center
-    # ========================================================================
-    st.sidebar.markdown("### ⚙️ Feature Settings")
-    
-    # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
-    safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
-    safe_mode_ui = st.sidebar.checkbox(
-        "Enable Safe Mode (Wave IC)",
-        value=safe_mode_default,
-        key="safe_mode_ui_toggle",
-        help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
-    )
-    
-    # Update global SAFE_MODE based on UI toggle (allows runtime control)
-    # Note: This doesn't actually update the constant, but we can use session_state
-    st.session_state["safe_mode_enabled"] = safe_mode_ui
-    
-    # RENDER_RICH_HTML toggle
-    render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
-    render_rich_html_ui = st.sidebar.checkbox(
-        "Enable Rich HTML Rendering",
-        value=render_rich_html_default,
-        key="render_rich_html_ui_toggle",
-        help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
-    )
-    st.session_state["render_rich_html_enabled"] = render_rich_html_ui
-    
-    # Debug Mode toggle (default OFF per requirements)
-    debug_mode_ui = st.sidebar.checkbox(
-        "🐛 Debug Mode",
-        value=st.session_state.get("debug_mode", False),
-        key="debug_mode_ui_toggle",
-        help="Show detailed error messages and diagnostics when components fail (default: OFF)"
-    )
-    st.session_state["debug_mode"] = debug_mode_ui
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Force Reload Wave Universe Button (Top-Right of Sidebar)
-    # ========================================================================
-    st.sidebar.markdown("### ⚡ Quick Actions")
-    
-    if st.sidebar.button(
-        "🔄 Force Reload Wave Universe",
-        key="force_reload_universe_top_button",
-        use_container_width=True,
-        type="primary"
-    ):
-        try:
-            # Increment wave universe version
-            if "wave_universe_version" not in st.session_state:
-                st.session_state.wave_universe_version = 1
-            st.session_state.wave_universe_version += 1
-            
-            # Clear wave universe cache from session state using constant
-            for key in WAVE_UNIVERSE_CACHE_KEYS:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            # Clear Streamlit caches
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            
-            # Set force reload flag
-            st.session_state["force_reload_universe"] = True
-            
-            # Mark user interaction
-            st.session_state.user_interaction_detected = True
-            
-            # Trigger immediate rerun
-            trigger_rerun("force_reload_waves")
-        except Exception as e:
-            st.sidebar.warning(f"Force reload unavailable: {str(e)}")
-    
-    # Force Reload Data Button (Clear All Caches)
-    if st.sidebar.button(
-        "🧹 Force Reload Data (Clear Cache)",
-        key="force_reload_data_button",
-        use_container_width=True,
-        help="Clear all cached data and reload from files"
-    ):
-        try:
-            # Clear all Streamlit caches
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            
-            # Clear wave/history-related session state keys
-            keys_to_clear = [
-                "wave_universe",
-                "waves_list",
-                "universe_cache",
-                "wave_history_cache",
-                "last_compute_ts",
-                "alpha_proof_result",
-                "alpha_proof_wave",
-                "attrib_result"
-            ]
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            # Increment wave universe version to force reload
-            if "wave_universe_version" not in st.session_state:
-                st.session_state.wave_universe_version = 1
-            st.session_state.wave_universe_version += 1
-            
-            # Show success message
-            st.sidebar.success("✅ Cache cleared successfully!")
-            
-            # Mark user interaction
-            st.session_state.user_interaction_detected = True
-            
-            # Trigger rerun
-            trigger_rerun("force_reload_data_clear_cache")
-        except Exception as e:
-            st.sidebar.error(f"Error clearing cache: {str(e)}")
-    
-    # ========================================================================
-    # NEW: Rebuild Price Cache Button (Controlled, Active Tickers Only)
-    # ========================================================================
-    if st.sidebar.button(
-        "💰 Rebuild Price Cache (Active Tickers Only)",
-        key="rebuild_price_cache_button",
-        use_container_width=True,
-        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Rebuilding price cache... This may take a few minutes."):
-                # Import the rebuild function
-                from helpers.price_book import rebuild_price_cache
+            if operator_mode_enabled:
+                st.info("🔓 Operator Mode Active")
                 
-                # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
-                result = rebuild_price_cache(active_only=True)
+                # ========================================================================
+                # OPERATOR CONTROLS - Safe Mode
+                # ========================================================================
+                st.markdown("#### 🛡️ Safe Mode")
                 
-                # Check if fetching is allowed
-                if not result['allowed']:
-                    st.sidebar.warning(
-                        "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
-                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
-                    )
-                elif result['success']:
-                    st.sidebar.success(
-                        f"✅ Price cache rebuilt!\n\n"
-                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
-                        f"📅 Latest Date: {result['date_max']}"
-                    )
-                    
-                    # Show failed tickers if any
-                    if result['tickers_failed'] > 0 and result['failures']:
-                        st.sidebar.warning(
-                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
-                            f"See data/cache/failed_tickers.csv for details"
-                        )
+                # Safe Mode (No Fetch / No Compute) - Default ON
+                safe_mode_no_fetch = st.checkbox(
+                    "Safe Mode (No Fetch / No Compute)",
+                    value=st.session_state.get("safe_mode_no_fetch", True),
+                    key="safe_mode_no_fetch_toggle",
+                    help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
+                )
+                st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
+                
+                if safe_mode_no_fetch:
+                    st.info("🛡️ SAFE MODE ACTIVE - No external data calls")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Debug Mode
+                # ========================================================================
+                st.markdown("#### 🐛 Debug Mode")
+                
+                # Allow Continuous Reruns checkbox (default OFF)
+                allow_continuous_reruns = st.checkbox(
+                    "Allow Continuous Reruns (Debug)",
+                    value=st.session_state.get("allow_continuous_reruns", False),
+                    key="allow_continuous_reruns_toggle",
+                    help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+                )
+                st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+                
+                if not allow_continuous_reruns:
+                    st.warning("⚠️ Loop Trap Active - Max 2 runs")
                 else:
-                    st.sidebar.error("❌ Failed to rebuild price cache")
+                    st.info("🔄 Continuous reruns enabled")
                 
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
+                # Reset Compute Lock button (for diagnostics)
+                if st.button(
+                    "Reset Compute Lock",
+                    key="reset_compute_lock_button",
+                    use_container_width=True,
+                    help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+                ):
+                    st.session_state["compute_lock"] = False
+                    st.session_state["compute_lock_reason"] = None
+                    st.success("✅ Compute lock reset")
                 
-                # Clear Streamlit caches to reflect new data
-                st.cache_data.clear()
+                st.markdown("---")
                 
-                # Trigger rerun
-                trigger_rerun("rebuild_price_cache")
-        except Exception as e:
-            st.sidebar.error(f"Error rebuilding cache: {str(e)}")
-            import traceback
-            st.sidebar.code(traceback.format_exc())
-    
-    # ========================================================================
-    # NEW: Force Build Data for All Waves Button (Enhanced with Diagnostics)
-    # ========================================================================
-    if st.sidebar.button(
-        "🔨 Force Build Data for All Waves",
-        key="force_build_all_waves_button",
-        use_container_width=True,
-        help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Prefetching prices for all waves..."):
-                # Clear diagnostics tracker
-                try:
-                    from helpers.ticker_diagnostics import get_diagnostics_tracker
-                    tracker = get_diagnostics_tracker()
-                    tracker.clear()
-                except ImportError:
-                    pass
+                # ========================================================================
+                # OPERATOR CONTROLS - Manual Snapshot Rebuild Buttons
+                # ========================================================================
+                st.markdown("#### 🔧 Manual Snapshot Rebuild")
                 
-                # Set force rebuild flag
-                st.session_state.force_price_cache_rebuild = True
-                
-                # Clear any previous rate-limited flags
-                if "rate_limited_waves" in st.session_state:
-                    del st.session_state["rate_limited_waves"]
-                
-                # Force refresh the canonical price cache (PRICE_BOOK)
-                from helpers.price_loader import refresh_price_cache
-                cache_result = refresh_price_cache(active_only=True)
-                
-                # Show results
-                success_count = cache_result.get("tickers_fetched", 0)
-                failure_count = cache_result.get("tickers_failed", 0)
-                
-                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
-                
-                # Generate and export diagnostics report if there are failures
-                if failure_count > 0:
+                # Main Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Snapshot Now (Manual)",
+                    key="manual_rebuild_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the main snapshot. Safe Mode must be OFF."
+                ):
                     try:
-                        from helpers.ticker_diagnostics import get_diagnostics_tracker
-                        tracker = get_diagnostics_tracker()
-                        report_path = tracker.export_to_csv()
-                        st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
-                    except Exception:
-                        pass
+                        from analytics_pipeline import generate_live_snapshot
+                        
+                        st.info("⏳ Building snapshot...")
+                        
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        
+                        snapshot_df = generate_live_snapshot(
+                            output_path="data/live_snapshot.csv",
+                            session_state=temp_session_state
+                        )
+                        
+                        if snapshot_df is not None and not snapshot_df.empty:
+                            st.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Snapshot rebuild failed: {str(e)}")
                 
-                # Force reload diagnostics
-                st.cache_data.clear()
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("force_build_all_waves")
-        except Exception as e:
-            st.sidebar.error(f"Error building data: {str(e)}")
-    
-    # ========================================================================
-    # NEW: Rebuild Wave CSV + Clear Cache Button
-    # ========================================================================
-    if st.sidebar.button(
-        "📋 Rebuild Wave CSV + Clear Cache",
-        key="rebuild_wave_csv_button",
-        use_container_width=True,
-        help="Rebuild wave registry CSV from canonical source and clear all cached data"
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
+                # Proxy Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Proxy Snapshot Now (Manual)",
+                    key="manual_rebuild_proxy_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
+                ):
+                    try:
+                        from planb_proxy_pipeline import build_proxy_snapshot
+                        
+                        st.info("⏳ Building proxy snapshot...")
+                        
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        
+                        # Build proxy snapshot with explicit button click flag
+                        proxy_df = build_proxy_snapshot(
+                            days=365,
+                            session_state=temp_session_state,
+                            explicit_button_click=True
+                        )
+                        
+                        if proxy_df is not None and not proxy_df.empty:
+                            st.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_proxy_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Proxy snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Feature Toggles
+                # ========================================================================
+                st.markdown("#### ⚙️ Feature Settings")
+                
+                # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
+                safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
+                safe_mode_ui = st.checkbox(
+                    "Enable Safe Mode (Wave IC)",
+                    value=safe_mode_default,
+                    key="safe_mode_ui_toggle",
+                    help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
+                )
+                
+                # Update global SAFE_MODE based on UI toggle (allows runtime control)
+                # Note: This doesn't actually update the constant, but we can use session_state
+                st.session_state["safe_mode_enabled"] = safe_mode_ui
+                
+                # RENDER_RICH_HTML toggle
+                render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
+                render_rich_html_ui = st.checkbox(
+                    "Enable Rich HTML Rendering",
+                    value=render_rich_html_default,
+                    key="render_rich_html_ui_toggle",
+                    help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
+                )
+                st.session_state["render_rich_html_enabled"] = render_rich_html_ui
+                
+                # Debug Mode toggle (default OFF per requirements)
+                debug_mode_ui = st.checkbox(
+                    "🐛 Debug Mode",
+                    value=st.session_state.get("debug_mode", False),
+                    key="debug_mode_ui_toggle",
+                    help="Show detailed error messages and diagnostics when components fail (default: OFF)"
+                )
+                st.session_state["debug_mode"] = debug_mode_ui
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Quick Actions
+                # ========================================================================
+                st.markdown("#### ⚡ Quick Actions")
+                
+                if st.button(
+                    "🔄 Force Reload Wave Universe",
+                    key="force_reload_universe_top_button",
+                    use_container_width=True,
+                    type="primary"
+                ):
+                    try:
+                        # Increment wave universe version
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Clear wave universe cache from session state using constant
+                        for key in WAVE_UNIVERSE_CACHE_KEYS:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Set force reload flag
+                        st.session_state["force_reload_universe"] = True
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger immediate rerun
+                        trigger_rerun("force_reload_waves")
+                    except Exception as e:
+                        st.warning(f"Force reload unavailable: {str(e)}")
+                
+                # Force Reload Data Button (Clear All Caches) - Add confirmation
+                clear_cache_confirm = st.checkbox(
+                    "Confirm Clear Cache",
+                    key="clear_cache_confirm_checkbox",
+                    help="Check this box to enable the Clear Cache button"
+                )
+                
+                if st.button(
+                    "🧹 Force Reload Data (Clear Cache)",
+                    key="force_reload_data_button",
+                    use_container_width=True,
+                    disabled=not clear_cache_confirm,
+                    help="Clear all cached data and reload from files. Requires confirmation."
+                ):
+                    try:
+                        # Clear all Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Clear wave/history-related session state keys
+                        keys_to_clear = [
+                            "wave_universe",
+                            "waves_list",
+                            "universe_cache",
+                            "wave_history_cache",
+                            "last_compute_ts",
+                            "alpha_proof_result",
+                            "alpha_proof_wave",
+                            "attrib_result"
+                        ]
+                        for key in keys_to_clear:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Increment wave universe version to force reload
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Show success message
+                        st.success("✅ Cache cleared successfully!")
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger rerun
+                        trigger_rerun("force_reload_data_clear_cache")
+                    except Exception as e:
+                        st.error(f"Error clearing cache: {str(e)}")
+                
+                # Rebuild Price Cache Button
+                if st.button(
+                    "💰 Rebuild Price Cache (Active Tickers Only)",
+                    key="rebuild_price_cache_button",
+                    use_container_width=True,
+                    help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                            # Import the rebuild function
+                            from helpers.price_book import rebuild_price_cache
+                            
+                            # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                            result = rebuild_price_cache(active_only=True)
+                            
+                            # Check if fetching is allowed
+                            if not result['allowed']:
+                                st.warning(
+                                    "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                                    f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                                )
+                            elif result['success']:
+                                st.success(
+                                    f"✅ Price cache rebuilt!\n\n"
+                                    f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                                    f"📅 Latest Date: {result['date_max']}"
+                                )
+                                
+                                # Show failed tickers if any
+                                if result['tickers_failed'] > 0 and result['failures']:
+                                    st.warning(
+                                        f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                                        f"See data/cache/failed_tickers.csv for details"
+                                    )
+                            else:
+                                st.error("❌ Failed to rebuild price cache")
+                            
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            
+                            # Clear Streamlit caches to reflect new data
+                            st.cache_data.clear()
+                            
+                            # Trigger rerun
+                            trigger_rerun("rebuild_price_cache")
+                    except Exception as e:
+                        st.error(f"Error rebuilding cache: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Force Build Data for All Waves Button
+                # ========================================================================
+                if st.button(
+                    "🔨 Force Build Data for All Waves",
+                    key="force_build_all_waves_button",
+                    use_container_width=True,
+                    help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Prefetching prices for all waves..."):
+                            # Clear diagnostics tracker
+                            try:
+                                from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                tracker = get_diagnostics_tracker()
+                                tracker.clear()
+                            except ImportError:
+                                pass
+                            
+                            # Set force rebuild flag
+                            st.session_state.force_price_cache_rebuild = True
+                            
+                            # Clear any previous rate-limited flags
+                            if "rate_limited_waves" in st.session_state:
+                                del st.session_state["rate_limited_waves"]
+                            
+                            # Force refresh the canonical price cache (PRICE_BOOK)
+                            from helpers.price_loader import refresh_price_cache
+                            cache_result = refresh_price_cache(active_only=True)
+                            
+                            # Show results
+                            success_count = cache_result.get("tickers_fetched", 0)
+                            failure_count = cache_result.get("tickers_failed", 0)
+                            
+                            st.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                            
+                            # Generate and export diagnostics report if there are failures
+                            if failure_count > 0:
+                                try:
+                                    from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                    tracker = get_diagnostics_tracker()
+                                    report_path = tracker.export_to_csv()
+                                    st.info(f"📊 Diagnostics report saved to: {report_path}")
+                                except Exception:
+                                    pass
+                            
+                            # Force reload diagnostics
+                            st.cache_data.clear()
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("force_build_all_waves")
+                    except Exception as e:
+                        st.error(f"Error building data: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Rebuild Wave CSV
+                # ========================================================================
+                if st.button(
+                    "📋 Rebuild Wave CSV + Clear Cache",
+                    key="rebuild_wave_csv_button",
+                    use_container_width=True,
+                    help="Rebuild wave registry CSV from canonical source and clear all cached data"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
                 # Import wave registry manager
                 from wave_registry_manager import rebuild_wave_registry_csv
                 
