@@ -865,7 +865,7 @@ def compute_beta(
         # Compute variance of benchmark returns
         benchmark_var = np.var(benchmark_aligned, ddof=1)
         
-        if benchmark_var == 0 or np.isnan(benchmark_var):
+        if np.isnan(benchmark_var) or benchmark_var < 1e-10:
             result['failure_reason'] = 'Benchmark variance is zero or NaN'
             return result
         
