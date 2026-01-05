@@ -324,14 +324,41 @@ def load_cache() -> Optional[pd.DataFrame]:
         return None
     
     try:
-        cache_df = pd.read_parquet(CACHE_PATH)
+        # Get file mtime for cache key uniqueness
+        cache_mtime = os.path.getmtime(CACHE_PATH)
+        cache_size = os.path.getsize(CACHE_PATH)
         
-        # Ensure index is datetime
-        if not isinstance(cache_df.index, pd.DatetimeIndex):
-            cache_df.index = pd.to_datetime(cache_df.index)
-        
-        # Sort by date
-        cache_df = cache_df.sort_index()
+        # If using Streamlit, use cache with unique key based on mtime and size
+        if STREAMLIT_AVAILABLE and st is not None:
+            # Create unique cache key based on file attributes
+            cache_key = f"price_cache_{cache_mtime}_{cache_size}"
+            
+            # Use st.cache_data with a unique key
+            @st.cache_data(ttl=None, show_spinner=False)
+            def _load_cached_parquet(path: str, key: str) -> pd.DataFrame:
+                """Load parquet with cache key for freshness."""
+                df = pd.read_parquet(path)
+                
+                # Ensure index is datetime
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
+                
+                # Sort by date
+                df = df.sort_index()
+                
+                return df
+            
+            cache_df = _load_cached_parquet(CACHE_PATH, cache_key)
+        else:
+            # Load without Streamlit caching
+            cache_df = pd.read_parquet(CACHE_PATH)
+            
+            # Ensure index is datetime
+            if not isinstance(cache_df.index, pd.DatetimeIndex):
+                cache_df.index = pd.to_datetime(cache_df.index)
+            
+            # Sort by date
+            cache_df = cache_df.sort_index()
         
         logger.info(
             f"Loaded cache: {len(cache_df)} days, {len(cache_df.columns)} tickers, "

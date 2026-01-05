@@ -11178,6 +11178,153 @@ def render_overview_tab():
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
         
         # ========================================================================
+        # PRICE_BOOK STATUS PANEL
+        # ========================================================================
+        st.markdown("---")
+        st.markdown("### 📈 PRICE_BOOK Status")
+        st.caption("Canonical price cache - Single source of truth for all price data")
+        
+        try:
+            import json
+            import subprocess
+            from helpers.price_loader import CACHE_PATH, CACHE_DIR
+            
+            # Get current git commit SHA
+            try:
+                git_sha = subprocess.check_output(
+                    ['git', 'rev-parse', '--short', 'HEAD'],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+            except Exception:
+                git_sha = "Unknown"
+            
+            # Check cache file existence and get mtime
+            cache_exists = os.path.exists(CACHE_PATH)
+            cache_mtime = None
+            cache_size = 0
+            
+            if cache_exists:
+                cache_stat = os.stat(CACHE_PATH)
+                cache_mtime = datetime.fromtimestamp(cache_stat.st_mtime)
+                cache_size = cache_stat.st_size
+            
+            # Load metadata file if it exists
+            metadata_path = os.path.join(CACHE_DIR, "prices_cache_meta.json")
+            metadata = None
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                except Exception as e:
+                    st.warning(f"⚠️ Failed to load metadata: {e}")
+            
+            # Display in columns
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+            
+            with col1:
+                st.metric("Git Commit", git_sha[:7] if git_sha != "Unknown" else "N/A")
+            
+            with col2:
+                if cache_mtime:
+                    age_minutes = (datetime.now() - cache_mtime).total_seconds() / 60
+                    if age_minutes < 60:
+                        age_str = f"{age_minutes:.0f}m ago"
+                    elif age_minutes < 1440:  # 24 hours
+                        age_str = f"{age_minutes/60:.1f}h ago"
+                    else:
+                        age_str = f"{age_minutes/1440:.1f}d ago"
+                    st.metric("Cache Modified", age_str)
+                else:
+                    st.metric("Cache Modified", "N/A")
+            
+            with col3:
+                if metadata:
+                    last_price_date = metadata.get("max_price_date", "N/A")
+                    if last_price_date != "N/A":
+                        # Calculate data age
+                        try:
+                            price_date = datetime.strptime(last_price_date, "%Y-%m-%d")
+                            data_age_days = (datetime.now() - price_date).days
+                            
+                            # Color based on staleness
+                            if data_age_days <= 3:
+                                delta_color = "normal"
+                                delta_prefix = "🟢"
+                            elif data_age_days <= 7:
+                                delta_color = "off"
+                                delta_prefix = "🟡"
+                            else:
+                                delta_color = "inverse"
+                                delta_prefix = "🔴"
+                            
+                            st.metric(
+                                "Last Price Date",
+                                last_price_date,
+                                delta=f"{delta_prefix} {data_age_days}d old"
+                            )
+                        except Exception:
+                            st.metric("Last Price Date", last_price_date)
+                    else:
+                        st.metric("Last Price Date", "N/A")
+                else:
+                    st.metric("Last Price Date", "N/A")
+            
+            with col4:
+                # Force reload button
+                if st.button("🔄 Reload", help="Force reload PRICE_BOOK cache", use_container_width=True):
+                    with st.spinner("Reloading PRICE_BOOK..."):
+                        try:
+                            # Clear Streamlit caches
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            
+                            # Clear session state price-related data
+                            if "global_price_df" in st.session_state:
+                                del st.session_state["global_price_df"]
+                            
+                            st.success("✓ PRICE_BOOK cache cleared. Reloading...")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to reload: {str(e)}")
+            
+            # Display detailed status in expander
+            with st.expander("📊 Detailed Cache Status", expanded=False):
+                if cache_exists:
+                    st.write(f"**Cache File:** `{CACHE_PATH}`")
+                    st.write(f"**Size:** {cache_size / 1024 / 1024:.2f} MB")
+                    st.write(f"**Modified:** {cache_mtime.strftime('%Y-%m-%d %H:%M:%S') if cache_mtime else 'N/A'}")
+                    
+                    if metadata:
+                        st.write("**Metadata:**")
+                        st.json(metadata)
+                        
+                        # Check for mismatches
+                        if metadata.get("max_price_date"):
+                            # Load actual cache to verify
+                            from helpers.price_loader import load_cache
+                            cache_df = load_cache()
+                            if cache_df is not None and not cache_df.empty:
+                                actual_max_date = cache_df.index[-1].strftime('%Y-%m-%d')
+                                meta_max_date = metadata.get("max_price_date")
+                                
+                                if actual_max_date != meta_max_date:
+                                    st.warning(f"⚠️ Metadata mismatch: Metadata says {meta_max_date}, but cache contains {actual_max_date}")
+                    else:
+                        st.warning("⚠️ Metadata file not found. Run `python build_price_cache.py --force` to generate.")
+                else:
+                    st.error("❌ Cache file does not exist!")
+                    st.write("**Troubleshooting:**")
+                    st.write("1. Run `python build_price_cache.py --force` to build the cache")
+                    st.write("2. Check that `data/cache/prices_cache.parquet` exists")
+                    st.write("3. Verify GitHub Actions workflow is running successfully")
+        
+        except Exception as e:
+            st.error(f"⚠️ Failed to load PRICE_BOOK status: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+        
+        # ========================================================================
         # TRUTHFRAME - Canonical Data Source for All Waves
         # ========================================================================
         try:
