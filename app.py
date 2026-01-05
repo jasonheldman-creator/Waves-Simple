@@ -2491,14 +2491,34 @@ def safe_load_wave_history(_wave_universe_version=1):
 
 
 def get_latest_data_timestamp():
-    """Get the latest available 'as of' data timestamp from wave_history.csv."""
+    """
+    Get the latest available 'as of' data timestamp from PRICE_BOOK (canonical price source).
+    
+    This ensures the sidebar "Data as of" display uses the same price_book object
+    as Portfolio Snapshot and Wave Snapshot calculations.
+    """
     try:
+        # Import price_book functions
+        from helpers.price_book import get_price_book, get_price_book_meta
+        
+        # Load PRICE_BOOK (same source as Portfolio Snapshot and Wave Snapshot)
+        price_book = get_price_book(active_tickers=None)
+        
+        # Get metadata from PRICE_BOOK
+        price_meta = get_price_book_meta(price_book)
+        
+        # Return latest date from PRICE_BOOK
+        if price_meta['date_max'] is not None:
+            return price_meta['date_max']
+        
+        # Fallback to wave_history.csv if PRICE_BOOK is empty
         df = safe_load_wave_history()
         if df is not None and 'date' in df.columns and len(df) > 0:
             latest_date = df['date'].max()
             return latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "unknown"
-    except Exception:
-        pass
+    except Exception as e:
+        # Log error and return unknown
+        logging.warning(f"Failed to get latest data timestamp: {e}")
     return "unknown"
 
 
