@@ -31,10 +31,11 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Threshold configuration - hardened parsing with clamping
+DEFAULT_MIN_SUCCESS_RATE = 0.90
 try:
-    MIN_SUCCESS_RATE = min(1.0, max(0.0, float(os.getenv("MIN_SUCCESS_RATE", "0.90"))))
+    MIN_SUCCESS_RATE = min(1.0, max(0.0, float(os.getenv("MIN_SUCCESS_RATE", str(DEFAULT_MIN_SUCCESS_RATE)))))
 except ValueError:
-    MIN_SUCCESS_RATE = 0.90
+    MIN_SUCCESS_RATE = DEFAULT_MIN_SUCCESS_RATE
 
 from helpers.price_loader import (
     deduplicate_tickers,

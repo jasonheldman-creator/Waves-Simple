@@ -37,6 +37,7 @@ jobs:
           python build_price_cache.py --force
 
       - name: Commit and push updated cache
+        # Only commit on main branch for scheduled or manual runs (not for PR builds)
         if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
