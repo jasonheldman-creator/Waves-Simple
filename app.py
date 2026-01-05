@@ -348,8 +348,17 @@ def get_selected_wave_display_name():
     """
     Get the display name for the currently selected wave.
     
-    DEPRECATED: Use resolve_app_context()['selected_wave_name'] instead.
-    This function is kept for backward compatibility.
+    .. deprecated:: 2.0
+        Use :func:`resolve_app_context` instead. This function will be removed in version 3.0.
+        
+        Instead of::
+        
+            display_name = get_selected_wave_display_name()
+            
+        Use::
+        
+            ctx = resolve_app_context()
+            display_name = ctx["selected_wave_name"]
     
     Returns None if portfolio view is active, otherwise returns the
     display name corresponding to the wave_id stored in session_state.
@@ -357,6 +366,13 @@ def get_selected_wave_display_name():
     Returns:
         str or None: Display name of selected wave, or None for portfolio view
     """
+    import warnings
+    warnings.warn(
+        "get_selected_wave_display_name() is deprecated and will be removed in version 3.0. "
+        "Use resolve_app_context()['selected_wave_name'] instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     # Delegate to canonical context resolver
     ctx = resolve_app_context()
     return ctx["selected_wave_name"]
