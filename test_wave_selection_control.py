@@ -12,12 +12,50 @@ Tests the wave selector UI control to ensure:
 import sys
 import os
 
+# Add parent directory to path to import from app.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import constants from app.py to avoid duplication
+try:
+    # Note: This will fail if streamlit is not installed, but we only need the constants
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("app_constants", "app.py")
+    if spec and spec.loader:
+        app_module = importlib.util.module_from_spec(spec)
+        # We can't actually load the module without streamlit, but we can extract what we need
+        with open("app.py", "r") as f:
+            content = f.read()
+            # Extract constants using simple parsing
+            for line in content.split("\n"):
+                if "PORTFOLIO_VIEW_PLACEHOLDER = " in line:
+                    exec(line.strip())
+                elif "PORTFOLIO_VIEW_TITLE = " in line:
+                    exec(line.strip())
+                elif "PORTFOLIO_VIEW_ICON = " in line:
+                    exec(line.strip())
+                elif "WAVE_VIEW_ICON = " in line:
+                    exec(line.strip())
+except Exception:
+    # Fallback to hardcoded values if import fails
+    PORTFOLIO_VIEW_PLACEHOLDER = "NONE"
+    PORTFOLIO_VIEW_TITLE = "Portfolio Snapshot (All Waves)"
+    PORTFOLIO_VIEW_ICON = "🏛️"
+    WAVE_VIEW_ICON = "🌊"
+
 # Mock Streamlit session state for testing
 class MockSessionState(dict):
     """Mock Streamlit session state for testing."""
     
     def get(self, key, default=None):
         return super().get(key, default)
+
+
+def is_portfolio_context(selected_wave: str) -> bool:
+    """
+    Determine if the current context is portfolio-level (no specific wave selected).
+    This matches the implementation in app.py.
+    """
+    return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
 
 
 def test_wave_selector_default_to_portfolio():
@@ -85,13 +123,6 @@ def test_is_portfolio_context():
     """Test the is_portfolio_context helper function."""
     print("\n=== Test 4: is_portfolio_context() Helper ===")
     
-    # Constants
-    PORTFOLIO_VIEW_PLACEHOLDER = "NONE"
-    
-    # Helper function (from app.py)
-    def is_portfolio_context(selected_wave: str) -> bool:
-        return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
-    
     # Test cases
     test_cases = [
         (None, True, "None should be portfolio"),
@@ -112,11 +143,6 @@ def test_is_portfolio_context():
 def test_wave_specific_metrics_visibility():
     """Test that wave-specific metrics only show for wave context."""
     print("\n=== Test 5: Wave-Specific Metrics Visibility ===")
-    
-    PORTFOLIO_VIEW_PLACEHOLDER = "NONE"
-    
-    def is_portfolio_context(selected_wave: str) -> bool:
-        return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
     
     def should_show_wave_metrics(selected_wave: str) -> bool:
         """Determine if wave-specific metrics should be shown."""
@@ -142,9 +168,6 @@ def test_wave_specific_metrics_visibility():
 def test_wave_selector_options():
     """Test that wave selector options include portfolio and all waves."""
     print("\n=== Test 6: Wave Selector Options ===")
-    
-    # Constants
-    PORTFOLIO_VIEW_TITLE = "Portfolio Snapshot (All Waves)"
     
     # Mock waves
     mock_waves = [
