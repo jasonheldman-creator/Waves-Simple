@@ -19926,6 +19926,13 @@ def main():
         
         # Initialize user_interaction_detected flag
         st.session_state.user_interaction_detected = False
+        
+        # Initialize auto-refresh related session state (disabled by default)
+        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
+        st.session_state.auto_refresh_error_count = 0
+        st.session_state.auto_refresh_paused = False
+        st.session_state.auto_refresh_error_message = None
     
     # ========================================================================
     # STEP 1: Run Guard Counter (Hard Circuit Breaker) - Enhanced Loop Detection
@@ -20308,26 +20315,6 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Initialize last_successful_refresh_time if not present
     if "last_successful_refresh_time" not in st.session_state:
         st.session_state.last_successful_refresh_time = datetime.now()
-    
-    # Initialize auto_refresh_enabled if not present (default: ON per requirements)
-    if "auto_refresh_enabled" not in st.session_state:
-        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
-    
-    # Initialize auto_refresh_interval if not present (default: 60 seconds)
-    if "auto_refresh_interval_ms" not in st.session_state:
-        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
-    
-    # Initialize auto_refresh_error_count for error handling
-    if "auto_refresh_error_count" not in st.session_state:
-        st.session_state.auto_refresh_error_count = 0
-    
-    # Initialize auto_refresh_paused flag
-    if "auto_refresh_paused" not in st.session_state:
-        st.session_state.auto_refresh_paused = False
-    
-    # Initialize auto_refresh_error_message
-    if "auto_refresh_error_message" not in st.session_state:
-        st.session_state.auto_refresh_error_message = None
     
     # Initialize show_bottom_ticker if not present (default: ON)
     if "show_bottom_ticker" not in st.session_state:

@@ -24,7 +24,6 @@ import pandas as pd
 import os
 import traceback
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 
 # ============================================================================
 # CONFIGURATION
