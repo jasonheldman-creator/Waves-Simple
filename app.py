@@ -791,19 +791,23 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     Render an enhanced pinned banner at the top of the page with quick stats.
     
     Shows:
-    - Wave title with neon border/glow effect
+    - Wave title with neon border/glow effect (or "Portfolio Snapshot" when no wave selected)
     - Colored pill for Mode
-    - Quick stats tiles: Wave NAV, Returns (1D/30D/60D/365D), Alpha Captured, Beta, VIX regime, Exposure %, Cash %
+    - Quick stats tiles: Wave NAV, Returns (1D/30D/60D/365D), Alpha Captured
+    - Wave-specific metrics (Beta, VIX regime, Exposure %, Cash %) only shown for individual waves
     
     Args:
-        selected_wave: The name of the currently selected wave
+        selected_wave: The name of the currently selected wave (None for portfolio view)
         mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
     """
     try:
-        # Get wave data for metrics
-        wave_data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
-        wave_data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
-        wave_data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        # Determine if we're in portfolio context (no specific wave selected)
+        is_portfolio_view = selected_wave is None or selected_wave == "NONE"
+        
+        # Get wave data for metrics (only if specific wave is selected)
+        wave_data_30d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=30)
+        wave_data_60d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=60)
+        wave_data_365d = None if is_portfolio_view else get_wave_data_filtered(wave_name=selected_wave, days=365)
         
         # Calculate metrics
         nav_str = "N/A"
@@ -894,6 +898,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
         # Mode color pill
         mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
+        
+        # Set display title based on context
+        display_title = "Portfolio Snapshot (All Waves)" if is_portfolio_view else selected_wave
         
         # Enhanced banner with stats
         banner_html = f"""
@@ -1006,7 +1013,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
         <div class="wave-banner">
             <div class="wave-title">
-                <span style="color: #00d9ff;">🌊</span> {selected_wave}
+                <span style="color: #00d9ff;">{'🏛️' if is_portfolio_view else '🌊'}</span> {display_title}
                 <span class="mode-pill">{mode}</span>
             </div>
             
@@ -1043,7 +1050,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     <div class="stat-label">Alpha 365D</div>
                     <div class="stat-value">{alpha_365d_str}</div>
                 </div>
-                <div class="stat-tile">
+                {'<!-- Portfolio-level metrics: Beta, VIX regime, Exposure, Cash not applicable -->' if is_portfolio_view else f'''<div class="stat-tile">
                     <div class="stat-label">Beta</div>
                     <div class="stat-value">{beta_str}</div>
                 </div>
@@ -1058,7 +1065,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                 <div class="stat-tile">
                     <div class="stat-label">Cash</div>
                     <div class="stat-value">{cash_str}</div>
-                </div>
+                </div>'''}
             </div>
         </div>
         """
@@ -1078,9 +1085,16 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
     Simple fallback banner - original implementation.
     
     Args:
-        selected_wave: The name of the currently selected wave
+        selected_wave: The name of the currently selected wave (None for portfolio view)
         mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
     """
+    # Determine if we're in portfolio context (no specific wave selected)
+    is_portfolio_view = selected_wave is None or selected_wave == "NONE"
+    
+    # Set display title based on context
+    display_title = "Portfolio Snapshot (All Waves)" if is_portfolio_view else selected_wave
+    display_icon = "🏛️" if is_portfolio_view else "🌊"
+    
     # Safe HTML/CSS rendering with dark gradient background and neon accent border
     banner_html = f"""
     <div style="
@@ -1100,7 +1114,7 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
             text-transform: uppercase;
             letter-spacing: 2px;
         ">
-            <span style="color: #00d9ff;">SELECTED WAVE:</span> {selected_wave} 
+            <span style="color: #00d9ff;">{display_icon} {'PORTFOLIO VIEW:' if is_portfolio_view else 'SELECTED WAVE:'}</span> {display_title} 
             <span style="color: #ffd700;">•</span> 
             <span style="color: #00ff88;">MODE:</span> {mode}
         </h2>
