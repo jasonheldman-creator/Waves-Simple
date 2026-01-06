@@ -1034,17 +1034,67 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                         alpha_60d = snapshot['alphas'].get('60D')
                         alpha_365d = snapshot['alphas'].get('365D')
                         
-                        # Format return strings
-                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                        # Get diagnostic info for tooltips (when unavailable)
+                        snapshot_debug = snapshot.get('debug', {})
+                        total_rows = snapshot_debug.get('portfolio_rows_count', 0)
                         
-                        # Format alpha strings
-                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        # Format return strings with diagnostic info
+                        if ret_1d is None:
+                            ret_1d_str = f"N/A"
+                            ret_1d_help = f"Insufficient aligned rows ({total_rows}/1)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_1d_str = f"{ret_1d*100:+.2f}%"
+                            ret_1d_help = None
+                        
+                        if ret_30d is None:
+                            ret_30d_str = f"N/A"
+                            ret_30d_help = f"Insufficient aligned rows ({total_rows}/30)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_30d_str = f"{ret_30d*100:+.2f}%"
+                            ret_30d_help = None
+                        
+                        if ret_60d is None:
+                            ret_60d_str = f"N/A"
+                            ret_60d_help = f"Insufficient aligned rows ({total_rows}/60)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_60d_str = f"{ret_60d*100:+.2f}%"
+                            ret_60d_help = None
+                        
+                        if ret_365d is None:
+                            ret_365d_str = f"N/A"
+                            ret_365d_help = f"Insufficient aligned rows ({total_rows}/365)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_365d_str = f"{ret_365d*100:+.2f}%"
+                            ret_365d_help = None
+                        
+                        # Format alpha strings with diagnostic info
+                        if alpha_1d is None:
+                            alpha_1d_str = f"N/A"
+                            alpha_1d_help = f"Insufficient aligned rows ({total_rows}/1)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_1d_str = f"{alpha_1d*100:+.2f}%"
+                            alpha_1d_help = None
+                        
+                        if alpha_30d is None:
+                            alpha_30d_str = f"N/A"
+                            alpha_30d_help = f"Insufficient aligned rows ({total_rows}/30)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_30d_str = f"{alpha_30d*100:+.2f}%"
+                            alpha_30d_help = None
+                        
+                        if alpha_60d is None:
+                            alpha_60d_str = f"N/A"
+                            alpha_60d_help = f"Insufficient aligned rows ({total_rows}/60)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_60d_str = f"{alpha_60d*100:+.2f}%"
+                            alpha_60d_help = None
+                        
+                        if alpha_365d is None:
+                            alpha_365d_str = f"N/A"
+                            alpha_365d_help = f"Insufficient aligned rows ({total_rows}/365)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_365d_str = f"{alpha_365d*100:+.2f}%"
+                            alpha_365d_help = None
                 except Exception as e:
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
@@ -1283,35 +1333,35 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
             </div>
             
             <div class="stats-grid">
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_1d_help + '"' if ret_1d_help else ''}>
                     <div class="stat-label">1D Return</div>
                     <div class="stat-value">{ret_1d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_30d_help + '"' if ret_30d_help else ''}>
                     <div class="stat-label">30D Return</div>
                     <div class="stat-value">{ret_30d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_60d_help + '"' if ret_60d_help else ''}>
                     <div class="stat-label">60D Return</div>
                     <div class="stat-value">{ret_60d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_365d_help + '"' if ret_365d_help else ''}>
                     <div class="stat-label">365D Return</div>
                     <div class="stat-value">{ret_365d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_1d_help + '"' if alpha_1d_help else ''}>
                     <div class="stat-label">Alpha 1D</div>
                     <div class="stat-value">{alpha_1d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_30d_help + '"' if alpha_30d_help else ''}>
                     <div class="stat-label">Alpha 30D</div>
                     <div class="stat-value">{alpha_30d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_60d_help + '"' if alpha_60d_help else ''}>
                     <div class="stat-label">Alpha 60D</div>
                     <div class="stat-value">{alpha_60d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_365d_help + '"' if alpha_365d_help else ''}>
                     <div class="stat-label">Alpha 365D</div>
                     <div class="stat-value">{alpha_365d_str}</div>
                 </div>
@@ -6157,10 +6207,26 @@ def compute_alpha_source_breakdown(df):
             """Check if series is valid (not None and has data)."""
             return series is not None and len(series) > 0
         
+        # Extract start_date and end_date with clear logic
+        if summary and summary.get('available'):
+            # Available: use format_date with series index
+            start_date = format_date(daily_realized, 0)
+            end_date = format_date(daily_realized, -1)
+        elif summary:
+            # Unavailable but summary exists: use summary fields
+            start_date = summary.get('start_date')
+            end_date = summary.get('end_date')
+        else:
+            # No summary: set to None
+            start_date = None
+            end_date = None
+        
         result['diagnostics'] = {
             'period_used': period_used,
-            'start_date': format_date(daily_realized, 0),
-            'end_date': format_date(daily_realized, -1),
+            'start_date': start_date,
+            'end_date': end_date,
+            'rows_used': summary.get('rows_used') if summary else None,
+            'requested_period_days': summary.get('requested_period_days') if summary else None,
             'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
             'exposure_series_found': series_valid(daily_exposure),
             'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
@@ -6901,6 +6967,19 @@ def render_mission_control():
                     with diag_col1:
                         st.markdown("**Period & Date Range:**")
                         st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                        
+                        # Show requested vs actual rows used
+                        requested = diagnostics.get('requested_period_days')
+                        rows_used = diagnostics.get('rows_used')
+                        if requested is not None and rows_used is not None:
+                            st.text(f"Requested Period Days: {requested}")
+                            st.text(f"Rows Used: {rows_used}")
+                            if rows_used < requested:
+                                st.warning(f"⚠️ Insufficient aligned rows ({rows_used}/{requested})")
+                        else:
+                            st.text(f"Requested Period Days: {requested if requested else 'N/A'}")
+                            st.text(f"Rows Used: {rows_used if rows_used else 'N/A'}")
+                        
                         st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
                         st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
                         
@@ -6927,6 +7006,7 @@ def render_mission_control():
                         
                         st.markdown("")
                         st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
+                        st.caption("Window is strictly sliced to last N trading days when available.")
                 
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
