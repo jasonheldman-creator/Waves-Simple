@@ -19,7 +19,7 @@ def test_blue_box_diagnostics_alignment():
     print("=" * 70)
     
     try:
-        from helpers.wave_performance import compute_portfolio_alpha_ledger
+        from helpers.wave_performance import compute_portfolio_alpha_ledger, RESIDUAL_TOLERANCE
         from helpers.price_book import get_price_book
         
         # Load PRICE_BOOK
@@ -74,7 +74,7 @@ def test_blue_box_diagnostics_alignment():
                 # Verify reconciliation 1: Portfolio - Benchmark = Alpha
                 expected_alpha = portfolio - benchmark
                 diff_1 = abs(expected_alpha - alpha)
-                if diff_1 > 0.0010:  # RESIDUAL_TOLERANCE
+                if diff_1 > RESIDUAL_TOLERANCE:
                     print(f"  ❌ Reconciliation 1 failed: diff={diff_1:.6f}")
                     return False
                 else:
@@ -87,7 +87,7 @@ def test_blue_box_diagnostics_alignment():
                 
                 expected_total = selection + overlay + residual
                 diff_2 = abs(expected_total - alpha)
-                if diff_2 > 0.0010:  # RESIDUAL_TOLERANCE
+                if diff_2 > RESIDUAL_TOLERANCE:
                     print(f"  ❌ Reconciliation 2 failed: diff={diff_2:.6f}")
                     return False
                 else:

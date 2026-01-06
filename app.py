@@ -9541,11 +9541,14 @@ def render_executive_brief_tab():
                         else:
                             # Unavailable period - show N/A for all three lines with reason
                             reason = period_data.get('reason', 'unknown')
+                            MAX_REASON_LENGTH = 60  # Configurable truncation length
                             st.markdown(f"**{period_key}**")
                             st.markdown(f"📈 **Portfolio:** N/A")
                             st.markdown(f"📊 **Benchmark:** N/A")
                             st.markdown(f"🎯 **Alpha:** N/A")
-                            st.caption(f"⚠️ {reason[:50]}...")  # Truncate long reasons
+                            # Truncate long reasons with ellipsis
+                            truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
+                            st.caption(f"⚠️ {truncated_reason}")
                 
                 st.divider()
                 
