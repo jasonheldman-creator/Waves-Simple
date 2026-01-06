@@ -6207,10 +6207,24 @@ def compute_alpha_source_breakdown(df):
             """Check if series is valid (not None and has data)."""
             return series is not None and len(series) > 0
         
+        # Extract start_date and end_date with clear logic
+        if summary and summary.get('available'):
+            # Available: use format_date with series index
+            start_date = format_date(daily_realized, 0)
+            end_date = format_date(daily_realized, -1)
+        elif summary:
+            # Unavailable but summary exists: use summary fields
+            start_date = summary.get('start_date')
+            end_date = summary.get('end_date')
+        else:
+            # No summary: set to None
+            start_date = None
+            end_date = None
+        
         result['diagnostics'] = {
             'period_used': period_used,
-            'start_date': format_date(daily_realized, 0) if summary and summary.get('available') else summary.get('start_date') if summary else None,
-            'end_date': format_date(daily_realized, -1) if summary and summary.get('available') else summary.get('end_date') if summary else None,
+            'start_date': start_date,
+            'end_date': end_date,
             'rows_used': summary.get('rows_used') if summary else None,
             'requested_period_days': summary.get('requested_period_days') if summary else None,
             'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
