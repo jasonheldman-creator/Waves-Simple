@@ -7518,6 +7518,11 @@ def render_sidebar_info():
     # ========================================================================
     st.sidebar.markdown("### 🛠 Operator Controls")
     
+    # Define safe logger for operator controls
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    
     # Initialize last operator action in session state
     if "last_operator_action" not in st.session_state:
         st.session_state.last_operator_action = None
@@ -7538,8 +7543,11 @@ def render_sidebar_info():
             st.session_state.last_operator_action = "Clear Cache"
             st.session_state.last_operator_time = action_time
             
-            # Log the action
-            logger.info(f"Operator action: Clear Cache at {action_time}")
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Clear Cache at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
             
             st.sidebar.success("✅ Cache cleared")
         except Exception as e:
@@ -7568,8 +7576,11 @@ def render_sidebar_info():
             st.session_state.last_operator_action = "Force Recompute"
             st.session_state.last_operator_time = action_time
             
-            # Log the action
-            logger.info(f"Operator action: Force Recompute at {action_time} (cleared {cleared_count} keys)")
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Force Recompute at {action_time} (cleared {cleared_count} keys)")
+            except Exception:
+                pass  # Logging errors should not block button execution
             
             st.sidebar.success(f"✅ Cleared {cleared_count} keys")
         except Exception as e:
@@ -7582,8 +7593,11 @@ def render_sidebar_info():
             st.session_state.last_operator_action = "Hard Rerun"
             st.session_state.last_operator_time = action_time
             
-            # Log the action
-            logger.info(f"Operator action: Hard Rerun at {action_time}")
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Hard Rerun at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
             
             st.rerun()
         except Exception as e:
