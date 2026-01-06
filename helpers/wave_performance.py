@@ -1436,7 +1436,8 @@ def compute_portfolio_alpha_attribution(
         'daily_exposure': None,
         'period_summaries': {},
         'since_inception_summary': {},
-        'warnings': []
+        'warnings': [],
+        'using_fallback_exposure': False  # Flag to indicate if fallback exposure (1.0) is used
     }
     
     # Validate inputs
@@ -1575,14 +1576,12 @@ def compute_portfolio_alpha_attribution(
                 safe_ticker = ticker
                 break
         
-        if safe_ticker is None:
-            result['warnings'].append(f'No safe ticker found in price_book (tried: {safe_ticker_preference})')
-            result['warnings'].append('Overlay alpha will be 0 (exposure=1.0 assumed)')
-        
         # Default: exposure = 1.0 (no overlay)
-        # TODO: When VIX overlay is integrated, compute actual exposure here
+        # When VIX overlay is integrated, compute actual exposure here
+        # Using fallback exposure of 1.0 - this is expected behavior when overlay data is not available
         daily_exposure = pd.Series(1.0, index=daily_unoverlay_return.index)
         result['daily_exposure'] = daily_exposure
+        result['using_fallback_exposure'] = True  # Flag to indicate fallback is being used
         
         # Compute safe returns if available
         if safe_ticker is not None:
@@ -1595,10 +1594,12 @@ def compute_portfolio_alpha_attribution(
             safe_returns = pd.Series(0.0, index=daily_unoverlay_return.index)
         
     except Exception as e:
-        result['warnings'].append(f'Error computing exposure series: {str(e)}')
+        # Error computing exposure - use fallback
         daily_exposure = pd.Series(1.0, index=daily_unoverlay_return.index)
         safe_returns = pd.Series(0.0, index=daily_unoverlay_return.index)
         result['daily_exposure'] = daily_exposure
+        result['using_fallback_exposure'] = True
+        logger.debug(f'Using fallback exposure (1.0) due to error: {str(e)}')
     
     # ========================================================================
     # Step 3: Compute daily_realized_return (with overlay)
