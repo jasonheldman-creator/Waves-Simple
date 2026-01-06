@@ -1386,10 +1386,10 @@ def compute_portfolio_snapshot(
 
 def compute_portfolio_alpha_attribution(
     price_book: pd.DataFrame,
-    wave_registry: Optional[Dict] = None,
     mode: str = 'Standard',
     periods: List[int] = [30, 60, 365],
-    safe_ticker_preference: List[str] = ["BIL", "SHY"]
+    safe_ticker_preference: List[str] = ["BIL", "SHY"],
+    wave_registry: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
     Compute portfolio-level alpha attribution with transparent decomposition.

@@ -284,7 +284,7 @@ def test_residual_near_zero():
             return True  # Not a test failure
         
         # Test residual for each period
-        max_residual = 0.001  # 0.10% tolerance as per problem statement
+        max_residual = 0.001  # 0.1% tolerance as per problem statement
         
         for period, summary in result['period_summaries'].items():
             residual = summary['residual']
@@ -368,10 +368,12 @@ def test_session_state_integration():
         
         print(f"✓ daily_exposure series exists ({len(result['daily_exposure'])} days)")
         
-        # Verify exposure values are in valid range [0, 1]
+        # Verify exposure values are in valid range [0, 1.1]
+        # Note: Exposure can exceed 1.0 due to leverage in some strategies (max 110%)
+        MAX_EXPOSURE_WITH_LEVERAGE = 1.1
         exposure_series = result['daily_exposure']
-        if (exposure_series < 0).any() or (exposure_series > 1.1).any():
-            print("❌ FAIL: Some exposure values are outside [0, 1.1] range")
+        if (exposure_series < 0).any() or (exposure_series > MAX_EXPOSURE_WITH_LEVERAGE).any():
+            print(f"❌ FAIL: Some exposure values are outside [0, {MAX_EXPOSURE_WITH_LEVERAGE}] range")
             return False
         
         print("✓ All exposure values in valid range")
