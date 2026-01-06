@@ -171,11 +171,11 @@ def test_numeric_outputs():
                 for key in numeric_keys:
                     value = summary.get(key)
                     if value is not None:
-                        print(f"❌ FAIL: {period} summary '{key}' is not None (but available=False)")
+                        print(f'❌ FAIL: {period} summary "{key}" is not None (but available=False)')
                         return False
                 # Check diagnostic fields are present
                 if summary.get('reason') is None:
-                    print(f"❌ FAIL: {period} summary 'reason' is None (but available=False)")
+                    print(f'❌ FAIL: {period} summary "reason" is None (but available=False)')
                     return False
                 if summary.get('rows_used') is None:
                     print(f"❌ FAIL: {period} summary 'rows_used' is None")
@@ -532,7 +532,7 @@ def test_strict_60d_windowing():
             
             # Check reason is 'insufficient_aligned_rows'
             if summary_60d['reason'] != 'insufficient_aligned_rows':
-                print(f"❌ FAIL: reason is '{summary_60d['reason']}', expected 'insufficient_aligned_rows'")
+                print(f'❌ FAIL: reason is "{summary_60d["reason"]}", expected "insufficient_aligned_rows"')
                 return False
             
             # Check rows_used equals actual rows available

@@ -1694,7 +1694,7 @@ def compute_portfolio_alpha_attribution(
                     'available': False,
                     'reason': 'computation_error',
                     'requested_period_days': period,
-                    'rows_used': rows_available,
+                    'rows_used': period,  # Report the period that was attempted (not total available)
                     'cum_real': None,
                     'cum_sel': None,
                     'cum_bm': None,
