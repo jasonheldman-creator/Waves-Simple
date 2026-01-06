@@ -1762,6 +1762,277 @@ def compute_portfolio_alpha_attribution(
     return result
 
 
+def compute_portfolio_alpha_ledger(
+    price_book: pd.DataFrame,
+    mode: str = 'Standard',
+    periods: List[int] = [1, 30, 60, 365],
+    safe_ticker_preference: List[str] = ["BIL", "SHY"],
+    wave_registry: Optional[Dict] = None,
+    vix_proxy_preference: List[str] = ["^VIX", "VIXY", "VXX"]
+) -> Dict[str, Any]:
+    """
+    Compute complete portfolio alpha ledger with strict enforcement and diagnostics.
+    
+    This is the SINGLE SOURCE OF TRUTH for blue box rendering (PR #419 Addendum).
+    
+    Enhancements over compute_portfolio_alpha_attribution:
+    - Strict period integrity: rows_used == N or available=False with clear reason
+    - Alpha Captured metric with VIX proxy tracking
+    - Attribution reconciliation with 1e-10 tolerance
+    - Enhanced metadata: benchmark ticker, window dates, VIX proxy source, safe asset
+    - Exposure min/max tracking per period
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers)
+        mode: Operating mode (e.g., 'Standard', 'Safe', 'Aggressive')
+        periods: Lookback periods in days [1, 30, 60, 365]
+        safe_ticker_preference: Ordered list of safe asset tickers
+        wave_registry: Wave registry (if None, uses WAVE_WEIGHTS)
+        vix_proxy_preference: Ordered list of VIX proxy tickers
+        
+    Returns:
+        Dictionary with all compute_portfolio_alpha_attribution fields plus:
+        - benchmark_ticker: str - Benchmark ticker used (e.g., 'SPY')
+        - safe_ticker: Optional[str] - Safe asset ticker used (e.g., 'BIL', 'SHY', or None)
+        - vix_proxy_ticker: Optional[str] - VIX proxy ticker if available (e.g., '^VIX', 'VIXY', 'VXX', or None)
+        - vix_proxy_source: str - Source description (e.g., "^VIX", "VIXY", "VXX", or "None")
+        - wave_count: int - Number of waves included in computation
+        - latest_date: str - Latest data date (YYYY-MM-DD)
+        - data_age_days: int - Age of data in calendar days
+        
+    Period summary enhancements (in addition to base fields):
+        - start_date: str - Start date of window (YYYY-MM-DD) or None if unavailable
+        - end_date: str - End date of window (YYYY-MM-DD) or None if unavailable
+        - alpha_captured: Optional[float] - Compounded alpha captured via exposure, or None if no VIX proxy
+        - exposure_min: Optional[float] - Minimum exposure in window
+        - exposure_max: Optional[float] - Maximum exposure in window
+        - attribution_reconciled: bool - Whether attribution passes tolerance check (residual <= 1e-10)
+    """
+    # Call base attribution function
+    base_result = compute_portfolio_alpha_attribution(
+        price_book=price_book,
+        mode=mode,
+        periods=periods,
+        safe_ticker_preference=safe_ticker_preference,
+        wave_registry=wave_registry
+    )
+    
+    # Initialize enhanced result with base result
+    result = base_result.copy()
+    
+    # If base computation failed, return early with metadata defaults
+    if not result['success']:
+        result.update({
+            'benchmark_ticker': DEFAULT_BENCHMARK_TICKER,
+            'safe_ticker': None,
+            'vix_proxy_ticker': None,
+            'vix_proxy_source': 'None',
+            'wave_count': 0,
+            'latest_date': None,
+            'data_age_days': None
+        })
+        return result
+    
+    # ========================================================================
+    # Add enhanced metadata (Requirement C)
+    # ========================================================================
+    
+    # Benchmark ticker
+    result['benchmark_ticker'] = DEFAULT_BENCHMARK_TICKER
+    
+    # Safe ticker - find first available from preference list
+    safe_ticker = None
+    for ticker in safe_ticker_preference:
+        if ticker in price_book.columns:
+            safe_ticker = ticker
+            break
+    result['safe_ticker'] = safe_ticker
+    
+    # VIX proxy ticker - find first available from preference list
+    vix_proxy_ticker = None
+    for ticker in vix_proxy_preference:
+        if ticker in price_book.columns:
+            vix_proxy_ticker = ticker
+            break
+    result['vix_proxy_ticker'] = vix_proxy_ticker
+    result['vix_proxy_source'] = vix_proxy_ticker if vix_proxy_ticker else 'None'
+    
+    # Wave count - count waves used in computation
+    if not WAVES_ENGINE_AVAILABLE:
+        result['wave_count'] = 0
+    else:
+        try:
+            universe = get_all_waves_universe()
+            all_waves = universe.get('waves', [])
+            # Use wave_registry if provided, else WAVE_WEIGHTS
+            registry = wave_registry if wave_registry is not None else WAVE_WEIGHTS
+            wave_count = sum(1 for wave in all_waves if wave in registry and registry[wave])
+            result['wave_count'] = wave_count
+        except Exception:
+            result['wave_count'] = 0
+    
+    # Latest date and data age
+    try:
+        latest_date = price_book.index[-1]
+        result['latest_date'] = latest_date.strftime('%Y-%m-%d')
+        data_age_days = (datetime.now().date() - latest_date.date()).days
+        result['data_age_days'] = data_age_days
+    except Exception:
+        result['latest_date'] = None
+        result['data_age_days'] = None
+    
+    # ========================================================================
+    # Enhance period summaries with additional diagnostics (Requirements C, D, E, F)
+    # ========================================================================
+    
+    # Get daily series from base result
+    daily_realized = result.get('daily_realized_return')
+    daily_unoverlay = result.get('daily_unoverlay_return')
+    daily_benchmark = result.get('daily_benchmark_return')
+    daily_exposure = result.get('daily_exposure')
+    
+    if daily_realized is None or daily_unoverlay is None or daily_benchmark is None or daily_exposure is None:
+        # Cannot enhance summaries without daily series
+        return result
+    
+    # Tolerance for attribution reconciliation (Requirement E)
+    RECONCILIATION_TOLERANCE = 1e-10
+    
+    # Enhance each period summary
+    for period_key, summary in result['period_summaries'].items():
+        period = summary['period']
+        
+        if not summary['available']:
+            # Unavailable period - add None values for new fields
+            summary['start_date'] = None
+            summary['end_date'] = None
+            summary['alpha_captured'] = None
+            summary['exposure_min'] = None
+            summary['exposure_max'] = None
+            summary['attribution_reconciled'] = False
+        else:
+            # Available period - compute enhancements
+            
+            # Get window data (last N rows)
+            rows_available = len(daily_realized)
+            if rows_available < period:
+                # Should not happen if available=True, but handle defensively
+                summary['start_date'] = None
+                summary['end_date'] = None
+                summary['alpha_captured'] = None
+                summary['exposure_min'] = None
+                summary['exposure_max'] = None
+                summary['attribution_reconciled'] = False
+                continue
+            
+            # Extract window
+            window_realized = daily_realized.iloc[-period:]
+            window_unoverlay = daily_unoverlay.iloc[-period:]
+            window_benchmark = daily_benchmark.iloc[-period:]
+            window_exposure = daily_exposure.iloc[-period:]
+            
+            # Start and end dates (Requirement C)
+            try:
+                summary['start_date'] = window_realized.index[0].strftime('%Y-%m-%d')
+                summary['end_date'] = window_realized.index[-1].strftime('%Y-%m-%d')
+            except Exception:
+                summary['start_date'] = None
+                summary['end_date'] = None
+            
+            # Exposure min/max (Requirement F)
+            try:
+                summary['exposure_min'] = float(window_exposure.min())
+                summary['exposure_max'] = float(window_exposure.max())
+            except Exception:
+                summary['exposure_min'] = None
+                summary['exposure_max'] = None
+            
+            # Alpha Captured (Requirement D)
+            # Daily Alpha = risk_return - benchmark_return (i.e., unoverlay_return - benchmark_return)
+            # Daily Alpha Captured = exposure × daily_alpha
+            # Alpha Captured Period = compounded product over window
+            if vix_proxy_ticker is None:
+                # No VIX proxy available - set to None
+                summary['alpha_captured'] = None
+            else:
+                # Compute alpha captured
+                try:
+                    # Daily alpha = unoverlay_return - benchmark_return
+                    daily_alpha = window_unoverlay - window_benchmark
+                    
+                    # Daily alpha captured = exposure × daily_alpha
+                    daily_alpha_captured = window_exposure * daily_alpha
+                    
+                    # Alpha Captured Period = compounded product
+                    # (1 + r1) * (1 + r2) * ... * (1 + rn) - 1
+                    alpha_captured_period = (1 + daily_alpha_captured).prod() - 1
+                    summary['alpha_captured'] = float(alpha_captured_period)
+                except Exception as e:
+                    logger.warning(f"Failed to compute alpha_captured for {period_key}: {e}")
+                    summary['alpha_captured'] = None
+            
+            # Attribution reconciliation (Requirement E)
+            residual = summary.get('residual')
+            if residual is not None:
+                summary['attribution_reconciled'] = abs(residual) <= RECONCILIATION_TOLERANCE
+                
+                # If reconciliation fails, mark as unavailable
+                if not summary['attribution_reconciled']:
+                    summary['available'] = False
+                    summary['reason'] = 'attribution_mismatch'
+                    # Set metrics to None
+                    summary['cum_real'] = None
+                    summary['cum_sel'] = None
+                    summary['cum_bm'] = None
+                    summary['total_alpha'] = None
+                    summary['selection_alpha'] = None
+                    summary['overlay_alpha'] = None
+                    summary['alpha_captured'] = None
+            else:
+                summary['attribution_reconciled'] = False
+    
+    # Enhance since_inception_summary
+    inception = result.get('since_inception_summary', {})
+    if inception:
+        # Add start/end dates for inception
+        try:
+            inception['start_date'] = daily_realized.index[0].strftime('%Y-%m-%d')
+            inception['end_date'] = daily_realized.index[-1].strftime('%Y-%m-%d')
+        except Exception:
+            inception['start_date'] = None
+            inception['end_date'] = None
+        
+        # Exposure min/max for inception
+        try:
+            inception['exposure_min'] = float(daily_exposure.min())
+            inception['exposure_max'] = float(daily_exposure.max())
+        except Exception:
+            inception['exposure_min'] = None
+            inception['exposure_max'] = None
+        
+        # Alpha captured for inception
+        if vix_proxy_ticker is None:
+            inception['alpha_captured'] = None
+        else:
+            try:
+                daily_alpha = daily_unoverlay - daily_benchmark
+                daily_alpha_captured = daily_exposure * daily_alpha
+                alpha_captured_inception = (1 + daily_alpha_captured).prod() - 1
+                inception['alpha_captured'] = float(alpha_captured_inception)
+            except Exception as e:
+                logger.warning(f"Failed to compute inception alpha_captured: {e}")
+                inception['alpha_captured'] = None
+        
+        # Attribution reconciliation for inception
+        residual = inception.get('residual')
+        if residual is not None:
+            inception['attribution_reconciled'] = abs(residual) <= RECONCILIATION_TOLERANCE
+        else:
+            inception['attribution_reconciled'] = False
+    
+    return result
+
+
 def validate_portfolio_diagnostics(
     price_book: pd.DataFrame,
     mode: str = 'Standard'
