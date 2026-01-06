@@ -9510,9 +9510,34 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                # ================================================================
+                # STACKED LEDGER RENDERER - EXCLUSIVE RENDERER FOR BLUE BOX
+                # ================================================================
+                # This section uses ONLY the stacked ledger renderer.
+                # Legacy tile-based renderer (st.metric for periods) is DISABLED.
+                # All period data comes from compute_portfolio_alpha_ledger().
+                # Reconciliation rules enforced:
+                #   1. Portfolio Return - Benchmark Return = Total Alpha
+                #   2. Selection Alpha + Overlay Alpha + Residual = Total Alpha
+                # ================================================================
+                
                 st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
                 st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
+                # Renderer proof line
+                import subprocess
+                import datetime
+                import os
+                try:
+                    # Use current directory instead of hardcoded path
+                    cwd = os.path.dirname(os.path.abspath(__file__))
+                    git_sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
+                                                     cwd=cwd,
+                                                     stderr=subprocess.DEVNULL).decode('utf-8').strip()
+                except:
+                    git_sha = "unknown"
+                timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                st.caption(f"🔧 **Renderer:** Stacked Ledger | **Build:** {git_sha} | **Updated:** {timestamp}")
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
