@@ -1874,3 +1874,546 @@ def validate_portfolio_diagnostics(
             result['data_quality'] = 'DEGRADED'
     
     return result
+
+
+def compute_portfolio_exposure_series(
+    price_book: pd.DataFrame,
+    mode: str = "Standard",
+    smooth_window: int = 3,
+    apply_smoothing: bool = True
+) -> Optional[pd.Series]:
+    """
+    Compute deterministic portfolio exposure series using VIX regime mapping.
+    
+    This function implements the canonical exposure calculation for portfolio overlays:
+    1. Selects VIX series in order of preference: ^VIX > VIXY > VXX
+    2. Maps VIX to exposure using regime thresholds:
+       - VIX < 18: Exposure = 1.00 (full risk)
+       - 18 ≤ VIX < 25: Exposure = 0.65 (moderate risk)
+       - VIX ≥ 25: Exposure = 0.25 (low risk / defensive)
+    3. Optionally smooths using 3-day rolling median
+    4. Clips exposure to [0, 1] range
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        mode: Operating mode (currently not used, reserved for future mode-specific logic)
+        smooth_window: Window size for rolling median smoothing (default: 3)
+        apply_smoothing: Whether to apply rolling median smoothing (default: True)
+        
+    Returns:
+        pd.Series: Exposure indexed by date, or None if no VIX proxy is available
+        
+    Edge Cases:
+        - Returns None if no VIX proxy ticker is found in PRICE_BOOK
+        - Returns 'missing_vix_series' as failure reason when None is returned
+        
+    Example:
+        >>> price_book = get_price_book()
+        >>> exposure = compute_portfolio_exposure_series(price_book)
+        >>> if exposure is not None:
+        >>>     print(f"Average exposure: {exposure.mean():.2f}")
+    """
+    # Validate inputs
+    if price_book is None or price_book.empty:
+        logger.warning("compute_portfolio_exposure_series: PRICE_BOOK is empty")
+        return None
+    
+    # Try to find VIX series in order of preference
+    vix_ticker_preference = ['^VIX', 'VIXY', 'VXX']
+    vix_series = None
+    vix_ticker_found = None
+    
+    for ticker in vix_ticker_preference:
+        if ticker in price_book.columns:
+            vix_series = price_book[ticker].copy()
+            vix_ticker_found = ticker
+            logger.info(f"Using VIX proxy: {ticker}")
+            break
+    
+    # Edge case: No VIX proxy available
+    if vix_series is None:
+        logger.warning("compute_portfolio_exposure_series: No VIX proxy found (tried: ^VIX, VIXY, VXX)")
+        return None
+    
+    # Remove NaN values
+    vix_series = vix_series.dropna()
+    
+    if len(vix_series) == 0:
+        logger.warning(f"compute_portfolio_exposure_series: VIX series {vix_ticker_found} has no valid data")
+        return None
+    
+    # Map VIX to exposure using regime thresholds
+    # VIX < 18: Exposure = 1.00
+    # 18 ≤ VIX < 25: Exposure = 0.65
+    # VIX ≥ 25: Exposure = 0.25
+    def map_vix_to_exposure(vix_value):
+        if pd.isna(vix_value):
+            return 1.0  # Default to full exposure if VIX is missing
+        if vix_value < 18:
+            return 1.00
+        elif vix_value < 25:
+            return 0.65
+        else:
+            return 0.25
+    
+    exposure_series = vix_series.apply(map_vix_to_exposure)
+    
+    # Apply rolling median smoothing if requested
+    if apply_smoothing and smooth_window > 1:
+        exposure_series = exposure_series.rolling(
+            window=smooth_window, 
+            center=False, 
+            min_periods=1
+        ).median()
+    
+    # Clip exposure to [0, 1] range
+    exposure_series = exposure_series.clip(lower=0.0, upper=1.0)
+    
+    logger.debug(f"Computed exposure series: {len(exposure_series)} days, "
+                f"avg={exposure_series.mean():.3f}, min={exposure_series.min():.3f}, max={exposure_series.max():.3f}")
+    
+    return exposure_series
+
+
+def compute_portfolio_alpha_ledger(
+    price_book: pd.DataFrame,
+    periods: List[int] = [1, 30, 60, 365],
+    benchmark_ticker: str = "SPY",
+    safe_ticker_preference: List[str] = ["BIL", "SHY"],
+    mode: str = "Standard",
+    wave_registry: Optional[Dict] = None,
+    vix_exposure_enabled: bool = True
+) -> Dict[str, Any]:
+    """
+    Compute canonical portfolio alpha ledger with deterministic attribution.
+    
+    This is the primary function for computing portfolio-level metrics with full
+    transparency and attribution decomposition. It provides:
+    
+    1. Daily return calculation:
+       - Risk-sleeve returns (equal-weight portfolio across waves)
+       - Safe asset returns (BIL preferred, fallback to SHY)
+       - Exposure series from VIX regime (if available)
+       - Realized returns: exposure * risk_return + (1-exposure) * safe_return
+       - Unoverlay returns: risk_return (exposure=1.0)
+       - Benchmark returns (SPY or specified)
+    
+    2. Alpha calculation for each period (N):
+       - Cumulative returns over strict last N trading rows
+       - Attribution: total_alpha, selection_alpha, overlay_alpha
+       - Residual validation (should be near 0)
+       - Availability flags for insufficient data
+    
+    3. Alpha Captured computation (if VIX exposure exists):
+       - Daily alpha = realized - benchmark
+       - Exposure-weighted cumulative metrics
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        periods: List of lookback periods in days (default: [1, 30, 60, 365])
+        benchmark_ticker: Benchmark ticker symbol (default: "SPY")
+        safe_ticker_preference: Ordered list of safe asset tickers (default: ["BIL", "SHY"])
+        mode: Operating mode (default: "Standard")
+        wave_registry: Wave registry dict (default: None, uses WAVE_WEIGHTS)
+        vix_exposure_enabled: Whether to compute VIX-based exposure (default: True)
+        
+    Returns:
+        Dictionary with:
+        - success: bool - Whether computation succeeded
+        - failure_reason: Optional[str] - Reason for failure
+        - daily_risk_return: pd.Series - Daily risk-sleeve returns (equal-weight waves)
+        - daily_safe_return: pd.Series - Daily safe asset returns
+        - daily_exposure: pd.Series - Daily exposure levels [0, 1]
+        - daily_realized_return: pd.Series - Daily realized returns (with overlay)
+        - daily_unoverlay_return: pd.Series - Daily unoverlay returns (exposure=1.0)
+        - daily_benchmark_return: pd.Series - Daily benchmark returns
+        - period_results: Dict[str, Dict] - Results for each period
+        - vix_ticker_used: Optional[str] - VIX ticker used (None if unavailable)
+        - safe_ticker_used: Optional[str] - Safe ticker used (None if unavailable)
+        - overlay_available: bool - Whether VIX overlay was applied
+        - warnings: List[str] - Any warnings about data quality
+        
+    Period result structure (for each period in periods):
+        - period: int - Period in days
+        - available: bool - Whether sufficient data exists
+        - reason: Optional[str] - Reason if unavailable
+        - rows_used: int - Actual trading rows used
+        - start_date: Optional[str] - Start date of period (YYYY-MM-DD)
+        - end_date: Optional[str] - End date of period (YYYY-MM-DD)
+        - cum_realized: Optional[float] - Cumulative realized return
+        - cum_unoverlay: Optional[float] - Cumulative unoverlay return
+        - cum_benchmark: Optional[float] - Cumulative benchmark return
+        - total_alpha: Optional[float] - cum_realized - cum_benchmark
+        - selection_alpha: Optional[float] - cum_unoverlay - cum_benchmark
+        - overlay_alpha: Optional[float] - cum_realized - cum_unoverlay
+        - residual: Optional[float] - total_alpha - (selection_alpha + overlay_alpha)
+        - alpha_captured: Optional[float] - Exposure-weighted alpha (if overlay available)
+        
+    Example:
+        >>> from helpers.price_book import get_price_book
+        >>> price_book = get_price_book()
+        >>> ledger = compute_portfolio_alpha_ledger(price_book, periods=[1, 30, 60, 365])
+        >>> if ledger['success']:
+        >>>     for period_key, period_data in ledger['period_results'].items():
+        >>>         if period_data['available']:
+        >>>             print(f"{period_key}: Total Alpha = {period_data['total_alpha']:.2%}")
+    """
+    result = {
+        'success': False,
+        'failure_reason': None,
+        'daily_risk_return': None,
+        'daily_safe_return': None,
+        'daily_exposure': None,
+        'daily_realized_return': None,
+        'daily_unoverlay_return': None,
+        'daily_benchmark_return': None,
+        'period_results': {},
+        'vix_ticker_used': None,
+        'safe_ticker_used': None,
+        'overlay_available': False,
+        'warnings': []
+    }
+    
+    # Validate inputs
+    if price_book is None or price_book.empty:
+        result['failure_reason'] = 'PRICE_BOOK is empty'
+        return result
+    
+    if not WAVES_ENGINE_AVAILABLE:
+        result['failure_reason'] = 'waves_engine not available'
+        return result
+    
+    # Use WAVE_WEIGHTS as registry if not provided
+    if wave_registry is None:
+        wave_registry = WAVE_WEIGHTS
+    
+    try:
+        universe = get_all_waves_universe()
+        all_waves = universe.get('waves', [])
+    except Exception as e:
+        result['failure_reason'] = f'Error getting wave universe: {str(e)}'
+        return result
+    
+    if not all_waves:
+        result['failure_reason'] = 'No waves found in universe'
+        return result
+    
+    # ========================================================================
+    # Step 1: Compute daily_risk_return (equal-weight portfolio, exposure=1.0)
+    # ========================================================================
+    try:
+        wave_return_dict = {}
+        
+        for wave_name in all_waves:
+            if wave_name not in wave_registry:
+                continue
+            
+            wave_holdings = wave_registry[wave_name]
+            if not wave_holdings:
+                continue
+            
+            try:
+                tickers = [h.ticker for h in wave_holdings]
+                weights = [h.weight for h in wave_holdings]
+                
+                total_weight = sum(weights)
+                if total_weight == 0:
+                    continue
+                normalized_weights = [w / total_weight for w in weights]
+                
+                # Filter to available tickers
+                available_tickers = []
+                available_weights = []
+                for ticker, weight in zip(tickers, normalized_weights):
+                    if ticker in price_book.columns:
+                        available_tickers.append(ticker)
+                        available_weights.append(weight)
+                
+                if not available_tickers:
+                    continue
+                
+                # Renormalize
+                total_available = sum(available_weights)
+                renormalized_weights = [w / total_available for w in available_weights]
+                
+                # Compute daily returns
+                ticker_prices = price_book[available_tickers].copy()
+                if len(ticker_prices) < 2:
+                    continue
+                
+                ticker_returns = ticker_prices.pct_change()
+                
+                # Weighted returns
+                wave_returns = pd.Series(0.0, index=ticker_returns.index)
+                for i, ticker in enumerate(available_tickers):
+                    weight = renormalized_weights[i]
+                    ticker_ret = ticker_returns[ticker]
+                    wave_returns = wave_returns.add(ticker_ret * weight, fill_value=0.0)
+                
+                wave_returns = wave_returns.iloc[1:]  # Drop first NaN
+                
+                if len(wave_returns) > 0 and wave_returns.notna().any():
+                    wave_return_dict[wave_name] = wave_returns
+            
+            except Exception as e:
+                logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
+                continue
+        
+        if not wave_return_dict:
+            result['failure_reason'] = 'No valid wave return series computed'
+            return result
+        
+        # Aggregate to portfolio level (equal weight)
+        return_matrix = pd.DataFrame(wave_return_dict)
+        daily_risk_return = return_matrix.mean(axis=1, skipna=True)
+        
+        # Drop dates where all are NaN
+        valid_dates = ~daily_risk_return.isna()
+        daily_risk_return = daily_risk_return[valid_dates].sort_index()
+        
+        if len(daily_risk_return) < 2:
+            result['failure_reason'] = 'Insufficient dates after aggregation'
+            return result
+        
+        result['daily_risk_return'] = daily_risk_return
+        result['daily_unoverlay_return'] = daily_risk_return.copy()  # Same as risk return (exposure=1.0)
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing risk returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 2: Compute daily_safe_return
+    # ========================================================================
+    try:
+        safe_ticker = None
+        for ticker in safe_ticker_preference:
+            if ticker in price_book.columns:
+                safe_ticker = ticker
+                result['safe_ticker_used'] = ticker
+                logger.info(f"Using safe asset: {ticker}")
+                break
+        
+        if safe_ticker is not None:
+            safe_prices = price_book[safe_ticker].copy()
+            daily_safe_return = safe_prices.pct_change().iloc[1:]
+            # Align with risk return dates
+            daily_safe_return = daily_safe_return.reindex(daily_risk_return.index, fill_value=0.0)
+        else:
+            # Use 0 return for safe sleeve if no safe asset available
+            daily_safe_return = pd.Series(0.0, index=daily_risk_return.index)
+            result['warnings'].append('No safe asset ticker found (BIL, SHY) - using 0% safe return')
+        
+        result['daily_safe_return'] = daily_safe_return
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing safe returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 3: Compute daily_exposure series (VIX-based if enabled)
+    # ========================================================================
+    try:
+        if vix_exposure_enabled:
+            exposure_series = compute_portfolio_exposure_series(price_book, mode=mode)
+            
+            if exposure_series is not None:
+                # Align exposure with risk return dates
+                daily_exposure = exposure_series.reindex(daily_risk_return.index, method='ffill')
+                # Fill any remaining NaN with 1.0 (full exposure)
+                daily_exposure = daily_exposure.fillna(1.0)
+                result['overlay_available'] = True
+                
+                # Determine which VIX ticker was used
+                for ticker in ['^VIX', 'VIXY', 'VXX']:
+                    if ticker in price_book.columns:
+                        result['vix_ticker_used'] = ticker
+                        break
+            else:
+                # No VIX proxy available - use full exposure
+                daily_exposure = pd.Series(1.0, index=daily_risk_return.index)
+                result['overlay_available'] = False
+                result['warnings'].append('No VIX proxy available - using full exposure (1.0)')
+        else:
+            # VIX exposure disabled - use full exposure
+            daily_exposure = pd.Series(1.0, index=daily_risk_return.index)
+            result['overlay_available'] = False
+        
+        result['daily_exposure'] = daily_exposure
+        
+    except Exception as e:
+        # Error computing exposure - use fallback
+        daily_exposure = pd.Series(1.0, index=daily_risk_return.index)
+        result['daily_exposure'] = daily_exposure
+        result['overlay_available'] = False
+        result['warnings'].append(f'Error computing exposure: {str(e)} - using full exposure (1.0)')
+        logger.warning(f'Error computing exposure in alpha ledger: {str(e)}')
+    
+    # ========================================================================
+    # Step 4: Compute daily_realized_return (with overlay)
+    # ========================================================================
+    # realized_return(t) = exposure(t) * risk_return(t) + (1-exposure(t)) * safe_return(t)
+    try:
+        daily_realized_return = (
+            daily_exposure * daily_risk_return + 
+            (1 - daily_exposure) * daily_safe_return
+        )
+        result['daily_realized_return'] = daily_realized_return
+    
+    except Exception as e:
+        result['failure_reason'] = f'Error computing realized returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 5: Compute daily_benchmark_return
+    # ========================================================================
+    try:
+        if benchmark_ticker in price_book.columns:
+            benchmark_prices = price_book[benchmark_ticker].copy()
+            daily_benchmark_return = benchmark_prices.pct_change().iloc[1:]
+            # Align with portfolio dates
+            daily_benchmark_return = daily_benchmark_return.reindex(daily_risk_return.index, fill_value=0.0)
+        else:
+            # Use risk return as benchmark if SPY not available
+            daily_benchmark_return = daily_risk_return.copy()
+            result['warnings'].append(f'Benchmark ticker {benchmark_ticker} not found - using risk return as benchmark')
+        
+        result['daily_benchmark_return'] = daily_benchmark_return
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing benchmark returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 6: Compute period results with strict windowing and attribution
+    # ========================================================================
+    try:
+        def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
+            """Compute cumulative return over last N days (strict slicing)."""
+            if len(series) < window:
+                return None
+            window_series = series.iloc[-window:]
+            cum_return = (1 + window_series).prod() - 1
+            return float(cum_return)
+        
+        def compute_alpha_captured(
+            daily_alpha: pd.Series, 
+            daily_exposure: pd.Series, 
+            window: int
+        ) -> Optional[float]:
+            """
+            Compute exposure-weighted alpha captured over window.
+            
+            Alpha captured measures the alpha that was actually captured given
+            the exposure levels. It's computed as the sum of daily alpha weighted
+            by exposure.
+            """
+            if len(daily_alpha) < window or len(daily_exposure) < window:
+                return None
+            
+            window_alpha = daily_alpha.iloc[-window:]
+            window_exposure = daily_exposure.iloc[-window:]
+            
+            # Align series
+            aligned = pd.DataFrame({
+                'alpha': window_alpha,
+                'exposure': window_exposure
+            })
+            
+            # Alpha captured = sum(daily_alpha * exposure)
+            alpha_captured = (aligned['alpha'] * aligned['exposure']).sum()
+            return float(alpha_captured)
+        
+        # Compute daily alpha for alpha_captured calculation
+        daily_alpha = daily_realized_return - daily_benchmark_return
+        
+        rows_available = len(daily_realized_return)
+        
+        for period in periods:
+            # Strict windowing: compute only if we have exactly the requested period rows
+            if rows_available < period:
+                # Insufficient rows
+                result['period_results'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': 'insufficient_aligned_rows',
+                    'rows_used': rows_available,
+                    'start_date': None,
+                    'end_date': None,
+                    'cum_realized': None,
+                    'cum_unoverlay': None,
+                    'cum_benchmark': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None,
+                    'alpha_captured': None
+                }
+                continue
+            
+            # We have sufficient rows - compute using strict last N rows
+            cum_realized = compute_cumulative_return(daily_realized_return, period)
+            cum_unoverlay = compute_cumulative_return(result['daily_unoverlay_return'], period)
+            cum_benchmark = compute_cumulative_return(daily_benchmark_return, period)
+            
+            # Get date range for this period
+            period_series = daily_realized_return.iloc[-period:]
+            start_date = period_series.index[0].strftime('%Y-%m-%d')
+            end_date = period_series.index[-1].strftime('%Y-%m-%d')
+            
+            if cum_realized is None or cum_unoverlay is None or cum_benchmark is None:
+                # Computation error
+                result['period_results'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': 'computation_error',
+                    'rows_used': period,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'cum_realized': None,
+                    'cum_unoverlay': None,
+                    'cum_benchmark': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None,
+                    'alpha_captured': None
+                }
+                continue
+            
+            # Compute attribution
+            total_alpha = cum_realized - cum_benchmark
+            selection_alpha = cum_unoverlay - cum_benchmark
+            overlay_alpha = cum_realized - cum_unoverlay
+            residual = total_alpha - (selection_alpha + overlay_alpha)
+            
+            # Compute alpha captured (if overlay available)
+            alpha_captured = None
+            if result['overlay_available']:
+                alpha_captured = compute_alpha_captured(daily_alpha, daily_exposure, period)
+            
+            result['period_results'][f'{period}D'] = {
+                'period': period,
+                'available': True,
+                'reason': None,
+                'rows_used': period,
+                'start_date': start_date,
+                'end_date': end_date,
+                'cum_realized': cum_realized,
+                'cum_unoverlay': cum_unoverlay,
+                'cum_benchmark': cum_benchmark,
+                'total_alpha': total_alpha,
+                'selection_alpha': selection_alpha,
+                'overlay_alpha': overlay_alpha,
+                'residual': residual,
+                'alpha_captured': alpha_captured
+            }
+        
+        result['success'] = True
+        result['failure_reason'] = None
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing period results: {str(e)}'
+        return result
+    
+    return result
