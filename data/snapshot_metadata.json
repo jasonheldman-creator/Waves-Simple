@@ -1,1 +1,15 @@
-<content_from_origin/main_snapshot_metadata.json>
+{
+  "snapshot_id": "snap-b04f4ebb90924eb2",
+  "snapshot_hash": "baba2092b0fb9094",
+  "generation_reason": "auto",
+  "timestamp": "2026-01-05T20:19:44.800279",
+  "software_version": "caddc79",
+  "git_branch": "copilot/add-portfolio-snapshot-debug",
+  "registry_version": "v20260102_214700",
+  "benchmark_version": "v20260102_214700",
+  "data_regime": "SANDBOX",
+  "safe_mode": "OFF",
+  "wave_count": 28,
+  "degraded_wave_count": 0,
+  "broken_ticker_count": 127
+}
