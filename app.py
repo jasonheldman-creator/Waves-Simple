@@ -8715,70 +8715,73 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
-    # Data Health Panel
+    # Data Health Panel (Hidden in Demo Mode)
     # ========================================================================
-    with st.sidebar.expander("📊 Data Health Status", expanded=False):
-        try:
-            from helpers.data_health_panel import render_data_health_panel
-            render_data_health_panel()
-        except ImportError:
-            st.warning("⚠️ Data health panel not available")
-        except Exception as e:
-            st.error(f"❌ Error loading health panel: {str(e)}")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Wave Universe Truth Panel (Collapsible)
-    # ========================================================================
-    with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
-        render_wave_universe_truth_panel()
-    
-    st.sidebar.markdown("---")
+    if not st.session_state.get("demo_mode", False):
+        with st.sidebar.expander("📊 Data Health Status", expanded=False):
+            try:
+                from helpers.data_health_panel import render_data_health_panel
+                render_data_health_panel()
+            except ImportError:
+                st.warning("⚠️ Data health panel not available")
+            except Exception as e:
+                st.error(f"❌ Error loading health panel: {str(e)}")
+        
+        st.sidebar.markdown("---")
     
     # ========================================================================
-    # Sidebar Information
+    # Wave Universe Truth Panel (Collapsible) (Hidden in Demo Mode)
     # ========================================================================
+    if not st.session_state.get("demo_mode", False):
+        with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
+            render_wave_universe_truth_panel()
+        
+        st.sidebar.markdown("---")
     
-    st.sidebar.title("Risk Lab")
-    st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
+    # ========================================================================
+    # Sidebar Information (Hidden in Demo Mode)
+    # ========================================================================
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.title("Risk Lab")
+        st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
+        
+        st.sidebar.title("Correlation Matrix")
+        st.sidebar.write("Cross-asset correlation analysis for portfolio diversification insights.")
+        
+        st.sidebar.title("Rolling Alpha / Volatility")
+        st.sidebar.write("Time-series analysis of alpha generation and volatility patterns.")
+        
+        st.sidebar.title("Drawdown Monitor")
+        st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
     
-    st.sidebar.title("Correlation Matrix")
-    st.sidebar.write("Cross-asset correlation analysis for portfolio diversification insights.")
-    
-    st.sidebar.title("Rolling Alpha / Volatility")
-    st.sidebar.write("Time-series analysis of alpha generation and volatility patterns.")
-    
-    st.sidebar.title("Drawdown Monitor")
-    st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
-    
-    # Debug Expander - Wave List Verification
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
-        try:
-            all_waves = get_all_wave_names()
-            
-            if all_waves:
-                st.write(f"**Total Waves Available:** {len(all_waves)}")
-                st.write("")
-                st.write("**First 25 Waves:**")
+    # Debug Expander - Wave List Verification (Hidden in Demo Mode)
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
+            try:
+                all_waves = get_all_wave_names()
                 
-                # Display first 25 waves
-                display_waves = all_waves[:25]
-                for i, wave in enumerate(display_waves, 1):
-                    st.text(f"{i}. {wave}")
-                
-                if len(all_waves) > 25:
+                if all_waves:
+                    st.write(f"**Total Waves Available:** {len(all_waves)}")
                     st.write("")
-                    st.caption(f"... and {len(all_waves) - 25} more waves")
-                
-                st.write("")
-                st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
-            else:
-                st.warning("⚠️ No waves available from engine")
-                st.caption("Check waves_engine.py WAVE_WEIGHTS")
-        except Exception as e:
-            st.error(f"❌ Error loading waves: {str(e)}")
+                    st.write("**First 25 Waves:**")
+                    
+                    # Display first 25 waves
+                    display_waves = all_waves[:25]
+                    for i, wave in enumerate(display_waves, 1):
+                        st.text(f"{i}. {wave}")
+                    
+                    if len(all_waves) > 25:
+                        st.write("")
+                        st.caption(f"... and {len(all_waves) - 25} more waves")
+                    
+                    st.write("")
+                    st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
+                else:
+                    st.warning("⚠️ No waves available from engine")
+                    st.caption("Check waves_engine.py WAVE_WEIGHTS")
+            except Exception as e:
+                st.error(f"❌ Error loading waves: {str(e)}")
     
     # Build Information
     st.sidebar.markdown("---")
@@ -8796,133 +8799,135 @@ def render_sidebar_info():
     st.sidebar.text(f"Deployed: {deploy_time}")
     st.sidebar.text(f"Data as of: {data_timestamp}")
     
-    # Debug Display - Wave Universe Info
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Wave Universe Debug Info"):
-        try:
-            universe = st.session_state.get("wave_universe", {})
-            if universe:
-                waves = universe.get("waves", [])
-                removed_duplicates = universe.get("removed_duplicates", [])
-                source = universe.get("source", "unknown")
-                timestamp = universe.get("timestamp", "N/A")
-                
-                st.write(f"**Total Waves:** {len(waves)}")
-                st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
-                st.write(f"**Source:** {source}")
-                st.write(f"**Last Updated:** {timestamp}")
-                
-                # Show first 10 waves for verification
-                if waves:
-                    st.write("**First 10 Waves:**")
-                    preview_waves = waves[:10]
-                    for i, wave in enumerate(preview_waves, 1):
-                        st.text(f"{i}. {wave}")
+    # Debug Display - Wave Universe Info (Hidden in Demo Mode)
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Wave Universe Debug Info"):
+            try:
+                universe = st.session_state.get("wave_universe", {})
+                if universe:
+                    waves = universe.get("waves", [])
+                    removed_duplicates = universe.get("removed_duplicates", [])
+                    source = universe.get("source", "unknown")
+                    timestamp = universe.get("timestamp", "N/A")
+                    
+                    st.write(f"**Total Waves:** {len(waves)}")
+                    st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
+                    st.write(f"**Source:** {source}")
+                    st.write(f"**Last Updated:** {timestamp}")
+                    
+                    # Show first 10 waves for verification
+                    if waves:
+                        st.write("**First 10 Waves:**")
+                        preview_waves = waves[:10]
+                        for i, wave in enumerate(preview_waves, 1):
+                            st.text(f"{i}. {wave}")
+                    else:
+                        st.warning("No waves loaded")
                 else:
-                    st.warning("No waves loaded")
-            else:
-                st.info("Wave universe not yet initialized")
-        except Exception as e:
-            st.error(f"Debug display error: {str(e)}")
+                    st.info("Wave universe not yet initialized")
+            except Exception as e:
+                st.error(f"Debug display error: {str(e)}")
     
     # ========================================================================
-    # DIAGNOSTICS DEBUG PANEL - Collapsible
+    # DIAGNOSTICS DEBUG PANEL - Collapsible (Hidden in Demo Mode)
     # ========================================================================
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
-        st.markdown("**Diagnostics & Visibility Panel**")
-        
-        # Initialize exception storage in session state
-        if "data_load_exceptions" not in st.session_state:
-            st.session_state.data_load_exceptions = []
-        
-        try:
-            # Display selected_wave_id
-            selected_wave_id = st.session_state.get("selected_wave_id", "None")
-            st.text(f"selected_wave_id: {selected_wave_id}")
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+            st.markdown("**Diagnostics & Visibility Panel**")
             
-            # Display selectbox key being used
-            st.text(f"Selectbox key: selected_wave_id_display")
+            # Initialize exception storage in session state
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
             
-            # Check wave registry status
             try:
-                if WAVE_REGISTRY_MANAGER_AVAILABLE:
-                    active_waves_df = get_active_wave_registry()
-                    wave_count = len(active_waves_df)
-                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
-                else:
-                    st.text("Wave Registry: Module unavailable")
-            except Exception as e:
-                st.text(f"Wave Registry: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Wave Registry",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check portfolio snapshot status
-            try:
-                snapshot_path = "data/live_snapshot.csv"
-                if os.path.exists(snapshot_path):
-                    snapshot_df = pd.read_csv(snapshot_path)
-                    row_count = len(snapshot_df)
-                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
-                else:
-                    st.text("Portfolio Snapshot: File not found")
-            except Exception as e:
-                st.text(f"Portfolio Snapshot: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Portfolio Snapshot",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check price cache status
-            try:
-                price_cache_path = "data/cache/prices_cache.parquet"
-                cache_exists = os.path.exists(price_cache_path)
-                st.text(f"Price Cache Path: {price_cache_path}")
-                st.text(f"Price Cache Exists: {cache_exists}")
+                # Display selected_wave_id
+                selected_wave_id = st.session_state.get("selected_wave_id", "None")
+                st.text(f"selected_wave_id: {selected_wave_id}")
                 
-                if cache_exists:
-                    # Get file size
-                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
-                    st.text(f"Price Cache Size: {file_size:.2f} MB")
-            except Exception as e:
-                st.text(f"Price Cache: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Price Cache",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Portfolio Snapshot Debug Section
-            st.markdown("---")
-            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-            try:
-                if "portfolio_snapshot_debug" in st.session_state:
-                    debug_info = st.session_state.portfolio_snapshot_debug
-                    import json
-                    st.json(debug_info)
-                else:
-                    st.text("No portfolio snapshot debug info available yet")
-                    st.caption("Navigate to Portfolio View to generate debug data")
-            except Exception as e:
-                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
-            
-            # Display all captured exceptions
-            if st.session_state.data_load_exceptions:
+                # Display selectbox key being used
+                st.text(f"Selectbox key: selected_wave_id_display")
+                
+                # Check wave registry status
+                try:
+                    if WAVE_REGISTRY_MANAGER_AVAILABLE:
+                        active_waves_df = get_active_wave_registry()
+                        wave_count = len(active_waves_df)
+                        st.text(f"Wave Registry: Loaded ({wave_count} waves)")
+                    else:
+                        st.text("Wave Registry: Module unavailable")
+                except Exception as e:
+                    st.text(f"Wave Registry: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Wave Registry",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Check portfolio snapshot status
+                try:
+                    snapshot_path = "data/live_snapshot.csv"
+                    if os.path.exists(snapshot_path):
+                        snapshot_df = pd.read_csv(snapshot_path)
+                        row_count = len(snapshot_df)
+                        st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                    else:
+                        st.text("Portfolio Snapshot: File not found")
+                except Exception as e:
+                    st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Portfolio Snapshot",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Check price cache status
+                try:
+                    price_cache_path = "data/cache/prices_cache.parquet"
+                    cache_exists = os.path.exists(price_cache_path)
+                    st.text(f"Price Cache Path: {price_cache_path}")
+                    st.text(f"Price Cache Exists: {cache_exists}")
+                    
+                    if cache_exists:
+                        # Get file size
+                        file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                        st.text(f"Price Cache Size: {file_size:.2f} MB")
+                except Exception as e:
+                    st.text(f"Price Cache: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Price Cache",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Portfolio Snapshot Debug Section
                 st.markdown("---")
-                st.markdown("**🚨 Captured Exceptions:**")
-                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
-                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
-                        st.error(f"**Error:** {exc['error']}")
-                        st.code(exc['traceback'], language="python")
-                        
-        except Exception as e:
-            st.error(f"Debug panel error: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
+                st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+                try:
+                    if "portfolio_snapshot_debug" in st.session_state:
+                        debug_info = st.session_state.portfolio_snapshot_debug
+                        import json
+                        st.json(debug_info)
+                    else:
+                        st.text("No portfolio snapshot debug info available yet")
+                        st.caption("Navigate to Portfolio View to generate debug data")
+                except Exception as e:
+                    st.error(f"Portfolio Snapshot Debug error: {str(e)}")
+                
+                # Display all captured exceptions
+                if st.session_state.data_load_exceptions:
+                    st.markdown("---")
+                    st.markdown("**🚨 Captured Exceptions:**")
+                    for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+                        with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                            st.error(f"**Error:** {exc['error']}")
+                            st.code(exc['traceback'], language="python")
+                            
+            except Exception as e:
+                st.error(f"Debug panel error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
 
 
 # ============================================================================
