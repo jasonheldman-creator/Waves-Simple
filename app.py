@@ -6940,7 +6940,10 @@ def render_mission_control():
                         st.markdown("**Data Availability:**")
                         st.text("60D window cannot be computed due to insufficient data.")
                         st.text("")
-                        st.caption("Rolling window attribution requires at least 65 days of data (60D + 5 day buffer).")
+                        # Reference the actual constant for clarity
+                        from helpers.wave_performance import MIN_BUFFER
+                        required_days = 60 + MIN_BUFFER
+                        st.caption(f"Rolling window attribution requires at least {required_days} days of data (60D + {MIN_BUFFER} day buffer).")
                 
                 # Display table with N/A values
                 breakdown_data = []

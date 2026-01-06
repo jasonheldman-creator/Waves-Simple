@@ -88,7 +88,9 @@ def verify_60d_window():
             start_date_str = summary.get('start_date', '')
             if start_date_str:
                 start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-                if start_date.year <= 2021:
+                # Check if start date is from inception era (2021 or earlier)
+                INCEPTION_YEAR = 2021
+                if start_date.year <= INCEPTION_YEAR:
                     print(f"\n❌ FAIL: Start date is from {start_date.year} (inception era)")
                     return False
                 else:

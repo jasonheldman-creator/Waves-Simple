@@ -60,10 +60,17 @@ def _slice_last_n_trading_days(
     
     This helper enforces strict rolling-window slicing with no silent fallback to inception.
     
+    The min_buffer parameter ensures data quality by requiring additional days beyond the
+    requested window. This buffer protects against edge cases where the most recent data
+    may be incomplete or missing. For example, requesting 60D requires at least 65 days
+    (60 + 5 buffer) to ensure the full 60-day window is valid and complete.
+    
     Args:
         series: Pandas Series with DatetimeIndex
         n: Number of trading days to slice
-        min_buffer: Minimum buffer days required for validation (default: MIN_BUFFER)
+        min_buffer: Minimum buffer days required for validation (default: MIN_BUFFER=5).
+                   This ensures sufficient data exists beyond the requested window for
+                   quality validation.
         
     Returns:
         Dictionary with:

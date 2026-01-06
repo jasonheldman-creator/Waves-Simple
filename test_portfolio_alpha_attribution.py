@@ -681,11 +681,13 @@ def test_date_range_corresponds_to_slice():
         # Check that date range is reasonable for a 60-day window
         # Trading days are roughly 252/365 of calendar days
         # 60 trading days ≈ 85 calendar days (60 * 365 / 252)
+        MIN_CALENDAR_DAYS = int(60 * 365 / 252)  # ~85 days
+        MAX_CALENDAR_DAYS = MIN_CALENDAR_DAYS * 2  # ~170 days (allow for holidays/weekends)
         date_diff_days = (end_date - start_date).days
         
-        # Allow some flexibility: 60-120 calendar days for 60 trading days
-        if date_diff_days < 60 or date_diff_days > 120:
-            print(f"⚠️  WARNING: Date range is {date_diff_days} calendar days (expected ~60-120 for 60 trading days)")
+        # Allow some flexibility for holidays/weekends
+        if date_diff_days < MIN_CALENDAR_DAYS or date_diff_days > MAX_CALENDAR_DAYS:
+            print(f"⚠️  WARNING: Date range is {date_diff_days} calendar days (expected ~{MIN_CALENDAR_DAYS}-{MAX_CALENDAR_DAYS} for 60 trading days)")
         else:
             print(f"✓ Date range is {date_diff_days} calendar days (reasonable for 60 trading days)")
         
