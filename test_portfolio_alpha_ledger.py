@@ -18,6 +18,9 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Test configuration constants
+RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution
+
 
 def test_exposure_series_vix_regime_mapping():
     """Test VIX regime mapping to exposure levels."""
@@ -249,8 +252,6 @@ def test_alpha_ledger_residual_attribution():
         print("✓ Ledger computed successfully")
         
         # Check residual for each period
-        TOLERANCE = 0.0010  # 0.10% tolerance
-        
         for period_key, period_data in ledger['period_results'].items():
             if not period_data.get('available'):
                 print(f"⚠️ SKIP: {period_key} not available ({period_data.get('reason')})")
@@ -259,8 +260,8 @@ def test_alpha_ledger_residual_attribution():
             residual = period_data['residual']
             residual_pct = abs(residual) * 100
             
-            if abs(residual) > TOLERANCE:
-                print(f"❌ FAIL: {period_key} residual {residual:+.4%} exceeds tolerance ({TOLERANCE:.4%})")
+            if abs(residual) > RESIDUAL_TOLERANCE:
+                print(f"❌ FAIL: {period_key} residual {residual:+.4%} exceeds tolerance ({RESIDUAL_TOLERANCE:.4%})")
                 return False
             
             # Verify: total_alpha = selection_alpha + overlay_alpha (within tolerance)
@@ -269,13 +270,13 @@ def test_alpha_ledger_residual_attribution():
             overlay_alpha = period_data['overlay_alpha']
             
             computed_total = selection_alpha + overlay_alpha
-            if abs(total_alpha - computed_total) > TOLERANCE:
+            if abs(total_alpha - computed_total) > RESIDUAL_TOLERANCE:
                 print(f"❌ FAIL: {period_key} attribution mismatch: total={total_alpha:.4%}, computed={computed_total:.4%}")
                 return False
             
             # Color code residual
             residual_status = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-            print(f"{residual_status} {period_key}: residual={residual:+.4%} (tolerance: {TOLERANCE:.4%})")
+            print(f"{residual_status} {period_key}: residual={residual:+.4%} (tolerance: {RESIDUAL_TOLERANCE:.4%})")
         
         print("✅ PASS: Residual attribution within tolerance")
         return True
