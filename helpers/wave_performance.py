@@ -2353,7 +2353,7 @@ def compute_portfolio_alpha_ledger(
             
             # We have sufficient rows - compute using strict last N rows
             cum_realized = compute_cumulative_return(daily_realized_return, period)
-            cum_unoverlay = compute_cumulative_return(daily_unoverlay_return, period)
+            cum_unoverlay = compute_cumulative_return(result['daily_unoverlay_return'], period)
             cum_benchmark = compute_cumulative_return(daily_benchmark_return, period)
             
             # Get date range for this period
