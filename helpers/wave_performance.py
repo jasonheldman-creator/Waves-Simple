@@ -1316,40 +1316,35 @@ def compute_portfolio_snapshot(
             portfolio_returns.index[-1].strftime('%Y-%m-%d')
         )
         
-        # Compute cumulative returns for each period
-        # Convert daily returns to cumulative index starting at 100
-        portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
-        benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100
-        
-        max_available_days = len(portfolio_cumulative)
-        
+        # Compute returns for each period using strict windowing helper
         for period in periods:
             try:
-                if period >= max_available_days:
-                    # Not enough history for this period
+                # Use helper function to slice to the rolling window
+                window_portfolio = slice_windowed_series(portfolio_returns, period)
+                window_benchmark = slice_windowed_series(benchmark_returns, period)
+                
+                # Check if both series have sufficient data
+                if not (window_portfolio['available'] and window_benchmark['available']):
+                    # Not enough history for this period - set to None
                     result['portfolio_returns'][f'{period}D'] = None
                     result['benchmark_returns'][f'{period}D'] = None
                     result['alphas'][f'{period}D'] = None
                     continue
                 
-                # Get cumulative values from 'period' days ago and current value
-                current_portfolio = portfolio_cumulative.iloc[-1]
-                past_portfolio = portfolio_cumulative.iloc[-(period + 1)]
-                current_benchmark = benchmark_cumulative.iloc[-1]
-                past_benchmark = benchmark_cumulative.iloc[-(period + 1)]
+                # Compute cumulative returns from windowed series
+                cum_portfolio = (1 + window_portfolio['windowed_series']).prod() - 1
+                cum_benchmark = (1 + window_benchmark['windowed_series']).prod() - 1
                 
-                # Handle NaN values
-                if (pd.isna(current_portfolio) or pd.isna(past_portfolio) or 
-                    pd.isna(current_benchmark) or pd.isna(past_benchmark) or
-                    past_portfolio == 0 or past_benchmark == 0):
+                # Handle NaN or invalid values
+                if pd.isna(cum_portfolio) or pd.isna(cum_benchmark):
                     result['portfolio_returns'][f'{period}D'] = None
                     result['benchmark_returns'][f'{period}D'] = None
                     result['alphas'][f'{period}D'] = None
                     continue
                 
-                # Calculate returns
-                portfolio_ret = (current_portfolio - past_portfolio) / past_portfolio
-                benchmark_ret = (current_benchmark - past_benchmark) / past_benchmark
+                # Calculate returns and alpha
+                portfolio_ret = float(cum_portfolio)
+                benchmark_ret = float(cum_benchmark)
                 alpha = portfolio_ret - benchmark_ret
                 
                 result['portfolio_returns'][f'{period}D'] = portfolio_ret
@@ -1380,6 +1375,64 @@ def compute_portfolio_snapshot(
     
     # Log debug info for troubleshooting (using debug level to avoid performance impact)
     logger.debug(f"Portfolio snapshot debug: {debug}")
+    
+    return result
+
+
+def slice_windowed_series(
+    series: pd.Series,
+    window_days: int
+) -> Dict[str, Any]:
+    """
+    Slice a daily return series into a strict rolling window.
+    
+    This helper function enforces strict windowing semantics:
+    - Returns exactly the last N trading rows when available
+    - Returns available=False when insufficient data (no fallback to all data)
+    - Provides diagnostic info (start_date, end_date, rows_used)
+    
+    Args:
+        series: Aligned daily return series (pandas Series with DatetimeIndex)
+        window_days: Requested rolling window size in trading days
+        
+    Returns:
+        Dictionary with:
+        - windowed_series: pd.Series - Last N trading rows (or empty if unavailable)
+        - start_date: str - First date of window (YYYY-MM-DD) or None if unavailable
+        - end_date: str - Last date of window (YYYY-MM-DD) or None if unavailable
+        - rows_used: int - Number of rows actually used
+        - available: bool - True if rows_used == window_days
+    """
+    result = {
+        'windowed_series': pd.Series(dtype=float),
+        'start_date': None,
+        'end_date': None,
+        'rows_used': 0,
+        'available': False
+    }
+    
+    # Validate input
+    if series is None or len(series) == 0:
+        return result
+    
+    # Check if we have sufficient data
+    rows_available = len(series)
+    
+    if rows_available < window_days:
+        # Insufficient data - return unavailable with diagnostic info
+        result['rows_used'] = rows_available
+        result['available'] = False
+        return result
+    
+    # Slice to get exactly the last window_days rows
+    windowed_series = series.iloc[-window_days:]
+    
+    # Extract diagnostic info
+    result['windowed_series'] = windowed_series
+    result['start_date'] = windowed_series.index[0].strftime('%Y-%m-%d')
+    result['end_date'] = windowed_series.index[-1].strftime('%Y-%m-%d')
+    result['rows_used'] = len(windowed_series)
+    result['available'] = (result['rows_used'] == window_days)
     
     return result
 
@@ -1637,38 +1690,28 @@ def compute_portfolio_alpha_attribution(
         return result
     
     # ========================================================================
-    # Step 4: Compute period summaries
+    # Step 4: Compute period summaries using strict windowing helper
     # ========================================================================
     try:
-        def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
-            """
-            Compute cumulative return over last N days (strict slicing - no fallback).
-            
-            Returns None when insufficient data is available (len(series) < window).
-            This ensures no silent fallback to using all available data when 
-            the requested window cannot be satisfied.
-            """
-            if len(series) < window:
-                return None
-            # Strict slicing: use exactly the last 'window' trading rows
-            window_series = series.iloc[-window:]
-            cum_return = (1 + window_series).prod() - 1
-            return float(cum_return)
-        
         # Compute for each period with strict windowing and diagnostics
         for period in periods:
-            # Get actual rows available
-            rows_available = len(daily_realized_return)
+            # Use helper function to slice each series to the rolling window
+            window_realized = slice_windowed_series(daily_realized_return, period)
+            window_unoverlay = slice_windowed_series(daily_unoverlay_return, period)
+            window_benchmark = slice_windowed_series(daily_benchmark_return, period)
             
-            # Strict windowing: compute only if we have exactly the requested period rows
-            if rows_available < period:
+            # Check if all three series have sufficient data
+            if not (window_realized['available'] and window_unoverlay['available'] and window_benchmark['available']):
                 # Insufficient rows - return explicit diagnostic summary with None values
+                rows_available = len(daily_realized_return)
                 result['period_summaries'][f'{period}D'] = {
                     'period': period,
                     'available': False,
                     'reason': 'insufficient_aligned_rows',
                     'requested_period_days': period,
                     'rows_used': rows_available,
+                    'start_date': None,
+                    'end_date': None,
                     'cum_real': None,
                     'cum_sel': None,
                     'cum_bm': None,
@@ -1679,22 +1722,27 @@ def compute_portfolio_alpha_attribution(
                 }
                 continue
             
-            # We have sufficient rows - compute using strict last N rows
-            cum_real = compute_cumulative_return(daily_realized_return, period)
-            cum_sel = compute_cumulative_return(daily_unoverlay_return, period)
-            cum_bm = compute_cumulative_return(daily_benchmark_return, period)
-            
-            # These should not be None since we checked rows_available >= period
-            # However, None can still occur due to data quality issues (e.g., all NaN values,
-            # calculation errors from extreme values, or numerical instability)
-            if cum_real is None or cum_sel is None or cum_bm is None:
-                # Unexpected but handle defensively for data quality issues
+            # Compute cumulative returns from windowed series
+            try:
+                cum_real = (1 + window_realized['windowed_series']).prod() - 1
+                cum_sel = (1 + window_unoverlay['windowed_series']).prod() - 1
+                cum_bm = (1 + window_benchmark['windowed_series']).prod() - 1
+                
+                # Convert to float
+                cum_real = float(cum_real)
+                cum_sel = float(cum_sel)
+                cum_bm = float(cum_bm)
+            except Exception as e:
+                # Unexpected computation error (e.g., NaN values, numerical instability)
+                logger.warning(f"Error computing cumulative returns for {period}D period: {e}")
                 result['period_summaries'][f'{period}D'] = {
                     'period': period,
                     'available': False,
                     'reason': 'computation_error',
                     'requested_period_days': period,
-                    'rows_used': period,  # Report the period that was attempted (not total available)
+                    'rows_used': window_realized['rows_used'],
+                    'start_date': window_realized['start_date'],
+                    'end_date': window_realized['end_date'],
                     'cum_real': None,
                     'cum_sel': None,
                     'cum_bm': None,
@@ -1710,12 +1758,20 @@ def compute_portfolio_alpha_attribution(
             overlay_alpha = cum_real - cum_sel
             residual = total_alpha - (selection_alpha + overlay_alpha)
             
+            # Compute alpha components
+            total_alpha = cum_real - cum_bm
+            selection_alpha = cum_sel - cum_bm
+            overlay_alpha = cum_real - cum_sel
+            residual = total_alpha - (selection_alpha + overlay_alpha)
+            
             result['period_summaries'][f'{period}D'] = {
                 'period': period,
                 'available': True,
                 'reason': None,
                 'requested_period_days': period,
-                'rows_used': period,  # Exact rows used for this period
+                'rows_used': window_realized['rows_used'],  # Exact rows used for this period
+                'start_date': window_realized['start_date'],  # First date of window
+                'end_date': window_realized['end_date'],  # Last date of window
                 'cum_real': cum_real,
                 'cum_sel': cum_sel,
                 'cum_bm': cum_bm,
@@ -1727,6 +1783,11 @@ def compute_portfolio_alpha_attribution(
         
         # Since inception summary (always computed - uses all available rows)
         rows_available = len(daily_realized_return)
+        
+        # Get start and end dates for inception
+        inception_start_date = daily_realized_return.index[0].strftime('%Y-%m-%d') if len(daily_realized_return) > 0 else None
+        inception_end_date = daily_realized_return.index[-1].strftime('%Y-%m-%d') if len(daily_realized_return) > 0 else None
+        
         cum_real_inception = (1 + daily_realized_return).prod() - 1
         cum_sel_inception = (1 + daily_unoverlay_return).prod() - 1
         cum_bm_inception = (1 + daily_benchmark_return).prod() - 1
@@ -1743,6 +1804,8 @@ def compute_portfolio_alpha_attribution(
             'requested_period_days': None,  # Not applicable for inception
             'rows_used': rows_available,
             'days': rows_available,
+            'start_date': inception_start_date,
+            'end_date': inception_end_date,
             'cum_real': float(cum_real_inception),
             'cum_sel': float(cum_sel_inception),
             'cum_bm': float(cum_bm_inception),

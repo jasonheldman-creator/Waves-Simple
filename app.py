@@ -6159,8 +6159,10 @@ def compute_alpha_source_breakdown(df):
         
         result['diagnostics'] = {
             'period_used': period_used,
-            'start_date': format_date(daily_realized, 0),
-            'end_date': format_date(daily_realized, -1),
+            'start_date': format_date(daily_realized, 0) if summary and summary.get('available') else summary.get('start_date') if summary else None,
+            'end_date': format_date(daily_realized, -1) if summary and summary.get('available') else summary.get('end_date') if summary else None,
+            'rows_used': summary.get('rows_used') if summary else None,
+            'requested_period_days': summary.get('requested_period_days') if summary else None,
             'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
             'exposure_series_found': series_valid(daily_exposure),
             'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
@@ -6901,6 +6903,19 @@ def render_mission_control():
                     with diag_col1:
                         st.markdown("**Period & Date Range:**")
                         st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                        
+                        # Show requested vs actual rows used
+                        requested = diagnostics.get('requested_period_days')
+                        rows_used = diagnostics.get('rows_used')
+                        if requested is not None and rows_used is not None:
+                            st.text(f"Requested Period Days: {requested}")
+                            st.text(f"Rows Used: {rows_used}")
+                            if rows_used < requested:
+                                st.warning(f"⚠️ Insufficient aligned rows ({rows_used}/{requested})")
+                        else:
+                            st.text(f"Requested Period Days: {requested if requested else 'N/A'}")
+                            st.text(f"Rows Used: {rows_used if rows_used else 'N/A'}")
+                        
                         st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
                         st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
                         
@@ -6927,6 +6942,7 @@ def render_mission_control():
                         
                         st.markdown("")
                         st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
+                        st.caption("Window is strictly sliced to last N trading days when available.")
                 
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
