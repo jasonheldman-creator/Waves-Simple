@@ -6145,14 +6145,26 @@ def compute_alpha_source_breakdown(df):
         daily_unoverlay = attribution.get('daily_unoverlay_return')
         daily_benchmark = attribution.get('daily_benchmark_return')
         
+        # Helper to format dates safely
+        def format_date(series, index):
+            """Format date from series index, returns 'N/A' if unavailable."""
+            if series is not None and len(series) > 0:
+                return series.index[index].strftime('%Y-%m-%d')
+            return 'N/A'
+        
+        # Helper to check series validity
+        def series_valid(series):
+            """Check if series is valid (not None and has data)."""
+            return series is not None and len(series) > 0
+        
         result['diagnostics'] = {
             'period_used': period_used,
-            'start_date': daily_realized.index[0].strftime('%Y-%m-%d') if daily_realized is not None and len(daily_realized) > 0 else 'N/A',
-            'end_date': daily_realized.index[-1].strftime('%Y-%m-%d') if daily_realized is not None and len(daily_realized) > 0 else 'N/A',
+            'start_date': format_date(daily_realized, 0),
+            'end_date': format_date(daily_realized, -1),
             'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
-            'exposure_series_found': daily_exposure is not None and len(daily_exposure) > 0,
-            'exposure_min': float(daily_exposure.min()) if daily_exposure is not None and len(daily_exposure) > 0 else None,
-            'exposure_max': float(daily_exposure.max()) if daily_exposure is not None and len(daily_exposure) > 0 else None,
+            'exposure_series_found': series_valid(daily_exposure),
+            'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
+            'exposure_max': float(daily_exposure.max()) if series_valid(daily_exposure) else None,
             'cum_realized': summary.get('cum_real'),
             'cum_unoverlay': summary.get('cum_sel'),
             'cum_benchmark': summary.get('cum_bm')
