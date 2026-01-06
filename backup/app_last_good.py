@@ -1017,6 +1017,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
                     
                     # Store debug info in session state for diagnostics panel
+                    # Always update to ensure fresh debug data (even on failure)
                     if 'debug' in snapshot:
                         st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
                     
@@ -6072,62 +6073,173 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
 
 def compute_alpha_source_breakdown(df):
     """
-    Compute alpha source breakdown from wave history data.
+    Compute alpha source breakdown using canonical portfolio alpha ledger.
+    
+    This function uses compute_portfolio_alpha_ledger as the single source of truth,
+    ensuring consistency with the Portfolio Snapshot blue box.
+    
+    Uses 60D period from ledger with strict rolling window semantics.
+    No fallback to inception - shows N/A with explicit reasons if unavailable.
     
     Returns dict with:
-        - total_alpha: realized_wave_return - benchmark_return
-        - selection_alpha: raw_wave_return - static_basket_return (if available)
-        - overlay_alpha: realized_wave_return - raw_wave_return (if available)
-        - residual: total_alpha - (selection_alpha + overlay_alpha)
+        - total_alpha: Cumulative alpha (Total) for 60D period
+        - selection_alpha: Asset selection alpha for 60D period
+        - overlay_alpha: VIX/SafeSmart overlay alpha for 60D period
+        - residual: Reconciliation residual (should be near 0)
         - data_available: bool indicating if breakdown is possible
+        - diagnostics: dict with diagnostic values for transparency
     """
     result = {
         'total_alpha': None,
         'selection_alpha': None,
         'overlay_alpha': None,
         'residual': None,
-        'data_available': False
+        'data_available': False,
+        'diagnostics': {}
     }
     
     try:
-        if df is None or len(df) == 0:
+        # Import the canonical ledger function (single source of truth)
+        from helpers.wave_performance import (
+            compute_portfolio_alpha_ledger,
+            RESIDUAL_TOLERANCE
+        )
+        from helpers.price_book import get_price_book
+        
+        # Get PRICE_BOOK
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
             return result
         
-        # Check for required columns
-        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+        # Compute portfolio alpha ledger (canonical implementation)
+        # This is the SAME ledger used by the blue box
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            mode=st.session_state.get('selected_mode', 'Standard'),
+            periods=[1, 30, 60, 365],  # Match blue box periods
+            benchmark_ticker='SPY',
+            vix_exposure_enabled=True
+        )
+        
+        if not ledger['success']:
+            # Ledger computation failed
+            result['diagnostics'] = {
+                'period_used': 'N/A',
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'rows_used': 0,
+                'reason': ledger.get('failure_reason', 'unknown'),
+                'using_fallback_exposure': False,
+                'exposure_series_found': False,
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': None,
+                'cum_unoverlay': None,
+                'cum_benchmark': None
+            }
             return result
         
-        # Compute total_alpha
-        df_copy = df.copy()
-        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
-        total_alpha = df_copy['total_alpha'].sum()
-        result['total_alpha'] = total_alpha
+        # Store ledger in session state for consistency
+        st.session_state['portfolio_alpha_ledger'] = ledger
+        st.session_state['portfolio_exposure_series'] = ledger.get('daily_exposure')
         
-        # Try to compute selection_alpha if static_basket_return exists
-        if 'static_basket_return' in df_copy.columns:
-            # selection_alpha = raw_wave_return - static_basket_return
-            # If we don't have raw_wave_return, we can't compute this
-            if 'raw_wave_return' in df_copy.columns:
-                df_copy['selection_alpha'] = df_copy['raw_wave_return'] - df_copy['static_basket_return']
-                result['selection_alpha'] = df_copy['selection_alpha'].sum()
+        # Extract 60D period data from ledger
+        period_60d = ledger['period_results'].get('60D', {})
         
-        # Try to compute overlay_alpha if raw_wave_return exists
-        if 'raw_wave_return' in df_copy.columns:
-            # overlay_alpha = realized_wave_return - raw_wave_return
-            # realized_wave_return is portfolio_return
-            df_copy['overlay_alpha'] = df_copy['portfolio_return'] - df_copy['raw_wave_return']
-            result['overlay_alpha'] = df_copy['overlay_alpha'].sum()
+        # Check if 60D period is available with strict windowing
+        if not period_60d.get('available', False):
+            # Period unavailable - populate diagnostics with reason
+            result['diagnostics'] = {
+                'period_used': '60D',
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'rows_used': period_60d.get('rows_used', 0),
+                'requested_period_days': 60,
+                'reason': period_60d.get('reason', 'insufficient_aligned_rows'),
+                'using_fallback_exposure': False,
+                'exposure_series_found': ledger.get('overlay_available', False),
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': None,
+                'cum_unoverlay': None,
+                'cum_benchmark': None
+            }
+            result['data_available'] = False
+            return result
         
-        # Compute residual if both components are available
-        if result['selection_alpha'] is not None and result['overlay_alpha'] is not None:
-            result['residual'] = total_alpha - (result['selection_alpha'] + result['overlay_alpha'])
-            result['data_available'] = True
-        else:
-            # Partial data - mark as available if we have at least total_alpha
-            result['data_available'] = True
+        # 60D period is available - extract values
+        result['total_alpha'] = period_60d['total_alpha']
+        result['selection_alpha'] = period_60d['selection_alpha']
+        result['overlay_alpha'] = period_60d['overlay_alpha']
+        result['residual'] = period_60d['residual']
+        result['data_available'] = True
         
-    except Exception:
-        pass
+        # Validate residual is within tolerance (using constant from helpers.wave_performance)
+        if result['residual'] is not None and abs(result['residual']) > RESIDUAL_TOLERANCE:
+            # Large residual - mark as decomposition error
+            result['diagnostics'] = {
+                'period_used': '60D',
+                'start_date': period_60d.get('start_date', 'N/A'),
+                'end_date': period_60d.get('end_date', 'N/A'),
+                'rows_used': period_60d.get('rows_used', 60),
+                'requested_period_days': 60,
+                'reason': f'decomposition_error (residual={result["residual"]:.4%} > tolerance)',
+                'using_fallback_exposure': not ledger.get('overlay_available', False),
+                'exposure_series_found': ledger.get('overlay_available', False),
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': period_60d.get('cum_realized'),
+                'cum_unoverlay': period_60d.get('cum_unoverlay'),
+                'cum_benchmark': period_60d.get('cum_benchmark')
+            }
+            result['data_available'] = False
+            return result
+        
+        # Extract diagnostic values from ledger daily series
+        daily_exposure = ledger.get('daily_exposure')
+        daily_realized = ledger.get('daily_realized_return')
+        
+        # Helper to check series validity
+        def series_valid(series):
+            """Check if series is valid (not None and has data)."""
+            return series is not None and len(series) > 0
+        
+        # Build diagnostics using strict 60D window from ledger
+        result['diagnostics'] = {
+            'period_used': '60D',
+            'start_date': period_60d.get('start_date', 'N/A'),
+            'end_date': period_60d.get('end_date', 'N/A'),
+            'rows_used': period_60d.get('rows_used', 60),
+            'requested_period_days': 60,
+            'reason': None,  # No error
+            'using_fallback_exposure': not ledger.get('overlay_available', False),
+            'exposure_series_found': ledger.get('overlay_available', False),
+            'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
+            'exposure_max': float(daily_exposure.max()) if series_valid(daily_exposure) else None,
+            'cum_realized': period_60d.get('cum_realized'),
+            'cum_unoverlay': period_60d.get('cum_unoverlay'),
+            'cum_benchmark': period_60d.get('cum_benchmark')
+        }
+        
+    except Exception as e:
+        # Log error but don't fail - graceful degradation
+        import logging
+        logging.warning(f"Error in compute_alpha_source_breakdown: {e}")
+        result['diagnostics'] = {
+            'period_used': 'N/A',
+            'start_date': 'N/A',
+            'end_date': 'N/A',
+            'rows_used': 0,
+            'reason': f'exception: {str(e)}',
+            'using_fallback_exposure': False,
+            'exposure_series_found': False,
+            'exposure_min': None,
+            'exposure_max': None,
+            'cum_realized': None,
+            'cum_unoverlay': None,
+            'cum_benchmark': None
+        }
     
     return result
 
@@ -6841,71 +6953,127 @@ def render_mission_control():
             
             alpha_breakdown = compute_alpha_source_breakdown(df)
             
+            # Attribution Diagnostics Expander - always show (even if data unavailable)
+            with st.expander("🔬 Attribution Diagnostics", expanded=False):
+                st.caption("Detailed diagnostic values for transparency and validation (60D period from ledger)")
+                
+                diagnostics = alpha_breakdown.get('diagnostics', {})
+                
+                # Check if period is available
+                period_available = alpha_breakdown.get('data_available', False)
+                period_reason = diagnostics.get('reason')
+                
+                if not period_available and period_reason:
+                    # Show unavailable reason prominently
+                    st.warning(f"⚠️ 60D Period Unavailable: {period_reason}")
+                    st.caption(f"Rows available: {diagnostics.get('rows_used', 0)}, Required: {diagnostics.get('requested_period_days', 60)}")
+                
+                # Create diagnostic display in two columns
+                diag_col1, diag_col2 = st.columns(2)
+                
+                with diag_col1:
+                    st.markdown("**Period & Date Range (Strict Rolling Window):**")
+                    st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                    st.text(f"Requested Period Days: {diagnostics.get('requested_period_days', 'N/A')}")
+                    st.text(f"Rows Used: {diagnostics.get('rows_used', 'N/A')}")
+                    st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
+                    st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
+                    
+                    if period_reason:
+                        st.markdown("")
+                        st.markdown("**Unavailability Reason:**")
+                        st.text(f"{period_reason}")
+                    
+                    st.markdown("")
+                    st.markdown("**Exposure Series:**")
+                    st.text(f"Using Fallback Exposure: {diagnostics.get('using_fallback_exposure', 'N/A')}")
+                    st.text(f"Exposure Series Found: {diagnostics.get('exposure_series_found', 'N/A')}")
+                    
+                    exposure_min = diagnostics.get('exposure_min')
+                    exposure_max = diagnostics.get('exposure_max')
+                    st.text(f"Exposure Min: {exposure_min:.4f}" if exposure_min is not None else "Exposure Min: N/A")
+                    st.text(f"Exposure Max: {exposure_max:.4f}" if exposure_max is not None else "Exposure Max: N/A")
+                
+                with diag_col2:
+                    st.markdown("**Cumulative Returns (Compounded):**")
+                    
+                    cum_realized = diagnostics.get('cum_realized')
+                    cum_unoverlay = diagnostics.get('cum_unoverlay')
+                    cum_benchmark = diagnostics.get('cum_benchmark')
+                    
+                    st.text(f"Cum Realized: {cum_realized:+.4%}" if cum_realized is not None else "Cum Realized: N/A")
+                    st.text(f"Cum Unoverlay: {cum_unoverlay:+.4%}" if cum_unoverlay is not None else "Cum Unoverlay: N/A")
+                    st.text(f"Cum Benchmark: {cum_benchmark:+.4%}" if cum_benchmark is not None else "Cum Benchmark: N/A")
+                    
+                    st.markdown("")
+                    st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
+            
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
                 col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
                 
                 with col_table:
-                    # Create breakdown table
+                    # Create breakdown table with numeric values
                     breakdown_data = []
-                    if alpha_breakdown['total_alpha'] is not None:
-                        breakdown_data.append(['Cumulative Alpha (Pre-Decomposition)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')])
-                    if alpha_breakdown['selection_alpha'] is not None:
-                        breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending')])
-                    else:
-                        breakdown_data.append(['Selection Alpha', 'Pending'])
-                    if alpha_breakdown['overlay_alpha'] is not None:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived')])
-                    else:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', 'Derived'])
-                    if alpha_breakdown['residual'] is not None:
-                        breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'Reserved')])
-                    else:
-                        breakdown_data.append(['Residual', 'Reserved'])
+                    breakdown_data.append(['Cumulative Alpha (Total)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'N/A')])
+                    breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'N/A')])
+                    breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'N/A')])
+                    breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'N/A')])
                     
                     if breakdown_data:
                         breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
                         st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
                 
                 # Display Cumulative Alpha (Pre-Decomposition) headline with caption
-                st.markdown("**Cumulative Portfolio Alpha (Pre-Decomposition)**")
+                st.markdown("**Cumulative Portfolio Alpha (60D from Ledger)**")
                 if alpha_breakdown['total_alpha'] is not None:
                     st.markdown(f"**{_fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')}**")
                 else:
                     st.markdown("**Pending**")
-                st.caption("Benchmark-relative · Portfolio-level · Since inception")
+                st.caption("Benchmark-relative · Portfolio-level · 60D rolling window")
                 
                 # KPI tiles
                 with col_kpi1:
                     st.metric(
                         "Selection α",
                         _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending'),
-                        help="Security-selection attribution activates once sufficient realized trade history is available."
+                        help="Security-selection attribution from canonical ledger (60D period)"
                     )
                 
                 with col_kpi2:
                     st.metric(
                         "Overlay α",
                         _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived'),
-                        help="Overlay alpha reflects exposure decisions driven by volatility and regime controls."
+                        help="Overlay alpha from VIX exposure management (60D period)"
                     )
                 
                 with col_kpi3:
                     residual_val = alpha_breakdown['residual']
+                    # Color code residual based on tolerance (matching blue box)
+                    residual_pct = abs(residual_val) * 100 if residual_val is not None else 0
+                    residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
                     st.metric(
-                        "Residual",
+                        f"{residual_color} Residual",
                         _fmt_pct_or_status(residual_val, 'Reserved'),
-                        help="Residual captures unexplained variance after full attribution is enabled."
+                        help="Residual should be near 0% (tolerance: 0.10%)"
                     )
                     
-                    # Warning banner if residual exceeds threshold
-                    if residual_val is not None and abs(residual_val) > 0.01:  # 1% threshold
-                        st.warning(f"⚠️ Large residual detected ({residual_val*100:.2f}%) - possible data mismatch")
+                    # Warning banner if residual exceeds strict tolerance
+                    if residual_val is not None and abs(residual_val) > 0.0010:  # 0.10% strict tolerance
+                        st.warning(f"⚠️ Residual exceeds tolerance ({residual_val*100:.4f}% > 0.10%)")
                 
                 # Governance footer
-                st.markdown("*Attribution reflects live portfolio behavior under adaptive exposure controls.*")
+                st.markdown("*Attribution from canonical ledger (60D rolling window) - same source as Portfolio Snapshot blue box*")
             else:
-                st.info("📋 Alpha breakdown data not available. Required: portfolio_return, benchmark_return, and optionally raw_wave_return, static_basket_return.")
+                # Show N/A with explicit reason
+                diagnostics = alpha_breakdown.get('diagnostics', {})
+                reason = diagnostics.get('reason', 'unknown')
+                rows_used = diagnostics.get('rows_used', 0)
+                requested = diagnostics.get('requested_period_days', 60)
+                
+                st.info(f"📋 60D Alpha breakdown unavailable: {reason}")
+                st.caption(f"Rows available: {rows_used}, Required: {requested}")
+                st.caption("No fallback to inception - strict rolling window enforcement")
             
             # ================================================================
             # 2. Exposure-Adjusted Alpha
@@ -6947,10 +7115,19 @@ def render_mission_control():
                         help=help_text
                     )
                 
-                # Show methodology indicator
+                # Show methodology indicator - only show when actually missing exposure data
+                # Suppress warning if using expected fallback behavior (exposure=1.0)
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
-                    st.caption("Exposure-adjusted calculation requires exposure time series data")
+                    # Check if this is the expected fallback (no overlay data) vs actual missing data
+                    # If portfolio_alpha_attribution also indicates fallback, this is expected behavior
+                    portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+                    using_fallback = portfolio_attrib.get('using_fallback_exposure', False)
+                    
+                    if not using_fallback:
+                        # Actual missing data - show warning
+                        st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
+                        st.caption("Exposure-adjusted calculation requires exposure time series data")
+                    # else: Fallback is expected, no warning needed
                 else:
                     st.success("✅ Using exposure-adjusted methodology")
                     st.caption("Normalized for dynamic exposure and volatility regime")
@@ -6969,25 +7146,33 @@ def render_mission_control():
                 cap_col1, cap_col2 = st.columns(2)
                 
                 with cap_col1:
-                    if capital_alpha['capital_weighted_alpha'] is not None:
-                        # Clarify weighting in the label
-                        method = capital_alpha['weighting_method']
-                        if method == 'equal-weight':
-                            label = "Portfolio Alpha (Equal-Weighted)"
-                        else:
-                            label = f"Portfolio Alpha ({method.title()})"
-                        
+                    method = capital_alpha['weighting_method']
+                    
+                    # Check if using fallback (equal-weight) due to missing capital inputs
+                    if method == 'equal-weight':
+                        # Display N/A instead of computed value when capital inputs are missing
                         st.metric(
-                            label,
-                            f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
-                            help=f"Alpha calculated using {method} weighting methodology"
+                            "Capital-Weighted Alpha",
+                            "N/A",
+                            help="Capital inputs required for capital-weighted alpha calculation"
                         )
+                    else:
+                        # Display actual capital-weighted value
+                        if capital_alpha['capital_weighted_alpha'] is not None:
+                            label = f"Capital-Weighted Alpha ({method.title()})"
+                            st.metric(
+                                label,
+                                f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
+                                help=f"Alpha calculated using {method} weighting methodology"
+                            )
+                        else:
+                            st.metric("Capital-Weighted Alpha", "N/A")
                 
                 with cap_col2:
                     method_label = capital_alpha['weighting_method']
                     if method_label == 'equal-weight':
-                        st.info("ℹ️ Equal-weight methodology (no capital inputs available)")
-                        st.caption("Capital inputs required for capital-weighted calculation")
+                        st.info("ℹ️ Add capital inputs to enable capital-weighted alpha.")
+                        st.caption("Equal-weight methodology is currently in use.")
                     else:
                         st.success(f"✅ Using {method_label} weighting")
                         st.caption("Based on available capital allocation data")
@@ -9266,46 +9451,55 @@ def render_executive_brief_tab():
         st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
         
         try:
-            from helpers.wave_performance import compute_portfolio_snapshot, compute_portfolio_alpha_attribution
+            from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
             from helpers.price_book import get_price_book
+            from waves_engine import get_all_waves_universe
             
             # Load PRICE_BOOK
             price_book = get_price_book()
             
-            # Compute portfolio snapshot
-            snapshot = compute_portfolio_snapshot(price_book, mode='Standard', periods=[1, 30, 60, 365])
+            # Compute portfolio alpha ledger (canonical implementation)
+            ledger = compute_portfolio_alpha_ledger(
+                price_book, 
+                periods=[1, 30, 60, 365],
+                benchmark_ticker='SPY',
+                mode='Standard',
+                vix_exposure_enabled=True
+            )
             
             # Add diagnostic information
-            if snapshot['success']:
-                n_waves_used = snapshot['wave_count']
-                date_range = snapshot['date_range']
-                # Calculate number of dates from date range
-                try:
-                    import pandas as pd
-                    start_date = pd.to_datetime(date_range[0])
-                    end_date = pd.to_datetime(date_range[1])
-                    n_dates = (end_date - start_date).days
-                except Exception:
+            if ledger['success']:
+                # Count waves from daily_risk_return computation
+                n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+                
+                # Get date range from period results
+                period_1d = ledger['period_results'].get('1D', {})
+                if period_1d.get('available'):
+                    end_date = period_1d.get('end_date', 'N/A')
+                    n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
+                    start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                else:
+                    end_date = 'N/A'
+                    start_date = 'N/A'
                     n_dates = 0
                 
-                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start={date_range[0]}, end={date_range[1]}")
+                # Display VIX overlay status
+                vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
+                safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
+                
+                st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
+                st.caption(f"📅 Period: {start_date} to {end_date}")
             else:
                 # Check for empty result condition
-                n_waves_used = snapshot.get('wave_count', 0)
-                # Estimate dates from price_book if available
-                try:
-                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                except Exception:
-                    n_dates = 0
-                
-                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start=N/A, end=N/A")
+                n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
+                st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
                 
                 # Check for specific error conditions
-                if n_waves_used == 0 or n_dates < 2:
-                    st.error(f"❌ Portfolio Snapshot unavailable: aggregation produced no usable series ({n_waves_used} waves, {n_dates} dates available).")
+                if n_dates < 2:
+                    st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
             
-            if snapshot['success']:
-                # Display in blue box with metrics
+            if ledger['success']:
+                # Display in blue box with metrics from ledger
                 st.markdown("""
                 <div style="
                     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -9316,119 +9510,114 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # Portfolio Returns Row
+                # CANONICAL RENDERER: Portfolio Snapshot (All Waves) using compute_portfolio_alpha_ledger()
+                # This is the official stacked renderer for multi-period portfolio performance.
+                # For each period (1D/30D/60D/365D), displays:
+                #   - Line 1: Portfolio Return (cum_realized from ledger)
+                #   - Line 2: Benchmark Return (cum_benchmark from ledger)
+                #   - Line 3: Alpha (total_alpha from ledger)
+                # All values sourced from compute_portfolio_alpha_ledger() - no inline recomputation.
+                st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
+                st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
                 col1, col2, col3, col4 = st.columns(4)
                 
-                with col1:
-                    ret_1d = snapshot['portfolio_returns']['1D']
-                    if ret_1d is not None:
-                        st.metric("1D Return", f"{ret_1d:+.2%}", 
-                                 help="Portfolio return over 1 day")
-                    else:
-                        st.metric("1D Return", "—", 
-                                 help="Insufficient history for 1D return")
+                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
+                    with col:
+                        period_data = ledger['period_results'].get(period_key, {})
+                        
+                        if period_data.get('available'):
+                            # Extract values
+                            cum_realized = period_data['cum_realized']
+                            cum_benchmark = period_data['cum_benchmark']
+                            total_alpha = period_data['total_alpha']
+                            start = period_data['start_date']
+                            end = period_data['end_date']
+                            
+                            # Display stacked format with header
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
+                            st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
+                            
+                            # Color-code alpha (green for positive, red for negative)
+                            alpha_color = "green" if total_alpha >= 0 else "red"
+                            st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
+                            
+                            st.caption(f"{start} to {end}")
+                        else:
+                            # Unavailable period - show N/A for all three lines with reason
+                            reason = period_data.get('reason', 'unknown')
+                            MAX_REASON_LENGTH = 60  # Configurable truncation length
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** N/A")
+                            st.markdown(f"📊 **Benchmark:** N/A")
+                            st.markdown(f"🎯 **Alpha:** N/A")
+                            # Truncate long reasons with ellipsis
+                            truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
+                            st.caption(f"⚠️ {truncated_reason}")
                 
-                with col2:
-                    ret_30d = snapshot['portfolio_returns']['30D']
-                    if ret_30d is not None:
-                        st.metric("30D Return", f"{ret_30d:+.2%}",
-                                 help="Portfolio return over 30 days")
-                    else:
-                        st.metric("30D Return", "—",
-                                 help="Insufficient history for 30D return")
+                st.divider()
                 
-                with col3:
-                    ret_60d = snapshot['portfolio_returns']['60D']
-                    if ret_60d is not None:
-                        st.metric("60D Return", f"{ret_60d:+.2%}",
-                                 help="Portfolio return over 60 days")
-                    else:
-                        st.metric("60D Return", "—",
-                                 help="Insufficient history for 60D return")
+                # Alpha Attribution Row (30D window for detailed attribution)
+                st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
                 
-                with col4:
-                    ret_365d = snapshot['portfolio_returns']['365D']
-                    if ret_365d is not None:
-                        st.metric("365D Return", f"{ret_365d:+.2%}",
-                                 help="Portfolio return over 365 days")
-                    else:
-                        st.metric("365D Return", "—",
-                                 help="Insufficient history for 365D return")
-                
-                # Alpha Row
-                st.markdown("**Alpha vs Benchmark:**")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    alpha_1d = snapshot['alphas']['1D']
-                    if alpha_1d is not None:
-                        st.metric("1D Alpha", f"{alpha_1d:+.2%}",
-                                 help="Alpha vs benchmark over 1 day")
-                    else:
-                        st.metric("1D Alpha", "—")
-                
-                with col2:
-                    alpha_30d = snapshot['alphas']['30D']
-                    if alpha_30d is not None:
-                        st.metric("30D Alpha", f"{alpha_30d:+.2%}",
-                                 help="Alpha vs benchmark over 30 days")
-                    else:
-                        st.metric("30D Alpha", "—")
-                
-                with col3:
-                    alpha_60d = snapshot['alphas']['60D']
-                    if alpha_60d is not None:
-                        st.metric("60D Alpha", f"{alpha_60d:+.2%}",
-                                 help="Alpha vs benchmark over 60 days")
-                    else:
-                        st.metric("60D Alpha", "—")
-                
-                with col4:
-                    alpha_365d = snapshot['alphas']['365D']
-                    if alpha_365d is not None:
-                        st.metric("365D Alpha", f"{alpha_365d:+.2%}",
-                                 help="Alpha vs benchmark over 365 days")
-                    else:
-                        st.metric("365D Alpha", "—")
-                
-                # Alpha Attribution Row
-                st.markdown("**Alpha Attribution:**")
-                
-                # Compute alpha attribution
-                attribution = compute_portfolio_alpha_attribution(price_book, mode='Standard', min_waves=3)
-                
-                if attribution['success']:
-                    col1, col2, col3 = st.columns(3)
+                period_30d = ledger['period_results'].get('30D', {})
+                if period_30d.get('available'):
+                    col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
-                        cum_alpha = attribution['cumulative_alpha']
-                        st.metric("Cumulative Alpha", f"{cum_alpha:+.2%}" if cum_alpha is not None else "—",
-                                 help="Total alpha over measurement period")
+                        total_alpha = period_30d['total_alpha']
+                        st.metric(
+                            "Total Alpha", 
+                            f"{total_alpha:+.2%}",
+                            help="Realized return - Benchmark return"
+                        )
                     
                     with col2:
-                        sel_alpha = attribution['selection_alpha']
-                        st.metric("Selection Alpha", f"{sel_alpha:+.2%}" if sel_alpha is not None else "—",
-                                 help="Alpha from asset selection")
+                        selection_alpha = period_30d['selection_alpha']
+                        st.metric(
+                            "Selection Alpha", 
+                            f"{selection_alpha:+.2%}",
+                            help="Alpha from wave selection (unoverlay - benchmark)"
+                        )
                     
                     with col3:
-                        ovr_alpha = attribution['overlay_alpha']
-                        st.metric("Overlay Alpha", f"{ovr_alpha:+.2%}" if ovr_alpha is not None else "—",
-                                 help="Alpha from VIX/regime overlay (not yet implemented)")
+                        overlay_alpha = period_30d['overlay_alpha']
+                        overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                        st.metric(
+                            overlay_label, 
+                            f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                            help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                        )
+                    
+                    with col4:
+                        residual = period_30d['residual']
+                        # Color code residual based on tolerance
+                        residual_pct = abs(residual) * 100
+                        residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                        st.metric(
+                            f"{residual_color} Residual", 
+                            f"{residual:+.3%}",
+                            help="Attribution residual (should be near 0%)"
+                        )
+                    
+                    # Alpha Captured (if overlay available)
+                    if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
+                        st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
                 else:
-                    st.warning(f"⚠️ Alpha attribution unavailable: {attribution['failure_reason']}")
+                    st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
                 
-                # Metadata
-                st.caption(f"📊 Portfolio: {snapshot['wave_count']} waves | "
-                          f"Data: {snapshot['latest_date']} ({snapshot['data_age_days']}d old) | "
-                          f"Period: {snapshot['date_range'][0]} to {snapshot['date_range'][1]}")
+                # Warnings display
+                if ledger.get('warnings'):
+                    st.caption("⚠️ " + " | ".join(ledger['warnings']))
                 
                 st.markdown("</div>", unsafe_allow_html=True)
                 
             else:
                 # Display error message
-                st.error(f"⚠️ Portfolio snapshot computation failed: {snapshot['failure_reason']}")
+                st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
                 
-                # Show placeholder values with explicit error
+                # Show explicit error (no placeholder data)
                 st.markdown("""
                 <div style="
                     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -9439,20 +9628,14 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("1D Return", "Error", help=snapshot['failure_reason'])
-                with col2:
-                    st.metric("30D Return", "Error", help=snapshot['failure_reason'])
-                with col3:
-                    st.metric("60D Return", "Error", help=snapshot['failure_reason'])
-                with col4:
-                    st.metric("365D Return", "Error", help=snapshot['failure_reason'])
+                st.markdown(f"**❌ Portfolio metrics unavailable**")
+                st.markdown(f"Reason: {ledger['failure_reason']}")
+                st.caption("No placeholder data will be displayed. Please check data availability.")
                 
                 st.markdown("</div>", unsafe_allow_html=True)
         
         except Exception as e:
-            st.error(f"⚠️ Portfolio snapshot module error: {str(e)}")
+            st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
             if st.session_state.get("debug_mode", False):
                 import traceback
                 st.code(traceback.format_exc())
@@ -19886,8 +20069,57 @@ def render_overview_clean_tab():
             else:
                 alpha_narrative = "Platform strategies have prioritized capital preservation during this risk regime, with positioning for subsequent opportunities."
             
-            # Construct executive narrative
+            # Construct executive narrative with real metrics
             current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+            
+            # Get system health and latest price date
+            latest_price_date = price_meta.get('date_max', 'Unknown')
+            system_health = "OK" if data_current else "Stable" if data_age_days and data_age_days <= 7 else "Degraded"
+            
+            # Calculate portfolio-level returns if available
+            portfolio_metrics = []
+            if not performance_df.empty and '30D' in performance_df.columns:
+                # Calculate average returns across all waves
+                returns_30d_vals = performance_df['30D'].apply(parse_return).dropna()
+                returns_60d_vals = performance_df['60D'].apply(parse_return).dropna() if '60D' in performance_df.columns else pd.Series()
+                returns_365d_vals = performance_df['365D'].apply(parse_return).dropna() if '365D' in performance_df.columns else pd.Series()
+                
+                avg_30d = returns_30d_vals.mean() if len(returns_30d_vals) > 0 else None
+                avg_60d = returns_60d_vals.mean() if len(returns_60d_vals) > 0 else None
+                avg_365d = returns_365d_vals.mean() if len(returns_365d_vals) > 0 else None
+                
+                if avg_30d is not None:
+                    portfolio_metrics.append(f"30D: {avg_30d:+.1f}%")
+                if avg_60d is not None:
+                    portfolio_metrics.append(f"60D: {avg_60d:+.1f}%")
+                if avg_365d is not None:
+                    portfolio_metrics.append(f"365D: {avg_365d:+.1f}%")
+            
+            # Get alpha metrics from portfolio attribution if available
+            portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+            total_alpha = None
+            overlay_alpha = None
+            
+            if portfolio_attrib.get('success', False):
+                summary_60d = portfolio_attrib.get('period_summaries', {}).get('60D')
+                if summary_60d:
+                    total_alpha = summary_60d.get('total_alpha', 0) * 100  # Convert to percentage
+                    overlay_alpha = summary_60d.get('overlay_alpha', 0) * 100
+            
+            # Build market context line
+            market_context_parts = []
+            market_tickers = ['SPY', 'QQQ', 'IWM', 'TLT']
+            for ticker in market_tickers:
+                try:
+                    if ticker in price_book.columns:
+                        prices = price_book[ticker].dropna()
+                        if len(prices) >= 2:
+                            ret_1d = ((prices.iloc[-1] / prices.iloc[-2]) - 1) * 100
+                            market_context_parts.append(f"{ticker} {ret_1d:+.1f}%")
+                except:
+                    pass
+            
+            market_context = "Market: " + ", ".join(market_context_parts) if market_context_parts else ""
             
             # Strategy performance context - emphasize regime, not raw counts
             if positive_count > 0 and total_count > 0:
@@ -19904,9 +20136,28 @@ def render_overview_clean_tab():
             narrative_text = f"""
 **As of {current_time}**
 
+**System Health:** {system_health} | **Last Price Date:** {latest_price_date} | **Data Age:** {data_age_days if data_age_days is not None else 'Unknown'} days
+
 The platform is monitoring **{total_waves} institutional-grade investment strategies** exhibiting {posture} within {regime_context}. 
 
 {performance_context} {alpha_narrative}
+"""
+            
+            # Add portfolio metrics if available
+            if portfolio_metrics:
+                narrative_text += f"\n**Portfolio Returns:** {', '.join(portfolio_metrics)}"
+            
+            # Add alpha metrics if available
+            if total_alpha is not None:
+                narrative_text += f"\n**Total Alpha (60D):** {total_alpha:+.2f}%"
+            if overlay_alpha is not None:
+                narrative_text += f" | **Overlay Alpha:** {overlay_alpha:+.2f}%"
+            
+            # Add market context if available
+            if market_context:
+                narrative_text += f"\n\n**{market_context}**"
+            
+            narrative_text += f"""
 
 **Strategic Assessment:** {'Evaluate risk reduction measures' if avg_1d < -1.0 else 'Maintain strategic positioning' if avg_1d >= 0 else 'Continue monitoring market developments'}.
             """
@@ -20095,11 +20346,11 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
         # ========================================================================
         st.markdown("### ⭐ Top Performing Strategies")
-        st.caption("Relative performance ranking - emphasizes momentum and positioning")
+        st.caption("Ranked by alpha performance across multiple timeframes")
         
         try:
-            if not performance_df.empty and '1D Return' in performance_df.columns:
-                # Get top 5 performers
+            if not performance_df.empty:
+                # Get top 5 performers by 30D alpha and 60D alpha
                 def parse_return_value(val):
                     if pd.isna(val) or val == "N/A":
                         return None
@@ -20108,42 +20359,80 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                     except:
                         return None
                 
-                # Create numeric column for sorting
-                performance_df['1D_Return_Numeric'] = performance_df['1D Return'].apply(parse_return_value)
+                # Create tabs for different timeframes
+                perf_tab_30d, perf_tab_60d = st.tabs(["📊 Top 5 by 30D Alpha", "📈 Top 5 by 60D Alpha"])
                 
-                # Sort and get top performers
-                top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
+                with perf_tab_30d:
+                    st.caption("Ranked by 30-day alpha performance")
+                    
+                    if '30D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['30D_Numeric'] = performance_df['30D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_30d = performance_df.nlargest(min(5, len(performance_df)), '30D_Numeric')
+                        
+                        if not top_30d.empty and top_30d['30D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_30d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_30d = row.get('30D_Numeric', None)
+                                return_1d = parse_return_value(row.get('1D Return', 'N/A'))
+                                
+                                if return_30d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '30D Alpha': f"{return_30d:+.2f}%",
+                                        '1D Return': f"{return_1d:+.2f}%" if return_1d is not None else "N/A"
+                                    })
+                            
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 30D alpha ranking")
+                        else:
+                            st.info("No valid 30D performance data available")
+                    else:
+                        st.info("30D performance data not available")
                 
-                if not top_performers.empty:
-                    # Check if returns are negligible across the board
-                    max_return = top_performers['1D_Return_Numeric'].max() if len(top_performers) > 0 else 0
-                    returns_negligible = abs(max_return) < NEGLIGIBLE_RETURN_THRESHOLD  # Less than 0.1%
+                with perf_tab_60d:
+                    st.caption("Ranked by 60-day alpha performance")
                     
-                    if returns_negligible:
-                        st.info("📊 Returns are minimal across strategies - showing relative positioning and momentum")
-                    
-                    # Display as simple cards
-                    perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
-                    
-                    for idx, (_, row) in enumerate(top_performers.iterrows()):
-                        col = [perf_col1, perf_col2, perf_col3, perf_col4, perf_col5][idx]
-                        with col:
-                            wave_name = row.get('Wave', 'N/A')
-                            return_1d = row.get('1D_Return_Numeric', 0)
-                            return_30d = parse_return_value(row.get('30D', 'N/A'))
+                    if '60D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['60D_Numeric'] = performance_df['60D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_60d = performance_df.nlargest(min(5, len(performance_df)), '60D_Numeric')
+                        
+                        if not top_60d.empty and top_60d['60D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_60d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_60d = row.get('60D_Numeric', None)
+                                return_30d = parse_return_value(row.get('30D', 'N/A'))
+                                
+                                if return_60d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '60D Alpha': f"{return_60d:+.2f}%",
+                                        '30D Return': f"{return_30d:+.2f}%" if return_30d is not None else "N/A"
+                                    })
                             
-                            # Add rank indicator
-                            rank_label = f"#{idx + 1} {wave_name}" if len(wave_name) < 17 else f"#{idx + 1} {wave_name[:14]}..."
-                            
-                            st.metric(
-                                label=rank_label,
-                                value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
-                                delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
-                            )
-                else:
-                    st.info("Performance data is being compiled. Check back shortly.")
-            else:
-                st.info("Performance metrics will appear here once data is available.")
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 60D alpha ranking")
+                        else:
+                            st.info("No valid 60D performance data available")
+                    else:
+                        st.info("60D performance data not available")
                 
         except Exception as e:
             st.warning("Performance insights temporarily unavailable.")

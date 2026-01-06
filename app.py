@@ -9510,7 +9510,13 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                # CANONICAL RENDERER: Portfolio Snapshot (All Waves) using compute_portfolio_alpha_ledger()
+                # This is the official stacked renderer for multi-period portfolio performance.
+                # For each period (1D/30D/60D/365D), displays:
+                #   - Line 1: Portfolio Return (cum_realized from ledger)
+                #   - Line 2: Benchmark Return (cum_benchmark from ledger)
+                #   - Line 3: Alpha (total_alpha from ledger)
+                # All values sourced from compute_portfolio_alpha_ledger() - no inline recomputation.
                 st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
                 st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
                 
