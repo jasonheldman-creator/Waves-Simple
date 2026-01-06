@@ -823,7 +823,7 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
 # ============================================================================
-# PROOF BANNER - Diagnostics and Visibility
+# ENTRYPOINT PROOF BANNER - RED BANNER
 # ============================================================================
 # Initialize run counter in session state
 if "proof_run_counter" not in st.session_state:
@@ -831,20 +831,19 @@ if "proof_run_counter" not in st.session_state:
 else:
     st.session_state.proof_run_counter += 1
 
-# Get GIT SHA from environment or use hardcoded diagnostic string
+# Get build string from environment or use hardcoded diagnostic string
 git_sha_proof = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
 
-# Display Proof Banner
+# Display RED Entrypoint Proof Banner
 st.markdown(
     f"""
-    <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
-        <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
-            🔍 PROOF BANNER - DIAGNOSTICS MODE
+    <div style="background-color: #8B0000; padding: 12px 20px; border: 2px solid #FF0000; margin-bottom: 16px; border-radius: 6px;">
+        <div style="color: #FFFFFF; font-size: 16px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+            🔴 ENTRYPOINT PROOF: app.py is running
         </div>
-        <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
-            <strong>APP FILE:</strong> app.py<br>
-            <strong>GIT SHA:</strong> {git_sha_proof}<br>
-            <strong>TIMESTAMP:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+        <div style="color: #FFE4E1; font-size: 12px; font-family: monospace;">
+            <strong>BUILD:</strong> {git_sha_proof}<br>
+            <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
             <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
         </div>
     </div>
@@ -9509,6 +9508,13 @@ def render_executive_brief_tab():
                     margin-bottom: 20px;
                 ">
                 """, unsafe_allow_html=True)
+                
+                # RENDERER PROOF MARKER - Portfolio Snapshot Blue Box
+                st.caption(f"🔵 RENDERER PROOF: Portfolio Snapshot BLUE BOX — STACKED LEDGER V1 | UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                
+                # DEBUG: Display period labels being rendered
+                period_labels = ['1D', '30D', '60D', '365D']
+                st.caption(f"🔍 DEBUG - Period Labels: {', '.join(period_labels)}")
                 
                 # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
                 st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
