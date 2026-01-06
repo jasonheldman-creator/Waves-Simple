@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
+MIN_BUFFER = 5  # Minimum buffer days required for rolling window validation
 
 # Import wave definitions
 try:
@@ -47,6 +48,85 @@ except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     WAVE_WEIGHTS = {}
     logger.warning("waves_engine not available - wave performance computation will be limited")
+
+
+def _slice_last_n_trading_days(
+    series: pd.Series,
+    n: int,
+    min_buffer: int = MIN_BUFFER
+) -> Dict[str, Any]:
+    """
+    Strictly slice the last N trading days from a series.
+    
+    This helper enforces strict rolling-window slicing with no silent fallback to inception.
+    
+    Args:
+        series: Pandas Series with DatetimeIndex
+        n: Number of trading days to slice
+        min_buffer: Minimum buffer days required for validation (default: MIN_BUFFER)
+        
+    Returns:
+        Dictionary with:
+        - status: "valid" or "invalid"
+        - reason: Why it was invalid (if status="invalid")
+        - sliced_series: pd.Series - Sliced series (only if status="valid")
+        - requested_days: int - N requested
+        - actual_rows: int - Actual rows in sliced series (only if status="valid")
+        - start_date: str - Start date of sliced window (only if status="valid")
+        - end_date: str - End date of sliced window (only if status="valid")
+        - is_exact_window: bool - True if actual_rows == requested_days (only if status="valid")
+    """
+    result = {
+        'status': 'invalid',
+        'reason': None,
+        'sliced_series': None,
+        'requested_days': n,
+        'actual_rows': 0,
+        'start_date': None,
+        'end_date': None,
+        'is_exact_window': False
+    }
+    
+    # Validate input series
+    if series is None or len(series) == 0:
+        result['reason'] = 'empty_series'
+        return result
+    
+    # Check if we have sufficient data (need at least N + min_buffer rows)
+    required_rows = n + min_buffer
+    available_rows = len(series)
+    
+    if available_rows < required_rows:
+        result['reason'] = f'insufficient_rows_for_period (have {available_rows}, need {required_rows} for {n}D + {min_buffer} buffer)'
+        return result
+    
+    # Slice the last N rows
+    try:
+        sliced = series.iloc[-n:]
+        
+        # Verify we actually got N rows
+        if len(sliced) != n:
+            result['reason'] = f'slice_returned_unexpected_length (expected {n}, got {len(sliced)})'
+            return result
+        
+        # Extract dates
+        start_date = sliced.index[0].strftime('%Y-%m-%d')
+        end_date = sliced.index[-1].strftime('%Y-%m-%d')
+        
+        # Success!
+        result['status'] = 'valid'
+        result['reason'] = None
+        result['sliced_series'] = sliced
+        result['actual_rows'] = len(sliced)
+        result['start_date'] = start_date
+        result['end_date'] = end_date
+        result['is_exact_window'] = (len(sliced) == n)
+        
+        return result
+        
+    except Exception as e:
+        result['reason'] = f'slice_error: {str(e)}'
+        return result
 
 
 def compute_wave_returns(
@@ -1617,40 +1697,81 @@ def compute_portfolio_alpha_attribution(
         return result
     
     # ========================================================================
-    # Step 4: Compute period summaries
+    # Step 4: Compute period summaries with strict rolling-window slicing
     # ========================================================================
     try:
-        def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
-            """Compute cumulative return over last N days."""
-            if len(series) < window:
-                return None
-            window_series = series.iloc[-window:]
-            cum_return = (1 + window_series).prod() - 1
-            return float(cum_return)
-        
-        # Compute for each period
+        # Compute for each period using strict rolling-window slicing
         for period in periods:
-            cum_real = compute_cumulative_return(daily_realized_return, period)
-            cum_sel = compute_cumulative_return(daily_unoverlay_return, period)
-            cum_bm = compute_cumulative_return(daily_benchmark_return, period)
+            # Slice all three series to the last N trading days
+            slice_real = _slice_last_n_trading_days(daily_realized_return, period)
+            slice_sel = _slice_last_n_trading_days(daily_unoverlay_return, period)
+            slice_bm = _slice_last_n_trading_days(daily_benchmark_return, period)
             
-            if cum_real is None or cum_sel is None or cum_bm is None:
+            # Check if all slices are valid
+            if (slice_real['status'] != 'valid' or 
+                slice_sel['status'] != 'valid' or 
+                slice_bm['status'] != 'valid'):
+                # At least one series has insufficient data - mark period as invalid
+                # Use the first invalid reason we find
+                reason = (slice_real.get('reason') or 
+                         slice_sel.get('reason') or 
+                         slice_bm.get('reason') or 
+                         'unknown_error')
+                
+                result['period_summaries'][f'{period}D'] = {
+                    'status': 'invalid',
+                    'reason': reason,
+                    'requested_period_days': period,
+                    'actual_rows_used': 0,
+                    'start_date': None,
+                    'end_date': None,
+                    'is_exact_window': False,
+                    'window_type': 'rolling',
+                    'period': period,
+                    'cum_real': None,
+                    'cum_sel': None,
+                    'cum_bm': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None
+                }
                 continue
             
+            # All slices are valid - compute cumulative returns
+            window_real = slice_real['sliced_series']
+            window_sel = slice_sel['sliced_series']
+            window_bm = slice_bm['sliced_series']
+            
+            # Compute cumulative returns using compounded math
+            cum_real = (1 + window_real).prod() - 1
+            cum_sel = (1 + window_sel).prod() - 1
+            cum_bm = (1 + window_bm).prod() - 1
+            
+            # Compute alpha components
             total_alpha = cum_real - cum_bm
             selection_alpha = cum_sel - cum_bm
             overlay_alpha = cum_real - cum_sel
             residual = total_alpha - (selection_alpha + overlay_alpha)
             
+            # Store valid period summary with full diagnostics
             result['period_summaries'][f'{period}D'] = {
+                'status': 'valid',
+                'reason': None,
+                'requested_period_days': period,
+                'actual_rows_used': slice_real['actual_rows'],
+                'start_date': slice_real['start_date'],
+                'end_date': slice_real['end_date'],
+                'is_exact_window': slice_real['is_exact_window'],
+                'window_type': 'rolling',
                 'period': period,
-                'cum_real': cum_real,
-                'cum_sel': cum_sel,
-                'cum_bm': cum_bm,
-                'total_alpha': total_alpha,
-                'selection_alpha': selection_alpha,
-                'overlay_alpha': overlay_alpha,
-                'residual': residual
+                'cum_real': float(cum_real),
+                'cum_sel': float(cum_sel),
+                'cum_bm': float(cum_bm),
+                'total_alpha': float(total_alpha),
+                'selection_alpha': float(selection_alpha),
+                'overlay_alpha': float(overlay_alpha),
+                'residual': float(residual)
             }
         
         # Since inception summary

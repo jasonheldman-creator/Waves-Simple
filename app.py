@@ -6122,17 +6122,41 @@ def compute_alpha_source_breakdown(df):
         st.session_state['portfolio_alpha_attribution'] = attribution
         st.session_state['portfolio_exposure_series'] = attribution.get('daily_exposure')
         
-        # Extract summary for the 60D period (or since inception if not available)
+        # Extract summary for the 60D period
         summary = attribution['period_summaries'].get('60D')
-        period_used = '60D'
-        if summary is None:
-            summary = attribution.get('since_inception_summary')
-            period_used = 'since_inception'
         
         if summary is None:
+            # No 60D summary at all - attribution failed
             return result
         
-        # Populate result with numeric values
+        # Check if the 60D period is valid or invalid
+        if summary.get('status') == 'invalid':
+            # 60D period is invalid - return structured invalid result
+            result['data_available'] = False
+            result['invalid_period'] = True
+            result['invalid_reason'] = summary.get('reason', 'unknown_error')
+            
+            # Store diagnostics even for invalid period to show why it failed
+            result['diagnostics'] = {
+                'period_used': '60D',
+                'status': 'invalid',
+                'reason': summary.get('reason', 'unknown_error'),
+                'requested_period_days': summary.get('requested_period_days', 60),
+                'actual_rows_used': summary.get('actual_rows_used', 0),
+                'is_exact_window': False,
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
+                'exposure_series_found': False,
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': None,
+                'cum_unoverlay': None,
+                'cum_benchmark': None
+            }
+            return result
+        
+        # 60D period is valid - populate result with numeric values
         result['total_alpha'] = summary['total_alpha']
         result['selection_alpha'] = summary['selection_alpha']
         result['overlay_alpha'] = summary['overlay_alpha']
@@ -6145,22 +6169,21 @@ def compute_alpha_source_breakdown(df):
         daily_unoverlay = attribution.get('daily_unoverlay_return')
         daily_benchmark = attribution.get('daily_benchmark_return')
         
-        # Helper to format dates safely
-        def format_date(series, index):
-            """Format date from series index, returns 'N/A' if unavailable."""
-            if series is not None and len(series) > 0:
-                return series.index[index].strftime('%Y-%m-%d')
-            return 'N/A'
-        
         # Helper to check series validity
         def series_valid(series):
             """Check if series is valid (not None and has data)."""
             return series is not None and len(series) > 0
         
         result['diagnostics'] = {
-            'period_used': period_used,
-            'start_date': format_date(daily_realized, 0),
-            'end_date': format_date(daily_realized, -1),
+            'period_used': '60D',
+            'status': 'valid',
+            'reason': None,
+            'requested_period_days': summary.get('requested_period_days', 60),
+            'actual_rows_used': summary.get('actual_rows_used', 60),
+            'is_exact_window': summary.get('is_exact_window', True),
+            'window_type': summary.get('window_type', 'rolling'),
+            'start_date': summary.get('start_date', 'N/A'),
+            'end_date': summary.get('end_date', 'N/A'),
             'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
             'exposure_series_found': series_valid(daily_exposure),
             'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
@@ -6888,8 +6911,12 @@ def render_mission_control():
             
             alpha_breakdown = compute_alpha_source_breakdown(df)
             
-            if alpha_breakdown['data_available']:
-                # Attribution Diagnostics Expander
+            # Check if we have valid data or if the 60D period is invalid
+            if alpha_breakdown.get('invalid_period', False):
+                # 60D period is invalid - show warning and diagnostics
+                st.warning(f"⚠️ 60D attribution unavailable: {alpha_breakdown.get('invalid_reason', 'unknown error')}")
+                
+                # Show diagnostics expander even for invalid period
                 with st.expander("🔬 Attribution Diagnostics", expanded=False):
                     st.caption("Detailed diagnostic values for transparency and validation")
                     
@@ -6901,6 +6928,48 @@ def render_mission_control():
                     with diag_col1:
                         st.markdown("**Period & Date Range:**")
                         st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                        st.text(f"Status: {diagnostics.get('status', 'N/A')}")
+                        st.text(f"Reason: {diagnostics.get('reason', 'N/A')}")
+                        st.text(f"Requested Period Days: {diagnostics.get('requested_period_days', 'N/A')}")
+                        st.text(f"Actual Rows Used: {diagnostics.get('actual_rows_used', 'N/A')}")
+                        st.text(f"Is Exact Window: {diagnostics.get('is_exact_window', 'N/A')}")
+                        st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
+                        st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
+                    
+                    with diag_col2:
+                        st.markdown("**Data Availability:**")
+                        st.text("60D window cannot be computed due to insufficient data.")
+                        st.text("")
+                        st.caption("Rolling window attribution requires at least 65 days of data (60D + 5 day buffer).")
+                
+                # Display table with N/A values
+                breakdown_data = []
+                breakdown_data.append(['Cumulative Alpha (Total)', 'N/A'])
+                breakdown_data.append(['Selection Alpha', 'N/A'])
+                breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', 'N/A'])
+                breakdown_data.append(['Residual', 'N/A'])
+                
+                breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
+                st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
+                
+            elif alpha_breakdown['data_available']:
+                # Attribution Diagnostics Expander (valid period)
+                with st.expander("🔬 Attribution Diagnostics", expanded=False):
+                    st.caption("Detailed diagnostic values for transparency and validation")
+                    
+                    diagnostics = alpha_breakdown.get('diagnostics', {})
+                    
+                    # Create diagnostic display in two columns
+                    diag_col1, diag_col2 = st.columns(2)
+                    
+                    with diag_col1:
+                        st.markdown("**Period & Date Range:**")
+                        st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                        st.text(f"Status: {diagnostics.get('status', 'N/A')}")
+                        st.text(f"Requested Period Days: {diagnostics.get('requested_period_days', 'N/A')}")
+                        st.text(f"Actual Rows Used: {diagnostics.get('actual_rows_used', 'N/A')}")
+                        st.text(f"Is Exact Window: {diagnostics.get('is_exact_window', 'N/A')}")
+                        st.text(f"Window Type: {diagnostics.get('window_type', 'N/A')}")
                         st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
                         st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
                         
@@ -6927,7 +6996,8 @@ def render_mission_control():
                         
                         st.markdown("")
                         st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
-                
+                        st.caption(f"Window strictly sliced to last {diagnostics.get('actual_rows_used', 60)} trading days.")
+            
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
                 col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
