@@ -9447,6 +9447,13 @@ def render_executive_brief_tab():
         # ========================================================================
         # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
         # ========================================================================
+        # NOTE: This section uses the STACKED LEDGER RENDERER (from PR #422) as the
+        # canonical rendering method for Portfolio Snapshot (All Waves).
+        # - Single source of truth: compute_portfolio_alpha_ledger()
+        # - Displays Portfolio Return, Benchmark Return, and Alpha for 1D, 30D, 60D, 365D
+        # - Handles unavailable periods with N/A and explicit reasons
+        # - No legacy tile-based rendering or fallback logic
+        # ========================================================================
         st.markdown("### 💼 Portfolio Snapshot")
         st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
         
@@ -9458,7 +9465,7 @@ def render_executive_brief_tab():
             # Load PRICE_BOOK
             price_book = get_price_book()
             
-            # Compute portfolio alpha ledger (canonical implementation)
+            # Compute portfolio alpha ledger - single source of truth for all metrics
             ledger = compute_portfolio_alpha_ledger(
                 price_book, 
                 periods=[1, 30, 60, 365],
@@ -9510,7 +9517,14 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                # ============================================================
+                # STACKED LEDGER RENDERER (Canonical - from PR #422)
+                # ============================================================
+                # This is the canonical rendering method for Portfolio Snapshot.
+                # Uses compute_portfolio_alpha_ledger() as single source of truth.
+                # Displays Portfolio Return, Benchmark Return, and Alpha for each period.
+                # Handles unavailable periods with N/A and explicit reasons.
+                # ============================================================
                 st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
                 st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
                 
