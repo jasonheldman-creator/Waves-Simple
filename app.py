@@ -6078,19 +6078,23 @@ def compute_alpha_source_breakdown(df):
     This function now uses the canonical compute_portfolio_alpha_attribution
     from helpers/wave_performance.py to provide reproducible, numeric attribution.
     
+    Explicitly calls with period=60D to align with Portfolio Snapshot 60D tile.
+    
     Returns dict with:
         - total_alpha: Cumulative alpha (Total)
         - selection_alpha: Asset selection alpha
         - overlay_alpha: VIX/SafeSmart overlay alpha
         - residual: Reconciliation residual (should be near 0)
         - data_available: bool indicating if breakdown is possible
+        - diagnostics: dict with diagnostic values for transparency
     """
     result = {
         'total_alpha': None,
         'selection_alpha': None,
         'overlay_alpha': None,
         'residual': None,
-        'data_available': False
+        'data_available': False,
+        'diagnostics': {}
     }
     
     try:
@@ -6104,11 +6108,11 @@ def compute_alpha_source_breakdown(df):
         if price_book is None or price_book.empty:
             return result
         
-        # Compute portfolio alpha attribution
+        # Compute portfolio alpha attribution - explicitly force 60D period to align with Portfolio Snapshot
         attribution = compute_portfolio_alpha_attribution(
             price_book=price_book,
             mode=st.session_state.get('selected_mode', 'Standard'),
-            periods=[30, 60, 365]
+            periods=[60]  # Force 60D period for alignment with Portfolio Snapshot
         )
         
         if not attribution['success']:
@@ -6120,8 +6124,10 @@ def compute_alpha_source_breakdown(df):
         
         # Extract summary for the 60D period (or since inception if not available)
         summary = attribution['period_summaries'].get('60D')
+        period_used = '60D'
         if summary is None:
             summary = attribution.get('since_inception_summary')
+            period_used = 'since_inception'
         
         if summary is None:
             return result
@@ -6132,6 +6138,37 @@ def compute_alpha_source_breakdown(df):
         result['overlay_alpha'] = summary['overlay_alpha']
         result['residual'] = summary['residual']
         result['data_available'] = True
+        
+        # Extract diagnostic values for transparency
+        daily_exposure = attribution.get('daily_exposure')
+        daily_realized = attribution.get('daily_realized_return')
+        daily_unoverlay = attribution.get('daily_unoverlay_return')
+        daily_benchmark = attribution.get('daily_benchmark_return')
+        
+        # Helper to format dates safely
+        def format_date(series, index):
+            """Format date from series index, returns 'N/A' if unavailable."""
+            if series is not None and len(series) > 0:
+                return series.index[index].strftime('%Y-%m-%d')
+            return 'N/A'
+        
+        # Helper to check series validity
+        def series_valid(series):
+            """Check if series is valid (not None and has data)."""
+            return series is not None and len(series) > 0
+        
+        result['diagnostics'] = {
+            'period_used': period_used,
+            'start_date': format_date(daily_realized, 0),
+            'end_date': format_date(daily_realized, -1),
+            'using_fallback_exposure': attribution.get('using_fallback_exposure', False),
+            'exposure_series_found': series_valid(daily_exposure),
+            'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
+            'exposure_max': float(daily_exposure.max()) if series_valid(daily_exposure) else None,
+            'cum_realized': summary.get('cum_real'),
+            'cum_unoverlay': summary.get('cum_sel'),
+            'cum_benchmark': summary.get('cum_bm')
+        }
         
     except Exception as e:
         # Log error but don't fail - graceful degradation
@@ -6851,6 +6888,46 @@ def render_mission_control():
             
             alpha_breakdown = compute_alpha_source_breakdown(df)
             
+            if alpha_breakdown['data_available']:
+                # Attribution Diagnostics Expander
+                with st.expander("🔬 Attribution Diagnostics", expanded=False):
+                    st.caption("Detailed diagnostic values for transparency and validation")
+                    
+                    diagnostics = alpha_breakdown.get('diagnostics', {})
+                    
+                    # Create diagnostic display in two columns
+                    diag_col1, diag_col2 = st.columns(2)
+                    
+                    with diag_col1:
+                        st.markdown("**Period & Date Range:**")
+                        st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                        st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
+                        st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
+                        
+                        st.markdown("")
+                        st.markdown("**Exposure Series:**")
+                        st.text(f"Using Fallback Exposure: {diagnostics.get('using_fallback_exposure', 'N/A')}")
+                        st.text(f"Exposure Series Found: {diagnostics.get('exposure_series_found', 'N/A')}")
+                        
+                        exposure_min = diagnostics.get('exposure_min')
+                        exposure_max = diagnostics.get('exposure_max')
+                        st.text(f"Exposure Min: {exposure_min:.4f}" if exposure_min is not None else "Exposure Min: N/A")
+                        st.text(f"Exposure Max: {exposure_max:.4f}" if exposure_max is not None else "Exposure Max: N/A")
+                    
+                    with diag_col2:
+                        st.markdown("**Cumulative Returns (Compounded):**")
+                        
+                        cum_realized = diagnostics.get('cum_realized')
+                        cum_unoverlay = diagnostics.get('cum_unoverlay')
+                        cum_benchmark = diagnostics.get('cum_benchmark')
+                        
+                        st.text(f"Cum Realized: {cum_realized:+.4%}" if cum_realized is not None else "Cum Realized: N/A")
+                        st.text(f"Cum Unoverlay: {cum_unoverlay:+.4%}" if cum_unoverlay is not None else "Cum Unoverlay: N/A")
+                        st.text(f"Cum Benchmark: {cum_benchmark:+.4%}" if cum_benchmark is not None else "Cum Benchmark: N/A")
+                        
+                        st.markdown("")
+                        st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
+                
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
                 col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
