@@ -1387,70 +1387,300 @@ def compute_portfolio_snapshot(
 def compute_portfolio_alpha_attribution(
     price_book: pd.DataFrame,
     mode: str = 'Standard',
-    min_waves: int = 3
+    periods: List[int] = [30, 60, 365],
+    safe_ticker_preference: List[str] = ["BIL", "SHY"],
+    wave_registry: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
-    Compute portfolio-level alpha attribution by aggregating wave-level metrics.
+    Compute portfolio-level alpha attribution with transparent decomposition.
     
-    This implements simplified alpha attribution:
-    - total_alpha = actual_return - benchmark_return
-    - overlay_alpha = 0 (temporary fallback until VIX overlay data available)
-    - selection_alpha = total_alpha - overlay_alpha = total_alpha
+    Returns daily series and period summaries decomposing total alpha into:
+    - Selection Alpha: from asset selection (unoverlay vs benchmark)
+    - Overlay Alpha: from VIX/SafeSmart exposure management
+    - Residual: reconciliation term (should be near 0)
     
     Args:
-        price_book: PRICE_BOOK DataFrame
-        mode: Operating mode
-        min_waves: Minimum number of waves required (default: 3)
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers)
+        wave_registry: Wave registry (if None, uses WAVE_WEIGHTS)
+        mode: Operating mode (e.g., 'Standard', 'Safe', 'Aggressive')
+        periods: Lookback periods in days for summary (e.g., [30, 60, 365])
+        safe_ticker_preference: Ordered list of safe asset tickers (e.g., ["BIL", "SHY"])
         
     Returns:
         Dictionary with:
-        - success: bool
-        - failure_reason: str
-        - cumulative_alpha: float - Total alpha
-        - selection_alpha: float - Asset selection alpha
-        - overlay_alpha: float - VIX/regime overlay alpha (0 for now)
-        - wave_count: int - Number of waves included
-        - wave_attributions: List[Dict] - Per-wave attribution data
+        - success: bool - Whether computation succeeded
+        - failure_reason: Optional[str] - Reason for failure
+        - daily_realized_return: pd.Series - Daily portfolio returns (with overlay)
+        - daily_unoverlay_return: pd.Series - Daily portfolio returns (exposure=1.0)
+        - daily_benchmark_return: pd.Series - Daily benchmark returns
+        - daily_exposure: pd.Series - Daily exposure levels [0, 1]
+        - period_summaries: Dict[str, Dict] - Summary for each period (30D, 60D, 365D)
+        - since_inception_summary: Dict - Summary since inception
+        - warnings: List[str] - Any warnings about data quality
+    
+    Period summary structure (for each period):
+        - cum_real: float - Cumulative realized return
+        - cum_sel: float - Cumulative selection return (unoverlay)
+        - cum_bm: float - Cumulative benchmark return
+        - total_alpha: float - cum_real - cum_bm
+        - selection_alpha: float - cum_sel - cum_bm
+        - overlay_alpha: float - cum_real - cum_sel
+        - residual: float - total_alpha - (selection_alpha + overlay_alpha)
     """
     result = {
         'success': False,
         'failure_reason': None,
-        'cumulative_alpha': None,
-        'selection_alpha': None,
-        'overlay_alpha': 0.0,  # Temporary fallback
-        'wave_count': 0,
-        'wave_attributions': []
+        'daily_realized_return': None,
+        'daily_unoverlay_return': None,
+        'daily_benchmark_return': None,
+        'daily_exposure': None,
+        'period_summaries': {},
+        'since_inception_summary': {},
+        'warnings': []
     }
     
-    # Get portfolio snapshot first
-    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[30, 60, 365])
-    
-    if not snapshot['success']:
-        result['failure_reason'] = f"Portfolio snapshot failed: {snapshot['failure_reason']}"
+    # Validate inputs
+    if price_book is None or price_book.empty:
+        result['failure_reason'] = 'PRICE_BOOK is empty'
         return result
     
-    # Use 60D alpha as the cumulative alpha (or 30D if 60D not available)
-    cumulative_alpha = snapshot['alphas'].get('60D')
-    if cumulative_alpha is None:
-        cumulative_alpha = snapshot['alphas'].get('30D')
-    
-    if cumulative_alpha is None:
-        result['failure_reason'] = 'No valid alpha metrics computed'
+    if not WAVES_ENGINE_AVAILABLE:
+        result['failure_reason'] = 'waves_engine not available'
         return result
     
-    result['cumulative_alpha'] = cumulative_alpha
-    result['wave_count'] = snapshot['wave_count']
+    # Use WAVE_WEIGHTS as registry if not provided
+    if wave_registry is None:
+        wave_registry = WAVE_WEIGHTS
     
-    # Temporary fallback: selection_alpha = total_alpha, overlay_alpha = 0
-    result['selection_alpha'] = cumulative_alpha
-    result['overlay_alpha'] = 0.0
-    
-    # Check minimum wave requirement
-    if result['wave_count'] < min_waves:
-        result['failure_reason'] = f'Insufficient waves (got {result["wave_count"]}, need {min_waves})'
+    try:
+        universe = get_all_waves_universe()
+        all_waves = universe.get('waves', [])
+    except Exception as e:
+        result['failure_reason'] = f'Error getting wave universe: {str(e)}'
         return result
     
-    result['success'] = True
+    if not all_waves:
+        result['failure_reason'] = 'No waves found in universe'
+        return result
+    
+    # ========================================================================
+    # Step 1: Compute daily_unoverlay_return (exposure=1.0 forced)
+    # ========================================================================
+    # This is the same as current compute_portfolio_snapshot logic
+    try:
+        wave_return_dict_unoverlay = {}
+        wave_benchmark_dict = {}
+        
+        for wave_name in all_waves:
+            if wave_name not in wave_registry:
+                continue
+            
+            wave_holdings = wave_registry[wave_name]
+            if not wave_holdings:
+                continue
+            
+            try:
+                tickers = [h.ticker for h in wave_holdings]
+                weights = [h.weight for h in wave_holdings]
+                
+                total_weight = sum(weights)
+                if total_weight == 0:
+                    continue
+                normalized_weights = [w / total_weight for w in weights]
+                
+                # Filter to available tickers
+                available_tickers = []
+                available_weights = []
+                for ticker, weight in zip(tickers, normalized_weights):
+                    if ticker in price_book.columns:
+                        available_tickers.append(ticker)
+                        available_weights.append(weight)
+                
+                if not available_tickers:
+                    continue
+                
+                # Renormalize
+                total_available = sum(available_weights)
+                renormalized_weights = [w / total_available for w in available_weights]
+                
+                # Compute daily returns
+                ticker_prices = price_book[available_tickers].copy()
+                if len(ticker_prices) < 2:
+                    continue
+                
+                ticker_returns = ticker_prices.pct_change()
+                
+                # Weighted returns
+                wave_returns = pd.Series(0.0, index=ticker_returns.index)
+                for i, ticker in enumerate(available_tickers):
+                    weight = renormalized_weights[i]
+                    ticker_ret = ticker_returns[ticker]
+                    wave_returns = wave_returns.add(ticker_ret * weight, fill_value=0.0)
+                
+                wave_returns = wave_returns.iloc[1:]  # Drop first NaN
+                
+                if len(wave_returns) > 0 and wave_returns.notna().any():
+                    wave_return_dict_unoverlay[wave_name] = wave_returns
+                    
+                    # Compute benchmark
+                    benchmark_ticker = DEFAULT_BENCHMARK_TICKER
+                    if benchmark_ticker in price_book.columns:
+                        benchmark_prices = price_book[benchmark_ticker].copy()
+                        benchmark_returns = benchmark_prices.pct_change().iloc[1:]
+                        wave_benchmark_dict[wave_name] = benchmark_returns
+                    else:
+                        wave_benchmark_dict[wave_name] = wave_returns
+            
+            except Exception as e:
+                logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
+                continue
+        
+        if not wave_return_dict_unoverlay:
+            result['failure_reason'] = 'No valid wave return series computed'
+            return result
+        
+        # Aggregate to portfolio level (equal weight)
+        return_matrix_unoverlay = pd.DataFrame(wave_return_dict_unoverlay)
+        benchmark_matrix = pd.DataFrame(wave_benchmark_dict)
+        
+        daily_unoverlay_return = return_matrix_unoverlay.mean(axis=1, skipna=True)
+        daily_benchmark_return = benchmark_matrix.mean(axis=1, skipna=True)
+        
+        # Drop dates where all are NaN
+        valid_dates = ~daily_unoverlay_return.isna()
+        daily_unoverlay_return = daily_unoverlay_return[valid_dates].sort_index()
+        daily_benchmark_return = daily_benchmark_return[valid_dates].sort_index()
+        
+        if len(daily_unoverlay_return) < 2:
+            result['failure_reason'] = 'Insufficient dates after aggregation'
+            return result
+        
+        result['daily_unoverlay_return'] = daily_unoverlay_return
+        result['daily_benchmark_return'] = daily_benchmark_return
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing unoverlay returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 2: Compute daily_exposure series
+    # ========================================================================
+    # For now, we don't have VIX overlay data, so exposure is always 1.0
+    # When VIX overlay is available, this will compute actual exposure from regime
+    try:
+        # Try to find safe ticker for safe sleeve
+        safe_ticker = None
+        for ticker in safe_ticker_preference:
+            if ticker in price_book.columns:
+                safe_ticker = ticker
+                break
+        
+        if safe_ticker is None:
+            result['warnings'].append(f'No safe ticker found in price_book (tried: {safe_ticker_preference})')
+            result['warnings'].append('Overlay alpha will be 0 (exposure=1.0 assumed)')
+        
+        # Default: exposure = 1.0 (no overlay)
+        # TODO: When VIX overlay is integrated, compute actual exposure here
+        daily_exposure = pd.Series(1.0, index=daily_unoverlay_return.index)
+        result['daily_exposure'] = daily_exposure
+        
+        # Compute safe returns if available
+        if safe_ticker is not None:
+            safe_prices = price_book[safe_ticker].copy()
+            safe_returns = safe_prices.pct_change().iloc[1:]
+            # Align with portfolio dates
+            safe_returns = safe_returns.reindex(daily_unoverlay_return.index, fill_value=0.0)
+        else:
+            # Use 0 return for safe sleeve if no safe asset available
+            safe_returns = pd.Series(0.0, index=daily_unoverlay_return.index)
+        
+    except Exception as e:
+        result['warnings'].append(f'Error computing exposure series: {str(e)}')
+        daily_exposure = pd.Series(1.0, index=daily_unoverlay_return.index)
+        safe_returns = pd.Series(0.0, index=daily_unoverlay_return.index)
+        result['daily_exposure'] = daily_exposure
+    
+    # ========================================================================
+    # Step 3: Compute daily_realized_return (with overlay)
+    # ========================================================================
+    # realized_return(t) = exposure(t) * unoverlay_return(t) + (1-exposure(t)) * safe_return(t)
+    try:
+        daily_realized_return = (
+            daily_exposure * daily_unoverlay_return + 
+            (1 - daily_exposure) * safe_returns
+        )
+        result['daily_realized_return'] = daily_realized_return
+    
+    except Exception as e:
+        result['failure_reason'] = f'Error computing realized returns: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 4: Compute period summaries
+    # ========================================================================
+    try:
+        def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
+            """Compute cumulative return over last N days."""
+            if len(series) < window:
+                return None
+            window_series = series.iloc[-window:]
+            cum_return = (1 + window_series).prod() - 1
+            return float(cum_return)
+        
+        # Compute for each period
+        for period in periods:
+            cum_real = compute_cumulative_return(daily_realized_return, period)
+            cum_sel = compute_cumulative_return(daily_unoverlay_return, period)
+            cum_bm = compute_cumulative_return(daily_benchmark_return, period)
+            
+            if cum_real is None or cum_sel is None or cum_bm is None:
+                continue
+            
+            total_alpha = cum_real - cum_bm
+            selection_alpha = cum_sel - cum_bm
+            overlay_alpha = cum_real - cum_sel
+            residual = total_alpha - (selection_alpha + overlay_alpha)
+            
+            result['period_summaries'][f'{period}D'] = {
+                'period': period,
+                'cum_real': cum_real,
+                'cum_sel': cum_sel,
+                'cum_bm': cum_bm,
+                'total_alpha': total_alpha,
+                'selection_alpha': selection_alpha,
+                'overlay_alpha': overlay_alpha,
+                'residual': residual
+            }
+        
+        # Since inception summary
+        cum_real_inception = (1 + daily_realized_return).prod() - 1
+        cum_sel_inception = (1 + daily_unoverlay_return).prod() - 1
+        cum_bm_inception = (1 + daily_benchmark_return).prod() - 1
+        
+        total_alpha_inception = cum_real_inception - cum_bm_inception
+        selection_alpha_inception = cum_sel_inception - cum_bm_inception
+        overlay_alpha_inception = cum_real_inception - cum_sel_inception
+        residual_inception = total_alpha_inception - (selection_alpha_inception + overlay_alpha_inception)
+        
+        result['since_inception_summary'] = {
+            'period': 'inception',
+            'days': len(daily_realized_return),
+            'cum_real': float(cum_real_inception),
+            'cum_sel': float(cum_sel_inception),
+            'cum_bm': float(cum_bm_inception),
+            'total_alpha': float(total_alpha_inception),
+            'selection_alpha': float(selection_alpha_inception),
+            'overlay_alpha': float(overlay_alpha_inception),
+            'residual': float(residual_inception)
+        }
+        
+        result['success'] = True
+        result['failure_reason'] = None
+        
+    except Exception as e:
+        result['failure_reason'] = f'Error computing period summaries: {str(e)}'
+        return result
+    
     return result
 
 

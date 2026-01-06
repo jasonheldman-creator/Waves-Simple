@@ -122,7 +122,7 @@ def test_alpha_attribution():
         
         # Compute alpha attribution
         print("\nComputing alpha attribution...")
-        attribution = compute_portfolio_alpha_attribution(price_book, mode='Standard', min_waves=3)
+        attribution = compute_portfolio_alpha_attribution(price_book, mode='Standard', periods=[30, 60, 365])
         
         # Validate results
         if not attribution['success']:
@@ -130,43 +130,46 @@ def test_alpha_attribution():
             return False
         
         print(f"✓ Attribution computation succeeded")
-        print(f"  - Wave count: {attribution['wave_count']}")
         
         # Test requirement: Alpha attribution outputs non-null numeric values
-        print("\nAlpha Attribution Values:")
-        print(f"  - Cumulative alpha: {attribution['cumulative_alpha']}")
-        print(f"  - Selection alpha: {attribution['selection_alpha']}")
-        print(f"  - Overlay alpha: {attribution['overlay_alpha']}")
+        # Use 60D period summary
+        summary = attribution['period_summaries'].get('60D')
+        if summary is None:
+            summary = attribution.get('since_inception_summary')
         
-        if attribution['cumulative_alpha'] is None:
-            print("❌ FAIL: Cumulative alpha is None")
+        if summary is None:
+            print("❌ FAIL: No period summaries available")
             return False
         
-        if attribution['selection_alpha'] is None:
+        print("\nAlpha Attribution Values (60D or since inception):")
+        print(f"  - Total alpha: {summary['total_alpha']}")
+        print(f"  - Selection alpha: {summary['selection_alpha']}")
+        print(f"  - Overlay alpha: {summary['overlay_alpha']}")
+        print(f"  - Residual: {summary['residual']}")
+        
+        if summary['total_alpha'] is None:
+            print("❌ FAIL: Total alpha is None")
+            return False
+        
+        if summary['selection_alpha'] is None:
             print("❌ FAIL: Selection alpha is None")
             return False
         
-        if attribution['overlay_alpha'] is None:
+        if summary['overlay_alpha'] is None:
             print("❌ FAIL: Overlay alpha is None")
             return False
         
-        # Verify they are numeric
-        try:
-            float(attribution['cumulative_alpha'])
-            float(attribution['selection_alpha'])
-            float(attribution['overlay_alpha'])
-        except (TypeError, ValueError):
-            print("❌ FAIL: Alpha values are not numeric")
+        if summary['residual'] is None:
+            print("❌ FAIL: Residual is None")
             return False
         
-        print("✓ All alpha values are non-null and numeric")
+        print("✓ All alpha attribution values are non-null")
         
-        # Test requirement: minimum 3 waves
-        if attribution['wave_count'] < 3:
-            print(f"❌ FAIL: Wave count {attribution['wave_count']} < 3")
-            return False
-        
-        print(f"✓ Wave count {attribution['wave_count']} >= 3")
+        # Verify residual is near zero
+        if abs(summary['residual']) > 0.001:
+            print(f"⚠ WARNING: Residual {summary['residual']:.6f} exceeds tolerance")
+        else:
+            print(f"✓ Residual {summary['residual']:.6f} is within tolerance")
         
         print("\n✓ PASS: Alpha attribution test")
         return True

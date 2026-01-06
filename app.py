@@ -6073,13 +6073,16 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
 
 def compute_alpha_source_breakdown(df):
     """
-    Compute alpha source breakdown from wave history data.
+    Compute alpha source breakdown using portfolio-level attribution.
+    
+    This function now uses the canonical compute_portfolio_alpha_attribution
+    from helpers/wave_performance.py to provide reproducible, numeric attribution.
     
     Returns dict with:
-        - total_alpha: realized_wave_return - benchmark_return
-        - selection_alpha: raw_wave_return - static_basket_return (if available)
-        - overlay_alpha: realized_wave_return - raw_wave_return (if available)
-        - residual: total_alpha - (selection_alpha + overlay_alpha)
+        - total_alpha: Cumulative alpha (Total)
+        - selection_alpha: Asset selection alpha
+        - overlay_alpha: VIX/SafeSmart overlay alpha
+        - residual: Reconciliation residual (should be near 0)
         - data_available: bool indicating if breakdown is possible
     """
     result = {
@@ -6091,43 +6094,49 @@ def compute_alpha_source_breakdown(df):
     }
     
     try:
-        if df is None or len(df) == 0:
+        # Import the canonical attribution function
+        from helpers.wave_performance import compute_portfolio_alpha_attribution
+        from helpers.price_book import get_price_book
+        
+        # Get PRICE_BOOK
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
             return result
         
-        # Check for required columns
-        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+        # Compute portfolio alpha attribution
+        attribution = compute_portfolio_alpha_attribution(
+            price_book=price_book,
+            mode=st.session_state.get('selected_mode', 'Standard'),
+            periods=[30, 60, 365]
+        )
+        
+        if not attribution['success']:
             return result
         
-        # Compute total_alpha
-        df_copy = df.copy()
-        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
-        total_alpha = df_copy['total_alpha'].sum()
-        result['total_alpha'] = total_alpha
+        # Store in session state for persistence and debugging
+        st.session_state['portfolio_alpha_attribution'] = attribution
+        st.session_state['portfolio_exposure_series'] = attribution.get('daily_exposure')
         
-        # Try to compute selection_alpha if static_basket_return exists
-        if 'static_basket_return' in df_copy.columns:
-            # selection_alpha = raw_wave_return - static_basket_return
-            # If we don't have raw_wave_return, we can't compute this
-            if 'raw_wave_return' in df_copy.columns:
-                df_copy['selection_alpha'] = df_copy['raw_wave_return'] - df_copy['static_basket_return']
-                result['selection_alpha'] = df_copy['selection_alpha'].sum()
+        # Extract summary for the 60D period (or since inception if not available)
+        summary = attribution['period_summaries'].get('60D')
+        if summary is None:
+            summary = attribution.get('since_inception_summary')
         
-        # Try to compute overlay_alpha if raw_wave_return exists
-        if 'raw_wave_return' in df_copy.columns:
-            # overlay_alpha = realized_wave_return - raw_wave_return
-            # realized_wave_return is portfolio_return
-            df_copy['overlay_alpha'] = df_copy['portfolio_return'] - df_copy['raw_wave_return']
-            result['overlay_alpha'] = df_copy['overlay_alpha'].sum()
+        if summary is None:
+            return result
         
-        # Compute residual if both components are available
-        if result['selection_alpha'] is not None and result['overlay_alpha'] is not None:
-            result['residual'] = total_alpha - (result['selection_alpha'] + result['overlay_alpha'])
-            result['data_available'] = True
-        else:
-            # Partial data - mark as available if we have at least total_alpha
-            result['data_available'] = True
+        # Populate result with numeric values
+        result['total_alpha'] = summary['total_alpha']
+        result['selection_alpha'] = summary['selection_alpha']
+        result['overlay_alpha'] = summary['overlay_alpha']
+        result['residual'] = summary['residual']
+        result['data_available'] = True
         
-    except Exception:
+    except Exception as e:
+        # Log error but don't fail - graceful degradation
+        import logging
+        logging.warning(f"Error in compute_alpha_source_breakdown: {e}")
         pass
     
     return result
@@ -6847,22 +6856,12 @@ def render_mission_control():
                 col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
                 
                 with col_table:
-                    # Create breakdown table
+                    # Create breakdown table with numeric values
                     breakdown_data = []
-                    if alpha_breakdown['total_alpha'] is not None:
-                        breakdown_data.append(['Cumulative Alpha (Pre-Decomposition)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')])
-                    if alpha_breakdown['selection_alpha'] is not None:
-                        breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending')])
-                    else:
-                        breakdown_data.append(['Selection Alpha', 'Pending'])
-                    if alpha_breakdown['overlay_alpha'] is not None:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived')])
-                    else:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', 'Derived'])
-                    if alpha_breakdown['residual'] is not None:
-                        breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'Reserved')])
-                    else:
-                        breakdown_data.append(['Residual', 'Reserved'])
+                    breakdown_data.append(['Cumulative Alpha (Total)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'N/A')])
+                    breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'N/A')])
+                    breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'N/A')])
+                    breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'N/A')])
                     
                     if breakdown_data:
                         breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
