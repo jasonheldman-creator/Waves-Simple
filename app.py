@@ -9356,50 +9356,27 @@ def render_executive_brief_tab():
         # ========================================================================
         # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
         # ========================================================================
+        # PR #419 Addendum: Blue box sources ONLY from compute_portfolio_alpha_ledger()
+        # ========================================================================
         st.markdown("### 💼 Portfolio Snapshot")
         st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
         
         try:
-            from helpers.wave_performance import compute_portfolio_snapshot, compute_portfolio_alpha_attribution
+            from helpers.wave_performance import compute_portfolio_alpha_ledger
             from helpers.price_book import get_price_book
             
             # Load PRICE_BOOK
             price_book = get_price_book()
             
-            # Compute portfolio snapshot
-            snapshot = compute_portfolio_snapshot(price_book, mode='Standard', periods=[1, 30, 60, 365])
+            # Compute alpha ledger (SINGLE SOURCE OF TRUTH for blue box)
+            ledger = compute_portfolio_alpha_ledger(
+                price_book=price_book, 
+                mode='Standard', 
+                periods=[1, 30, 60, 365]
+            )
             
-            # Add diagnostic information
-            if snapshot['success']:
-                n_waves_used = snapshot['wave_count']
-                date_range = snapshot['date_range']
-                # Calculate number of dates from date range
-                try:
-                    import pandas as pd
-                    start_date = pd.to_datetime(date_range[0])
-                    end_date = pd.to_datetime(date_range[1])
-                    n_dates = (end_date - start_date).days
-                except Exception:
-                    n_dates = 0
-                
-                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start={date_range[0]}, end={date_range[1]}")
-            else:
-                # Check for empty result condition
-                n_waves_used = snapshot.get('wave_count', 0)
-                # Estimate dates from price_book if available
-                try:
-                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                except Exception:
-                    n_dates = 0
-                
-                st.caption(f"📊 Portfolio agg: waves={n_waves_used}, dates={n_dates}, start=N/A, end=N/A")
-                
-                # Check for specific error conditions
-                if n_waves_used == 0 or n_dates < 2:
-                    st.error(f"❌ Portfolio Snapshot unavailable: aggregation produced no usable series ({n_waves_used} waves, {n_dates} dates available).")
-            
-            if snapshot['success']:
-                # Display in blue box with metrics
+            if ledger['success']:
+                # Display in blue box with metrics (sourced from ledger)
                 st.markdown("""
                 <div style="
                     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -9410,117 +9387,193 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # Portfolio Returns Row
+                # Portfolio Returns Row (from ledger period_summaries)
                 col1, col2, col3, col4 = st.columns(4)
                 
-                with col1:
-                    ret_1d = snapshot['portfolio_returns']['1D']
-                    if ret_1d is not None:
-                        st.metric("1D Return", f"{ret_1d:+.2%}", 
-                                 help="Portfolio return over 1 day")
-                    else:
-                        st.metric("1D Return", "—", 
-                                 help="Insufficient history for 1D return")
+                periods_list = ['1D', '30D', '60D', '365D']
+                for col, period_key in zip([col1, col2, col3, col4], periods_list):
+                    with col:
+                        summary = ledger['period_summaries'].get(period_key, {})
+                        if summary.get('available', False):
+                            cum_real = summary.get('cum_real')
+                            if cum_real is not None:
+                                st.metric(f"{period_key} Return", f"{cum_real:+.2%}", 
+                                         help=f"Portfolio return over {period_key}")
+                            else:
+                                st.metric(f"{period_key} Return", "—", 
+                                         help="Data unavailable")
+                        else:
+                            reason = summary.get('reason', 'unknown')
+                            if reason == 'insufficient_aligned_rows':
+                                st.metric(f"{period_key} Return", "—", 
+                                         help=f"Insufficient history for {period_key} return")
+                            elif reason == 'attribution_mismatch':
+                                st.metric(f"{period_key} Return", "— (attribution mismatch)", 
+                                         help="Attribution reconciliation failed")
+                            else:
+                                st.metric(f"{period_key} Return", "—", 
+                                         help=f"Unavailable: {reason}")
                 
-                with col2:
-                    ret_30d = snapshot['portfolio_returns']['30D']
-                    if ret_30d is not None:
-                        st.metric("30D Return", f"{ret_30d:+.2%}",
-                                 help="Portfolio return over 30 days")
-                    else:
-                        st.metric("30D Return", "—",
-                                 help="Insufficient history for 30D return")
-                
-                with col3:
-                    ret_60d = snapshot['portfolio_returns']['60D']
-                    if ret_60d is not None:
-                        st.metric("60D Return", f"{ret_60d:+.2%}",
-                                 help="Portfolio return over 60 days")
-                    else:
-                        st.metric("60D Return", "—",
-                                 help="Insufficient history for 60D return")
-                
-                with col4:
-                    ret_365d = snapshot['portfolio_returns']['365D']
-                    if ret_365d is not None:
-                        st.metric("365D Return", f"{ret_365d:+.2%}",
-                                 help="Portfolio return over 365 days")
-                    else:
-                        st.metric("365D Return", "—",
-                                 help="Insufficient history for 365D return")
-                
-                # Alpha Row
+                # Alpha Row (total_alpha from ledger)
                 st.markdown("**Alpha vs Benchmark:**")
                 col1, col2, col3, col4 = st.columns(4)
                 
-                with col1:
-                    alpha_1d = snapshot['alphas']['1D']
-                    if alpha_1d is not None:
-                        st.metric("1D Alpha", f"{alpha_1d:+.2%}",
-                                 help="Alpha vs benchmark over 1 day")
-                    else:
-                        st.metric("1D Alpha", "—")
+                for col, period_key in zip([col1, col2, col3, col4], periods_list):
+                    with col:
+                        summary = ledger['period_summaries'].get(period_key, {})
+                        if summary.get('available', False):
+                            total_alpha = summary.get('total_alpha')
+                            if total_alpha is not None:
+                                st.metric(f"{period_key} Alpha", f"{total_alpha:+.2%}",
+                                         help=f"Alpha vs benchmark over {period_key}")
+                            else:
+                                st.metric(f"{period_key} Alpha", "—")
+                        else:
+                            reason = summary.get('reason', 'unknown')
+                            if reason == 'attribution_mismatch':
+                                st.metric(f"{period_key} Alpha", "— (attribution mismatch)")
+                            else:
+                                st.metric(f"{period_key} Alpha", "—")
                 
-                with col2:
-                    alpha_30d = snapshot['alphas']['30D']
-                    if alpha_30d is not None:
-                        st.metric("30D Alpha", f"{alpha_30d:+.2%}",
-                                 help="Alpha vs benchmark over 30 days")
-                    else:
-                        st.metric("30D Alpha", "—")
+                # Alpha Captured Row (Requirement D)
+                st.markdown("**Alpha Captured (via VIX Overlay):**")
+                col1, col2, col3, col4 = st.columns(4)
                 
-                with col3:
-                    alpha_60d = snapshot['alphas']['60D']
-                    if alpha_60d is not None:
-                        st.metric("60D Alpha", f"{alpha_60d:+.2%}",
-                                 help="Alpha vs benchmark over 60 days")
-                    else:
-                        st.metric("60D Alpha", "—")
+                for col, period_key in zip([col1, col2, col3, col4], periods_list):
+                    with col:
+                        summary = ledger['period_summaries'].get(period_key, {})
+                        if summary.get('available', False):
+                            alpha_captured = summary.get('alpha_captured')
+                            if alpha_captured is not None:
+                                st.metric(f"{period_key} Captured", f"{alpha_captured:+.2%}",
+                                         help=f"Alpha captured via exposure management over {period_key}")
+                            else:
+                                # No VIX proxy available
+                                st.metric(f"{period_key} Captured", "— (needs VIX proxy)",
+                                         help="VIX proxy data not available")
+                        else:
+                            st.metric(f"{period_key} Captured", "—")
                 
-                with col4:
-                    alpha_365d = snapshot['alphas']['365D']
-                    if alpha_365d is not None:
-                        st.metric("365D Alpha", f"{alpha_365d:+.2%}",
-                                 help="Alpha vs benchmark over 365 days")
-                    else:
-                        st.metric("365D Alpha", "—")
+                # Enhanced Footer (Requirement C)
+                benchmark_ticker = ledger.get('benchmark_ticker', 'N/A')
+                safe_ticker = ledger.get('safe_ticker', 'N/A')
+                vix_proxy_source = ledger.get('vix_proxy_source', 'None')
+                wave_count = ledger.get('wave_count', 0)
+                latest_date = ledger.get('latest_date', 'N/A')
+                data_age_days = ledger.get('data_age_days', 'N/A')
                 
-                # Alpha Attribution Row
-                st.markdown("**Alpha Attribution:**")
-                
-                # Compute alpha attribution
-                attribution = compute_portfolio_alpha_attribution(price_book, mode='Standard', min_waves=3)
-                
-                if attribution['success']:
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        cum_alpha = attribution['cumulative_alpha']
-                        st.metric("Cumulative Alpha", f"{cum_alpha:+.2%}" if cum_alpha is not None else "—",
-                                 help="Total alpha over measurement period")
-                    
-                    with col2:
-                        sel_alpha = attribution['selection_alpha']
-                        st.metric("Selection Alpha", f"{sel_alpha:+.2%}" if sel_alpha is not None else "—",
-                                 help="Alpha from asset selection")
-                    
-                    with col3:
-                        ovr_alpha = attribution['overlay_alpha']
-                        st.metric("Overlay Alpha", f"{ovr_alpha:+.2%}" if ovr_alpha is not None else "—",
-                                 help="Alpha from VIX/regime overlay (not yet implemented)")
-                else:
-                    st.warning(f"⚠️ Alpha attribution unavailable: {attribution['failure_reason']}")
-                
-                # Metadata
-                st.caption(f"📊 Portfolio: {snapshot['wave_count']} waves | "
-                          f"Data: {snapshot['latest_date']} ({snapshot['data_age_days']}d old) | "
-                          f"Period: {snapshot['date_range'][0]} to {snapshot['date_range'][1]}")
+                st.caption(
+                    f"📊 Portfolio: {wave_count} waves | "
+                    f"Benchmark: {benchmark_ticker} | "
+                    f"Safe Asset: {safe_ticker} | "
+                    f"VIX Proxy: {vix_proxy_source} | "
+                    f"Data: {latest_date} ({data_age_days}d old)"
+                )
                 
                 st.markdown("</div>", unsafe_allow_html=True)
                 
+                # ========================================================================
+                # Blue Box Audit Diagnostics Expander (Requirement F)
+                # ========================================================================
+                with st.expander("🔍 Blue Box Audit - Diagnostics"):
+                    st.markdown("**Period Diagnostics:**")
+                    
+                    for period_key in periods_list:
+                        summary = ledger['period_summaries'].get(period_key, {})
+                        
+                        st.markdown(f"**{period_key}:**")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            rows_used = summary.get('rows_used', 'N/A')
+                            available = summary.get('available', False)
+                            reason = summary.get('reason', 'N/A')
+                            st.text(f"Rows Used: {rows_used}")
+                            st.text(f"Available: {available}")
+                            if not available:
+                                st.text(f"Reason: {reason}")
+                        
+                        with col2:
+                            start_date = summary.get('start_date', 'N/A')
+                            end_date = summary.get('end_date', 'N/A')
+                            st.text(f"Start: {start_date}")
+                            st.text(f"End: {end_date}")
+                        
+                        with col3:
+                            exposure_min = summary.get('exposure_min')
+                            exposure_max = summary.get('exposure_max')
+                            if exposure_min is not None and exposure_max is not None:
+                                st.text(f"Exposure: [{exposure_min:.3f}, {exposure_max:.3f}]")
+                            else:
+                                st.text("Exposure: N/A")
+                        
+                        if available:
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                cum_real = summary.get('cum_real', 'N/A')
+                                if isinstance(cum_real, float):
+                                    st.text(f"Realized: {cum_real:+.4f}")
+                                else:
+                                    st.text(f"Realized: {cum_real}")
+                            
+                            with col2:
+                                cum_bm = summary.get('cum_bm', 'N/A')
+                                if isinstance(cum_bm, float):
+                                    st.text(f"Benchmark: {cum_bm:+.4f}")
+                                else:
+                                    st.text(f"Benchmark: {cum_bm}")
+                            
+                            with col3:
+                                cum_sel = summary.get('cum_sel', 'N/A')
+                                if isinstance(cum_sel, float):
+                                    st.text(f"Unoverlay: {cum_sel:+.4f}")
+                                else:
+                                    st.text(f"Unoverlay: {cum_sel}")
+                            
+                            with col4:
+                                alpha_captured = summary.get('alpha_captured')
+                                if alpha_captured is not None:
+                                    st.text(f"Alpha Capt: {alpha_captured:+.4f}")
+                                else:
+                                    st.text("Alpha Capt: N/A")
+                            
+                            # Attribution breakdown
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                total_alpha = summary.get('total_alpha', 'N/A')
+                                if isinstance(total_alpha, float):
+                                    st.text(f"Total α: {total_alpha:+.4f}")
+                                else:
+                                    st.text(f"Total α: {total_alpha}")
+                            
+                            with col2:
+                                sel_alpha = summary.get('selection_alpha', 'N/A')
+                                if isinstance(sel_alpha, float):
+                                    st.text(f"Selection α: {sel_alpha:+.4f}")
+                                else:
+                                    st.text(f"Selection α: {sel_alpha}")
+                            
+                            with col3:
+                                ovr_alpha = summary.get('overlay_alpha', 'N/A')
+                                if isinstance(ovr_alpha, float):
+                                    st.text(f"Overlay α: {ovr_alpha:+.4f}")
+                                else:
+                                    st.text(f"Overlay α: {ovr_alpha}")
+                            
+                            with col4:
+                                residual = summary.get('residual', 'N/A')
+                                reconciled = summary.get('attribution_reconciled', False)
+                                if isinstance(residual, float):
+                                    status = "✓" if reconciled else "✗"
+                                    st.text(f"Residual: {residual:.2e} {status}")
+                                else:
+                                    st.text(f"Residual: {residual}")
+                        
+                        st.markdown("---")
+                
             else:
                 # Display error message
-                st.error(f"⚠️ Portfolio snapshot computation failed: {snapshot['failure_reason']}")
+                st.error(f"⚠️ Portfolio alpha ledger computation failed: {ledger['failure_reason']}")
                 
                 # Show placeholder values with explicit error
                 st.markdown("""
@@ -9535,13 +9588,13 @@ def render_executive_brief_tab():
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("1D Return", "Error", help=snapshot['failure_reason'])
+                    st.metric("1D Return", "Error", help=ledger['failure_reason'])
                 with col2:
-                    st.metric("30D Return", "Error", help=snapshot['failure_reason'])
+                    st.metric("30D Return", "Error", help=ledger['failure_reason'])
                 with col3:
-                    st.metric("60D Return", "Error", help=snapshot['failure_reason'])
+                    st.metric("60D Return", "Error", help=ledger['failure_reason'])
                 with col4:
-                    st.metric("365D Return", "Error", help=snapshot['failure_reason'])
+                    st.metric("365D Return", "Error", help=ledger['failure_reason'])
                 
                 st.markdown("</div>", unsafe_allow_html=True)
         
