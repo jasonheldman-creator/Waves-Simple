@@ -9527,9 +9527,12 @@ def render_executive_brief_tab():
                 # Renderer proof line
                 import subprocess
                 import datetime
+                import os
                 try:
+                    # Use current directory instead of hardcoded path
+                    cwd = os.path.dirname(os.path.abspath(__file__))
                     git_sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
-                                                     cwd='/home/runner/work/Waves-Simple/Waves-Simple',
+                                                     cwd=cwd,
                                                      stderr=subprocess.DEVNULL).decode('utf-8').strip()
                 except:
                     git_sha = "unknown"

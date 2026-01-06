@@ -14,7 +14,9 @@ This test ensures:
 import sys
 import os
 
-# Add parent directory to path
+# Add parent directory to path for test execution
+# This allows the test to import modules from the project root
+# when run directly (e.g., `python test_stacked_renderer_only.py`)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -204,7 +206,7 @@ def test_no_legacy_tile_renderer_code():
             if 'st.markdown(f"📈 **Portfolio:**' in line or 'st.markdown(f"📊 **Benchmark:**' in line or 'st.markdown(f"🎯 **Alpha:**' in line:
                 uses_stacked_markdown = True
             # Check for legacy tile metric for periods (NOT attribution metrics)
-            if 'st.metric' in line and ('period_key' in lines[i-5:i+5] or any(p in line for p in ['1D', '30D', '60D', '365D'])):
+            if 'st.metric' in line and ('period_key' in ''.join(lines[max(0, i-5):i+5]) or any(p in line for p in ['1D', '30D', '60D', '365D'])):
                 # This would be a legacy tile renderer
                 if 'Attribution' not in ''.join(lines[max(0, i-10):i+10]):
                     uses_legacy_metric = True
