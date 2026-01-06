@@ -1419,6 +1419,26 @@ def compute_portfolio_alpha_attribution(
         - warnings: List[str] - Any warnings about data quality
     
     Period summary structure (for each period):
+        - period: int - Period in days
+        - available: bool - Whether period has sufficient data
+        - reason: Optional[str] - Reason if unavailable (e.g., "insufficient_aligned_rows")
+        - requested_period_days: int - Requested period length in trading days
+        - rows_used: int - Actual trading rows used in computation
+        - cum_real: Optional[float] - Cumulative realized return (None if unavailable)
+        - cum_sel: Optional[float] - Cumulative selection return (unoverlay) (None if unavailable)
+        - cum_bm: Optional[float] - Cumulative benchmark return (None if unavailable)
+        - total_alpha: Optional[float] - cum_real - cum_bm (None if unavailable)
+        - selection_alpha: Optional[float] - cum_sel - cum_bm (None if unavailable)
+        - overlay_alpha: Optional[float] - cum_real - cum_sel (None if unavailable)
+        - residual: Optional[float] - total_alpha - (selection_alpha + overlay_alpha) (None if unavailable)
+    
+    Since inception summary structure:
+        - period: str - "inception"
+        - available: bool - Always True for inception
+        - reason: None
+        - requested_period_days: None - Not applicable for inception
+        - rows_used: int - Total trading rows used
+        - days: int - Total trading days (same as rows_used)
         - cum_real: float - Cumulative realized return
         - cum_sel: float - Cumulative selection return (unoverlay)
         - cum_bm: float - Cumulative benchmark return
@@ -1621,20 +1641,68 @@ def compute_portfolio_alpha_attribution(
     # ========================================================================
     try:
         def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
-            """Compute cumulative return over last N days."""
+            """
+            Compute cumulative return over last N days (strict slicing - no fallback).
+            
+            Returns None when insufficient data is available (len(series) < window).
+            This ensures no silent fallback to using all available data when 
+            the requested window cannot be satisfied.
+            """
             if len(series) < window:
                 return None
+            # Strict slicing: use exactly the last 'window' trading rows
             window_series = series.iloc[-window:]
             cum_return = (1 + window_series).prod() - 1
             return float(cum_return)
         
-        # Compute for each period
+        # Compute for each period with strict windowing and diagnostics
         for period in periods:
+            # Get actual rows available
+            rows_available = len(daily_realized_return)
+            
+            # Strict windowing: compute only if we have exactly the requested period rows
+            if rows_available < period:
+                # Insufficient rows - return explicit diagnostic summary with None values
+                result['period_summaries'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': 'insufficient_aligned_rows',
+                    'requested_period_days': period,
+                    'rows_used': rows_available,
+                    'cum_real': None,
+                    'cum_sel': None,
+                    'cum_bm': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None
+                }
+                continue
+            
+            # We have sufficient rows - compute using strict last N rows
             cum_real = compute_cumulative_return(daily_realized_return, period)
             cum_sel = compute_cumulative_return(daily_unoverlay_return, period)
             cum_bm = compute_cumulative_return(daily_benchmark_return, period)
             
+            # These should not be None since we checked rows_available >= period
+            # However, None can still occur due to data quality issues (e.g., all NaN values,
+            # calculation errors from extreme values, or numerical instability)
             if cum_real is None or cum_sel is None or cum_bm is None:
+                # Unexpected but handle defensively for data quality issues
+                result['period_summaries'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': 'computation_error',
+                    'requested_period_days': period,
+                    'rows_used': period,  # Report the period that was attempted (not total available)
+                    'cum_real': None,
+                    'cum_sel': None,
+                    'cum_bm': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None
+                }
                 continue
             
             total_alpha = cum_real - cum_bm
@@ -1644,6 +1712,10 @@ def compute_portfolio_alpha_attribution(
             
             result['period_summaries'][f'{period}D'] = {
                 'period': period,
+                'available': True,
+                'reason': None,
+                'requested_period_days': period,
+                'rows_used': period,  # Exact rows used for this period
                 'cum_real': cum_real,
                 'cum_sel': cum_sel,
                 'cum_bm': cum_bm,
@@ -1653,7 +1725,8 @@ def compute_portfolio_alpha_attribution(
                 'residual': residual
             }
         
-        # Since inception summary
+        # Since inception summary (always computed - uses all available rows)
+        rows_available = len(daily_realized_return)
         cum_real_inception = (1 + daily_realized_return).prod() - 1
         cum_sel_inception = (1 + daily_unoverlay_return).prod() - 1
         cum_bm_inception = (1 + daily_benchmark_return).prod() - 1
@@ -1665,7 +1738,11 @@ def compute_portfolio_alpha_attribution(
         
         result['since_inception_summary'] = {
             'period': 'inception',
-            'days': len(daily_realized_return),
+            'available': True,
+            'reason': None,
+            'requested_period_days': None,  # Not applicable for inception
+            'rows_used': rows_available,
+            'days': rows_available,
             'cum_real': float(cum_real_inception),
             'cum_sel': float(cum_sel_inception),
             'cum_bm': float(cum_bm_inception),

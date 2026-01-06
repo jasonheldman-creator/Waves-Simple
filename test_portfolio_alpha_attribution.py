@@ -71,6 +71,10 @@ def test_attribution_keys_exist():
             
             summary_keys = [
                 'period',
+                'available',
+                'reason',
+                'requested_period_days',
+                'rows_used',
                 'cum_real',
                 'cum_sel',
                 'cum_bm',
@@ -98,7 +102,7 @@ def test_attribution_keys_exist():
 
 
 def test_numeric_outputs():
-    """Test that outputs are numeric (no None values when success=True)."""
+    """Test that outputs are numeric (no None values when success=True and available=True)."""
     print("\n=== Test: Numeric Outputs ===")
     
     try:
@@ -141,25 +145,52 @@ def test_numeric_outputs():
         
         print("✓ All daily series are non-empty pandas Series")
         
-        # Check period summaries have numeric values
+        # Check period summaries - numeric values required only when available=True
+        available_count = 0
+        unavailable_count = 0
+        
         for period, summary in result['period_summaries'].items():
-            numeric_keys = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
-                          'selection_alpha', 'overlay_alpha', 'residual']
-            
-            for key in numeric_keys:
-                value = summary.get(key)
-                if value is None:
-                    print(f"❌ FAIL: {period} summary '{key}' is None")
+            if summary.get('available', False):
+                available_count += 1
+                numeric_keys = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
+                              'selection_alpha', 'overlay_alpha', 'residual']
+                
+                for key in numeric_keys:
+                    value = summary.get(key)
+                    if value is None:
+                        print(f"❌ FAIL: {period} summary '{key}' is None (but available=True)")
+                        return False
+                    if not isinstance(value, (int, float)):
+                        print(f"❌ FAIL: {period} summary '{key}' is not numeric")
+                        return False
+            else:
+                unavailable_count += 1
+                # When available=False, values should be None
+                numeric_keys = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
+                              'selection_alpha', 'overlay_alpha', 'residual']
+                for key in numeric_keys:
+                    value = summary.get(key)
+                    if value is not None:
+                        print(f'❌ FAIL: {period} summary "{key}" is not None (but available=False)')
+                        return False
+                # Check diagnostic fields are present
+                if summary.get('reason') is None:
+                    print(f'❌ FAIL: {period} summary "reason" is None (but available=False)')
                     return False
-                if not isinstance(value, (int, float)):
-                    print(f"❌ FAIL: {period} summary '{key}' is not numeric")
+                if summary.get('rows_used') is None:
+                    print(f"❌ FAIL: {period} summary 'rows_used' is None")
                     return False
         
-        print(f"✓ All {len(result['period_summaries'])} period summaries have numeric values")
+        print(f"✓ {available_count} period(s) available with numeric values, {unavailable_count} unavailable with None values")
         
-        # Check since_inception_summary
+        # Check since_inception_summary (should always be available)
         if result['since_inception_summary']:
             inception = result['since_inception_summary']
+            
+            if not inception.get('available', False):
+                print(f"❌ FAIL: since_inception available=False (should always be True)")
+                return False
+            
             numeric_keys = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
                           'selection_alpha', 'overlay_alpha', 'residual']
             
@@ -209,10 +240,17 @@ def test_overlay_alpha_reconciliation():
             print(f"⚠️  WARNING: Attribution computation failed: {result['failure_reason']}")
             return True  # Not a test failure
         
-        # Test reconciliation for each period
+        # Test reconciliation for each period (only available periods)
         tolerance = 0.0001  # 0.01% tolerance for floating point
+        tested_count = 0
         
         for period, summary in result['period_summaries'].items():
+            # Skip unavailable periods
+            if not summary.get('available', False):
+                print(f"⚠️  {period}: skipped (available=False, reason={summary.get('reason')})")
+                continue
+            
+            tested_count += 1
             total_alpha = summary['total_alpha']
             selection_alpha = summary['selection_alpha']
             overlay_alpha = summary['overlay_alpha']
@@ -246,6 +284,9 @@ def test_overlay_alpha_reconciliation():
                 return False
             
             print(f"✓ Since inception: overlay_alpha reconciles (error={error:.8f})")
+        
+        if tested_count == 0:
+            print("⚠️  WARNING: No periods available to test")
         
         print("✅ PASS: Overlay alpha reconciliation verified")
         return True
@@ -283,10 +324,17 @@ def test_residual_near_zero():
             print(f"⚠️  WARNING: Attribution computation failed: {result['failure_reason']}")
             return True  # Not a test failure
         
-        # Test residual for each period
+        # Test residual for each period (only available periods)
         max_residual = 0.001  # 0.1% tolerance as per problem statement
+        tested_count = 0
         
         for period, summary in result['period_summaries'].items():
+            # Skip unavailable periods
+            if not summary.get('available', False):
+                print(f"⚠️  {period}: skipped (available=False, reason={summary.get('reason')})")
+                continue
+            
+            tested_count += 1
             residual = summary['residual']
             total_alpha = summary['total_alpha']
             selection_alpha = summary['selection_alpha']
@@ -320,6 +368,9 @@ def test_residual_near_zero():
                 return False
             
             print(f"✓ Since inception: residual={residual:.8f} (within tolerance)")
+        
+        if tested_count == 0:
+            print("⚠️  WARNING: No periods available to test")
         
         print("✅ PASS: All residuals within tolerance")
         return True
@@ -399,6 +450,134 @@ def test_session_state_integration():
         return False
 
 
+def test_strict_60d_windowing():
+    """Test that 60D period uses exactly 60 trading rows with proper diagnostics."""
+    print("\n=== Test: Strict 60D Windowing ===")
+    
+    try:
+        from helpers.wave_performance import compute_portfolio_alpha_attribution
+        from helpers.price_book import get_price_book
+        
+        # Load PRICE_BOOK
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
+            print("❌ FAIL: PRICE_BOOK is empty")
+            return False
+        
+        # Compute attribution with 60D period
+        result = compute_portfolio_alpha_attribution(
+            price_book=price_book,
+            mode='Standard',
+            periods=[60]
+        )
+        
+        if not result['success']:
+            print(f"⚠️  WARNING: Attribution computation failed: {result['failure_reason']}")
+            return True
+        
+        # Check if 60D period exists in results
+        if '60D' not in result['period_summaries']:
+            print("❌ FAIL: 60D period not in period_summaries")
+            return False
+        
+        summary_60d = result['period_summaries']['60D']
+        
+        # Verify diagnostic fields exist
+        required_fields = ['available', 'reason', 'requested_period_days', 'rows_used']
+        for field in required_fields:
+            if field not in summary_60d:
+                print(f"❌ FAIL: 60D summary missing field '{field}'")
+                return False
+        
+        print(f"✓ All diagnostic fields present in 60D summary")
+        
+        # Check requested_period_days is 60
+        if summary_60d['requested_period_days'] != 60:
+            print(f"❌ FAIL: requested_period_days is {summary_60d['requested_period_days']}, expected 60")
+            return False
+        
+        print(f"✓ requested_period_days = 60")
+        
+        # Get actual rows available
+        rows_available = len(result['daily_realized_return'])
+        print(f"  Rows available: {rows_available}")
+        
+        # Test case 1: If we have >= 60 rows, period should be available
+        if rows_available >= 60:
+            if not summary_60d['available']:
+                print(f"❌ FAIL: 60D available=False despite having {rows_available} rows")
+                return False
+            
+            # Check that rows_used is exactly 60 (strict windowing)
+            if summary_60d['rows_used'] != 60:
+                print(f"❌ FAIL: rows_used is {summary_60d['rows_used']}, expected exactly 60")
+                return False
+            
+            # Check that all numeric values are present (not None)
+            numeric_fields = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
+                            'selection_alpha', 'overlay_alpha', 'residual']
+            for field in numeric_fields:
+                if summary_60d[field] is None:
+                    print(f"❌ FAIL: 60D {field} is None despite available=True")
+                    return False
+            
+            print(f"✓ 60D available=True, rows_used=60, all values numeric")
+        
+        # Test case 2: If we have < 60 rows, period should be unavailable
+        else:
+            if summary_60d['available']:
+                print(f"❌ FAIL: 60D available=True despite having only {rows_available} rows")
+                return False
+            
+            # Check reason is 'insufficient_aligned_rows'
+            if summary_60d['reason'] != 'insufficient_aligned_rows':
+                print(f'❌ FAIL: reason is "{summary_60d["reason"]}", expected "insufficient_aligned_rows"')
+                return False
+            
+            # Check rows_used equals actual rows available
+            if summary_60d['rows_used'] != rows_available:
+                print(f"❌ FAIL: rows_used is {summary_60d['rows_used']}, expected {rows_available}")
+                return False
+            
+            # Check that all numeric values are None
+            numeric_fields = ['cum_real', 'cum_sel', 'cum_bm', 'total_alpha', 
+                            'selection_alpha', 'overlay_alpha', 'residual']
+            for field in numeric_fields:
+                if summary_60d[field] is not None:
+                    print(f"❌ FAIL: 60D {field} is not None despite available=False")
+                    return False
+            
+            print(f"✓ 60D available=False, reason='insufficient_aligned_rows', rows_used={rows_available}, all values None")
+        
+        # Verify no silent fallback to inception
+        # If 60D is unavailable, since_inception should still exist but be distinct
+        if not summary_60d['available']:
+            inception = result['since_inception_summary']
+            
+            # Inception should always be available
+            if not inception.get('available', False):
+                print("❌ FAIL: since_inception available=False")
+                return False
+            
+            # Inception rows_used should equal total rows available (not the 60D requested period)
+            # This ensures inception uses ALL available rows, not falling back to the requested 60
+            if inception['rows_used'] != rows_available:
+                print(f"❌ FAIL: Inception rows_used ({inception['rows_used']}) != rows_available ({rows_available})")
+                return False
+            
+            print(f"✓ No silent fallback: inception uses {inception['rows_used']} rows (all available)")
+        
+        print("✅ PASS: Strict 60D windowing verified")
+        return True
+        
+    except Exception as e:
+        print(f"❌ FAIL: Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     """Run all tests."""
     print("=" * 70)
@@ -411,6 +590,7 @@ def main():
         ("Overlay Alpha Reconciliation", test_overlay_alpha_reconciliation),
         ("Residual Near Zero", test_residual_near_zero),
         ("Session State Integration", test_session_state_integration),
+        ("Strict 60D Windowing", test_strict_60d_windowing),
     ]
     
     results = []
