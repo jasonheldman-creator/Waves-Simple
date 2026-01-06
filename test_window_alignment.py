@@ -17,26 +17,34 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _import_modules():
+    """Import required modules dynamically to avoid streamlit dependency."""
+    import importlib.util
+    
+    # Construct paths relative to this file
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Import wave_performance
+    wp_path = os.path.join(test_dir, 'helpers', 'wave_performance.py')
+    spec_wp = importlib.util.spec_from_file_location("wave_performance", wp_path)
+    wave_performance = importlib.util.module_from_spec(spec_wp)
+    spec_wp.loader.exec_module(wave_performance)
+    
+    # Import price_book
+    pb_path = os.path.join(test_dir, 'helpers', 'price_book.py')
+    spec_pb = importlib.util.spec_from_file_location("price_book", pb_path)
+    price_book_module = importlib.util.module_from_spec(spec_pb)
+    spec_pb.loader.exec_module(price_book_module)
+    
+    return wave_performance, price_book_module
+
+
 def test_attribution_window_alignment():
     """Test that diagnostic start_date reflects last N days of aligned data series."""
     print("\n=== Test: Attribution Window Alignment ===")
     
     try:
-        # Import directly to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
-        
-        spec_pb = importlib.util.spec_from_file_location(
-            "price_book", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/price_book.py"
-        )
-        price_book_module = importlib.util.module_from_spec(spec_pb)
-        spec_pb.loader.exec_module(price_book_module)
+        wave_performance, price_book_module = _import_modules()
         
         # Load PRICE_BOOK
         print("Loading PRICE_BOOK...")
@@ -140,21 +148,7 @@ def test_snapshot_window_alignment():
     print("\n=== Test: Snapshot Window Alignment ===")
     
     try:
-        # Import directly to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
-        
-        spec_pb = importlib.util.spec_from_file_location(
-            "price_book", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/price_book.py"
-        )
-        price_book_module = importlib.util.module_from_spec(spec_pb)
-        spec_pb.loader.exec_module(price_book_module)
+        wave_performance, price_book_module = _import_modules()
         
         # Load PRICE_BOOK
         print("Loading PRICE_BOOK...")

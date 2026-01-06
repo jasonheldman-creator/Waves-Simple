@@ -1753,11 +1753,6 @@ def compute_portfolio_alpha_attribution(
                 }
                 continue
             
-            total_alpha = cum_real - cum_bm
-            selection_alpha = cum_sel - cum_bm
-            overlay_alpha = cum_real - cum_sel
-            residual = total_alpha - (selection_alpha + overlay_alpha)
-            
             # Compute alpha components
             total_alpha = cum_real - cum_bm
             selection_alpha = cum_sel - cum_bm

@@ -19,19 +19,27 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _import_wave_performance():
+    """Import wave_performance module dynamically to avoid streamlit dependency."""
+    import importlib.util
+    
+    # Construct path relative to this file
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    module_path = os.path.join(test_dir, 'helpers', 'wave_performance.py')
+    
+    spec = importlib.util.spec_from_file_location("wave_performance", module_path)
+    wave_performance = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wave_performance)
+    
+    return wave_performance
+
+
 def test_windowed_series_sufficient_data():
     """Test slicing with sufficient data."""
     print("\n=== Test: Windowed Series - Sufficient Data ===")
     
     try:
-        # Import directly from module file to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
+        wave_performance = _import_wave_performance()
         slice_windowed_series = wave_performance.slice_windowed_series
         
         # Create test data: 100 days of returns
@@ -77,14 +85,7 @@ def test_windowed_series_insufficient_data():
     print("\n=== Test: Windowed Series - Insufficient Data ===")
     
     try:
-        # Import directly from module file to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
+        wave_performance = _import_wave_performance()
         slice_windowed_series = wave_performance.slice_windowed_series
         
         # Create test data: only 20 days of returns
@@ -123,14 +124,7 @@ def test_windowed_series_exact_boundary():
     print("\n=== Test: Windowed Series - Exact Boundary ===")
     
     try:
-        # Import directly from module file to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
+        wave_performance = _import_wave_performance()
         slice_windowed_series = wave_performance.slice_windowed_series
         
         # Create test data: exactly 30 days of returns
@@ -165,14 +159,7 @@ def test_windowed_series_empty_series():
     print("\n=== Test: Windowed Series - Empty Series ===")
     
     try:
-        # Import directly from module file to avoid streamlit dependency
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "wave_performance", 
-            "/home/runner/work/Waves-Simple/Waves-Simple/helpers/wave_performance.py"
-        )
-        wave_performance = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wave_performance)
+        wave_performance = _import_wave_performance()
         slice_windowed_series = wave_performance.slice_windowed_series
         
         # Create empty series
