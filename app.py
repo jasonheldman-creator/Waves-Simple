@@ -842,9 +842,9 @@ st.markdown(
             🔍 PROOF BANNER - DIAGNOSTICS MODE
         </div>
         <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
-            <strong>APP FILE:</strong> app.py<br>
+            <strong>ENTRYPOINT:</strong> app.py<br>
             <strong>GIT SHA:</strong> {git_sha_proof}<br>
-            <strong>TIMESTAMP:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+            <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
             <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
         </div>
     </div>
@@ -9499,6 +9499,17 @@ def render_executive_brief_tab():
                     st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
             
             if ledger['success']:
+                # RENDERER PROOF LINE
+                build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+                st.markdown(
+                    f"""
+                    <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                        <strong>Renderer:</strong> Portfolio Snapshot BLUE BOX | <strong>Build:</strong> {build_id} | <strong>Updated:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
                 # Display in blue box with metrics from ledger
                 st.markdown("""
                 <div style="
