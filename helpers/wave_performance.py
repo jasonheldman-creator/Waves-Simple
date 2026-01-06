@@ -2388,11 +2388,60 @@ def compute_portfolio_alpha_ledger(
             overlay_alpha = cum_realized - cum_unoverlay
             residual = total_alpha - (selection_alpha + overlay_alpha)
             
+            # Reconciliation checks (Requirements from problem statement)
+            # 1. Portfolio Return − Benchmark Return = Total Alpha
+            reconciliation_1_diff = abs((cum_realized - cum_benchmark) - total_alpha)
+            
+            # 2. Selection Alpha + Overlay Alpha + Residual = Total Alpha
+            reconciliation_2_diff = abs((selection_alpha + overlay_alpha + residual) - total_alpha)
+            
+            # Check if reconciliations fail tolerance
+            if reconciliation_1_diff > RESIDUAL_TOLERANCE:
+                # Reconciliation 1 failed
+                result['period_results'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': f'reconciliation_1_failed: |({cum_realized:.6f} - {cum_benchmark:.6f}) - {total_alpha:.6f}| = {reconciliation_1_diff:.6f} > {RESIDUAL_TOLERANCE:.6f}',
+                    'rows_used': period,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'cum_realized': None,
+                    'cum_unoverlay': None,
+                    'cum_benchmark': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None,
+                    'alpha_captured': None
+                }
+                continue
+            
+            if reconciliation_2_diff > RESIDUAL_TOLERANCE:
+                # Reconciliation 2 failed
+                result['period_results'][f'{period}D'] = {
+                    'period': period,
+                    'available': False,
+                    'reason': f'reconciliation_2_failed: |({selection_alpha:.6f} + {overlay_alpha:.6f} + {residual:.6f}) - {total_alpha:.6f}| = {reconciliation_2_diff:.6f} > {RESIDUAL_TOLERANCE:.6f}',
+                    'rows_used': period,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'cum_realized': None,
+                    'cum_unoverlay': None,
+                    'cum_benchmark': None,
+                    'total_alpha': None,
+                    'selection_alpha': None,
+                    'overlay_alpha': None,
+                    'residual': None,
+                    'alpha_captured': None
+                }
+                continue
+            
             # Compute alpha captured (if overlay available)
             alpha_captured = None
             if result['overlay_available']:
                 alpha_captured = compute_alpha_captured(daily_alpha, daily_exposure, period)
             
+            # All reconciliations passed - period is available
             result['period_results'][f'{period}D'] = {
                 'period': period,
                 'available': True,
