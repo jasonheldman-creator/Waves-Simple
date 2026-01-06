@@ -24,6 +24,7 @@ import traceback
 import logging
 import time
 import itertools
+import json
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -8708,7 +8709,6 @@ def render_sidebar_info():
                     "dates_match": price_book_max_date == sidebar_last_price_date_used
                 }
                 
-                import json
                 st.json(date_validation)
                 
                 if not date_validation["dates_match"]:
@@ -8725,7 +8725,6 @@ def render_sidebar_info():
             try:
                 if "portfolio_snapshot_debug" in st.session_state:
                     debug_info = st.session_state.portfolio_snapshot_debug
-                    import json
                     st.json(debug_info)
                 else:
                     st.text("No portfolio snapshot debug info available yet")

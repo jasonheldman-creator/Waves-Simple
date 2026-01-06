@@ -7,6 +7,7 @@ the raw price_book dataframe, not from filtered/derived dataframes.
 
 import os
 import sys
+import traceback
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -123,6 +124,5 @@ if __name__ == "__main__":
         print("\n" + "=" * 80)
         print(f"❌ UNEXPECTED ERROR: {str(e)}")
         print("=" * 80 + "\n")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
