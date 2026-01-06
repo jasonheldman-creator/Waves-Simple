@@ -9509,11 +9509,13 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
+                # Define period labels (derived from actual periods being rendered)
+                period_labels = ['1D', '30D', '60D', '365D']
+                
                 # RENDERER PROOF MARKER - Portfolio Snapshot Blue Box
                 st.caption(f"🔵 RENDERER PROOF: Portfolio Snapshot BLUE BOX — STACKED LEDGER V1 | UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
                 
                 # DEBUG: Display period labels being rendered
-                period_labels = ['1D', '30D', '60D', '365D']
                 st.caption(f"🔍 DEBUG - Period Labels: {', '.join(period_labels)}")
                 
                 # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
@@ -9522,7 +9524,7 @@ def render_executive_brief_tab():
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
-                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
+                for col, period_key in zip([col1, col2, col3, col4], period_labels):
                     with col:
                         period_data = ledger['period_results'].get(period_key, {})
                         
