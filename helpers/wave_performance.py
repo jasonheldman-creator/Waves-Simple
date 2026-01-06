@@ -1641,7 +1641,13 @@ def compute_portfolio_alpha_attribution(
     # ========================================================================
     try:
         def compute_cumulative_return(series: pd.Series, window: int) -> Optional[float]:
-            """Compute cumulative return over last N days (strict slicing - no fallback)."""
+            """
+            Compute cumulative return over last N days (strict slicing - no fallback).
+            
+            Returns None when insufficient data is available (len(series) < window).
+            This ensures no silent fallback to using all available data when 
+            the requested window cannot be satisfied.
+            """
             if len(series) < window:
                 return None
             # Strict slicing: use exactly the last 'window' trading rows
@@ -1679,8 +1685,10 @@ def compute_portfolio_alpha_attribution(
             cum_bm = compute_cumulative_return(daily_benchmark_return, period)
             
             # These should not be None since we checked rows_available >= period
+            # However, None can still occur due to data quality issues (e.g., all NaN values,
+            # calculation errors from extreme values, or numerical instability)
             if cum_real is None or cum_sel is None or cum_bm is None:
-                # Unexpected: should not happen but handle defensively
+                # Unexpected but handle defensively for data quality issues
                 result['period_summaries'][f'{period}D'] = {
                     'period': period,
                     'available': False,

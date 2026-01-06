@@ -560,12 +560,13 @@ def test_strict_60d_windowing():
                 print("❌ FAIL: since_inception available=False")
                 return False
             
-            # Inception rows_used should equal total rows (not 60)
-            if inception['rows_used'] == 60 and rows_available != 60:
-                print("❌ FAIL: Possible silent fallback - inception rows_used equals 60D requested")
+            # Inception rows_used should equal total rows available (not the 60D requested period)
+            # This ensures inception uses ALL available rows, not falling back to the requested 60
+            if inception['rows_used'] != rows_available:
+                print(f"❌ FAIL: Inception rows_used ({inception['rows_used']}) != rows_available ({rows_available})")
                 return False
             
-            print(f"✓ No silent fallback: inception uses {inception['rows_used']} rows, not 60")
+            print(f"✓ No silent fallback: inception uses {inception['rows_used']} rows (all available)")
         
         print("✅ PASS: Strict 60D windowing verified")
         return True
