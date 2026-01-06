@@ -9510,46 +9510,44 @@ def render_executive_brief_tab():
                 ">
                 """, unsafe_allow_html=True)
                 
-                # Portfolio Returns Row
-                st.markdown("**📈 Portfolio Returns (Realized with VIX Overlay):**")
+                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
+                st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
                 col1, col2, col3, col4 = st.columns(4)
                 
                 for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
                     with col:
                         period_data = ledger['period_results'].get(period_key, {})
+                        
                         if period_data.get('available'):
+                            # Extract values
                             cum_realized = period_data['cum_realized']
+                            cum_benchmark = period_data['cum_benchmark']
+                            total_alpha = period_data['total_alpha']
                             start = period_data['start_date']
                             end = period_data['end_date']
-                            st.metric(
-                                f"{period_key} Return", 
-                                f"{cum_realized:+.2%}",
-                                help=f"Portfolio return from {start} to {end}"
-                            )
+                            
+                            # Display stacked format with header
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
+                            st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
+                            
+                            # Color-code alpha (green for positive, red for negative)
+                            alpha_color = "green" if total_alpha >= 0 else "red"
+                            st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
+                            
+                            st.caption(f"{start} to {end}")
                         else:
+                            # Unavailable period - show N/A for all three lines with reason
                             reason = period_data.get('reason', 'unknown')
-                            st.metric(
-                                f"{period_key} Return", 
-                                "—",
-                                help=f"Insufficient history: {reason}"
-                            )
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** N/A")
+                            st.markdown(f"📊 **Benchmark:** N/A")
+                            st.markdown(f"🎯 **Alpha:** N/A")
+                            st.caption(f"⚠️ {reason[:50]}...")  # Truncate long reasons
                 
-                # Alpha Row
-                st.markdown("**🎯 Total Alpha vs SPY:**")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
-                    with col:
-                        period_data = ledger['period_results'].get(period_key, {})
-                        if period_data.get('available'):
-                            total_alpha = period_data['total_alpha']
-                            st.metric(
-                                f"{period_key} Alpha", 
-                                f"{total_alpha:+.2%}",
-                                help="Realized return - Benchmark return"
-                            )
-                        else:
-                            st.metric(f"{period_key} Alpha", "—")
+                st.divider()
                 
                 # Alpha Attribution Row (30D window for detailed attribution)
                 st.markdown("**🔬 Alpha Attribution (30D breakdown):**")

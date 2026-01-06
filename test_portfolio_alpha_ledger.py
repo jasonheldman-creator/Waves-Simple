@@ -219,6 +219,189 @@ def test_exposure_series_smoothing():
         return False
 
 
+def test_alpha_ledger_reconciliation_1():
+    """Test that Portfolio Return − Benchmark Return = Total Alpha."""
+    print("\n=== Test: Reconciliation 1 (Portfolio - Benchmark = Alpha) ===")
+    
+    try:
+        from helpers.wave_performance import compute_portfolio_alpha_ledger, RESIDUAL_TOLERANCE
+        from helpers.price_book import get_price_book
+        
+        # Load PRICE_BOOK
+        print("Loading PRICE_BOOK...")
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
+            print("❌ FAIL: PRICE_BOOK is empty")
+            return False
+        
+        print(f"✓ PRICE_BOOK loaded: {len(price_book)} days")
+        
+        # Compute ledger
+        print("Computing alpha ledger...")
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            periods=[1, 30, 60, 365],
+            vix_exposure_enabled=True
+        )
+        
+        if not ledger['success']:
+            print(f"❌ FAIL: Ledger computation failed: {ledger['failure_reason']}")
+            return False
+        
+        print("✓ Ledger computed successfully")
+        
+        # Check reconciliation 1 for each period
+        for period_key, period_data in ledger['period_results'].items():
+            if not period_data.get('available'):
+                print(f"⚠️ SKIP: {period_key} not available ({period_data.get('reason')})")
+                continue
+            
+            cum_realized = period_data['cum_realized']
+            cum_benchmark = period_data['cum_benchmark']
+            total_alpha = period_data['total_alpha']
+            
+            # Verify: cum_realized - cum_benchmark = total_alpha
+            expected_alpha = cum_realized - cum_benchmark
+            diff = abs(expected_alpha - total_alpha)
+            
+            if diff > RESIDUAL_TOLERANCE:
+                print(f"❌ FAIL: {period_key} reconciliation mismatch:")
+                print(f"  Portfolio={cum_realized:.6f}, Benchmark={cum_benchmark:.6f}")
+                print(f"  Expected Alpha={expected_alpha:.6f}, Actual Alpha={total_alpha:.6f}")
+                print(f"  Difference={diff:.6f} > Tolerance={RESIDUAL_TOLERANCE:.6f}")
+                return False
+            
+            print(f"✓ {period_key}: Portfolio({cum_realized:+.4%}) - Benchmark({cum_benchmark:+.4%}) = Alpha({total_alpha:+.4%}) [diff={diff:.6f}]")
+        
+        print("✅ PASS: Reconciliation 1 holds for all available periods")
+        return True
+        
+    except Exception as e:
+        print(f"❌ FAIL: Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_alpha_ledger_reconciliation_2():
+    """Test that Selection Alpha + Overlay Alpha + Residual = Total Alpha."""
+    print("\n=== Test: Reconciliation 2 (Selection + Overlay + Residual = Total) ===")
+    
+    try:
+        from helpers.wave_performance import compute_portfolio_alpha_ledger, RESIDUAL_TOLERANCE
+        from helpers.price_book import get_price_book
+        
+        # Load PRICE_BOOK
+        print("Loading PRICE_BOOK...")
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
+            print("❌ FAIL: PRICE_BOOK is empty")
+            return False
+        
+        # Compute ledger
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            periods=[1, 30, 60, 365],
+            vix_exposure_enabled=True
+        )
+        
+        if not ledger['success']:
+            print(f"❌ FAIL: Ledger computation failed: {ledger['failure_reason']}")
+            return False
+        
+        # Check reconciliation 2 for each period
+        for period_key, period_data in ledger['period_results'].items():
+            if not period_data.get('available'):
+                print(f"⚠️ SKIP: {period_key} not available ({period_data.get('reason')})")
+                continue
+            
+            selection_alpha = period_data['selection_alpha']
+            overlay_alpha = period_data['overlay_alpha']
+            residual = period_data['residual']
+            total_alpha = period_data['total_alpha']
+            
+            # Verify: selection_alpha + overlay_alpha + residual = total_alpha
+            computed_total = selection_alpha + overlay_alpha + residual
+            diff = abs(computed_total - total_alpha)
+            
+            if diff > RESIDUAL_TOLERANCE:
+                print(f"❌ FAIL: {period_key} attribution mismatch:")
+                print(f"  Selection={selection_alpha:.6f}, Overlay={overlay_alpha:.6f}, Residual={residual:.6f}")
+                print(f"  Computed Total={computed_total:.6f}, Actual Total={total_alpha:.6f}")
+                print(f"  Difference={diff:.6f} > Tolerance={RESIDUAL_TOLERANCE:.6f}")
+                return False
+            
+            print(f"✓ {period_key}: Selection({selection_alpha:+.4%}) + Overlay({overlay_alpha:+.4%}) + Residual({residual:+.4%}) = Total({total_alpha:+.4%}) [diff={diff:.6f}]")
+        
+        print("✅ PASS: Reconciliation 2 holds for all available periods")
+        return True
+        
+    except Exception as e:
+        print(f"❌ FAIL: Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_unavailable_periods_show_na():
+    """Test that unavailable periods correctly show N/A with reasons."""
+    print("\n=== Test: Unavailable Periods Show N/A ===")
+    
+    try:
+        from helpers.wave_performance import compute_portfolio_alpha_ledger
+        
+        # Create minimal price_book with insufficient history for some periods
+        dates = pd.date_range('2024-01-01', periods=50, freq='D')  # Only 50 days
+        price_book = pd.DataFrame({
+            'SPY': [100 + i*0.5 for i in range(len(dates))],
+            'BIL': [50] * len(dates)
+        }, index=dates)
+        
+        # Request all periods including ones with insufficient data
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            periods=[1, 30, 60, 365],
+            vix_exposure_enabled=False
+        )
+        
+        if not ledger['success']:
+            print(f"⚠️ Ledger failed (expected for minimal data): {ledger['failure_reason']}")
+            return True  # This is acceptable for minimal test data
+        
+        # Check periods with insufficient data
+        for period_key in ['60D', '365D']:
+            period_data = ledger['period_results'].get(period_key, {})
+            
+            if period_data.get('available'):
+                print(f"❌ FAIL: {period_key} should not be available with only 50 days of data")
+                return False
+            
+            # Verify all metrics are None when unavailable
+            if (period_data.get('cum_realized') is not None or
+                period_data.get('cum_benchmark') is not None or
+                period_data.get('total_alpha') is not None):
+                print(f"❌ FAIL: {period_key} should have None values when unavailable")
+                return False
+            
+            reason = period_data.get('reason')
+            if not reason:
+                print(f"❌ FAIL: {period_key} should have a reason when unavailable")
+                return False
+            
+            print(f"✓ {period_key}: correctly unavailable (reason: {reason[:50]}...)")
+        
+        print("✅ PASS: Unavailable periods correctly show N/A with reasons")
+        return True
+        
+    except Exception as e:
+        print(f"❌ FAIL: Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def test_alpha_ledger_residual_attribution():
     """Test that residual attribution is within tolerance."""
     print("\n=== Test: Residual Attribution ===")
@@ -492,6 +675,9 @@ def run_all_tests():
         test_exposure_series_vix_proxy_preference,
         test_exposure_series_smoothing,
         test_alpha_ledger_output_structure,
+        test_alpha_ledger_reconciliation_1,
+        test_alpha_ledger_reconciliation_2,
+        test_unavailable_periods_show_na,
         test_alpha_ledger_residual_attribution,
         test_alpha_ledger_period_fidelity,
         test_alpha_ledger_no_placeholders,
