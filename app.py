@@ -1327,7 +1327,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
     except Exception as e:
         # Fallback to simple banner if enhanced version fails
-        st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
+        # Suppress warning in demo mode
+        if not st.session_state.get("demo_mode", False):
+            st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
         render_selected_wave_banner_simple(selected_wave, mode)
 
 
@@ -2161,15 +2163,16 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
         # Show minimal UI based on debug_mode
         if show_error:
             debug_mode = st.session_state.get("debug_mode", False)
+            demo_mode = st.session_state.get("demo_mode", False)
             
-            if debug_mode:
-                # Debug mode ON: Show detailed error with expander
+            if debug_mode and not demo_mode:
+                # Debug mode ON (and NOT in demo mode): Show detailed error with expander
                 st.warning(f"⚠️ {component_name} temporarily unavailable")
                 with st.expander(f"🐛 Debug: {component_name} error details", expanded=False):
                     st.error(f"**Error:** {str(e)}")
                     st.code(traceback.format_exc(), language="python")
-            else:
-                # Debug mode OFF: Show small pill only (silent fallback)
+            elif not demo_mode:
+                # Debug mode OFF (and NOT in demo mode): Show small pill only (silent fallback)
                 st.markdown(f"""
                     <div style="
                         display: inline-block;
@@ -9319,9 +9322,11 @@ def render_executive_brief_tab():
             
             snapshot_metadata = get_snapshot_metadata()
         except ImportError:
-            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
+            if not st.session_state.get("demo_mode", False):
+                st.warning("⚠️ TruthFrame module not available. Using fallback data.")
         except Exception as e:
-            st.warning(f"⚠️ TruthFrame error: {str(e)}")
+            if not st.session_state.get("demo_mode", False):
+                st.warning(f"⚠️ TruthFrame error: {str(e)}")
         
         # ========================================================================
         # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
