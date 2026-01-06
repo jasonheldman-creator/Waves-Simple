@@ -6947,10 +6947,19 @@ def render_mission_control():
                         help=help_text
                     )
                 
-                # Show methodology indicator
+                # Show methodology indicator - only show when actually missing exposure data
+                # Suppress warning if using expected fallback behavior (exposure=1.0)
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
-                    st.caption("Exposure-adjusted calculation requires exposure time series data")
+                    # Check if this is the expected fallback (no overlay data) vs actual missing data
+                    # If portfolio_alpha_attribution also indicates fallback, this is expected behavior
+                    portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+                    using_fallback = portfolio_attrib.get('using_fallback_exposure', False)
+                    
+                    if not using_fallback:
+                        # Actual missing data - show warning
+                        st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
+                        st.caption("Exposure-adjusted calculation requires exposure time series data")
+                    # else: Fallback is expected, no warning needed
                 else:
                     st.success("✅ Using exposure-adjusted methodology")
                     st.caption("Normalized for dynamic exposure and volatility regime")
@@ -6969,25 +6978,33 @@ def render_mission_control():
                 cap_col1, cap_col2 = st.columns(2)
                 
                 with cap_col1:
-                    if capital_alpha['capital_weighted_alpha'] is not None:
-                        # Clarify weighting in the label
-                        method = capital_alpha['weighting_method']
-                        if method == 'equal-weight':
-                            label = "Portfolio Alpha (Equal-Weighted)"
-                        else:
-                            label = f"Portfolio Alpha ({method.title()})"
-                        
+                    method = capital_alpha['weighting_method']
+                    
+                    # Check if using fallback (equal-weight) due to missing capital inputs
+                    if method == 'equal-weight':
+                        # Display N/A instead of computed value when capital inputs are missing
                         st.metric(
-                            label,
-                            f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
-                            help=f"Alpha calculated using {method} weighting methodology"
+                            "Capital-Weighted Alpha",
+                            "N/A",
+                            help="Capital inputs required for capital-weighted alpha calculation"
                         )
+                    else:
+                        # Display actual capital-weighted value
+                        if capital_alpha['capital_weighted_alpha'] is not None:
+                            label = f"Capital-Weighted Alpha ({method.title()})"
+                            st.metric(
+                                label,
+                                f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
+                                help=f"Alpha calculated using {method} weighting methodology"
+                            )
+                        else:
+                            st.metric("Capital-Weighted Alpha", "N/A")
                 
                 with cap_col2:
                     method_label = capital_alpha['weighting_method']
                     if method_label == 'equal-weight':
-                        st.info("ℹ️ Equal-weight methodology (no capital inputs available)")
-                        st.caption("Capital inputs required for capital-weighted calculation")
+                        st.info("ℹ️ Add capital inputs to enable capital-weighted alpha.")
+                        st.caption("Equal-weight methodology is currently in use.")
                     else:
                         st.success(f"✅ Using {method_label} weighting")
                         st.caption("Based on available capital allocation data")
@@ -19886,8 +19903,57 @@ def render_overview_clean_tab():
             else:
                 alpha_narrative = "Platform strategies have prioritized capital preservation during this risk regime, with positioning for subsequent opportunities."
             
-            # Construct executive narrative
+            # Construct executive narrative with real metrics
             current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+            
+            # Get system health and latest price date
+            latest_price_date = price_meta.get('date_max', 'Unknown')
+            system_health = "OK" if data_current else "Stable" if data_age_days and data_age_days <= 7 else "Degraded"
+            
+            # Calculate portfolio-level returns if available
+            portfolio_metrics = []
+            if not performance_df.empty and '30D' in performance_df.columns:
+                # Calculate average returns across all waves
+                returns_30d_vals = performance_df['30D'].apply(parse_return).dropna()
+                returns_60d_vals = performance_df['60D'].apply(parse_return).dropna() if '60D' in performance_df.columns else pd.Series()
+                returns_365d_vals = performance_df['365D'].apply(parse_return).dropna() if '365D' in performance_df.columns else pd.Series()
+                
+                avg_30d = returns_30d_vals.mean() if len(returns_30d_vals) > 0 else None
+                avg_60d = returns_60d_vals.mean() if len(returns_60d_vals) > 0 else None
+                avg_365d = returns_365d_vals.mean() if len(returns_365d_vals) > 0 else None
+                
+                if avg_30d is not None:
+                    portfolio_metrics.append(f"30D: {avg_30d:+.1f}%")
+                if avg_60d is not None:
+                    portfolio_metrics.append(f"60D: {avg_60d:+.1f}%")
+                if avg_365d is not None:
+                    portfolio_metrics.append(f"365D: {avg_365d:+.1f}%")
+            
+            # Get alpha metrics from portfolio attribution if available
+            portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+            total_alpha = None
+            overlay_alpha = None
+            
+            if portfolio_attrib.get('success', False):
+                summary_60d = portfolio_attrib.get('period_summaries', {}).get('60D')
+                if summary_60d:
+                    total_alpha = summary_60d.get('total_alpha', 0) * 100  # Convert to percentage
+                    overlay_alpha = summary_60d.get('overlay_alpha', 0) * 100
+            
+            # Build market context line
+            market_context_parts = []
+            market_tickers = ['SPY', 'QQQ', 'IWM', 'TLT']
+            for ticker in market_tickers:
+                try:
+                    if ticker in price_book.columns:
+                        prices = price_book[ticker].dropna()
+                        if len(prices) >= 2:
+                            ret_1d = ((prices.iloc[-1] / prices.iloc[-2]) - 1) * 100
+                            market_context_parts.append(f"{ticker} {ret_1d:+.1f}%")
+                except:
+                    pass
+            
+            market_context = "Market: " + ", ".join(market_context_parts) if market_context_parts else ""
             
             # Strategy performance context - emphasize regime, not raw counts
             if positive_count > 0 and total_count > 0:
@@ -19904,9 +19970,28 @@ def render_overview_clean_tab():
             narrative_text = f"""
 **As of {current_time}**
 
+**System Health:** {system_health} | **Last Price Date:** {latest_price_date} | **Data Age:** {data_age_days if data_age_days is not None else 'Unknown'} days
+
 The platform is monitoring **{total_waves} institutional-grade investment strategies** exhibiting {posture} within {regime_context}. 
 
 {performance_context} {alpha_narrative}
+"""
+            
+            # Add portfolio metrics if available
+            if portfolio_metrics:
+                narrative_text += f"\n**Portfolio Returns:** {', '.join(portfolio_metrics)}"
+            
+            # Add alpha metrics if available
+            if total_alpha is not None:
+                narrative_text += f"\n**Total Alpha (60D):** {total_alpha:+.2f}%"
+            if overlay_alpha is not None:
+                narrative_text += f" | **Overlay Alpha:** {overlay_alpha:+.2f}%"
+            
+            # Add market context if available
+            if market_context:
+                narrative_text += f"\n\n**{market_context}**"
+            
+            narrative_text += f"""
 
 **Strategic Assessment:** {'Evaluate risk reduction measures' if avg_1d < -1.0 else 'Maintain strategic positioning' if avg_1d >= 0 else 'Continue monitoring market developments'}.
             """
@@ -20095,11 +20180,11 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
         # ========================================================================
         st.markdown("### ⭐ Top Performing Strategies")
-        st.caption("Relative performance ranking - emphasizes momentum and positioning")
+        st.caption("Ranked by alpha performance across multiple timeframes")
         
         try:
-            if not performance_df.empty and '1D Return' in performance_df.columns:
-                # Get top 5 performers
+            if not performance_df.empty:
+                # Get top 5 performers by 30D alpha and 60D alpha
                 def parse_return_value(val):
                     if pd.isna(val) or val == "N/A":
                         return None
@@ -20108,42 +20193,80 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                     except:
                         return None
                 
-                # Create numeric column for sorting
-                performance_df['1D_Return_Numeric'] = performance_df['1D Return'].apply(parse_return_value)
+                # Create tabs for different timeframes
+                perf_tab_30d, perf_tab_60d = st.tabs(["📊 Top 5 by 30D Alpha", "📈 Top 5 by 60D Alpha"])
                 
-                # Sort and get top performers
-                top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
+                with perf_tab_30d:
+                    st.caption("Ranked by 30-day alpha performance")
+                    
+                    if '30D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['30D_Numeric'] = performance_df['30D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_30d = performance_df.nlargest(min(5, len(performance_df)), '30D_Numeric')
+                        
+                        if not top_30d.empty and top_30d['30D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_30d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_30d = row.get('30D_Numeric', None)
+                                return_1d = parse_return_value(row.get('1D Return', 'N/A'))
+                                
+                                if return_30d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '30D Alpha': f"{return_30d:+.2f}%",
+                                        '1D Return': f"{return_1d:+.2f}%" if return_1d is not None else "N/A"
+                                    })
+                            
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 30D alpha ranking")
+                        else:
+                            st.info("No valid 30D performance data available")
+                    else:
+                        st.info("30D performance data not available")
                 
-                if not top_performers.empty:
-                    # Check if returns are negligible across the board
-                    max_return = top_performers['1D_Return_Numeric'].max() if len(top_performers) > 0 else 0
-                    returns_negligible = abs(max_return) < NEGLIGIBLE_RETURN_THRESHOLD  # Less than 0.1%
+                with perf_tab_60d:
+                    st.caption("Ranked by 60-day alpha performance")
                     
-                    if returns_negligible:
-                        st.info("📊 Returns are minimal across strategies - showing relative positioning and momentum")
-                    
-                    # Display as simple cards
-                    perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
-                    
-                    for idx, (_, row) in enumerate(top_performers.iterrows()):
-                        col = [perf_col1, perf_col2, perf_col3, perf_col4, perf_col5][idx]
-                        with col:
-                            wave_name = row.get('Wave', 'N/A')
-                            return_1d = row.get('1D_Return_Numeric', 0)
-                            return_30d = parse_return_value(row.get('30D', 'N/A'))
+                    if '60D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['60D_Numeric'] = performance_df['60D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_60d = performance_df.nlargest(min(5, len(performance_df)), '60D_Numeric')
+                        
+                        if not top_60d.empty and top_60d['60D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_60d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_60d = row.get('60D_Numeric', None)
+                                return_30d = parse_return_value(row.get('30D', 'N/A'))
+                                
+                                if return_60d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '60D Alpha': f"{return_60d:+.2f}%",
+                                        '30D Return': f"{return_30d:+.2f}%" if return_30d is not None else "N/A"
+                                    })
                             
-                            # Add rank indicator
-                            rank_label = f"#{idx + 1} {wave_name}" if len(wave_name) < 17 else f"#{idx + 1} {wave_name[:14]}..."
-                            
-                            st.metric(
-                                label=rank_label,
-                                value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
-                                delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
-                            )
-                else:
-                    st.info("Performance data is being compiled. Check back shortly.")
-            else:
-                st.info("Performance metrics will appear here once data is available.")
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 60D alpha ranking")
+                        else:
+                            st.info("No valid 60D performance data available")
+                    else:
+                        st.info("60D performance data not available")
                 
         except Exception as e:
             st.warning("Performance insights temporarily unavailable.")
