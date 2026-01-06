@@ -8691,15 +8691,28 @@ def render_sidebar_info():
                         help="Clear session state while preserving cache, then rerun"
                     ):
                         try:
-                            # Preserve system keys and cache-related keys
+                            # Define explicit whitelist of keys to preserve
+                            explicit_preserve_keys = {
+                                'operator_mode_enabled',
+                                'operator_mode_toggle',
+                                'demo_mode',
+                                'demo_mode_toggle',
+                                'safe_mode_no_fetch',
+                                'safe_mode_no_fetch_toggle',
+                                'debug_bundle',  # Preserve generated debug bundle
+                            }
+                            
+                            # Preserve system keys (start with '_'), cache keys, and explicit whitelist
                             keys_to_preserve = [
                                 key for key in st.session_state.keys() 
-                                if key.startswith('_') or 'cache' in key.lower() or key in [
-                                    'operator_mode_enabled',
-                                    'operator_mode_toggle',
-                                    'demo_mode',
-                                    'safe_mode_no_fetch'
-                                ]
+                                if (
+                                    key.startswith('_') or  # System keys
+                                    key in explicit_preserve_keys or  # Explicit whitelist
+                                    key.endswith('_cache') or  # Cache keys
+                                    key.endswith('_version') or  # Version keys
+                                    'price_cache' in key or  # Price cache related
+                                    'wave_universe_cache' in key  # Wave universe cache
+                                )
                             ]
                             
                             # Clear all other keys
