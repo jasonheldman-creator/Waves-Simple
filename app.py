@@ -9597,8 +9597,6 @@ def render_executive_brief_tab():
                     st.metric("365D Return", "Error", help=ledger['failure_reason'])
                 
                 st.markdown("</div>", unsafe_allow_html=True)
-                
-                st.markdown("</div>", unsafe_allow_html=True)
         
         except Exception as e:
             st.error(f"⚠️ Portfolio snapshot module error: {str(e)}")

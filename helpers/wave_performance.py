@@ -1866,7 +1866,7 @@ def compute_portfolio_alpha_ledger(
             all_waves = universe.get('waves', [])
             # Use wave_registry if provided, else WAVE_WEIGHTS
             registry = wave_registry if wave_registry is not None else WAVE_WEIGHTS
-            wave_count = sum(1 for wave in all_waves if wave in registry and registry[wave])
+            wave_count = sum(1 for wave in all_waves if wave in registry and registry[wave] is not None)
             result['wave_count'] = wave_count
         except Exception:
             result['wave_count'] = 0
@@ -1964,14 +1964,18 @@ def compute_portfolio_alpha_ledger(
                     daily_alpha_captured = window_exposure * daily_alpha
                     
                     # Alpha Captured Period = compounded product
-                    # (1 + r1) * (1 + r2) * ... * (1 + rn) - 1
-                    alpha_captured_period = (1 + daily_alpha_captured).prod() - 1
+                    # Use numerically stable calculation for better precision
+                    alpha_captured_period = np.expm1(np.log1p(daily_alpha_captured).sum())
                     summary['alpha_captured'] = float(alpha_captured_period)
                 except Exception as e:
                     logger.warning(f"Failed to compute alpha_captured for {period_key}: {e}")
                     summary['alpha_captured'] = None
             
             # Attribution reconciliation (Requirement E)
+            # Note: This post-processing approach allows the base function to compute
+            # all metrics first, then we validate reconciliation and mark unavailable
+            # if the tolerance check fails. This ensures we have diagnostic data even
+            # for periods that fail reconciliation.
             residual = summary.get('residual')
             if residual is not None:
                 summary['attribution_reconciled'] = abs(residual) <= RECONCILIATION_TOLERANCE
@@ -2017,7 +2021,8 @@ def compute_portfolio_alpha_ledger(
             try:
                 daily_alpha = daily_unoverlay - daily_benchmark
                 daily_alpha_captured = daily_exposure * daily_alpha
-                alpha_captured_inception = (1 + daily_alpha_captured).prod() - 1
+                # Use numerically stable calculation
+                alpha_captured_inception = np.expm1(np.log1p(daily_alpha_captured).sum())
                 inception['alpha_captured'] = float(alpha_captured_inception)
             except Exception as e:
                 logger.warning(f"Failed to compute inception alpha_captured: {e}")
