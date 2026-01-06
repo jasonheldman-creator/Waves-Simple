@@ -1,15 +1,1 @@
-{
-  "snapshot_id": "snap-564098bde2704ff0",
-  "snapshot_hash": "487f636b38b802f8",
-  "generation_reason": "auto",
-  "timestamp": "2026-01-06T13:50:00.523890",
-  "software_version": "7807035",
-  "git_branch": "copilot/fix-last-price-date-computation",
-  "registry_version": "v20260102_214700",
-  "benchmark_version": "v20260102_214700",
-  "data_regime": "SANDBOX",
-  "safe_mode": "OFF",
-  "wave_count": 28,
-  "degraded_wave_count": 0,
-  "broken_ticker_count": 127
-}
+<content_from_origin/main_snapshot_metadata.json>
