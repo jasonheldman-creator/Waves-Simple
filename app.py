@@ -2521,11 +2521,12 @@ def safe_load_wave_history(_wave_universe_version=1):
 
 
 def get_latest_data_timestamp():
-    """Get the latest available 'as of' data timestamp from wave_history.csv."""
+    """Get the latest available 'as of' data timestamp from PRICE_BOOK (canonical price source)."""
     try:
-        df = safe_load_wave_history()
-        if df is not None and 'date' in df.columns and len(df) > 0:
-            latest_date = df['date'].max()
+        from helpers.price_book import get_price_book
+        price_book = get_price_book(active_tickers=None)
+        if price_book is not None and not price_book.empty:
+            latest_date = price_book.index.max()
             return latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "unknown"
     except Exception:
         pass
@@ -8687,6 +8688,36 @@ def render_sidebar_info():
                     "error": str(e),
                     "traceback": traceback.format_exc()
                 })
+            
+            # Price Book vs Sidebar Date Validation Section
+            st.markdown("---")
+            st.markdown("**📅 Last Price Date Validation**")
+            try:
+                from helpers.price_book import get_price_book
+                price_book = get_price_book(active_tickers=None)
+                
+                price_book_max_date = "N/A"
+                if price_book is not None and not price_book.empty:
+                    price_book_max_date = price_book.index.max().strftime('%Y-%m-%d')
+                
+                sidebar_last_price_date_used = get_latest_data_timestamp()
+                
+                date_validation = {
+                    "price_book_max_date": price_book_max_date,
+                    "sidebar_last_price_date_used": sidebar_last_price_date_used,
+                    "dates_match": price_book_max_date == sidebar_last_price_date_used
+                }
+                
+                import json
+                st.json(date_validation)
+                
+                if not date_validation["dates_match"]:
+                    st.warning("⚠️ Date mismatch detected!")
+                else:
+                    st.success("✅ Dates match correctly")
+                    
+            except Exception as e:
+                st.error(f"Date validation error: {str(e)}")
             
             # Portfolio Snapshot Debug Section
             st.markdown("---")
