@@ -1034,17 +1034,67 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                         alpha_60d = snapshot['alphas'].get('60D')
                         alpha_365d = snapshot['alphas'].get('365D')
                         
-                        # Format return strings
-                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                        # Get diagnostic info for tooltips (when unavailable)
+                        snapshot_debug = snapshot.get('debug', {})
+                        total_rows = snapshot_debug.get('portfolio_rows_count', 0)
                         
-                        # Format alpha strings
-                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        # Format return strings with diagnostic info
+                        if ret_1d is None:
+                            ret_1d_str = f"N/A"
+                            ret_1d_help = f"Insufficient aligned rows ({total_rows}/1)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_1d_str = f"{ret_1d*100:+.2f}%"
+                            ret_1d_help = None
+                        
+                        if ret_30d is None:
+                            ret_30d_str = f"N/A"
+                            ret_30d_help = f"Insufficient aligned rows ({total_rows}/30)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_30d_str = f"{ret_30d*100:+.2f}%"
+                            ret_30d_help = None
+                        
+                        if ret_60d is None:
+                            ret_60d_str = f"N/A"
+                            ret_60d_help = f"Insufficient aligned rows ({total_rows}/60)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_60d_str = f"{ret_60d*100:+.2f}%"
+                            ret_60d_help = None
+                        
+                        if ret_365d is None:
+                            ret_365d_str = f"N/A"
+                            ret_365d_help = f"Insufficient aligned rows ({total_rows}/365)" if total_rows > 0 else "Data not available"
+                        else:
+                            ret_365d_str = f"{ret_365d*100:+.2f}%"
+                            ret_365d_help = None
+                        
+                        # Format alpha strings with diagnostic info
+                        if alpha_1d is None:
+                            alpha_1d_str = f"N/A"
+                            alpha_1d_help = f"Insufficient aligned rows ({total_rows}/1)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_1d_str = f"{alpha_1d*100:+.2f}%"
+                            alpha_1d_help = None
+                        
+                        if alpha_30d is None:
+                            alpha_30d_str = f"N/A"
+                            alpha_30d_help = f"Insufficient aligned rows ({total_rows}/30)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_30d_str = f"{alpha_30d*100:+.2f}%"
+                            alpha_30d_help = None
+                        
+                        if alpha_60d is None:
+                            alpha_60d_str = f"N/A"
+                            alpha_60d_help = f"Insufficient aligned rows ({total_rows}/60)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_60d_str = f"{alpha_60d*100:+.2f}%"
+                            alpha_60d_help = None
+                        
+                        if alpha_365d is None:
+                            alpha_365d_str = f"N/A"
+                            alpha_365d_help = f"Insufficient aligned rows ({total_rows}/365)" if total_rows > 0 else "Data not available"
+                        else:
+                            alpha_365d_str = f"{alpha_365d*100:+.2f}%"
+                            alpha_365d_help = None
                 except Exception as e:
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
@@ -1283,35 +1333,35 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
             </div>
             
             <div class="stats-grid">
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_1d_help + '"' if ret_1d_help else ''}>
                     <div class="stat-label">1D Return</div>
                     <div class="stat-value">{ret_1d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_30d_help + '"' if ret_30d_help else ''}>
                     <div class="stat-label">30D Return</div>
                     <div class="stat-value">{ret_30d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_60d_help + '"' if ret_60d_help else ''}>
                     <div class="stat-label">60D Return</div>
                     <div class="stat-value">{ret_60d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + ret_365d_help + '"' if ret_365d_help else ''}>
                     <div class="stat-label">365D Return</div>
                     <div class="stat-value">{ret_365d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_1d_help + '"' if alpha_1d_help else ''}>
                     <div class="stat-label">Alpha 1D</div>
                     <div class="stat-value">{alpha_1d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_30d_help + '"' if alpha_30d_help else ''}>
                     <div class="stat-label">Alpha 30D</div>
                     <div class="stat-value">{alpha_30d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_60d_help + '"' if alpha_60d_help else ''}>
                     <div class="stat-label">Alpha 60D</div>
                     <div class="stat-value">{alpha_60d_str}</div>
                 </div>
-                <div class="stat-tile">
+                <div class="stat-tile" {'title="' + alpha_365d_help + '"' if alpha_365d_help else ''}>
                     <div class="stat-label">Alpha 365D</div>
                     <div class="stat-value">{alpha_365d_str}</div>
                 </div>
