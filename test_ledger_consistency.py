@@ -18,8 +18,13 @@ import numpy as np
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Test configuration constants
-RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution
+# Import residual tolerance constant
+try:
+    from helpers.wave_performance import RESIDUAL_TOLERANCE
+except ImportError:
+    # Fallback if module not available
+    print("Warning: Could not import RESIDUAL_TOLERANCE from helpers.wave_performance")
+    RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution
 
 
 def test_ledger_consistency_60d():

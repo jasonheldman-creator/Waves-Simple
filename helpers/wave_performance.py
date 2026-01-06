@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
+RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution validation
 
 # Import wave definitions
 try:

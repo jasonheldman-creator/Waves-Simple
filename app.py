@@ -6100,7 +6100,10 @@ def compute_alpha_source_breakdown(df):
     
     try:
         # Import the canonical ledger function (single source of truth)
-        from helpers.wave_performance import compute_portfolio_alpha_ledger
+        from helpers.wave_performance import (
+            compute_portfolio_alpha_ledger,
+            RESIDUAL_TOLERANCE
+        )
         from helpers.price_book import get_price_book
         
         # Get PRICE_BOOK
@@ -6172,8 +6175,7 @@ def compute_alpha_source_breakdown(df):
         result['residual'] = period_60d['residual']
         result['data_available'] = True
         
-        # Validate residual is within tolerance
-        RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance
+        # Validate residual is within tolerance (using constant from helpers.wave_performance)
         if result['residual'] is not None and abs(result['residual']) > RESIDUAL_TOLERANCE:
             # Large residual - mark as decomposition error
             result['diagnostics'] = {
