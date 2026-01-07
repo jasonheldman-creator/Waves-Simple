@@ -2041,14 +2041,14 @@ def _regime_from_return(ret_60d: float) -> str:
     return "uptrend"
 
 
-def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+def _vix_exposure_factor(vix_level: float, mode: str, *, wave_name: Optional[str] = None) -> float:
     """
     Calculate VIX-based exposure adjustment factor.
     
     Args:
         vix_level: VIX level (or NaN if missing)
         mode: Operating mode
-        wave_name: Wave name for configuration lookup (optional)
+        wave_name: Wave name for configuration lookup (keyword-only, optional)
     
     Returns:
         Exposure multiplier (0.5 to 1.3)
@@ -2062,9 +2062,10 @@ def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] =
         
         # Use fallback VIX if data is missing and resilient mode is enabled
         if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            original_vix = vix_level
             vix_level = vix_config["fallback_vix_level"]
             if vix_config.get("log_diagnostics", False):
-                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name} (original: {original_vix})")
     
     # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:
@@ -2093,14 +2094,14 @@ def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] =
     return float(np.clip(base, 0.5, 1.3))
 
 
-def _vix_safe_fraction(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+def _vix_safe_fraction(vix_level: float, mode: str, *, wave_name: Optional[str] = None) -> float:
     """
     Calculate VIX-based safe allocation boost.
     
     Args:
         vix_level: VIX level (or NaN if missing)
         mode: Operating mode
-        wave_name: Wave name for configuration lookup (optional)
+        wave_name: Wave name for configuration lookup (keyword-only, optional)
     
     Returns:
         Safe fraction boost (0.0 to 0.8)
@@ -2114,9 +2115,10 @@ def _vix_safe_fraction(vix_level: float, mode: str, wave_name: Optional[str] = N
         
         # Use fallback VIX if data is missing and resilient mode is enabled
         if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            original_vix = vix_level
             vix_level = vix_config["fallback_vix_level"]
             if vix_config.get("log_diagnostics", False):
-                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name} (original: {original_vix})")
     
     # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:

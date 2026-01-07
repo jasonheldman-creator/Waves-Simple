@@ -37,15 +37,15 @@ from waves_engine import (
 def test_vix_exposure_factor_with_wave_name():
     """Test _vix_exposure_factor accepts wave_name parameter."""
     # Test with valid VIX
-    result = _vix_exposure_factor(15.0, "Standard", "US MegaCap Core Wave")
+    result = _vix_exposure_factor(15.0, "Standard", wave_name="US MegaCap Core Wave")
     assert 1.0 <= result <= 1.3, f"Expected exposure factor between 1.0 and 1.3, got {result}"
     
     # Test with high VIX
-    result = _vix_exposure_factor(35.0, "Standard", "US MegaCap Core Wave")
+    result = _vix_exposure_factor(35.0, "Standard", wave_name="US MegaCap Core Wave")
     assert 0.5 <= result <= 1.0, f"Expected reduced exposure for high VIX, got {result}"
     
     # Test with missing VIX (should use fallback if resilient, or return neutral)
-    result = _vix_exposure_factor(np.nan, "Standard", "US MegaCap Core Wave")
+    result = _vix_exposure_factor(np.nan, "Standard", wave_name="US MegaCap Core Wave")
     # With resilient mode enabled and fallback_vix_level=20.0, this returns 0.95 (VIX 20-25 range)
     # This is correct behavior - proving resilience is working!
     assert 0.9 <= result <= 1.1, f"Expected near-neutral exposure for missing VIX with fallback, got {result}"
@@ -54,15 +54,15 @@ def test_vix_exposure_factor_with_wave_name():
 def test_vix_safe_fraction_with_wave_name():
     """Test _vix_safe_fraction accepts wave_name parameter."""
     # Test with low VIX
-    result = _vix_safe_fraction(15.0, "Standard", "US MegaCap Core Wave")
+    result = _vix_safe_fraction(15.0, "Standard", wave_name="US MegaCap Core Wave")
     assert result == 0.0, f"Expected no safe allocation for low VIX, got {result}"
     
     # Test with high VIX
-    result = _vix_safe_fraction(35.0, "Standard", "US MegaCap Core Wave")
+    result = _vix_safe_fraction(35.0, "Standard", wave_name="US MegaCap Core Wave")
     assert result > 0.2, f"Expected significant safe allocation for high VIX, got {result}"
     
     # Test with missing VIX (should use fallback if resilient)
-    result = _vix_safe_fraction(np.nan, "Standard", "US MegaCap Core Wave")
+    result = _vix_safe_fraction(np.nan, "Standard", wave_name="US MegaCap Core Wave")
     # With resilient mode and fallback_vix_level=20.0, this returns 0.05 (VIX 18-24 range)
     # This is correct behavior - proving resilience is working!
     assert 0.0 <= result <= 0.1, f"Expected small safe allocation for missing VIX with fallback, got {result}"
@@ -79,7 +79,7 @@ def test_resilience_with_config():
     set_vix_overlay_config(config)
     
     # Test with missing VIX - should use fallback of 25.0
-    result = _vix_exposure_factor(np.nan, "Standard", "US MegaCap Core Wave")
+    result = _vix_exposure_factor(np.nan, "Standard", wave_name="US MegaCap Core Wave")
     # With VIX=25.0, exposure should be 0.85 (in the 25-30 range maps to 0.85)
     assert 0.8 <= result <= 0.9, f"Expected reduced exposure with VIX 25 fallback, got {result}"
     
@@ -98,8 +98,8 @@ def test_vix_overlay_disabled_for_wave():
     set_vix_overlay_config(config)
     
     # Bitcoin Wave should return neutral values
-    result_exposure = _vix_exposure_factor(35.0, "Standard", "Bitcoin Wave")
-    result_safe = _vix_safe_fraction(35.0, "Standard", "Bitcoin Wave")
+    result_exposure = _vix_exposure_factor(35.0, "Standard", wave_name="Bitcoin Wave")
+    result_safe = _vix_safe_fraction(35.0, "Standard", wave_name="Bitcoin Wave")
     
     # Should return neutral (1.0 and 0.0) because disabled for this wave
     assert result_exposure == 1.0, f"Expected neutral exposure for disabled wave, got {result_exposure}"
@@ -148,13 +148,13 @@ def test_is_vix_overlay_active_helper():
 def test_mode_adjustments():
     """Test that mode adjustments still work."""
     # Alpha-Minus-Beta should be more defensive
-    amb_exposure = _vix_exposure_factor(25.0, "Alpha-Minus-Beta", "US MegaCap Core Wave")
-    std_exposure = _vix_exposure_factor(25.0, "Standard", "US MegaCap Core Wave")
+    amb_exposure = _vix_exposure_factor(25.0, "Alpha-Minus-Beta", wave_name="US MegaCap Core Wave")
+    std_exposure = _vix_exposure_factor(25.0, "Standard", wave_name="US MegaCap Core Wave")
     
     assert amb_exposure < std_exposure, "Alpha-Minus-Beta should have lower exposure"
     
     # Private Logic should be more aggressive
-    pl_exposure = _vix_exposure_factor(25.0, "Private Logic", "US MegaCap Core Wave")
+    pl_exposure = _vix_exposure_factor(25.0, "Private Logic", wave_name="US MegaCap Core Wave")
     
     assert pl_exposure > std_exposure, "Private Logic should have higher exposure"
 
