@@ -14215,6 +14215,125 @@ def render_individual_wave_view(selected_wave, all_metrics):
         st.divider()
         
         # ========================================================================
+        # SECTION A2: Executive Summary - Alpha Attribution (S&P 500 Wave only)
+        # ========================================================================
+        st.markdown("#### 📋 Executive Summary")
+        
+        # Check if this is the S&P 500 Wave
+        if selected_wave == "S&P 500 Wave":
+            # Display alpha attribution for S&P 500 Wave
+            try:
+                # Load wave history data
+                wave_df = safe_load_wave_history()
+                
+                if wave_df is not None and not wave_df.empty and 'wave' in wave_df.columns:
+                    # Filter data for S&P 500 Wave
+                    sp500_data = wave_df[wave_df['wave'] == "S&P 500 Wave"].copy()
+                    
+                    if not sp500_data.empty and len(sp500_data) >= 30:
+                        # Sort by date and take last 30 days
+                        sp500_data = sp500_data.sort_values('date').tail(30)
+                        
+                        # Prepare history DataFrame for attribution
+                        sp500_data.set_index('date', inplace=True)
+                        history_df = pd.DataFrame({
+                            'wave_ret': sp500_data['portfolio_return'],
+                            'bm_ret': sp500_data['benchmark_return']
+                        })
+                        
+                        # Compute attribution using the alpha_attribution module
+                        if ALPHA_ATTRIBUTION_AVAILABLE:
+                            with st.spinner("Computing S&P 500 Wave attribution..."):
+                                daily_df, summary = compute_alpha_attribution_series(
+                                    wave_name="S&P 500 Wave",
+                                    mode="Standard",
+                                    history_df=history_df,
+                                    diagnostics_df=None,
+                                    tilt_strength=0.8,
+                                    base_exposure=1.0
+                                )
+                            
+                            # Display attribution summary in a clean format
+                            st.markdown("**Alpha Attribution (30-Day Period)**")
+                            
+                            # Summary metrics
+                            col_sum1, col_sum2, col_sum3 = st.columns(3)
+                            
+                            with col_sum1:
+                                st.metric(
+                                    "Total Wave Return",
+                                    f"{summary.total_wave_return * 100:+.2f}%",
+                                    help="S&P 500 Wave return over 30 days"
+                                )
+                            
+                            with col_sum2:
+                                st.metric(
+                                    "Total Benchmark Return",
+                                    f"{summary.total_benchmark_return * 100:+.2f}%",
+                                    help="Benchmark return over 30 days"
+                                )
+                            
+                            with col_sum3:
+                                st.metric(
+                                    "Total Alpha",
+                                    f"{summary.total_alpha * 100:+.2f}%",
+                                    help="Wave Return - Benchmark Return"
+                                )
+                            
+                            # Attribution components table
+                            st.markdown("**Attribution Breakdown:**")
+                            
+                            attribution_data = {
+                                "Component": [
+                                    "1️⃣ Exposure & Timing Alpha",
+                                    "2️⃣ Regime & VIX Overlay Alpha",
+                                    "3️⃣ Momentum & Trend Alpha",
+                                    "4️⃣ Volatility & Risk Control Alpha",
+                                    "5️⃣ Asset Selection Alpha"
+                                ],
+                                "Contribution": [
+                                    f"{summary.exposure_timing_alpha * 100:+.2f}%",
+                                    f"{summary.regime_vix_alpha * 100:+.2f}%",
+                                    f"{summary.momentum_trend_alpha * 100:+.2f}%",
+                                    f"{summary.volatility_control_alpha * 100:+.2f}%",
+                                    f"{summary.asset_selection_alpha * 100:+.2f}%"
+                                ],
+                                "Share of Alpha": [
+                                    f"{summary.exposure_timing_contribution_pct:+.1f}%",
+                                    f"{summary.regime_vix_contribution_pct:+.1f}%",
+                                    f"{summary.momentum_trend_contribution_pct:+.1f}%",
+                                    f"{summary.volatility_control_contribution_pct:+.1f}%",
+                                    f"{summary.asset_selection_contribution_pct:+.1f}%"
+                                ]
+                            }
+                            
+                            df_attribution = pd.DataFrame(attribution_data)
+                            st.dataframe(
+                                df_attribution,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            
+                            # Reconciliation note
+                            st.caption(f"✓ Reconciliation: {summary.reconciliation_pct_error:.4f}% error (target: <0.01%)")
+                            
+                        else:
+                            st.warning("⚠️ Alpha attribution module not available")
+                    else:
+                        st.info("📊 Insufficient data for S&P 500 Wave attribution (minimum 30 days required)")
+                else:
+                    st.info("📊 Wave history data not available")
+                    
+            except Exception as e:
+                st.warning(f"⚠️ Unable to compute attribution: {str(e)}")
+        else:
+            # Placeholder for other waves
+            st.info("📊 **Attribution Rollout Pending**")
+            st.caption(f"Detailed alpha attribution for {selected_wave} is currently in development. Full attribution analysis will be available in an upcoming release.")
+        
+        st.divider()
+        
+        # ========================================================================
         # SECTION B: Alpha Drivers Breakdown
         # ========================================================================
         st.markdown("#### 🎯 Alpha Drivers Breakdown")
