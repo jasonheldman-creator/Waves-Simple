@@ -24,6 +24,7 @@ import traceback
 import logging
 import time
 import itertools
+import html
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -133,6 +134,7 @@ try:
     from helpers.price_book import (
         PRICE_CACHE_OK_DAYS, 
         PRICE_CACHE_DEGRADED_DAYS,
+        CANONICAL_CACHE_PATH,
         compute_system_health,
         get_price_book
     )
@@ -150,6 +152,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"
     compute_system_health = None
     get_price_book = None
 
@@ -831,8 +834,33 @@ if "proof_run_counter" not in st.session_state:
 else:
     st.session_state.proof_run_counter += 1
 
-# Get GIT SHA from environment or use hardcoded diagnostic string
-git_sha_proof = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+# Get basename of __file__
+try:
+    file_basename = os.path.basename(__file__)
+except Exception:
+    file_basename = "app.py"
+
+# Get GIT SHA with best-effort fallback
+git_sha_proof = "SHA unavailable"
+try:
+    # Try environment variable first
+    git_sha_env = os.environ.get('GIT_SHA') or os.environ.get('BUILD_ID')
+    if git_sha_env:
+        git_sha_proof = git_sha_env
+    else:
+        # Try reading from git command
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            git_sha_proof = result.stdout.strip()
+except Exception:
+    # Keep default "SHA unavailable" - never crash
+    pass
 
 # Display Proof Banner
 st.markdown(
@@ -842,7 +870,7 @@ st.markdown(
             🔍 PROOF BANNER - DIAGNOSTICS MODE
         </div>
         <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
-            <strong>ENTRYPOINT:</strong> app.py<br>
+            <strong>FILE:</strong> {file_basename}<br>
             <strong>GIT SHA:</strong> {git_sha_proof}<br>
             <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
             <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
@@ -7489,6 +7517,208 @@ def render_sidebar_info():
     st.sidebar.markdown("---")
     
     # ========================================================================
+    # OPERATOR CONTROLS - Always Visible
+    # ========================================================================
+    st.sidebar.markdown("### 🛠 Operator Controls")
+    
+    # Define safe logger for operator controls
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    
+    # Initialize last operator action in session state
+    if "last_operator_action" not in st.session_state:
+        st.session_state.last_operator_action = None
+        st.session_state.last_operator_time = None
+    
+    # Clear Cache Button
+    if st.sidebar.button("🗑️ Clear Cache", use_container_width=True, help="Clear Streamlit cache to force fresh computations"):
+        try:
+            # Clear both cache types safely
+            st.cache_data.clear()
+            try:
+                st.cache_resource.clear()
+            except AttributeError:
+                # cache_resource may not be available in older Streamlit versions
+                pass
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Clear Cache"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Clear Cache at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success("✅ Cache cleared")
+        except Exception as e:
+            st.sidebar.error(f"❌ Cache clear failed: {str(e)}")
+    
+    # Force Recompute Button
+    if st.sidebar.button("♻️ Force Recompute", use_container_width=True, help="Clear session state keys to trigger fresh computations"):
+        try:
+            # Safely delete/clear specific session state keys
+            keys_to_clear = [
+                'portfolio_alpha_ledger',
+                'portfolio_snapshot_debug',
+                'portfolio_exposure_series',
+                'wave_data_cache',
+                'price_book_cache',
+                'compute_lock'
+            ]
+            
+            cleared_count = 0
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_count += 1
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Force Recompute"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Force Recompute at {action_time} (cleared {cleared_count} keys)")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success(f"✅ Cleared {cleared_count} keys")
+        except Exception as e:
+            st.sidebar.error(f"❌ Recompute failed: {str(e)}")
+    
+    # Hard Rerun Button
+    if st.sidebar.button("🔄 Hard Rerun", use_container_width=True, help="Trigger a full app rerun immediately"):
+        try:
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Hard Rerun"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Hard Rerun at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"❌ Rerun failed: {str(e)}")
+    
+    # Reload Price Book Button
+    if st.sidebar.button("📚 Reload Price Book", use_container_width=True, help="Reload price_book from disk cache"):
+        try:
+            # Clear price_book_cache from session state to force reload
+            if 'price_book_cache' in st.session_state:
+                del st.session_state['price_book_cache']
+            
+            # Clear Streamlit cache for price book
+            st.cache_data.clear()
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Reload Price Book"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Reload Price Book at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success("✅ Price book reloaded")
+        except Exception as e:
+            st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
+    
+    # Force Ledger Recompute Button
+    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger"):
+        try:
+            # Clear ledger-related session state keys
+            ledger_keys = [
+                'portfolio_alpha_ledger',
+                'portfolio_snapshot_debug',
+                'portfolio_exposure_series',
+                'canonical_return_ledger'
+            ]
+            
+            cleared_count = 0
+            for key in ledger_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_count += 1
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Force Ledger Recompute"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+        except Exception as e:
+            st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR DIAGNOSTICS - Read-Only Info
+    # ========================================================================
+    st.sidebar.markdown("### 📋 Diagnostics")
+    
+    # Build Marker
+    try:
+        build_info = get_build_info()
+        build_marker = f"{build_info.get('sha', 'unknown')[:8]}"
+        st.sidebar.caption(f"**Build marker:** `{build_marker}`")
+    except Exception:
+        st.sidebar.caption("**Build marker:** `SHA unavailable`")
+    
+    # Price Cache Max Date
+    try:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            price_book = get_price_book()
+            if price_book is not None and not price_book.empty:
+                max_date = price_book.index.max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Price cache max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Price cache max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Price cache max date:** `N/A`")
+    except Exception as e:
+        st.sidebar.caption(f"**Price cache max date:** `Error: {str(e)[:30]}`")
+    
+    # Ledger Max Date
+    try:
+        if 'portfolio_alpha_ledger' in st.session_state:
+            ledger = st.session_state['portfolio_alpha_ledger']
+            if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                ledger_df = ledger.get('ledger')
+                if ledger_df is not None and not ledger_df.empty:
+                    max_date = ledger_df.index.max()
+                    max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                    st.sidebar.caption(f"**Ledger max date:** `{max_date_str}`")
+                else:
+                    st.sidebar.caption("**Ledger max date:** `N/A`")
+            else:
+                st.sidebar.caption("**Ledger max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Ledger max date:** `Not computed`")
+    except Exception as e:
+        st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
+    
+    # Display last operator action
+    if st.session_state.last_operator_action:
+        st.sidebar.caption(
+            f"Last operator action: **{st.session_state.last_operator_action}** at {st.session_state.last_operator_time}"
+        )
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
     # OPERATOR MODE (Admin-Gated)
     # Operator Mode hidden by default; enable via OPERATOR_MODE secret.
     # Set OPERATOR_MODE = true in .streamlit/secrets.toml to enable.
@@ -9458,14 +9688,21 @@ def render_executive_brief_tab():
             # Load PRICE_BOOK
             price_book = get_price_book()
             
-            # Compute portfolio alpha ledger (canonical implementation)
-            ledger = compute_portfolio_alpha_ledger(
-                price_book, 
-                periods=[1, 30, 60, 365],
-                benchmark_ticker='SPY',
-                mode='Standard',
-                vix_exposure_enabled=True
-            )
+            # Use canonical ledger from session state if available (single source of truth)
+            # Only compute if not already in session state
+            if 'portfolio_alpha_ledger' in st.session_state:
+                ledger = st.session_state['portfolio_alpha_ledger']
+            else:
+                # Compute portfolio alpha ledger (canonical implementation)
+                ledger = compute_portfolio_alpha_ledger(
+                    price_book, 
+                    periods=[1, 30, 60, 365],
+                    benchmark_ticker='SPY',
+                    mode='Standard',
+                    vix_exposure_enabled=True
+                )
+                # Store in session state for reuse
+                st.session_state['portfolio_alpha_ledger'] = ledger
             
             # Add diagnostic information
             if ledger['success']:
@@ -9499,12 +9736,52 @@ def render_executive_brief_tab():
                     st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
             
             if ledger['success']:
-                # RENDERER PROOF LINE
+                # RENDERER PROOF LINE - Enhanced with data source info
                 build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+                
+                # Get price_book info for proof label
+                price_max_date = "N/A"
+                price_rows = 0
+                price_cols = 0
+                if price_book is not None and not price_book.empty:
+                    price_max_date = price_book.index.max().strftime('%Y-%m-%d')
+                    price_rows, price_cols = price_book.shape
+                
                 st.markdown(
                     f"""
                     <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                        <strong>Renderer:</strong> Portfolio Snapshot BLUE BOX | <strong>Build:</strong> {build_id} | <strong>Updated:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+                        <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # VIX/Exposure Status Line
+                vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
+                if not vix_proxy_used:
+                    vix_proxy_used = 'none found'
+                
+                # Determine exposure mode
+                exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
+                
+                # Calculate exposure min/max over last 60 rows if available
+                exposure_min_max = ""
+                if ledger.get('daily_exposure') is not None:
+                    try:
+                        exposure_series = ledger['daily_exposure']
+                        if len(exposure_series) > 0:
+                            # Get last 60 rows
+                            last_60 = exposure_series.tail(60)
+                            exp_min = last_60.min()
+                            exp_max = last_60.max()
+                            exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
+                    except Exception:
+                        pass
+                
+                st.markdown(
+                    f"""
+                    <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
+                        <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -12256,151 +12533,146 @@ def render_overview_tab():
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
         
         # ========================================================================
-        # PRICE_BOOK STATUS PANEL
+        # PRICE_BOOK TRUTH PANEL - Data Truth
         # ========================================================================
         st.markdown("---")
-        st.markdown("### 📈 PRICE_BOOK Status")
+        st.markdown("### 📦 PRICE_BOOK — Data Truth")
         st.caption("Canonical price cache - Single source of truth for all price data")
         
         try:
-            import json
-            import subprocess
-            from helpers.price_loader import CACHE_PATH, CACHE_DIR
-            
-            # Get current git commit SHA
-            try:
-                git_sha = subprocess.check_output(
-                    ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=os.path.dirname(os.path.abspath(__file__)),
-                    stderr=subprocess.STDOUT
-                ).decode('utf-8').strip()
-            except Exception:
-                git_sha = "Unknown"
-            
-            # Check cache file existence and get mtime
-            cache_exists = os.path.exists(CACHE_PATH)
-            cache_mtime = None
-            cache_size = 0
-            
-            if cache_exists:
-                cache_stat = os.stat(CACHE_PATH)
-                # Use local time for mtime (consistent with file system)
-                cache_mtime = datetime.fromtimestamp(cache_stat.st_mtime)
-                cache_size = cache_stat.st_size
-            
-            # Load metadata file if it exists
-            metadata_path = os.path.join(CACHE_DIR, "prices_cache_meta.json")
-            metadata = None
-            if os.path.exists(metadata_path):
+            # Load price_book
+            if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book:
                 try:
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                except Exception as e:
-                    st.warning(f"⚠️ Failed to load metadata: {e}")
-            
-            # Display in columns
-            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
-            
-            with col1:
-                st.metric("Git Commit", git_sha[:7] if git_sha != "Unknown" else "N/A")
-            
-            with col2:
-                if cache_mtime:
-                    # Both cache_mtime and datetime.now() are in local time
-                    age_minutes = (datetime.now() - cache_mtime).total_seconds() / 60
-                    if age_minutes < 60:
-                        age_str = f"{age_minutes:.0f}m ago"
-                    elif age_minutes < 1440:  # 24 hours
-                        age_str = f"{age_minutes/60:.1f}h ago"
-                    else:
-                        age_str = f"{age_minutes/1440:.1f}d ago"
-                    st.metric("Cache Modified", age_str)
-                else:
-                    st.metric("Cache Modified", "N/A")
-            
-            with col3:
-                if metadata:
-                    last_price_date = metadata.get("max_price_date", "N/A")
-                    if last_price_date != "N/A":
-                        # Calculate data age (date-only comparison)
-                        try:
-                            price_date = datetime.strptime(last_price_date, "%Y-%m-%d").date()
-                            data_age_days = (datetime.now().date() - price_date).days
-                            
-                            # Color based on staleness
-                            if data_age_days <= 3:
-                                delta_color = "normal"
-                                delta_prefix = "🟢"
-                            elif data_age_days <= 7:
-                                delta_color = "off"
-                                delta_prefix = "🟡"
-                            else:
-                                delta_color = "inverse"
-                                delta_prefix = "🔴"
-                            
-                            st.metric(
-                                "Last Price Date",
-                                last_price_date,
-                                delta=f"{delta_prefix} {data_age_days}d old"
-                            )
-                        except Exception:
-                            st.metric("Last Price Date", last_price_date)
-                    else:
-                        st.metric("Last Price Date", "N/A")
-                else:
-                    st.metric("Last Price Date", "N/A")
-            
-            with col4:
-                # Force reload button
-                if st.button("🔄 Reload", help="Force reload PRICE_BOOK cache", use_container_width=True):
-                    with st.spinner("Reloading PRICE_BOOK..."):
-                        try:
-                            # Clear Streamlit caches
-                            st.cache_data.clear()
-                            st.cache_resource.clear()
-                            
-                            # Clear session state price-related data
-                            if "global_price_df" in st.session_state:
-                                del st.session_state["global_price_df"]
-                            
-                            st.success("✓ PRICE_BOOK cache cleared. Reloading...")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to reload: {str(e)}")
-            
-            # Display detailed status in expander
-            with st.expander("📊 Detailed Cache Status", expanded=False):
-                if cache_exists:
-                    st.write(f"**Cache File:** `{CACHE_PATH}`")
-                    st.write(f"**Size:** {cache_size / 1024 / 1024:.2f} MB")
-                    st.write(f"**Modified:** {cache_mtime.strftime('%Y-%m-%d %H:%M:%S') if cache_mtime else 'N/A'}")
+                    price_book = get_price_book()
                     
-                    if metadata:
-                        st.write("**Metadata:**")
-                        st.json(metadata)
+                    if price_book is not None and not price_book.empty:
+                        # Get shape
+                        rows, cols = price_book.shape
                         
-                        # Check for mismatches
-                        if metadata.get("max_price_date"):
-                            # Load actual cache to verify
-                            from helpers.price_loader import load_cache
-                            cache_df = load_cache()
-                            if cache_df is not None and not cache_df.empty:
-                                actual_max_date = cache_df.index[-1].strftime('%Y-%m-%d')
-                                meta_max_date = metadata.get("max_price_date")
+                        # Get index min/max dates
+                        min_date = price_book.index.min().strftime('%Y-%m-%d')
+                        max_date = price_book.index.max().strftime('%Y-%m-%d')
+                        
+                        # Check ticker presence
+                        tickers = price_book.columns.tolist()
+                        
+                        # Required tickers
+                        spy_present = 'SPY' in tickers
+                        qqq_present = 'QQQ' in tickers
+                        iwm_present = 'IWM' in tickers
+                        
+                        # VIX proxy (any of: ^VIX, VIXY, VXX)
+                        vix_proxy = None
+                        for vix_ticker in ['^VIX', 'VIXY', 'VXX']:
+                            if vix_ticker in tickers:
+                                vix_proxy = vix_ticker
+                                break
+                        
+                        # Safe asset (any of: BIL, SHY)
+                        safe_asset = None
+                        for safe_ticker in ['BIL', 'SHY']:
+                            if safe_ticker in tickers:
+                                safe_asset = safe_ticker
+                                break
+                        
+                        # Display metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Shape", f"{rows} × {cols}")
+                        
+                        with col2:
+                            st.metric("Index Min Date", min_date)
+                        
+                        with col3:
+                            st.metric("Latest Price Date", max_date)
+                        
+                        with col4:
+                            # Calculate data age
+                            try:
+                                latest_date = datetime.strptime(max_date, '%Y-%m-%d').date()
+                                data_age_days = (datetime.now().date() - latest_date).days
                                 
-                                if actual_max_date != meta_max_date:
-                                    st.warning(f"⚠️ Metadata mismatch: Metadata says {meta_max_date}, but cache contains {actual_max_date}")
+                                if data_age_days <= 3:
+                                    age_status = "🟢"
+                                elif data_age_days <= 7:
+                                    age_status = "🟡"
+                                else:
+                                    age_status = "🔴"
+                                
+                                st.metric("Data Age", f"{data_age_days}d {age_status}")
+                            except Exception:
+                                st.metric("Data Age", "N/A")
+                        
+                        # Ticker presence
+                        st.markdown("**Ticker Presence:**")
+                        presence_cols = st.columns(5)
+                        
+                        with presence_cols[0]:
+                            spy_icon = "✅" if spy_present else "❌"
+                            st.caption(f"{spy_icon} SPY")
+                        
+                        with presence_cols[1]:
+                            qqq_icon = "✅" if qqq_present else "❌"
+                            st.caption(f"{qqq_icon} QQQ")
+                        
+                        with presence_cols[2]:
+                            iwm_icon = "✅" if iwm_present else "❌"
+                            st.caption(f"{iwm_icon} IWM")
+                        
+                        with presence_cols[3]:
+                            if vix_proxy:
+                                st.caption(f"✅ VIX: {vix_proxy}")
+                            else:
+                                st.caption("❌ VIX: none")
+                        
+                        with presence_cols[4]:
+                            if safe_asset:
+                                st.caption(f"✅ Safe: {safe_asset}")
+                            else:
+                                st.caption("❌ Safe: none")
+                        
+                        # Missing tickers (first 10)
+                        # Calculate expected tickers from universe
+                        try:
+                            from helpers.ticker_rail import collect_required_tickers
+                            universe = get_canonical_wave_universe(force_reload=False)
+                            expected_tickers = set()
+                            for wave in universe.get('waves', []):
+                                ticker_list = wave.get('tickers', [])
+                                expected_tickers.update(ticker_list)
+                            
+                            # Add benchmark and special tickers
+                            expected_tickers.update(['SPY', 'QQQ', 'IWM', '^VIX', 'VIXY', 'VXX', 'BIL', 'SHY'])
+                            
+                            # Find missing
+                            present_tickers = set(tickers)
+                            missing_tickers = sorted(expected_tickers - present_tickers)
+                            
+                            if missing_tickers:
+                                missing_display = missing_tickers[:10]
+                                missing_text = ", ".join(missing_display)
+                                if len(missing_tickers) > 10:
+                                    missing_text += f" ... ({len(missing_tickers) - 10} more)"
+                                st.caption(f"**Missing tickers ({len(missing_tickers)}):** {missing_text}")
+                            else:
+                                st.caption("**Missing tickers:** None")
+                        except Exception:
+                            # If we can't calculate missing, skip it
+                            pass
+                        
                     else:
-                        st.warning("⚠️ Metadata file not found. Run `python build_price_cache.py --force` to generate.")
-                else:
-                    st.error("❌ Cache file does not exist!")
-                    st.write("**Troubleshooting:**")
-                    st.write("1. Run `python build_price_cache.py --force` to build the cache")
-                    st.write("2. Check that `data/cache/prices_cache.parquet` exists")
-                    st.write("3. Verify GitHub Actions workflow is running successfully")
+                        st.error("❌ PRICE_BOOK is empty or None")
+                        st.caption("**Reason:** Failed to load price data from cache")
+                
+                except Exception as e:
+                    st.error(f"❌ Failed to load PRICE_BOOK: {str(e)}")
+                    st.caption(f"**Reason:** {str(e)}")
+            else:
+                st.warning("⚠️ PRICE_BOOK module not available")
         
         except Exception as e:
-            st.error(f"⚠️ Failed to load PRICE_BOOK status: {str(e)}")
+            st.error(f"⚠️ PRICE_BOOK Truth Panel error: {str(e)}")
             import traceback
             st.code(traceback.format_exc())
         
@@ -18213,6 +18485,681 @@ def render_wave_intelligence_planb_tab():
             st.code(traceback.format_exc(), language="python")
 
 
+def render_operator_panel_tab():
+    """
+    Render the Operator Panel tab with comprehensive Operator Toolbox.
+    
+    This tab provides:
+    1. System State Proof: Entrypoint file, UTC timestamp, build marker
+    2. Data Health Panel: 
+       - Price cache path and existence status
+       - Cache max date
+       - Missing required symbols (SPY, QQQ, IWM, VIX proxies, T-bill proxies)
+       - Ledger max date (if available)
+    3. Canonical Return Ledger Preview: Top/bottom 5 rows, date range, row count
+    4. Operator Toolbox - Functional Buttons:
+       - Clear Streamlit cache (st.cache_data and st.cache_resource)
+       - Soft Reset (safe session_state clearing)
+       - Reload price_book from disk
+       - Force ledger recompute
+       - Run Self-Test (lightweight checks, no network)
+    5. Optional Features (Safe Implementation):
+       - Rebuild Price Cache (with network availability check)
+       - Rebuild wave_history (with safe file swap logic)
+    6. Copy Diagnostics: Single block of debug info optimized for mobile copy/paste
+    """
+    st.markdown("# 🛠️ Operator Panel")
+    st.markdown("### System state, data diagnostics, and ledger preview")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: System State Proof
+    # ========================================================================
+    st.subheader("🔍 System State Proof")
+    
+    try:
+        # Entrypoint file
+        entrypoint = os.path.abspath(__file__)
+        entrypoint_basename = os.path.basename(__file__)
+        
+        # UTC timestamp
+        utc_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Build marker
+        try:
+            build_info = get_build_info()
+            build_marker = f"{build_info.get('sha', 'unknown')}"
+            branch = build_info.get('branch', 'unknown')
+        except Exception:
+            build_marker = "SHA unavailable"
+            branch = "unknown"
+        
+        # Escape HTML to prevent XSS (html module imported at top of file)
+        entrypoint_basename_escaped = html.escape(entrypoint_basename)
+        entrypoint_escaped = html.escape(entrypoint)
+        utc_now_escaped = html.escape(utc_now)
+        build_marker_escaped = html.escape(build_marker)
+        branch_escaped = html.escape(branch)
+        
+        # Display in structured format
+        st.markdown(f"""
+        <div style="background-color: #1e1e1e; padding: 16px; border-radius: 8px; border: 1px solid #00d9ff; font-family: monospace;">
+            <div style="color: #00d9ff; font-weight: bold; margin-bottom: 8px;">SYSTEM STATE</div>
+            <div style="color: #e0e0e0;">
+                <strong>Entrypoint:</strong> {entrypoint_basename_escaped}<br>
+                <strong>Full Path:</strong> <code>{entrypoint_escaped}</code><br>
+                <strong>UTC Timestamp:</strong> {utc_now_escaped}<br>
+                <strong>Build Marker:</strong> {build_marker_escaped}<br>
+                <strong>Branch:</strong> {branch_escaped}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error displaying system state: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: Data Health Panel
+    # ========================================================================
+    st.subheader("📊 Data Health Panel")
+    st.caption("Price cache status, missing symbols, and data completeness")
+    
+    try:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            # Load price book
+            price_book = get_price_book()
+            
+            if price_book is not None and not price_book.empty:
+                # Cache path (imported at top of file)
+                cache_exists = os.path.exists(CANONICAL_CACHE_PATH)
+                
+                # Max date
+                max_date = price_book.index.max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                
+                # Min date
+                min_date = price_book.index.min()
+                min_date_str = min_date.strftime('%Y-%m-%d') if hasattr(min_date, 'strftime') else str(min_date)
+                
+                # Shape
+                num_rows, num_cols = price_book.shape
+                
+                # Missing required symbols
+                required_symbols = ['SPY', 'QQQ', 'IWM']
+                missing_required = [sym for sym in required_symbols if sym not in price_book.columns]
+                
+                # VIX proxies - check if at least one is present
+                vix_proxies = ['^VIX', 'VIXY', 'VXX']
+                vix_available = [v for v in vix_proxies if v in price_book.columns]
+                vix_missing = len(vix_available) == 0
+                
+                # T-bill proxies - check if at least one is present
+                tbill_proxies = ['BIL', 'SHY']
+                tbill_available = [s for s in tbill_proxies if s in price_book.columns]
+                tbill_missing = len(tbill_available) == 0
+                
+                # Collect all missing required items
+                all_missing = []
+                if missing_required:
+                    all_missing.extend(missing_required)
+                if vix_missing:
+                    all_missing.append("VIX proxy (^VIX, VIXY, or VXX)")
+                if tbill_missing:
+                    all_missing.append("T-bill proxy (BIL or SHY)")
+                
+                # Display diagnostics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Cache Path", "✅ Valid" if cache_exists else "❌ Missing")
+                    st.caption(f"Path: `{CANONICAL_CACHE_PATH}`")
+                    st.caption(f"Exists: {'✅ Yes' if cache_exists else '❌ No'}")
+                
+                with col2:
+                    st.metric("Cache Max Date", max_date_str)
+                    st.caption(f"Date range: {min_date_str} to {max_date_str}")
+                    st.caption(f"Shape: {num_rows} rows × {num_cols} cols")
+                
+                with col3:
+                    # Show overall status
+                    if all_missing:
+                        st.metric("Required Symbols", f"⚠️ {len(all_missing)} Missing")
+                    else:
+                        st.metric("Required Symbols", "✅ Complete")
+                    st.caption(f"Base symbols: {len(required_symbols) - len(missing_required)}/{len(required_symbols)}")
+                
+                # Missing Required Symbols - Prominent Display
+                st.markdown("#### Missing Required Symbols")
+                
+                if all_missing:
+                    st.error("⚠️ **The following required symbols are missing:**")
+                    for item in all_missing:
+                        st.markdown(f"- **{item}**")
+                    st.info("💡 Use 'Rebuild Price Cache' to fetch missing symbols (requires network access)")
+                else:
+                    st.success("✅ All required symbols are present")
+                
+                # Coverage statistics - Detailed View
+                st.markdown("#### Coverage Statistics")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**VIX Proxies:**")
+                    if vix_available:
+                        st.success(f"✅ Available: {', '.join(vix_available)}")
+                    else:
+                        st.warning("⚠️ No VIX proxies found")
+                        st.caption("Required: At least one of ^VIX, VIXY, VXX")
+                
+                with col2:
+                    st.markdown("**T-Bill Proxies (Safe Assets):**")
+                    if tbill_available:
+                        st.success(f"✅ Available: {', '.join(tbill_available)}")
+                    else:
+                        st.warning("⚠️ No T-bill proxies found")
+                        st.caption("Required: At least one of BIL, SHY")
+                
+            else:
+                st.warning("⚠️ Price book is empty or not available")
+                st.info("**Reason:** Cache does not exist or contains no data")
+        else:
+            st.error("❌ Price book module not available")
+            st.info("**Reason:** PRICE_BOOK_CONSTANTS_AVAILABLE is False or get_price_book is None")
+            
+    except Exception as e:
+        st.error(f"Error loading data diagnostics: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: Canonical Return Ledger Preview
+    # ========================================================================
+    st.subheader("📈 Canonical Return Ledger Preview")
+    st.caption("Ledger max date and preview (if available)")
+    
+    try:
+        # Check if ledger exists in session state
+        if 'portfolio_alpha_ledger' in st.session_state:
+            ledger = st.session_state['portfolio_alpha_ledger']
+            
+            if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                ledger_df = ledger.get('ledger')
+                
+                if ledger_df is not None and not ledger_df.empty:
+                    # Ledger metadata
+                    num_rows = len(ledger_df)
+                    date_range_start = ledger_df.index.min()
+                    date_range_end = ledger_df.index.max()
+                    
+                    date_start_str = date_range_start.strftime('%Y-%m-%d') if hasattr(date_range_start, 'strftime') else str(date_range_start)
+                    date_end_str = date_range_end.strftime('%Y-%m-%d') if hasattr(date_range_end, 'strftime') else str(date_range_end)
+                    
+                    # Display metadata prominently
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Row Count", num_rows)
+                    
+                    with col2:
+                        st.metric("Date Range Start", date_start_str)
+                    
+                    with col3:
+                        st.metric("Ledger Max Date", date_end_str)
+                    
+                    # Preview top 5 rows
+                    st.markdown("#### Top 5 Rows (Most Recent)")
+                    st.dataframe(ledger_df.head(5), use_container_width=True)
+                    
+                    # Preview bottom 5 rows
+                    st.markdown("#### Bottom 5 Rows (Oldest)")
+                    st.dataframe(ledger_df.tail(5), use_container_width=True)
+                    
+                else:
+                    st.warning("⚠️ Ledger dataframe is empty")
+                    st.info("**Reason:** Ledger computation returned empty dataframe")
+            else:
+                st.warning("⚠️ Ledger computation failed or not successful")
+                reason = ledger.get('reason', 'Unknown reason') if isinstance(ledger, dict) else 'Ledger is not a dict'
+                st.info(f"**Reason:** {reason}")
+        else:
+            st.info("ℹ️ Canonical Return Ledger not yet computed")
+            st.info("**Reason:** Ledger has not been computed in this session. Navigate to a tab that uses the ledger to trigger computation.")
+            
+    except Exception as e:
+        st.error(f"Error loading ledger preview: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 4: Operator Toolbox - Functional Buttons
+    # ========================================================================
+    st.subheader("⚡ Operator Toolbox")
+    st.caption("Debugging and rebuilding tools for system maintenance")
+    
+    # Create button columns for better layout
+    col1, col2, col3 = st.columns(3)
+    
+    # Initialize last operator action in session state if not present
+    if "last_toolbox_action" not in st.session_state:
+        st.session_state.last_toolbox_action = None
+        st.session_state.last_toolbox_time = None
+    
+    # Define safe logger for operator toolbox
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logging.basicConfig(level=logging.INFO)
+    
+    with col1:
+        # Clear Streamlit Cache Button
+        if st.button("🗑️ Clear Streamlit Cache", use_container_width=True, help="Clear both st.cache_data and st.cache_resource"):
+            try:
+                # Clear both cache types safely
+                st.cache_data.clear()
+                try:
+                    st.cache_resource.clear()
+                except AttributeError:
+                    # cache_resource may not be available in older Streamlit versions
+                    pass
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Clear Streamlit Cache"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Clear Streamlit Cache at {action_time}")
+                except Exception:
+                    pass
+                
+                st.success("✅ Streamlit cache cleared successfully")
+            except Exception as e:
+                st.error(f"❌ Cache clear failed: {str(e)}")
+        
+        # Reload Price Book Button
+        if st.button("📚 Reload price_book from disk", use_container_width=True, help="Reload price_book from the cache file on disk"):
+            try:
+                # Clear price_book_cache from session state to force reload
+                if 'price_book_cache' in st.session_state:
+                    del st.session_state['price_book_cache']
+                
+                # Clear Streamlit cache for price book
+                st.cache_data.clear()
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Reload price_book"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Reload price_book at {action_time}")
+                except Exception:
+                    pass
+                
+                st.success("✅ price_book reloaded from disk")
+            except Exception as e:
+                st.error(f"❌ Price book reload failed: {str(e)}")
+    
+    with col2:
+        # Soft Reset Button
+        if st.button("🔄 Soft Reset", use_container_width=True, help="Clear specific session_state keys safely"):
+            try:
+                # Safely delete/clear specific session state keys
+                keys_to_clear = [
+                    'portfolio_alpha_ledger',
+                    'portfolio_snapshot_debug',
+                    'portfolio_exposure_series',
+                    'wave_data_cache',
+                    'price_book_cache',
+                    'compute_lock'
+                ]
+                
+                cleared_count = 0
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Soft Reset"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Soft Reset at {action_time} (cleared {cleared_count} keys)")
+                except Exception:
+                    pass
+                
+                st.success(f"✅ Soft reset complete ({cleared_count} keys cleared)")
+            except Exception as e:
+                st.error(f"❌ Soft reset failed: {str(e)}")
+        
+        # Run Self-Test Button
+        if st.button("🧪 Run Self-Test", use_container_width=True, help="Execute lightweight checks (no network access)"):
+            try:
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Run Self-Test"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Run Self-Test at {action_time}")
+                except Exception:
+                    pass
+                
+                # Run lightweight self-tests (no network)
+                test_results = []
+                
+                # Test 1: Check if price cache file exists
+                if os.path.exists(CANONICAL_CACHE_PATH):
+                    test_results.append("✅ Price cache file exists")
+                else:
+                    test_results.append("❌ Price cache file missing")
+                
+                # Test 2: Check if price_book can be loaded
+                try:
+                    if get_price_book is not None:
+                        pb = get_price_book()
+                        if pb is not None and not pb.empty:
+                            test_results.append(f"✅ Price book loaded ({len(pb)} rows)")
+                        else:
+                            test_results.append("⚠️ Price book is empty")
+                    else:
+                        test_results.append("❌ get_price_book not available")
+                except Exception as e:
+                    test_results.append(f"❌ Price book load failed: {str(e)[:50]}")
+                
+                # Test 3: Check if wave_history.csv exists
+                wave_history_path = "wave_history.csv"
+                if os.path.exists(wave_history_path):
+                    test_results.append("✅ wave_history.csv exists")
+                else:
+                    test_results.append("❌ wave_history.csv missing")
+                
+                # Test 4: Check if waves_engine is available
+                if WAVES_ENGINE_AVAILABLE:
+                    test_results.append("✅ waves_engine module available")
+                else:
+                    test_results.append("⚠️ waves_engine module not available")
+                
+                # Test 5: Check session state health
+                if hasattr(st, 'session_state'):
+                    test_results.append("✅ session_state accessible")
+                else:
+                    test_results.append("❌ session_state not accessible")
+                
+                # Display results
+                st.info("**Self-Test Results:**\n\n" + "\n".join(test_results))
+                
+            except Exception as e:
+                st.error(f"❌ Self-test failed: {str(e)}")
+    
+    with col3:
+        # Force Ledger Recompute Button
+        if st.button("📊 Force ledger recompute", use_container_width=True, help="Trigger ledger recompute and store in session_state"):
+            try:
+                # Clear ledger-related session state keys
+                ledger_keys = [
+                    'portfolio_alpha_ledger',
+                    'portfolio_snapshot_debug',
+                    'portfolio_exposure_series',
+                    'canonical_return_ledger'
+                ]
+                
+                cleared_count = 0
+                for key in ledger_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Force Ledger Recompute"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Force Ledger Recompute at {action_time} (cleared {cleared_count} keys)")
+                except Exception:
+                    pass
+                
+                st.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+                st.info("Navigate to a tab that uses the ledger to trigger fresh computation")
+            except Exception as e:
+                st.error(f"❌ Ledger recompute failed: {str(e)}")
+        
+        # Placeholder for optional features (safe implementation)
+        st.caption("_Optional features available below_")
+    
+    # Display last toolbox action
+    if st.session_state.last_toolbox_action:
+        st.caption(
+            f"**Last action:** {st.session_state.last_toolbox_action} at {st.session_state.last_toolbox_time}"
+        )
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 5: Optional Features (Safe Implementation)
+    # ========================================================================
+    st.subheader("🔧 Optional Tools")
+    st.caption("Advanced rebuild features with safety checks")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Rebuild Price Cache Button (with network check)
+        st.markdown("**Rebuild Price Cache**")
+        
+        # Check if network fetch is allowed
+        network_available = os.environ.get('PRICE_FETCH_ENABLED', 'false').lower() in ('true', '1', 'yes')
+        
+        if network_available:
+            if st.button("🌐 Rebuild Price Cache", use_container_width=True, help="Fetch fresh price data (requires network)"):
+                try:
+                    action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    st.session_state.last_toolbox_action = "Rebuild Price Cache"
+                    st.session_state.last_toolbox_time = action_time
+                    
+                    # Log the action (fail-safe)
+                    try:
+                        logger.info(f"Operator Toolbox: Rebuild Price Cache at {action_time}")
+                    except Exception:
+                        pass
+                    
+                    # Import rebuild function
+                    from helpers.price_book import rebuild_price_cache
+                    
+                    with st.spinner("Rebuilding price cache..."):
+                        result = rebuild_price_cache(active_only=True, force_user_initiated=True)
+                    
+                    if result.get('success'):
+                        st.success(f"✅ Price cache rebuilt: {result.get('tickers_fetched', 0)} tickers fetched")
+                    else:
+                        st.warning(f"⚠️ Rebuild completed with issues: {result.get('message', 'Unknown')}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Price cache rebuild failed: {str(e)}")
+        else:
+            st.info("🚫 Network access disabled")
+            st.caption("Set PRICE_FETCH_ENABLED=true to enable this feature")
+    
+    with col2:
+        # Rebuild wave_history Button (with safe file swap)
+        st.markdown("**Rebuild wave_history**")
+        
+        if st.button("📈 Rebuild wave_history", use_container_width=True, help="Rebuild wave_history.csv with safe file swap"):
+            try:
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_toolbox_action = "Rebuild wave_history"
+                st.session_state.last_toolbox_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator Toolbox: Rebuild wave_history at {action_time}")
+                except Exception:
+                    pass
+                
+                # Check if rebuild script exists
+                rebuild_script = "build_wave_history_from_prices.py"
+                if not os.path.exists(rebuild_script):
+                    st.error(f"❌ Rebuild script not found: {rebuild_script}")
+                else:
+                    with st.spinner("Rebuilding wave_history.csv..."):
+                        # Create backup timestamp
+                        backup_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        backup_path = f"wave_history.csv.backup.{backup_timestamp}"
+                        
+                        # Backup current wave_history.csv if it exists
+                        if os.path.exists("wave_history.csv"):
+                            import shutil
+                            shutil.copy("wave_history.csv", backup_path)
+                            st.info(f"📦 Backup created: {backup_path}")
+                        
+                        # Build new wave_history to a temporary file first
+                        temp_output = "wave_history.csv.new"
+                        
+                        # Run rebuild script (import and call function)
+                        try:
+                            # Try importing the rebuild module
+                            import importlib.util
+                            spec = importlib.util.spec_from_file_location("build_module", rebuild_script)
+                            build_module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(build_module)
+                            
+                            # Execute rebuild (this should write to wave_history.csv)
+                            # Since the script writes directly to wave_history.csv, we need to handle this carefully
+                            st.warning("⚠️ Rebuild functionality requires script execution - feature in progress")
+                            st.info("Please run `python build_wave_history_from_prices.py` manually for now")
+                            
+                        except Exception as build_error:
+                            st.error(f"❌ Build failed: {str(build_error)}")
+                            # Restore from backup if build failed
+                            if os.path.exists(backup_path):
+                                import shutil
+                                shutil.copy(backup_path, "wave_history.csv")
+                                st.info("📦 Restored from backup due to build failure")
+                
+            except Exception as e:
+                st.error(f"❌ wave_history rebuild failed: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 6: Copy Diagnostics Text Area
+    # ========================================================================
+    st.subheader("📋 Copy Diagnostics")
+    st.caption("Single block of debug info optimized for mobile copy/paste")
+    
+    try:
+        # Build diagnostics text block
+        diagnostics_lines = []
+        diagnostics_lines.append("=" * 60)
+        diagnostics_lines.append("SYSTEM DIAGNOSTICS")
+        diagnostics_lines.append("=" * 60)
+        diagnostics_lines.append("")
+        
+        # Entrypoint info
+        diagnostics_lines.append(f"Entrypoint: {os.path.basename(__file__)}")
+        diagnostics_lines.append(f"UTC Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        
+        # Build info
+        try:
+            build_info = get_build_info()
+            diagnostics_lines.append(f"Build SHA: {build_info.get('sha', 'unknown')[:12]}")
+            diagnostics_lines.append(f"Branch: {build_info.get('branch', 'unknown')}")
+        except Exception:
+            diagnostics_lines.append("Build SHA: unavailable")
+            diagnostics_lines.append("Branch: unknown")
+        
+        diagnostics_lines.append("")
+        diagnostics_lines.append("PRICE CACHE")
+        diagnostics_lines.append("-" * 60)
+        
+        # Price cache info
+        try:
+            if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+                price_book = get_price_book()
+                if price_book is not None and not price_book.empty:
+                    diagnostics_lines.append(f"Cache Path: {CANONICAL_CACHE_PATH}")
+                    diagnostics_lines.append(f"Cache Exists: {os.path.exists(CANONICAL_CACHE_PATH)}")
+                    diagnostics_lines.append(f"Shape: {price_book.shape[0]} rows × {price_book.shape[1]} cols")
+                    
+                    max_date = price_book.index.max()
+                    max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                    diagnostics_lines.append(f"Max Date: {max_date_str}")
+                    
+                    # Required symbols check
+                    required_symbols = ['SPY', 'QQQ', 'IWM']
+                    missing_required = [sym for sym in required_symbols if sym not in price_book.columns]
+                    
+                    diagnostics_lines.append(f"Required Symbols: {len(required_symbols) - len(missing_required)}/{len(required_symbols)}")
+                    if missing_required:
+                        diagnostics_lines.append(f"Missing: {', '.join(missing_required)}")
+                    
+                    # VIX proxies
+                    vix_proxies = ['^VIX', 'VIXY', 'VXX']
+                    vix_available = [v for v in vix_proxies if v in price_book.columns]
+                    diagnostics_lines.append(f"VIX Proxies: {', '.join(vix_available) if vix_available else 'None'}")
+                    
+                    # Safe assets
+                    safe_assets = ['BIL', 'SHY']
+                    safe_available = [s for s in safe_assets if s in price_book.columns]
+                    diagnostics_lines.append(f"T-Bill Proxies: {', '.join(safe_available) if safe_available else 'None'}")
+                else:
+                    diagnostics_lines.append("Price book: Empty or not available")
+            else:
+                diagnostics_lines.append("Price book: Module not available")
+        except Exception as e:
+            diagnostics_lines.append(f"Price book: Error - {str(e)[:50]}")
+        
+        diagnostics_lines.append("")
+        diagnostics_lines.append("LEDGER")
+        diagnostics_lines.append("-" * 60)
+        
+        # Ledger info
+        try:
+            if 'portfolio_alpha_ledger' in st.session_state:
+                ledger = st.session_state['portfolio_alpha_ledger']
+                if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                    ledger_df = ledger.get('ledger')
+                    if ledger_df is not None and not ledger_df.empty:
+                        diagnostics_lines.append(f"Ledger Status: Computed")
+                        diagnostics_lines.append(f"Row Count: {len(ledger_df)}")
+                        
+                        max_date = ledger_df.index.max()
+                        max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                        diagnostics_lines.append(f"Max Date: {max_date_str}")
+                    else:
+                        diagnostics_lines.append("Ledger: Empty dataframe")
+                else:
+                    diagnostics_lines.append("Ledger: Computation failed")
+            else:
+                diagnostics_lines.append("Ledger: Not computed")
+        except Exception as e:
+            diagnostics_lines.append(f"Ledger: Error - {str(e)[:50]}")
+        
+        diagnostics_lines.append("")
+        diagnostics_lines.append("=" * 60)
+        
+        # Join and display
+        diagnostics_text = "\n".join(diagnostics_lines)
+        
+        st.text_area(
+            "Diagnostics Info (copy/paste friendly)",
+            value=diagnostics_text,
+            height=400,
+            help="Copy this text for sharing or debugging"
+        )
+        
+    except Exception as e:
+        st.error(f"❌ Failed to generate diagnostics: {str(e)}")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -21288,6 +22235,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",      # NEW: Governance and transparency layer
+            "Operator Panel",          # NEW: Operator layer for system state and diagnostics
             "Diagnostics",             # Health/Diagnostics tab
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
@@ -21357,12 +22305,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[14]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -21383,6 +22335,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",          # NEW: Governance and transparency layer
+            "Operator Panel",              # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
@@ -21456,12 +22409,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[14]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[15]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[16]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -21481,6 +22438,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",         # NEW: Governance and transparency layer
+            "Operator Panel",             # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
@@ -21549,12 +22507,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[14]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
@@ -21604,3 +22566,4 @@ if __name__ == "__main__":
             # If main() fails even in safe mode, show minimal error
             st.error("Critical Error: Unable to render application.")
             st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
+            # mobile commit trigger
