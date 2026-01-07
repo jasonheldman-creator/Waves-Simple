@@ -117,8 +117,11 @@ def test_ai_cloud_attribution_wiring():
     print("\n7. Verifying UI gating (attribution should remain hidden)...")
     print("   Reading app.py to verify gating logic...")
     
-    with open('app.py', 'r') as f:
-        app_content = f.read()
+    try:
+        with open('app.py', 'r') as f:
+            app_content = f.read()
+    except (IOError, FileNotFoundError) as e:
+        raise AssertionError(f"Could not read app.py: {e}")
     
     # Check that the gating condition only includes "S&P 500 Wave"
     # and NOT "AI & Cloud MegaCap Wave"
