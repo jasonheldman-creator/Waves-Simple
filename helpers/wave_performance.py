@@ -40,6 +40,13 @@ DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
 RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution validation
 
+# VIX regime thresholds and exposure mapping
+VIX_LOW_THRESHOLD = 18  # VIX below this is Low Volatility regime
+VIX_HIGH_THRESHOLD = 25  # VIX above or equal to this is High Volatility regime
+EXPOSURE_LOW_VOLATILITY = 1.00  # Full exposure when VIX < 18
+EXPOSURE_MODERATE_VOLATILITY = 0.65  # Moderate exposure when 18 <= VIX < 25
+EXPOSURE_HIGH_VOLATILITY = 0.25  # Low exposure when VIX >= 25
+
 # Import wave definitions
 try:
     from waves_engine import WAVE_WEIGHTS, get_all_waves_universe
@@ -1944,18 +1951,18 @@ def compute_portfolio_exposure_series(
         return None
     
     # Map VIX to exposure using regime thresholds
-    # VIX < 18: Exposure = 1.00
-    # 18 ≤ VIX < 25: Exposure = 0.65
-    # VIX ≥ 25: Exposure = 0.25
+    # VIX < VIX_LOW_THRESHOLD: Exposure = EXPOSURE_LOW_VOLATILITY
+    # VIX_LOW_THRESHOLD ≤ VIX < VIX_HIGH_THRESHOLD: Exposure = EXPOSURE_MODERATE_VOLATILITY
+    # VIX ≥ VIX_HIGH_THRESHOLD: Exposure = EXPOSURE_HIGH_VOLATILITY
     def map_vix_to_exposure(vix_value):
         if pd.isna(vix_value):
-            return 1.0  # Default to full exposure if VIX is missing
-        if vix_value < 18:
-            return 1.00
-        elif vix_value < 25:
-            return 0.65
+            return EXPOSURE_LOW_VOLATILITY  # Default to full exposure if VIX is missing
+        if vix_value < VIX_LOW_THRESHOLD:
+            return EXPOSURE_LOW_VOLATILITY
+        elif vix_value < VIX_HIGH_THRESHOLD:
+            return EXPOSURE_MODERATE_VOLATILITY
         else:
-            return 0.25
+            return EXPOSURE_HIGH_VOLATILITY
     
     exposure_series = vix_series.apply(map_vix_to_exposure)
     
@@ -2091,9 +2098,9 @@ def compute_volatility_regime_and_exposure(
         """Map VIX value to regime label."""
         if pd.isna(vix_value):
             return "Unknown"
-        if vix_value < 18:
+        if vix_value < VIX_LOW_THRESHOLD:
             return "Low Volatility"
-        elif vix_value < 25:
+        elif vix_value < VIX_HIGH_THRESHOLD:
             return "Moderate Volatility"
         else:
             return "High Volatility"
@@ -2101,13 +2108,13 @@ def compute_volatility_regime_and_exposure(
     def map_vix_to_exposure(vix_value):
         """Map VIX value to exposure level."""
         if pd.isna(vix_value):
-            return 1.0  # Default to full exposure if VIX is missing
-        if vix_value < 18:
-            return 1.00
-        elif vix_value < 25:
-            return 0.65
+            return EXPOSURE_LOW_VOLATILITY  # Default to full exposure if VIX is missing
+        if vix_value < VIX_LOW_THRESHOLD:
+            return EXPOSURE_LOW_VOLATILITY
+        elif vix_value < VIX_HIGH_THRESHOLD:
+            return EXPOSURE_MODERATE_VOLATILITY
         else:
-            return 0.25
+            return EXPOSURE_HIGH_VOLATILITY
     
     # Compute regime and exposure series
     regime_series = vix_series_smoothed.apply(map_vix_to_regime)
