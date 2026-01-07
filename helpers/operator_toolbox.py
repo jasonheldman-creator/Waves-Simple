@@ -551,7 +551,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
         logger.error(f"Full stack trace:\n{full_traceback}")
         
         # Include stack trace in error message for UI display
-        error_msg = f"Error: {str(e)[:250]}\n\nFull Stack Trace:\n{full_traceback}"
+        error_msg = f"Error: {str(e)}\n\nFull Stack Trace:\n{full_traceback}"
         
         # Store stack trace in details for programmatic access
         details['error'] = str(e)
