@@ -25,6 +25,7 @@ import logging
 import time
 import itertools
 import html
+import shutil
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -1976,7 +1977,6 @@ def create_last_known_good_backup():
         latest_backup_file = os.path.join(backup_dir, 'app_last_good.py')
         
         # Copy the file
-        import shutil
         shutil.copy2(source_file, backup_file)
         shutil.copy2(source_file, latest_backup_file)
         
@@ -19016,7 +19016,6 @@ def render_operator_panel_tab():
                         
                         # Backup current wave_history.csv if it exists
                         if os.path.exists("wave_history.csv"):
-                            import shutil
                             shutil.copy("wave_history.csv", backup_path)
                             st.info(f"📦 Backup created: {backup_path}")
                         
@@ -19040,7 +19039,6 @@ def render_operator_panel_tab():
                             st.error(f"❌ Build failed: {str(build_error)}")
                             # Restore from backup if build failed
                             if os.path.exists(backup_path):
-                                import shutil
                                 shutil.copy(backup_path, "wave_history.csv")
                                 st.info("📦 Restored from backup due to build failure")
                 
