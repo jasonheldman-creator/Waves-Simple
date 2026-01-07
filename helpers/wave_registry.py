@@ -140,6 +140,6 @@ def get_active_waves() -> pd.DataFrame:
     if registry.empty:
         return pd.DataFrame()
     
-    active = registry[registry['active'] == True]
+    active = registry[registry['active']]
     logger.info(f"Found {len(active)} active waves")
     return active

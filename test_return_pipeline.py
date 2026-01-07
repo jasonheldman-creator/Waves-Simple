@@ -46,7 +46,7 @@ def test_return_pipeline():
     print(f"   ✓ Loaded {len(registry)} waves")
     
     # Get first active wave
-    active_waves = registry[registry['active'] == True]
+    active_waves = registry[registry['active']]
     assert not active_waves.empty, "No active waves found"
     
     test_wave_id = active_waves.iloc[0]['wave_id']
