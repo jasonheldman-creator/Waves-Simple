@@ -354,6 +354,63 @@ def run_self_test() -> Dict[str, Any]:
         })
         test_results['overall_status'] = 'FAIL'
     
+    # Test 5a: Check VIX execution state in wave_history.csv
+    try:
+        wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
+        if os.path.exists(wave_history_path):
+            import pandas as pd
+            df = pd.read_csv(wave_history_path)
+            
+            # Check for VIX execution state columns
+            required_vix_cols = ['vix_level', 'vix_regime', 'exposure_used', 'overlay_active']
+            has_vix_cols = all(col in df.columns for col in required_vix_cols)
+            
+            if has_vix_cols:
+                # Check if any recent data has VIX state
+                df['date'] = pd.to_datetime(df['date'])
+                latest_date = df['date'].max()
+                latest_data = df[df['date'] == latest_date]
+                
+                # Count equity waves with active VIX overlay
+                active_vix = latest_data[
+                    (latest_data['overlay_active'] == True) & 
+                    (latest_data['vix_level'].notna())
+                ]
+                
+                if len(active_vix) > 0:
+                    test_results['tests'].append({
+                        'name': 'VIX execution state LIVE',
+                        'status': 'PASS',
+                        'message': f'Found {len(active_vix)} waves with active VIX overlay for {latest_date.strftime("%Y-%m-%d")}'
+                    })
+                else:
+                    test_results['tests'].append({
+                        'name': 'VIX execution state LIVE',
+                        'status': 'WARN',
+                        'message': 'VIX columns exist but no active overlays for latest date'
+                    })
+            else:
+                missing = [c for c in required_vix_cols if c not in df.columns]
+                test_results['tests'].append({
+                    'name': 'VIX execution state LIVE',
+                    'status': 'WARN',
+                    'message': f'wave_history.csv missing VIX columns: {missing}. Run rebuild_wave_history() to add them.'
+                })
+        else:
+            test_results['tests'].append({
+                'name': 'VIX execution state LIVE',
+                'status': 'FAIL',
+                'message': 'wave_history.csv not found'
+            })
+            test_results['overall_status'] = 'FAIL'
+    except Exception as e:
+        test_results['tests'].append({
+            'name': 'VIX execution state LIVE',
+            'status': 'FAIL',
+            'message': f'Error checking VIX state: {str(e)}'
+        })
+        test_results['overall_status'] = 'FAIL'
+    
     # Test 6: Check wave registry file exists
     try:
         registry_path = os.path.join(os.getcwd(), 'data', 'wave_registry.csv')

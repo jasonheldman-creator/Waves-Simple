@@ -30,6 +30,57 @@ SNAPSHOT_FILE = "wave_coverage_snapshot.json"
 # Minimum coverage threshold: waves must have >= 90% weight coverage
 MIN_COVERAGE_THRESHOLD = 0.90
 
+# VIX and regime thresholds (matching waves_engine.py)
+VIX_TICKER = "VIX"
+SPY_TICKER = "SPY"
+
+# Regime classification thresholds (based on SPY 60-day return)
+def classify_regime(ret_60d):
+    """Classify market regime based on 60-day return."""
+    if pd.isna(ret_60d):
+        return "neutral"
+    if ret_60d <= -0.12:
+        return "panic"
+    if ret_60d <= -0.04:
+        return "downtrend"
+    if ret_60d < 0.06:
+        return "neutral"
+    return "uptrend"
+
+# VIX exposure factor calculation
+def get_vix_exposure_factor(vix_level):
+    """Calculate VIX-based exposure adjustment factor."""
+    if pd.isna(vix_level) or vix_level <= 0:
+        return 1.0  # Neutral if missing
+    
+    if vix_level < 15:
+        return 1.15
+    elif vix_level < 20:
+        return 1.05
+    elif vix_level < 25:
+        return 0.95
+    elif vix_level < 30:
+        return 0.85
+    elif vix_level < 40:
+        return 0.75
+    else:
+        return 0.60
+
+# Check if wave is equity (VIX overlay applies)
+def is_equity_wave(wave_name):
+    """Determine if a wave should use VIX overlay (equity waves only)."""
+    crypto_keywords = ["Crypto", "Bitcoin"]
+    income_keywords = ["Income", "Muni", "Treasury", "SmartSafe"]
+    
+    for keyword in crypto_keywords:
+        if keyword in wave_name:
+            return False
+    for keyword in income_keywords:
+        if keyword in wave_name:
+            return False
+    
+    return True
+
 # Map each Wave to its benchmark ticker (edit this as needed)
 BENCHMARK_BY_WAVE = {
     # Equity Waves
@@ -231,6 +282,29 @@ print("Computing daily returns...")
 price_wide = prices.pivot_table(index="date", columns="ticker", values="close").sort_index()
 rets = price_wide.pct_change().dropna(how="all")  # daily returns, NaN where missing
 
+# ------------------------
+# Compute VIX and SPY regime data
+# ------------------------
+
+print("Computing VIX and market regime data...")
+
+# Extract VIX levels if available
+vix_levels = None
+if VIX_TICKER in price_wide.columns:
+    vix_levels = price_wide[VIX_TICKER].copy()
+    print(f"  Found VIX data: {len(vix_levels.dropna())} valid observations")
+else:
+    print(f"  [WARN] VIX ticker '{VIX_TICKER}' not found in prices. VIX overlay will be disabled.")
+
+# Compute SPY 60-day returns for regime classification
+spy_60d_returns = None
+if SPY_TICKER in price_wide.columns:
+    spy_prices = price_wide[SPY_TICKER].copy()
+    spy_60d_returns = spy_prices.pct_change(periods=60)
+    print(f"  Computed SPY 60-day returns for regime classification")
+else:
+    print(f"  [WARN] SPY ticker '{SPY_TICKER}' not found. Regime detection will default to 'neutral'.")
+
 
 # ------------------------
 # Build wave history
@@ -305,12 +379,33 @@ for wave, wdf in weights.groupby("wave"):
 
     bench_rets = rets[bench_ticker]
 
+    # Build base wave dataframe
     df_wave = pd.DataFrame({
         "date": wave_rets.index,
         "wave": wave,
         "portfolio_return": wave_rets.values,
         "benchmark_return": bench_rets.reindex(wave_rets.index).values,
     }).dropna()
+    
+    # Add VIX execution state columns for equity waves
+    is_equity = is_equity_wave(wave)
+    
+    if is_equity and vix_levels is not None and spy_60d_returns is not None:
+        # Align VIX and SPY data with wave dates
+        vix_aligned = vix_levels.reindex(df_wave["date"])
+        spy_60d_aligned = spy_60d_returns.reindex(df_wave["date"])
+        
+        # Compute VIX regime for each date
+        df_wave["vix_level"] = vix_aligned.values
+        df_wave["vix_regime"] = spy_60d_aligned.apply(classify_regime).values
+        df_wave["exposure_used"] = vix_aligned.apply(get_vix_exposure_factor).values
+        df_wave["overlay_active"] = True
+    else:
+        # Non-equity waves or missing data: VIX overlay disabled
+        df_wave["vix_level"] = np.nan
+        df_wave["vix_regime"] = "neutral"
+        df_wave["exposure_used"] = 1.0
+        df_wave["overlay_active"] = False
 
     records.append(df_wave)
 

@@ -5372,11 +5372,37 @@ def get_mission_control_data():
             else:
                 mc_data['market_regime'] = 'Neutral'
         
-        # VIX Gate Status - only calculate if actual VIX data is available
-        # Changed to gate incomplete metrics per institutional readiness requirements
-        # Reuse price_book from earlier in function to avoid redundant loading
+        # VIX Gate Status - check for VIX execution state in wave_history
+        # This ensures VIX overlay is marked as LIVE when daily execution records exist
         try:
-            if 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+            # First, check if wave_history has VIX execution state columns
+            has_vix_state = False
+            if 'overlay_active' in df.columns and 'vix_level' in df.columns:
+                # Check if any equity wave has active overlay with valid VIX data
+                latest_data = df[df['date'] == latest_date]
+                if len(latest_data) > 0:
+                    active_overlays = latest_data[
+                        (latest_data['overlay_active'] == True) & 
+                        (latest_data['vix_level'].notna())
+                    ]
+                    has_vix_state = len(active_overlays) > 0
+            
+            if has_vix_state:
+                # VIX execution state is persisted in wave_history - overlay is LIVE
+                # Get VIX level from latest execution state
+                vix_data = latest_data[latest_data['vix_level'].notna()]
+                if len(vix_data) > 0:
+                    current_vix = vix_data['vix_level'].iloc[0]
+                    if current_vix < RISK_REGIME_VIX_LOW:
+                        mc_data['vix_gate_status'] = f'LIVE - GREEN ({current_vix:.1f})'
+                    elif current_vix < RISK_REGIME_VIX_HIGH:
+                        mc_data['vix_gate_status'] = f'LIVE - YELLOW ({current_vix:.1f})'
+                    else:
+                        mc_data['vix_gate_status'] = f'LIVE - RED ({current_vix:.1f})'
+                else:
+                    mc_data['vix_gate_status'] = 'LIVE (No VIX Data Today)'
+            elif 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+                # Fall back to checking price_book if wave_history doesn't have VIX state
                 vix_prices = price_book['VIX'].dropna()
                 current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
                 
@@ -5392,7 +5418,7 @@ def get_mission_control_data():
             else:
                 # VIX data not available - do not estimate from volatility
                 mc_data['vix_gate_status'] = 'Pending'
-        except Exception:
+        except Exception as e:
             mc_data['vix_gate_status'] = 'Pending'
         
         # Calculate Alpha metrics
