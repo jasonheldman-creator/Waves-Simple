@@ -309,6 +309,11 @@ DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
 
+# Executive Summary attribution constants
+ATTRIBUTION_TILT_STRENGTH = 0.8  # Momentum tilt strength for attribution calculation
+ATTRIBUTION_BASE_EXPOSURE = 1.0  # Base exposure level for attribution calculation
+ATTRIBUTION_TIMEFRAME_DAYS = 30  # Default timeframe for Executive Summary attribution display
+
 # ============================================================================
 # WAVE SELECTION HELPER FUNCTIONS
 # ============================================================================
@@ -14230,12 +14235,12 @@ def render_individual_wave_view(selected_wave, all_metrics):
                     # Filter data for S&P 500 Wave
                     sp500_data = wave_df[wave_df['wave'] == "S&P 500 Wave"].copy()
                     
-                    if not sp500_data.empty and len(sp500_data) >= 30:
-                        # Sort by date and take last 30 days
-                        sp500_data = sp500_data.sort_values('date').tail(30)
+                    if not sp500_data.empty and len(sp500_data) >= ATTRIBUTION_TIMEFRAME_DAYS:
+                        # Sort by date and take last N days
+                        sp500_data = sp500_data.sort_values('date').tail(ATTRIBUTION_TIMEFRAME_DAYS)
                         
                         # Prepare history DataFrame for attribution
-                        sp500_data.set_index('date', inplace=True)
+                        sp500_data = sp500_data.set_index('date')
                         history_df = pd.DataFrame({
                             'wave_ret': sp500_data['portfolio_return'],
                             'bm_ret': sp500_data['benchmark_return']
@@ -14249,12 +14254,12 @@ def render_individual_wave_view(selected_wave, all_metrics):
                                     mode="Standard",
                                     history_df=history_df,
                                     diagnostics_df=None,
-                                    tilt_strength=0.8,
-                                    base_exposure=1.0
+                                    tilt_strength=ATTRIBUTION_TILT_STRENGTH,
+                                    base_exposure=ATTRIBUTION_BASE_EXPOSURE
                                 )
                             
                             # Display attribution summary in a clean format
-                            st.markdown("**Alpha Attribution (30-Day Period)**")
+                            st.markdown(f"**Alpha Attribution ({ATTRIBUTION_TIMEFRAME_DAYS}-Day Period)**")
                             
                             # Summary metrics
                             col_sum1, col_sum2, col_sum3 = st.columns(3)
@@ -14320,7 +14325,7 @@ def render_individual_wave_view(selected_wave, all_metrics):
                         else:
                             st.warning("⚠️ Alpha attribution module not available")
                     else:
-                        st.info("📊 Insufficient data for S&P 500 Wave attribution (minimum 30 days required)")
+                        st.info(f"📊 Insufficient data for S&P 500 Wave attribution (minimum {ATTRIBUTION_TIMEFRAME_DAYS} days required)")
                 else:
                     st.info("📊 Wave history data not available")
                     
