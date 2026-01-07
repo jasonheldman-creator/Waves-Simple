@@ -195,7 +195,8 @@ def _compute_portfolio_returns(
             portfolio_weights = [w / total_weight for w in portfolio_weights]
     
     # Compute individual ticker returns
-    ticker_returns = portfolio_prices.pct_change()
+    # fill_method=None is explicit to avoid deprecation warnings
+    ticker_returns = portfolio_prices.pct_change(fill_method=None)
     
     # Compute weighted portfolio returns
     portfolio_returns = (ticker_returns * portfolio_weights).sum(axis=1)
