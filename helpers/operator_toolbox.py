@@ -22,6 +22,14 @@ helpers_dir = os.path.dirname(os.path.abspath(__file__))
 if helpers_dir not in sys.path:
     sys.path.insert(0, helpers_dir)
 
+# Import price_book module at module level to avoid redundant imports
+try:
+    import price_book
+    PRICE_BOOK_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_AVAILABLE = False
+    price_book = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +69,10 @@ def get_data_health_metadata() -> Dict[str, Any]:
     
     # Get price_book data
     try:
-        import price_book
+        if not PRICE_BOOK_AVAILABLE:
+            metadata['errors'].append("price_book module not available")
+            return metadata
+        
         price_data = price_book.get_price_book()
         
         if not price_data.empty:
@@ -205,7 +216,9 @@ def rebuild_wave_history() -> Tuple[bool, str]:
         
         # Step 1: Load fresh price_book from cache
         try:
-            import price_book
+            if not PRICE_BOOK_AVAILABLE:
+                return False, "price_book module not available"
+            
             price_data = price_book.get_price_book()
             
             if price_data.empty:
@@ -221,21 +234,27 @@ def rebuild_wave_history() -> Tuple[bool, str]:
         try:
             # Convert price_book (wide format) to prices.csv (long format)
             # prices.csv format: date, ticker, close
-            prices_long_list = []
-            for date, row in price_data.iterrows():
-                for ticker in price_data.columns:
-                    close_price = row[ticker]
-                    if pd.notna(close_price):
-                        prices_long_list.append({
-                            'date': date.strftime('%Y-%m-%d'),
-                            'ticker': ticker,
-                            'close': close_price
-                        })
             
-            prices_long_df = pd.DataFrame(prices_long_list)
+            # Use pd.melt for efficient reshaping
+            price_data_reset = price_data.reset_index()
+            prices_long_df = pd.melt(
+                price_data_reset,
+                id_vars=['index'],
+                var_name='ticker',
+                value_name='close'
+            )
+            prices_long_df = prices_long_df.rename(columns={'index': 'date'})
+            
+            # Remove NaN values
+            prices_long_df = prices_long_df.dropna(subset=['close'])
+            
+            # Format date column
+            prices_long_df['date'] = pd.to_datetime(prices_long_df['date']).dt.strftime('%Y-%m-%d')
+            
+            # Save to CSV
             prices_long_df.to_csv(prices_csv_path, index=False)
             
-            logger.info(f"Exported {len(prices_long_list)} price records to {prices_csv_path}")
+            logger.info(f"Exported {len(prices_long_df)} price records to {prices_csv_path}")
             
         except Exception as e:
             return False, f"Failed to export price_book to prices.csv: {str(e)}"
@@ -565,22 +584,29 @@ def run_self_test() -> Dict[str, Any]:
     
     # Test 7: Try to load price data
     try:
-        import price_book
-        price_data = price_book.get_price_book()
-        if not price_data.empty:
-            rows, cols = price_data.shape
-            test_results['tests'].append({
-                'name': 'Load price data',
-                'status': 'PASS',
-                'message': f'Loaded {rows} days × {cols} tickers'
-            })
-        else:
+        if not PRICE_BOOK_AVAILABLE:
             test_results['tests'].append({
                 'name': 'Load price data',
                 'status': 'FAIL',
-                'message': 'Price data is empty'
+                'message': 'price_book module not available'
             })
             test_results['overall_status'] = 'FAIL'
+        else:
+            price_data = price_book.get_price_book()
+            if not price_data.empty:
+                rows, cols = price_data.shape
+                test_results['tests'].append({
+                    'name': 'Load price data',
+                    'status': 'PASS',
+                    'message': f'Loaded {rows} days × {cols} tickers'
+                })
+            else:
+                test_results['tests'].append({
+                    'name': 'Load price data',
+                    'status': 'FAIL',
+                    'message': 'Price data is empty'
+                })
+                test_results['overall_status'] = 'FAIL'
     except Exception as e:
         test_results['tests'].append({
             'name': 'Load price data',
@@ -618,51 +644,58 @@ def run_self_test() -> Dict[str, Any]:
     
     # Test 9: Ledger recompute readiness (price_book max date validation)
     try:
-        import price_book
-        price_data = price_book.get_price_book()
-        
-        if not price_data.empty:
-            price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
+        if not PRICE_BOOK_AVAILABLE:
+            test_results['tests'].append({
+                'name': 'Ledger recompute readiness',
+                'status': 'FAIL',
+                'message': 'price_book module not available'
+            })
+            test_results['overall_status'] = 'FAIL'
+        else:
+            price_data = price_book.get_price_book()
             
-            # Check if wave_history exists and matches
-            wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
-            if os.path.exists(wave_history_path):
-                wave_history = pd.read_csv(wave_history_path)
-                if 'date' in wave_history.columns and not wave_history.empty:
-                    wave_history['date'] = pd.to_datetime(wave_history['date'])
-                    wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
-                    
-                    if wave_history_max_date == price_book_max_date:
-                        test_results['tests'].append({
-                            'name': 'Ledger recompute readiness',
-                            'status': 'PASS',
-                            'message': f'price_book and wave_history aligned at {price_book_max_date}'
-                        })
+            if not price_data.empty:
+                price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
+                
+                # Check if wave_history exists and matches
+                wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
+                if os.path.exists(wave_history_path):
+                    wave_history = pd.read_csv(wave_history_path)
+                    if 'date' in wave_history.columns and not wave_history.empty:
+                        wave_history['date'] = pd.to_datetime(wave_history['date'])
+                        wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
+                        
+                        if wave_history_max_date == price_book_max_date:
+                            test_results['tests'].append({
+                                'name': 'Ledger recompute readiness',
+                                'status': 'PASS',
+                                'message': f'price_book and wave_history aligned at {price_book_max_date}'
+                            })
+                        else:
+                            test_results['tests'].append({
+                                'name': 'Ledger recompute readiness',
+                                'status': 'WARN',
+                                'message': f'price_book ({price_book_max_date}) and wave_history ({wave_history_max_date}) dates differ. Run rebuild_wave_history() to sync.'
+                            })
                     else:
                         test_results['tests'].append({
                             'name': 'Ledger recompute readiness',
                             'status': 'WARN',
-                            'message': f'price_book ({price_book_max_date}) and wave_history ({wave_history_max_date}) dates differ. Run rebuild_wave_history() to sync.'
+                            'message': 'wave_history.csv is empty or missing date column'
                         })
                 else:
                     test_results['tests'].append({
                         'name': 'Ledger recompute readiness',
                         'status': 'WARN',
-                        'message': 'wave_history.csv is empty or missing date column'
+                        'message': 'wave_history.csv not found. Run rebuild_wave_history() to create it.'
                     })
             else:
                 test_results['tests'].append({
                     'name': 'Ledger recompute readiness',
-                    'status': 'WARN',
-                    'message': 'wave_history.csv not found. Run rebuild_wave_history() to create it.'
+                    'status': 'FAIL',
+                    'message': 'price_book is empty'
                 })
-        else:
-            test_results['tests'].append({
-                'name': 'Ledger recompute readiness',
-                'status': 'FAIL',
-                'message': 'price_book is empty'
-            })
-            test_results['overall_status'] = 'FAIL'
+                test_results['overall_status'] = 'FAIL'
     except Exception as e:
         test_results['tests'].append({
             'name': 'Ledger recompute readiness',
