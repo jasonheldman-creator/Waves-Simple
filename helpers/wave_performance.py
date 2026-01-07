@@ -1976,6 +1976,184 @@ def compute_portfolio_exposure_series(
     return exposure_series
 
 
+def compute_volatility_regime_and_exposure(
+    price_book: pd.DataFrame,
+    smooth_window: int = 3
+) -> Dict[str, Any]:
+    """
+    Compute volatility regime and exposure with VIX proxy selection and 3-day rolling median.
+    
+    This function provides detailed regime information for the S&P Flagship Wave (S&P 500 Wave).
+    It selects the best available VIX proxy in priority order (^VIX > VIXY > VXX),
+    applies a 3-day rolling median for smoothing, and maps VIX levels to exposure regimes.
+    
+    Requirements:
+    - Use ticker priority: ^VIX > VIXY > VXX
+    - Compute a 3-day rolling median for volatility smoothing
+    - Map VIX to regime and exposure:
+      - VIX < 18: Regime = "Low Volatility", Exposure = 1.00
+      - 18 ≤ VIX < 25: Regime = "Moderate Volatility", Exposure = 0.65
+      - VIX ≥ 25: Regime = "High Volatility", Exposure = 0.25
+    - If no VIX proxy available, return available=False with reason="missing_vix_proxy"
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        smooth_window: Window size for rolling median smoothing (default: 3)
+        
+    Returns:
+        Dictionary with:
+        - success: bool - Whether computation succeeded
+        - available: bool - Whether VIX data is available
+        - reason: Optional[str] - Reason for unavailability (e.g., "missing_vix_proxy")
+        - vix_ticker_used: Optional[str] - VIX ticker used (^VIX, VIXY, or VXX)
+        - last_vix_date: Optional[str] - Last date with VIX data (YYYY-MM-DD)
+        - last_vix_value: Optional[float] - Last VIX value (smoothed)
+        - current_regime: Optional[str] - Current volatility regime
+        - current_exposure: Optional[float] - Current exposure level [0, 1]
+        - regime_series: Optional[pd.Series] - Daily regime labels (indexed by date)
+        - exposure_series: Optional[pd.Series] - Daily exposure values (indexed by date)
+        - vix_series_raw: Optional[pd.Series] - Raw VIX values (indexed by date)
+        - vix_series_smoothed: Optional[pd.Series] - Smoothed VIX values (indexed by date)
+        - data_frame: Optional[pd.DataFrame] - Complete DataFrame with columns:
+          [date, vix_value_used, vix_ticker_used, regime, exposure]
+          
+    Example:
+        >>> from helpers.price_book import get_price_book
+        >>> price_book = get_price_book()
+        >>> result = compute_volatility_regime_and_exposure(price_book)
+        >>> if result['available']:
+        >>>     print(f"VIX Ticker: {result['vix_ticker_used']}")
+        >>>     print(f"Current Regime: {result['current_regime']}")
+        >>>     print(f"Current Exposure: {result['current_exposure']:.2f}")
+    """
+    result = {
+        'success': False,
+        'available': False,
+        'reason': None,
+        'vix_ticker_used': None,
+        'last_vix_date': None,
+        'last_vix_value': None,
+        'current_regime': None,
+        'current_exposure': None,
+        'regime_series': None,
+        'exposure_series': None,
+        'vix_series_raw': None,
+        'vix_series_smoothed': None,
+        'data_frame': None
+    }
+    
+    # Validate inputs
+    if price_book is None or price_book.empty:
+        result['reason'] = 'PRICE_BOOK is empty'
+        logger.warning("compute_volatility_regime_and_exposure: PRICE_BOOK is empty")
+        return result
+    
+    # Try to find VIX series in order of preference: ^VIX > VIXY > VXX
+    vix_ticker_preference = ['^VIX', 'VIXY', 'VXX']
+    vix_series_raw = None
+    vix_ticker_found = None
+    
+    for ticker in vix_ticker_preference:
+        if ticker in price_book.columns:
+            vix_series_raw = price_book[ticker].copy()
+            vix_ticker_found = ticker
+            logger.info(f"compute_volatility_regime_and_exposure: Using VIX proxy {ticker}")
+            break
+    
+    # Edge case: No VIX proxy available
+    if vix_series_raw is None or vix_ticker_found is None:
+        result['available'] = False
+        result['reason'] = 'missing_vix_proxy'
+        logger.warning("compute_volatility_regime_and_exposure: No VIX proxy found (tried: ^VIX, VIXY, VXX)")
+        return result
+    
+    # Remove NaN values
+    vix_series_raw = vix_series_raw.dropna()
+    
+    if len(vix_series_raw) == 0:
+        result['available'] = False
+        result['reason'] = 'missing_vix_proxy'
+        logger.warning(f"compute_volatility_regime_and_exposure: VIX series {vix_ticker_found} has no valid data")
+        return result
+    
+    # Apply 3-day rolling median smoothing
+    if smooth_window > 1:
+        vix_series_smoothed = vix_series_raw.rolling(
+            window=smooth_window,
+            center=False,
+            min_periods=1
+        ).median()
+    else:
+        vix_series_smoothed = vix_series_raw.copy()
+    
+    # Map VIX to regime and exposure
+    def map_vix_to_regime(vix_value):
+        """Map VIX value to regime label."""
+        if pd.isna(vix_value):
+            return "Unknown"
+        if vix_value < 18:
+            return "Low Volatility"
+        elif vix_value < 25:
+            return "Moderate Volatility"
+        else:
+            return "High Volatility"
+    
+    def map_vix_to_exposure(vix_value):
+        """Map VIX value to exposure level."""
+        if pd.isna(vix_value):
+            return 1.0  # Default to full exposure if VIX is missing
+        if vix_value < 18:
+            return 1.00
+        elif vix_value < 25:
+            return 0.65
+        else:
+            return 0.25
+    
+    # Compute regime and exposure series
+    regime_series = vix_series_smoothed.apply(map_vix_to_regime)
+    exposure_series = vix_series_smoothed.apply(map_vix_to_exposure)
+    
+    # Clip exposure to [0, 1] range for safety
+    exposure_series = exposure_series.clip(lower=0.0, upper=1.0)
+    
+    # Get latest values
+    last_vix_date = vix_series_smoothed.index[-1]
+    last_vix_value = float(vix_series_smoothed.iloc[-1])
+    current_regime = regime_series.iloc[-1]
+    current_exposure = float(exposure_series.iloc[-1])
+    
+    # Build data frame with required columns: date, vix_value_used, vix_ticker_used, regime, exposure
+    data_frame = pd.DataFrame({
+        'vix_value_used': vix_series_smoothed,
+        'vix_ticker_used': vix_ticker_found,
+        'regime': regime_series,
+        'exposure': exposure_series
+    })
+    data_frame.index.name = 'date'
+    data_frame = data_frame.reset_index()
+    
+    # Populate result
+    result['success'] = True
+    result['available'] = True
+    result['reason'] = None
+    result['vix_ticker_used'] = vix_ticker_found
+    result['last_vix_date'] = last_vix_date.strftime('%Y-%m-%d')
+    result['last_vix_value'] = last_vix_value
+    result['current_regime'] = current_regime
+    result['current_exposure'] = current_exposure
+    result['regime_series'] = regime_series
+    result['exposure_series'] = exposure_series
+    result['vix_series_raw'] = vix_series_raw
+    result['vix_series_smoothed'] = vix_series_smoothed
+    result['data_frame'] = data_frame
+    
+    logger.debug(f"compute_volatility_regime_and_exposure: Computed {len(data_frame)} days, "
+                f"VIX ticker={vix_ticker_found}, current regime={current_regime}, "
+                f"current exposure={current_exposure:.3f}")
+    
+    return result
+
+
 def compute_portfolio_alpha_ledger(
     price_book: pd.DataFrame,
     periods: List[int] = [1, 30, 60, 365],
