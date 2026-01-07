@@ -37,6 +37,7 @@ def get_data_health_metadata() -> Dict[str, Any]:
         - required_symbols_present: Dict with presence checks for SPY/QQQ/IWM, VIX variants, T-bill variants
         - missing_tickers: List of missing tickers
         - stale_tickers: List of stale tickers (if detectable)
+        - vix_overlay_status: Dict with VIX overlay status information
         - errors: List of any errors encountered
     """
     metadata = {
@@ -50,6 +51,11 @@ def get_data_health_metadata() -> Dict[str, Any]:
         },
         'missing_tickers': [],
         'stale_tickers': [],
+        'vix_overlay_status': {
+            'is_live': False,
+            'config_available': False,
+            'message': 'Unknown'
+        },
         'errors': []
     }
     
@@ -105,6 +111,32 @@ def get_data_health_metadata() -> Dict[str, Any]:
     except Exception as e:
         metadata['errors'].append(f"Error reading missing_tickers: {str(e)}")
         logger.error(f"Error reading missing_tickers: {e}", exc_info=True)
+    
+    # Get VIX overlay status
+    try:
+        from config.vix_overlay_config import get_vix_overlay_status, is_vix_overlay_live
+        
+        vix_status = get_vix_overlay_status()
+        metadata['vix_overlay_status'] = {
+            'is_live': vix_status['is_live'],
+            'config_available': True,
+            'resilient_mode': vix_status['resilient_mode'],
+            'fallback_vix_level': vix_status['fallback_vix_level'],
+            'message': '🟢 LIVE and Active' if vix_status['is_live'] else '⚪ Configured but Disabled'
+        }
+    except ImportError:
+        metadata['vix_overlay_status'] = {
+            'is_live': False,
+            'config_available': False,
+            'message': '⚠️ Config module not available'
+        }
+    except Exception as e:
+        metadata['vix_overlay_status'] = {
+            'is_live': False,
+            'config_available': False,
+            'message': f'❌ Error: {str(e)}'
+        }
+        logger.error(f"Error checking VIX overlay status: {e}", exc_info=True)
     
     return metadata
 

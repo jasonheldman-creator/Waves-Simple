@@ -43,6 +43,17 @@ try:
 except ImportError:
     DIAGNOSTICS_AVAILABLE = False
 
+# Import VIX overlay configuration
+try:
+    from config.vix_overlay_config import (
+        get_vix_overlay_config,
+        is_vix_overlay_live,
+        get_vix_overlay_strategy_config
+    )
+    VIX_CONFIG_AVAILABLE = True
+except ImportError:
+    VIX_CONFIG_AVAILABLE = False
+
 # ------------------------------------------------------------
 # Global config
 # ------------------------------------------------------------
@@ -2030,9 +2041,36 @@ def _regime_from_return(ret_60d: float) -> str:
     return "uptrend"
 
 
-def _vix_exposure_factor(vix_level: float, mode: str) -> float:
+def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+    """
+    Calculate VIX-based exposure adjustment factor.
+    
+    Args:
+        vix_level: VIX level (or NaN if missing)
+        mode: Operating mode
+        wave_name: Wave name for configuration lookup (optional)
+    
+    Returns:
+        Exposure multiplier (0.5 to 1.3)
+    """
+    # Check if VIX overlay is enabled
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        if not vix_config["enabled"]:
+            # VIX overlay disabled for this wave, return neutral
+            return 1.0
+        
+        # Use fallback VIX if data is missing and resilient mode is enabled
+        if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            vix_level = vix_config["fallback_vix_level"]
+            if vix_config.get("log_diagnostics", False):
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+    
+    # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:
         return 1.0
+    
+    # Calculate exposure factor based on VIX level
     if vix_level < 15:
         base = 1.15
     elif vix_level < 20:
@@ -2045,16 +2083,46 @@ def _vix_exposure_factor(vix_level: float, mode: str) -> float:
         base = 0.75
     else:
         base = 0.60
+    
+    # Mode adjustments
     if mode == "Alpha-Minus-Beta":
         base -= 0.05
     elif mode == "Private Logic":
         base += 0.05
+    
     return float(np.clip(base, 0.5, 1.3))
 
 
-def _vix_safe_fraction(vix_level: float, mode: str) -> float:
+def _vix_safe_fraction(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
+    """
+    Calculate VIX-based safe allocation boost.
+    
+    Args:
+        vix_level: VIX level (or NaN if missing)
+        mode: Operating mode
+        wave_name: Wave name for configuration lookup (optional)
+    
+    Returns:
+        Safe fraction boost (0.0 to 0.8)
+    """
+    # Check if VIX overlay is enabled
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        if not vix_config["enabled"]:
+            # VIX overlay disabled for this wave, return neutral
+            return 0.0
+        
+        # Use fallback VIX if data is missing and resilient mode is enabled
+        if (np.isnan(vix_level) or vix_level <= 0) and vix_config["resilient_mode"]:
+            vix_level = vix_config["fallback_vix_level"]
+            if vix_config.get("log_diagnostics", False):
+                logging.info(f"VIX overlay using fallback VIX level {vix_level} for {wave_name}")
+    
+    # Original resilience: return neutral if VIX is still missing
     if np.isnan(vix_level) or vix_level <= 0:
         return 0.0
+    
+    # Calculate safe fraction based on VIX level
     if vix_level < 18:
         base = 0.00
     elif vix_level < 24:
@@ -2065,10 +2133,13 @@ def _vix_safe_fraction(vix_level: float, mode: str) -> float:
         base = 0.25
     else:
         base = 0.40
+    
+    # Mode adjustments
     if mode == "Alpha-Minus-Beta":
         base *= 1.5
     elif mode == "Private Logic":
         base *= 0.7
+    
     return float(np.clip(base, 0.0, 0.8))
 
 
@@ -2934,8 +3005,8 @@ def _compute_core(
         # 2. VIX overlay strategy (EQUITY GROWTH ONLY - disabled for crypto and income)
         if not is_crypto and not is_income:
             vix_level = float(vix_level_series.get(dt, np.nan))
-            vix_exposure = _vix_exposure_factor(vix_level, mode)
-            vix_gate = _vix_safe_fraction(vix_level, mode)
+            vix_exposure = _vix_exposure_factor(vix_level, mode, wave_name)
+            vix_gate = _vix_safe_fraction(vix_level, mode, wave_name)
             vix_risk_state = "risk-off" if vix_level >= 25 else ("risk-on" if vix_level < 18 else "neutral")
             
             vix_contrib = StrategyContribution(
@@ -3951,5 +4022,78 @@ def _log_wave_id_warnings():
 # This validation should be called explicitly when needed, not on import
 # Run validation on import - DISABLED to prevent import-time side effects
 # _log_wave_id_warnings()
+
+
+# ------------------------------------------------------------
+# VIX Overlay Status API
+# ------------------------------------------------------------
+
+def get_vix_overlay_status_for_wave(wave_name: str) -> Dict[str, Any]:
+    """
+    Get VIX overlay status for a specific wave.
+    
+    Args:
+        wave_name: Name of the wave
+        
+    Returns:
+        Dictionary with VIX overlay status:
+        - is_live: bool - whether VIX overlay is active
+        - is_enabled_for_wave: bool - whether enabled for this specific wave
+        - is_equity_wave: bool - whether this is an equity wave (VIX applicable)
+        - fallback_vix_level: float - fallback VIX when data missing
+        - resilient_mode: bool - whether resilience is enabled
+        - config_available: bool - whether config module is loaded
+    """
+    status = {
+        "is_live": False,
+        "is_enabled_for_wave": False,
+        "is_equity_wave": False,
+        "fallback_vix_level": 20.0,
+        "resilient_mode": True,
+        "config_available": VIX_CONFIG_AVAILABLE,
+    }
+    
+    # Check if this is an equity wave (not crypto, not income, not safe)
+    is_crypto = _is_crypto_wave(wave_name)
+    is_income = _is_income_wave(wave_name)
+    is_safe = is_smartsafe_cash_wave(wave_name)
+    
+    is_equity = not (is_crypto or is_income or is_safe)
+    status["is_equity_wave"] = is_equity
+    
+    # VIX overlay only applies to equity waves
+    if not is_equity:
+        return status
+    
+    # Check global and wave-specific configuration
+    if VIX_CONFIG_AVAILABLE:
+        vix_config = get_vix_overlay_strategy_config(wave_name)
+        status["is_live"] = is_vix_overlay_live()
+        status["is_enabled_for_wave"] = vix_config["enabled"]
+        status["fallback_vix_level"] = vix_config["fallback_vix_level"]
+        status["resilient_mode"] = vix_config["resilient_mode"]
+    else:
+        # Fallback to DEFAULT_STRATEGY_CONFIGS if config module not available
+        strategy_config = DEFAULT_STRATEGY_CONFIGS.get("vix_overlay")
+        if strategy_config:
+            status["is_live"] = strategy_config.enabled
+            status["is_enabled_for_wave"] = strategy_config.enabled
+    
+    return status
+
+
+def is_vix_overlay_active_for_wave(wave_name: str) -> bool:
+    """
+    Check if VIX overlay is active for a specific wave.
+    
+    Args:
+        wave_name: Name of the wave
+        
+    Returns:
+        True if VIX overlay is active for this wave
+    """
+    status = get_vix_overlay_status_for_wave(wave_name)
+    return status["is_equity_wave"] and status["is_enabled_for_wave"]
+
 
     
