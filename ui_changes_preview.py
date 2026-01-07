@@ -111,7 +111,7 @@ print("\n" + "=" * 70)
 # Test the actual force_ledger_recompute output
 print("\nSIMULATED BUTTON CLICK OUTPUT:")
 print("=" * 70)
-success, message = force_ledger_recompute()
+success, message, details = force_ledger_recompute()
 
 if success:
     print("✅ SUCCESS")
