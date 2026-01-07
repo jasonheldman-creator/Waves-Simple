@@ -408,7 +408,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             results.append(f"   Max date: {price_book_max_date}")
             
         except Exception as e:
-            error_msg = f"Failed to load price_book: {str(e)[:250]}"
+            error_msg = f"Failed to load price_book: {str(e)}"
             return False, error_msg, details
         
         # Step 2: Export data/prices.csv in format date,ticker,close
@@ -438,7 +438,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             logger.info(f"Exported {len(prices_long_df)} price records to {prices_csv_path}")
             
         except Exception as e:
-            error_msg = f"Failed to export prices.csv: {str(e)[:250]}"
+            error_msg = f"Failed to export prices.csv: {str(e)}"
             return False, error_msg, details
         
         # Step 3: Rebuild wave_history.csv strictly from cached price_book
@@ -446,7 +446,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
         success, message = rebuild_wave_history()
         
         if not success:
-            error_msg = f"Price cache loaded but wave_history rebuild failed: {message[:250]}"
+            error_msg = f"Price cache loaded but wave_history rebuild failed: {message}"
             return False, error_msg, details
         
         results.append(f"✅ wave_history.csv rebuilt")
@@ -467,7 +467,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
                     else:
                         results.append(f"⚠️ wave_history max date ({wave_history_max_date}) differs from price_book ({price_book_max_date})")
         except Exception as e:
-            results.append(f"⚠️ Could not verify wave_history max date: {str(e)[:100]}")
+            results.append(f"⚠️ Could not verify wave_history max date: {str(e)}")
         
         # Step 4: Build canonical ledger artifact and persist to data/cache/canonical_return_ledger.parquet
         try:
@@ -482,7 +482,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             )
             
             if not ledger_result['success']:
-                error_msg = f"Ledger computation failed: {ledger_result.get('failure_reason', 'unknown')[:250]}"
+                error_msg = f"Ledger computation failed: {ledger_result.get('failure_reason', 'unknown')}"
                 return False, error_msg, details
             
             # Get the daily ledger dataframe
@@ -505,10 +505,10 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             logger.info(f"Persisted canonical ledger to {ledger_cache_path}, max date: {ledger_max_date}")
             
         except ImportError as e:
-            error_msg = f"Failed to import wave_performance module: {str(e)[:250]}"
+            error_msg = f"Failed to import wave_performance module: {str(e)}"
             return False, error_msg, details
         except Exception as e:
-            error_msg = f"Failed to build/persist ledger artifact: {str(e)[:250]}"
+            error_msg = f"Failed to build/persist ledger artifact: {str(e)}"
             logger.error(f"Error building ledger: {e}", exc_info=True)
             return False, error_msg, details
         
@@ -533,7 +533,7 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             logger.info(f"Persisted metadata to {metadata_path}")
             
         except Exception as e:
-            error_msg = f"Failed to persist metadata: {str(e)[:250]}"
+            error_msg = f"Failed to persist metadata: {str(e)}"
             logger.error(f"Error persisting metadata: {e}", exc_info=True)
             return False, error_msg, details
         
