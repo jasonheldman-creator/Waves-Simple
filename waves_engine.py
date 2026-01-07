@@ -2041,7 +2041,7 @@ def _regime_from_return(ret_60d: float) -> str:
     return "uptrend"
 
 
-def _vix_exposure_factor(vix_level: float, mode: str, wave_name: str = "") -> float:
+def _vix_exposure_factor(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
     """
     Calculate VIX-based exposure adjustment factor.
     
@@ -2054,7 +2054,7 @@ def _vix_exposure_factor(vix_level: float, mode: str, wave_name: str = "") -> fl
         Exposure multiplier (0.5 to 1.3)
     """
     # Check if VIX overlay is enabled
-    if VIX_CONFIG_AVAILABLE and wave_name:
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
         vix_config = get_vix_overlay_strategy_config(wave_name)
         if not vix_config["enabled"]:
             # VIX overlay disabled for this wave, return neutral
@@ -2093,7 +2093,7 @@ def _vix_exposure_factor(vix_level: float, mode: str, wave_name: str = "") -> fl
     return float(np.clip(base, 0.5, 1.3))
 
 
-def _vix_safe_fraction(vix_level: float, mode: str, wave_name: str = "") -> float:
+def _vix_safe_fraction(vix_level: float, mode: str, wave_name: Optional[str] = None) -> float:
     """
     Calculate VIX-based safe allocation boost.
     
@@ -2106,7 +2106,7 @@ def _vix_safe_fraction(vix_level: float, mode: str, wave_name: str = "") -> floa
         Safe fraction boost (0.0 to 0.8)
     """
     # Check if VIX overlay is enabled
-    if VIX_CONFIG_AVAILABLE and wave_name:
+    if VIX_CONFIG_AVAILABLE and wave_name is not None:
         vix_config = get_vix_overlay_strategy_config(wave_name)
         if not vix_config["enabled"]:
             # VIX overlay disabled for this wave, return neutral
