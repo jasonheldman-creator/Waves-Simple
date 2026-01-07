@@ -13,6 +13,7 @@ This script validates that:
 import sys
 import os
 import json
+import traceback
 
 # Add current directory to path
 sys.path.insert(0, os.getcwd())
@@ -78,7 +79,6 @@ try:
         sys.exit(1)
 except Exception as e:
     print(f"   ✗ Error executing force_ledger_recompute: {e}")
-    import traceback
     traceback.print_exc()
     sys.exit(1)
 
@@ -107,7 +107,6 @@ try:
         sys.exit(1)
 except Exception as e:
     print(f"   ✗ Error validating ledger artifact: {e}")
-    import traceback
     traceback.print_exc()
     sys.exit(1)
 
@@ -144,7 +143,6 @@ try:
         sys.exit(1)
 except Exception as e:
     print(f"   ✗ Error validating metadata: {e}")
-    import traceback
     traceback.print_exc()
     sys.exit(1)
 
@@ -197,7 +195,6 @@ try:
     
 except Exception as e:
     print(f"   ✗ Error getting health metadata: {e}")
-    import traceback
     traceback.print_exc()
     sys.exit(1)
 

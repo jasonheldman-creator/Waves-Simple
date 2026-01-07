@@ -509,8 +509,8 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
         try:
             metadata = {
                 'price_book_max_date': details.get('price_book_max_date'),
-                'wave_history_max_date': details.get('wave_history_max_date', price_book_max_date),
-                'ledger_max_date': details.get('ledger_max_date', price_book_max_date),
+                'wave_history_max_date': details.get('wave_history_max_date'),
+                'ledger_max_date': details.get('ledger_max_date'),
                 'last_operator_action': 'force_ledger_recompute',
                 'build_marker': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
                 'timestamp': datetime.now(timezone.utc).isoformat()
@@ -519,7 +519,6 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             metadata_path = os.path.join(os.getcwd(), 'data', 'cache', 'data_health_metadata.json')
             os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
             
-            import json
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
             
