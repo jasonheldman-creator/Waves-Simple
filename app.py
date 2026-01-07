@@ -134,6 +134,7 @@ try:
     from helpers.price_book import (
         PRICE_CACHE_OK_DAYS, 
         PRICE_CACHE_DEGRADED_DAYS,
+        CANONICAL_CACHE_PATH,
         compute_system_health,
         get_price_book
     )
@@ -151,6 +152,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"
     compute_system_health = None
     get_price_book = None
 
@@ -7676,7 +7678,7 @@ def render_sidebar_info():
     
     # Price Cache Max Date
     try:
-        if callable(get_price_book) and PRICE_BOOK_CONSTANTS_AVAILABLE:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
             price_book = get_price_book()
             if price_book is not None and not price_book.empty:
                 max_date = price_book.index.max()
@@ -18551,13 +18553,12 @@ def render_operator_panel_tab():
     st.subheader("📊 Data Diagnostics")
     
     try:
-        if callable(get_price_book) and PRICE_BOOK_CONSTANTS_AVAILABLE:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
             # Load price book
             price_book = get_price_book()
             
             if price_book is not None and not price_book.empty:
-                # Cache path
-                from helpers.price_book import CANONICAL_CACHE_PATH
+                # Cache path (imported at top of file)
                 cache_exists = os.path.exists(CANONICAL_CACHE_PATH)
                 
                 # Max date
