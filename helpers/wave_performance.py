@@ -2206,11 +2206,25 @@ def compute_portfolio_alpha_ledger(
         - daily_realized_return: pd.Series - Daily realized returns (with overlay)
         - daily_unoverlay_return: pd.Series - Daily unoverlay returns (exposure=1.0)
         - daily_benchmark_return: pd.Series - Daily benchmark returns
+        - daily_ledger: pd.DataFrame - Daily ledger with columns:
+          [risk_return, safe_return, benchmark_return, exposure, realized_return,
+           alpha_total, alpha_selection, alpha_overlay, alpha_residual]
+        - reconciliation_passed: bool - Whether reconciliation checks passed
+        - reconciliation_1_max_diff: float - Max diff for reconciliation 1 check
+        - reconciliation_2_max_diff: float - Max diff for reconciliation 2 check
         - period_results: Dict[str, Dict] - Results for each period
         - vix_ticker_used: Optional[str] - VIX ticker used (None if unavailable)
         - safe_ticker_used: Optional[str] - Safe ticker used (None if unavailable)
         - overlay_available: bool - Whether VIX overlay was applied
         - warnings: List[str] - Any warnings about data quality
+        
+    Reconciliation Checks (tolerance = 0.10% = 0.001):
+        1. realized_return - benchmark_return == alpha_total
+        2. alpha_selection + alpha_overlay + alpha_residual == alpha_total
+        
+        If either check fails (max diff > tolerance), the function marks the period
+        as unavailable with reason "reconciliation_failed" but still returns the
+        ledger for debugging purposes.
         
     Period result structure (for each period in periods):
         - period: int - Period in days
@@ -2246,6 +2260,10 @@ def compute_portfolio_alpha_ledger(
         'daily_realized_return': None,
         'daily_unoverlay_return': None,
         'daily_benchmark_return': None,
+        'daily_ledger': None,
+        'reconciliation_passed': False,
+        'reconciliation_1_max_diff': None,
+        'reconciliation_2_max_diff': None,
         'period_results': {},
         'vix_ticker_used': None,
         'safe_ticker_used': None,
@@ -2642,6 +2660,80 @@ def compute_portfolio_alpha_ledger(
         
     except Exception as e:
         result['failure_reason'] = f'Error computing period results: {str(e)}'
+        return result
+    
+    # ========================================================================
+    # Step 7: Build Daily Ledger DataFrame with Reconciliation
+    # ========================================================================
+    try:
+        # Build daily ledger with required columns
+        daily_ledger = pd.DataFrame({
+            'risk_return': daily_risk_return,
+            'safe_return': daily_safe_return,
+            'benchmark_return': daily_benchmark_return,
+            'exposure': daily_exposure,
+            'realized_return': daily_realized_return,
+        })
+        
+        # Compute alpha components for each day
+        daily_ledger['alpha_total'] = daily_ledger['realized_return'] - daily_ledger['benchmark_return']
+        daily_ledger['alpha_selection'] = daily_ledger['risk_return'] - daily_ledger['benchmark_return']
+        daily_ledger['alpha_overlay'] = daily_ledger['realized_return'] - daily_ledger['risk_return']
+        daily_ledger['alpha_residual'] = (
+            daily_ledger['alpha_total'] - 
+            (daily_ledger['alpha_selection'] + daily_ledger['alpha_overlay'])
+        )
+        
+        # Reconciliation checks (per requirements)
+        # 1. realized_return - benchmark_return == alpha_total
+        reconciliation_1 = np.abs(
+            (daily_ledger['realized_return'] - daily_ledger['benchmark_return']) - 
+            daily_ledger['alpha_total']
+        )
+        
+        # 2. alpha_selection + alpha_overlay + alpha_residual == alpha_total
+        reconciliation_2 = np.abs(
+            (daily_ledger['alpha_selection'] + daily_ledger['alpha_overlay'] + daily_ledger['alpha_residual']) - 
+            daily_ledger['alpha_total']
+        )
+        
+        # Check if any row fails reconciliation (tolerance = 0.10% = 0.001)
+        reconciliation_1_failed = (reconciliation_1 > RESIDUAL_TOLERANCE).any()
+        reconciliation_2_failed = (reconciliation_2 > RESIDUAL_TOLERANCE).any()
+        
+        if reconciliation_1_failed or reconciliation_2_failed:
+            # Mark as reconciliation failed
+            result['success'] = False
+            result['available'] = False
+            
+            if reconciliation_1_failed:
+                max_diff_1 = reconciliation_1.max()
+                result['failure_reason'] = f'reconciliation_failed: Reconciliation 1 failed with max diff {max_diff_1:.6f} > tolerance {RESIDUAL_TOLERANCE:.6f}'
+            else:
+                max_diff_2 = reconciliation_2.max()
+                result['failure_reason'] = f'reconciliation_failed: Reconciliation 2 failed with max diff {max_diff_2:.6f} > tolerance {RESIDUAL_TOLERANCE:.6f}'
+            
+            # Still return ledger for debugging
+            result['daily_ledger'] = daily_ledger
+            result['reconciliation_passed'] = False
+            result['reconciliation_1_max_diff'] = float(reconciliation_1.max())
+            result['reconciliation_2_max_diff'] = float(reconciliation_2.max())
+            
+            logger.warning(f"Daily ledger reconciliation failed: {result['failure_reason']}")
+        else:
+            # Reconciliation passed
+            result['daily_ledger'] = daily_ledger
+            result['reconciliation_passed'] = True
+            result['reconciliation_1_max_diff'] = float(reconciliation_1.max())
+            result['reconciliation_2_max_diff'] = float(reconciliation_2.max())
+            
+            logger.debug(f"Daily ledger reconciliation passed: "
+                        f"max_diff_1={reconciliation_1.max():.8f}, "
+                        f"max_diff_2={reconciliation_2.max():.8f}")
+    
+    except Exception as e:
+        result['failure_reason'] = f'Error building daily ledger: {str(e)}'
+        result['reconciliation_passed'] = False
         return result
     
     return result
