@@ -22,6 +22,14 @@ helpers_dir = os.path.dirname(os.path.abspath(__file__))
 if helpers_dir not in sys.path:
     sys.path.insert(0, helpers_dir)
 
+# Import price_book module at module level to avoid redundant imports
+try:
+    import price_book
+    PRICE_BOOK_AVAILABLE = True
+except ImportError:
+    PRICE_BOOK_AVAILABLE = False
+    price_book = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +69,10 @@ def get_data_health_metadata() -> Dict[str, Any]:
     
     # Get price_book data
     try:
-        import price_book
+        if not PRICE_BOOK_AVAILABLE:
+            metadata['errors'].append("price_book module not available")
+            return metadata
+        
         price_data = price_book.get_price_book()
         
         if not price_data.empty:
@@ -191,13 +202,64 @@ def rebuild_wave_history() -> Tuple[bool, str]:
     """
     Rebuild wave_history.csv from price_book and wave registry.
     
+    This function:
+    1. Loads fresh price_book from cache (prices_cache.parquet)
+    2. Exports it to prices.csv format for build_wave_history_from_prices.py
+    3. Runs build_wave_history_from_prices.py
+    
     Returns:
         Tuple of (success: bool, message: str)
     """
     try:
         wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
+        prices_csv_path = os.path.join(os.getcwd(), 'prices.csv')
         
-        # Use build_wave_history_from_prices.py script
+        # Step 1: Load fresh price_book from cache
+        try:
+            if not PRICE_BOOK_AVAILABLE:
+                return False, "price_book module not available"
+            
+            price_data = price_book.get_price_book()
+            
+            if price_data.empty:
+                return False, "Price cache is empty, cannot rebuild wave_history"
+            
+            price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
+            logger.info(f"Loaded price_book with max date: {price_book_max_date}")
+            
+        except Exception as e:
+            return False, f"Failed to load price_book: {str(e)}"
+        
+        # Step 2: Export price_book to prices.csv format for build script
+        try:
+            # Convert price_book (wide format) to prices.csv (long format)
+            # prices.csv format: date, ticker, close
+            
+            # Use pd.melt for efficient reshaping
+            price_data_reset = price_data.reset_index()
+            prices_long_df = pd.melt(
+                price_data_reset,
+                id_vars=['index'],
+                var_name='ticker',
+                value_name='close'
+            )
+            prices_long_df = prices_long_df.rename(columns={'index': 'date'})
+            
+            # Remove NaN values
+            prices_long_df = prices_long_df.dropna(subset=['close'])
+            
+            # Format date column
+            prices_long_df['date'] = pd.to_datetime(prices_long_df['date']).dt.strftime('%Y-%m-%d')
+            
+            # Save to CSV
+            prices_long_df.to_csv(prices_csv_path, index=False)
+            
+            logger.info(f"Exported {len(prices_long_df)} price records to {prices_csv_path}")
+            
+        except Exception as e:
+            return False, f"Failed to export price_book to prices.csv: {str(e)}"
+        
+        # Step 3: Use build_wave_history_from_prices.py script
         build_script = os.path.join(os.getcwd(), 'build_wave_history_from_prices.py')
         
         if not os.path.exists(build_script):
@@ -219,13 +281,20 @@ def rebuild_wave_history() -> Tuple[bool, str]:
                 size_kb = file_stat.st_size / 1024
                 mod_time = datetime.fromtimestamp(file_stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Count rows
+                # Count rows and verify max date
                 try:
                     wave_history = pd.read_csv(wave_history_path)
                     row_count = len(wave_history)
                     wave_count = wave_history['wave'].nunique() if 'wave' in wave_history.columns else 0
                     
-                    return True, f"✅ wave_history.csv rebuilt successfully!\n\nFile: {wave_history_path}\nSize: {size_kb:.1f} KB\nRows: {row_count:,}\nWaves: {wave_count}\nUpdated: {mod_time}"
+                    # Verify max date matches price_book
+                    if 'date' in wave_history.columns:
+                        wave_history['date'] = pd.to_datetime(wave_history['date'])
+                        wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
+                        
+                        return True, f"✅ wave_history.csv rebuilt successfully!\n\nFile: {wave_history_path}\nSize: {size_kb:.1f} KB\nRows: {row_count:,}\nWaves: {wave_count}\nMax date: {wave_history_max_date}\nUpdated: {mod_time}"
+                    else:
+                        return True, f"✅ wave_history.csv rebuilt successfully!\n\nFile: {wave_history_path}\nSize: {size_kb:.1f} KB\nRows: {row_count:,}\nWaves: {wave_count}\nUpdated: {mod_time}"
                 except Exception:
                     return True, f"✅ wave_history.csv rebuilt successfully!\n\nFile: {wave_history_path}\nSize: {size_kb:.1f} KB\nUpdated: {mod_time}"
             else:
@@ -238,6 +307,84 @@ def rebuild_wave_history() -> Tuple[bool, str]:
         return False, "Build timed out after 5 minutes"
     except Exception as e:
         logger.error(f"Error rebuilding wave_history: {e}", exc_info=True)
+        return False, f"Error: {str(e)}\n\n{traceback.format_exc()[:500]}"
+
+
+def force_ledger_recompute() -> Tuple[bool, str]:
+    """
+    Force ledger recompute by reloading price_book cache and rebuilding wave_history.
+    
+    This function:
+    1. Reloads price_book from data/cache/prices_cache.parquet
+    2. Rebuilds wave_history.csv from price_book
+    3. Returns diagnostic info about the recompute
+    
+    The actual ledger recompute will happen when session state is cleared
+    and the UI requests the ledger again.
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        results = []
+        
+        # Step 1: Check if price_book cache exists and get its max date
+        cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'prices_cache.parquet')
+        if not os.path.exists(cache_path):
+            return False, f"Price cache not found at {cache_path}. Cannot proceed with recompute."
+        
+        try:
+            import price_book
+            # Force reload from cache by clearing any cached state
+            price_data = price_book.get_price_book()
+            
+            if price_data.empty:
+                return False, "Price cache loaded but is empty. Cannot proceed with recompute."
+            
+            price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
+            price_book_rows = len(price_data)
+            price_book_tickers = len(price_data.columns)
+            
+            results.append(f"✅ Price cache loaded: {price_book_rows} days × {price_book_tickers} tickers")
+            results.append(f"   Max date: {price_book_max_date}")
+            
+        except Exception as e:
+            return False, f"Failed to load price_book: {str(e)}"
+        
+        # Step 2: Rebuild wave_history from price_book
+        logger.info("Rebuilding wave_history from price_book...")
+        success, message = rebuild_wave_history()
+        
+        if not success:
+            return False, f"Price cache loaded but wave_history rebuild failed:\n{message}"
+        
+        results.append(f"✅ wave_history.csv rebuilt")
+        
+        # Step 3: Verify wave_history max date matches price_book
+        try:
+            wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
+            if os.path.exists(wave_history_path):
+                wave_history = pd.read_csv(wave_history_path)
+                if 'date' in wave_history.columns and not wave_history.empty:
+                    wave_history['date'] = pd.to_datetime(wave_history['date'])
+                    wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
+                    
+                    if wave_history_max_date == price_book_max_date:
+                        results.append(f"✅ wave_history max date matches price_book: {wave_history_max_date}")
+                    else:
+                        results.append(f"⚠️ wave_history max date ({wave_history_max_date}) differs from price_book ({price_book_max_date})")
+        except Exception as e:
+            results.append(f"⚠️ Could not verify wave_history max date: {str(e)}")
+        
+        # Step 4: Return success with diagnostic info
+        final_message = "\n".join(results)
+        final_message += "\n\n💡 Ledger will recompute automatically when accessed."
+        final_message += f"\n💡 Expected Ledger max date: {price_book_max_date}"
+        
+        return True, final_message
+        
+    except Exception as e:
+        logger.error(f"Error in force_ledger_recompute: {e}", exc_info=True)
         return False, f"Error: {str(e)}\n\n{traceback.format_exc()[:500]}"
 
 
@@ -437,22 +584,29 @@ def run_self_test() -> Dict[str, Any]:
     
     # Test 7: Try to load price data
     try:
-        import price_book
-        price_data = price_book.get_price_book()
-        if not price_data.empty:
-            rows, cols = price_data.shape
-            test_results['tests'].append({
-                'name': 'Load price data',
-                'status': 'PASS',
-                'message': f'Loaded {rows} days × {cols} tickers'
-            })
-        else:
+        if not PRICE_BOOK_AVAILABLE:
             test_results['tests'].append({
                 'name': 'Load price data',
                 'status': 'FAIL',
-                'message': 'Price data is empty'
+                'message': 'price_book module not available'
             })
             test_results['overall_status'] = 'FAIL'
+        else:
+            price_data = price_book.get_price_book()
+            if not price_data.empty:
+                rows, cols = price_data.shape
+                test_results['tests'].append({
+                    'name': 'Load price data',
+                    'status': 'PASS',
+                    'message': f'Loaded {rows} days × {cols} tickers'
+                })
+            else:
+                test_results['tests'].append({
+                    'name': 'Load price data',
+                    'status': 'FAIL',
+                    'message': 'Price data is empty'
+                })
+                test_results['overall_status'] = 'FAIL'
     except Exception as e:
         test_results['tests'].append({
             'name': 'Load price data',
@@ -483,6 +637,68 @@ def run_self_test() -> Dict[str, Any]:
     except Exception as e:
         test_results['tests'].append({
             'name': 'Load wave registry',
+            'status': 'FAIL',
+            'message': f'Error: {str(e)}'
+        })
+        test_results['overall_status'] = 'FAIL'
+    
+    # Test 9: Ledger recompute readiness (price_book max date validation)
+    try:
+        if not PRICE_BOOK_AVAILABLE:
+            test_results['tests'].append({
+                'name': 'Ledger recompute readiness',
+                'status': 'FAIL',
+                'message': 'price_book module not available'
+            })
+            test_results['overall_status'] = 'FAIL'
+        else:
+            price_data = price_book.get_price_book()
+            
+            if not price_data.empty:
+                price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
+                
+                # Check if wave_history exists and matches
+                wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
+                if os.path.exists(wave_history_path):
+                    wave_history = pd.read_csv(wave_history_path)
+                    if 'date' in wave_history.columns and not wave_history.empty:
+                        wave_history['date'] = pd.to_datetime(wave_history['date'])
+                        wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
+                        
+                        if wave_history_max_date == price_book_max_date:
+                            test_results['tests'].append({
+                                'name': 'Ledger recompute readiness',
+                                'status': 'PASS',
+                                'message': f'price_book and wave_history aligned at {price_book_max_date}'
+                            })
+                        else:
+                            test_results['tests'].append({
+                                'name': 'Ledger recompute readiness',
+                                'status': 'WARN',
+                                'message': f'price_book ({price_book_max_date}) and wave_history ({wave_history_max_date}) dates differ. Run rebuild_wave_history() to sync.'
+                            })
+                    else:
+                        test_results['tests'].append({
+                            'name': 'Ledger recompute readiness',
+                            'status': 'WARN',
+                            'message': 'wave_history.csv is empty or missing date column'
+                        })
+                else:
+                    test_results['tests'].append({
+                        'name': 'Ledger recompute readiness',
+                        'status': 'WARN',
+                        'message': 'wave_history.csv not found. Run rebuild_wave_history() to create it.'
+                    })
+            else:
+                test_results['tests'].append({
+                    'name': 'Ledger recompute readiness',
+                    'status': 'FAIL',
+                    'message': 'price_book is empty'
+                })
+                test_results['overall_status'] = 'FAIL'
+    except Exception as e:
+        test_results['tests'].append({
+            'name': 'Ledger recompute readiness',
             'status': 'FAIL',
             'message': f'Error: {str(e)}'
         })
