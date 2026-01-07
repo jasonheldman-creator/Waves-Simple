@@ -127,6 +127,18 @@ try:
 except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
+# Import operator toolbox helper functions
+try:
+    from helpers.operator_toolbox import (
+        get_data_health_metadata,
+        rebuild_price_cache,
+        rebuild_wave_history,
+        run_self_test
+    )
+    OPERATOR_TOOLBOX_AVAILABLE = True
+except ImportError:
+    OPERATOR_TOOLBOX_AVAILABLE = False
+
 # Import price_book constants for Mission Control
 # UI uses price_book as source of truth to prevent divergence
 try:
@@ -7608,6 +7620,165 @@ def render_sidebar_info():
         st.sidebar.caption(
             f"Last operator action: **{st.session_state.last_operator_action}** at {st.session_state.last_operator_time}"
         )
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR TOOLBOX - Always Visible
+    # Low-risk, in-app toolbox for debugging and rebuilding
+    # ========================================================================
+    with st.sidebar.expander("🧰 Operator Toolbox", expanded=False):
+        if not OPERATOR_TOOLBOX_AVAILABLE:
+            st.warning("⚠️ Operator Toolbox unavailable - helper module not loaded")
+        else:
+            st.markdown("### Data Health Panel")
+            
+            # Get data health metadata
+            try:
+                health_metadata = get_data_health_metadata()
+                
+                # Display key metrics
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("Last Trading Day", health_metadata.get('last_trading_day') or 'N/A')
+                    st.metric("Price Book Max", health_metadata.get('price_book_max_date') or 'N/A')
+                
+                with col2:
+                    st.metric("Wave History Max", health_metadata.get('wave_history_max_date') or 'N/A')
+                    
+                    # Count missing tickers
+                    missing_count = len(health_metadata.get('missing_tickers', []))
+                    st.metric("Missing Tickers", missing_count)
+                
+                # Required symbols presence checks
+                st.markdown("#### Required Symbols")
+                
+                benchmarks = health_metadata.get('required_symbols_present', {}).get('benchmarks', {})
+                vix_any = health_metadata.get('required_symbols_present', {}).get('vix_any', False)
+                tbill_any = health_metadata.get('required_symbols_present', {}).get('tbill_any', False)
+                
+                # Benchmarks (ALL required)
+                spy_status = "✅" if benchmarks.get('SPY') else "❌"
+                qqq_status = "✅" if benchmarks.get('QQQ') else "❌"
+                iwm_status = "✅" if benchmarks.get('IWM') else "❌"
+                st.text(f"Benchmarks: SPY {spy_status} QQQ {qqq_status} IWM {iwm_status}")
+                
+                # VIX variants (ANY required)
+                vix_status = "✅" if vix_any else "❌"
+                st.text(f"VIX (any): {vix_status}")
+                
+                # T-bill variants (ANY required)
+                tbill_status = "✅" if tbill_any else "❌"
+                st.text(f"T-bill (any): {tbill_status}")
+                
+                # Show missing tickers if any
+                if missing_count > 0:
+                    with st.expander(f"Missing Tickers ({missing_count})"):
+                        missing_tickers = health_metadata.get('missing_tickers', [])
+                        st.text(", ".join(missing_tickers[:20]))
+                        if missing_count > 20:
+                            st.caption(f"... and {missing_count - 20} more")
+                
+                # Show errors if any
+                errors = health_metadata.get('errors', [])
+                if errors:
+                    with st.expander(f"⚠️ Errors ({len(errors)})"):
+                        for error in errors:
+                            st.error(error)
+                
+            except Exception as e:
+                st.error(f"❌ Error loading health metadata: {str(e)}")
+            
+            st.markdown("---")
+            st.markdown("### Interactive Actions")
+            
+            # Clear Streamlit Cache button
+            if st.button("🗑️ Clear Streamlit Cache", key="toolbox_clear_cache", use_container_width=True):
+                try:
+                    st.cache_data.clear()
+                    try:
+                        st.cache_resource.clear()
+                    except AttributeError:
+                        pass
+                    st.success("✅ Cache cleared")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Clear Session State (Soft Reset) button
+            if st.button("♻️ Clear Session State (Soft Reset)", key="toolbox_soft_reset", use_container_width=True):
+                try:
+                    # Clear non-critical session keys
+                    keys_to_clear = [
+                        'portfolio_alpha_ledger',
+                        'portfolio_snapshot_debug',
+                        'portfolio_exposure_series',
+                        'wave_data_cache',
+                        'price_book_cache'
+                    ]
+                    
+                    cleared_count = 0
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            cleared_count += 1
+                    
+                    st.success(f"✅ Cleared {cleared_count} keys")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Rebuild Price Cache button
+            if st.button("🔨 Rebuild Price Cache (price_book)", key="toolbox_rebuild_price_cache", use_container_width=True):
+                try:
+                    with st.spinner("Rebuilding price cache... (this may take a few minutes)"):
+                        success, message = rebuild_price_cache()
+                    
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Rebuild wave_history button
+            if st.button("📊 Rebuild wave_history from price_book", key="toolbox_rebuild_wave_history", use_container_width=True):
+                try:
+                    with st.spinner("Rebuilding wave_history... (this may take a few minutes)"):
+                        success, message = rebuild_wave_history()
+                    
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Run Self-Test button
+            if st.button("🔍 Run Self-Test", key="toolbox_self_test", use_container_width=True):
+                try:
+                    with st.spinner("Running self-test suite..."):
+                        test_results = run_self_test()
+                    
+                    # Display overall status
+                    if test_results['overall_status'] == 'PASS':
+                        st.success(f"✅ PASS - {test_results['summary']}")
+                    else:
+                        st.error(f"❌ FAIL - {test_results['summary']}")
+                    
+                    # Display individual test results
+                    st.markdown("#### Test Results")
+                    for test in test_results['tests']:
+                        status_icon = "✅" if test['status'] == 'PASS' else "❌"
+                        with st.expander(f"{status_icon} {test['name']} - {test['status']}"):
+                            st.text(test['message'])
+                    
+                    st.caption(f"Test run timestamp: {test_results['timestamp']}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error running self-test: {str(e)}")
     
     st.sidebar.markdown("---")
     
