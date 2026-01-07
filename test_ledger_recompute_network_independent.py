@@ -139,8 +139,8 @@ class TestLedgerRecomputeNetworkIndependent(unittest.TestCase):
         except ImportError:
             self.skipTest("force_ledger_recompute not available in operator_toolbox")
         
-        # Call force_ledger_recompute
-        success, message = force_ledger_recompute()
+        # Call force_ledger_recompute - now returns 3 values
+        success, message, details = force_ledger_recompute()
         
         self.assertTrue(
             success,
@@ -149,6 +149,11 @@ class TestLedgerRecomputeNetworkIndependent(unittest.TestCase):
         
         print(f"✓ force_ledger_recompute succeeded")
         print(f"  Message: {message}")
+        print(f"  Details keys: {list(details.keys()) if details else 'None'}")
+        
+        # Verify details dict
+        self.assertIsInstance(details, dict, "Details should be a dictionary")
+        self.assertIn('ledger_max_date', details, "Details should contain ledger_max_date")
         
         # Verify wave_history was updated
         wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
