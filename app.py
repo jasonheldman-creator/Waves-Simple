@@ -50,6 +50,21 @@ try:
 except ImportError:
     VIX_DIAGNOSTICS_AVAILABLE = False
 
+# Import VIX overlay configuration
+try:
+    from config.vix_overlay_config import (
+        get_vix_overlay_config,
+        is_vix_overlay_live,
+        get_vix_overlay_status
+    )
+    from waves_engine import (
+        get_vix_overlay_status_for_wave,
+        is_vix_overlay_active_for_wave
+    )
+    VIX_CONFIG_AVAILABLE = True
+except ImportError:
+    VIX_CONFIG_AVAILABLE = False
+
 # Import waves engine for wave definitions (single source of truth)
 try:
     from waves_engine import (
@@ -1177,6 +1192,23 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
         display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
         
+        # Get VIX overlay status for this wave
+        vix_overlay_active = False
+        vix_overlay_status_str = "N/A"
+        if VIX_CONFIG_AVAILABLE and not is_portfolio_view:
+            try:
+                vix_status = get_vix_overlay_status_for_wave(selected_wave)
+                vix_overlay_active = vix_status["is_enabled_for_wave"] and vix_status["is_equity_wave"]
+                if vix_status["is_equity_wave"]:
+                    if vix_status["is_enabled_for_wave"]:
+                        vix_overlay_status_str = "🟢 LIVE"
+                    else:
+                        vix_overlay_status_str = "⚪ Off"
+                else:
+                    vix_overlay_status_str = "—"  # Not applicable for non-equity waves
+            except:
+                vix_overlay_status_str = "N/A"
+        
         # Wave-specific metrics HTML (shown only for individual waves)
         wave_specific_metrics_html = ""
         if not is_portfolio_view:
@@ -1187,6 +1219,10 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                 <div class="stat-tile">
                     <div class="stat-label">VIX Regime</div>
                     <div class="stat-value">{vix_regime_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">VIX Overlay</div>
+                    <div class="stat-value" style="font-size: 0.9em;">{vix_overlay_status_str}</div>
                 </div>
                 <div class="stat-tile">
                     <div class="stat-label">Exposure</div>
