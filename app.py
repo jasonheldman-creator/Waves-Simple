@@ -7714,9 +7714,22 @@ def render_sidebar_info():
     if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger from fresh price_book cache"):
         try:
             if OPERATOR_TOOLBOX_AVAILABLE and force_ledger_recompute:
-                # Use the new comprehensive recompute function
+                # Use the new comprehensive recompute function with diagnostic wrapper
                 with st.spinner("Reloading price_book and rebuilding wave_history..."):
-                    success, message, details = force_ledger_recompute()
+                    try:
+                        success, message, details = force_ledger_recompute()
+                    except ValueError as ve:
+                        # Diagnostic: Catch unpacking errors specifically
+                        full_traceback = traceback.format_exc()
+                        st.sidebar.error(f"❌ UNPACKING ERROR DETECTED:\n{str(ve)}")
+                        st.sidebar.code(full_traceback, language="python")
+                        raise  # Re-raise to be caught by outer try/except
+                    except Exception as e:
+                        # Diagnostic: Catch any other errors
+                        full_traceback = traceback.format_exc()
+                        st.sidebar.error(f"❌ ERROR IN RECOMPUTE:\n{str(e)}")
+                        st.sidebar.code(full_traceback, language="python")
+                        raise  # Re-raise to be caught by outer try/except
                 
                 if success:
                     # Clear ledger-related session state keys to trigger fresh computation
@@ -7748,7 +7761,13 @@ def render_sidebar_info():
                     st.sidebar.success(message)
                     st.rerun()
                 else:
+                    # Display error message with diagnostics
                     st.sidebar.error(message)
+                    
+                    # If there's a traceback in details, show it
+                    if 'traceback' in details:
+                        st.sidebar.markdown("**📍 Stack Trace for Debugging:**")
+                        st.sidebar.code(details['traceback'], language="python")
             else:
                 # Fallback to old behavior if operator_toolbox not available
                 ledger_keys = [
@@ -7776,7 +7795,11 @@ def render_sidebar_info():
                 
                 st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
         except Exception as e:
+            # Diagnostic: Capture full stack trace for any error
+            full_traceback = traceback.format_exc()
             st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
+            st.sidebar.markdown("**📍 Full Stack Trace:**")
+            st.sidebar.code(full_traceback, language="python")
     
     st.sidebar.markdown("---")
     
@@ -8000,7 +8023,20 @@ def render_sidebar_info():
             if st.button("🔄 Force Ledger Recompute (Full Pipeline)", key="toolbox_force_ledger_recompute", use_container_width=True):
                 try:
                     with st.spinner("Reloading price_book, rebuilding wave_history, and clearing ledger cache..."):
-                        success, message, details = force_ledger_recompute()
+                        try:
+                            success, message, details = force_ledger_recompute()
+                        except ValueError as ve:
+                            # Diagnostic: Catch unpacking errors specifically
+                            full_traceback = traceback.format_exc()
+                            st.error(f"❌ UNPACKING ERROR DETECTED:\n{str(ve)}")
+                            st.code(full_traceback, language="python")
+                            raise  # Re-raise to be caught by outer try/except
+                        except Exception as e:
+                            # Diagnostic: Catch any other errors during call
+                            full_traceback = traceback.format_exc()
+                            st.error(f"❌ ERROR IN RECOMPUTE:\n{str(e)}")
+                            st.code(full_traceback, language="python")
+                            raise  # Re-raise to be caught by outer try/except
                     
                     if success:
                         # Clear ledger-related session state
@@ -8022,9 +8058,19 @@ def render_sidebar_info():
                         st.success(f"{message}\n\n✅ Cleared {cleared_count} cached keys")
                         st.rerun()
                     else:
+                        # Display error message with diagnostics
                         st.error(message)
+                        
+                        # If there's a traceback in details, show it
+                        if 'traceback' in details:
+                            st.markdown("**📍 Stack Trace for Debugging:**")
+                            st.code(details['traceback'], language="python")
                 except Exception as e:
+                    # Diagnostic: Capture full stack trace for any error
+                    full_traceback = traceback.format_exc()
                     st.error(f"❌ Error: {str(e)}")
+                    st.markdown("**📍 Full Stack Trace:**")
+                    st.code(full_traceback, language="python")
             
             # Run Self-Test button
             if st.button("🔍 Run Self-Test", key="toolbox_self_test", use_container_width=True):

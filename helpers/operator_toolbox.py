@@ -364,8 +364,15 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
     Returns:
         Tuple of (success: bool, message: str, details: dict)
         details contains: price_book_max_date, wave_history_max_date, ledger_max_date, etc.
+        
+    DIAGNOSTIC WRAPPER: This function is wrapped with comprehensive error handling
+    to capture and log full stack traces for debugging runtime unpacking errors.
+    It ALWAYS returns exactly 3 values (success, message, details).
     """
     details = {}
+    
+    # Diagnostic: Log function entry
+    logger.info("force_ledger_recompute() called - entry point")
     
     try:
         results = []
@@ -538,8 +545,20 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
         return True, final_message, details
         
     except Exception as e:
+        # Diagnostic: Capture and log full stack trace
+        full_traceback = traceback.format_exc()
         logger.error(f"Error in force_ledger_recompute: {e}", exc_info=True)
-        error_msg = f"Error: {str(e)[:250]}"
+        logger.error(f"Full stack trace:\n{full_traceback}")
+        
+        # Include stack trace in error message for UI display
+        error_msg = f"Error: {str(e)[:250]}\n\nFull Stack Trace:\n{full_traceback}"
+        
+        # Store stack trace in details for programmatic access
+        details['error'] = str(e)
+        details['traceback'] = full_traceback
+        details['error_type'] = type(e).__name__
+        
+        # ALWAYS return exactly 3 values
         return False, error_msg, details
 
 
