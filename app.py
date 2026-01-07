@@ -18866,6 +18866,134 @@ def render_operator_panel_tab():
     except Exception as e:
         st.error(f"Error loading ledger preview: {str(e)}")
         st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 4: S&P 500 Wave (Flagship) Proof Block
+    # ========================================================================
+    st.subheader("🎯 S&P 500 Wave (Flagship) Proof")
+    st.markdown("### Volatility Regime, Exposure, and Reconciliation Status")
+    
+    try:
+        # Import volatility regime helper
+        from helpers.wave_performance import compute_volatility_regime_and_exposure, compute_portfolio_alpha_ledger
+        
+        # Get price book for volatility regime computation
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            price_book = get_price_book()
+            
+            if price_book is not None and not price_book.empty:
+                # Compute volatility regime and exposure
+                vix_result = compute_volatility_regime_and_exposure(price_book)
+                
+                # Display VIX and Exposure information
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if vix_result['available']:
+                        st.metric("VIX Ticker Used", vix_result['vix_ticker_used'])
+                        st.caption(f"Last VIX Date: {vix_result['last_vix_date']}")
+                        st.caption(f"Last VIX Value: {vix_result['last_vix_value']:.2f}")
+                    else:
+                        st.metric("VIX Ticker Used", "N/A")
+                        st.caption(f"Reason: {vix_result.get('reason', 'Unknown')}")
+                
+                with col2:
+                    if vix_result['available']:
+                        st.metric("Current Regime", vix_result['current_regime'])
+                        st.caption(f"Based on VIX: {vix_result['last_vix_value']:.2f}")
+                    else:
+                        st.metric("Current Regime", "N/A")
+                        st.caption("VIX data unavailable")
+                
+                with col3:
+                    if vix_result['available']:
+                        exposure_pct = vix_result['current_exposure'] * 100
+                        st.metric("Current Exposure", f"{exposure_pct:.0f}%")
+                        st.caption(f"Raw value: {vix_result['current_exposure']:.3f}")
+                    else:
+                        st.metric("Current Exposure", "100%")
+                        st.caption("Default (no VIX overlay)")
+                
+                # Compute ledger to get reconciliation status
+                st.markdown("#### Daily Ledger Status")
+                
+                try:
+                    # Try to compute ledger for S&P 500 Wave
+                    ledger_result = compute_portfolio_alpha_ledger(
+                        price_book,
+                        periods=[1, 30],  # Just compute for quick check
+                        vix_exposure_enabled=True
+                    )
+                    
+                    if ledger_result['success']:
+                        # Get ledger info
+                        daily_ledger = ledger_result.get('daily_ledger')
+                        
+                        if daily_ledger is not None:
+                            # Display ledger status
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                last_date = daily_ledger.index[-1].strftime('%Y-%m-%d') if hasattr(daily_ledger.index[-1], 'strftime') else str(daily_ledger.index[-1])
+                                st.metric("Ledger Last Date", last_date)
+                            
+                            with col2:
+                                st.metric("Ledger Row Count", len(daily_ledger))
+                            
+                            with col3:
+                                # Reconciliation status
+                                recon_passed = ledger_result.get('reconciliation_passed', False)
+                                if recon_passed:
+                                    st.metric("Reconciliation", "✅ PASS")
+                                    max_diff_1 = ledger_result.get('reconciliation_1_max_diff', 0)
+                                    max_diff_2 = ledger_result.get('reconciliation_2_max_diff', 0)
+                                    st.caption(f"Max diff 1: {max_diff_1:.8f}")
+                                    st.caption(f"Max diff 2: {max_diff_2:.8f}")
+                                else:
+                                    st.metric("Reconciliation", "❌ FAIL")
+                                    st.caption(f"Reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                            
+                            # Display reconciliation details
+                            st.markdown("#### Reconciliation Checks")
+                            
+                            if recon_passed:
+                                st.success("✅ All reconciliation checks passed (tolerance < 0.10%)")
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.markdown("**Check 1:** `realized_return - benchmark_return == alpha_total`")
+                                    max_diff_1 = ledger_result.get('reconciliation_1_max_diff', 0)
+                                    tolerance = 0.0010
+                                    st.caption(f"Max diff: {max_diff_1:.8f} < {tolerance:.8f} ✓")
+                                
+                                with col2:
+                                    st.markdown("**Check 2:** `alpha_selection + alpha_overlay + alpha_residual == alpha_total`")
+                                    max_diff_2 = ledger_result.get('reconciliation_2_max_diff', 0)
+                                    st.caption(f"Max diff: {max_diff_2:.8f} < {tolerance:.8f} ✓")
+                            else:
+                                st.error("❌ Reconciliation failed - tolerance exceeded (>0.10%)")
+                                st.caption(f"Failure reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                        else:
+                            st.warning("⚠️ Daily ledger not available")
+                            st.caption("Ledger DataFrame is None")
+                    else:
+                        st.warning("⚠️ Ledger computation failed")
+                        st.caption(f"Reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                
+                except Exception as ledger_error:
+                    st.error(f"Error computing ledger: {str(ledger_error)}")
+                    st.caption(f"Exception: {type(ledger_error).__name__}")
+            else:
+                st.warning("⚠️ Price book is empty - cannot compute S&P 500 Wave proof")
+        else:
+            st.error("❌ Price book module not available - cannot compute S&P 500 Wave proof")
+    
+    except Exception as e:
+        st.error(f"Error loading S&P 500 Wave proof: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
 
 
 def render_diagnostics_tab():
