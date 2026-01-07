@@ -12,6 +12,7 @@ import os
 import sys
 import logging
 import subprocess
+import json
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
@@ -42,6 +43,7 @@ def get_data_health_metadata() -> Dict[str, Any]:
         - last_trading_day: From price_book index (if available)
         - price_book_max_date: Max date in price cache
         - wave_history_max_date: Max date from wave_history (if exists)
+        - ledger_max_date: Max date from ledger (read from metadata or artifact)
         - required_symbols_present: Dict with presence checks for SPY/QQQ/IWM, VIX variants, T-bill variants
         - missing_tickers: List of missing tickers
         - stale_tickers: List of stale tickers (if detectable)
@@ -52,6 +54,7 @@ def get_data_health_metadata() -> Dict[str, Any]:
         'last_trading_day': None,
         'price_book_max_date': None,
         'wave_history_max_date': None,
+        'ledger_max_date': None,
         'required_symbols_present': {
             'benchmarks': {'SPY': False, 'QQQ': False, 'IWM': False},
             'vix_any': False,
@@ -110,6 +113,42 @@ def get_data_health_metadata() -> Dict[str, Any]:
     except Exception as e:
         metadata['errors'].append(f"Error reading wave_history: {str(e)}")
         logger.error(f"Error reading wave_history: {e}", exc_info=True)
+    
+    # Get ledger_max_date from metadata file or artifact
+    try:
+        # First, try to read from metadata file
+        metadata_path = os.path.join(os.getcwd(), 'data', 'cache', 'data_health_metadata.json')
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, 'r') as f:
+                    health_metadata = json.load(f)
+                    ledger_max_date = health_metadata.get('ledger_max_date')
+                    if ledger_max_date:
+                        metadata['ledger_max_date'] = ledger_max_date
+                        logger.debug(f"Read ledger_max_date from metadata: {ledger_max_date}")
+            except Exception as e:
+                logger.warning(f"Error reading metadata file: {e}")
+        
+        # If not found in metadata, try to read from ledger artifact
+        if not metadata['ledger_max_date']:
+            ledger_cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'canonical_return_ledger.parquet')
+            if os.path.exists(ledger_cache_path):
+                try:
+                    ledger_df = pd.read_parquet(ledger_cache_path)
+                    if not ledger_df.empty:
+                        ledger_max_date = ledger_df.index.max()
+                        metadata['ledger_max_date'] = ledger_max_date.strftime('%Y-%m-%d') if hasattr(ledger_max_date, 'strftime') else str(ledger_max_date)
+                        logger.debug(f"Read ledger_max_date from artifact: {metadata['ledger_max_date']}")
+                except Exception as e:
+                    logger.warning(f"Error reading ledger artifact: {e}")
+        
+        # If still not found, leave as None (will display as N/A in UI)
+        if not metadata['ledger_max_date']:
+            logger.debug("ledger_max_date not found in metadata or artifact")
+            
+    except Exception as e:
+        metadata['errors'].append(f"Error reading ledger_max_date: {str(e)}")
+        logger.error(f"Error reading ledger_max_date: {e}", exc_info=True)
     
     # Get missing/stale tickers
     try:
@@ -310,57 +349,103 @@ def rebuild_wave_history() -> Tuple[bool, str]:
         return False, f"Error: {str(e)}\n\n{traceback.format_exc()[:500]}"
 
 
-def force_ledger_recompute() -> Tuple[bool, str]:
+def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
     """
     Force ledger recompute by reloading price_book cache and rebuilding wave_history.
     
     This function:
-    1. Reloads price_book from data/cache/prices_cache.parquet
-    2. Rebuilds wave_history.csv from price_book
-    3. Returns diagnostic info about the recompute
-    
-    The actual ledger recompute will happen when session state is cleared
-    and the UI requests the ledger again.
+    1. Loads canonical price_book from data/cache/prices_cache.parquet (no network calls)
+    2. Exports data/prices.csv in format date,ticker,close from price_book
+    3. Rebuilds wave_history.csv strictly from cached price_book
+    4. Builds canonical ledger artifact and persists to data/cache/canonical_return_ledger.parquet
+    5. Computes ledger_max_date and persists metadata to data/cache/data_health_metadata.json
+    6. Returns diagnostic info about the recompute
     
     Returns:
-        Tuple of (success: bool, message: str)
+        Tuple of (success: bool, message: str, details: dict)
+        details contains: price_book_max_date, wave_history_max_date, ledger_max_date, etc.
     """
+    details = {}
+    
     try:
         results = []
         
-        # Step 1: Check if price_book cache exists and get its max date
+        # Step 1: Load canonical price_book from cache (no network calls)
         cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'prices_cache.parquet')
         if not os.path.exists(cache_path):
-            return False, f"Price cache not found at {cache_path}. Cannot proceed with recompute."
+            error_msg = f"Price cache not found at {cache_path}. Cannot proceed with recompute."
+            return False, error_msg, details
         
         try:
-            import price_book
+            # Import price_book module
+            if not PRICE_BOOK_AVAILABLE:
+                error_msg = "price_book module not available"
+                return False, error_msg, details
+            
             # Force reload from cache by clearing any cached state
             price_data = price_book.get_price_book()
             
             if price_data.empty:
-                return False, "Price cache loaded but is empty. Cannot proceed with recompute."
+                error_msg = "Price cache loaded but is empty. Cannot proceed with recompute."
+                return False, error_msg, details
             
             price_book_max_date = price_data.index[-1].strftime('%Y-%m-%d')
             price_book_rows = len(price_data)
             price_book_tickers = len(price_data.columns)
             
+            details['price_book_max_date'] = price_book_max_date
+            details['price_book_rows'] = price_book_rows
+            details['price_book_tickers'] = price_book_tickers
+            
             results.append(f"✅ Price cache loaded: {price_book_rows} days × {price_book_tickers} tickers")
             results.append(f"   Max date: {price_book_max_date}")
             
         except Exception as e:
-            return False, f"Failed to load price_book: {str(e)}"
+            error_msg = f"Failed to load price_book: {str(e)[:250]}"
+            return False, error_msg, details
         
-        # Step 2: Rebuild wave_history from price_book
+        # Step 2: Export data/prices.csv in format date,ticker,close
+        try:
+            prices_csv_path = os.path.join(os.getcwd(), 'data', 'prices.csv')
+            
+            # Convert price_book (wide format) to prices.csv (long format: date,ticker,close)
+            price_data_reset = price_data.reset_index()
+            prices_long_df = pd.melt(
+                price_data_reset,
+                id_vars=['index'],
+                var_name='ticker',
+                value_name='close'
+            )
+            prices_long_df = prices_long_df.rename(columns={'index': 'date'})
+            
+            # Remove NaN values
+            prices_long_df = prices_long_df.dropna(subset=['close'])
+            
+            # Format date column
+            prices_long_df['date'] = pd.to_datetime(prices_long_df['date']).dt.strftime('%Y-%m-%d')
+            
+            # Save to CSV in the consistent format: date,ticker,close
+            prices_long_df.to_csv(prices_csv_path, index=False, columns=['date', 'ticker', 'close'])
+            
+            results.append(f"✅ Exported {len(prices_long_df)} price records to data/prices.csv")
+            logger.info(f"Exported {len(prices_long_df)} price records to {prices_csv_path}")
+            
+        except Exception as e:
+            error_msg = f"Failed to export prices.csv: {str(e)[:250]}"
+            return False, error_msg, details
+        
+        # Step 3: Rebuild wave_history.csv strictly from cached price_book
         logger.info("Rebuilding wave_history from price_book...")
         success, message = rebuild_wave_history()
         
         if not success:
-            return False, f"Price cache loaded but wave_history rebuild failed:\n{message}"
+            error_msg = f"Price cache loaded but wave_history rebuild failed: {message[:250]}"
+            return False, error_msg, details
         
         results.append(f"✅ wave_history.csv rebuilt")
         
-        # Step 3: Verify wave_history max date matches price_book
+        # Verify wave_history max date matches price_book
+        wave_history_max_date = None
         try:
             wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
             if os.path.exists(wave_history_path):
@@ -368,24 +453,95 @@ def force_ledger_recompute() -> Tuple[bool, str]:
                 if 'date' in wave_history.columns and not wave_history.empty:
                     wave_history['date'] = pd.to_datetime(wave_history['date'])
                     wave_history_max_date = wave_history['date'].max().strftime('%Y-%m-%d')
+                    details['wave_history_max_date'] = wave_history_max_date
                     
                     if wave_history_max_date == price_book_max_date:
                         results.append(f"✅ wave_history max date matches price_book: {wave_history_max_date}")
                     else:
                         results.append(f"⚠️ wave_history max date ({wave_history_max_date}) differs from price_book ({price_book_max_date})")
         except Exception as e:
-            results.append(f"⚠️ Could not verify wave_history max date: {str(e)}")
+            results.append(f"⚠️ Could not verify wave_history max date: {str(e)[:100]}")
         
-        # Step 4: Return success with diagnostic info
+        # Step 4: Build canonical ledger artifact and persist to data/cache/canonical_return_ledger.parquet
+        try:
+            from helpers.wave_performance import compute_portfolio_alpha_ledger
+            
+            # Compute canonical ledger
+            ledger_result = compute_portfolio_alpha_ledger(
+                price_book=price_data,
+                periods=[1, 30, 60, 365],
+                benchmark_ticker='SPY',
+                vix_exposure_enabled=True
+            )
+            
+            if not ledger_result['success']:
+                error_msg = f"Ledger computation failed: {ledger_result.get('failure_reason', 'unknown')[:250]}"
+                return False, error_msg, details
+            
+            # Get the daily ledger dataframe
+            daily_ledger = ledger_result.get('daily_ledger')
+            if daily_ledger is None or daily_ledger.empty:
+                error_msg = "Ledger computation succeeded but daily_ledger is empty"
+                return False, error_msg, details
+            
+            # Persist ledger to parquet
+            ledger_cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'canonical_return_ledger.parquet')
+            os.makedirs(os.path.dirname(ledger_cache_path), exist_ok=True)
+            daily_ledger.to_parquet(ledger_cache_path)
+            
+            # Get ledger max date
+            ledger_max_date = daily_ledger.index.max().strftime('%Y-%m-%d')
+            details['ledger_max_date'] = ledger_max_date
+            
+            results.append(f"✅ Canonical ledger artifact persisted: {ledger_cache_path}")
+            results.append(f"   Ledger max date: {ledger_max_date}")
+            logger.info(f"Persisted canonical ledger to {ledger_cache_path}, max date: {ledger_max_date}")
+            
+        except ImportError as e:
+            error_msg = f"Failed to import wave_performance module: {str(e)[:250]}"
+            return False, error_msg, details
+        except Exception as e:
+            error_msg = f"Failed to build/persist ledger artifact: {str(e)[:250]}"
+            logger.error(f"Error building ledger: {e}", exc_info=True)
+            return False, error_msg, details
+        
+        # Step 5: Persist metadata to data/cache/data_health_metadata.json
+        try:
+            metadata = {
+                'price_book_max_date': details.get('price_book_max_date'),
+                'wave_history_max_date': details.get('wave_history_max_date', price_book_max_date),
+                'ledger_max_date': details.get('ledger_max_date', price_book_max_date),
+                'last_operator_action': 'force_ledger_recompute',
+                'build_marker': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+            
+            metadata_path = os.path.join(os.getcwd(), 'data', 'cache', 'data_health_metadata.json')
+            os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+            
+            import json
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            results.append(f"✅ Metadata persisted: {metadata_path}")
+            logger.info(f"Persisted metadata to {metadata_path}")
+            
+        except Exception as e:
+            error_msg = f"Failed to persist metadata: {str(e)[:250]}"
+            logger.error(f"Error persisting metadata: {e}", exc_info=True)
+            return False, error_msg, details
+        
+        # Step 6: Return success with diagnostic info
         final_message = "\n".join(results)
-        final_message += "\n\n💡 Ledger will recompute automatically when accessed."
-        final_message += f"\n💡 Expected Ledger max date: {price_book_max_date}"
+        final_message += f"\n\n💡 Ledger recompute complete!"
+        final_message += f"\n💡 Ledger max date: {details.get('ledger_max_date', 'N/A')}"
         
-        return True, final_message
+        return True, final_message, details
         
     except Exception as e:
         logger.error(f"Error in force_ledger_recompute: {e}", exc_info=True)
-        return False, f"Error: {str(e)}\n\n{traceback.format_exc()[:500]}"
+        error_msg = f"Error: {str(e)[:250]}"
+        return False, error_msg, details
 
 
 def run_self_test() -> Dict[str, Any]:

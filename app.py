@@ -7716,7 +7716,7 @@ def render_sidebar_info():
             if OPERATOR_TOOLBOX_AVAILABLE and force_ledger_recompute:
                 # Use the new comprehensive recompute function
                 with st.spinner("Reloading price_book and rebuilding wave_history..."):
-                    success, message = force_ledger_recompute()
+                    success, message, details = force_ledger_recompute()
                 
                 if success:
                     # Clear ledger-related session state keys to trigger fresh computation
@@ -7808,22 +7808,32 @@ def render_sidebar_info():
     except Exception as e:
         st.sidebar.caption(f"**Price cache max date:** `Error: {str(e)[:30]}`")
     
-    # Ledger Max Date
+    # Ledger Max Date - Read from metadata or artifact if available
     try:
-        if 'portfolio_alpha_ledger' in st.session_state:
+        ledger_max_date_display = None
+        
+        # First try to get from get_data_health_metadata if available
+        if OPERATOR_TOOLBOX_AVAILABLE and get_data_health_metadata:
+            try:
+                health_metadata = get_data_health_metadata()
+                ledger_max_date_display = health_metadata.get('ledger_max_date')
+            except Exception:
+                pass  # Fall back to session state check
+        
+        # If not found in metadata, check session state
+        if not ledger_max_date_display and 'portfolio_alpha_ledger' in st.session_state:
             ledger = st.session_state['portfolio_alpha_ledger']
             if ledger and isinstance(ledger, dict) and ledger.get('success'):
                 ledger_df = ledger.get('ledger')
                 if ledger_df is not None and not ledger_df.empty:
                     max_date = ledger_df.index.max()
-                    max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
-                    st.sidebar.caption(f"**Ledger max date:** `{max_date_str}`")
-                else:
-                    st.sidebar.caption("**Ledger max date:** `N/A`")
-            else:
-                st.sidebar.caption("**Ledger max date:** `N/A`")
+                    ledger_max_date_display = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+        
+        # Display result
+        if ledger_max_date_display:
+            st.sidebar.caption(f"**Ledger max date:** `{ledger_max_date_display}`")
         else:
-            st.sidebar.caption("**Ledger max date:** `Not computed`")
+            st.sidebar.caption("**Ledger max date:** `N/A`")
     except Exception as e:
         st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
     
@@ -7990,7 +8000,7 @@ def render_sidebar_info():
             if st.button("🔄 Force Ledger Recompute (Full Pipeline)", key="toolbox_force_ledger_recompute", use_container_width=True):
                 try:
                     with st.spinner("Reloading price_book, rebuilding wave_history, and clearing ledger cache..."):
-                        success, message = force_ledger_recompute()
+                        success, message, details = force_ledger_recompute()
                     
                     if success:
                         # Clear ledger-related session state
