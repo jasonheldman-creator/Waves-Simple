@@ -24,6 +24,7 @@ import traceback
 import logging
 import time
 import itertools
+import html
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -7675,7 +7676,7 @@ def render_sidebar_info():
     
     # Price Cache Max Date
     try:
-        if get_price_book and PRICE_BOOK_CONSTANTS_AVAILABLE:
+        if callable(get_price_book) and PRICE_BOOK_CONSTANTS_AVAILABLE:
             price_book = get_price_book()
             if price_book is not None and not price_book.empty:
                 max_date = price_book.index.max()
@@ -18518,8 +18519,7 @@ def render_operator_panel_tab():
             build_marker = "SHA unavailable"
             branch = "unknown"
         
-        # Escape HTML to prevent XSS
-        import html
+        # Escape HTML to prevent XSS (html module imported at top of file)
         entrypoint_basename_escaped = html.escape(entrypoint_basename)
         entrypoint_escaped = html.escape(entrypoint)
         utc_now_escaped = html.escape(utc_now)
@@ -18551,7 +18551,7 @@ def render_operator_panel_tab():
     st.subheader("📊 Data Diagnostics")
     
     try:
-        if get_price_book and PRICE_BOOK_CONSTANTS_AVAILABLE:
+        if callable(get_price_book) and PRICE_BOOK_CONSTANTS_AVAILABLE:
             # Load price book
             price_book = get_price_book()
             
