@@ -24,6 +24,7 @@ import traceback
 import logging
 import time
 import itertools
+import html
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -145,6 +146,7 @@ try:
     from helpers.price_book import (
         PRICE_CACHE_OK_DAYS, 
         PRICE_CACHE_DEGRADED_DAYS,
+        CANONICAL_CACHE_PATH,
         compute_system_health,
         get_price_book
     )
@@ -162,6 +164,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"
     compute_system_health = None
     get_price_book = None
 
@@ -7615,6 +7618,110 @@ def render_sidebar_info():
         except Exception as e:
             st.sidebar.error(f"❌ Rerun failed: {str(e)}")
     
+    # Reload Price Book Button
+    if st.sidebar.button("📚 Reload Price Book", use_container_width=True, help="Reload price_book from disk cache"):
+        try:
+            # Clear price_book_cache from session state to force reload
+            if 'price_book_cache' in st.session_state:
+                del st.session_state['price_book_cache']
+            
+            # Clear Streamlit cache for price book
+            st.cache_data.clear()
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Reload Price Book"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Reload Price Book at {action_time}")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success("✅ Price book reloaded")
+        except Exception as e:
+            st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
+    
+    # Force Ledger Recompute Button
+    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger"):
+        try:
+            # Clear ledger-related session state keys
+            ledger_keys = [
+                'portfolio_alpha_ledger',
+                'portfolio_snapshot_debug',
+                'portfolio_exposure_series',
+                'canonical_return_ledger'
+            ]
+            
+            cleared_count = 0
+            for key in ledger_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_count += 1
+            
+            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            st.session_state.last_operator_action = "Force Ledger Recompute"
+            st.session_state.last_operator_time = action_time
+            
+            # Log the action (fail-safe)
+            try:
+                logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
+            except Exception:
+                pass  # Logging errors should not block button execution
+            
+            st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+        except Exception as e:
+            st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # OPERATOR DIAGNOSTICS - Read-Only Info
+    # ========================================================================
+    st.sidebar.markdown("### 📋 Diagnostics")
+    
+    # Build Marker
+    try:
+        build_info = get_build_info()
+        build_marker = f"{build_info.get('sha', 'unknown')[:8]}"
+        st.sidebar.caption(f"**Build marker:** `{build_marker}`")
+    except Exception:
+        st.sidebar.caption("**Build marker:** `SHA unavailable`")
+    
+    # Price Cache Max Date
+    try:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            price_book = get_price_book()
+            if price_book is not None and not price_book.empty:
+                max_date = price_book.index.max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Price cache max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Price cache max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Price cache max date:** `N/A`")
+    except Exception as e:
+        st.sidebar.caption(f"**Price cache max date:** `Error: {str(e)[:30]}`")
+    
+    # Ledger Max Date
+    try:
+        if 'portfolio_alpha_ledger' in st.session_state:
+            ledger = st.session_state['portfolio_alpha_ledger']
+            if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                ledger_df = ledger.get('ledger')
+                if ledger_df is not None and not ledger_df.empty:
+                    max_date = ledger_df.index.max()
+                    max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                    st.sidebar.caption(f"**Ledger max date:** `{max_date_str}`")
+                else:
+                    st.sidebar.caption("**Ledger max date:** `N/A`")
+            else:
+                st.sidebar.caption("**Ledger max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Ledger max date:** `Not computed`")
+    except Exception as e:
+        st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
+    
     # Display last operator action
     if st.session_state.last_operator_action:
         st.sidebar.caption(
@@ -9752,14 +9859,21 @@ def render_executive_brief_tab():
             # Load PRICE_BOOK
             price_book = get_price_book()
             
-            # Compute portfolio alpha ledger (canonical implementation)
-            ledger = compute_portfolio_alpha_ledger(
-                price_book, 
-                periods=[1, 30, 60, 365],
-                benchmark_ticker='SPY',
-                mode='Standard',
-                vix_exposure_enabled=True
-            )
+            # Use canonical ledger from session state if available (single source of truth)
+            # Only compute if not already in session state
+            if 'portfolio_alpha_ledger' in st.session_state:
+                ledger = st.session_state['portfolio_alpha_ledger']
+            else:
+                # Compute portfolio alpha ledger (canonical implementation)
+                ledger = compute_portfolio_alpha_ledger(
+                    price_book, 
+                    periods=[1, 30, 60, 365],
+                    benchmark_ticker='SPY',
+                    mode='Standard',
+                    vix_exposure_enabled=True
+                )
+                # Store in session state for reuse
+                st.session_state['portfolio_alpha_ledger'] = ledger
             
             # Add diagnostic information
             if ledger['success']:
@@ -18542,6 +18656,346 @@ def render_wave_intelligence_planb_tab():
             st.code(traceback.format_exc(), language="python")
 
 
+def render_operator_panel_tab():
+    """
+    Render the Operator Panel tab.
+    
+    This tab provides:
+    - System state proof (entrypoint file, UTC timestamp, build marker)
+    - Data diagnostics (cache path, existence, max date, missing symbols, coverage stats)
+    - Canonical Return Ledger preview (top/bottom 5 rows, date range, row count)
+    """
+    st.markdown("# 🛠️ Operator Panel")
+    st.markdown("### System state, data diagnostics, and ledger preview")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 1: System State Proof
+    # ========================================================================
+    st.subheader("🔍 System State Proof")
+    
+    try:
+        # Entrypoint file
+        entrypoint = os.path.abspath(__file__)
+        entrypoint_basename = os.path.basename(__file__)
+        
+        # UTC timestamp
+        utc_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Build marker
+        try:
+            build_info = get_build_info()
+            build_marker = f"{build_info.get('sha', 'unknown')}"
+            branch = build_info.get('branch', 'unknown')
+        except Exception:
+            build_marker = "SHA unavailable"
+            branch = "unknown"
+        
+        # Escape HTML to prevent XSS (html module imported at top of file)
+        entrypoint_basename_escaped = html.escape(entrypoint_basename)
+        entrypoint_escaped = html.escape(entrypoint)
+        utc_now_escaped = html.escape(utc_now)
+        build_marker_escaped = html.escape(build_marker)
+        branch_escaped = html.escape(branch)
+        
+        # Display in structured format
+        st.markdown(f"""
+        <div style="background-color: #1e1e1e; padding: 16px; border-radius: 8px; border: 1px solid #00d9ff; font-family: monospace;">
+            <div style="color: #00d9ff; font-weight: bold; margin-bottom: 8px;">SYSTEM STATE</div>
+            <div style="color: #e0e0e0;">
+                <strong>Entrypoint:</strong> {entrypoint_basename_escaped}<br>
+                <strong>Full Path:</strong> <code>{entrypoint_escaped}</code><br>
+                <strong>UTC Timestamp:</strong> {utc_now_escaped}<br>
+                <strong>Build Marker:</strong> {build_marker_escaped}<br>
+                <strong>Branch:</strong> {branch_escaped}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error displaying system state: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 2: Data Diagnostics
+    # ========================================================================
+    st.subheader("📊 Data Diagnostics")
+    
+    try:
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            # Load price book
+            price_book = get_price_book()
+            
+            if price_book is not None and not price_book.empty:
+                # Cache path (imported at top of file)
+                cache_exists = os.path.exists(CANONICAL_CACHE_PATH)
+                
+                # Max date
+                max_date = price_book.index.max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                
+                # Min date
+                min_date = price_book.index.min()
+                min_date_str = min_date.strftime('%Y-%m-%d') if hasattr(min_date, 'strftime') else str(min_date)
+                
+                # Shape
+                num_rows, num_cols = price_book.shape
+                
+                # Missing required symbols
+                required_symbols = ['SPY', 'QQQ', 'IWM']
+                missing_required = [sym for sym in required_symbols if sym not in price_book.columns]
+                
+                # VIX proxies
+                vix_proxies = ['^VIX', 'VIXY', 'VXX']
+                vix_available = [v for v in vix_proxies if v in price_book.columns]
+                
+                # Safe assets
+                safe_assets = ['BIL', 'SHY']
+                safe_available = [s for s in safe_assets if s in price_book.columns]
+                
+                # Display diagnostics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Cache Path", "Valid" if cache_exists else "Missing")
+                    st.caption(f"Path: `{CANONICAL_CACHE_PATH}`")
+                    st.caption(f"Exists: {'✅' if cache_exists else '❌'}")
+                
+                with col2:
+                    st.metric("Shape (rows × cols)", f"{num_rows} × {num_cols}")
+                    st.caption(f"Date range: {min_date_str} to {max_date_str}")
+                
+                with col3:
+                    st.metric("Required Symbols", f"{len(required_symbols) - len(missing_required)}/{len(required_symbols)}")
+                    if missing_required:
+                        st.caption(f"⚠️ Missing: {', '.join(missing_required)}")
+                    else:
+                        st.caption("✅ All required symbols present")
+                
+                # Coverage statistics
+                st.markdown("#### Coverage Statistics")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**VIX Proxies:**")
+                    if vix_available:
+                        st.success(f"✅ Available: {', '.join(vix_available)}")
+                    else:
+                        st.warning("⚠️ No VIX proxies found")
+                
+                with col2:
+                    st.markdown("**Safe Assets:**")
+                    if safe_available:
+                        st.success(f"✅ Available: {', '.join(safe_available)}")
+                    else:
+                        st.warning("⚠️ No safe assets found")
+                
+                # List of missing required symbols (if any)
+                if missing_required:
+                    st.warning(f"⚠️ **Missing Required Symbols:** {', '.join(missing_required)}")
+                
+            else:
+                st.warning("⚠️ Price book is empty or not available")
+                st.info("**Reason:** Cache does not exist or contains no data")
+        else:
+            st.error("❌ Price book module not available")
+            st.info("**Reason:** PRICE_BOOK_CONSTANTS_AVAILABLE is False or get_price_book is None")
+            
+    except Exception as e:
+        st.error(f"Error loading data diagnostics: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 3: Canonical Return Ledger Preview
+    # ========================================================================
+    st.subheader("📈 Canonical Return Ledger Preview")
+    
+    try:
+        # Check if ledger exists in session state
+        if 'portfolio_alpha_ledger' in st.session_state:
+            ledger = st.session_state['portfolio_alpha_ledger']
+            
+            if ledger and isinstance(ledger, dict) and ledger.get('success'):
+                ledger_df = ledger.get('ledger')
+                
+                if ledger_df is not None and not ledger_df.empty:
+                    # Ledger metadata
+                    num_rows = len(ledger_df)
+                    date_range_start = ledger_df.index.min()
+                    date_range_end = ledger_df.index.max()
+                    
+                    date_start_str = date_range_start.strftime('%Y-%m-%d') if hasattr(date_range_start, 'strftime') else str(date_range_start)
+                    date_end_str = date_range_end.strftime('%Y-%m-%d') if hasattr(date_range_end, 'strftime') else str(date_range_end)
+                    
+                    # Display metadata
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Row Count", num_rows)
+                    
+                    with col2:
+                        st.metric("Date Range Start", date_start_str)
+                    
+                    with col3:
+                        st.metric("Date Range End", date_end_str)
+                    
+                    # Preview top 5 rows
+                    st.markdown("#### Top 5 Rows (Most Recent)")
+                    st.dataframe(ledger_df.head(5), use_container_width=True)
+                    
+                    # Preview bottom 5 rows
+                    st.markdown("#### Bottom 5 Rows (Oldest)")
+                    st.dataframe(ledger_df.tail(5), use_container_width=True)
+                    
+                else:
+                    st.warning("⚠️ Ledger dataframe is empty")
+                    st.info("**Reason:** Ledger computation returned empty dataframe")
+            else:
+                st.warning("⚠️ Ledger computation failed or not successful")
+                reason = ledger.get('reason', 'Unknown reason') if isinstance(ledger, dict) else 'Ledger is not a dict'
+                st.info(f"**Reason:** {reason}")
+        else:
+            st.info("ℹ️ Canonical Return Ledger not yet computed")
+            st.info("**Reason:** Ledger has not been computed in this session. Navigate to a tab that uses the ledger to trigger computation.")
+            
+    except Exception as e:
+        st.error(f"Error loading ledger preview: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # SECTION 4: S&P 500 Wave (Flagship) Proof Block
+    # ========================================================================
+    st.subheader("🎯 S&P 500 Wave (Flagship) Proof")
+    st.markdown("### Volatility Regime, Exposure, and Reconciliation Status")
+    
+    try:
+        # Import volatility regime helper
+        from helpers.wave_performance import compute_volatility_regime_and_exposure, compute_portfolio_alpha_ledger
+        
+        # Get price book for volatility regime computation
+        if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
+            price_book = get_price_book()
+            
+            if price_book is not None and not price_book.empty:
+                # Compute volatility regime and exposure
+                vix_result = compute_volatility_regime_and_exposure(price_book)
+                
+                # Display VIX and Exposure information
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if vix_result['available']:
+                        st.metric("VIX Ticker Used", vix_result['vix_ticker_used'])
+                        st.caption(f"Last VIX Date: {vix_result['last_vix_date']}")
+                        st.caption(f"Last VIX Value: {vix_result['last_vix_value']:.2f}")
+                    else:
+                        st.metric("VIX Ticker Used", "N/A")
+                        st.caption(f"Reason: {vix_result.get('reason', 'Unknown')}")
+                
+                with col2:
+                    if vix_result['available']:
+                        st.metric("Current Regime", vix_result['current_regime'])
+                        st.caption(f"Based on VIX: {vix_result['last_vix_value']:.2f}")
+                    else:
+                        st.metric("Current Regime", "N/A")
+                        st.caption("VIX data unavailable")
+                
+                with col3:
+                    if vix_result['available']:
+                        exposure_pct = vix_result['current_exposure'] * 100
+                        st.metric("Current Exposure", f"{exposure_pct:.0f}%")
+                        st.caption(f"Raw value: {vix_result['current_exposure']:.3f}")
+                    else:
+                        st.metric("Current Exposure", "100%")
+                        st.caption("Default (no VIX overlay)")
+                
+                # Compute ledger to get reconciliation status
+                st.markdown("#### Daily Ledger Status")
+                
+                try:
+                    # Try to compute ledger for S&P 500 Wave
+                    ledger_result = compute_portfolio_alpha_ledger(
+                        price_book,
+                        periods=[1, 30],  # Just compute for quick check
+                        vix_exposure_enabled=True
+                    )
+                    
+                    if ledger_result['success']:
+                        # Get ledger info
+                        daily_ledger = ledger_result.get('daily_ledger')
+                        
+                        if daily_ledger is not None:
+                            # Display ledger status
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                last_date = daily_ledger.index[-1].strftime('%Y-%m-%d') if hasattr(daily_ledger.index[-1], 'strftime') else str(daily_ledger.index[-1])
+                                st.metric("Ledger Last Date", last_date)
+                            
+                            with col2:
+                                st.metric("Ledger Row Count", len(daily_ledger))
+                            
+                            with col3:
+                                # Reconciliation status
+                                recon_passed = ledger_result.get('reconciliation_passed', False)
+                                if recon_passed:
+                                    st.metric("Reconciliation", "✅ PASS")
+                                    max_diff_1 = ledger_result.get('reconciliation_1_max_diff', 0)
+                                    max_diff_2 = ledger_result.get('reconciliation_2_max_diff', 0)
+                                    st.caption(f"Max diff 1: {max_diff_1:.8f}")
+                                    st.caption(f"Max diff 2: {max_diff_2:.8f}")
+                                else:
+                                    st.metric("Reconciliation", "❌ FAIL")
+                                    st.caption(f"Reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                            
+                            # Display reconciliation details
+                            st.markdown("#### Reconciliation Checks")
+                            
+                            if recon_passed:
+                                st.success("✅ All reconciliation checks passed (tolerance < 0.10%)")
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.markdown("**Check 1:** `realized_return - benchmark_return == alpha_total`")
+                                    max_diff_1 = ledger_result.get('reconciliation_1_max_diff', 0)
+                                    tolerance = 0.0010
+                                    st.caption(f"Max diff: {max_diff_1:.8f} < {tolerance:.8f} ✓")
+                                
+                                with col2:
+                                    st.markdown("**Check 2:** `alpha_selection + alpha_overlay + alpha_residual == alpha_total`")
+                                    max_diff_2 = ledger_result.get('reconciliation_2_max_diff', 0)
+                                    st.caption(f"Max diff: {max_diff_2:.8f} < {tolerance:.8f} ✓")
+                            else:
+                                st.error("❌ Reconciliation failed - tolerance exceeded (>0.10%)")
+                                st.caption(f"Failure reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                        else:
+                            st.warning("⚠️ Daily ledger not available")
+                            st.caption("Ledger DataFrame is None")
+                    else:
+                        st.warning("⚠️ Ledger computation failed")
+                        st.caption(f"Reason: {ledger_result.get('failure_reason', 'Unknown')}")
+                
+                except Exception as ledger_error:
+                    st.error(f"Error computing ledger: {str(ledger_error)}")
+                    st.caption(f"Exception: {type(ledger_error).__name__}")
+            else:
+                st.warning("⚠️ Price book is empty - cannot compute S&P 500 Wave proof")
+        else:
+            st.error("❌ Price book module not available - cannot compute S&P 500 Wave proof")
+    
+    except Exception as e:
+        st.error(f"Error loading S&P 500 Wave proof: {str(e)}")
+        st.info(f"**Reason:** {type(e).__name__}: {str(e)}")
+
+
 def render_diagnostics_tab():
     """
     Render the Diagnostics / Health tab.
@@ -21617,6 +22071,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",          # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",      # NEW: Governance and transparency layer
+            "Operator Panel",          # NEW: Operator layer for system state and diagnostics
             "Diagnostics",             # Health/Diagnostics tab
             "Wave Overview (New)"      # NEW: Comprehensive all-waves overview
         ])
@@ -21686,12 +22141,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[14]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     elif ENABLE_WAVE_PROFILE:
@@ -21712,6 +22171,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",              # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)",  # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",          # NEW: Governance and transparency layer
+            "Operator Panel",              # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                 # Health/Diagnostics tab
             "Wave Overview (New)"          # NEW: Comprehensive all-waves overview
         ])
@@ -21785,12 +22245,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[14]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[15]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[16]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[16]:
+        with analytics_tabs[17]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     else:
         # Original tab layout (when ENABLE_WAVE_PROFILE is False)
@@ -21810,6 +22274,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             "Plan B Monitor",             # NEW: Plan B canonical metrics (decoupled from live tickers)
             "Wave Intelligence (Plan B)", # NEW: Proxy-based analytics for all 28 waves
             "Governance & Audit",         # NEW: Governance and transparency layer
+            "Operator Panel",             # NEW: Operator layer for system state and diagnostics
             "Diagnostics",                # Health/Diagnostics tab
             "Wave Overview (New)"         # NEW: Comprehensive all-waves overview
         ])
@@ -21878,12 +22343,16 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         with analytics_tabs[13]:
             safe_component("Governance & Audit", render_governance_audit_tab)
         
-        # Diagnostics tab
+        # Operator Panel tab (NEW)
         with analytics_tabs[14]:
+            safe_component("Operator Panel", render_operator_panel_tab)
+        
+        # Diagnostics tab
+        with analytics_tabs[15]:
             safe_component("Diagnostics", render_diagnostics_tab)
         
         # Wave Overview (New) tab
-        with analytics_tabs[15]:
+        with analytics_tabs[16]:
             safe_component("Wave Overview (New)", render_wave_overview_new_tab)
     
     # ========================================================================
