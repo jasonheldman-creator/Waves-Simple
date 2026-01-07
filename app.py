@@ -14220,11 +14220,21 @@ def render_individual_wave_view(selected_wave, all_metrics):
         st.divider()
         
         # ========================================================================
-        # SECTION A2: Executive Summary - Alpha Attribution (S&P 500 Wave only)
+        # SECTION A2: Executive Summary - Alpha Attribution
+        # ========================================================================
+        # NOTE: Attribution infrastructure is wired for:
+        #   - S&P 500 Wave: ENABLED (displays in UI)
+        #   - AI & Cloud MegaCap Wave: WIRED (internal only, gated from UI)
+        # 
+        # AI & Cloud MegaCap Wave uses same return ledger and attribution pipeline
+        # with static ETF proxy benchmark: 60% QQQ, 25% SMH, 15% IGV
+        # Attribution categories: Exposure & Timing, Regime & VIX Overlay (inactive),
+        # Momentum & Trend, Volatility & Risk Control, Asset Selection
         # ========================================================================
         st.markdown("#### 📋 Executive Summary")
         
         # Check if this is the S&P 500 Wave
+        # NOTE: Add "AI & Cloud MegaCap Wave" to this condition to enable UI display
         if selected_wave == "S&P 500 Wave":
             # Display alpha attribution for S&P 500 Wave
             try:
