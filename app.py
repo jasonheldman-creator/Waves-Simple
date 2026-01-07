@@ -21762,3 +21762,4 @@ if __name__ == "__main__":
             # If main() fails even in safe mode, show minimal error
             st.error("Critical Error: Unable to render application.")
             st.code(f"Error: {str(retry_error)}\n\n{traceback.format_exc()}", language="python")
+            # mobile commit trigger
