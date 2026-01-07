@@ -1,5 +1,3 @@
-# Sample YAML Workflow Content (Updated)
-
 name: Rebuild Snapshot
 
 on:
@@ -19,20 +17,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # Updated to use GITHUB_TOKEN
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          node-version: 16
+          python-version: 3.9
 
       - name: Install dependencies
-        run: npm install
+        run: pip install -r requirements.txt
 
-      - name: Build project
-        run: npm run build
+      - name: Rebuild snapshot
+        run: python scripts/rebuild_snapshot.py
 
       - name: Commit snapshot
         run: git commit -am "Updated snapshot"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Ensures repository state access uses GITHUB_TOKEN
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
