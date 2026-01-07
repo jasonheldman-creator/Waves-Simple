@@ -498,6 +498,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,AI & Cloud MegaCap Wave,0.008652341052827568,0.0069235207385087705,,neutral,1.0,False
 2025-12-19,AI & Cloud MegaCap Wave,-0.004158613130833357,-0.0160438021264403,,neutral,1.0,False
 2025-12-20,AI & Cloud MegaCap Wave,-0.0020136274401591995,0.0002588159171788007,,neutral,1.0,False
+2025-12-22,AI & Cloud MegaCap Wave,-0.19851527578656974,0.0,,neutral,1.0,False
+2025-12-23,AI & Cloud MegaCap Wave,-0.004307792800500925,0.0,,neutral,1.0,False
+2025-12-24,AI & Cloud MegaCap Wave,0.0014422630467501,0.0,,neutral,1.0,False
+2025-12-25,AI & Cloud MegaCap Wave,-0.0026032170195864415,0.0,,neutral,1.0,False
+2025-12-26,AI & Cloud MegaCap Wave,-1.0258728322071024e-06,0.0,,neutral,1.0,False
+2025-12-29,AI & Cloud MegaCap Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,AI & Cloud MegaCap Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,AI & Cloud MegaCap Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,AI & Cloud MegaCap Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,AI & Cloud MegaCap Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Clean Transit-Infrastructure Wave,-0.07897982791708548,0.0009644295682758042,,neutral,1.0,False
 2024-08-10,Clean Transit-Infrastructure Wave,0.00032006308796544264,-0.009124914985264021,,neutral,1.0,False
 2024-08-11,Clean Transit-Infrastructure Wave,-0.001041578593194731,0.022764971686781488,,neutral,1.0,False
@@ -997,6 +1007,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Clean Transit-Infrastructure Wave,0.0031501540733700597,0.014389039837740647,,neutral,1.0,False
 2025-12-19,Clean Transit-Infrastructure Wave,-0.0009439478665041613,0.0010185988606783436,,neutral,1.0,False
 2025-12-20,Clean Transit-Infrastructure Wave,-4.461120005434848e-05,-0.004937061882867244,,neutral,1.0,False
+2025-12-22,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Clean Transit-Infrastructure Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto AI Growth Wave,-0.09620012294908559,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto AI Growth Wave,-0.003812715876791048,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto AI Growth Wave,-0.02492063653790206,-0.02530979658639243,,neutral,1.0,False
@@ -1496,6 +1516,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto AI Growth Wave,0.020899369264893816,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto AI Growth Wave,-0.01635485782908415,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto AI Growth Wave,-0.01743780160544847,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto AI Growth Wave,0.0,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto AI Growth Wave,0.0,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto AI Growth Wave,0.0,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto AI Growth Wave,0.0,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto AI Growth Wave,0.0,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto AI Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto AI Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto AI Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto AI Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto AI Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto Broad Growth Wave,-0.05724400736480562,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto Broad Growth Wave,0.018844269850342585,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto Broad Growth Wave,0.009928109420797821,-0.02530979658639243,,neutral,1.0,False
@@ -1995,6 +2025,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto Broad Growth Wave,0.0016021923849355866,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto Broad Growth Wave,0.004902574839862982,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto Broad Growth Wave,0.004326769080706193,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto Broad Growth Wave,-0.8387752930074601,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto Broad Growth Wave,-0.007084251423214283,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto Broad Growth Wave,0.004424011911689647,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto Broad Growth Wave,-0.006640532878395104,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto Broad Growth Wave,-0.00901672128894911,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto Broad Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto Broad Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto Broad Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto Broad Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto Broad Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto DeFi Growth Wave,-0.1347661398454896,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto DeFi Growth Wave,0.007443152395634221,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto DeFi Growth Wave,0.03609084886483512,-0.02530979658639243,,neutral,1.0,False
@@ -2494,6 +2534,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto DeFi Growth Wave,0.033480944762172796,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto DeFi Growth Wave,-0.011252122135347986,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto DeFi Growth Wave,-0.0076583728595771014,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto DeFi Growth Wave,0.0,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto DeFi Growth Wave,0.0,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto DeFi Growth Wave,0.0,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto DeFi Growth Wave,0.0,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto DeFi Growth Wave,0.0,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto DeFi Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto DeFi Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto DeFi Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto DeFi Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto DeFi Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto Income Wave,-0.10714783842224584,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto Income Wave,0.011993605452711614,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto Income Wave,0.05136928393500928,-0.02530979658639243,,neutral,1.0,False
@@ -2993,6 +3043,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto Income Wave,0.011164731440376817,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto Income Wave,0.010894171946857942,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto Income Wave,-0.014794869378482026,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto Income Wave,-0.2891625928163948,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto Income Wave,-0.004375517755697234,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto Income Wave,0.001568197507856417,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto Income Wave,-0.003910399318449276,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto Income Wave,-0.006141629246898616,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto Income Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto Income Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto Income Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto Income Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto Income Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto L1 Growth Wave,-0.09427357259045707,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto L1 Growth Wave,0.013954109537816641,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto L1 Growth Wave,0.03954062219774248,-0.02530979658639243,,neutral,1.0,False
@@ -3492,6 +3552,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto L1 Growth Wave,-0.006977876676347602,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto L1 Growth Wave,0.005261177095572497,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto L1 Growth Wave,0.0050974981818575245,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto L1 Growth Wave,-0.8033452339894778,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto L1 Growth Wave,-0.006972458383547856,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto L1 Growth Wave,0.005540648091597171,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto L1 Growth Wave,-0.001336239476857055,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto L1 Growth Wave,-0.013236506900736316,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto L1 Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto L1 Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto L1 Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto L1 Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto L1 Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Crypto L2 Growth Wave,-0.12653272574901941,0.009040950186137264,,neutral,1.0,False
 2024-08-10,Crypto L2 Growth Wave,0.005737865957376215,0.001873975169829123,,neutral,1.0,False
 2024-08-11,Crypto L2 Growth Wave,0.011871674329008696,-0.02530979658639243,,neutral,1.0,False
@@ -3991,6 +4061,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Crypto L2 Growth Wave,-0.03874626457029568,0.0024126455906821054,,neutral,1.0,False
 2025-12-19,Crypto L2 Growth Wave,0.0061507026257730055,-0.010789277118433027,,neutral,1.0,False
 2025-12-20,Crypto L2 Growth Wave,-0.031213270479161385,-0.004153032972564863,,neutral,1.0,False
+2025-12-22,Crypto L2 Growth Wave,0.0,-0.5809630961900447,,neutral,1.0,False
+2025-12-23,Crypto L2 Growth Wave,0.0,-0.016625154713003742,,neutral,1.0,False
+2025-12-24,Crypto L2 Growth Wave,0.0,0.00615433082598682,,neutral,1.0,False
+2025-12-25,Crypto L2 Growth Wave,0.0,-0.00847347635245932,,neutral,1.0,False
+2025-12-26,Crypto L2 Growth Wave,0.0,-0.0038679065513601563,,neutral,1.0,False
+2025-12-29,Crypto L2 Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Crypto L2 Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Crypto L2 Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Crypto L2 Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Crypto L2 Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Demas Fund Wave,-0.08189990081867046,-0.012704633082611827,,neutral,1.0,False
 2024-08-10,Demas Fund Wave,-0.0035073707691152586,0.01165172855313723,,neutral,1.0,False
 2024-08-11,Demas Fund Wave,-0.0001649909510638523,-0.009049487406657453,,neutral,1.0,False
@@ -4490,6 +4570,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Demas Fund Wave,-0.009226416016085287,0.000735876825540549,,neutral,1.0,False
 2025-12-19,Demas Fund Wave,0.0010603018964731393,-0.018044007013971353,,neutral,1.0,False
 2025-12-20,Demas Fund Wave,0.0028659914966738366,0.01929723502304137,,neutral,1.0,False
+2025-12-22,Demas Fund Wave,-0.19108798748097522,-0.43379717435070553,,neutral,1.0,False
+2025-12-23,Demas Fund Wave,-7.942569680656768e-05,-0.014585059185657556,,neutral,1.0,False
+2025-12-24,Demas Fund Wave,-0.0005989168936530848,0.005227325026188057,,neutral,1.0,False
+2025-12-25,Demas Fund Wave,-0.0009591872032326165,-0.013034664394830586,,neutral,1.0,False
+2025-12-26,Demas Fund Wave,-0.005948412095624078,-0.02047209748966261,,neutral,1.0,False
+2025-12-29,Demas Fund Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Demas Fund Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Demas Fund Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Demas Fund Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Demas Fund Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,EV & Infrastructure Wave,-0.08392620737199344,0.0009644295682758042,,neutral,1.0,False
 2024-08-10,EV & Infrastructure Wave,-0.0014163562372988547,-0.009124914985264021,,neutral,1.0,False
 2024-08-11,EV & Infrastructure Wave,0.0019522855318391975,0.022764971686781488,,neutral,1.0,False
@@ -4989,6 +5079,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,EV & Infrastructure Wave,0.0040456490478252335,0.014389039837740647,,neutral,1.0,False
 2025-12-19,EV & Infrastructure Wave,0.001749354346661018,0.0010185988606783436,,neutral,1.0,False
 2025-12-20,EV & Infrastructure Wave,8.800781412445337e-05,-0.004937061882867244,,neutral,1.0,False
+2025-12-22,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,EV & Infrastructure Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Future Energy & EV Wave,-0.02192756192436967,0.01699109204882876,,neutral,1.0,False
 2024-08-10,Future Energy & EV Wave,-0.0004000230044265343,0.0008921330089213253,,neutral,1.0,False
 2024-08-11,Future Energy & EV Wave,-0.0022182077133834316,-0.0033222591362126463,,neutral,1.0,False
@@ -5488,6 +5588,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Future Energy & EV Wave,0.011912721277382523,0.007821092508859762,,neutral,1.0,False
 2025-12-19,Future Energy & EV Wave,0.005041346065894485,-0.025524433127197765,,neutral,1.0,False
 2025-12-20,Future Energy & EV Wave,-0.00644783002271913,-0.01630062838300239,,neutral,1.0,False
+2025-12-22,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Future Energy & EV Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Future Power & Energy Wave,-0.028331275575631348,0.01699109204882876,,neutral,1.0,False
 2024-08-10,Future Power & Energy Wave,0.0001563920905887182,0.0008921330089213253,,neutral,1.0,False
 2024-08-11,Future Power & Energy Wave,0.0032573767318299467,-0.0033222591362126463,,neutral,1.0,False
@@ -5987,6 +6097,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Future Power & Energy Wave,0.013792184999357249,0.007821092508859762,,neutral,1.0,False
 2025-12-19,Future Power & Energy Wave,0.001639554077777709,-0.025524433127197765,,neutral,1.0,False
 2025-12-20,Future Power & Energy Wave,-0.004464333067643388,-0.01630062838300239,,neutral,1.0,False
+2025-12-22,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Future Power & Energy Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Gold Wave,-0.10085297048737807,-0.09823677581863977,,neutral,1.0,False
 2024-08-10,Gold Wave,0.002707296674028847,0.00022346368715076004,,neutral,1.0,False
 2024-08-11,Gold Wave,-0.00264484253749091,-0.012734584450402098,,neutral,1.0,False
@@ -6486,6 +6606,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Gold Wave,0.01407966131819669,0.01963554174318416,,neutral,1.0,False
 2025-12-19,Gold Wave,-0.0017497698340765535,0.008035466888334675,,neutral,1.0,False
 2025-12-20,Gold Wave,0.004689423501755441,-0.004810335349093031,,neutral,1.0,False
+2025-12-22,Gold Wave,-0.4303382063968866,-0.3081784974544769,,neutral,1.0,False
+2025-12-23,Gold Wave,-0.009117673099675927,-0.014585059185657556,,neutral,1.0,False
+2025-12-24,Gold Wave,-0.00488534703087834,0.005227325026188057,,neutral,1.0,False
+2025-12-25,Gold Wave,-0.014894880161750612,-0.013034664394830586,,neutral,1.0,False
+2025-12-26,Gold Wave,-0.013292802224213718,-0.02047209748966261,,neutral,1.0,False
+2025-12-29,Gold Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Gold Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Gold Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Gold Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Gold Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Income Wave,-0.10734780871927557,-0.020533759394047002,,neutral,1.0,False
 2024-08-10,Income Wave,0.003268800271219213,-0.0010874818753021653,,neutral,1.0,False
 2024-08-11,Income Wave,0.008586427749164682,0.017176726744889237,,neutral,1.0,False
@@ -6985,6 +7115,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Income Wave,0.008461596272640558,0.006495068559057016,,neutral,1.0,False
 2025-12-19,Income Wave,0.00014999548105508746,0.016252390057361454,,neutral,1.0,False
 2025-12-20,Income Wave,-0.001400954324917464,0.005350423330197529,,neutral,1.0,False
+2025-12-22,Income Wave,-0.3409647179573299,0.0,,neutral,1.0,False
+2025-12-23,Income Wave,-0.0034341258082803915,0.0,,neutral,1.0,False
+2025-12-24,Income Wave,-0.006564606538134526,0.0,,neutral,1.0,False
+2025-12-25,Income Wave,-0.006782757112213516,0.0,,neutral,1.0,False
+2025-12-26,Income Wave,-0.008195813374215816,0.0,,neutral,1.0,False
+2025-12-29,Income Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Income Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Income Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Income Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Income Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Infinity Multi-Asset Growth Wave,-0.037746645285126584,-0.012704633082611827,,neutral,1.0,False
 2024-08-10,Infinity Multi-Asset Growth Wave,0.0017671060395691102,0.01165172855313723,,neutral,1.0,False
 2024-08-11,Infinity Multi-Asset Growth Wave,0.0043913423479923774,-0.009049487406657453,,neutral,1.0,False
@@ -7484,6 +7624,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Infinity Multi-Asset Growth Wave,0.0009386258558755523,0.000735876825540549,,neutral,1.0,False
 2025-12-19,Infinity Multi-Asset Growth Wave,-0.008559336316398446,-0.018044007013971353,,neutral,1.0,False
 2025-12-20,Infinity Multi-Asset Growth Wave,-0.0025865572695106414,0.01929723502304137,,neutral,1.0,False
+2025-12-22,Infinity Multi-Asset Growth Wave,-0.1640013551490424,-0.43379717435070553,,neutral,1.0,False
+2025-12-23,Infinity Multi-Asset Growth Wave,-0.00447752253206457,-0.014585059185657556,,neutral,1.0,False
+2025-12-24,Infinity Multi-Asset Growth Wave,0.001614547797846355,0.005227325026188057,,neutral,1.0,False
+2025-12-25,Infinity Multi-Asset Growth Wave,-0.0036823399163306283,-0.013034664394830586,,neutral,1.0,False
+2025-12-26,Infinity Multi-Asset Growth Wave,-0.005311419699983631,-0.02047209748966261,,neutral,1.0,False
+2025-12-29,Infinity Multi-Asset Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Infinity Multi-Asset Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Infinity Multi-Asset Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Infinity Multi-Asset Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Infinity Multi-Asset Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Next-Gen Compute & Semis Wave,-0.037699982382940096,0.03128654970760225,,neutral,1.0,False
 2024-08-10,Next-Gen Compute & Semis Wave,-0.0004024680148007106,-0.004819960306209237,,neutral,1.0,False
 2024-08-11,Next-Gen Compute & Semis Wave,-0.003751137729876406,0.002165242165242054,,neutral,1.0,False
@@ -7983,6 +8133,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Next-Gen Compute & Semis Wave,0.007263391823917125,0.0069235207385087705,,neutral,1.0,False
 2025-12-19,Next-Gen Compute & Semis Wave,-0.0032212262426951415,-0.0160438021264403,,neutral,1.0,False
 2025-12-20,Next-Gen Compute & Semis Wave,-7.457365003172992e-05,0.0002588159171788007,,neutral,1.0,False
+2025-12-22,Next-Gen Compute & Semis Wave,-0.21434527016717722,0.0,,neutral,1.0,False
+2025-12-23,Next-Gen Compute & Semis Wave,-0.002180847274125082,0.0,,neutral,1.0,False
+2025-12-24,Next-Gen Compute & Semis Wave,0.0019880526063940987,0.0,,neutral,1.0,False
+2025-12-25,Next-Gen Compute & Semis Wave,-0.0023488894370804507,0.0,,neutral,1.0,False
+2025-12-26,Next-Gen Compute & Semis Wave,-0.00013170458454914418,0.0,,neutral,1.0,False
+2025-12-29,Next-Gen Compute & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Next-Gen Compute & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Next-Gen Compute & Semis Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Next-Gen Compute & Semis Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Next-Gen Compute & Semis Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Quantum Computing Wave,-0.015417473129990582,0.03128654970760225,,neutral,1.0,False
 2024-08-10,Quantum Computing Wave,-0.002612867413201258,-0.004819960306209237,,neutral,1.0,False
 2024-08-11,Quantum Computing Wave,-0.0026613261580772747,0.002165242165242054,,neutral,1.0,False
@@ -8482,6 +8642,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Quantum Computing Wave,8.395950937792936e-05,0.0069235207385087705,,neutral,1.0,False
 2025-12-19,Quantum Computing Wave,-0.0029336478508117884,-0.0160438021264403,,neutral,1.0,False
 2025-12-20,Quantum Computing Wave,-0.003108319309688746,0.0002588159171788007,,neutral,1.0,False
+2025-12-22,Quantum Computing Wave,-0.14979674312141195,0.0,,neutral,1.0,False
+2025-12-23,Quantum Computing Wave,-0.004322570721188235,0.0,,neutral,1.0,False
+2025-12-24,Quantum Computing Wave,0.0007252020706019491,0.0,,neutral,1.0,False
+2025-12-25,Quantum Computing Wave,-0.0016024207261621792,0.0,,neutral,1.0,False
+2025-12-26,Quantum Computing Wave,-0.0009091740804802574,0.0,,neutral,1.0,False
+2025-12-29,Quantum Computing Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Quantum Computing Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Quantum Computing Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Quantum Computing Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Quantum Computing Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,S&P 500 Wave,-0.012704633082611827,-0.012704633082611827,,neutral,1.0,False
 2024-08-10,S&P 500 Wave,0.01165172855313723,0.01165172855313723,,neutral,1.0,False
 2024-08-11,S&P 500 Wave,-0.009049487406657453,-0.009049487406657453,,neutral,1.0,False
@@ -8981,6 +9151,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,S&P 500 Wave,0.000735876825540549,0.000735876825540549,,neutral,1.0,False
 2025-12-19,S&P 500 Wave,-0.018044007013971353,-0.018044007013971353,,neutral,1.0,False
 2025-12-20,S&P 500 Wave,0.01929723502304137,0.01929723502304137,,neutral,1.0,False
+2025-12-22,S&P 500 Wave,-0.43379717435070553,-0.43379717435070553,,neutral,1.0,False
+2025-12-23,S&P 500 Wave,-0.014585059185657556,-0.014585059185657556,,neutral,1.0,False
+2025-12-24,S&P 500 Wave,0.005227325026188057,0.005227325026188057,,neutral,1.0,False
+2025-12-25,S&P 500 Wave,-0.013034664394830586,-0.013034664394830586,,neutral,1.0,False
+2025-12-26,S&P 500 Wave,-0.02047209748966261,-0.02047209748966261,,neutral,1.0,False
+2025-12-29,S&P 500 Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,S&P 500 Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,S&P 500 Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,S&P 500 Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,S&P 500 Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Small Cap Growth Wave,-0.08224860216541353,0.014048991354467022,,neutral,1.0,False
 2024-08-10,Small Cap Growth Wave,-9.02135481245514e-06,-0.006546561786348715,,neutral,1.0,False
 2024-08-11,Small Cap Growth Wave,-0.00636739865199163,0.0009705762157743436,,neutral,1.0,False
@@ -9480,6 +9660,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Small Cap Growth Wave,-0.009748861167123857,0.0022761760242790974,,neutral,1.0,False
 2025-12-19,Small Cap Growth Wave,-0.0030970971666125675,0.00706535452939705,,neutral,1.0,False
 2025-12-20,Small Cap Growth Wave,0.004712449335884251,-0.013279879729391153,,neutral,1.0,False
+2025-12-22,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Small Cap Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Small to Mid Cap Growth Wave,-0.06900131762023175,0.025502846299810367,,neutral,1.0,False
 2024-08-10,Small to Mid Cap Growth Wave,0.0018432027303871281,0.01887351047294783,,neutral,1.0,False
 2024-08-11,Small to Mid Cap Growth Wave,0.003069669742759223,-0.0024698532616591606,,neutral,1.0,False
@@ -9979,6 +10169,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Small to Mid Cap Growth Wave,-0.006665804452037738,-0.024949083503055025,,neutral,1.0,False
 2025-12-19,Small to Mid Cap Growth Wave,0.009912799624388301,0.012845953002611044,,neutral,1.0,False
 2025-12-20,Small to Mid Cap Growth Wave,0.00018424108626669537,0.012786141472468593,,neutral,1.0,False
+2025-12-22,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Small to Mid Cap Growth Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,US MegaCap Core Wave,-0.015628485808806478,-0.012704633082611827,,neutral,1.0,False
 2024-08-10,US MegaCap Core Wave,0.0008950813560302965,0.01165172855313723,,neutral,1.0,False
 2024-08-11,US MegaCap Core Wave,0.00744485821724058,-0.009049487406657453,,neutral,1.0,False
@@ -10478,6 +10678,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,US MegaCap Core Wave,0.0030813231353524232,0.000735876825540549,,neutral,1.0,False
 2025-12-19,US MegaCap Core Wave,-0.009581320723687451,-0.018044007013971353,,neutral,1.0,False
 2025-12-20,US MegaCap Core Wave,-0.008736830346879552,0.01929723502304137,,neutral,1.0,False
+2025-12-22,US MegaCap Core Wave,-0.4955607168039433,-0.43379717435070553,,neutral,1.0,False
+2025-12-23,US MegaCap Core Wave,-0.0009563221592551578,-0.014585059185657556,,neutral,1.0,False
+2025-12-24,US MegaCap Core Wave,0.002384549443696733,0.005227325026188057,,neutral,1.0,False
+2025-12-25,US MegaCap Core Wave,-0.0033751939816284377,-0.013034664394830586,,neutral,1.0,False
+2025-12-26,US MegaCap Core Wave,-0.0028544297074012317,-0.02047209748966261,,neutral,1.0,False
+2025-12-29,US MegaCap Core Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,US MegaCap Core Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,US MegaCap Core Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,US MegaCap Core Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,US MegaCap Core Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,US Mid/Small Growth & Semis Wave,-0.09733043893330014,0.025502846299810367,,neutral,1.0,False
 2024-08-10,US Mid/Small Growth & Semis Wave,-0.00467174512901396,0.01887351047294783,,neutral,1.0,False
 2024-08-11,US Mid/Small Growth & Semis Wave,0.008975458845685513,-0.0024698532616591606,,neutral,1.0,False
@@ -10977,6 +11187,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,US Mid/Small Growth & Semis Wave,0.0021350164441711226,-0.024949083503055025,,neutral,1.0,False
 2025-12-19,US Mid/Small Growth & Semis Wave,0.004562436301665262,0.012845953002611044,,neutral,1.0,False
 2025-12-20,US Mid/Small Growth & Semis Wave,-0.004610118544200602,0.012786141472468593,,neutral,1.0,False
+2025-12-22,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,US Mid/Small Growth & Semis Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,US Small-Cap Disruptors Wave,-0.06769982199990131,0.014048991354467022,,neutral,1.0,False
 2024-08-10,US Small-Cap Disruptors Wave,-0.002069832102154945,-0.006546561786348715,,neutral,1.0,False
 2024-08-11,US Small-Cap Disruptors Wave,-0.0012961390790062759,0.0009705762157743436,,neutral,1.0,False
@@ -11476,6 +11696,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,US Small-Cap Disruptors Wave,-0.008288484460341918,0.0022761760242790974,,neutral,1.0,False
 2025-12-19,US Small-Cap Disruptors Wave,-0.005145643022776293,0.00706535452939705,,neutral,1.0,False
 2025-12-20,US Small-Cap Disruptors Wave,0.0012910001456584164,-0.013279879729391153,,neutral,1.0,False
+2025-12-22,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,US Small-Cap Disruptors Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Vector Muni Ladder Wave,-0.09998258095410172,-0.09393790044356831,,neutral,1.0,False
 2024-08-10,Vector Muni Ladder Wave,0.010571463069935517,0.011640557006092234,,neutral,1.0,False
 2024-08-11,Vector Muni Ladder Wave,0.0024895594825470263,0.0055919991396926605,,neutral,1.0,False
@@ -11975,6 +12205,16 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Vector Muni Ladder Wave,0.006997800152636157,0.018639372740504312,,neutral,1.0,False
 2025-12-19,Vector Muni Ladder Wave,0.013653139549554482,0.011430678466076705,,neutral,1.0,False
 2025-12-20,Vector Muni Ladder Wave,0.0028532742949842595,0.005878600072912743,,neutral,1.0,False
+2025-12-22,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Vector Muni Ladder Wave,0.0,0.0,,neutral,1.0,False
 2024-08-09,Vector Treasury Ladder Wave,-0.043769412582310104,-0.020533759394047002,,neutral,1.0,False
 2024-08-10,Vector Treasury Ladder Wave,-0.0006402372737979384,-0.0010874818753021653,,neutral,1.0,False
 2024-08-11,Vector Treasury Ladder Wave,0.008127123613759281,0.017176726744889237,,neutral,1.0,False
@@ -12474,3 +12714,13 @@ date,wave,portfolio_return,benchmark_return,vix_level,vix_regime,exposure_used,o
 2025-12-18,Vector Treasury Ladder Wave,-0.0009870250100715238,0.006495068559057016,,neutral,1.0,False
 2025-12-19,Vector Treasury Ladder Wave,0.020653465872317932,0.016252390057361454,,neutral,1.0,False
 2025-12-20,Vector Treasury Ladder Wave,-0.0005391903836644396,0.005350423330197529,,neutral,1.0,False
+2025-12-22,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-23,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-24,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-25,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-26,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-29,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-30,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2025-12-31,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2026-01-02,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False
+2026-01-05,Vector Treasury Ladder Wave,0.0,0.0,,neutral,1.0,False

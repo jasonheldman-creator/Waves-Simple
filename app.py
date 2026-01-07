@@ -149,7 +149,8 @@ try:
         get_data_health_metadata,
         rebuild_price_cache,
         rebuild_wave_history,
-        run_self_test
+        run_self_test,
+        force_ledger_recompute
     )
     OPERATOR_TOOLBOX_AVAILABLE = True
 except ImportError:
@@ -7710,33 +7711,70 @@ def render_sidebar_info():
             st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
     
     # Force Ledger Recompute Button
-    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger"):
+    if st.sidebar.button("📊 Force Ledger Recompute", use_container_width=True, help="Force re-computation of canonical Return Ledger from fresh price_book cache"):
         try:
-            # Clear ledger-related session state keys
-            ledger_keys = [
-                'portfolio_alpha_ledger',
-                'portfolio_snapshot_debug',
-                'portfolio_exposure_series',
-                'canonical_return_ledger'
-            ]
-            
-            cleared_count = 0
-            for key in ledger_keys:
-                if key in st.session_state:
-                    del st.session_state[key]
-                    cleared_count += 1
-            
-            action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            st.session_state.last_operator_action = "Force Ledger Recompute"
-            st.session_state.last_operator_time = action_time
-            
-            # Log the action (fail-safe)
-            try:
-                logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
-            except Exception:
-                pass  # Logging errors should not block button execution
-            
-            st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
+            if OPERATOR_TOOLBOX_AVAILABLE and force_ledger_recompute:
+                # Use the new comprehensive recompute function
+                with st.spinner("Reloading price_book and rebuilding wave_history..."):
+                    success, message = force_ledger_recompute()
+                
+                if success:
+                    # Clear ledger-related session state keys to trigger fresh computation
+                    ledger_keys = [
+                        'portfolio_alpha_ledger',
+                        'portfolio_snapshot_debug',
+                        'portfolio_exposure_series',
+                        'canonical_return_ledger',
+                        'wave_data_cache',
+                        'price_book_cache'
+                    ]
+                    
+                    cleared_count = 0
+                    for key in ledger_keys:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            cleared_count += 1
+                    
+                    action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    st.session_state.last_operator_action = "Force Ledger Recompute"
+                    st.session_state.last_operator_time = action_time
+                    
+                    # Log the action (fail-safe)
+                    try:
+                        logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} keys)")
+                    except Exception:
+                        pass  # Logging errors should not block button execution
+                    
+                    st.sidebar.success(message)
+                    st.rerun()
+                else:
+                    st.sidebar.error(message)
+            else:
+                # Fallback to old behavior if operator_toolbox not available
+                ledger_keys = [
+                    'portfolio_alpha_ledger',
+                    'portfolio_snapshot_debug',
+                    'portfolio_exposure_series',
+                    'canonical_return_ledger'
+                ]
+                
+                cleared_count = 0
+                for key in ledger_keys:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+                
+                action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                st.session_state.last_operator_action = "Force Ledger Recompute"
+                st.session_state.last_operator_time = action_time
+                
+                # Log the action (fail-safe)
+                try:
+                    logger.info(f"Operator action: Force Ledger Recompute at {action_time} (cleared {cleared_count} ledger keys)")
+                except Exception:
+                    pass  # Logging errors should not block button execution
+                
+                st.sidebar.success(f"✅ Ledger recompute triggered ({cleared_count} keys cleared)")
         except Exception as e:
             st.sidebar.error(f"❌ Ledger recompute failed: {str(e)}")
     
@@ -7788,6 +7826,24 @@ def render_sidebar_info():
             st.sidebar.caption("**Ledger max date:** `Not computed`")
     except Exception as e:
         st.sidebar.caption(f"**Ledger max date:** `Error: {str(e)[:30]}`")
+    
+    # Wave History Max Date
+    try:
+        wave_history_path = os.path.join(os.path.dirname(__file__), 'wave_history.csv')
+        if os.path.exists(wave_history_path):
+            import pandas as pd
+            wave_history = pd.read_csv(wave_history_path)
+            if 'date' in wave_history.columns and not wave_history.empty:
+                wave_history['date'] = pd.to_datetime(wave_history['date'])
+                max_date = wave_history['date'].max()
+                max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
+                st.sidebar.caption(f"**Wave history max date:** `{max_date_str}`")
+            else:
+                st.sidebar.caption("**Wave history max date:** `N/A`")
+        else:
+            st.sidebar.caption("**Wave history max date:** `Not found`")
+    except Exception as e:
+        st.sidebar.caption(f"**Wave history max date:** `Error: {str(e)[:30]}`")
     
     # Display last operator action
     if st.session_state.last_operator_action:
@@ -7924,6 +7980,36 @@ def render_sidebar_info():
                     
                     if success:
                         st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Force Ledger Recompute button (comprehensive)
+            if st.button("🔄 Force Ledger Recompute (Full Pipeline)", key="toolbox_force_ledger_recompute", use_container_width=True):
+                try:
+                    with st.spinner("Reloading price_book, rebuilding wave_history, and clearing ledger cache..."):
+                        success, message = force_ledger_recompute()
+                    
+                    if success:
+                        # Clear ledger-related session state
+                        ledger_keys = [
+                            'portfolio_alpha_ledger',
+                            'portfolio_snapshot_debug',
+                            'portfolio_exposure_series',
+                            'canonical_return_ledger',
+                            'wave_data_cache',
+                            'price_book_cache'
+                        ]
+                        
+                        cleared_count = 0
+                        for key in ledger_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                                cleared_count += 1
+                        
+                        st.success(f"{message}\n\n✅ Cleared {cleared_count} cached keys")
                         st.rerun()
                     else:
                         st.error(message)
