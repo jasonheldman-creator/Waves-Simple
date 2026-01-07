@@ -18518,16 +18518,24 @@ def render_operator_panel_tab():
             build_marker = "SHA unavailable"
             branch = "unknown"
         
+        # Escape HTML to prevent XSS
+        import html
+        entrypoint_basename_escaped = html.escape(entrypoint_basename)
+        entrypoint_escaped = html.escape(entrypoint)
+        utc_now_escaped = html.escape(utc_now)
+        build_marker_escaped = html.escape(build_marker)
+        branch_escaped = html.escape(branch)
+        
         # Display in structured format
         st.markdown(f"""
         <div style="background-color: #1e1e1e; padding: 16px; border-radius: 8px; border: 1px solid #00d9ff; font-family: monospace;">
             <div style="color: #00d9ff; font-weight: bold; margin-bottom: 8px;">SYSTEM STATE</div>
             <div style="color: #e0e0e0;">
-                <strong>Entrypoint:</strong> {entrypoint_basename}<br>
-                <strong>Full Path:</strong> <code>{entrypoint}</code><br>
-                <strong>UTC Timestamp:</strong> {utc_now}<br>
-                <strong>Build Marker:</strong> {build_marker}<br>
-                <strong>Branch:</strong> {branch}
+                <strong>Entrypoint:</strong> {entrypoint_basename_escaped}<br>
+                <strong>Full Path:</strong> <code>{entrypoint_escaped}</code><br>
+                <strong>UTC Timestamp:</strong> {utc_now_escaped}<br>
+                <strong>Build Marker:</strong> {build_marker_escaped}<br>
+                <strong>Branch:</strong> {branch_escaped}
             </div>
         </div>
         """, unsafe_allow_html=True)
