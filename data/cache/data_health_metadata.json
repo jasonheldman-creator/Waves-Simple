@@ -1,0 +1,8 @@
+{
+  "price_book_max_date": "2026-01-05",
+  "wave_history_max_date": "2026-01-05",
+  "ledger_max_date": "2026-01-05",
+  "last_operator_action": "force_ledger_recompute",
+  "build_marker": "2026-01-07 17:37:22 UTC",
+  "timestamp": "2026-01-07T17:37:22.901558+00:00"
+}
