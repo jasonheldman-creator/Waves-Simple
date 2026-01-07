@@ -1352,7 +1352,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
     except Exception as e:
         # Fallback to simple banner if enhanced version fails
-        st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
+        # Suppress warning in demo mode
+        if not st.session_state.get("demo_mode", False):
+            st.warning(f"⚠️ Enhanced banner unavailable, using fallback: {str(e)}")
         render_selected_wave_banner_simple(selected_wave, mode)
 
 
@@ -2186,15 +2188,16 @@ def safe_component(component_name, render_func, *args, show_error=True, **kwargs
         # Show minimal UI based on debug_mode
         if show_error:
             debug_mode = st.session_state.get("debug_mode", False)
+            demo_mode = st.session_state.get("demo_mode", False)
             
-            if debug_mode:
-                # Debug mode ON: Show detailed error with expander
+            if debug_mode and not demo_mode:
+                # Debug mode ON (and NOT in demo mode): Show detailed error with expander
                 st.warning(f"⚠️ {component_name} temporarily unavailable")
                 with st.expander(f"🐛 Debug: {component_name} error details", expanded=False):
                     st.error(f"**Error:** {str(e)}")
                     st.code(traceback.format_exc(), language="python")
-            else:
-                # Debug mode OFF: Show small pill only (silent fallback)
+            elif not demo_mode:
+                # Debug mode OFF (and NOT in demo mode): Show small pill only (silent fallback)
                 st.markdown(f"""
                     <div style="
                         display: inline-block;
@@ -8503,74 +8506,421 @@ def render_sidebar_info():
                         trigger_rerun("force_clear_wave_reload")
                     except Exception as e:
                         st.warning(f"⚠️ Force reload failed: {str(e)}")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Data Health Panel
-    # ========================================================================
-    with st.sidebar.expander("📊 Data Health Status", expanded=False):
-        try:
-            from helpers.data_health_panel import render_data_health_panel
-            render_data_health_panel()
-        except ImportError:
-            st.warning("⚠️ Data health panel not available")
-        except Exception as e:
-            st.error(f"❌ Error loading health panel: {str(e)}")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Wave Universe Truth Panel (Collapsible)
-    # ========================================================================
-    with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
-        render_wave_universe_truth_panel()
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Sidebar Information
-    # ========================================================================
-    
-    st.sidebar.title("Risk Lab")
-    st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
-    
-    st.sidebar.title("Correlation Matrix")
-    st.sidebar.write("Cross-asset correlation analysis for portfolio diversification insights.")
-    
-    st.sidebar.title("Rolling Alpha / Volatility")
-    st.sidebar.write("Time-series analysis of alpha generation and volatility patterns.")
-    
-    st.sidebar.title("Drawdown Monitor")
-    st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
-    
-    # Debug Expander - Wave List Verification
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
-        try:
-            all_waves = get_all_wave_names()
-            
-            if all_waves:
-                st.write(f"**Total Waves Available:** {len(all_waves)}")
-                st.write("")
-                st.write("**First 25 Waves:**")
                 
-                # Display first 25 waves
-                display_waves = all_waves[:25]
-                for i, wave in enumerate(display_waves, 1):
-                    st.text(f"{i}. {wave}")
+                st.markdown("---")
                 
-                if len(all_waves) > 25:
+                # ========================================================================
+                # OPERATOR TOOLBOX - Advanced Tools and Debug Utilities
+                # ========================================================================
+                with st.expander("🧰 Advanced Operator Toolbox (expand)", expanded=False):
+                    st.markdown("#### Advanced Operator Toolbox")
+                    st.caption("Advanced debugging, testing, and presentation tools for operators")
+                    
+                    # ========================================================================
+                    # 1) Copy Debug Bundle
+                    # ========================================================================
+                    st.markdown("##### 📋 Copy Debug Bundle")
+                    
+                    if st.button(
+                        "📋 Generate Debug Bundle",
+                        key="generate_debug_bundle_button",
+                        use_container_width=True,
+                        help="Generate a comprehensive debug bundle for troubleshooting"
+                    ):
+                        try:
+                            # Generate debug bundle
+                            debug_lines = []
+                            
+                            # UTC timestamp
+                            debug_lines.append("=" * 60)
+                            debug_lines.append("DEBUG BUNDLE")
+                            debug_lines.append("=" * 60)
+                            debug_lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                            debug_lines.append("")
+                            
+                            # App entrypoint filename
+                            debug_lines.append("App Entrypoint: app.py")
+                            
+                            # Build SHA
+                            build_sha = os.environ.get('GIT_SHA', 'unavailable')
+                            debug_lines.append(f"Build SHA: {build_sha}")
+                            debug_lines.append("")
+                            
+                            # Selected wave/portfolio mode
+                            selected_wave_id = st.session_state.get('selected_wave_id', 'N/A')
+                            selected_wave_name = st.session_state.get('selected_wave_name', 'N/A')
+                            portfolio_mode = st.session_state.get('portfolio_mode', 'N/A')
+                            debug_lines.append(f"Selected Wave ID: {selected_wave_id}")
+                            debug_lines.append(f"Selected Wave Name: {selected_wave_name}")
+                            debug_lines.append(f"Portfolio Mode: {portfolio_mode}")
+                            
+                            # Selected risk mode
+                            risk_mode = st.session_state.get('selected_risk_mode', 'N/A')
+                            debug_lines.append(f"Risk Mode: {risk_mode}")
+                            debug_lines.append("")
+                            
+                            # PRICE_BOOK details
+                            debug_lines.append("PRICE_BOOK Details:")
+                            try:
+                                if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                    price_book = get_price_book()
+                                    if price_book is not None and not price_book.empty:
+                                        debug_lines.append(f"  Shape: {price_book.shape[0]} rows x {price_book.shape[1]} columns")
+                                        debug_lines.append(f"  Date Range: {price_book.index.min()} to {price_book.index.max()}")
+                                        
+                                        # Check for required tickers
+                                        required_tickers = ['SPY', 'QQQ', 'IWM', 'BIL', 'SHY']
+                                        vix_proxies = ['VIX', 'VIXY', 'VIXM']
+                                        
+                                        debug_lines.append("  Required Tickers:")
+                                        for ticker in required_tickers:
+                                            present = "✓" if ticker in price_book.columns else "✗"
+                                            debug_lines.append(f"    {ticker}: {present}")
+                                        
+                                        # VIX proxy check
+                                        vix_found = any(proxy in price_book.columns for proxy in vix_proxies)
+                                        vix_proxy_name = next((p for p in vix_proxies if p in price_book.columns), "None")
+                                        debug_lines.append(f"    VIX Proxy: {'✓' if vix_found else '✗'} ({vix_proxy_name})")
+                                    else:
+                                        debug_lines.append("  Status: Empty or unavailable")
+                                else:
+                                    debug_lines.append("  Status: PRICE_BOOK not available")
+                            except Exception as e:
+                                debug_lines.append(f"  Error: {str(e)}")
+                            debug_lines.append("")
+                            
+                            # Portfolio renderer name
+                            renderer_name = "compute_portfolio_snapshot"  # Standard renderer
+                            debug_lines.append(f"Portfolio Renderer: {renderer_name}")
+                            debug_lines.append("")
+                            
+                            # Ledger availability flags
+                            debug_lines.append("Ledger Availability:")
+                            periods = [1, 30, 60, 365]
+                            for period in periods:
+                                try:
+                                    # Simple check: do we have enough data in PRICE_BOOK?
+                                    if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                        price_book = get_price_book()
+                                        if price_book is not None and not price_book.empty:
+                                            if len(price_book) >= period:
+                                                debug_lines.append(f"  {period}D: Available")
+                                            else:
+                                                debug_lines.append(f"  {period}D: Unavailable (Reason: Insufficient data - only {len(price_book)} days)")
+                                        else:
+                                            debug_lines.append(f"  {period}D: Unavailable (Reason: PRICE_BOOK empty)")
+                                    else:
+                                        debug_lines.append(f"  {period}D: Unavailable (Reason: PRICE_BOOK not loaded)")
+                                except Exception as e:
+                                    debug_lines.append(f"  {period}D: Unavailable (Reason: {str(e)})")
+                            
+                            debug_lines.append("")
+                            debug_lines.append("=" * 60)
+                            
+                            # Join and display
+                            debug_bundle = "\n".join(debug_lines)
+                            st.session_state["debug_bundle"] = debug_bundle
+                            st.success("✅ Debug bundle generated!")
+                        except Exception as e:
+                            st.error(f"❌ Error generating debug bundle: {str(e)}")
+                    
+                    # Display debug bundle if generated
+                    if "debug_bundle" in st.session_state:
+                        st.text_area(
+                            "Debug Bundle (copy and paste)",
+                            value=st.session_state["debug_bundle"],
+                            height=400,
+                            key="debug_bundle_display"
+                        )
+                    
+                    st.markdown("---")
+                    
+                    # ========================================================================
+                    # 2) Demo Mode Toggle
+                    # ========================================================================
+                    st.markdown("##### 🎭 Demo Mode")
+                    
+                    demo_mode = st.checkbox(
+                        "Enable Demo Mode",
+                        value=st.session_state.get("demo_mode", False),
+                        key="demo_mode_toggle",
+                        help="When ON: Hides debug panels, shows only proof banner, portfolio snapshot, and wave tabs"
+                    )
+                    st.session_state["demo_mode"] = demo_mode
+                    
+                    if demo_mode:
+                        st.success("🎭 Demo Mode ACTIVE - Streamlined UI for presentations")
+                        st.caption("Hiding: Debug panels, diagnostics, and non-critical warnings")
+                        st.caption("Showing: Proof banner, Portfolio snapshot, Wave tabs")
+                    else:
+                        st.info("Demo Mode OFF - All panels visible")
+                    
+                    st.markdown("---")
+                    
+                    # ========================================================================
+                    # 3) Quick Links Section
+                    # ========================================================================
+                    st.markdown("##### 🔗 Quick Links")
+                    
+                    # Repository links
+                    st.markdown("**Repository:**")
+                    st.markdown("- [Main Repository](https://github.com/jasonheldman-creator/Waves-Simple){:target='_blank'}")
+                    st.markdown("- [GitHub Actions](https://github.com/jasonheldman-creator/Waves-Simple/actions){:target='_blank'}")
+                    st.markdown("- [Pull Requests](https://github.com/jasonheldman-creator/Waves-Simple/pulls){:target='_blank'}")
+                    st.markdown("- [Issues](https://github.com/jasonheldman-creator/Waves-Simple/issues){:target='_blank'}")
+                    
+                    # Key file paths (using file:// protocol for local access)
+                    st.markdown("**Key Files:**")
+                    st.markdown("- `app.py` (main entrypoint)")
+                    st.markdown("- `helpers/wave_performance.py`")
+                    st.markdown("- `.github/workflows/update_price_cache.yml`")
+                    st.markdown("- `data/cache/prices_cache.parquet`")
+                    
+                    st.markdown("---")
+                    
+                    # ========================================================================
+                    # 4) Run Self-Test Button
+                    # ========================================================================
+                    st.markdown("##### ✅ Run Self-Test (Local Consistency)")
+                    
+                    if st.button(
+                        "✅ Run Self-Test",
+                        key="run_self_test_button",
+                        use_container_width=True,
+                        help="Execute in-process sanity checks on PRICE_BOOK and ledger"
+                    ):
+                        st.info("Running self-test...")
+                        test_results = []
+                        
+                        # Test 1: PRICE_BOOK loads without error
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and not price_book.empty:
+                                    test_results.append(("PRICE_BOOK loads", "PASS", ""))
+                                else:
+                                    test_results.append(("PRICE_BOOK loads", "FAIL", "Empty or None"))
+                            else:
+                                test_results.append(("PRICE_BOOK loads", "FAIL", "Module not available"))
+                        except Exception as e:
+                            test_results.append(("PRICE_BOOK loads", "FAIL", str(e)))
+                        
+                        # Test 2: Includes SPY ticker
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and 'SPY' in price_book.columns:
+                                    test_results.append(("SPY ticker present", "PASS", ""))
+                                else:
+                                    test_results.append(("SPY ticker present", "FAIL", "SPY not in columns"))
+                            else:
+                                test_results.append(("SPY ticker present", "FAIL", "PRICE_BOOK not available"))
+                        except Exception as e:
+                            test_results.append(("SPY ticker present", "FAIL", str(e)))
+                        
+                        # Test 3: Contains more than 100 rows
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and len(price_book) > 100:
+                                    test_results.append(("Row count > 100", "PASS", f"{len(price_book)} rows"))
+                                else:
+                                    row_count = len(price_book) if price_book is not None else 0
+                                    test_results.append(("Row count > 100", "FAIL", f"Only {row_count} rows"))
+                            else:
+                                test_results.append(("Row count > 100", "FAIL", "PRICE_BOOK not available"))
+                        except Exception as e:
+                            test_results.append(("Row count > 100", "FAIL", str(e)))
+                        
+                        # Test 4: Index max date matches UI value
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and not price_book.empty:
+                                    max_date = price_book.index.max()
+                                    # Get UI max date from session state if available
+                                    ui_max_date = st.session_state.get("data_max_date", max_date)
+                                    if str(max_date) == str(ui_max_date):
+                                        test_results.append(("Index max date match", "PASS", str(max_date)))
+                                    else:
+                                        test_results.append(("Index max date match", "WARN", f"PRICE_BOOK: {max_date}, UI: {ui_max_date}"))
+                                else:
+                                    test_results.append(("Index max date match", "FAIL", "PRICE_BOOK empty"))
+                            else:
+                                test_results.append(("Index max date match", "FAIL", "PRICE_BOOK not available"))
+                        except Exception as e:
+                            test_results.append(("Index max date match", "FAIL", str(e)))
+                        
+                        # Test 5: Ledger computes for 60 days if sufficient rows exist
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and len(price_book) >= 60:
+                                    # Try to compute a simple ledger
+                                    last_60 = price_book.tail(60)
+                                    if not last_60.empty:
+                                        test_results.append(("Ledger 60D compute", "PASS", "60-day slice available"))
+                                    else:
+                                        test_results.append(("Ledger 60D compute", "FAIL", "60-day slice empty"))
+                                else:
+                                    row_count = len(price_book) if price_book is not None else 0
+                                    test_results.append(("Ledger 60D compute", "SKIP", f"Insufficient data ({row_count} rows)"))
+                            else:
+                                test_results.append(("Ledger 60D compute", "FAIL", "PRICE_BOOK not available"))
+                        except Exception as e:
+                            test_results.append(("Ledger 60D compute", "FAIL", str(e)))
+                        
+                        # Test 6: No NaN values in last 60 rows for SPY
+                        try:
+                            if PRICE_BOOK_CONSTANTS_AVAILABLE:
+                                price_book = get_price_book()
+                                if price_book is not None and 'SPY' in price_book.columns and len(price_book) >= 60:
+                                    spy_last_60 = price_book['SPY'].tail(60)
+                                    nan_count = spy_last_60.isna().sum()
+                                    if nan_count == 0:
+                                        test_results.append(("SPY no NaN (60D)", "PASS", ""))
+                                    else:
+                                        test_results.append(("SPY no NaN (60D)", "FAIL", f"{nan_count} NaN values"))
+                                else:
+                                    test_results.append(("SPY no NaN (60D)", "SKIP", "Insufficient data or SPY missing"))
+                            else:
+                                test_results.append(("SPY no NaN (60D)", "FAIL", "PRICE_BOOK not available"))
+                        except Exception as e:
+                            test_results.append(("SPY no NaN (60D)", "FAIL", str(e)))
+                        
+                        # Display results
+                        st.markdown("**Self-Test Results:**")
+                        for test_name, status, details in test_results:
+                            if status == "PASS":
+                                st.success(f"✅ {test_name}: {status} {details}")
+                            elif status == "WARN":
+                                st.warning(f"⚠️ {test_name}: {status} {details}")
+                            elif status == "SKIP":
+                                st.info(f"⏭️ {test_name}: {status} {details}")
+                            else:
+                                st.error(f"❌ {test_name}: {status} {details}")
+                    
+                    st.markdown("---")
+                    
+                    # ========================================================================
+                    # 5) Soft Reset Button
+                    # ========================================================================
+                    st.markdown("##### 🧼 Soft Reset (session)")
+                    
+                    if st.button(
+                        "🧼 Soft Reset",
+                        key="soft_reset_button",
+                        use_container_width=True,
+                        help="Clear session state while preserving cache, then rerun"
+                    ):
+                        try:
+                            # Define explicit whitelist of keys to preserve
+                            explicit_preserve_keys = {
+                                'operator_mode_enabled',
+                                'operator_mode_toggle',
+                                'demo_mode',
+                                'demo_mode_toggle',
+                                'safe_mode_no_fetch',
+                                'safe_mode_no_fetch_toggle',
+                                'debug_bundle',  # Preserve generated debug bundle
+                            }
+                            
+                            # Preserve system keys (start with '_'), cache keys, and explicit whitelist
+                            keys_to_preserve = [
+                                key for key in st.session_state.keys() 
+                                if (
+                                    key.startswith('_') or  # System keys
+                                    key in explicit_preserve_keys or  # Explicit whitelist
+                                    key.endswith('_cache') or  # Cache keys
+                                    key.endswith('_version') or  # Version keys
+                                    'price_cache' in key or  # Price cache related
+                                    'wave_universe_cache' in key  # Wave universe cache
+                                )
+                            ]
+                            
+                            # Clear all other keys
+                            keys_to_delete = [key for key in st.session_state.keys() if key not in keys_to_preserve]
+                            for key in keys_to_delete:
+                                del st.session_state[key]
+                            
+                            st.success("✅ Session state cleared (cache preserved)")
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            # Trigger rerun
+                            trigger_rerun("soft_reset")
+                        except Exception as e:
+                            st.error(f"❌ Error during soft reset: {str(e)}")
+    
+    st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Data Health Panel (Hidden in Demo Mode)
+    # ========================================================================
+    if not st.session_state.get("demo_mode", False):
+        with st.sidebar.expander("📊 Data Health Status", expanded=False):
+            try:
+                from helpers.data_health_panel import render_data_health_panel
+                render_data_health_panel()
+            except ImportError:
+                st.warning("⚠️ Data health panel not available")
+            except Exception as e:
+                st.error(f"❌ Error loading health panel: {str(e)}")
+        
+        st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Wave Universe Truth Panel (Collapsible) (Hidden in Demo Mode)
+    # ========================================================================
+    if not st.session_state.get("demo_mode", False):
+        with st.sidebar.expander("🔬 Wave Universe Truth Panel", expanded=False):
+            render_wave_universe_truth_panel()
+        
+        st.sidebar.markdown("---")
+    
+    # ========================================================================
+    # Sidebar Information (Hidden in Demo Mode)
+    # ========================================================================
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.title("Risk Lab")
+        st.sidebar.write("Advanced risk analytics and monitoring tools for institutional portfolio management.")
+        
+        st.sidebar.title("Correlation Matrix")
+        st.sidebar.write("Cross-asset correlation analysis for portfolio diversification insights.")
+        
+        st.sidebar.title("Rolling Alpha / Volatility")
+        st.sidebar.write("Time-series analysis of alpha generation and volatility patterns.")
+        
+        st.sidebar.title("Drawdown Monitor")
+        st.sidebar.write("Real-time tracking of portfolio drawdowns and recovery metrics.")
+    
+    # Debug Expander - Wave List Verification (Hidden in Demo Mode)
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Wave List Debug (Engine Source)"):
+            try:
+                all_waves = get_all_wave_names()
+                
+                if all_waves:
+                    st.write(f"**Total Waves Available:** {len(all_waves)}")
                     st.write("")
-                    st.caption(f"... and {len(all_waves) - 25} more waves")
-                
-                st.write("")
-                st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
-            else:
-                st.warning("⚠️ No waves available from engine")
-                st.caption("Check waves_engine.py WAVE_WEIGHTS")
-        except Exception as e:
-            st.error(f"❌ Error loading waves: {str(e)}")
+                    st.write("**First 25 Waves:**")
+                    
+                    # Display first 25 waves
+                    display_waves = all_waves[:25]
+                    for i, wave in enumerate(display_waves, 1):
+                        st.text(f"{i}. {wave}")
+                    
+                    if len(all_waves) > 25:
+                        st.write("")
+                        st.caption(f"... and {len(all_waves) - 25} more waves")
+                    
+                    st.write("")
+                    st.caption("✅ Sourced from WAVE_WEIGHTS in waves_engine.py")
+                else:
+                    st.warning("⚠️ No waves available from engine")
+                    st.caption("Check waves_engine.py WAVE_WEIGHTS")
+            except Exception as e:
+                st.error(f"❌ Error loading waves: {str(e)}")
     
     # Build Information
     st.sidebar.markdown("---")
@@ -8588,133 +8938,135 @@ def render_sidebar_info():
     st.sidebar.text(f"Deployed: {deploy_time}")
     st.sidebar.text(f"Data as of: {data_timestamp}")
     
-    # Debug Display - Wave Universe Info
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Wave Universe Debug Info"):
-        try:
-            universe = st.session_state.get("wave_universe", {})
-            if universe:
-                waves = universe.get("waves", [])
-                removed_duplicates = universe.get("removed_duplicates", [])
-                source = universe.get("source", "unknown")
-                timestamp = universe.get("timestamp", "N/A")
-                
-                st.write(f"**Total Waves:** {len(waves)}")
-                st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
-                st.write(f"**Source:** {source}")
-                st.write(f"**Last Updated:** {timestamp}")
-                
-                # Show first 10 waves for verification
-                if waves:
-                    st.write("**First 10 Waves:**")
-                    preview_waves = waves[:10]
-                    for i, wave in enumerate(preview_waves, 1):
-                        st.text(f"{i}. {wave}")
+    # Debug Display - Wave Universe Info (Hidden in Demo Mode)
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Wave Universe Debug Info"):
+            try:
+                universe = st.session_state.get("wave_universe", {})
+                if universe:
+                    waves = universe.get("waves", [])
+                    removed_duplicates = universe.get("removed_duplicates", [])
+                    source = universe.get("source", "unknown")
+                    timestamp = universe.get("timestamp", "N/A")
+                    
+                    st.write(f"**Total Waves:** {len(waves)}")
+                    st.write(f"**Duplicates Removed:** {len(removed_duplicates)}")
+                    st.write(f"**Source:** {source}")
+                    st.write(f"**Last Updated:** {timestamp}")
+                    
+                    # Show first 10 waves for verification
+                    if waves:
+                        st.write("**First 10 Waves:**")
+                        preview_waves = waves[:10]
+                        for i, wave in enumerate(preview_waves, 1):
+                            st.text(f"{i}. {wave}")
+                    else:
+                        st.warning("No waves loaded")
                 else:
-                    st.warning("No waves loaded")
-            else:
-                st.info("Wave universe not yet initialized")
-        except Exception as e:
-            st.error(f"Debug display error: {str(e)}")
+                    st.info("Wave universe not yet initialized")
+            except Exception as e:
+                st.error(f"Debug display error: {str(e)}")
     
     # ========================================================================
-    # DIAGNOSTICS DEBUG PANEL - Collapsible
+    # DIAGNOSTICS DEBUG PANEL - Collapsible (Hidden in Demo Mode)
     # ========================================================================
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
-        st.markdown("**Diagnostics & Visibility Panel**")
-        
-        # Initialize exception storage in session state
-        if "data_load_exceptions" not in st.session_state:
-            st.session_state.data_load_exceptions = []
-        
-        try:
-            # Display selected_wave_id
-            selected_wave_id = st.session_state.get("selected_wave_id", "None")
-            st.text(f"selected_wave_id: {selected_wave_id}")
+    if not st.session_state.get("demo_mode", False):
+        st.sidebar.markdown("---")
+        with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+            st.markdown("**Diagnostics & Visibility Panel**")
             
-            # Display selectbox key being used
-            st.text(f"Selectbox key: selected_wave_id_display")
+            # Initialize exception storage in session state
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
             
-            # Check wave registry status
             try:
-                if WAVE_REGISTRY_MANAGER_AVAILABLE:
-                    active_waves_df = get_active_wave_registry()
-                    wave_count = len(active_waves_df)
-                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
-                else:
-                    st.text("Wave Registry: Module unavailable")
-            except Exception as e:
-                st.text(f"Wave Registry: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Wave Registry",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check portfolio snapshot status
-            try:
-                snapshot_path = "data/live_snapshot.csv"
-                if os.path.exists(snapshot_path):
-                    snapshot_df = pd.read_csv(snapshot_path)
-                    row_count = len(snapshot_df)
-                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
-                else:
-                    st.text("Portfolio Snapshot: File not found")
-            except Exception as e:
-                st.text(f"Portfolio Snapshot: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Portfolio Snapshot",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Check price cache status
-            try:
-                price_cache_path = "data/cache/prices_cache.parquet"
-                cache_exists = os.path.exists(price_cache_path)
-                st.text(f"Price Cache Path: {price_cache_path}")
-                st.text(f"Price Cache Exists: {cache_exists}")
+                # Display selected_wave_id
+                selected_wave_id = st.session_state.get("selected_wave_id", "None")
+                st.text(f"selected_wave_id: {selected_wave_id}")
                 
-                if cache_exists:
-                    # Get file size
-                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
-                    st.text(f"Price Cache Size: {file_size:.2f} MB")
-            except Exception as e:
-                st.text(f"Price Cache: Error - {str(e)}")
-                st.session_state.data_load_exceptions.append({
-                    "component": "Price Cache",
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
-            
-            # Portfolio Snapshot Debug Section
-            st.markdown("---")
-            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
-            try:
-                if "portfolio_snapshot_debug" in st.session_state:
-                    debug_info = st.session_state.portfolio_snapshot_debug
-                    import json
-                    st.json(debug_info)
-                else:
-                    st.text("No portfolio snapshot debug info available yet")
-                    st.caption("Navigate to Portfolio View to generate debug data")
-            except Exception as e:
-                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
-            
-            # Display all captured exceptions
-            if st.session_state.data_load_exceptions:
+                # Display selectbox key being used
+                st.text(f"Selectbox key: selected_wave_id_display")
+                
+                # Check wave registry status
+                try:
+                    if WAVE_REGISTRY_MANAGER_AVAILABLE:
+                        active_waves_df = get_active_wave_registry()
+                        wave_count = len(active_waves_df)
+                        st.text(f"Wave Registry: Loaded ({wave_count} waves)")
+                    else:
+                        st.text("Wave Registry: Module unavailable")
+                except Exception as e:
+                    st.text(f"Wave Registry: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Wave Registry",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Check portfolio snapshot status
+                try:
+                    snapshot_path = "data/live_snapshot.csv"
+                    if os.path.exists(snapshot_path):
+                        snapshot_df = pd.read_csv(snapshot_path)
+                        row_count = len(snapshot_df)
+                        st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                    else:
+                        st.text("Portfolio Snapshot: File not found")
+                except Exception as e:
+                    st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Portfolio Snapshot",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Check price cache status
+                try:
+                    price_cache_path = "data/cache/prices_cache.parquet"
+                    cache_exists = os.path.exists(price_cache_path)
+                    st.text(f"Price Cache Path: {price_cache_path}")
+                    st.text(f"Price Cache Exists: {cache_exists}")
+                    
+                    if cache_exists:
+                        # Get file size
+                        file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                        st.text(f"Price Cache Size: {file_size:.2f} MB")
+                except Exception as e:
+                    st.text(f"Price Cache: Error - {str(e)}")
+                    st.session_state.data_load_exceptions.append({
+                        "component": "Price Cache",
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    })
+                
+                # Portfolio Snapshot Debug Section
                 st.markdown("---")
-                st.markdown("**🚨 Captured Exceptions:**")
-                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
-                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
-                        st.error(f"**Error:** {exc['error']}")
-                        st.code(exc['traceback'], language="python")
-                        
-        except Exception as e:
-            st.error(f"Debug panel error: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
+                st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+                try:
+                    if "portfolio_snapshot_debug" in st.session_state:
+                        debug_info = st.session_state.portfolio_snapshot_debug
+                        import json
+                        st.json(debug_info)
+                    else:
+                        st.text("No portfolio snapshot debug info available yet")
+                        st.caption("Navigate to Portfolio View to generate debug data")
+                except Exception as e:
+                    st.error(f"Portfolio Snapshot Debug error: {str(e)}")
+                
+                # Display all captured exceptions
+                if st.session_state.data_load_exceptions:
+                    st.markdown("---")
+                    st.markdown("**🚨 Captured Exceptions:**")
+                    for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+                        with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                            st.error(f"**Error:** {exc['error']}")
+                            st.code(exc['traceback'], language="python")
+                            
+            except Exception as e:
+                st.error(f"Debug panel error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
 
 
 # ============================================================================
@@ -9106,9 +9458,11 @@ def render_executive_brief_tab():
             
             snapshot_metadata = get_snapshot_metadata()
         except ImportError:
-            st.warning("⚠️ TruthFrame module not available. Using fallback data.")
+            if not st.session_state.get("demo_mode", False):
+                st.warning("⚠️ TruthFrame module not available. Using fallback data.")
         except Exception as e:
-            st.warning(f"⚠️ TruthFrame error: {str(e)}")
+            if not st.session_state.get("demo_mode", False):
+                st.warning(f"⚠️ TruthFrame error: {str(e)}")
         
         # ========================================================================
         # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
