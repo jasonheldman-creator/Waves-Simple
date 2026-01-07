@@ -1,0 +1,1 @@
+The details of the adjustments have been noted in pull request #389 to focus on developing an executive-grade portfolio dashboard. This includes labeling, gating, and logic as described in the memo.

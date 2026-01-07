@@ -10,8 +10,8 @@ This module provides:
 - Performance safeguards
 
 Design Principles:
-- Auto-refresh is enabled by default for live decision support
-- Refresh interval is set to 1 minute (60 seconds) to balance real-time updates with performance
+- Auto-refresh is disabled by default to prevent infinite rerun loops
+- Refresh interval is set to 30 seconds to balance real-time updates with performance
 - Errors automatically pause auto-refresh to maintain system stability
 - Caching behavior is preserved to avoid unnecessary recomputations
 """
@@ -20,11 +20,11 @@ Design Principles:
 # AUTO-REFRESH SETTINGS
 # ============================================================================
 
-# Default auto-refresh state (False = disabled by default to prevent infinite reruns)
+# Default auto-refresh state (True = enabled by default for live decision support)
 DEFAULT_AUTO_REFRESH_ENABLED = False
 
-# Default refresh interval in milliseconds (60000ms = 1 minute)
-DEFAULT_REFRESH_INTERVAL_MS = 60000
+# Default refresh interval in milliseconds (30000ms = 30 seconds)
+DEFAULT_REFRESH_INTERVAL_MS = 30000
 
 # Available refresh interval options (in seconds)
 REFRESH_INTERVAL_OPTIONS = {

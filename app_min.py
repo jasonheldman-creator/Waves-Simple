@@ -26,6 +26,33 @@ def main():
         initial_sidebar_state="expanded"
     )
     
+    # ============================================================================
+    # PROOF BANNER - Diagnostics and Visibility
+    # ============================================================================
+    # Initialize run counter in session state
+    if "proof_run_counter" not in st.session_state:
+        st.session_state.proof_run_counter = 0
+    else:
+        st.session_state.proof_run_counter += 1
+    
+    # Display Proof Banner
+    st.markdown(
+        f"""
+        <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
+            <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+                🔍 PROOF BANNER - DIAGNOSTICS MODE
+            </div>
+            <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+                <strong>APP FILE:</strong> app_min.py<br>
+                <strong>DIAGNOSTIC ID:</strong> DIAG_MIN_2026_01_05_A<br>
+                <strong>TIMESTAMP:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+                <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
     # Header
     st.title("📊 Minimal Console")
     st.markdown("Lightweight Streamlit interface for basic operations")
@@ -38,6 +65,55 @@ def main():
         st.markdown("---")
         st.subheader("Quick Stats")
         st.metric("Status", "Active", delta="Running")
+        
+        # ========================================================================
+        # DIAGNOSTICS DEBUG PANEL - Collapsible
+        # ========================================================================
+        st.markdown("---")
+        with st.expander("🔍 Diagnostics Debug Panel", expanded=False):
+            st.markdown("**Diagnostics & Visibility Panel**")
+            
+            try:
+                # Display selected_wave_id if it exists
+                selected_wave_id = st.session_state.get("selected_wave_id", "N/A - Minimal Console")
+                st.text(f"selected_wave_id: {selected_wave_id}")
+                
+                # Display selectbox key info
+                st.text("Selectbox key: N/A (Minimal Console)")
+                
+                # Check wave registry status
+                st.text("Wave Registry: N/A (Minimal Console)")
+                
+                # Check portfolio snapshot status
+                try:
+                    snapshot_path = "data/live_snapshot.csv"
+                    if os.path.exists(snapshot_path):
+                        snapshot_df = pd.read_csv(snapshot_path)
+                        row_count = len(snapshot_df)
+                        st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                    else:
+                        st.text("Portfolio Snapshot: File not found")
+                except Exception as e:
+                    st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                
+                # Check price cache status
+                try:
+                    price_cache_path = "data/cache/prices_cache.parquet"
+                    cache_exists = os.path.exists(price_cache_path)
+                    st.text(f"Price Cache Path: {price_cache_path}")
+                    st.text(f"Price Cache Exists: {cache_exists}")
+                    
+                    if cache_exists:
+                        # Get file size
+                        file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                        st.text(f"Price Cache Size: {file_size:.2f} MB")
+                except Exception as e:
+                    st.text(f"Price Cache: Error - {str(e)}")
+                    
+            except Exception as e:
+                st.error(f"Debug panel error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
     
     # Main content area
     render_main_content()

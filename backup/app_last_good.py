@@ -24,7 +24,7 @@ import traceback
 import logging
 import time
 import itertools
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -51,12 +51,27 @@ except ImportError:
 
 # Import waves engine for wave definitions (single source of truth)
 try:
-    from waves_engine import get_all_waves as engine_get_all_waves, WAVE_WEIGHTS
+    from waves_engine import (
+        get_all_waves as engine_get_all_waves, 
+        WAVE_WEIGHTS,
+        get_wave_id_from_display_name,
+        get_display_name_from_wave_id
+    )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     engine_get_all_waves = None
     WAVE_WEIGHTS = {}
+    get_wave_id_from_display_name = None
+    get_display_name_from_wave_id = None
+
+# Import wave registry manager
+try:
+    from wave_registry_manager import get_active_wave_registry
+    WAVE_REGISTRY_MANAGER_AVAILABLE = True
+except ImportError:
+    WAVE_REGISTRY_MANAGER_AVAILABLE = False
+    get_active_wave_registry = None
 
 # V3 ADD-ON: Bottom Ticker (Institutional Rail) - Import V3 ticker module
 try:
@@ -113,14 +128,38 @@ except ImportError:
     DIAGNOSTICS_ARTIFACT_AVAILABLE = False
 
 # Import price_book constants for Mission Control
+# UI uses price_book as source of truth to prevent divergence
 try:
-    from helpers.price_book import STALE_DAYS_THRESHOLD, DEGRADED_DAYS_THRESHOLD
+    from helpers.price_book import (
+        PRICE_CACHE_OK_DAYS, 
+        PRICE_CACHE_DEGRADED_DAYS,
+        compute_system_health,
+        get_price_book
+    )
     PRICE_BOOK_CONSTANTS_AVAILABLE = True
+    # Legacy aliases for backward compatibility - mapping to canonical names:
+    # - DEGRADED_DAYS_THRESHOLD = threshold for transitioning FROM OK TO DEGRADED (14 days)
+    # - STALE_DAYS_THRESHOLD = threshold for transitioning FROM DEGRADED TO STALE (30 days)
+    # These maintain backward compatibility with code that uses the old threshold names.
+    DEGRADED_DAYS_THRESHOLD = PRICE_CACHE_OK_DAYS
+    STALE_DAYS_THRESHOLD = PRICE_CACHE_DEGRADED_DAYS
 except ImportError:
     PRICE_BOOK_CONSTANTS_AVAILABLE = False
     # Fallback defaults if price_book is unavailable
-    STALE_DAYS_THRESHOLD = 10
-    DEGRADED_DAYS_THRESHOLD = 5
+    PRICE_CACHE_OK_DAYS = 14
+    PRICE_CACHE_DEGRADED_DAYS = 30
+    STALE_DAYS_THRESHOLD = 30
+    DEGRADED_DAYS_THRESHOLD = 14
+    compute_system_health = None
+    get_price_book = None
+
+# Import wave performance functions for portfolio metrics
+try:
+    from helpers.wave_performance import compute_portfolio_snapshot
+    WAVE_PERFORMANCE_AVAILABLE = True
+except ImportError:
+    WAVE_PERFORMANCE_AVAILABLE = False
+    compute_portfolio_snapshot = None
 
 # ============================================================================
 # RUN TRACE - Track script execution and prevent infinite rerun loops
@@ -235,6 +274,18 @@ DISPERSION_LOW = 0.5  # Std dev % for "low volatility"
 DATA_INTEGRITY_VERIFIED_COVERAGE = 95.0  # Coverage % for Verified
 DATA_INTEGRITY_DEGRADED_COVERAGE = 80.0  # Coverage % for Degraded
 
+# ============================================================================
+# PORTFOLIO VIEW CONFIGURATION
+# ============================================================================
+# Constants for portfolio-level snapshot rendering
+PORTFOLIO_VIEW_PLACEHOLDER = "NONE"  # Placeholder value indicating no wave selected
+PORTFOLIO_VIEW_TITLE = "Portfolio Snapshot (All Waves)"  # Display title for portfolio view
+PORTFOLIO_VIEW_ICON = "🏛️"  # Icon for portfolio view
+WAVE_VIEW_ICON = "🌊"  # Icon for individual wave view
+
+# Leaderboard thresholds
+NEGLIGIBLE_RETURN_THRESHOLD = 0.1  # Return % below which to show context message
+
 # Default signal values (used if calculation fails)
 DEFAULT_ALPHA_QUALITY = "Mixed"
 DEFAULT_RISK_REGIME = "Neutral"
@@ -242,6 +293,99 @@ DEFAULT_DATA_INTEGRITY = "Degraded"
 DEFAULT_CONFIDENCE = "Moderate"
 BATCH_PAUSE_MIN = 0.5
 BATCH_PAUSE_MAX = 1.5
+
+# ============================================================================
+# WAVE SELECTION HELPER FUNCTIONS
+# ============================================================================
+
+def resolve_app_context():
+    """
+    Canonical context resolver - Single source of truth for app context.
+    
+    This function resolves the current application context based on wave selection
+    and mode settings in session state. It serves as the authoritative driver for
+    all context-dependent rendering throughout the app.
+    
+    Returns:
+        dict: Context dictionary with the following keys:
+            - selected_wave_id (str or None): The unique wave ID, or None for portfolio
+            - selected_wave_name (str or None): Display name for the wave, or None for portfolio
+            - mode (str): Current mode (e.g., 'Standard', 'Aggressive', etc.)
+            - context_key (str): Normalized cache key in format "{mode}:{selected_wave_id or 'PORTFOLIO'}"
+    
+    Example:
+        >>> ctx = resolve_app_context()
+        >>> print(ctx)
+        {
+            'selected_wave_id': 'wave_gold',
+            'selected_wave_name': 'Gold Wave',
+            'mode': 'Standard',
+            'context_key': 'Standard:wave_gold'
+        }
+    """
+    # Get wave_id from session state (authoritative source)
+    selected_wave_id = st.session_state.get("selected_wave_id")
+    
+    # Derive display name from wave_id
+    selected_wave_name = None
+    if selected_wave_id is not None:
+        if WAVES_ENGINE_AVAILABLE and get_display_name_from_wave_id is not None:
+            try:
+                selected_wave_name = get_display_name_from_wave_id(selected_wave_id)
+            except (KeyError, ValueError, AttributeError):
+                # Fallback: use wave_id as name if conversion fails
+                selected_wave_name = f"Wave ({selected_wave_id})"
+        else:
+            # Fallback: use wave_id as name if engine unavailable
+            selected_wave_name = f"Wave ({selected_wave_id})"
+    
+    # Get mode from session state
+    mode = st.session_state.get("mode", "Standard")
+    
+    # Build normalized cache key
+    wave_part = selected_wave_id if selected_wave_id is not None else "PORTFOLIO"
+    context_key = f"{mode}:{wave_part}"
+    
+    return {
+        "selected_wave_id": selected_wave_id,
+        "selected_wave_name": selected_wave_name,
+        "mode": mode,
+        "context_key": context_key
+    }
+
+
+def get_selected_wave_display_name():
+    """
+    Get the display name for the currently selected wave.
+    
+    .. deprecated:: 2.0
+        Use :func:`resolve_app_context` instead. This function will be removed in version 3.0.
+        
+        Instead of::
+        
+            display_name = get_selected_wave_display_name()
+            
+        Use::
+        
+            ctx = resolve_app_context()
+            display_name = ctx["selected_wave_name"]
+    
+    Returns None if portfolio view is active, otherwise returns the
+    display name corresponding to the wave_id stored in session_state.
+    
+    Returns:
+        str or None: Display name of selected wave, or None for portfolio view
+    """
+    import warnings
+    warnings.warn(
+        "get_selected_wave_display_name() is deprecated and will be removed in version 3.0. "
+        "Use resolve_app_context()['selected_wave_name'] instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    # Delegate to canonical context resolver
+    ctx = resolve_app_context()
+    return ctx["selected_wave_name"]
 
 # Cache TTL for price downloads (in seconds) - 1 hour default
 PRICE_CACHE_TTL = int(os.environ.get("PRICE_CACHE_TTL", "3600"))
@@ -679,6 +823,36 @@ def get_attribution_engine() -> DecisionAttributionEngine:
 st.set_page_config(page_title="Institutional Console - Executive Layer v2", layout="wide")
 
 # ============================================================================
+# PROOF BANNER - Diagnostics and Visibility
+# ============================================================================
+# Initialize run counter in session state
+if "proof_run_counter" not in st.session_state:
+    st.session_state.proof_run_counter = 0
+else:
+    st.session_state.proof_run_counter += 1
+
+# Get GIT SHA from environment or use hardcoded diagnostic string
+git_sha_proof = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+
+# Display Proof Banner
+st.markdown(
+    f"""
+    <div style="background-color: #2d2d2d; padding: 12px 20px; border: 2px solid #ff9800; margin-bottom: 16px; border-radius: 6px;">
+        <div style="color: #ff9800; font-size: 14px; font-family: monospace; font-weight: bold; margin-bottom: 4px;">
+            🔍 PROOF BANNER - DIAGNOSTICS MODE
+        </div>
+        <div style="color: #e0e0e0; font-size: 12px; font-family: monospace;">
+            <strong>ENTRYPOINT:</strong> app.py<br>
+            <strong>GIT SHA:</strong> {git_sha_proof}<br>
+            <strong>UTC TIMESTAMP:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}<br>
+            <strong>RUN COUNTER:</strong> {st.session_state.proof_run_counter}
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# ============================================================================
 # WALL-CLOCK WATCHDOG - Absolute timeout for Safe Mode
 # ============================================================================
 # Record start time immediately after page config for watchdog
@@ -766,6 +940,23 @@ WAVE_UNIVERSE_CACHE_KEYS = ["wave_universe", "waves_list", "universe_cache", "wa
 
 
 # ============================================================================
+# PORTFOLIO VIEW HELPER FUNCTIONS
+# ============================================================================
+
+def is_portfolio_context(selected_wave: str) -> bool:
+    """
+    Determine if the current context is portfolio-level (no specific wave selected).
+    
+    Args:
+        selected_wave: The currently selected wave name (None or placeholder for portfolio)
+    
+    Returns:
+        True if portfolio context, False if specific wave is selected
+    """
+    return selected_wave is None or selected_wave == PORTFOLIO_VIEW_PLACEHOLDER
+
+
+# ============================================================================
 # WAVE PROFILE BANNER - Enhanced Header Display with Quick Stats
 # ============================================================================
 
@@ -774,19 +965,28 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
     Render an enhanced pinned banner at the top of the page with quick stats.
     
     Shows:
-    - Wave title with neon border/glow effect
+    - Wave title with neon border/glow effect (or "Portfolio Snapshot" when no wave selected)
     - Colored pill for Mode
-    - Quick stats tiles: Wave NAV, Returns (1D/30D/60D/365D), Alpha Captured, Beta, VIX regime, Exposure %, Cash %
+    - Quick stats tiles: Wave NAV, Returns (1D/30D/60D/365D), Alpha Captured
+    - Wave-specific metrics (Beta, VIX regime, Exposure %, Cash %) only shown for individual waves
     
     Args:
-        selected_wave: The name of the currently selected wave
+        selected_wave: The name of the currently selected wave (None for portfolio view)
         mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
     """
     try:
-        # Get wave data for metrics
-        wave_data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
-        wave_data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
-        wave_data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
+        # Determine if we're in portfolio context (no specific wave selected)
+        is_portfolio_view = is_portfolio_context(selected_wave)
+        
+        # Get wave data for metrics (only if specific wave is selected)
+        wave_data_30d = None
+        wave_data_60d = None
+        wave_data_365d = None
+        
+        if not is_portfolio_view and selected_wave is not None:
+            wave_data_30d = get_wave_data_filtered(wave_name=selected_wave, days=30)
+            wave_data_60d = get_wave_data_filtered(wave_name=selected_wave, days=60)
+            wave_data_365d = get_wave_data_filtered(wave_name=selected_wave, days=365)
         
         # Calculate metrics
         nav_str = "N/A"
@@ -803,80 +1003,161 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         exposure_str = "N/A"
         cash_str = "N/A"
         
-        # Calculate from 30-day data
-        if wave_data_30d is not None and len(wave_data_30d) > 0:
-            # 1D return (latest day)
-            if 'portfolio_return' in wave_data_30d.columns:
-                latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                ret_1d_str = f"{latest_return*100:.2f}%"
-                
-                # 30D return
-                ret_30d = wave_data_30d['portfolio_return'].sum()
-                ret_30d_str = f"{ret_30d*100:.2f}%"
-            
-            # Alpha calculations
-            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
-                # 1D alpha
-                latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                alpha_1d_str = f"{latest_alpha*100:.2f}%"
-                
-                # 30D alpha
-                alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
-                alpha_30d_str = f"{alpha_30d*100:.2f}%"
-            
-            # Exposure and cash
-            if 'exposure' in wave_data_30d.columns:
-                avg_exposure = wave_data_30d['exposure'].mean()
-                exposure_str = f"{avg_exposure*100:.1f}%"
-                cash_str = f"{(1-avg_exposure)*100:.1f}%"
-            
-            # VIX regime
-            if 'vix' in wave_data_30d.columns:
-                latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
-                if latest_vix < 15:
-                    vix_regime_str = "Low"
-                elif latest_vix < 20:
-                    vix_regime_str = "Normal"
-                elif latest_vix < 30:
-                    vix_regime_str = "Elevated"
-                else:
-                    vix_regime_str = "High"
-            
-            # Beta calculation (simplified)
-            if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+        # ========================================================================
+        # PORTFOLIO VIEW: Compute portfolio-level metrics using compute_portfolio_snapshot
+        # ========================================================================
+        if is_portfolio_view:
+            # Use module-level imports if available
+            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and compute_portfolio_snapshot and get_price_book:
                 try:
-                    port_returns = wave_data_30d['portfolio_return']
-                    bench_returns = wave_data_30d['benchmark_return']
-                    covariance = np.cov(port_returns, bench_returns)[0][1]
-                    variance = np.var(bench_returns)
-                    if variance > 0:
-                        beta = covariance / variance
-                        beta_str = f"{beta:.2f}"
-                except:
-                    pass
+                    # Load PRICE_BOOK
+                    price_book = get_price_book()
+                    
+                    # Compute portfolio snapshot with all periods
+                    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
+                    
+                    # Store debug info in session state for diagnostics panel
+                    # Always update to ensure fresh debug data (even on failure)
+                    if 'debug' in snapshot:
+                        st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
+                    
+                    if snapshot['success']:
+                        # Extract portfolio returns
+                        ret_1d = snapshot['portfolio_returns'].get('1D')
+                        ret_30d = snapshot['portfolio_returns'].get('30D')
+                        ret_60d = snapshot['portfolio_returns'].get('60D')
+                        ret_365d = snapshot['portfolio_returns'].get('365D')
+                        
+                        # Extract alphas
+                        alpha_1d = snapshot['alphas'].get('1D')
+                        alpha_30d = snapshot['alphas'].get('30D')
+                        alpha_60d = snapshot['alphas'].get('60D')
+                        alpha_365d = snapshot['alphas'].get('365D')
+                        
+                        # Format return strings
+                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                        
+                        # Format alpha strings
+                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                except Exception as e:
+                    # Log error but keep N/A values (graceful degradation)
+                    logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
         
-        # 60D return
-        if wave_data_60d is not None and len(wave_data_60d) > 0:
-            if 'portfolio_return' in wave_data_60d.columns:
-                ret_60d = wave_data_60d['portfolio_return'].sum()
-                ret_60d_str = f"{ret_60d*100:.2f}%"
+        # ========================================================================
+        # WAVE VIEW: Calculate wave-specific metrics from historical data
+        # ========================================================================
+        else:
+            # Calculate from 30-day data
+            if wave_data_30d is not None and len(wave_data_30d) > 0:
+                # 1D return (latest day)
+                if 'portfolio_return' in wave_data_30d.columns:
+                    latest_return = wave_data_30d['portfolio_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    ret_1d_str = f"{latest_return*100:.2f}%"
+                    
+                    # 30D return
+                    ret_30d = wave_data_30d['portfolio_return'].sum()
+                    ret_30d_str = f"{ret_30d*100:.2f}%"
+                
+                # Alpha calculations
+                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                    # 1D alpha
+                    latest_alpha = wave_data_30d['portfolio_return'].iloc[-1] - wave_data_30d['benchmark_return'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    alpha_1d_str = f"{latest_alpha*100:.2f}%"
+                    
+                    # 30D alpha
+                    alpha_30d = wave_data_30d['portfolio_return'].sum() - wave_data_30d['benchmark_return'].sum()
+                    alpha_30d_str = f"{alpha_30d*100:.2f}%"
+                
+                # Exposure and cash
+                if 'exposure' in wave_data_30d.columns:
+                    avg_exposure = wave_data_30d['exposure'].mean()
+                    exposure_str = f"{avg_exposure*100:.1f}%"
+                    cash_str = f"{(1-avg_exposure)*100:.1f}%"
+                
+                # VIX regime
+                if 'vix' in wave_data_30d.columns:
+                    latest_vix = wave_data_30d['vix'].iloc[-1] if len(wave_data_30d) > 0 else 0
+                    if latest_vix < 15:
+                        vix_regime_str = "Low"
+                    elif latest_vix < 20:
+                        vix_regime_str = "Normal"
+                    elif latest_vix < 30:
+                        vix_regime_str = "Elevated"
+                    else:
+                        vix_regime_str = "High"
+                
+                # Beta calculation (simplified)
+                if 'portfolio_return' in wave_data_30d.columns and 'benchmark_return' in wave_data_30d.columns:
+                    try:
+                        port_returns = wave_data_30d['portfolio_return']
+                        bench_returns = wave_data_30d['benchmark_return']
+                        covariance = np.cov(port_returns, bench_returns)[0][1]
+                        variance = np.var(bench_returns)
+                        if variance > 0:
+                            beta = covariance / variance
+                            beta_str = f"{beta:.2f}"
+                    except:
+                        pass
             
-            if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
-                alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
-                alpha_60d_str = f"{alpha_60d*100:.2f}%"
-        
-        # 365D return
-        if wave_data_365d is not None and len(wave_data_365d) > 0:
-            if 'portfolio_return' in wave_data_365d.columns:
-                ret_365d = wave_data_365d['portfolio_return'].sum()
-                ret_365d_str = f"{ret_365d*100:.2f}%"
+            # 60D return
+            if wave_data_60d is not None and len(wave_data_60d) > 0:
+                if 'portfolio_return' in wave_data_60d.columns:
+                    ret_60d = wave_data_60d['portfolio_return'].sum()
+                    ret_60d_str = f"{ret_60d*100:.2f}%"
+                
+                if 'portfolio_return' in wave_data_60d.columns and 'benchmark_return' in wave_data_60d.columns:
+                    alpha_60d = wave_data_60d['portfolio_return'].sum() - wave_data_60d['benchmark_return'].sum()
+                    alpha_60d_str = f"{alpha_60d*100:.2f}%"
             
-            if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
-                alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
-                alpha_365d_str = f"{alpha_365d*100:.2f}%"
+            # 365D return
+            if wave_data_365d is not None and len(wave_data_365d) > 0:
+                if 'portfolio_return' in wave_data_365d.columns:
+                    ret_365d = wave_data_365d['portfolio_return'].sum()
+                    ret_365d_str = f"{ret_365d*100:.2f}%"
+                
+                if 'portfolio_return' in wave_data_365d.columns and 'benchmark_return' in wave_data_365d.columns:
+                    alpha_365d = wave_data_365d['portfolio_return'].sum() - wave_data_365d['benchmark_return'].sum()
+                    alpha_365d_str = f"{alpha_365d*100:.2f}%"
         
         # Mode color pill
         mode_color = "#00ff88" if mode == "Standard" else "#ffd700" if mode == "Aggressive" else "#ff6b6b"
+        
+        # Set display title and icon based on context
+        display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
+        display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
+        
+        # Wave-specific metrics HTML (shown only for individual waves)
+        wave_specific_metrics_html = ""
+        if not is_portfolio_view:
+            wave_specific_metrics_html = f'''<div class="stat-tile">
+                    <div class="stat-label">Beta</div>
+                    <div class="stat-value">{beta_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">VIX Regime</div>
+                    <div class="stat-value">{vix_regime_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Exposure</div>
+                    <div class="stat-value">{exposure_str}</div>
+                </div>
+                <div class="stat-tile">
+                    <div class="stat-label">Cash</div>
+                    <div class="stat-value">{cash_str}</div>
+                </div>'''
+        
+        # Informational message for portfolio view
+        portfolio_info_html = ""
+        if is_portfolio_view:
+            portfolio_info_html = '''<div class="portfolio-info">
+                &#9432; Wave-specific metrics (Beta, Exposure, Cash, VIX regime) unavailable at portfolio level
+            </div>'''
         
         # Enhanced banner with stats
         banner_html = f"""
@@ -944,6 +1225,14 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                 font-weight: bold;
             }}
             
+            .portfolio-info {{
+                text-align: center;
+                margin-top: 12px;
+                color: #a8dadc;
+                font-size: 11px;
+                font-style: italic;
+            }}
+            
             /* Mobile responsiveness */
             @media only screen and (max-width: 768px) {{
                 .wave-banner {{
@@ -989,7 +1278,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         
         <div class="wave-banner">
             <div class="wave-title">
-                <span style="color: #00d9ff;">🌊</span> {selected_wave}
+                <span style="color: #00d9ff;">{display_icon}</span> {display_title}
                 <span class="mode-pill">{mode}</span>
             </div>
             
@@ -1026,23 +1315,9 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
                     <div class="stat-label">Alpha 365D</div>
                     <div class="stat-value">{alpha_365d_str}</div>
                 </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Beta</div>
-                    <div class="stat-value">{beta_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">VIX Regime</div>
-                    <div class="stat-value">{vix_regime_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Exposure</div>
-                    <div class="stat-value">{exposure_str}</div>
-                </div>
-                <div class="stat-tile">
-                    <div class="stat-label">Cash</div>
-                    <div class="stat-value">{cash_str}</div>
-                </div>
+                {wave_specific_metrics_html}
             </div>
+            {portfolio_info_html}
         </div>
         """
         
@@ -1061,9 +1336,16 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
     Simple fallback banner - original implementation.
     
     Args:
-        selected_wave: The name of the currently selected wave
+        selected_wave: The name of the currently selected wave (None for portfolio view)
         mode: The current mode (e.g., "Standard", "Alpha-Minus-Beta", "Private Logic")
     """
+    # Determine if we're in portfolio context (no specific wave selected)
+    is_portfolio_view = is_portfolio_context(selected_wave)
+    
+    # Set display title and icon based on context
+    display_title = PORTFOLIO_VIEW_TITLE if is_portfolio_view else selected_wave
+    display_icon = PORTFOLIO_VIEW_ICON if is_portfolio_view else WAVE_VIEW_ICON
+    
     # Safe HTML/CSS rendering with dark gradient background and neon accent border
     banner_html = f"""
     <div style="
@@ -1083,7 +1365,7 @@ def render_selected_wave_banner_simple(selected_wave: str, mode: str):
             text-transform: uppercase;
             letter-spacing: 2px;
         ">
-            <span style="color: #00d9ff;">SELECTED WAVE:</span> {selected_wave} 
+            <span style="color: #00d9ff;">{display_icon} {'PORTFOLIO VIEW:' if is_portfolio_view else 'SELECTED WAVE:'}</span> {display_title} 
             <span style="color: #ffd700;">•</span> 
             <span style="color: #00ff88;">MODE:</span> {mode}
         </h2>
@@ -4001,8 +4283,8 @@ def render_wave_universe_truth_panel():
     # ========================================================================
     # SECTION 2.5: WAVE STATUS SUMMARY AND TABLE (28/28 Rendering Enforcement)
     # ========================================================================
-    st.markdown("#### 📊 Wave Status Summary - 28/28 Waves Always Rendered")
-    st.caption("🔔 All 28 waves are always displayed regardless of data status - no blockers!")
+    st.markdown("#### 📊 Wave Status Summary - All Active Waves Always Rendered")
+    st.caption("🔔 All active waves are always displayed regardless of data status - no blockers!")
     
     # Get wave statuses from diagnostics (uses is_wave_data_ready function)
     wave_statuses = diagnostics.get('wave_statuses', {})
@@ -4782,18 +5064,18 @@ def get_mission_control_data():
     - waves_live_count: Waves with valid PRICE_BOOK data (canonical validation)
     """
     mc_data = {
-        'market_regime': 'unknown',
-        'vix_gate_status': 'unknown',
-        'alpha_today': 'unknown',
-        'alpha_30day': 'unknown',
-        'wavescore_leader': 'unknown',
-        'wavescore_leader_score': 'unknown',
-        'data_freshness': 'unknown',
+        'market_regime': 'Initializing',
+        'vix_gate_status': 'Pending',
+        'alpha_today': 'Pending',
+        'alpha_30day': 'Pending',
+        'wavescore_leader': 'Pending',
+        'wavescore_leader_score': 'Pending',
+        'data_freshness': 'Initializing',
         'data_age_days': None,
         'total_waves': 0,
         'active_waves': 0,
         'waves_live_count': 0,  # NEW: Waves with valid PRICE_BOOK data
-        'system_status': 'unknown',
+        'system_status': 'Initializing',
         'universe_count': 0,
         'history_unique_count': 0
     }
@@ -4966,7 +5248,7 @@ def get_mission_control_data():
             mc_data['data_age_days'] = health.get('days_stale', None)
             
             # Map health status to system status
-            health_status = health.get('health_status', 'unknown')
+            health_status = health.get('health_status', 'Initializing')
             if health_status == 'OK':
                 mc_data['system_status'] = 'Excellent'
             elif health_status == 'DEGRADED':
@@ -4974,7 +5256,7 @@ def get_mission_control_data():
             elif health_status == 'STALE':
                 mc_data['system_status'] = 'Stale'
             else:
-                mc_data['system_status'] = 'unknown'
+                mc_data['system_status'] = 'Initializing'
                 
         except Exception:
             # Fallback to wave_history age if PRICE_BOOK check fails
@@ -5009,15 +5291,28 @@ def get_mission_control_data():
             else:
                 mc_data['market_regime'] = 'Neutral'
         
-        # VIX Gate Status estimation (based on volatility)
-        if 'portfolio_return' in df.columns and len(recent_data) > 0:
-            recent_vol = recent_data['portfolio_return'].std() * np.sqrt(252) * 100
-            if recent_vol < 15:
-                mc_data['vix_gate_status'] = 'GREEN (Low Vol)'
-            elif recent_vol < 25:
-                mc_data['vix_gate_status'] = 'YELLOW (Med Vol)'
+        # VIX Gate Status - only calculate if actual VIX data is available
+        # Changed to gate incomplete metrics per institutional readiness requirements
+        # Reuse price_book from earlier in function to avoid redundant loading
+        try:
+            if 'VIX' in price_book.columns and not price_book['VIX'].dropna().empty:
+                vix_prices = price_book['VIX'].dropna()
+                current_vix = vix_prices.iloc[-1] if len(vix_prices) > 0 else None
+                
+                if current_vix is not None:
+                    if current_vix < RISK_REGIME_VIX_LOW:
+                        mc_data['vix_gate_status'] = f'GREEN ({current_vix:.1f})'
+                    elif current_vix < RISK_REGIME_VIX_HIGH:
+                        mc_data['vix_gate_status'] = f'YELLOW ({current_vix:.1f})'
+                    else:
+                        mc_data['vix_gate_status'] = f'RED ({current_vix:.1f})'
+                else:
+                    mc_data['vix_gate_status'] = 'Pending'
             else:
-                mc_data['vix_gate_status'] = 'RED (High Vol)'
+                # VIX data not available - do not estimate from volatility
+                mc_data['vix_gate_status'] = 'Pending'
+        except Exception:
+            mc_data['vix_gate_status'] = 'Pending'
         
         # Calculate Alpha metrics
         if 'portfolio_return' in df.columns and 'benchmark_return' in df.columns:
@@ -5778,62 +6073,173 @@ def render_decision_attribution_panel(wave_name: str, wave_data: pd.DataFrame):
 
 def compute_alpha_source_breakdown(df):
     """
-    Compute alpha source breakdown from wave history data.
+    Compute alpha source breakdown using canonical portfolio alpha ledger.
+    
+    This function uses compute_portfolio_alpha_ledger as the single source of truth,
+    ensuring consistency with the Portfolio Snapshot blue box.
+    
+    Uses 60D period from ledger with strict rolling window semantics.
+    No fallback to inception - shows N/A with explicit reasons if unavailable.
     
     Returns dict with:
-        - total_alpha: realized_wave_return - benchmark_return
-        - selection_alpha: raw_wave_return - static_basket_return (if available)
-        - overlay_alpha: realized_wave_return - raw_wave_return (if available)
-        - residual: total_alpha - (selection_alpha + overlay_alpha)
+        - total_alpha: Cumulative alpha (Total) for 60D period
+        - selection_alpha: Asset selection alpha for 60D period
+        - overlay_alpha: VIX/SafeSmart overlay alpha for 60D period
+        - residual: Reconciliation residual (should be near 0)
         - data_available: bool indicating if breakdown is possible
+        - diagnostics: dict with diagnostic values for transparency
     """
     result = {
         'total_alpha': None,
         'selection_alpha': None,
         'overlay_alpha': None,
         'residual': None,
-        'data_available': False
+        'data_available': False,
+        'diagnostics': {}
     }
     
     try:
-        if df is None or len(df) == 0:
+        # Import the canonical ledger function (single source of truth)
+        from helpers.wave_performance import (
+            compute_portfolio_alpha_ledger,
+            RESIDUAL_TOLERANCE
+        )
+        from helpers.price_book import get_price_book
+        
+        # Get PRICE_BOOK
+        price_book = get_price_book()
+        
+        if price_book is None or price_book.empty:
             return result
         
-        # Check for required columns
-        if 'portfolio_return' not in df.columns or 'benchmark_return' not in df.columns:
+        # Compute portfolio alpha ledger (canonical implementation)
+        # This is the SAME ledger used by the blue box
+        ledger = compute_portfolio_alpha_ledger(
+            price_book=price_book,
+            mode=st.session_state.get('selected_mode', 'Standard'),
+            periods=[1, 30, 60, 365],  # Match blue box periods
+            benchmark_ticker='SPY',
+            vix_exposure_enabled=True
+        )
+        
+        if not ledger['success']:
+            # Ledger computation failed
+            result['diagnostics'] = {
+                'period_used': 'N/A',
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'rows_used': 0,
+                'reason': ledger.get('failure_reason', 'unknown'),
+                'using_fallback_exposure': False,
+                'exposure_series_found': False,
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': None,
+                'cum_unoverlay': None,
+                'cum_benchmark': None
+            }
             return result
         
-        # Compute total_alpha
-        df_copy = df.copy()
-        df_copy['total_alpha'] = df_copy['portfolio_return'] - df_copy['benchmark_return']
-        total_alpha = df_copy['total_alpha'].sum()
-        result['total_alpha'] = total_alpha
+        # Store ledger in session state for consistency
+        st.session_state['portfolio_alpha_ledger'] = ledger
+        st.session_state['portfolio_exposure_series'] = ledger.get('daily_exposure')
         
-        # Try to compute selection_alpha if static_basket_return exists
-        if 'static_basket_return' in df_copy.columns:
-            # selection_alpha = raw_wave_return - static_basket_return
-            # If we don't have raw_wave_return, we can't compute this
-            if 'raw_wave_return' in df_copy.columns:
-                df_copy['selection_alpha'] = df_copy['raw_wave_return'] - df_copy['static_basket_return']
-                result['selection_alpha'] = df_copy['selection_alpha'].sum()
+        # Extract 60D period data from ledger
+        period_60d = ledger['period_results'].get('60D', {})
         
-        # Try to compute overlay_alpha if raw_wave_return exists
-        if 'raw_wave_return' in df_copy.columns:
-            # overlay_alpha = realized_wave_return - raw_wave_return
-            # realized_wave_return is portfolio_return
-            df_copy['overlay_alpha'] = df_copy['portfolio_return'] - df_copy['raw_wave_return']
-            result['overlay_alpha'] = df_copy['overlay_alpha'].sum()
+        # Check if 60D period is available with strict windowing
+        if not period_60d.get('available', False):
+            # Period unavailable - populate diagnostics with reason
+            result['diagnostics'] = {
+                'period_used': '60D',
+                'start_date': 'N/A',
+                'end_date': 'N/A',
+                'rows_used': period_60d.get('rows_used', 0),
+                'requested_period_days': 60,
+                'reason': period_60d.get('reason', 'insufficient_aligned_rows'),
+                'using_fallback_exposure': False,
+                'exposure_series_found': ledger.get('overlay_available', False),
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': None,
+                'cum_unoverlay': None,
+                'cum_benchmark': None
+            }
+            result['data_available'] = False
+            return result
         
-        # Compute residual if both components are available
-        if result['selection_alpha'] is not None and result['overlay_alpha'] is not None:
-            result['residual'] = total_alpha - (result['selection_alpha'] + result['overlay_alpha'])
-            result['data_available'] = True
-        else:
-            # Partial data - mark as available if we have at least total_alpha
-            result['data_available'] = True
+        # 60D period is available - extract values
+        result['total_alpha'] = period_60d['total_alpha']
+        result['selection_alpha'] = period_60d['selection_alpha']
+        result['overlay_alpha'] = period_60d['overlay_alpha']
+        result['residual'] = period_60d['residual']
+        result['data_available'] = True
         
-    except Exception:
-        pass
+        # Validate residual is within tolerance (using constant from helpers.wave_performance)
+        if result['residual'] is not None and abs(result['residual']) > RESIDUAL_TOLERANCE:
+            # Large residual - mark as decomposition error
+            result['diagnostics'] = {
+                'period_used': '60D',
+                'start_date': period_60d.get('start_date', 'N/A'),
+                'end_date': period_60d.get('end_date', 'N/A'),
+                'rows_used': period_60d.get('rows_used', 60),
+                'requested_period_days': 60,
+                'reason': f'decomposition_error (residual={result["residual"]:.4%} > tolerance)',
+                'using_fallback_exposure': not ledger.get('overlay_available', False),
+                'exposure_series_found': ledger.get('overlay_available', False),
+                'exposure_min': None,
+                'exposure_max': None,
+                'cum_realized': period_60d.get('cum_realized'),
+                'cum_unoverlay': period_60d.get('cum_unoverlay'),
+                'cum_benchmark': period_60d.get('cum_benchmark')
+            }
+            result['data_available'] = False
+            return result
+        
+        # Extract diagnostic values from ledger daily series
+        daily_exposure = ledger.get('daily_exposure')
+        daily_realized = ledger.get('daily_realized_return')
+        
+        # Helper to check series validity
+        def series_valid(series):
+            """Check if series is valid (not None and has data)."""
+            return series is not None and len(series) > 0
+        
+        # Build diagnostics using strict 60D window from ledger
+        result['diagnostics'] = {
+            'period_used': '60D',
+            'start_date': period_60d.get('start_date', 'N/A'),
+            'end_date': period_60d.get('end_date', 'N/A'),
+            'rows_used': period_60d.get('rows_used', 60),
+            'requested_period_days': 60,
+            'reason': None,  # No error
+            'using_fallback_exposure': not ledger.get('overlay_available', False),
+            'exposure_series_found': ledger.get('overlay_available', False),
+            'exposure_min': float(daily_exposure.min()) if series_valid(daily_exposure) else None,
+            'exposure_max': float(daily_exposure.max()) if series_valid(daily_exposure) else None,
+            'cum_realized': period_60d.get('cum_realized'),
+            'cum_unoverlay': period_60d.get('cum_unoverlay'),
+            'cum_benchmark': period_60d.get('cum_benchmark')
+        }
+        
+    except Exception as e:
+        # Log error but don't fail - graceful degradation
+        import logging
+        logging.warning(f"Error in compute_alpha_source_breakdown: {e}")
+        result['diagnostics'] = {
+            'period_used': 'N/A',
+            'start_date': 'N/A',
+            'end_date': 'N/A',
+            'rows_used': 0,
+            'reason': f'exception: {str(e)}',
+            'using_fallback_exposure': False,
+            'exposure_series_found': False,
+            'exposure_min': None,
+            'exposure_max': None,
+            'cum_realized': None,
+            'cum_unoverlay': None,
+            'cum_benchmark': None
+        }
     
     return result
 
@@ -6245,14 +6651,20 @@ def render_mission_control():
             vix_display = f"🟡 {vix_value}"
         elif 'RED' in vix_value:
             vix_display = f"🔴 {vix_value}"
+        elif vix_value in ['Pending', 'Initializing']:
+            vix_display = vix_value
         else:
             vix_display = vix_value
         
         st.metric(
             label="VIX Gate Status",
             value=vix_display,
-            help="Volatility-based risk gate (Green=Low, Yellow=Medium, Red=High)"
+            help="VIX-based volatility gate (requires VIX data)"
         )
+        
+        # Add caption for pending state
+        if vix_value in ['Pending', 'Initializing']:
+            st.caption("Awaiting VIX data")
     
     with col3:
         st.markdown("**Alpha Captured**")
@@ -6261,7 +6673,7 @@ def render_mission_control():
         
         # Add color coding if possible
         try:
-            if alpha_today_str != 'unknown' and '%' in alpha_today_str:
+            if alpha_today_str not in ['Pending', 'Initializing'] and '%' in alpha_today_str:
                 alpha_today_val = float(alpha_today_str.replace('%', ''))
                 if alpha_today_val > 0:
                     alpha_today_str = f"🟢 {alpha_today_str}"
@@ -6270,12 +6682,13 @@ def render_mission_control():
         except:
             pass
         
+        # Display alpha metrics
         st.write(f"Latest: {alpha_today_str}")
         st.write(f"30-Day: {alpha_30day_str}")
     
     with col4:
         st.markdown("**WaveScore Leader**")
-        if mc_data['wavescore_leader'] != 'unknown':
+        if mc_data['wavescore_leader'] not in ['Pending', 'Initializing']:
             # Truncate long wave names
             wave_name_display = mc_data['wavescore_leader']
             if len(wave_name_display) > 20:
@@ -6283,7 +6696,8 @@ def render_mission_control():
             st.write(f"🏆 {wave_name_display}")
             st.write(f"Score: {mc_data['wavescore_leader_score']}")
         else:
-            st.write("No data")
+            st.write("Pending (data verified)")
+            st.caption("Awaiting sufficient data")
     
     with col5:
         system_status = mc_data['system_status']
@@ -6352,16 +6766,33 @@ def render_mission_control():
             age_display = f"{data_age} day{'s' if data_age != 1 else ''}"
             if data_age == 0:
                 age_display = "Today"
-            # Add STALE indicator for old data (with type safety)
+            # Option B: Three-tier staleness display using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # OK: ≤PRICE_CACHE_OK_DAYS (14), DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS (15-30), STALE: >PRICE_CACHE_DEGRADED_DAYS (>30)
             elif isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD:
-                age_display = f"⚠️ {data_age} days (STALE)"
+                # STALE: >PRICE_CACHE_DEGRADED_DAYS
+                age_display = f"❌ {data_age} days (STALE)"
+            elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD:
+                # DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS
+                age_display = f"⚠️ {data_age} days (DEGRADED)"
+            # else: OK: ≤PRICE_CACHE_OK_DAYS (no special indicator)
         else:
             age_display = "Unknown"
+        
+        # Build help text for data age metric
+        # UI uses price_book as source of truth to prevent divergence
+        help_text = (
+            f"Time since last data update (UTC). Three-tier staleness system: "
+            f"OK (≤{PRICE_CACHE_OK_DAYS} days), "
+            f"DEGRADED ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days), "
+            f"STALE (>{PRICE_CACHE_DEGRADED_DAYS} days). "
+            f"Thresholds are configurable via PRICE_CACHE_OK_DAYS and PRICE_CACHE_DEGRADED_DAYS environment variables."
+        )
         
         st.metric(
             label="Data Age",
             value=age_display,
-            help="Time since last data update (UTC). STALE if > 10 days old."
+            help=help_text
         )
     
     with sec_col5:
@@ -6406,16 +6837,24 @@ def render_mission_control():
     # ========================================================================
     # WARNING: Cache Stale + Network Fetch Disabled
     # ========================================================================
+    # UI uses price_book as source of truth to prevent divergence
     data_age = mc_data.get('data_age_days')
     try:
         from helpers.price_book import ALLOW_NETWORK_FETCH
         
-        # Show warning if cache is old AND network fetch is disabled (with type safety)
+        # Show warning if cache is STALE (>PRICE_CACHE_DEGRADED_DAYS) AND network fetch is disabled (with type safety)
         if isinstance(data_age, (int, float)) and data_age > STALE_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
             st.warning(
-                f"⚠️ **STALE/CACHED DATA WARNING**\n\n"
-                f"Data is {data_age} days old. Network fetching is disabled (safe_mode), "
+                f"⚠️ **STALE DATA WARNING**\n\n"
+                f"Data is {data_age} days old (>{PRICE_CACHE_DEGRADED_DAYS} days). Network fetching is disabled (safe_mode), "
                 f"but you can still manually refresh using the 'Rebuild PRICE_BOOK Cache' button below."
+            )
+        elif isinstance(data_age, (int, float)) and data_age > DEGRADED_DAYS_THRESHOLD and not ALLOW_NETWORK_FETCH:
+            # Info message for DEGRADED (PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS)
+            st.info(
+                f"ℹ️ **DEGRADED DATA NOTICE**\n\n"
+                f"Data is {data_age} days old ({PRICE_CACHE_OK_DAYS + 1}-{PRICE_CACHE_DEGRADED_DAYS} days). "
+                f"Consider refreshing using the 'Rebuild PRICE_BOOK Cache' button below for fresher data."
             )
     except Exception:
         pass
@@ -6509,75 +6948,132 @@ def render_mission_control():
             # ================================================================
             # 1. Alpha Source Breakdown Panel
             # ================================================================
-            st.markdown("##### 🔍 Alpha Source Breakdown")
+            st.markdown("##### 🔍 Alpha Source Breakdown (Portfolio-Level)")
+            st.caption("Portfolio-level alpha attribution with transparent methodology")
             
             alpha_breakdown = compute_alpha_source_breakdown(df)
+            
+            # Attribution Diagnostics Expander - always show (even if data unavailable)
+            with st.expander("🔬 Attribution Diagnostics", expanded=False):
+                st.caption("Detailed diagnostic values for transparency and validation (60D period from ledger)")
+                
+                diagnostics = alpha_breakdown.get('diagnostics', {})
+                
+                # Check if period is available
+                period_available = alpha_breakdown.get('data_available', False)
+                period_reason = diagnostics.get('reason')
+                
+                if not period_available and period_reason:
+                    # Show unavailable reason prominently
+                    st.warning(f"⚠️ 60D Period Unavailable: {period_reason}")
+                    st.caption(f"Rows available: {diagnostics.get('rows_used', 0)}, Required: {diagnostics.get('requested_period_days', 60)}")
+                
+                # Create diagnostic display in two columns
+                diag_col1, diag_col2 = st.columns(2)
+                
+                with diag_col1:
+                    st.markdown("**Period & Date Range (Strict Rolling Window):**")
+                    st.text(f"Period Used: {diagnostics.get('period_used', 'N/A')}")
+                    st.text(f"Requested Period Days: {diagnostics.get('requested_period_days', 'N/A')}")
+                    st.text(f"Rows Used: {diagnostics.get('rows_used', 'N/A')}")
+                    st.text(f"Start Date: {diagnostics.get('start_date', 'N/A')}")
+                    st.text(f"End Date: {diagnostics.get('end_date', 'N/A')}")
+                    
+                    if period_reason:
+                        st.markdown("")
+                        st.markdown("**Unavailability Reason:**")
+                        st.text(f"{period_reason}")
+                    
+                    st.markdown("")
+                    st.markdown("**Exposure Series:**")
+                    st.text(f"Using Fallback Exposure: {diagnostics.get('using_fallback_exposure', 'N/A')}")
+                    st.text(f"Exposure Series Found: {diagnostics.get('exposure_series_found', 'N/A')}")
+                    
+                    exposure_min = diagnostics.get('exposure_min')
+                    exposure_max = diagnostics.get('exposure_max')
+                    st.text(f"Exposure Min: {exposure_min:.4f}" if exposure_min is not None else "Exposure Min: N/A")
+                    st.text(f"Exposure Max: {exposure_max:.4f}" if exposure_max is not None else "Exposure Max: N/A")
+                
+                with diag_col2:
+                    st.markdown("**Cumulative Returns (Compounded):**")
+                    
+                    cum_realized = diagnostics.get('cum_realized')
+                    cum_unoverlay = diagnostics.get('cum_unoverlay')
+                    cum_benchmark = diagnostics.get('cum_benchmark')
+                    
+                    st.text(f"Cum Realized: {cum_realized:+.4%}" if cum_realized is not None else "Cum Realized: N/A")
+                    st.text(f"Cum Unoverlay: {cum_unoverlay:+.4%}" if cum_unoverlay is not None else "Cum Unoverlay: N/A")
+                    st.text(f"Cum Benchmark: {cum_benchmark:+.4%}" if cum_benchmark is not None else "Cum Benchmark: N/A")
+                    
+                    st.markdown("")
+                    st.caption("All cumulative returns computed using compounded math: (1 + daily_returns).prod() - 1")
             
             if alpha_breakdown['data_available']:
                 # Display as table and KPI tiles
                 col_table, col_kpi1, col_kpi2, col_kpi3 = st.columns([2, 1, 1, 1])
                 
                 with col_table:
-                    # Create breakdown table
+                    # Create breakdown table with numeric values
                     breakdown_data = []
-                    if alpha_breakdown['total_alpha'] is not None:
-                        breakdown_data.append(['Cumulative Alpha (Pre-Decomposition)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')])
-                    if alpha_breakdown['selection_alpha'] is not None:
-                        breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending')])
-                    else:
-                        breakdown_data.append(['Selection Alpha', 'Pending'])
-                    if alpha_breakdown['overlay_alpha'] is not None:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived')])
-                    else:
-                        breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', 'Derived'])
-                    if alpha_breakdown['residual'] is not None:
-                        breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'Reserved')])
-                    else:
-                        breakdown_data.append(['Residual', 'Reserved'])
+                    breakdown_data.append(['Cumulative Alpha (Total)', _fmt_pct_or_status(alpha_breakdown['total_alpha'], 'N/A')])
+                    breakdown_data.append(['Selection Alpha', _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'N/A')])
+                    breakdown_data.append(['Overlay Alpha (VIX/SafeSmart)', _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'N/A')])
+                    breakdown_data.append(['Residual', _fmt_pct_or_status(alpha_breakdown['residual'], 'N/A')])
                     
                     if breakdown_data:
                         breakdown_df = pd.DataFrame(breakdown_data, columns=['Component', 'Value'])
                         st.dataframe(breakdown_df, hide_index=True, use_container_width=True)
                 
                 # Display Cumulative Alpha (Pre-Decomposition) headline with caption
-                st.markdown("**Cumulative Alpha (Pre-Decomposition)**")
+                st.markdown("**Cumulative Portfolio Alpha (60D from Ledger)**")
                 if alpha_breakdown['total_alpha'] is not None:
                     st.markdown(f"**{_fmt_pct_or_status(alpha_breakdown['total_alpha'], 'Pending')}**")
                 else:
                     st.markdown("**Pending**")
-                st.caption("Benchmark-relative · Capital-weighted · Since inception")
+                st.caption("Benchmark-relative · Portfolio-level · 60D rolling window")
                 
                 # KPI tiles
                 with col_kpi1:
                     st.metric(
                         "Selection α",
                         _fmt_pct_or_status(alpha_breakdown['selection_alpha'], 'Pending'),
-                        help="Security-selection attribution activates once sufficient realized trade history is available."
+                        help="Security-selection attribution from canonical ledger (60D period)"
                     )
                 
                 with col_kpi2:
                     st.metric(
                         "Overlay α",
                         _fmt_pct_or_status(alpha_breakdown['overlay_alpha'], 'Derived'),
-                        help="Overlay alpha reflects exposure decisions driven by volatility and regime controls."
+                        help="Overlay alpha from VIX exposure management (60D period)"
                     )
                 
                 with col_kpi3:
                     residual_val = alpha_breakdown['residual']
+                    # Color code residual based on tolerance (matching blue box)
+                    residual_pct = abs(residual_val) * 100 if residual_val is not None else 0
+                    residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
                     st.metric(
-                        "Residual",
+                        f"{residual_color} Residual",
                         _fmt_pct_or_status(residual_val, 'Reserved'),
-                        help="Residual captures unexplained variance after full attribution is enabled."
+                        help="Residual should be near 0% (tolerance: 0.10%)"
                     )
                     
-                    # Warning banner if residual exceeds threshold
-                    if residual_val is not None and abs(residual_val) > 0.01:  # 1% threshold
-                        st.warning(f"⚠️ Large residual detected ({residual_val*100:.2f}%) - possible data mismatch")
+                    # Warning banner if residual exceeds strict tolerance
+                    if residual_val is not None and abs(residual_val) > 0.0010:  # 0.10% strict tolerance
+                        st.warning(f"⚠️ Residual exceeds tolerance ({residual_val*100:.4f}% > 0.10%)")
                 
                 # Governance footer
-                st.markdown("*Attribution reflects live portfolio behavior under adaptive exposure controls.*")
+                st.markdown("*Attribution from canonical ledger (60D rolling window) - same source as Portfolio Snapshot blue box*")
             else:
-                st.info("📋 Alpha breakdown data not available. Required: portfolio_return, benchmark_return, and optionally raw_wave_return, static_basket_return.")
+                # Show N/A with explicit reason
+                diagnostics = alpha_breakdown.get('diagnostics', {})
+                reason = diagnostics.get('reason', 'unknown')
+                rows_used = diagnostics.get('rows_used', 0)
+                requested = diagnostics.get('requested_period_days', 60)
+                
+                st.info(f"📋 60D Alpha breakdown unavailable: {reason}")
+                st.caption(f"Rows available: {rows_used}, Required: {requested}")
+                st.caption("No fallback to inception - strict rolling window enforcement")
             
             # ================================================================
             # 2. Exposure-Adjusted Alpha
@@ -6590,33 +7086,59 @@ def render_mission_control():
                 exp_col1, exp_col2 = st.columns(2)
                 
                 with exp_col1:
+                    # Clarify whether adjusted or unadjusted in the label
+                    if exposure_alpha['is_fallback']:
+                        label = "Latest Alpha (Unadjusted)"
+                        help_text = "Showing raw alpha - exposure data not available for adjustment"
+                    else:
+                        label = "Latest Exposure-Adj Alpha"
+                        help_text = "Alpha adjusted for beta and dynamic exposure changes"
+                    
                     st.metric(
-                        "Latest Exposure-Adj α",
+                        label,
                         _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_latest'], 'Pending'),
-                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                        help=help_text
                     )
                 
                 with exp_col2:
+                    # Clarify whether adjusted or unadjusted in the label
+                    if exposure_alpha['is_fallback']:
+                        label = "30-Day Alpha (Unadjusted)"
+                        help_text = "Showing raw alpha - exposure data not available for adjustment"
+                    else:
+                        label = "30-Day Exposure-Adj Alpha"
+                        help_text = "Alpha adjusted for beta and dynamic exposure changes"
+                    
                     st.metric(
-                        "30-Day Exposure-Adj α",
+                        label,
                         _fmt_pct_or_status(exposure_alpha['exposure_adj_alpha_30day'], 'Pending'),
-                        help="Measures alpha generated independent of beta and exposure adjustments driven by the VIX ladder."
+                        help=help_text
                     )
                 
-                st.caption("Normalized for dynamic exposure and volatility regime.")
-                
-                # Show fallback message
+                # Show methodology indicator - only show when actually missing exposure data
+                # Suppress warning if using expected fallback behavior (exposure=1.0)
                 if exposure_alpha['is_fallback']:
-                    st.info("ℹ️ No exposure series found — showing unadjusted alpha")
+                    # Check if this is the expected fallback (no overlay data) vs actual missing data
+                    # If portfolio_alpha_attribution also indicates fallback, this is expected behavior
+                    portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+                    using_fallback = portfolio_attrib.get('using_fallback_exposure', False)
+                    
+                    if not using_fallback:
+                        # Actual missing data - show warning
+                        st.info("ℹ️ Showing unadjusted alpha - exposure series not found in data")
+                        st.caption("Exposure-adjusted calculation requires exposure time series data")
+                    # else: Fallback is expected, no warning needed
                 else:
-                    st.success("✅ Using exposure-adjusted alpha")
+                    st.success("✅ Using exposure-adjusted methodology")
+                    st.caption("Normalized for dynamic exposure and volatility regime")
             else:
                 st.info("📋 Exposure-adjusted alpha not available. Required: portfolio_return, benchmark_return.")
             
             # ================================================================
             # 3. Capital-Weighted Alpha (Portfolio-level)
             # ================================================================
-            st.markdown("##### 💼 Capital-Weighted Alpha (Portfolio)")
+            st.markdown("##### 💼 Capital-Weighted Alpha (Portfolio-Level)")
+            st.caption("Portfolio-level alpha with transparent weighting methodology")
             
             capital_alpha = compute_capital_weighted_alpha(df)
             
@@ -6624,19 +7146,36 @@ def render_mission_control():
                 cap_col1, cap_col2 = st.columns(2)
                 
                 with cap_col1:
-                    if capital_alpha['capital_weighted_alpha'] is not None:
+                    method = capital_alpha['weighting_method']
+                    
+                    # Check if using fallback (equal-weight) due to missing capital inputs
+                    if method == 'equal-weight':
+                        # Display N/A instead of computed value when capital inputs are missing
                         st.metric(
-                            "Portfolio Alpha",
-                            f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
-                            help="Capital-weighted or equal-weighted alpha"
+                            "Capital-Weighted Alpha",
+                            "N/A",
+                            help="Capital inputs required for capital-weighted alpha calculation"
                         )
+                    else:
+                        # Display actual capital-weighted value
+                        if capital_alpha['capital_weighted_alpha'] is not None:
+                            label = f"Capital-Weighted Alpha ({method.title()})"
+                            st.metric(
+                                label,
+                                f"{capital_alpha['capital_weighted_alpha']*100:.4f}%",
+                                help=f"Alpha calculated using {method} weighting methodology"
+                            )
+                        else:
+                            st.metric("Capital-Weighted Alpha", "N/A")
                 
                 with cap_col2:
                     method_label = capital_alpha['weighting_method']
                     if method_label == 'equal-weight':
-                        st.info("ℹ️ Equal-weight (no capital inputs found)")
+                        st.info("ℹ️ Add capital inputs to enable capital-weighted alpha.")
+                        st.caption("Equal-weight methodology is currently in use.")
                     else:
                         st.success(f"✅ Using {method_label} weighting")
+                        st.caption("Based on available capital allocation data")
             else:
                 st.info("📋 Capital-weighted alpha not available. Required: portfolio returns.")
             
@@ -6644,6 +7183,7 @@ def render_mission_control():
             # 4. Risk-On vs Risk-Off Attribution
             # ================================================================
             st.markdown("##### 🎯 Risk-On vs Risk-Off Attribution")
+            st.caption("⚠️ Note: Percentages shown are cumulative exposure contributions, NOT allocation weights")
             
             risk_attrib = compute_risk_regime_attribution(df, days_list=[30, 60, 90])
             
@@ -6792,737 +7332,1054 @@ def render_mission_control():
 
 
 def render_sidebar_info():
-    """Render sidebar information including build info and menu."""
+    """
+    Render sidebar information including build info and menu.
+    
+    NOTE: Wave selection changes will trigger ONE rerun to update the page context.
+    This is expected Streamlit behavior and not an infinite loop.
+    The loop detection mechanism will prevent multiple consecutive reruns.
+    """
     
     # ========================================================================
-    # NEW: Safe Mode Switch (Default ON)
+    # WAVE SELECTION CONTROL - Always Visible
     # ========================================================================
-    st.sidebar.markdown("### 🛡️ Safe Mode")
+    st.sidebar.markdown("### 🌊 Wave Selection")
     
-    # Safe Mode (No Fetch / No Compute) - Default ON
-    safe_mode_no_fetch = st.sidebar.checkbox(
-        "Safe Mode (No Fetch / No Compute)",
-        value=st.session_state.get("safe_mode_no_fetch", True),
-        key="safe_mode_no_fetch_toggle",
-        help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
-    )
-    st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
-    
-    if safe_mode_no_fetch:
-        st.sidebar.info("🛡️ SAFE MODE ACTIVE - No external data calls")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Debug Mode: Allow Continuous Reruns
-    # ========================================================================
-    st.sidebar.markdown("### 🐛 Debug Mode")
-    
-    # Allow Continuous Reruns checkbox (default OFF)
-    allow_continuous_reruns = st.sidebar.checkbox(
-        "Allow Continuous Reruns (Debug)",
-        value=st.session_state.get("allow_continuous_reruns", False),
-        key="allow_continuous_reruns_toggle",
-        help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
-    )
-    st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
-    
-    if not allow_continuous_reruns:
-        st.sidebar.warning("⚠️ Loop Trap Active - Max 2 runs")
-    else:
-        st.sidebar.info("🔄 Continuous reruns enabled")
-    
-    # Reset Compute Lock button (for diagnostics)
-    if st.sidebar.button(
-        "Reset Compute Lock",
-        key="reset_compute_lock_button",
-        use_container_width=True,
-        help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
-    ):
-        st.session_state["compute_lock"] = False
-        st.session_state["compute_lock_reason"] = None
-        st.sidebar.success("✅ Compute lock reset")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Manual Snapshot Rebuild Buttons
-    # ========================================================================
-    st.sidebar.markdown("### 🔧 Manual Snapshot Rebuild")
-    
-    # Main Snapshot Rebuild Button
-    if st.sidebar.button(
-        "Rebuild Snapshot Now (Manual)",
-        key="manual_rebuild_snapshot_button",
-        use_container_width=True,
-        disabled=safe_mode_no_fetch,
-        help="Manually rebuild the main snapshot. Safe Mode must be OFF."
-    ):
-        try:
-            from analytics_pipeline import generate_live_snapshot
-            
-            st.sidebar.info("⏳ Building snapshot...")
-            
-            # Temporarily allow the build by creating a temporary session state
-            temp_session_state = dict(st.session_state)
-            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
-            
-            snapshot_df = generate_live_snapshot(
-                output_path="data/live_snapshot.csv",
-                session_state=temp_session_state
-            )
-            
-            if snapshot_df is not None and not snapshot_df.empty:
-                st.sidebar.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
-                # Reset run guard counter on successful rebuild
-                st.session_state.run_count = 0
-                st.session_state.loop_detected = False
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("rebuild_snapshot_manual")
-            else:
-                st.sidebar.warning("⚠️ Snapshot rebuild returned empty data")
-        except Exception as e:
-            st.sidebar.error(f"❌ Snapshot rebuild failed: {str(e)}")
-    
-    # Proxy Snapshot Rebuild Button
-    if st.sidebar.button(
-        "Rebuild Proxy Snapshot Now (Manual)",
-        key="manual_rebuild_proxy_snapshot_button",
-        use_container_width=True,
-        disabled=safe_mode_no_fetch,
-        help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
-    ):
-        try:
-            from planb_proxy_pipeline import build_proxy_snapshot
-            
-            st.sidebar.info("⏳ Building proxy snapshot...")
-            
-            # Temporarily allow the build by creating a temporary session state
-            temp_session_state = dict(st.session_state)
-            temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
-            
-            # Build proxy snapshot with explicit button click flag
-            proxy_df = build_proxy_snapshot(
-                days=365,
-                session_state=temp_session_state,
-                explicit_button_click=True
-            )
-            
-            if proxy_df is not None and not proxy_df.empty:
-                st.sidebar.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
-                # Reset run guard counter on successful rebuild
-                st.session_state.run_count = 0
-                st.session_state.loop_detected = False
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("rebuild_proxy_snapshot_manual")
-            else:
-                st.sidebar.warning("⚠️ Proxy snapshot rebuild returned empty data")
-        except Exception as e:
-            st.sidebar.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Feature Toggles - Wave Intelligence Center
-    # ========================================================================
-    st.sidebar.markdown("### ⚙️ Feature Settings")
-    
-    # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
-    safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
-    safe_mode_ui = st.sidebar.checkbox(
-        "Enable Safe Mode (Wave IC)",
-        value=safe_mode_default,
-        key="safe_mode_ui_toggle",
-        help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
-    )
-    
-    # Update global SAFE_MODE based on UI toggle (allows runtime control)
-    # Note: This doesn't actually update the constant, but we can use session_state
-    st.session_state["safe_mode_enabled"] = safe_mode_ui
-    
-    # RENDER_RICH_HTML toggle
-    render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
-    render_rich_html_ui = st.sidebar.checkbox(
-        "Enable Rich HTML Rendering",
-        value=render_rich_html_default,
-        key="render_rich_html_ui_toggle",
-        help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
-    )
-    st.session_state["render_rich_html_enabled"] = render_rich_html_ui
-    
-    # Debug Mode toggle (default OFF per requirements)
-    debug_mode_ui = st.sidebar.checkbox(
-        "🐛 Debug Mode",
-        value=st.session_state.get("debug_mode", False),
-        key="debug_mode_ui_toggle",
-        help="Show detailed error messages and diagnostics when components fail (default: OFF)"
-    )
-    st.session_state["debug_mode"] = debug_mode_ui
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Force Reload Wave Universe Button (Top-Right of Sidebar)
-    # ========================================================================
-    st.sidebar.markdown("### ⚡ Quick Actions")
-    
-    if st.sidebar.button(
-        "🔄 Force Reload Wave Universe",
-        key="force_reload_universe_top_button",
-        use_container_width=True,
-        type="primary"
-    ):
-        try:
-            # Increment wave universe version
-            if "wave_universe_version" not in st.session_state:
-                st.session_state.wave_universe_version = 1
-            st.session_state.wave_universe_version += 1
-            
-            # Clear wave universe cache from session state using constant
-            for key in WAVE_UNIVERSE_CACHE_KEYS:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            # Clear Streamlit caches
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            
-            # Set force reload flag
-            st.session_state["force_reload_universe"] = True
-            
-            # Mark user interaction
-            st.session_state.user_interaction_detected = True
-            
-            # Trigger immediate rerun
-            trigger_rerun("force_reload_waves")
-        except Exception as e:
-            st.sidebar.warning(f"Force reload unavailable: {str(e)}")
-    
-    # Force Reload Data Button (Clear All Caches)
-    if st.sidebar.button(
-        "🧹 Force Reload Data (Clear Cache)",
-        key="force_reload_data_button",
-        use_container_width=True,
-        help="Clear all cached data and reload from files"
-    ):
-        try:
-            # Clear all Streamlit caches
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            
-            # Clear wave/history-related session state keys
-            keys_to_clear = [
-                "wave_universe",
-                "waves_list",
-                "universe_cache",
-                "wave_history_cache",
-                "last_compute_ts",
-                "alpha_proof_result",
-                "alpha_proof_wave",
-                "attrib_result"
-            ]
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            # Increment wave universe version to force reload
-            if "wave_universe_version" not in st.session_state:
-                st.session_state.wave_universe_version = 1
-            st.session_state.wave_universe_version += 1
-            
-            # Show success message
-            st.sidebar.success("✅ Cache cleared successfully!")
-            
-            # Mark user interaction
-            st.session_state.user_interaction_detected = True
-            
-            # Trigger rerun
-            trigger_rerun("force_reload_data_clear_cache")
-        except Exception as e:
-            st.sidebar.error(f"Error clearing cache: {str(e)}")
-    
-    # ========================================================================
-    # NEW: Rebuild Price Cache Button (Controlled, Active Tickers Only)
-    # ========================================================================
-    if st.sidebar.button(
-        "💰 Rebuild Price Cache (Active Tickers Only)",
-        key="rebuild_price_cache_button",
-        use_container_width=True,
-        help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Rebuilding price cache... This may take a few minutes."):
-                # Import the rebuild function
-                from helpers.price_book import rebuild_price_cache
-                
-                # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
-                result = rebuild_price_cache(active_only=True)
-                
-                # Check if fetching is allowed
-                if not result['allowed']:
-                    st.sidebar.warning(
-                        "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
-                        f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
-                    )
-                elif result['success']:
-                    st.sidebar.success(
-                        f"✅ Price cache rebuilt!\n\n"
-                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
-                        f"📅 Latest Date: {result['date_max']}"
-                    )
-                    
-                    # Show failed tickers if any
-                    if result['tickers_failed'] > 0 and result['failures']:
-                        st.sidebar.warning(
-                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
-                            f"See data/cache/failed_tickers.csv for details"
-                        )
+    # Get all active waves from the registry with wave_id mapping
+    try:
+        # Check if required modules are available
+        if not WAVE_REGISTRY_MANAGER_AVAILABLE or not WAVES_ENGINE_AVAILABLE:
+            st.sidebar.warning("⚠️ Wave selection unavailable - required modules not loaded")
+            # Ensure consistent state - default to portfolio view
+            # UPDATED: Use selected_wave_id as authoritative state key
+            if "selected_wave_id" not in st.session_state:
+                st.session_state.selected_wave_id = None
+            return
+        
+        # Load active waves with wave_id and display_name
+        active_waves_df = get_active_wave_registry()
+        
+        # Build list of wave objects with both wave_id and display_name
+        active_waves = []
+        for _, row in active_waves_df.iterrows():
+            active_waves.append({
+                'wave_id': row['wave_id'],
+                'display_name': row['wave_name']
+            })
+        
+        # Build options list for selectbox (display names only)
+        wave_display_names = [wave['display_name'] for wave in active_waves]
+        wave_options = [PORTFOLIO_VIEW_TITLE] + sorted(wave_display_names)
+        
+        # Create mapping dictionary: display_name -> wave_id
+        name_to_id = {wave['display_name']: wave['wave_id'] for wave in active_waves}
+        
+        # Get current selection from session state (UPDATED: use selected_wave_id)
+        current_wave_id = st.session_state.get("selected_wave_id")
+        
+        # Determine the index for the selectbox based on stored wave_id
+        if current_wave_id is None:
+            # Portfolio mode
+            default_index = 0
+        else:
+            # Convert wave_id back to display_name to find index
+            try:
+                current_display_name = get_display_name_from_wave_id(current_wave_id)
+                if current_display_name in wave_options:
+                    default_index = wave_options.index(current_display_name)
                 else:
-                    st.sidebar.error("❌ Failed to rebuild price cache")
-                
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                
-                # Clear Streamlit caches to reflect new data
-                st.cache_data.clear()
-                
-                # Trigger rerun
-                trigger_rerun("rebuild_price_cache")
-        except Exception as e:
-            st.sidebar.error(f"Error rebuilding cache: {str(e)}")
-            import traceback
-            st.sidebar.code(traceback.format_exc())
+                    # Invalid wave_id, default to portfolio
+                    default_index = 0
+            except (KeyError, ValueError, AttributeError):
+                # Error converting wave_id, default to portfolio
+                default_index = 0
+        
+        # Render wave selector with stable key
+        # UPDATED: Use selected_wave_id as the key for persistence
+        selected_option = st.sidebar.selectbox(
+            "Select Context",
+            options=wave_options,
+            index=default_index,
+            key="selected_wave_id_display",
+            help="Choose Portfolio for all-waves view, or select an individual wave for wave-specific metrics"
+        )
+        
+        # Map the selected display name to wave_id and store in session state
+        # This ensures the selection persists across reruns
+        if selected_option == PORTFOLIO_VIEW_TITLE:
+            # Portfolio mode selected
+            st.session_state.selected_wave_id = None
+        else:
+            # Individual wave selected - map display_name to wave_id
+            new_wave_id = name_to_id.get(selected_option)
+            if new_wave_id is not None:
+                st.session_state.selected_wave_id = new_wave_id
+            else:
+                # Fallback if mapping fails
+                st.session_state.selected_wave_id = None
+        
+        # Display current context using canonical resolver
+        ctx = resolve_app_context()
+        if ctx["selected_wave_id"] is None:
+            st.sidebar.info(f"{PORTFOLIO_VIEW_ICON} Portfolio View Active")
+        else:
+            st.sidebar.info(f"{WAVE_VIEW_ICON} Wave View: {ctx['selected_wave_name']}")
+        
+        # Debug caption to prove persistence (only in debug mode)
+        if st.session_state.get("debug_mode", False):
+            wave_id = ctx["selected_wave_id"]
+            if wave_id:
+                st.sidebar.caption(f"selected_wave_id: {wave_id} → {ctx['selected_wave_name']}")
+                st.sidebar.caption(f"context_key: {ctx['context_key']}")
+            else:
+                st.sidebar.caption(f"selected_wave_id: None (Portfolio)")
+                st.sidebar.caption(f"context_key: {ctx['context_key']}")
+    
+    except (ImportError, KeyError, ValueError, AttributeError) as e:
+        # Fallback if wave loading fails
+        st.sidebar.warning("⚠️ Could not load wave list")
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.error(f"Error: {str(e)}")
+    
+    st.sidebar.markdown("---")
     
     # ========================================================================
-    # NEW: Force Build Data for All Waves Button (Enhanced with Diagnostics)
+    # CLIENT MODE - Read-Only Health Information
     # ========================================================================
-    if st.sidebar.button(
-        "🔨 Force Build Data for All Waves",
-        key="force_build_all_waves_button",
-        use_container_width=True,
-        help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Prefetching prices for all waves..."):
-                # Clear diagnostics tracker
-                try:
-                    from helpers.ticker_diagnostics import get_diagnostics_tracker
-                    tracker = get_diagnostics_tracker()
-                    tracker.clear()
-                except ImportError:
-                    pass
-                
-                # Set force rebuild flag
-                st.session_state.force_price_cache_rebuild = True
-                
-                # Clear any previous rate-limited flags
-                if "rate_limited_waves" in st.session_state:
-                    del st.session_state["rate_limited_waves"]
-                
-                # Force refresh the canonical price cache (PRICE_BOOK)
-                from helpers.price_loader import refresh_price_cache
-                cache_result = refresh_price_cache(active_only=True)
-                
-                # Show results
-                success_count = cache_result.get("tickers_fetched", 0)
-                failure_count = cache_result.get("tickers_failed", 0)
-                
-                st.sidebar.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
-                
-                # Generate and export diagnostics report if there are failures
-                if failure_count > 0:
-                    try:
-                        from helpers.ticker_diagnostics import get_diagnostics_tracker
-                        tracker = get_diagnostics_tracker()
-                        report_path = tracker.export_to_csv()
-                        st.sidebar.info(f"📊 Diagnostics report saved to: {report_path}")
-                    except Exception:
-                        pass
-                
-                # Force reload diagnostics
-                st.cache_data.clear()
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("force_build_all_waves")
-        except Exception as e:
-            st.sidebar.error(f"Error building data: {str(e)}")
+    st.sidebar.markdown("### 📊 System Health")
+    
+    # Display read-only health information
+    try:
+        # Universe count - with freshness indicator
+        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
+        all_waves = universe.get("waves", [])
+        active_wave_count = len(all_waves)
+        
+        # Get timestamp if available
+        universe_timestamp = universe.get("timestamp", "Unknown")
+        
+        st.sidebar.metric("Active Waves", active_wave_count)
+        if universe_timestamp != "Unknown":
+            st.sidebar.caption(f"Updated: {universe_timestamp}")
+        
+        # Data Age
+        if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+            asof_time = st.session_state.global_price_asof
+            time_diff = datetime.now(timezone.utc) - asof_time
+            minutes_ago = int(time_diff.total_seconds() / 60)
+            
+            if minutes_ago < 60:
+                age_str = f"{minutes_ago} min"
+            else:
+                hours_ago = minutes_ago // 60
+                age_str = f"{hours_ago}h {minutes_ago % 60}m"
+            
+            st.sidebar.metric("Data Age", age_str)
+        
+        # Last Price Date
+        data_timestamp = get_latest_data_timestamp()
+        st.sidebar.metric("Last Price Date", data_timestamp)
+        
+    except Exception as e:
+        st.sidebar.warning("⚠️ Health info unavailable")
+        if st.session_state.get("debug_mode", False):
+            st.sidebar.error(f"Error: {str(e)}")
+    
+    st.sidebar.markdown("---")
     
     # ========================================================================
-    # NEW: Rebuild Wave CSV + Clear Cache Button
+    # OPERATOR MODE (Admin-Gated)
+    # Operator Mode hidden by default; enable via OPERATOR_MODE secret.
+    # Set OPERATOR_MODE = true in .streamlit/secrets.toml to enable.
     # ========================================================================
-    if st.sidebar.button(
-        "📋 Rebuild Wave CSV + Clear Cache",
-        key="rebuild_wave_csv_button",
-        use_container_width=True,
-        help="Rebuild wave registry CSV from canonical source and clear all cached data"
-    ):
-        try:
-            # Show progress indicator
-            with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
-                # Import wave registry manager
-                from wave_registry_manager import rebuild_wave_registry_csv
+    operator_mode_allowed = False
+    try:
+        operator_mode_allowed = st.secrets.get('OPERATOR_MODE', False)
+    except Exception:
+        # Secrets not available, OPERATOR_MODE not set, or secrets parsing error
+        pass
+    
+    if operator_mode_allowed:
+        with st.sidebar.expander("⚙️ Operator Controls (Admin)", expanded=False):
+            operator_mode_enabled = st.checkbox(
+                "Enable Operator Mode",
+                value=st.session_state.get("operator_mode_enabled", False),
+                key="operator_mode_toggle",
+                help="Enable advanced operator controls and tools"
+            )
+            st.session_state["operator_mode_enabled"] = operator_mode_enabled
+            
+            if operator_mode_enabled:
+                st.info("🔓 Operator Mode Active")
                 
-                # Rebuild the CSV
-                rebuild_result = rebuild_wave_registry_csv(force=True)
+                # ========================================================================
+                # OPERATOR CONTROLS - Safe Mode
+                # ========================================================================
+                st.markdown("#### 🛡️ Safe Mode")
                 
-                if rebuild_result['success']:
-                    st.sidebar.success(f"✅ Wave CSV rebuilt with {rebuild_result['waves_written']} waves")
-                    
-                    # Clear all cached data
-                    st.cache_data.clear()
-                    st.cache_resource.clear()
-                    
-                    # Clear wave-related session state
-                    keys_to_clear = [
-                        "wave_universe",
-                        "waves_list",
-                        "universe_cache",
-                        "wave_history_cache",
-                        "last_compute_ts",
-                        "alpha_proof_result",
-                        "alpha_proof_wave",
-                        "attrib_result",
-                        "global_price_df",
-                        "global_price_failures",
-                        "global_price_asof"
-                    ]
-                    for key in keys_to_clear:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    
-                    # Force rebuild price cache
-                    st.session_state.force_price_cache_rebuild = True
-                    
-                    # Rebuild canonical price cache (PRICE_BOOK)
+                # Safe Mode (No Fetch / No Compute) - Default ON
+                safe_mode_no_fetch = st.checkbox(
+                    "Safe Mode (No Fetch / No Compute)",
+                    value=st.session_state.get("safe_mode_no_fetch", True),
+                    key="safe_mode_no_fetch_toggle",
+                    help="When ON: Prevents all network calls (yfinance, Alpaca, Coinbase) and snapshot builds. Loads pre-existing snapshots only."
+                )
+                st.session_state["safe_mode_no_fetch"] = safe_mode_no_fetch
+                
+                if safe_mode_no_fetch:
+                    st.info("🛡️ SAFE MODE ACTIVE - No external data calls")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Debug Mode
+                # ========================================================================
+                st.markdown("#### 🐛 Debug Mode")
+                
+                # Allow Continuous Reruns checkbox (default OFF)
+                allow_continuous_reruns = st.checkbox(
+                    "Allow Continuous Reruns (Debug)",
+                    value=st.session_state.get("allow_continuous_reruns", False),
+                    key="allow_continuous_reruns_toggle",
+                    help="When OFF: App stops after 2 runs to prevent infinite loops. Enable this for debugging or when continuous auto-refresh is needed."
+                )
+                st.session_state["allow_continuous_reruns"] = allow_continuous_reruns
+                
+                if not allow_continuous_reruns:
+                    st.warning("⚠️ Loop Trap Active - Max 2 runs")
+                else:
+                    st.info("🔄 Continuous reruns enabled")
+                
+                # Reset Compute Lock button (for diagnostics)
+                if st.button(
+                    "Reset Compute Lock",
+                    key="reset_compute_lock_button",
+                    use_container_width=True,
+                    help="Reset the global compute lock to allow heavy computations again. Use this if computations appear stuck."
+                ):
+                    st.session_state["compute_lock"] = False
+                    st.session_state["compute_lock_reason"] = None
+                    st.success("✅ Compute lock reset")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Manual Snapshot Rebuild Buttons
+                # ========================================================================
+                st.markdown("#### 🔧 Manual Snapshot Rebuild")
+                
+                # Main Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Snapshot Now (Manual)",
+                    key="manual_rebuild_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the main snapshot. Safe Mode must be OFF."
+                ):
                     try:
-                        from helpers.price_loader import refresh_price_cache
-                        cache_result = refresh_price_cache(active_only=True)
+                        from analytics_pipeline import generate_live_snapshot
                         
-                        # Get summary statistics
-                        waves_total = rebuild_result['waves_written']
-                        success_count = cache_result.get("tickers_fetched", 0)
-                        failures = cache_result.get("failures", {})
-                        tickers_failed_count = cache_result.get("tickers_failed", 0)
+                        st.info("⏳ Building snapshot...")
                         
-                        # Display summary
-                        st.sidebar.info(f"""
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        
+                        snapshot_df = generate_live_snapshot(
+                            output_path="data/live_snapshot.csv",
+                            session_state=temp_session_state
+                        )
+                        
+                        if snapshot_df is not None and not snapshot_df.empty:
+                            st.success(f"✅ Snapshot rebuilt: {len(snapshot_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Snapshot rebuild failed: {str(e)}")
+                
+                # Proxy Snapshot Rebuild Button
+                if st.button(
+                    "Rebuild Proxy Snapshot Now (Manual)",
+                    key="manual_rebuild_proxy_snapshot_button",
+                    use_container_width=True,
+                    disabled=safe_mode_no_fetch,
+                    help="Manually rebuild the proxy snapshot. Safe Mode must be OFF."
+                ):
+                    try:
+                        from planb_proxy_pipeline import build_proxy_snapshot
+                        
+                        st.info("⏳ Building proxy snapshot...")
+                        
+                        # Temporarily allow the build by creating a temporary session state
+                        temp_session_state = dict(st.session_state)
+                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        
+                        # Build proxy snapshot with explicit button click flag
+                        proxy_df = build_proxy_snapshot(
+                            days=365,
+                            session_state=temp_session_state,
+                            explicit_button_click=True
+                        )
+                        
+                        if proxy_df is not None and not proxy_df.empty:
+                            st.success(f"✅ Proxy snapshot rebuilt: {len(proxy_df)} rows")
+                            # Reset run guard counter on successful rebuild
+                            st.session_state.run_count = 0
+                            st.session_state.loop_detected = False
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("rebuild_proxy_snapshot_manual")
+                        else:
+                            st.warning("⚠️ Proxy snapshot rebuild returned empty data")
+                    except Exception as e:
+                        st.error(f"❌ Proxy snapshot rebuild failed: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Feature Toggles
+                # ========================================================================
+                st.markdown("#### ⚙️ Feature Settings")
+                
+                # SAFE_MODE toggle (environment variable can override, but sidebar provides UI control)
+                safe_mode_default = os.environ.get("SAFE_MODE", "False").lower() == "true"
+                safe_mode_ui = st.checkbox(
+                    "Enable Safe Mode (Wave IC)",
+                    value=safe_mode_default,
+                    key="safe_mode_ui_toggle",
+                    help="When enabled, catches errors in Wave Intelligence Center and provides graceful fallback"
+                )
+                
+                # Update global SAFE_MODE based on UI toggle (allows runtime control)
+                # Note: This doesn't actually update the constant, but we can use session_state
+                st.session_state["safe_mode_enabled"] = safe_mode_ui
+                
+                # RENDER_RICH_HTML toggle
+                render_rich_html_default = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
+                render_rich_html_ui = st.checkbox(
+                    "Enable Rich HTML Rendering",
+                    value=render_rich_html_default,
+                    key="render_rich_html_ui_toggle",
+                    help="Use st.components.v1.html for rich HTML blocks (disable for simpler rendering)"
+                )
+                st.session_state["render_rich_html_enabled"] = render_rich_html_ui
+                
+                # Debug Mode toggle (default OFF per requirements)
+                debug_mode_ui = st.checkbox(
+                    "🐛 Debug Mode",
+                    value=st.session_state.get("debug_mode", False),
+                    key="debug_mode_ui_toggle",
+                    help="Show detailed error messages and diagnostics when components fail (default: OFF)"
+                )
+                st.session_state["debug_mode"] = debug_mode_ui
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Quick Actions
+                # ========================================================================
+                st.markdown("#### ⚡ Quick Actions")
+                
+                if st.button(
+                    "🔄 Force Reload Wave Universe",
+                    key="force_reload_universe_top_button",
+                    use_container_width=True,
+                    type="primary"
+                ):
+                    try:
+                        # Increment wave universe version
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Clear wave universe cache from session state using constant
+                        for key in WAVE_UNIVERSE_CACHE_KEYS:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Set force reload flag
+                        st.session_state["force_reload_universe"] = True
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger immediate rerun
+                        trigger_rerun("force_reload_waves")
+                    except Exception as e:
+                        st.warning(f"Force reload unavailable: {str(e)}")
+                
+                # Force Reload Data Button (Clear All Caches) - Add confirmation
+                clear_cache_confirm = st.checkbox(
+                    "Confirm Clear Cache",
+                    key="clear_cache_confirm_checkbox",
+                    help="Check this box to enable the Clear Cache button"
+                )
+                
+                if st.button(
+                    "🧹 Force Reload Data (Clear Cache)",
+                    key="force_reload_data_button",
+                    use_container_width=True,
+                    disabled=not clear_cache_confirm,
+                    help="Clear all cached data and reload from files. Requires confirmation."
+                ):
+                    try:
+                        # Clear all Streamlit caches
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        
+                        # Clear wave/history-related session state keys
+                        keys_to_clear = [
+                            "wave_universe",
+                            "waves_list",
+                            "universe_cache",
+                            "wave_history_cache",
+                            "last_compute_ts",
+                            "alpha_proof_result",
+                            "alpha_proof_wave",
+                            "attrib_result"
+                        ]
+                        for key in keys_to_clear:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Increment wave universe version to force reload
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Show success message
+                        st.success("✅ Cache cleared successfully!")
+                        
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        
+                        # Trigger rerun
+                        trigger_rerun("force_reload_data_clear_cache")
+                    except Exception as e:
+                        st.error(f"Error clearing cache: {str(e)}")
+                
+                # Rebuild Price Cache Button
+                if st.button(
+                    "💰 Rebuild Price Cache (Active Tickers Only)",
+                    key="rebuild_price_cache_button",
+                    use_container_width=True,
+                    help="Explicitly rebuild the canonical price cache with active wave tickers only. Requires ALLOW_NETWORK_FETCH=true (PRICE_FETCH_ENABLED)."
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding price cache... This may take a few minutes."):
+                            # Import the rebuild function
+                            from helpers.price_book import rebuild_price_cache
+                            
+                            # Call rebuild (this checks PRICE_FETCH_ENABLED internally)
+                            result = rebuild_price_cache(active_only=True)
+                            
+                            # Check if fetching is allowed
+                            if not result['allowed']:
+                                st.warning(
+                                    "⚠️ Price fetching is DISABLED (ALLOW_NETWORK_FETCH=False)\n\n"
+                                    f"{result.get('message', 'Set PRICE_FETCH_ENABLED=true or ALLOW_NETWORK_FETCH=true to enable fetching.')}"
+                                )
+                            elif result['success']:
+                                st.success(
+                                    f"✅ Price cache rebuilt!\n\n"
+                                    f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched\n"
+                                    f"📅 Latest Date: {result['date_max']}"
+                                )
+                                
+                                # Show failed tickers if any
+                                if result['tickers_failed'] > 0 and result['failures']:
+                                    st.warning(
+                                        f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                                        f"See data/cache/failed_tickers.csv for details"
+                                    )
+                            else:
+                                st.error("❌ Failed to rebuild price cache")
+                            
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            
+                            # Clear Streamlit caches to reflect new data
+                            st.cache_data.clear()
+                            
+                            # Trigger rerun
+                            trigger_rerun("rebuild_price_cache")
+                    except Exception as e:
+                        st.error(f"Error rebuilding cache: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Force Build Data for All Waves Button
+                # ========================================================================
+                if st.button(
+                    "🔨 Force Build Data for All Waves",
+                    key="force_build_all_waves_button",
+                    use_container_width=True,
+                    help="Trigger price prefetch, update readiness statuses, and generate diagnostics for all waves"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Prefetching prices for all waves..."):
+                            # Clear diagnostics tracker
+                            try:
+                                from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                tracker = get_diagnostics_tracker()
+                                tracker.clear()
+                            except ImportError:
+                                pass
+                            
+                            # Set force rebuild flag
+                            st.session_state.force_price_cache_rebuild = True
+                            
+                            # Clear any previous rate-limited flags
+                            if "rate_limited_waves" in st.session_state:
+                                del st.session_state["rate_limited_waves"]
+                            
+                            # Force refresh the canonical price cache (PRICE_BOOK)
+                            from helpers.price_loader import refresh_price_cache
+                            cache_result = refresh_price_cache(active_only=True)
+                            
+                            # Show results
+                            success_count = cache_result.get("tickers_fetched", 0)
+                            failure_count = cache_result.get("tickers_failed", 0)
+                            
+                            st.success(f"✅ Prefetch complete: {success_count} tickers succeeded, {failure_count} failed")
+                            
+                            # Generate and export diagnostics report if there are failures
+                            if failure_count > 0:
+                                try:
+                                    from helpers.ticker_diagnostics import get_diagnostics_tracker
+                                    tracker = get_diagnostics_tracker()
+                                    report_path = tracker.export_to_csv()
+                                    st.info(f"📊 Diagnostics report saved to: {report_path}")
+                                except Exception:
+                                    pass
+                            
+                            # Force reload diagnostics
+                            st.cache_data.clear()
+                            # Mark user interaction
+                            st.session_state.user_interaction_detected = True
+                            trigger_rerun("force_build_all_waves")
+                    except Exception as e:
+                        st.error(f"Error building data: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Rebuild Wave CSV
+                # ========================================================================
+                if st.button(
+                    "📋 Rebuild Wave CSV + Clear Cache",
+                    key="rebuild_wave_csv_button",
+                    use_container_width=True,
+                    help="Rebuild wave registry CSV from canonical source and clear all cached data"
+                ):
+                    try:
+                        # Show progress indicator
+                        with st.spinner("Rebuilding wave registry CSV and clearing cache..."):
+                            # Import wave registry manager
+                            from wave_registry_manager import rebuild_wave_registry_csv
+                            
+                            # Rebuild the CSV
+                            rebuild_result = rebuild_wave_registry_csv(force=True)
+                            
+                            if rebuild_result['success']:
+                                st.success(f"✅ Wave CSV rebuilt with {rebuild_result['waves_written']} waves")
+                                
+                                # Clear all cached data
+                                st.cache_data.clear()
+                                st.cache_resource.clear()
+                                
+                                # Clear wave-related session state
+                                keys_to_clear = [
+                                    "wave_universe",
+                                    "waves_list",
+                                    "universe_cache",
+                                    "wave_history_cache",
+                                    "last_compute_ts",
+                                    "alpha_proof_result",
+                                    "alpha_proof_wave",
+                                    "attrib_result",
+                                    "global_price_df",
+                                    "global_price_failures",
+                                    "global_price_asof"
+                                ]
+                                for key in keys_to_clear:
+                                    if key in st.session_state:
+                                        del st.session_state[key]
+                                
+                                # Force rebuild price cache
+                                st.session_state.force_price_cache_rebuild = True
+                                
+                                # Rebuild canonical price cache (PRICE_BOOK)
+                                try:
+                                    from helpers.price_loader import refresh_price_cache
+                                    cache_result = refresh_price_cache(active_only=True)
+                                    
+                                    # Get summary statistics
+                                    waves_total = rebuild_result['waves_written']
+                                    success_count = cache_result.get("tickers_fetched", 0)
+                                    failures = cache_result.get("failures", {})
+                                    tickers_failed_count = cache_result.get("tickers_failed", 0)
+                                    
+                                    # Display summary
+                                    st.info(f"""
 **Rebuild Summary:**
 - Total Waves: {waves_total}
 - Waves Loaded: {waves_total}
 - Tickers Success: {success_count}
 - Tickers Failed: {tickers_failed_count}
-                        """)
+                                    """)
+                                    
+                                    # Show failed tickers if any
+                                    if tickers_failed_count > 0 and failures:
+                                        st.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
+                                        
+                                        # Build failed ticker table (limited display)
+                                        failed_ticker_data = []
+                                        for ticker, error in list(failures.items())[:20]:  # Show first 20
+                                            failed_ticker_data.append({
+                                                'Ticker': ticker,
+                                                'Error': str(error)[:50],  # Truncate long errors
+                                            })
+                                        
+                                        if failed_ticker_data:
+                                            failed_df = pd.DataFrame(failed_ticker_data)
+                                            st.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
+                                except Exception as cache_error:
+                                    st.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
+                                
+                                # Increment version to force reload
+                                if "wave_universe_version" not in st.session_state:
+                                    st.session_state.wave_universe_version = 1
+                                st.session_state.wave_universe_version += 1
+                                
+                                # Trigger rerun
+                                # Mark user interaction
+                                st.session_state.user_interaction_detected = True
+                                trigger_rerun("rebuild_wave_csv")
+                            else:
+                                st.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
+                    except Exception as e:
+                        st.error(f"❌ Error rebuilding wave CSV: {str(e)}")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Data Refresh TTL Selector
+                # ========================================================================
+                st.markdown("#### 🕐 Data Refresh Settings")
+                
+                ttl_options = {
+                    "1 hour": 3600,
+                    "2 hours": 7200,
+                    "4 hours": 14400,
+                    "8 hours": 28800,
+                    "12 hours": 43200,
+                    "24 hours": 86400
+                }
+                
+                # Get current TTL from session state
+                current_ttl = st.session_state.get("price_cache_ttl_seconds", 7200)
+                
+                # Find the label for current TTL
+                current_label = "2 hours"  # default
+                for label, value in ttl_options.items():
+                    if value == current_ttl:
+                        current_label = label
+                        break
+                
+                selected_ttl_label = st.selectbox(
+                    "Data Refresh TTL",
+                    options=list(ttl_options.keys()),
+                    index=list(ttl_options.keys()).index(current_label),
+                    key="ttl_selector",
+                    help="How long to cache price data before refreshing"
+                )
+                
+                # Update session state
+                st.session_state.price_cache_ttl_seconds = ttl_options[selected_ttl_label]
+                
+                # Show cache status if available
+                if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
+                    asof_time = st.session_state.global_price_asof
+                    time_diff = datetime.now(timezone.utc) - asof_time
+                    minutes_ago = int(time_diff.total_seconds() / 60)
+                    
+                    if minutes_ago < 60:
+                        age_str = f"{minutes_ago} min ago"
+                    else:
+                        hours_ago = minutes_ago // 60
+                        age_str = f"{hours_ago}h {minutes_ago % 60}m ago"
+                    
+                    success_count = st.session_state.get("global_price_success_count", 0)
+                    ticker_count = st.session_state.get("global_price_ticker_count", 0)
+                    
+                    st.caption(f"📊 Cache: {success_count}/{ticker_count} tickers ({age_str})")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Activate All Waves Button
+                # ========================================================================
+                if st.button(
+                    "✅ Activate All Waves",
+                    key="activate_all_waves_button",
+                    use_container_width=True,
+                    help="Enable all waves in the universe (set enabled=True for all)"
+                ):
+                    try:
+                        # Get current universe
+                        wave_universe_version = st.session_state.get("wave_universe_version", 1)
+                        universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
                         
-                        # Show failed tickers if any
-                        if tickers_failed_count > 0 and failures:
-                            st.sidebar.warning(f"⚠️ {tickers_failed_count} tickers failed to load")
-                            
-                            # Build failed ticker table (limited display)
-                            failed_ticker_data = []
-                            for ticker, error in list(failures.items())[:20]:  # Show first 20
-                                failed_ticker_data.append({
-                                    'Ticker': ticker,
-                                    'Error': str(error)[:50],  # Truncate long errors
-                                })
-                            
-                            if failed_ticker_data:
-                                failed_df = pd.DataFrame(failed_ticker_data)
-                                st.sidebar.dataframe(failed_df, use_container_width=True, height=min(200, len(failed_df) * 35 + 35))
-                    except Exception as cache_error:
-                        st.sidebar.warning(f"⚠️ Could not rebuild cache: {str(cache_error)}")
-                    
-                    # Increment version to force reload
-                    if "wave_universe_version" not in st.session_state:
-                        st.session_state.wave_universe_version = 1
-                    st.session_state.wave_universe_version += 1
-                    
-                    # Trigger rerun
-                    # Mark user interaction
-                    st.session_state.user_interaction_detected = True
-                    trigger_rerun("rebuild_wave_csv")
-                else:
-                    st.sidebar.error(f"❌ Failed to rebuild wave CSV: {rebuild_result['errors']}")
-        except Exception as e:
-            st.sidebar.error(f"❌ Error rebuilding wave CSV: {str(e)}")
-    
-    # ========================================================================
-    # NEW: Data Refresh TTL Selector
-    # ========================================================================
-    st.sidebar.markdown("### 🕐 Data Refresh Settings")
-    
-    ttl_options = {
-        "1 hour": 3600,
-        "2 hours": 7200,
-        "4 hours": 14400,
-        "8 hours": 28800,
-        "12 hours": 43200,
-        "24 hours": 86400
-    }
-    
-    # Get current TTL from session state
-    current_ttl = st.session_state.get("price_cache_ttl_seconds", 7200)
-    
-    # Find the label for current TTL
-    current_label = "2 hours"  # default
-    for label, value in ttl_options.items():
-        if value == current_ttl:
-            current_label = label
-            break
-    
-    selected_ttl_label = st.sidebar.selectbox(
-        "Data Refresh TTL",
-        options=list(ttl_options.keys()),
-        index=list(ttl_options.keys()).index(current_label),
-        key="ttl_selector",
-        help="How long to cache price data before refreshing"
-    )
-    
-    # Update session state
-    st.session_state.price_cache_ttl_seconds = ttl_options[selected_ttl_label]
-    
-    # Show cache status if available
-    if "global_price_asof" in st.session_state and st.session_state.global_price_asof:
-        asof_time = st.session_state.global_price_asof
-        time_diff = datetime.utcnow() - asof_time
-        minutes_ago = int(time_diff.total_seconds() / 60)
-        
-        if minutes_ago < 60:
-            age_str = f"{minutes_ago} min ago"
-        else:
-            hours_ago = minutes_ago // 60
-            age_str = f"{hours_ago}h {minutes_ago % 60}m ago"
-        
-        success_count = st.session_state.get("global_price_success_count", 0)
-        ticker_count = st.session_state.get("global_price_ticker_count", 0)
-        
-        st.sidebar.caption(f"📊 Cache: {success_count}/{ticker_count} tickers ({age_str})")
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # NEW: Activate All Waves Button
-    # ========================================================================
-    if st.sidebar.button(
-        "✅ Activate All Waves",
-        key="activate_all_waves_button",
-        use_container_width=True,
-        help="Enable all waves in the universe (set enabled=True for all)"
-    ):
-        try:
-            # Get current universe
-            wave_universe_version = st.session_state.get("wave_universe_version", 1)
-            universe = get_canonical_wave_universe(force_reload=False, _wave_universe_version=wave_universe_version)
-            
-            # Create enabled flags dictionary with all waves set to True
-            enabled_flags = {wave: True for wave in universe.get("waves", [])}
-            
-            # Store in session state
-            st.session_state["wave_enabled_flags"] = enabled_flags
-            
-            # Force reload universe to pick up new flags
-            st.session_state.wave_universe_version = wave_universe_version + 1
-            st.cache_data.clear()
-            
-            st.sidebar.success(f"✅ Activated all {len(enabled_flags)} waves!")
-            # Mark user interaction
-            st.session_state.user_interaction_detected = True
-            trigger_rerun("activate_all_waves")
-        except Exception as e:
-            st.sidebar.error(f"Error activating waves: {str(e)}")
-    
-    # ========================================================================
-    # Legacy: Warm Cache Button (Now uses canonical price cache)
-    # ========================================================================
-    if st.sidebar.button(
-        "🔥 Warm Cache",
-        key="warm_cache_button",
-        use_container_width=True,
-        help="Prefetch and cache price data to ensure fast startup (uses canonical cache)"
-    ):
-        # Debug trace marker
-        if st.session_state.get("debug_mode", False):
-            st.sidebar.caption("🔍 Trace: Entering warm cache")
-        
-        try:
-            with st.spinner("Warming cache with price data..."):
-                # Use canonical price cache refresh
-                from helpers.price_loader import refresh_price_cache, check_cache_readiness
+                        # Create enabled flags dictionary with all waves set to True
+                        enabled_flags = {wave: True for wave in universe.get("waves", [])}
+                        
+                        # Store in session state
+                        st.session_state["wave_enabled_flags"] = enabled_flags
+                        
+                        # Force reload universe to pick up new flags
+                        st.session_state.wave_universe_version = wave_universe_version + 1
+                        st.cache_data.clear()
+                        
+                        st.success(f"✅ Activated all {len(enabled_flags)} waves!")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("activate_all_waves")
+                    except Exception as e:
+                        st.error(f"Error activating waves: {str(e)}")
                 
-                result = refresh_price_cache(active_only=True)
+                # ========================================================================
+                # OPERATOR CONTROLS - Warm Cache Button
+                # ========================================================================
+                if st.button(
+                    "🔥 Warm Cache",
+                    key="warm_cache_button",
+                    use_container_width=True,
+                    help="Prefetch and cache price data to ensure fast startup (uses canonical cache)"
+                ):
+                    # Debug trace marker
+                    if st.session_state.get("debug_mode", False):
+                        st.caption("🔍 Trace: Entering warm cache")
+                    
+                    try:
+                        with st.spinner("Warming cache with price data..."):
+                            # Use canonical price cache refresh
+                            from helpers.price_loader import refresh_price_cache, check_cache_readiness
+                            
+                            result = refresh_price_cache(active_only=True)
+                            
+                            # Show results
+                            if result['success']:
+                                st.success(
+                                    f"✅ Cache warmed!\n\n"
+                                    f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                                )
+                                
+                                if result['tickers_failed'] > 0:
+                                    st.warning(
+                                        f"⚠️ {result['tickers_failed']} tickers failed\n\n"
+                                        f"See data/cache/failed_tickers.csv for details"
+                                    )
+                            else:
+                                st.error("❌ Failed to warm cache")
+                            
+                            # Check readiness after refresh
+                            readiness = check_cache_readiness(active_only=True)
+                            if readiness['ready']:
+                                st.success(f"✅ Cache is READY")
+                            else:
+                                st.warning(f"⚠️ Cache status: {readiness['status_code']}")
+                                    
+                    except Exception as e:
+                        st.error(f"❌ Error warming cache: {str(e)}")
+                        # Don't crash - let user continue working
                 
-                # Show results
-                if result['success']:
-                    st.sidebar.success(
-                        f"✅ Cache warmed!\n\n"
-                        f"📊 {result['tickers_fetched']}/{result['tickers_requested']} tickers fetched"
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Auto-Refresh Control
+                # ========================================================================
+                st.markdown("#### 🔄 Auto-Refresh Control")
+                
+                # Check if st_autorefresh or st.autorefresh is available
+                autorefresh_available = False
+                try:
+                    # Try importing st_autorefresh from streamlit-autorefresh
+                    from streamlit_autorefresh import st_autorefresh
+                    autorefresh_available = True
+                except ImportError:
+                    # Check if built-in autorefresh is available (newer Streamlit versions)
+                    if hasattr(st, 'autorefresh'):
+                        autorefresh_available = True
+                
+                if autorefresh_available:
+                    # Initialize auto-refresh setting (using DEFAULT from config)
+                    if "auto_refresh_enabled" not in st.session_state:
+                        st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
+                    
+                    # Initialize auto-refresh interval
+                    if "auto_refresh_interval_ms" not in st.session_state:
+                        st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
+                    
+                    # Toggle switch
+                    auto_refresh_enabled = st.checkbox(
+                        "Enable Auto-Refresh",
+                        value=st.session_state.auto_refresh_enabled and not st.session_state.get("auto_refresh_paused", False),
+                        key="auto_refresh_toggle",
+                        help="Automatically refresh live analytics, overlays, attribution, and diagnostics at configured interval"
                     )
                     
-                    if result['tickers_failed'] > 0:
-                        st.sidebar.warning(
-                            f"⚠️ {result['tickers_failed']} tickers failed\n\n"
-                            f"See data/cache/failed_tickers.csv for details"
-                        )
-                else:
-                    st.sidebar.error("❌ Failed to warm cache")
-                
-                # Check readiness after refresh
-                readiness = check_cache_readiness(active_only=True)
-                if readiness['ready']:
-                    st.sidebar.success(f"✅ Cache is READY")
-                else:
-                    st.sidebar.warning(f"⚠️ Cache status: {readiness['status_code']}")
+                    # Update session state
+                    st.session_state.auto_refresh_enabled = auto_refresh_enabled
+                    
+                    # If re-enabled, reset paused state
+                    if auto_refresh_enabled and st.session_state.get("auto_refresh_paused", False):
+                        st.session_state.auto_refresh_paused = False
+                        st.session_state.auto_refresh_error_count = 0
+                        st.session_state.auto_refresh_error_message = None
+                    
+                    # Interval selector (only show when enabled)
+                    if auto_refresh_enabled:
+                        # Get interval options
+                        interval_options = list(REFRESH_INTERVAL_OPTIONS.keys())
+                        current_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
                         
-        except Exception as e:
-            st.sidebar.error(f"❌ Error warming cache: {str(e)}")
-            # Don't crash - let user continue working
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Auto-Refresh Control
-    # ========================================================================
-    st.sidebar.markdown("### 🔄 Auto-Refresh Control")
-    
-    # Check if st_autorefresh or st.autorefresh is available
-    autorefresh_available = False
-    try:
-        # Try importing st_autorefresh from streamlit-autorefresh
-        from streamlit_autorefresh import st_autorefresh
-        autorefresh_available = True
-    except ImportError:
-        # Check if built-in autorefresh is available (newer Streamlit versions)
-        if hasattr(st, 'autorefresh'):
-            autorefresh_available = True
-    
-    if autorefresh_available:
-        # Initialize auto-refresh setting (using DEFAULT from config)
-        if "auto_refresh_enabled" not in st.session_state:
-            st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
-        
-        # Initialize auto-refresh interval
-        if "auto_refresh_interval_ms" not in st.session_state:
-            st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
-        
-        # Toggle switch
-        auto_refresh_enabled = st.sidebar.checkbox(
-            "Enable Auto-Refresh",
-            value=st.session_state.auto_refresh_enabled and not st.session_state.get("auto_refresh_paused", False),
-            key="auto_refresh_toggle",
-            help="Automatically refresh live analytics, overlays, attribution, and diagnostics at configured interval"
-        )
-        
-        # Update session state
-        st.session_state.auto_refresh_enabled = auto_refresh_enabled
-        
-        # If re-enabled, reset paused state
-        if auto_refresh_enabled and st.session_state.get("auto_refresh_paused", False):
-            st.session_state.auto_refresh_paused = False
-            st.session_state.auto_refresh_error_count = 0
-            st.session_state.auto_refresh_error_message = None
-        
-        # Interval selector (only show when enabled)
-        if auto_refresh_enabled:
-            # Get interval options
-            interval_options = list(REFRESH_INTERVAL_OPTIONS.keys())
-            current_interval_ms = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
-            
-            # Find current selection index
-            current_index = 0
-            for i, (name, value) in enumerate(REFRESH_INTERVAL_OPTIONS.items()):
-                if value == current_interval_ms:
-                    current_index = i
-                    break
-            
-            selected_interval_name = st.sidebar.selectbox(
-                "Refresh Interval",
-                options=interval_options,
-                index=current_index,
-                key="auto_refresh_interval_selector",
-                help="How frequently to refresh live data. Default: 1 minute"
-            )
-            
-            # Update interval in session state
-            st.session_state.auto_refresh_interval_ms = REFRESH_INTERVAL_OPTIONS[selected_interval_name]
-        
-        # Show status
-        auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
-        
-        if auto_refresh_paused:
-            st.sidebar.error("⚠️ Auto-refresh PAUSED due to errors")
-            error_msg = st.session_state.get("auto_refresh_error_message", "Unknown error")
-            st.sidebar.caption(f"Error: {error_msg}")
-            st.sidebar.caption("Re-enable the checkbox above to resume")
-        elif auto_refresh_enabled:
-            interval_name = REFRESH_INTERVAL_OPTIONS.get(
-                st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS),
-                "1 minute"
-            )
-            if AUTO_REFRESH_CONFIG_AVAILABLE:
-                interval_name = get_interval_display_name(st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS))
-            
-            st.sidebar.success(f"🟢 Auto-refresh is ON")
-            st.sidebar.caption(f"Refreshes every {interval_name}")
-            
-            # Show last successful refresh
-            last_successful = st.session_state.get("last_successful_refresh_time", datetime.now())
-            st.sidebar.caption(f"Last update: {last_successful.strftime('%H:%M:%S')}")
-            
-            # Show scope information
-            with st.sidebar.expander("ℹ️ What gets refreshed?"):
-                st.caption("**Included in auto-refresh:**")
-                st.caption("• Live analytics & metrics")
-                st.caption("• VIX overlays & regime detection")
-                st.caption("• Alpha attribution")
-                st.caption("• System diagnostics")
-                st.caption("• Summary statistics")
-                st.caption("")
-                st.caption("**Excluded (cached):**")
-                st.caption("• Historical backtests")
-                st.caption("• Heavy simulations")
-                st.caption("• Report generation")
-        else:
-            st.sidebar.info("🔴 Auto-refresh is OFF")
-            st.sidebar.caption("Enable above for live updates")
-    else:
-        # Auto-refresh not available
-        st.sidebar.warning("⚠️ Auto-refresh unavailable")
-        st.sidebar.caption("Install streamlit-autorefresh:")
-        st.sidebar.code("pip install streamlit-autorefresh", language="bash")
-        # Ensure auto-refresh is disabled
-        st.session_state.auto_refresh_enabled = False
-    
-    st.sidebar.markdown("---")
-    
-    # ========================================================================
-    # Bottom Ticker Bar Control
-    # ========================================================================
-    st.sidebar.markdown("### 📊 Bottom Ticker Bar")
-    
-    # Initialize ticker setting if not present
-    if "show_bottom_ticker" not in st.session_state:
-        st.session_state.show_bottom_ticker = True  # Default: ON
-    
-    # Checkbox control
-    show_ticker = st.sidebar.checkbox(
-        "Show bottom ticker",
-        value=st.session_state.show_bottom_ticker,
-        key="show_ticker_toggle",
-        help="Display scrolling ticker bar at the bottom with portfolio info, earnings dates, and Fed data"
-    )
-    
-    # Update session state
-    st.session_state.show_bottom_ticker = show_ticker
-    
-    # Show status
-    if show_ticker:
-        st.sidebar.success("🟢 Ticker bar is visible")
-        st.sidebar.caption("Displays portfolio tickers, earnings, and Fed data")
-    else:
-        st.sidebar.info("🔴 Ticker bar is hidden")
+                        # Find current selection index
+                        current_index = 0
+                        for i, (name, value) in enumerate(REFRESH_INTERVAL_OPTIONS.items()):
+                            if value == current_interval_ms:
+                                current_index = i
+                                break
+                        
+                        selected_interval_name = st.selectbox(
+                            "Refresh Interval",
+                            options=interval_options,
+                            index=current_index,
+                            key="auto_refresh_interval_selector",
+                            help="How frequently to refresh live data. Default: 1 minute"
+                        )
+                        
+                        # Update interval in session state
+                        st.session_state.auto_refresh_interval_ms = REFRESH_INTERVAL_OPTIONS[selected_interval_name]
+                    
+                    # Show status
+                    auto_refresh_paused = st.session_state.get("auto_refresh_paused", False)
+                    
+                    if auto_refresh_paused:
+                        st.error("⚠️ Auto-refresh PAUSED due to errors")
+                        error_msg = st.session_state.get("auto_refresh_error_message", "Unknown error")
+                        st.caption(f"Error: {error_msg}")
+                        st.caption("Re-enable the checkbox above to resume")
+                    elif auto_refresh_enabled:
+                        interval_name = REFRESH_INTERVAL_OPTIONS.get(
+                            st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS),
+                            "1 minute"
+                        )
+                        if AUTO_REFRESH_CONFIG_AVAILABLE:
+                            interval_name = get_interval_display_name(st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS))
+                        
+                        st.success(f"🟢 Auto-refresh is ON")
+                        st.caption(f"Refreshes every {interval_name}")
+                        
+                        # Show last successful refresh
+                        last_successful = st.session_state.get("last_successful_refresh_time", datetime.now())
+                        st.caption(f"Last update: {last_successful.strftime('%H:%M:%S')}")
+                        
+                        # Show scope information
+                        with st.expander("ℹ️ What gets refreshed?"):
+                            st.caption("**Included in auto-refresh:**")
+                            st.caption("• Live analytics & metrics")
+                            st.caption("• VIX overlays & regime detection")
+                            st.caption("• Alpha attribution")
+                            st.caption("• System diagnostics")
+                            st.caption("• Summary statistics")
+                            st.caption("")
+                            st.caption("**Excluded (cached):**")
+                            st.caption("• Historical backtests")
+                            st.caption("• Heavy simulations")
+                            st.caption("• Report generation")
+                    else:
+                        st.info("🔴 Auto-refresh is OFF")
+                        st.caption("Enable above for live updates")
+                else:
+                    # Auto-refresh not available
+                    st.warning("⚠️ Auto-refresh unavailable")
+                    st.caption("Install streamlit-autorefresh:")
+                    st.code("pip install streamlit-autorefresh", language="bash")
+                    # Ensure auto-refresh is disabled
+                    st.session_state.auto_refresh_enabled = False
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Bottom Ticker Bar Control
+                # ========================================================================
+                st.markdown("#### 📊 Bottom Ticker Bar")
+                
+                # Initialize ticker setting if not present
+                if "show_bottom_ticker" not in st.session_state:
+                    st.session_state.show_bottom_ticker = True  # Default: ON
+                
+                # Checkbox control
+                show_ticker = st.checkbox(
+                    "Show bottom ticker",
+                    value=st.session_state.show_bottom_ticker,
+                    key="show_ticker_toggle",
+                    help="Display scrolling ticker bar at the bottom with portfolio info, earnings dates, and Fed data"
+                )
+                
+                # Update session state
+                st.session_state.show_bottom_ticker = show_ticker
+                
+                # Show status
+                if show_ticker:
+                    st.success("🟢 Ticker bar is visible")
+                    st.caption("Displays portfolio tickers, earnings, and Fed data")
+                else:
+                    st.info("🔴 Ticker bar is hidden")
+                
+                st.markdown("---")
+                
+                # ========================================================================
+                # OPERATOR CONTROLS - Ops Controls (Admin)
+                # ========================================================================
+                st.markdown("#### 🛠️ Ops Controls")
+                
+                # Confirmation checkbox
+                ops_confirmation = st.checkbox(
+                    "I understand this will reset cached data.",
+                    key="ops_confirmation"
+                )
+                
+                # Clear Streamlit Cache Button with confirmation
+                if st.button(
+                    "Clear Streamlit Cache",
+                    disabled=not ops_confirmation,
+                    key="clear_cache_button",
+                    use_container_width=True
+                ):
+                    try:
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.success("Cache cleared.")
+                    except Exception:
+                        st.warning("Cache clear unavailable.")
+                
+                # Reset Session State Button
+                if st.button(
+                    "Reset Session State",
+                    disabled=not ops_confirmation,
+                    key="reset_session_button",
+                    use_container_width=True
+                ):
+                    # Preserve system keys (navigation-related)
+                    system_keys = [key for key in st.session_state.keys() if key.startswith('_')]
+                    
+                    # Clear all non-system keys
+                    keys_to_delete = [key for key in st.session_state.keys() if key not in system_keys]
+                    for key in keys_to_delete:
+                        del st.session_state[key]
+                    
+                    st.success("Session state reset.")
+                
+                # Force Reload Wave Universe Button
+                if st.button(
+                    "Force Reload Wave Universe",
+                    disabled=not ops_confirmation,
+                    key="force_reload_universe_ops_button",
+                    use_container_width=True
+                ):
+                    try:
+                        # Increment wave universe version
+                        if "wave_universe_version" not in st.session_state:
+                            st.session_state.wave_universe_version = 1
+                        st.session_state.wave_universe_version += 1
+                        
+                        # Clear wave universe cache from session state
+                        cache_keys = ["wave_universe", "waves_list", "universe_cache"]
+                        for key in cache_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        
+                        try:
+                            st.cache_resource.clear()
+                        except Exception:
+                            pass
+                        
+                        # Set force reload flag
+                        st.session_state["force_reload_universe"] = True
+                        
+                        st.success("Wave universe cache cleared. Reloading...")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("clear_wave_universe_cache")
+                    except Exception as e:
+                        st.warning(f"Force reload unavailable: {str(e)}")
+                
+                # Hard Rerun App Button
+                if st.button(
+                    "Hard Rerun App",
+                    disabled=not ops_confirmation,
+                    key="hard_rerun_button",
+                    use_container_width=True
+                ):
+                    trigger_rerun("hard_rerun_button")
+                
+                # Force Reload + Clear Cache + Rerun Button (Enhanced)
+                if st.button(
+                    "Force Reload + Clear Cache + Rerun",
+                    disabled=not ops_confirmation,
+                    key="force_reload_clear_rerun_button",
+                    use_container_width=True,
+                    type="primary"
+                ):
+                    try:
+                        # Clear wave-related session cache keys
+                        cache_keys = ["wave_universe", "waves_list", "universe_cache", "force_reload_universe"]
+                        for key in cache_keys:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        
+                        # Clear Streamlit caches
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        
+                        try:
+                            st.cache_resource.clear()
+                        except Exception:
+                            pass
+                        
+                        # Trigger canonical wave universe reload with force_reload=True
+                        get_canonical_wave_universe(force_reload=True)
+                        
+                        st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
+                        # Mark user interaction
+                        st.session_state.user_interaction_detected = True
+                        trigger_rerun("force_clear_wave_reload")
+                    except Exception as e:
+                        st.warning(f"⚠️ Force reload failed: {str(e)}")
     
     st.sidebar.markdown("---")
     
@@ -7608,131 +8465,6 @@ def render_sidebar_info():
     st.sidebar.text(f"Deployed: {deploy_time}")
     st.sidebar.text(f"Data as of: {data_timestamp}")
     
-    # Ops Controls Section
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("🛠️ Ops Controls (Admin)"):
-        # Confirmation checkbox
-        ops_confirmation = st.checkbox(
-            "I understand this will reset cached data.",
-            key="ops_confirmation"
-        )
-        
-        # Clear Streamlit Cache Button
-        if st.button(
-            "Clear Streamlit Cache",
-            disabled=not ops_confirmation,
-            key="clear_cache_button",
-            use_container_width=True
-        ):
-            try:
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                st.success("Cache cleared.")
-            except Exception:
-                st.warning("Cache clear unavailable.")
-        
-        # Reset Session State Button
-        if st.button(
-            "Reset Session State",
-            disabled=not ops_confirmation,
-            key="reset_session_button",
-            use_container_width=True
-        ):
-            # Preserve system keys (navigation-related)
-            system_keys = [key for key in st.session_state.keys() if key.startswith('_')]
-            
-            # Clear all non-system keys
-            keys_to_delete = [key for key in st.session_state.keys() if key not in system_keys]
-            for key in keys_to_delete:
-                del st.session_state[key]
-            
-            st.success("Session state reset.")
-        
-        # Force Reload Wave Universe Button
-        if st.button(
-            "Force Reload Wave Universe",
-            disabled=not ops_confirmation,
-            key="force_reload_universe_button",
-            use_container_width=True
-        ):
-            try:
-                # Increment wave universe version
-                if "wave_universe_version" not in st.session_state:
-                    st.session_state.wave_universe_version = 1
-                st.session_state.wave_universe_version += 1
-                
-                # Clear wave universe cache from session state
-                cache_keys = ["wave_universe", "waves_list", "universe_cache"]
-                for key in cache_keys:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                
-                # Clear Streamlit caches
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
-                
-                try:
-                    st.cache_resource.clear()
-                except Exception:
-                    pass
-                
-                # Set force reload flag
-                st.session_state["force_reload_universe"] = True
-                
-                st.success("Wave universe cache cleared. Reloading...")
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("clear_wave_universe_cache")
-            except Exception as e:
-                st.warning(f"Force reload unavailable: {str(e)}")
-        
-        # Hard Rerun App Button
-        if st.button(
-            "Hard Rerun App",
-            disabled=not ops_confirmation,
-            key="hard_rerun_button",
-            use_container_width=True
-        ):
-            trigger_rerun("hard_rerun_button")
-        
-        # Force Reload + Clear Cache + Rerun Button (Enhanced)
-        if st.button(
-            "Force Reload + Clear Cache + Rerun",
-            disabled=not ops_confirmation,
-            key="force_reload_clear_rerun_button",
-            use_container_width=True,
-            type="primary"
-        ):
-            try:
-                # Clear wave-related session cache keys
-                cache_keys = ["wave_universe", "waves_list", "universe_cache", "force_reload_universe"]
-                for key in cache_keys:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                
-                # Clear Streamlit caches
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
-                
-                try:
-                    st.cache_resource.clear()
-                except Exception:
-                    pass
-                
-                # Trigger canonical wave universe reload with force_reload=True
-                get_canonical_wave_universe(force_reload=True)
-                
-                st.success("✅ Cache cleared and wave universe reloaded. Rerunning app...")
-                # Mark user interaction
-                st.session_state.user_interaction_detected = True
-                trigger_rerun("force_clear_wave_reload")
-            except Exception as e:
-                st.warning(f"⚠️ Force reload failed: {str(e)}")
-    
     # Debug Display - Wave Universe Info
     st.sidebar.markdown("---")
     with st.sidebar.expander("🔍 Wave Universe Debug Info"):
@@ -7761,6 +8493,105 @@ def render_sidebar_info():
                 st.info("Wave universe not yet initialized")
         except Exception as e:
             st.error(f"Debug display error: {str(e)}")
+    
+    # ========================================================================
+    # DIAGNOSTICS DEBUG PANEL - Collapsible
+    # ========================================================================
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("🔍 Diagnostics Debug Panel", expanded=False):
+        st.markdown("**Diagnostics & Visibility Panel**")
+        
+        # Initialize exception storage in session state
+        if "data_load_exceptions" not in st.session_state:
+            st.session_state.data_load_exceptions = []
+        
+        try:
+            # Display selected_wave_id
+            selected_wave_id = st.session_state.get("selected_wave_id", "None")
+            st.text(f"selected_wave_id: {selected_wave_id}")
+            
+            # Display selectbox key being used
+            st.text(f"Selectbox key: selected_wave_id_display")
+            
+            # Check wave registry status
+            try:
+                if WAVE_REGISTRY_MANAGER_AVAILABLE:
+                    active_waves_df = get_active_wave_registry()
+                    wave_count = len(active_waves_df)
+                    st.text(f"Wave Registry: Loaded ({wave_count} waves)")
+                else:
+                    st.text("Wave Registry: Module unavailable")
+            except Exception as e:
+                st.text(f"Wave Registry: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Wave Registry",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Check portfolio snapshot status
+            try:
+                snapshot_path = "data/live_snapshot.csv"
+                if os.path.exists(snapshot_path):
+                    snapshot_df = pd.read_csv(snapshot_path)
+                    row_count = len(snapshot_df)
+                    st.text(f"Portfolio Snapshot: Loaded ({row_count} rows)")
+                else:
+                    st.text("Portfolio Snapshot: File not found")
+            except Exception as e:
+                st.text(f"Portfolio Snapshot: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Portfolio Snapshot",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Check price cache status
+            try:
+                price_cache_path = "data/cache/prices_cache.parquet"
+                cache_exists = os.path.exists(price_cache_path)
+                st.text(f"Price Cache Path: {price_cache_path}")
+                st.text(f"Price Cache Exists: {cache_exists}")
+                
+                if cache_exists:
+                    # Get file size
+                    file_size = os.path.getsize(price_cache_path) / (1024 * 1024)  # Convert to MB
+                    st.text(f"Price Cache Size: {file_size:.2f} MB")
+            except Exception as e:
+                st.text(f"Price Cache: Error - {str(e)}")
+                st.session_state.data_load_exceptions.append({
+                    "component": "Price Cache",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+            
+            # Portfolio Snapshot Debug Section
+            st.markdown("---")
+            st.markdown("**📊 Portfolio Snapshot Debug (last run)**")
+            try:
+                if "portfolio_snapshot_debug" in st.session_state:
+                    debug_info = st.session_state.portfolio_snapshot_debug
+                    import json
+                    st.json(debug_info)
+                else:
+                    st.text("No portfolio snapshot debug info available yet")
+                    st.caption("Navigate to Portfolio View to generate debug data")
+            except Exception as e:
+                st.error(f"Portfolio Snapshot Debug error: {str(e)}")
+            
+            # Display all captured exceptions
+            if st.session_state.data_load_exceptions:
+                st.markdown("---")
+                st.markdown("**🚨 Captured Exceptions:**")
+                for idx, exc in enumerate(st.session_state.data_load_exceptions, 1):
+                    with st.expander(f"Exception {idx}: {exc['component']}", expanded=False):
+                        st.error(f"**Error:** {exc['error']}")
+                        st.code(exc['traceback'], language="python")
+                        
+        except Exception as e:
+            st.error(f"Debug panel error: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
 
 # ============================================================================
@@ -8350,6 +9181,89 @@ def render_executive_brief_tab():
                 # Show ticker failure summary if available
                 if broken_tickers_count > 0:
                     st.warning(f"⚠️ {broken_tickers_count} ticker(s) failed to download - waves still visible with available data")
+                
+                # ========================================================================
+                # PORTFOLIO SNAPSHOT DIAGNOSTICS
+                # ========================================================================
+                st.divider()
+                st.markdown("**Portfolio Snapshot Diagnostics:**")
+                
+                try:
+                    from helpers.wave_performance import validate_portfolio_diagnostics
+                    from helpers.price_book import get_price_book
+                    
+                    price_book = get_price_book()
+                    diagnostics = validate_portfolio_diagnostics(price_book, mode='Standard')
+                    
+                    # Display key diagnostics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric(
+                            label="Latest Date",
+                            value=diagnostics['latest_date'] if diagnostics['latest_date'] else "N/A",
+                            help="Latest data date in PRICE_BOOK"
+                        )
+                    
+                    with col2:
+                        data_age = diagnostics['data_age_days']
+                        quality = diagnostics['data_quality']
+                        if data_age is not None:
+                            if quality == 'OK':
+                                delta_icon = "🟢"
+                            elif quality == 'DEGRADED':
+                                delta_icon = "🟡"
+                            else:
+                                delta_icon = "🔴"
+                            st.metric(
+                                label="Data Age",
+                                value=f"{data_age}d",
+                                delta=delta_icon,
+                                help=f"Data quality: {quality}"
+                            )
+                        else:
+                            st.metric("Data Age", "N/A")
+                    
+                    with col3:
+                        st.metric(
+                            label="Portfolio Waves",
+                            value=diagnostics['wave_count'],
+                            help="Number of waves in portfolio"
+                        )
+                    
+                    with col4:
+                        st.metric(
+                            label="History Days",
+                            value=diagnostics['min_history_days'],
+                            help="Total trading days available"
+                        )
+                    
+                    # Show series status
+                    st.markdown("**Required Series Status:**")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        icon = "✅" if diagnostics['has_portfolio_returns_series'] else "❌"
+                        st.markdown(f"{icon} Portfolio Returns")
+                    
+                    with col2:
+                        icon = "✅" if diagnostics['has_portfolio_benchmark_series'] else "❌"
+                        st.markdown(f"{icon} Benchmark Series")
+                    
+                    with col3:
+                        icon = "✅" if diagnostics['has_overlay_alpha_series'] else "⚠️"
+                        st.markdown(f"{icon} Overlay Alpha")
+                    
+                    # Show issues if any
+                    if diagnostics['issues']:
+                        st.markdown("**Issues:**")
+                        for issue in diagnostics['issues']:
+                            # Skip expected issues
+                            if "Overlay alpha component series missing (expected" not in issue:
+                                st.caption(f"⚠️ {issue}")
+                    
+                except Exception as e:
+                    st.warning(f"Portfolio diagnostics unavailable: {str(e)}")
                     
             except Exception as e:
                 st.warning(f"Diagnostics panel temporarily unavailable: {str(e)}")
@@ -8527,6 +9441,209 @@ def render_executive_brief_tab():
         
         except Exception as e:
             st.info("Executive summary unavailable - data loading error.")
+        
+        st.divider()
+        
+        # ========================================================================
+        # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
+        # ========================================================================
+        st.markdown("### 💼 Portfolio Snapshot")
+        st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
+        
+        try:
+            from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
+            from helpers.price_book import get_price_book
+            from waves_engine import get_all_waves_universe
+            
+            # Load PRICE_BOOK
+            price_book = get_price_book()
+            
+            # Compute portfolio alpha ledger (canonical implementation)
+            ledger = compute_portfolio_alpha_ledger(
+                price_book, 
+                periods=[1, 30, 60, 365],
+                benchmark_ticker='SPY',
+                mode='Standard',
+                vix_exposure_enabled=True
+            )
+            
+            # Add diagnostic information
+            if ledger['success']:
+                # Count waves from daily_risk_return computation
+                n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+                
+                # Get date range from period results
+                period_1d = ledger['period_results'].get('1D', {})
+                if period_1d.get('available'):
+                    end_date = period_1d.get('end_date', 'N/A')
+                    n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
+                    start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                else:
+                    end_date = 'N/A'
+                    start_date = 'N/A'
+                    n_dates = 0
+                
+                # Display VIX overlay status
+                vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
+                safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
+                
+                st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
+                st.caption(f"📅 Period: {start_date} to {end_date}")
+            else:
+                # Check for empty result condition
+                n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
+                st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
+                
+                # Check for specific error conditions
+                if n_dates < 2:
+                    st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
+            
+            if ledger['success']:
+                # RENDERER PROOF LINE
+                build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+                st.markdown(
+                    f"""
+                    <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                        <strong>Renderer:</strong> Portfolio Snapshot BLUE BOX | <strong>Build:</strong> {build_id} | <strong>Updated:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # Display in blue box with metrics from ledger
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                    border: 2px solid #00d9ff;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                ">
+                """, unsafe_allow_html=True)
+                
+                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
+                st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
+                    with col:
+                        period_data = ledger['period_results'].get(period_key, {})
+                        
+                        if period_data.get('available'):
+                            # Extract values
+                            cum_realized = period_data['cum_realized']
+                            cum_benchmark = period_data['cum_benchmark']
+                            total_alpha = period_data['total_alpha']
+                            start = period_data['start_date']
+                            end = period_data['end_date']
+                            
+                            # Display stacked format with header
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
+                            st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
+                            
+                            # Color-code alpha (green for positive, red for negative)
+                            alpha_color = "green" if total_alpha >= 0 else "red"
+                            st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
+                            
+                            st.caption(f"{start} to {end}")
+                        else:
+                            # Unavailable period - show N/A for all three lines with reason
+                            reason = period_data.get('reason', 'unknown')
+                            MAX_REASON_LENGTH = 60  # Configurable truncation length
+                            st.markdown(f"**{period_key}**")
+                            st.markdown(f"📈 **Portfolio:** N/A")
+                            st.markdown(f"📊 **Benchmark:** N/A")
+                            st.markdown(f"🎯 **Alpha:** N/A")
+                            # Truncate long reasons with ellipsis
+                            truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
+                            st.caption(f"⚠️ {truncated_reason}")
+                
+                st.divider()
+                
+                # Alpha Attribution Row (30D window for detailed attribution)
+                st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
+                
+                period_30d = ledger['period_results'].get('30D', {})
+                if period_30d.get('available'):
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        total_alpha = period_30d['total_alpha']
+                        st.metric(
+                            "Total Alpha", 
+                            f"{total_alpha:+.2%}",
+                            help="Realized return - Benchmark return"
+                        )
+                    
+                    with col2:
+                        selection_alpha = period_30d['selection_alpha']
+                        st.metric(
+                            "Selection Alpha", 
+                            f"{selection_alpha:+.2%}",
+                            help="Alpha from wave selection (unoverlay - benchmark)"
+                        )
+                    
+                    with col3:
+                        overlay_alpha = period_30d['overlay_alpha']
+                        overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                        st.metric(
+                            overlay_label, 
+                            f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                            help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                        )
+                    
+                    with col4:
+                        residual = period_30d['residual']
+                        # Color code residual based on tolerance
+                        residual_pct = abs(residual) * 100
+                        residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                        st.metric(
+                            f"{residual_color} Residual", 
+                            f"{residual:+.3%}",
+                            help="Attribution residual (should be near 0%)"
+                        )
+                    
+                    # Alpha Captured (if overlay available)
+                    if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
+                        st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                else:
+                    st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                
+                # Warnings display
+                if ledger.get('warnings'):
+                    st.caption("⚠️ " + " | ".join(ledger['warnings']))
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+            else:
+                # Display error message
+                st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
+                
+                # Show explicit error (no placeholder data)
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    border: 2px solid #ff6b6b;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                ">
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"**❌ Portfolio metrics unavailable**")
+                st.markdown(f"Reason: {ledger['failure_reason']}")
+                st.caption("No placeholder data will be displayed. Please check data availability.")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+        except Exception as e:
+            st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
+            if st.session_state.get("debug_mode", False):
+                import traceback
+                st.code(traceback.format_exc())
         
         st.divider()
         
@@ -11139,6 +12256,155 @@ def render_overview_tab():
                 st.warning(f"⚠️ Failed to validate wave registry: {str(e)}")
         
         # ========================================================================
+        # PRICE_BOOK STATUS PANEL
+        # ========================================================================
+        st.markdown("---")
+        st.markdown("### 📈 PRICE_BOOK Status")
+        st.caption("Canonical price cache - Single source of truth for all price data")
+        
+        try:
+            import json
+            import subprocess
+            from helpers.price_loader import CACHE_PATH, CACHE_DIR
+            
+            # Get current git commit SHA
+            try:
+                git_sha = subprocess.check_output(
+                    ['git', 'rev-parse', '--short', 'HEAD'],
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    stderr=subprocess.STDOUT
+                ).decode('utf-8').strip()
+            except Exception:
+                git_sha = "Unknown"
+            
+            # Check cache file existence and get mtime
+            cache_exists = os.path.exists(CACHE_PATH)
+            cache_mtime = None
+            cache_size = 0
+            
+            if cache_exists:
+                cache_stat = os.stat(CACHE_PATH)
+                # Use local time for mtime (consistent with file system)
+                cache_mtime = datetime.fromtimestamp(cache_stat.st_mtime)
+                cache_size = cache_stat.st_size
+            
+            # Load metadata file if it exists
+            metadata_path = os.path.join(CACHE_DIR, "prices_cache_meta.json")
+            metadata = None
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                except Exception as e:
+                    st.warning(f"⚠️ Failed to load metadata: {e}")
+            
+            # Display in columns
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+            
+            with col1:
+                st.metric("Git Commit", git_sha[:7] if git_sha != "Unknown" else "N/A")
+            
+            with col2:
+                if cache_mtime:
+                    # Both cache_mtime and datetime.now() are in local time
+                    age_minutes = (datetime.now() - cache_mtime).total_seconds() / 60
+                    if age_minutes < 60:
+                        age_str = f"{age_minutes:.0f}m ago"
+                    elif age_minutes < 1440:  # 24 hours
+                        age_str = f"{age_minutes/60:.1f}h ago"
+                    else:
+                        age_str = f"{age_minutes/1440:.1f}d ago"
+                    st.metric("Cache Modified", age_str)
+                else:
+                    st.metric("Cache Modified", "N/A")
+            
+            with col3:
+                if metadata:
+                    last_price_date = metadata.get("max_price_date", "N/A")
+                    if last_price_date != "N/A":
+                        # Calculate data age (date-only comparison)
+                        try:
+                            price_date = datetime.strptime(last_price_date, "%Y-%m-%d").date()
+                            data_age_days = (datetime.now().date() - price_date).days
+                            
+                            # Color based on staleness
+                            if data_age_days <= 3:
+                                delta_color = "normal"
+                                delta_prefix = "🟢"
+                            elif data_age_days <= 7:
+                                delta_color = "off"
+                                delta_prefix = "🟡"
+                            else:
+                                delta_color = "inverse"
+                                delta_prefix = "🔴"
+                            
+                            st.metric(
+                                "Last Price Date",
+                                last_price_date,
+                                delta=f"{delta_prefix} {data_age_days}d old"
+                            )
+                        except Exception:
+                            st.metric("Last Price Date", last_price_date)
+                    else:
+                        st.metric("Last Price Date", "N/A")
+                else:
+                    st.metric("Last Price Date", "N/A")
+            
+            with col4:
+                # Force reload button
+                if st.button("🔄 Reload", help="Force reload PRICE_BOOK cache", use_container_width=True):
+                    with st.spinner("Reloading PRICE_BOOK..."):
+                        try:
+                            # Clear Streamlit caches
+                            st.cache_data.clear()
+                            st.cache_resource.clear()
+                            
+                            # Clear session state price-related data
+                            if "global_price_df" in st.session_state:
+                                del st.session_state["global_price_df"]
+                            
+                            st.success("✓ PRICE_BOOK cache cleared. Reloading...")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to reload: {str(e)}")
+            
+            # Display detailed status in expander
+            with st.expander("📊 Detailed Cache Status", expanded=False):
+                if cache_exists:
+                    st.write(f"**Cache File:** `{CACHE_PATH}`")
+                    st.write(f"**Size:** {cache_size / 1024 / 1024:.2f} MB")
+                    st.write(f"**Modified:** {cache_mtime.strftime('%Y-%m-%d %H:%M:%S') if cache_mtime else 'N/A'}")
+                    
+                    if metadata:
+                        st.write("**Metadata:**")
+                        st.json(metadata)
+                        
+                        # Check for mismatches
+                        if metadata.get("max_price_date"):
+                            # Load actual cache to verify
+                            from helpers.price_loader import load_cache
+                            cache_df = load_cache()
+                            if cache_df is not None and not cache_df.empty:
+                                actual_max_date = cache_df.index[-1].strftime('%Y-%m-%d')
+                                meta_max_date = metadata.get("max_price_date")
+                                
+                                if actual_max_date != meta_max_date:
+                                    st.warning(f"⚠️ Metadata mismatch: Metadata says {meta_max_date}, but cache contains {actual_max_date}")
+                    else:
+                        st.warning("⚠️ Metadata file not found. Run `python build_price_cache.py --force` to generate.")
+                else:
+                    st.error("❌ Cache file does not exist!")
+                    st.write("**Troubleshooting:**")
+                    st.write("1. Run `python build_price_cache.py --force` to build the cache")
+                    st.write("2. Check that `data/cache/prices_cache.parquet` exists")
+                    st.write("3. Verify GitHub Actions workflow is running successfully")
+        
+        except Exception as e:
+            st.error(f"⚠️ Failed to load PRICE_BOOK status: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+        
+        # ========================================================================
         # TRUTHFRAME - Canonical Data Source for All Waves
         # ========================================================================
         try:
@@ -13164,11 +14430,12 @@ def generate_board_pack_html():
     data_freshness = mc_data.get('data_freshness', 'unknown')
     data_age_days = mc_data.get('data_age_days', None)
     
+    # source of truth: helpers/price_book.py
     if data_age_days is not None:
-        if data_age_days <= 1:
+        if data_age_days <= PRICE_CACHE_OK_DAYS:
             confidence = "High"
             confidence_color = "#3c3"
-        elif data_age_days <= 3:
+        elif data_age_days <= PRICE_CACHE_DEGRADED_DAYS:
             confidence = "Medium"
             confidence_color = "#f90"
         else:
@@ -17979,15 +19246,20 @@ def render_diagnostics_tab():
             trigger_rerun("diagnostics_reload_wave_universe")
     
     with col2:
-        if st.button("🗑️ Clear All Cache", help="Clear all cached data and restart"):
-            # Clear session state
+        if st.button("🗑️ Clear Cache & Restart", help="Clear all st.cache_data and st.cache_resource, then restart"):
+            # Clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
+            # Clear session state (preserve only essential items)
             for key in list(st.session_state.keys()):
                 if key not in ["safe_mode_enabled", "session_start_time"]:
                     del st.session_state[key]
-            st.success("Cache cleared. Refreshing...")
+            
+            st.success("✅ All caches cleared. Restarting...")
             # Mark user interaction
             st.session_state.user_interaction_detected = True
-            trigger_rerun("diagnostics_clear_cache")
+            trigger_rerun("diagnostics_clear_cache_restart")
     
     st.markdown("---")
     
@@ -18576,18 +19848,19 @@ def render_wave_overview_new_tab():
 
 def render_overview_clean_tab():
     """
-    Institutional Readiness - Tab 1
+    Portfolio Executive Dashboard - Tab 1
     
-    Transformed C-suite decision layer providing:
+    Portfolio-level institutional readiness dashboard providing:
     1. Composite System Control Status - High-level system health (STABLE/WATCH/DEGRADED)
-    2. AI Executive Brief Narrative - High-level human-judgment summary
-    3. Human-Readable Signals - System Confidence, Risk Regime, Alpha Quality, Data Integrity
+    2. AI Executive Brief Narrative - Portfolio-level human-judgment summary
+    3. Human-Readable Signals - Strategy Confidence, Risk Regime, Alpha Quality, Data Integrity
     4. AI Recommendations - Clear next steps for decision-makers
     5. Performance Insights - Key outperformers and positioning context
-    6. Market Context - Concise regime assessment
+    6. Market Context - External benchmark data and regime assessment
     
     All system diagnostics and technical details moved to collapsed expanders.
-    Designed for executives to understand system state within 10 seconds.
+    Designed for executives to understand portfolio state within 10 seconds.
+    Portfolio-level scope only - no single-wave analytics or partial diagnostics.
     """
     try:
         import os
@@ -18606,10 +19879,10 @@ def render_overview_clean_tab():
             margin-bottom: 20px;
         ">
             <h1 style="color: #00d9ff; margin: 0; font-size: 32px; text-align: center;">
-                🏛️ Institutional Readiness
+                🏛️ Portfolio Executive Dashboard
             </h1>
             <p style="color: #a8dadc; margin: 8px 0 0 0; font-size: 16px; text-align: center;">
-                Executive Decision Interface
+                Portfolio-Level Institutional Readiness
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -18618,12 +19891,6 @@ def render_overview_clean_tab():
         try:
             from helpers.price_book import get_price_book, get_price_book_meta
             from helpers.wave_performance import compute_all_waves_performance
-            from helpers.executive_summary import (
-                identify_top_performers, 
-                identify_attention_waves,
-                analyze_alpha_drivers,
-                get_market_regime_summary
-            )
             
             price_book = get_price_book()
             price_meta = get_price_book_meta(price_book)
@@ -18651,17 +19918,20 @@ def render_overview_clean_tab():
         
         try:
             # Compute system status based on multiple signals
+            # UI uses price_book as source of truth to prevent divergence
             status_issues = []
             
-            # Check 1: Price book staleness
-            if data_age_days is not None and data_age_days > 7:
-                status_issues.append(f"Price data is {data_age_days} days stale")
-            elif data_age_days is not None and data_age_days > 1:
-                status_issues.append(f"Price data is {data_age_days} days old")
+            # Check 1: Price book staleness using canonical thresholds from price_book.py
+            # OK: ≤PRICE_CACHE_OK_DAYS (14), DEGRADED: PRICE_CACHE_OK_DAYS+1 to PRICE_CACHE_DEGRADED_DAYS (15-30), STALE: >PRICE_CACHE_DEGRADED_DAYS (>30)
+            if data_age_days is not None and data_age_days > PRICE_CACHE_DEGRADED_DAYS:
+                status_issues.append(f"Price data is {data_age_days} days stale (STALE)")
+            elif data_age_days is not None and data_age_days > PRICE_CACHE_OK_DAYS:
+                status_issues.append(f"Price data is {data_age_days} days old (DEGRADED)")
+            # else: data_age_days ≤ PRICE_CACHE_OK_DAYS → OK, no issue to report
             
             # Check 2: Missing tickers / data coverage
+            total_waves = len(performance_df) if not performance_df.empty else 0
             if not performance_df.empty:
-                total_waves = len(performance_df)
                 if 'Failure_Reason' in performance_df.columns:
                     failed_waves = performance_df[performance_df['Failure_Reason'].notna()]
                     failed_count = len(failed_waves)
@@ -18689,13 +19959,17 @@ def render_overview_clean_tab():
                     if valid_data_pct < 70:
                         status_issues.append(f"Low data coverage: {valid_data_pct:.0f}%")
             
-            # Determine overall system status
-            if len(status_issues) == 0 and data_current:
+            # Determine overall system status using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # STABLE: No issues AND data age ≤ PRICE_CACHE_OK_DAYS (14 days)
+            # WATCH: Minor issues (≤2) AND data age ≤ PRICE_CACHE_DEGRADED_DAYS (30 days)
+            # DEGRADED: Multiple issues OR data age > PRICE_CACHE_DEGRADED_DAYS
+            if len(status_issues) == 0 and (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS):
                 system_status = "STABLE"
                 status_color = "🟢"
                 status_bg = "#1b4332"
                 status_text = "All systems operational. Data is current and complete."
-            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= 3):
+            elif len(status_issues) <= 2 and (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS):
                 system_status = "WATCH"
                 status_color = "🟡"
                 status_bg = "#664d03"
@@ -18790,16 +20064,67 @@ def render_overview_clean_tab():
                 elif dispersion < DISPERSION_LOW:
                     risk_assessment = "low volatility regime"
             
-            # Alpha source narrative
+            # Alpha source narrative with capital preservation emphasis
             if avg_1d > 0.3:
                 alpha_narrative = "Platform strategies are capturing meaningful outperformance across multiple factor exposures."
             elif avg_1d > 0:
                 alpha_narrative = "Platform strategies demonstrate selective alpha generation with disciplined risk management."
-            else:
+            elif avg_1d > POSTURE_WEAK_NEGATIVE:
                 alpha_narrative = "Platform strategies are prioritizing capital preservation while maintaining strategic positioning."
+            else:
+                alpha_narrative = "Platform strategies have prioritized capital preservation during this risk regime, with positioning for subsequent opportunities."
             
-            # Construct executive narrative
+            # Construct executive narrative with real metrics
             current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+            
+            # Get system health and latest price date
+            latest_price_date = price_meta.get('date_max', 'Unknown')
+            system_health = "OK" if data_current else "Stable" if data_age_days and data_age_days <= 7 else "Degraded"
+            
+            # Calculate portfolio-level returns if available
+            portfolio_metrics = []
+            if not performance_df.empty and '30D' in performance_df.columns:
+                # Calculate average returns across all waves
+                returns_30d_vals = performance_df['30D'].apply(parse_return).dropna()
+                returns_60d_vals = performance_df['60D'].apply(parse_return).dropna() if '60D' in performance_df.columns else pd.Series()
+                returns_365d_vals = performance_df['365D'].apply(parse_return).dropna() if '365D' in performance_df.columns else pd.Series()
+                
+                avg_30d = returns_30d_vals.mean() if len(returns_30d_vals) > 0 else None
+                avg_60d = returns_60d_vals.mean() if len(returns_60d_vals) > 0 else None
+                avg_365d = returns_365d_vals.mean() if len(returns_365d_vals) > 0 else None
+                
+                if avg_30d is not None:
+                    portfolio_metrics.append(f"30D: {avg_30d:+.1f}%")
+                if avg_60d is not None:
+                    portfolio_metrics.append(f"60D: {avg_60d:+.1f}%")
+                if avg_365d is not None:
+                    portfolio_metrics.append(f"365D: {avg_365d:+.1f}%")
+            
+            # Get alpha metrics from portfolio attribution if available
+            portfolio_attrib = st.session_state.get('portfolio_alpha_attribution', {})
+            total_alpha = None
+            overlay_alpha = None
+            
+            if portfolio_attrib.get('success', False):
+                summary_60d = portfolio_attrib.get('period_summaries', {}).get('60D')
+                if summary_60d:
+                    total_alpha = summary_60d.get('total_alpha', 0) * 100  # Convert to percentage
+                    overlay_alpha = summary_60d.get('overlay_alpha', 0) * 100
+            
+            # Build market context line
+            market_context_parts = []
+            market_tickers = ['SPY', 'QQQ', 'IWM', 'TLT']
+            for ticker in market_tickers:
+                try:
+                    if ticker in price_book.columns:
+                        prices = price_book[ticker].dropna()
+                        if len(prices) >= 2:
+                            ret_1d = ((prices.iloc[-1] / prices.iloc[-2]) - 1) * 100
+                            market_context_parts.append(f"{ticker} {ret_1d:+.1f}%")
+                except:
+                    pass
+            
+            market_context = "Market: " + ", ".join(market_context_parts) if market_context_parts else ""
             
             # Strategy performance context - emphasize regime, not raw counts
             if positive_count > 0 and total_count > 0:
@@ -18816,9 +20141,28 @@ def render_overview_clean_tab():
             narrative_text = f"""
 **As of {current_time}**
 
+**System Health:** {system_health} | **Last Price Date:** {latest_price_date} | **Data Age:** {data_age_days if data_age_days is not None else 'Unknown'} days
+
 The platform is monitoring **{total_waves} institutional-grade investment strategies** exhibiting {posture} within {regime_context}. 
 
 {performance_context} {alpha_narrative}
+"""
+            
+            # Add portfolio metrics if available
+            if portfolio_metrics:
+                narrative_text += f"\n**Portfolio Returns:** {', '.join(portfolio_metrics)}"
+            
+            # Add alpha metrics if available
+            if total_alpha is not None:
+                narrative_text += f"\n**Total Alpha (60D):** {total_alpha:+.2f}%"
+            if overlay_alpha is not None:
+                narrative_text += f" | **Overlay Alpha:** {overlay_alpha:+.2f}%"
+            
+            # Add market context if available
+            if market_context:
+                narrative_text += f"\n\n**{market_context}**"
+            
+            narrative_text += f"""
 
 **Strategic Assessment:** {'Evaluate risk reduction measures' if avg_1d < -1.0 else 'Maintain strategic positioning' if avg_1d >= 0 else 'Continue monitoring market developments'}.
             """
@@ -18846,7 +20190,11 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         confidence = DEFAULT_CONFIDENCE
         
         try:
-            # System Confidence: Based on data coverage and freshness
+            # Strategy Confidence: Based on data coverage and freshness
+            # Note: Strategy Confidence requires very fresh data (data_current = age <= 1 day)
+            # for "High" confidence, which is more stringent than Data Integrity's OK threshold
+            # (age <= 14 days). This is intentional - confidence in strategic decisions
+            # requires fresher data than general data integrity validation.
             if not performance_df.empty:
                 valid_data_pct = (len(returns_1d) / total_waves * 100) if total_waves > 0 else 0
                 
@@ -18897,21 +20245,25 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                     regime_color = "🟡"
             
             # Alpha Quality: Based on performance distribution
-            if avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
+            if total_count > 0 and avg_1d > ALPHA_QUALITY_STRONG_RETURN and positive_count / total_count > ALPHA_QUALITY_STRONG_RATIO:
                 alpha_quality = "Strong"
                 alpha_color = "🟢"
-            elif avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO:
+            elif total_count > 0 and (avg_1d > 0 or positive_count / total_count > ALPHA_QUALITY_MIXED_RATIO):
                 alpha_quality = "Mixed"
                 alpha_color = "🟡"
             else:
                 alpha_quality = "Weak"
                 alpha_color = "🔴"
             
-            # Data Integrity: Based on coverage and age
-            if data_current and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
+            # Data Integrity: Based on coverage and age using canonical price_book thresholds
+            # UI uses price_book as source of truth to prevent divergence
+            # OK: age ≤ PRICE_CACHE_OK_DAYS (14 days) AND coverage ≥ 95%
+            # DEGRADED: (age > PRICE_CACHE_OK_DAYS but ≤ PRICE_CACHE_DEGRADED_DAYS) OR (coverage ≥ 80% but < 95%)
+            # COMPROMISED: age > PRICE_CACHE_DEGRADED_DAYS OR coverage < 80%
+            if (data_age_days is None or data_age_days <= PRICE_CACHE_OK_DAYS) and valid_data_pct >= DATA_INTEGRITY_VERIFIED_COVERAGE:
                 data_integrity = "Verified"
                 integrity_color = "🟢"
-            elif valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
+            elif (data_age_days is None or data_age_days <= PRICE_CACHE_DEGRADED_DAYS) and valid_data_pct >= DATA_INTEGRITY_DEGRADED_COVERAGE:
                 data_integrity = "Degraded"
                 integrity_color = "🟡"
             else:
@@ -18920,7 +20272,7 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
             
             # Display signals
             with signal_col1:
-                st.metric("System Confidence", f"{confidence_color} {confidence}")
+                st.metric("Strategy Confidence", f"{confidence_color} {confidence}")
                 st.caption(f"{valid_data_pct:.0f}% coverage validated")
             
             with signal_col2:
@@ -18999,10 +20351,11 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         # 4. PERFORMANCE INSIGHTS - TOP STRATEGIES
         # ========================================================================
         st.markdown("### ⭐ Top Performing Strategies")
+        st.caption("Ranked by alpha performance across multiple timeframes")
         
         try:
-            if not performance_df.empty and '1D Return' in performance_df.columns:
-                # Get top 5 performers
+            if not performance_df.empty:
+                # Get top 5 performers by 30D alpha and 60D alpha
                 def parse_return_value(val):
                     if pd.isna(val) or val == "N/A":
                         return None
@@ -19011,32 +20364,80 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                     except:
                         return None
                 
-                # Create numeric column for sorting
-                performance_df['1D_Return_Numeric'] = performance_df['1D Return'].apply(parse_return_value)
+                # Create tabs for different timeframes
+                perf_tab_30d, perf_tab_60d = st.tabs(["📊 Top 5 by 30D Alpha", "📈 Top 5 by 60D Alpha"])
                 
-                # Sort and get top performers
-                top_performers = performance_df.nlargest(5, '1D_Return_Numeric')
-                
-                if not top_performers.empty:
-                    # Display as simple cards
-                    perf_col1, perf_col2, perf_col3, perf_col4, perf_col5 = st.columns(5)
+                with perf_tab_30d:
+                    st.caption("Ranked by 30-day alpha performance")
                     
-                    for idx, (_, row) in enumerate(top_performers.iterrows()):
-                        col = [perf_col1, perf_col2, perf_col3, perf_col4, perf_col5][idx]
-                        with col:
-                            wave_name = row.get('Wave', 'N/A')
-                            return_1d = row.get('1D_Return_Numeric', 0)
-                            return_30d = parse_return_value(row.get('30D', 'N/A'))
+                    if '30D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['30D_Numeric'] = performance_df['30D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_30d = performance_df.nlargest(min(5, len(performance_df)), '30D_Numeric')
+                        
+                        if not top_30d.empty and top_30d['30D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_30d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_30d = row.get('30D_Numeric', None)
+                                return_1d = parse_return_value(row.get('1D Return', 'N/A'))
+                                
+                                if return_30d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '30D Alpha': f"{return_30d:+.2f}%",
+                                        '1D Return': f"{return_1d:+.2f}%" if return_1d is not None else "N/A"
+                                    })
                             
-                            st.metric(
-                                label=wave_name if len(wave_name) < 20 else wave_name[:17] + "...",
-                                value=f"{return_1d:+.2f}%" if return_1d is not None else "N/A",
-                                delta=f"30D: {return_30d:+.1f}%" if return_30d is not None else "30D: N/A"
-                            )
-                else:
-                    st.info("Performance data is being compiled. Check back shortly.")
-            else:
-                st.info("Performance metrics will appear here once data is available.")
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 30D alpha ranking")
+                        else:
+                            st.info("No valid 30D performance data available")
+                    else:
+                        st.info("30D performance data not available")
+                
+                with perf_tab_60d:
+                    st.caption("Ranked by 60-day alpha performance")
+                    
+                    if '60D' in performance_df.columns:
+                        # Create numeric column for sorting
+                        performance_df['60D_Numeric'] = performance_df['60D'].apply(parse_return_value)
+                        
+                        # Sort and get top performers (up to 5)
+                        top_60d = performance_df.nlargest(min(5, len(performance_df)), '60D_Numeric')
+                        
+                        if not top_60d.empty and top_60d['60D_Numeric'].notna().any():
+                            # Display as ranked table
+                            ranked_data = []
+                            for rank, (_, row) in enumerate(top_60d.iterrows(), 1):
+                                wave_name = row.get('Wave', 'N/A')
+                                return_60d = row.get('60D_Numeric', None)
+                                return_30d = parse_return_value(row.get('30D', 'N/A'))
+                                
+                                if return_60d is not None:
+                                    ranked_data.append({
+                                        'Rank': f"#{rank}",
+                                        'Wave': wave_name,
+                                        '60D Alpha': f"{return_60d:+.2f}%",
+                                        '30D Return': f"{return_30d:+.2f}%" if return_30d is not None else "N/A"
+                                    })
+                            
+                            if ranked_data:
+                                ranked_df = pd.DataFrame(ranked_data)
+                                st.dataframe(ranked_df, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Insufficient data for 60D alpha ranking")
+                        else:
+                            st.info("No valid 60D performance data available")
+                    else:
+                        st.info("60D performance data not available")
                 
         except Exception as e:
             st.warning("Performance insights temporarily unavailable.")
@@ -19046,9 +20447,10 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
         st.divider()
         
         # ========================================================================
-        # 5. MARKET CONTEXT
+        # 5. MARKET CONTEXT (External Benchmark Data)
         # ========================================================================
-        st.markdown("### 🌍 Market Context")
+        st.markdown("### 🌍 Market Context (External Benchmark Data)")
+        st.caption("External market indicators - not portfolio performance")
         
         try:
             # Define key market indicators
@@ -19489,33 +20891,99 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave registry CSV: {e}")
             st.session_state.wave_registry_validated = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Registry Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
-    # Wave Universe Validation - Verify 28 Waves (ROUND 7 Phase 1)
+    # Wave Universe Validation - Verify Active Waves (UPDATED for Active/Inactive Split)
     # ========================================================================
     
-    # Validate that we have exactly 28 waves on startup
+    # Validate that we have the expected number of active waves on startup
     if "wave_universe_validated" not in st.session_state:
         try:
             from waves_engine import get_all_waves_universe
+            from wave_registry_manager import get_active_wave_registry
             
             universe = get_all_waves_universe()
-            expected_count = 28
+            
+            # Get expected count from active waves in CSV registry
+            active_waves_df = get_active_wave_registry()
+            expected_active_count = len(active_waves_df)
+            
             actual_count = universe.get('count', 0)
             
-            if actual_count != expected_count:
-                # Store validation failure in session state
-                st.session_state.wave_universe_validation_failed = True
-                st.session_state.wave_universe_discrepancy = f"Expected {expected_count} waves, found {actual_count}"
-                print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
+            if expected_active_count == 0:
+                # CSV not available, skip validation
+                st.session_state.wave_universe_validation_failed = False
+                print(f"⚠️ Could not load active wave registry, skipping validation")
+            elif actual_count != expected_active_count:
+                # Get inactive waves for informative message
+                all_waves_df = active_waves_df  # We only have active waves loaded
+                inactive_count = 0
+                inactive_names = ''
+                try:
+                    import pandas as pd
+                    full_registry = pd.read_csv("data/wave_registry.csv")
+                    inactive_waves = full_registry[full_registry['active'] == False]
+                    inactive_count = len(inactive_waves)
+                    inactive_names = ', '.join(inactive_waves['wave_name'].tolist()) if len(inactive_waves) > 0 else ''
+                except:
+                    pass
+                
+                # Only mark as validation failure if the discrepancy is NOT explained by inactive waves
+                # If actual + inactive = expected, then this is normal and not a failure
+                total_waves = actual_count + inactive_count
+                if total_waves == expected_active_count + inactive_count or actual_count == expected_active_count:
+                    # This is expected - we have active waves loaded, and inactive waves are properly excluded
+                    st.session_state.wave_universe_validation_failed = False
+                    st.session_state.wave_universe_validated_count = f"{actual_count}/{actual_count} active waves"
+                    if inactive_count > 0 and inactive_names:
+                        st.session_state.wave_universe_inactive_info = f"{inactive_count} inactive wave(s): {inactive_names}"
+                    print(f"✅ Wave Universe Validated: {actual_count}/{actual_count} active waves loaded")
+                    if inactive_count > 0:
+                        print(f"ℹ️ {inactive_count} inactive wave(s) properly excluded: {inactive_names}")
+                else:
+                    # Genuine mismatch - mark as failure
+                    st.session_state.wave_universe_validation_failed = True
+                    st.session_state.wave_universe_discrepancy = f"Expected {expected_active_count} active waves, found {actual_count}"
+                    if inactive_count > 0 and inactive_names:
+                        st.session_state.wave_universe_inactive_info = f"Inactive waves: {inactive_names}"
+                    print(f"⚠️ Wave Universe Validation Failed: {st.session_state.wave_universe_discrepancy}")
             else:
                 st.session_state.wave_universe_validation_failed = False
-                print(f"✅ Wave Universe Validated: {actual_count} waves")
+                st.session_state.wave_universe_validated_count = f"{actual_count}/{actual_count} active waves"
+                print(f"✅ Wave Universe Validated: {actual_count}/{actual_count} active waves")
+                
+                # Check for inactive waves for informational purposes
+                try:
+                    import pandas as pd
+                    full_registry = pd.read_csv("data/wave_registry.csv")
+                    inactive_waves = full_registry[full_registry['active'] == False]
+                    if len(inactive_waves) > 0:
+                        inactive_names = ', '.join(inactive_waves['wave_name'].tolist())
+                        st.session_state.wave_universe_inactive_info = f"{len(inactive_waves)} inactive wave(s): {inactive_names}"
+                        print(f"ℹ️ {len(inactive_waves)} inactive wave(s) properly excluded: {inactive_names}")
+                except:
+                    pass
             
             st.session_state.wave_universe_validated = True
         except Exception as e:
             print(f"⚠️ Warning: Could not validate wave universe: {e}")
             st.session_state.wave_universe_validation_failed = False
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Wave Universe Validation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
     
     # ========================================================================
     # Global Compute Lock - Prevent duplicate heavy computations
@@ -19566,6 +21034,14 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
                 print(f"⚠️ Warning: Could not check snapshot age: {e}")
                 st.session_state.snapshot_exists = True
                 st.session_state.snapshot_fresh = False
+                # Store exception for debug panel
+                if "data_load_exceptions" not in st.session_state:
+                    st.session_state.data_load_exceptions = []
+                st.session_state.data_load_exceptions.append({
+                    "component": "Snapshot Age Check",
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
         else:
             st.session_state.snapshot_exists = False
             st.session_state.snapshot_fresh = False
@@ -19579,141 +21055,96 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
             print(f"ℹ️ Snapshot does not exist - Safe Mode prevents auto-build. Use manual rebuild button.")
     
     # ========================================================================
-    # Wave Readiness Report - Log on startup
-    # ========================================================================
-    
-    # Print readiness report to logs (only once per session)
-    if "readiness_report_logged" not in st.session_state:
-        try:
-            from analytics_pipeline import print_readiness_report
-            print_readiness_report()
-            st.session_state.readiness_report_logged = True
-        except Exception as e:
-            print(f"Warning: Could not generate readiness report: {e}")
-    
-    # ========================================================================
-    # Last Known Good Backup Creation
-    # ========================================================================
-    
-    # Create backup on successful startup (only once per session)
-    if "backup_created" not in st.session_state:
-        create_last_known_good_backup()
-        st.session_state.backup_created = True
-    
-    # ========================================================================
     # Session State Initialization
     # ========================================================================
     
-    # Initialize wave_intelligence_center error flag if not present
-    if "wave_ic_has_errors" not in st.session_state:
+    # Initialize session state guard to prevent reinitialization during reruns
+    if "initialized" not in st.session_state:
+        st.session_state.initialized = True
+        
+        # One-time operations on first session startup
+        try:
+            from analytics_pipeline import print_readiness_report
+            print_readiness_report()
+        except Exception as e:
+            print(f"Warning: Could not generate readiness report: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Readiness Report",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
+        finally:
+            st.session_state.readiness_report_logged = True
+        
+        # Create backup on successful startup
+        try:
+            create_last_known_good_backup()
+        except Exception as e:
+            print(f"Warning: Could not create backup: {e}")
+            # Store exception for debug panel
+            if "data_load_exceptions" not in st.session_state:
+                st.session_state.data_load_exceptions = []
+            st.session_state.data_load_exceptions.append({
+                "component": "Backup Creation",
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
+        finally:
+            st.session_state.backup_created = True
+        
+        # Initialize wave_intelligence_center error flag
         st.session_state.wave_ic_has_errors = False
-    
-    # Initialize wave_universe_version if not present
-    if "wave_universe_version" not in st.session_state:
+        
+        # Initialize wave_universe_version
         st.session_state.wave_universe_version = 1
-    
-    # Initialize last_refresh_time if not present
-    if "last_refresh_time" not in st.session_state:
+        
+        # Initialize last_refresh_time
         st.session_state.last_refresh_time = datetime.now()
-    
-    # Initialize last_successful_refresh_time if not present
-    if "last_successful_refresh_time" not in st.session_state:
+        
+        # Initialize last_successful_refresh_time
         st.session_state.last_successful_refresh_time = datetime.now()
-    
-    # Initialize auto_refresh_enabled if not present (default: ON per requirements)
-    if "auto_refresh_enabled" not in st.session_state:
+        
+        # Initialize auto_refresh_enabled using config constant (default: OFF to prevent rerun loops)
         st.session_state.auto_refresh_enabled = DEFAULT_AUTO_REFRESH_ENABLED
-    
-    # Initialize auto_refresh_interval if not present (default: 60 seconds)
-    if "auto_refresh_interval_ms" not in st.session_state:
+        
+        # Initialize auto_refresh_interval using config constant
         st.session_state.auto_refresh_interval_ms = DEFAULT_REFRESH_INTERVAL_MS
-    
-    # Initialize auto_refresh_error_count for error handling
-    if "auto_refresh_error_count" not in st.session_state:
+        
+        # Initialize auto_refresh_error_count
         st.session_state.auto_refresh_error_count = 0
-    
-    # Initialize auto_refresh_paused flag
-    if "auto_refresh_paused" not in st.session_state:
+        
+        # Initialize auto_refresh_paused flag
         st.session_state.auto_refresh_paused = False
-    
-    # Initialize auto_refresh_error_message
-    if "auto_refresh_error_message" not in st.session_state:
+        
+        # Initialize auto_refresh_error_message
         st.session_state.auto_refresh_error_message = None
-    
-    # Initialize show_bottom_ticker if not present (default: ON)
-    if "show_bottom_ticker" not in st.session_state:
+        
+        # Initialize show_bottom_ticker (default: ON)
         st.session_state.show_bottom_ticker = True
-    
-    # Initialize selected_wave if not present (default: None - will be set by context)
-    if "selected_wave" not in st.session_state:
-        st.session_state.selected_wave = None
-    
-    # Initialize mode if not present (default: Standard)
-    if "mode" not in st.session_state:
+        
+        # Initialize selected_wave_id (default: None - portfolio view)
+        # UPDATED: Use selected_wave_id as the authoritative state key
+        st.session_state.selected_wave_id = None
+        
+        # Initialize mode (default: Standard)
         st.session_state.mode = "Standard"
     
     # ========================================================================
     # Auto-Refresh Logic with Error Handling
     # ========================================================================
+    # Streamlit Cloud rerun stability hotfix: disable auto-refresh and protect sidebar state.
+    # Hard-disable all auto-refresh execution to prevent rerun loops
     
-    # HARD-DISABLE auto-refresh when Safe Mode is ON or auto-refresh is explicitly disabled
-    # Auto-refresh is now OFF by default to prevent infinite reruns
-    # Users must explicitly enable it and disable Safe Mode
-    if st.session_state.get("safe_mode_no_fetch", True) or not st.session_state.get("auto_refresh_enabled", False):
-        # Auto-refresh is completely disabled
-        # Debug trace marker
-        if st.session_state.get("debug_mode", False):
-            if st.session_state.get("safe_mode_no_fetch", True):
-                st.caption("🔍 Trace: Auto-refresh disabled (Safe Mode ON)")
-            else:
-                st.caption("🔍 Trace: Auto-refresh disabled (Flag OFF)")
-        pass  # Skip all auto-refresh logic
-    # Check if auto-refresh is enabled, not paused, and supported
-    elif not st.session_state.get("auto_refresh_paused", False):
-        # Debug trace marker
-        if st.session_state.get("debug_mode", False):
-            st.caption("🔍 Trace: Entering refresh block")
-        
-        try:
-            # Try using streamlit-autorefresh if available
-            from streamlit_autorefresh import st_autorefresh
-            
-            # Get current refresh interval from session state
-            refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
-            
-            # Validate interval
-            if AUTO_REFRESH_CONFIG_AVAILABLE:
-                refresh_interval = validate_refresh_interval(refresh_interval)
-            
-            # Execute auto-refresh
-            count = st_autorefresh(interval=refresh_interval, key="auto_refresh_counter")
-            
-            # Update last refresh time on successful refresh
-            st.session_state.last_refresh_time = datetime.now()
-            st.session_state.last_successful_refresh_time = datetime.now()
-            
-            # Reset error count on successful refresh
-            if count > 0:
-                st.session_state.auto_refresh_error_count = 0
-                st.session_state.auto_refresh_error_message = None
-            
-        except ImportError:
-            # Fallback: Check if built-in autorefresh is available
-            if hasattr(st, 'autorefresh'):
-                refresh_interval = st.session_state.get("auto_refresh_interval_ms", DEFAULT_REFRESH_INTERVAL_MS)
-                st.autorefresh(interval=refresh_interval)
-                st.session_state.last_refresh_time = datetime.now()
-                st.session_state.last_successful_refresh_time = datetime.now()
-            # If neither is available, auto-refresh is disabled (silent fail)
-        except Exception as e:
-            # Error during auto-refresh - handle according to config
-            st.session_state.auto_refresh_error_count = st.session_state.get("auto_refresh_error_count", 0) + 1
-            st.session_state.auto_refresh_error_message = str(e)
-            
-            # Auto-pause if enabled and error threshold reached
-            if AUTO_PAUSE_ON_ERROR and st.session_state.auto_refresh_error_count >= MAX_CONSECUTIVE_ERRORS:
-                st.session_state.auto_refresh_paused = True
-                st.session_state.auto_refresh_enabled = False
+    # Set count to None to completely disable auto-refresh
+    # Note: count is used internally by Streamlit's rerun logic. Setting it to None
+    # ensures no auto-refresh timer is triggered, preventing automatic reruns.
+    count = None
+    
+    # Skip all auto-refresh logic to prevent reruns
+    # Note: DEFAULT_AUTO_REFRESH_ENABLED constant is False (set in auto_refresh_config.py or fallback)
     
     # ========================================================================
     # Wave Universe Initialization and Force Reload Handling
@@ -19781,17 +21212,20 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # Main Application UI
     # ========================================================================
     
+    # Resolve canonical app context (single source of truth)
+    ctx = resolve_app_context()
+    
     # Render selected wave banner at the very top (above all tabs)
     # Use enhanced banner if ENABLE_WAVE_PROFILE is True, otherwise use simple banner
     if ENABLE_WAVE_PROFILE:
         render_selected_wave_banner_enhanced(
-            selected_wave=st.session_state.selected_wave,
-            mode=st.session_state.mode
+            selected_wave=ctx["selected_wave_name"],
+            mode=ctx["mode"]
         )
     else:
         render_selected_wave_banner_simple(
-            selected_wave=st.session_state.selected_wave,
-            mode=st.session_state.mode
+            selected_wave=ctx["selected_wave_name"],
+            mode=ctx["mode"]
         )
     
     # Render Mission Control at the top
@@ -19864,47 +21298,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab
         with analytics_tabs[1]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Overview tab
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overview", render_overview_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -19963,47 +21397,47 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Wave Profile tab (fourth)
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Wave Profile", render_wave_intelligence_center_tab)
         
         # Details tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[10]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
@@ -20061,42 +21495,42 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
         
         # Console tab (third)
         with analytics_tabs[2]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Executive Console", render_executive_tab)
         
         # Details tab
         with analytics_tabs[3]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Details", render_details_tab)
         
         # Reports tab
         with analytics_tabs[4]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Reports", render_reports_tab)
         
         # Overlays tab
         with analytics_tabs[5]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Overlays", render_overlays_tab)
         
         # Attribution tab
         with analytics_tabs[6]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Attribution", render_attribution_tab)
         
         # Board Pack tab
         with analytics_tabs[7]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Board Pack", render_board_pack_tab)
         
         # IC Pack tab
         with analytics_tabs[8]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("IC Pack", render_ic_pack_tab)
         
         # Alpha Capture tab
         with analytics_tabs[9]:
-            render_sticky_header(st.session_state.selected_wave, st.session_state.mode)
+            render_sticky_header(ctx["selected_wave_name"], ctx["mode"])
             safe_component("Alpha Capture", render_alpha_capture_tab)
         
         # Wave Monitor tab (NEW - ROUND 7 Phase 5)
