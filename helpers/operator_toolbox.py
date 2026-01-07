@@ -11,6 +11,7 @@ and clear error reporting for the UI.
 import os
 import sys
 import logging
+import subprocess
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
@@ -116,8 +117,6 @@ def rebuild_price_cache() -> Tuple[bool, str]:
         Tuple of (success: bool, message: str)
     """
     try:
-        import subprocess
-        
         cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'prices_cache.parquet')
         
         # Use build_price_cache.py script
@@ -164,8 +163,6 @@ def rebuild_wave_history() -> Tuple[bool, str]:
         Tuple of (success: bool, message: str)
     """
     try:
-        import subprocess
-        
         wave_history_path = os.path.join(os.getcwd(), 'wave_history.csv')
         
         # Use build_wave_history_from_prices.py script
