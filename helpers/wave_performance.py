@@ -1138,6 +1138,7 @@ def compute_portfolio_snapshot(
     if price_book is None or price_book.empty:
         result['failure_reason'] = 'PRICE_BOOK is empty'
         debug['reason_if_failure'] = 'PRICE_BOOK is empty or None'
+        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
         return result
     
     # Record price_book debug info
@@ -1164,6 +1165,7 @@ def compute_portfolio_snapshot(
     if not WAVES_ENGINE_AVAILABLE:
         result['failure_reason'] = 'waves_engine not available'
         debug['reason_if_failure'] = 'waves_engine not available'
+        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
         return result
     
     try:
@@ -1173,11 +1175,13 @@ def compute_portfolio_snapshot(
     except Exception as e:
         result['failure_reason'] = f'Error getting wave universe: {str(e)}'
         debug['reason_if_failure'] = f'Error getting wave universe: {str(e)}'
+        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
         return result
     
     if not all_waves:
         result['failure_reason'] = 'No waves found in universe'
         debug['reason_if_failure'] = 'No waves found in universe'
+        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
         return result
     
     # ========================================================================
@@ -1309,6 +1313,7 @@ def compute_portfolio_snapshot(
     if not wave_return_series_dict:
         result['failure_reason'] = 'No valid wave return series computed'
         debug['reason_if_failure'] = f'no tickers intersect (requested={len(all_requested_tickers)}, available={len(all_available_tickers)})'
+        logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']} - {debug['reason_if_failure']}")
         return result
     
     result['wave_count'] = len(wave_return_series_dict)
@@ -1354,6 +1359,7 @@ def compute_portfolio_snapshot(
         if benchmark_returns.empty:
             result['failure_reason'] = 'Failed to build portfolio composite benchmark'
             debug['reason_if_failure'] = 'composite benchmark empty or insufficient history'
+            logger.warning(f"Portfolio snapshot N/A: {result['failure_reason']}")
             return result
         
         # Align portfolio returns and benchmark returns on common dates

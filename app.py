@@ -10114,9 +10114,13 @@ def render_executive_brief_tab():
                 n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
                 st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
                 
+                # Display warning with failure reason
+                failure_reason = ledger.get('failure_reason', 'Unknown error')
+                st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
+                
                 # Check for specific error conditions
                 if n_dates < 2:
-                    st.error(f"❌ Portfolio ledger unavailable: {ledger['failure_reason']}")
+                    st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
             
             if ledger['success']:
                 # RENDERER PROOF LINE - Enhanced with data source info
@@ -10275,6 +10279,134 @@ def render_executive_brief_tab():
                 # Warnings display
                 if ledger.get('warnings'):
                     st.caption("⚠️ " + " | ".join(ledger['warnings']))
+                
+                # Download Debug Report button
+                st.markdown("---")
+                st.markdown("**📥 Download Debug Report**")
+                
+                # Create debug report DataFrame
+                try:
+                    import pandas as pd
+                    from helpers.price_loader import get_price_book_debug_summary
+                    
+                    # Get price_book debug summary
+                    price_book_summary = get_price_book_debug_summary(price_book)
+                    
+                    # Collect debug data
+                    debug_data = []
+                    
+                    # Add price_book summary
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'Rows (Trading Days)',
+                        'Value': str(price_book_summary['rows'])
+                    })
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'Cols (Tickers)',
+                        'Value': str(price_book_summary['cols'])
+                    })
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'Start Date',
+                        'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
+                    })
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'End Date',
+                        'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
+                    })
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'Non-null Cells',
+                        'Value': str(price_book_summary['non_null_cells'])
+                    })
+                    debug_data.append({
+                        'Category': 'PRICE_BOOK',
+                        'Metric': 'Is Empty',
+                        'Value': str(price_book_summary['is_empty'])
+                    })
+                    
+                    # Add ledger info
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Success',
+                        'Value': str(ledger.get('success', False))
+                    })
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Failure Reason',
+                        'Value': str(ledger.get('failure_reason', 'N/A'))
+                    })
+                    
+                    # Add wave count
+                    n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Waves Processed',
+                        'Value': str(n_waves_used)
+                    })
+                    
+                    # Add ticker count (from price_book)
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Tickers Available',
+                        'Value': str(price_book_summary['num_tickers'])
+                    })
+                    
+                    # Add VIX and safe asset info
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'VIX Ticker Used',
+                        'Value': str(ledger.get('vix_ticker_used', 'N/A'))
+                    })
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Safe Ticker Used',
+                        'Value': str(ledger.get('safe_ticker_used', 'N/A'))
+                    })
+                    debug_data.append({
+                        'Category': 'Portfolio Ledger',
+                        'Metric': 'Overlay Available',
+                        'Value': str(ledger.get('overlay_available', False))
+                    })
+                    
+                    # Add period results
+                    for period_key, period_data in ledger.get('period_results', {}).items():
+                        debug_data.append({
+                            'Category': f'Period {period_key}',
+                            'Metric': 'Available',
+                            'Value': str(period_data.get('available', False))
+                        })
+                        debug_data.append({
+                            'Category': f'Period {period_key}',
+                            'Metric': 'Reason',
+                            'Value': str(period_data.get('reason', 'N/A'))
+                        })
+                        if period_data.get('available'):
+                            debug_data.append({
+                                'Category': f'Period {period_key}',
+                                'Metric': 'Total Alpha',
+                                'Value': f"{period_data.get('total_alpha', 0):.4%}"
+                            })
+                    
+                    # Create DataFrame
+                    debug_df = pd.DataFrame(debug_data)
+                    
+                    # Convert to CSV
+                    csv_data = debug_df.to_csv(index=False)
+                    
+                    # Add download button
+                    st.download_button(
+                        label="📥 Download Debug Report (CSV)",
+                        data=csv_data,
+                        file_name=f"portfolio_snapshot_debug_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_debug_report"
+                    )
+                    
+                except Exception as download_err:
+                    st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
                 
                 st.markdown("</div>", unsafe_allow_html=True)
                 
