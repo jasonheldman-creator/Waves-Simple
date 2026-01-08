@@ -101,6 +101,99 @@ if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
     PRICE_CACHE_DEGRADED_DAYS = 30
 
 
+# ============================================================================
+# Ticker Classification Helpers
+# ============================================================================
+
+# Known stablecoins (pegged to USD)
+# Last updated: 2026-01-08
+# Maintenance: Add new major stablecoins (>$1B market cap) as they emerge
+STABLECOIN_TICKERS = {
+    'USDT-USD', 'USDC-USD', 'DAI-USD', 'USDP-USD', 'BUSD-USD', 'TUSD-USD',
+    'USDD-USD', 'FRAX-USD', 'GUSD-USD', 'USDJ-USD'
+}
+
+# Known macro indices (not suitable for crypto-only analysis)
+MACRO_INDEX_TICKERS = {
+    '^VIX',    # CBOE Volatility Index
+    '^TNX',    # Treasury Yield 10 Years
+    '^IRX',    # Treasury Yield 13 Week
+    '^FVX',    # Treasury Yield 5 Years
+    '^TYX',    # Treasury Yield 30 Years
+    '^DJI',    # Dow Jones Industrial Average
+    '^GSPC',   # S&P 500 Index
+    '^IXIC',   # NASDAQ Composite
+    '^RUT'     # Russell 2000
+}
+
+
+def is_stablecoin(ticker: str) -> bool:
+    """
+    Check if a ticker is a stablecoin.
+    
+    Stablecoins are cryptocurrencies pegged to fiat currencies (typically USD)
+    and should be excluded from crypto growth/volatility analysis as they have
+    minimal price movement by design.
+    
+    Args:
+        ticker: Ticker symbol (e.g., 'USDT-USD', 'BTC-USD')
+        
+    Returns:
+        True if ticker is a known stablecoin, False otherwise
+    """
+    return ticker.upper() in STABLECOIN_TICKERS
+
+
+def is_macro_index(ticker: str) -> bool:
+    """
+    Check if a ticker is a macro/market index.
+    
+    Macro indices (like ^VIX, ^TNX) should be excluded from crypto-specific
+    wave analysis as they represent traditional market metrics, not crypto assets.
+    
+    Args:
+        ticker: Ticker symbol (e.g., '^VIX', 'BTC-USD')
+        
+    Returns:
+        True if ticker is a known macro index, False otherwise
+    """
+    return ticker.upper() in MACRO_INDEX_TICKERS
+
+
+def filter_tickers_for_crypto_waves(tickers: List[str]) -> List[str]:
+    """
+    Filter out stablecoins and macro indices from a ticker list for crypto wave analysis.
+    
+    This ensures crypto waves only include actual cryptocurrencies with price volatility,
+    excluding:
+    - Stablecoins (USDT-USD, USDC-USD, etc.) - minimal price movement
+    - Macro indices (^VIX, ^TNX, etc.) - not crypto assets
+    
+    Args:
+        tickers: List of ticker symbols
+        
+    Returns:
+        Filtered list excluding stablecoins and macro indices
+    """
+    filtered = []
+    excluded_count = 0
+    
+    for ticker in tickers:
+        if is_stablecoin(ticker):
+            logger.debug(f"Excluding stablecoin from crypto wave: {ticker}")
+            excluded_count += 1
+        elif is_macro_index(ticker):
+            logger.debug(f"Excluding macro index from crypto wave: {ticker}")
+            excluded_count += 1
+        else:
+            filtered.append(ticker)
+    
+    if excluded_count > 0:
+        logger.info(f"Filtered {excluded_count} stablecoins/indices from crypto wave ticker list")
+    
+    return filtered
+
+
 def ensure_cache_directory() -> None:
     """Ensure the cache directory exists."""
     Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
