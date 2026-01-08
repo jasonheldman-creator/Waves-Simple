@@ -554,8 +554,29 @@ def generate_live_snapshot_csv(
     print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
     print(f"✓ Waves with NO DATA status: {(df['status'] == 'NO DATA').sum()}")
     
-    # Write to CSV
+    # Write    # Write to CSV
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    # --- Normalize snapshot schema for app loader ---
+    COLUMN_RENAMES = {
+        "Wave": "wave",
+        "Return_1D": "return_1d",
+        "Return_30D": "return_30d",
+        "Return_60D": "return_60d",
+        "Return_365D": "return_365d",
+    }
+
+    df = df.rename(columns=COLUMN_RENAMES)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    # Ensure required columns exist + force mode expected by Portfolio Snapshot filters
+    df["mode"] = "STANDARD"
+
+    # Optional: give the loader a canonical date field if it expects it
+    if "date" not in df.columns:
+        df["date"] = current_date
+    # --- end normalization ---
+
     df.to_csv(out_path, index=False)
     print(f"\n✓ Snapshot written to {out_path}")
     
