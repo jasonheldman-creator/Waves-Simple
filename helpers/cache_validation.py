@@ -62,6 +62,9 @@ def fetch_spy_trading_days(calendar_days: int = 10) -> Tuple[Optional[datetime],
         # Extract trading days from index
         trading_days = [pd.Timestamp(dt).to_pydatetime() for dt in spy_data.index]
         
+        # Ensure trading days are in ascending chronological order
+        trading_days = sorted(trading_days)
+        
         if not trading_days:
             logger.error("No trading days found in SPY data")
             return None, []
@@ -129,11 +132,13 @@ def validate_trading_day_freshness(
     """
     Validate that the cache is up-to-date with the latest trading day.
     
-    This performs STRICT validation:
+    This performs validation with 1-session tolerance:
     - Fetches SPY prices for last 10 calendar days
     - Computes last_trading_day = max(date_index_of_SPY)
     - Computes cache_max_date from parquet file
-    - FAILS if cache_max_date != last_trading_day
+    - PASSES if cache_max_date == last_trading_day
+    - PASSES if cache_max_date is within 1 trading session before last_trading_day
+    - FAILS if cache_max_date is more than 1 trading session behind
     - FAILS with "Market data feed likely broken" if today - last_trading_day > max_market_feed_gap_days
     
     Args:
@@ -205,16 +210,52 @@ def validate_trading_day_freshness(
     logger.info(f"Delta (cache - trading): {delta_days} days")
     logger.info(f"Market feed gap: {market_feed_gap} days")
     
-    if cache_date_only != trading_date_only:
-        result['error'] = f"Cache max date ({cache_date_only}) does not equal last trading day ({trading_date_only})"
+    # Check if cache is current or within 1 trading session tolerance
+    # Normalize trading_days to date objects for comparison
+    trading_dates = [pd.Timestamp(dt).date() for dt in trading_days]
+    
+    # Check if cache_max_date is exactly the last trading day
+    if cache_date_only == trading_date_only:
+        result['valid'] = True
+        logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
+        logger.info("=" * 70)
+        return result
+    
+    # Check if cache_max_date is within the trading days list
+    if cache_date_only not in trading_dates:
+        result['error'] = f"Cache max date ({cache_date_only}) is not a valid trading day"
         logger.error(f"✗ FAIL: {result['error']}")
         return result
     
-    # All checks passed
-    result['valid'] = True
-    logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
-    logger.info("=" * 70)
+    # Get the index of last_trading_day and cache_max_date in the trading days
+    # Note: trading_dates is in ascending chronological order (earlier dates have lower indices)
+    try:
+        cache_index = trading_dates.index(cache_date_only)
+        last_trading_index = trading_dates.index(trading_date_only)
+    except ValueError as e:
+        result['error'] = f"Error finding trading day indices: {e}"
+        logger.error(f"✗ FAIL: {result['error']}")
+        return result
     
+    # Calculate sessions behind (lower index = earlier date in ascending order)
+    sessions_behind = last_trading_index - cache_index
+    
+    # Allow cache to be up to 1 trading session behind
+    if 0 <= sessions_behind <= 1:
+        result['valid'] = True
+        if sessions_behind == 0:
+            logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
+        else:
+            logger.info(f"✓ PASS: Cache is within tolerance ({sessions_behind} trading session behind)")
+        logger.info("=" * 70)
+        return result
+    
+    # Cache is more than 1 session behind or ahead (which shouldn't happen)
+    if sessions_behind < 0:
+        result['error'] = f"Cache max date ({cache_date_only}) is ahead of last trading day ({trading_date_only})"
+    else:
+        result['error'] = f"Cache max date ({cache_date_only}) is {sessions_behind} trading sessions behind last trading day ({trading_date_only})"
+    logger.error(f"✗ FAIL: {result['error']}")
     return result
 
 

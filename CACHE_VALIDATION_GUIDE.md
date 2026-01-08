@@ -50,7 +50,9 @@ The validation uses three symbol groups:
 3. Compute `cache_max_date` from the parquet file
 4. Compare dates:
    - **PASS** if `cache_max_date == last_trading_day`
-   - **FAIL** if `cache_max_date != last_trading_day`
+   - **PASS** if `cache_max_date` is within 1 trading session before `last_trading_day`
+   - **FAIL** if `cache_max_date` is more than 1 trading session behind
+   - **FAIL** if `cache_max_date` is not a valid trading day
 
 ### Sanity Checks
 
