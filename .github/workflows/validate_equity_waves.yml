@@ -1,0 +1,50 @@
+name: Validate Equity Waves Configuration
+
+on:
+  push:
+    paths:
+      - 'data/wave_registry.csv'
+      - 'data/waves/*/positions.csv'
+      - 'waves_engine.py'
+      - 'validate_equity_waves.py'
+  pull_request:
+    paths:
+      - 'data/wave_registry.csv'
+      - 'data/waves/*/positions.csv'
+      - 'waves_engine.py'
+      - 'validate_equity_waves.py'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate 9 Equity Waves
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas
+      
+      - name: Run equity waves validation
+        id: validation
+        run: |
+          python validate_equity_waves.py
+      
+      - name: Validation summary
+        if: always()
+        run: |
+          echo "## Equity Waves Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.validation.outcome }}" == "success" ]; then
+            echo "✅ All 9 equity waves are properly configured" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Validation failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
