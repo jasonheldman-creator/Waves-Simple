@@ -74,6 +74,54 @@ REQUIRED_CASH_PROXIES = ['BIL', 'SHY']  # All required (used by pricing engine)
 MAX_STALE_CALENDAR_DAYS = 5  # Accept cache if max_date within last 5 calendar days
 
 
+def get_last_trading_day_from_spy(lookback_days=60):
+    """
+    Get the last trading day by fetching SPY data with extended lookback.
+    Uses SPY as the anchor for determining the latest trading session.
+    
+    Args:
+        lookback_days: Number of days to look back (default: 60)
+    
+    Returns:
+        Tuple of (last_trading_day: datetime or None, trading_sessions: list)
+    """
+    try:
+        import yfinance as yf
+        
+        # Always use SPY as the primary anchor
+        ticker_obj = yf.Ticker('SPY')
+        
+        # Set end date to at least 1 day beyond current UTC to avoid timezone cutoff
+        end_date = datetime.now(timezone.utc) + timedelta(days=1)
+        start_date = end_date - timedelta(days=lookback_days)
+        
+        logger.info(f"Fetching SPY data to determine last trading day...")
+        logger.info(f"  Reference period: {start_date.date()} to {end_date.date()}")
+        
+        # Fetch history with explicit date range
+        hist = ticker_obj.history(start=start_date, end=end_date)
+        
+        if hist.empty:
+            logger.error("SPY returned no data - unable to determine last trading day")
+            return None, []
+        
+        # Get all trading sessions (index dates)
+        trading_sessions = hist.index.tolist()
+        last_trading_day = trading_sessions[-1]
+        
+        logger.info(f"✓ SPY last trading day: {last_trading_day.strftime('%Y-%m-%d')}")
+        logger.info(f"  Total trading sessions in period: {len(trading_sessions)}")
+        
+        return last_trading_day, trading_sessions
+        
+    except ImportError:
+        logger.error("yfinance not available - cannot determine last trading day")
+        return None, []
+    except Exception as e:
+        logger.error(f"Error fetching SPY data: {e}")
+        return None, []
+
+
 def get_last_trading_day():
     """
     Get the last trading day by checking SPY (S&P 500 ETF).
@@ -82,32 +130,30 @@ def get_last_trading_day():
     Returns:
         datetime or None: The last trading day, or None if unable to determine
     """
+    # Use new SPY-anchored function
+    last_day, _ = get_last_trading_day_from_spy()
+    
+    if last_day is not None:
+        return last_day
+    
+    # Fallback to QQQ if SPY fails
     try:
         import yfinance as yf
         
-        # Try SPY first
-        for reference_ticker in ['SPY', 'QQQ']:
-            try:
-                ticker_obj = yf.Ticker(reference_ticker)
-                # Fetch last 10 days to ensure we get data
-                hist = ticker_obj.history(period='10d')
-                if not hist.empty:
-                    last_trading_day = hist.index[-1]
-                    logger.info(f"Last trading day from {reference_ticker}: {last_trading_day.strftime('%Y-%m-%d')}")
-                    return last_trading_day
-            except Exception as e:
-                logger.warning(f"Failed to get last trading day from {reference_ticker}: {e}")
-                continue
+        logger.warning("SPY failed, trying QQQ fallback...")
+        ticker_obj = yf.Ticker('QQQ')
+        hist = ticker_obj.history(period='10d')
         
-        logger.warning("Unable to determine last trading day from SPY or QQQ")
-        return None
-        
-    except ImportError:
-        logger.warning("yfinance not available, cannot determine last trading day")
-        return None
+        if not hist.empty:
+            last_trading_day = hist.index[-1]
+            logger.info(f"Last trading day from QQQ: {last_trading_day.strftime('%Y-%m-%d')}")
+            return last_trading_day
+            
     except Exception as e:
-        logger.warning(f"Error determining last trading day: {e}")
-        return None
+        logger.warning(f"QQQ fallback failed: {e}")
+    
+    logger.error("Unable to determine last trading day from SPY or QQQ")
+    return None
 
 
 def validate_required_symbols(cache_df):
@@ -331,7 +377,44 @@ def load_existing_price_files():
     return merged
 
 
-def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, missing_required=None):
+def calculate_sessions_behind(cache_max_date, spy_trading_sessions):
+    """
+    Calculate how many trading sessions the cache is behind SPY.
+    
+    Args:
+        cache_max_date: Latest date in the cache (datetime)
+        spy_trading_sessions: List of SPY trading session dates
+        
+    Returns:
+        int: Number of sessions behind (0 if up-to-date or ahead)
+    """
+    if not spy_trading_sessions or cache_max_date is None:
+        return -1  # Unknown
+    
+    try:
+        # Normalize cache_max_date to date only
+        if isinstance(cache_max_date, str):
+            cache_date = pd.to_datetime(cache_max_date).date()
+        elif hasattr(cache_max_date, 'date'):
+            cache_date = cache_max_date.date()
+        else:
+            cache_date = cache_max_date
+        
+        # Normalize SPY sessions to dates
+        spy_dates = [s.date() if hasattr(s, 'date') else s for s in spy_trading_sessions]
+        
+        # Find sessions after cache_max_date
+        sessions_after = [d for d in spy_dates if d > cache_date]
+        
+        return len(sessions_after)
+        
+    except Exception as e:
+        logger.warning(f"Error calculating sessions_behind: {e}")
+        return -1
+
+
+def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, 
+                  missing_required=None, last_trading_day=None, sessions_behind=None):
     """
     Save metadata file next to the cache file.
     
@@ -342,6 +425,8 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         success_rate: Success rate (0.0 to 1.0)
         max_price_date: Latest date in the cache (datetime or string)
         missing_required: Dict of missing required symbols (optional)
+        last_trading_day: Last trading day from SPY (optional)
+        sessions_behind: Number of sessions behind (optional)
     """
     try:
         # Ensure cache directory exists
@@ -355,6 +440,14 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         else:
             max_price_date_str = str(max_price_date) if max_price_date else None
         
+        # Convert last_trading_day to string
+        if isinstance(last_trading_day, datetime):
+            last_trading_day_str = last_trading_day.strftime('%Y-%m-%d')
+        elif hasattr(last_trading_day, 'strftime'):
+            last_trading_day_str = last_trading_day.strftime('%Y-%m-%d')
+        else:
+            last_trading_day_str = str(last_trading_day) if last_trading_day else None
+        
         metadata = {
             "generated_at_utc": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             "success_rate": success_rate,
@@ -365,6 +458,12 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
             "max_price_date": max_price_date_str,
             "cache_file": CACHE_PATH
         }
+        
+        # Add SPY-based metrics if available
+        if last_trading_day_str:
+            metadata["last_trading_day"] = last_trading_day_str
+        if sessions_behind is not None and sessions_behind >= 0:
+            metadata["sessions_behind"] = sessions_behind
         
         # Add missing required symbols if provided
         if missing_required:
@@ -441,8 +540,9 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     if missing_tickers:
         logger.info("Attempting to fetch missing tickers from yfinance...")
         
-        # Calculate date range
-        end_date = datetime.now()
+        # Calculate date range with extended end date to avoid timezone cutoff
+        # Set end date to at least 1 day beyond current UTC
+        end_date = datetime.now(timezone.utc) + timedelta(days=1)
         start_date = end_date - timedelta(days=365 * years)
         
         logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -500,6 +600,88 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     if not cache_df.empty:
         max_price_date = cache_df.index[-1]
     
+    # Step 6.4: Get SPY reference and calculate sessions_behind
+    logger.info("=" * 70)
+    logger.info("SPY REFERENCE & SESSIONS TRACKING")
+    logger.info("=" * 70)
+    
+    last_trading_day, spy_trading_sessions = get_last_trading_day_from_spy(lookback_days=60)
+    sessions_behind = calculate_sessions_behind(max_price_date, spy_trading_sessions)
+    
+    if last_trading_day:
+        logger.info(f"  SPY last trading day: {last_trading_day.strftime('%Y-%m-%d')}")
+    else:
+        logger.warning("  Unable to determine SPY last trading day")
+    
+    if max_price_date:
+        logger.info(f"  Cache max date: {max_price_date.strftime('%Y-%m-%d')}")
+    else:
+        logger.warning("  Cache max date: N/A")
+    
+    if sessions_behind >= 0:
+        logger.info(f"  Sessions behind: {sessions_behind}")
+        
+        # Auto-retry logic if sessions_behind > 1
+        if sessions_behind > 1 and not cache_df.empty:
+            logger.warning("=" * 70)
+            logger.warning(f"CACHE IS {sessions_behind} SESSIONS BEHIND - ATTEMPTING RETRY")
+            logger.warning("=" * 70)
+            
+            # Retry with broader time window (30-60 days)
+            retry_end_date = datetime.now(timezone.utc) + timedelta(days=1)
+            retry_start_date = retry_end_date - timedelta(days=60)
+            
+            logger.info(f"Retry fetch window: {retry_start_date.date()} to {retry_end_date.date()}")
+            
+            # Fetch all tickers again with broader window
+            retry_new_data = []
+            retry_failures = {}
+            
+            for i in range(0, len(all_tickers), BATCH_SIZE):
+                batch = all_tickers[i:i + BATCH_SIZE]
+                batch_num = i // BATCH_SIZE + 1
+                total_batches = (len(all_tickers) - 1) // BATCH_SIZE + 1
+                
+                logger.info(f"Retry batch {batch_num}/{total_batches} ({len(batch)} tickers)...")
+                
+                try:
+                    batch_data, batch_failures = fetch_prices_batch(batch, retry_start_date, retry_end_date)
+                    
+                    if not batch_data.empty:
+                        retry_new_data.append(batch_data)
+                        logger.info(f"  Retry fetched {len(batch_data)} days for {len(batch_data.columns)} tickers")
+                    
+                    retry_failures.update(batch_failures)
+                    
+                except Exception as e:
+                    logger.error(f"  Retry batch {batch_num} failed: {e}")
+            
+            # Merge retry data with cache
+            if retry_new_data:
+                logger.info("Merging retry data with cache...")
+                
+                retry_df = retry_new_data[0]
+                for df in retry_new_data[1:]:
+                    retry_df = pd.concat([retry_df, df], axis=1)
+                
+                cache_df = merge_cache_and_new_data(cache_df, retry_df)
+                
+                # Recalculate max_price_date after retry
+                if not cache_df.empty:
+                    max_price_date = cache_df.index[-1]
+                    logger.info(f"  Updated cache max date: {max_price_date.strftime('%Y-%m-%d')}")
+                    
+                    # Recalculate sessions_behind
+                    sessions_behind = calculate_sessions_behind(max_price_date, spy_trading_sessions)
+                    logger.info(f"  Updated sessions behind: {sessions_behind}")
+                
+                # Update failure tracking
+                all_failures = retry_failures
+                successful_downloads = total_requested - len(all_failures)
+                success_rate = successful_downloads / total_requested if total_requested > 0 else 0.0
+    else:
+        logger.warning("  Sessions behind: Unable to calculate")
+    
     # Step 6.5: Validate required symbols
     logger.info("=" * 70)
     logger.info("VALIDATING REQUIRED SYMBOLS")
@@ -525,14 +707,16 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info("Saving cache...")
         save_cache(cache_df)
         
-        # Save metadata file with missing symbols
+        # Save metadata file with SPY-based metrics
         save_metadata(
             total_tickers=total_requested,
             successful_tickers=successful_downloads,
             failed_tickers=len(all_failures),
             success_rate=success_rate,
             max_price_date=max_price_date,
-            missing_required=missing_symbols if not symbols_valid else None
+            missing_required=missing_symbols if not symbols_valid else None,
+            last_trading_day=last_trading_day,
+            sessions_behind=sessions_behind if sessions_behind >= 0 else None
         )
         
         # Print summary
@@ -551,26 +735,33 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Failed tickers: {len(all_failures)}")
         logger.info(f"  Success rate: {success_rate * 100:.2f}%")
         logger.info(f"  Threshold: {MIN_SUCCESS_RATE * 100:.2f}%")
-        logger.info(f"  Latest price date: {max_price_date.strftime('%Y-%m-%d') if max_price_date else 'N/A'}")
+        logger.info("")
+        logger.info(f"  Cache max date: {max_price_date.strftime('%Y-%m-%d') if max_price_date else 'N/A'}")
+        logger.info(f"  SPY last trading day: {last_trading_day.strftime('%Y-%m-%d') if last_trading_day else 'N/A'}")
+        logger.info(f"  Sessions behind: {sessions_behind if sessions_behind >= 0 else 'N/A'}")
         logger.info(f"  Cache freshness: {'FRESH' if is_fresh else 'STALE'}")
         logger.info(f"  Required symbols: {'VALID' if symbols_valid else 'INVALID'}")
         logger.info("=" * 70)
         
         # Determine overall success based on multiple criteria
         meets_threshold = success_rate >= MIN_SUCCESS_RATE
+        meets_freshness = sessions_behind is None or sessions_behind <= 1  # Allow 1 session tolerance
         
-        if meets_threshold and symbols_valid:
-            logger.info(f"✓ SUCCESS: Success rate {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
-            if not is_fresh:
-                logger.warning(f"⚠ WARNING: Cache is stale but meets success threshold")
+        if meets_threshold and symbols_valid and meets_freshness:
+            logger.info(f"✓ SUCCESS: All criteria met")
+            logger.info(f"  - Success rate: {success_rate * 100:.2f}% >= {MIN_SUCCESS_RATE * 100:.2f}%")
+            logger.info(f"  - Required symbols: VALID")
+            logger.info(f"  - Sessions behind: {sessions_behind if sessions_behind >= 0 else 'N/A'} <= 1")
         else:
             if not meets_threshold:
                 logger.error(f"✗ FAILURE: Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
             if not symbols_valid:
                 logger.error(f"✗ FAILURE: Required symbols missing")
+            if not meets_freshness:
+                logger.error(f"✗ FAILURE: Cache is {sessions_behind} sessions behind (tolerance: 1)")
         
-        # Overall success requires both threshold and required symbols
-        overall_success = meets_threshold and symbols_valid
+        # Overall success requires threshold, required symbols, AND freshness
+        overall_success = meets_threshold and symbols_valid and meets_freshness
         return overall_success, success_rate
     else:
         logger.error("No data available to build cache")
@@ -586,7 +777,9 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                 'volatility': REQUIRED_VOLATILITY_REGIME,
                 'benchmarks': REQUIRED_BENCHMARKS,
                 'cash_proxies': REQUIRED_CASH_PROXIES
-            }
+            },
+            last_trading_day=None,
+            sessions_behind=None
         )
         return False, 0.0
 
