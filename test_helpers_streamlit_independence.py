@@ -16,9 +16,6 @@ def test_helpers_import_without_streamlit():
     if 'streamlit' in sys.modules:
         del sys.modules['streamlit']
     
-    # Mock streamlit not being installed
-    import importlib
-    
     # This should work without Streamlit
     import helpers
     

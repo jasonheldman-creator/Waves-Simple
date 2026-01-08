@@ -37,6 +37,13 @@ except ImportError:
 def conditional_cache(ttl=300):
     """
     Decorator that uses Streamlit caching if available, otherwise no-op.
+    
+    Args:
+        ttl: Time to live in seconds for the cache (default: 300).
+             Only applies when Streamlit is available.
+    
+    Returns:
+        Decorated function with caching (if Streamlit available) or original function.
     """
     def decorator(func):
         if STREAMLIT_AVAILABLE:
