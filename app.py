@@ -19793,6 +19793,60 @@ def render_diagnostics_tab():
     st.markdown("---")
     
     # ========================================================================
+    # SECTION 3.5: Live Snapshot Diagnostics
+    # ========================================================================
+    st.subheader("📸 Live Snapshot Diagnostics")
+    
+    try:
+        from analytics_pipeline import load_live_snapshot
+        
+        # Load the live snapshot with normalization
+        snapshot_df = load_live_snapshot(path="data/live_snapshot.csv", fallback=False)
+        
+        if snapshot_df is not None and not snapshot_df.empty:
+            # Display snapshot metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Rows in Live Snapshot", len(snapshot_df))
+            
+            with col2:
+                # Count numeric columns
+                numeric_cols = snapshot_df.select_dtypes(include=['number']).columns
+                st.metric("Numeric Columns", len(numeric_cols))
+            
+            with col3:
+                # Check for expected columns
+                expected_cols = ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
+                                 'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D']
+                found_cols = [col for col in expected_cols if col in snapshot_df.columns]
+                st.metric("Expected Columns Found", f"{len(found_cols)}/{len(expected_cols)}")
+            
+            # Display normalized column list in expander
+            with st.expander("📋 Snapshot Columns After Normalization", expanded=False):
+                st.caption("These are the column names after schema normalization logic has been applied.")
+                cols_list = list(snapshot_df.columns)
+                st.code(", ".join(cols_list), language="python")
+                
+                # Show a preview of the data
+                st.markdown("**Data Preview (first 5 rows):**")
+                st.dataframe(snapshot_df.head(5), use_container_width=True)
+            
+            st.success("✅ Live snapshot loaded and normalized successfully")
+        else:
+            st.warning("⚠️ Live snapshot is empty or could not be loaded")
+            
+    except FileNotFoundError:
+        st.error("❌ Live snapshot file not found at data/live_snapshot.csv")
+    except Exception as e:
+        st.error(f"❌ Error loading live snapshot: {str(e)}")
+        import traceback
+        with st.expander("View Error Details", expanded=False):
+            st.code(traceback.format_exc(), language="python")
+    
+    st.markdown("---")
+    
+    # ========================================================================
     # SECTION 4: Wave Universe Diagnostics
     # ========================================================================
     st.subheader("🌊 Wave Universe Diagnostics")

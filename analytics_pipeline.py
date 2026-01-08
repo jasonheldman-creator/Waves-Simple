@@ -3238,7 +3238,32 @@ def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -
     
     if os.path.exists(path):
         try:
-            return pd.read_csv(path)
+            df = pd.read_csv(path)
+            
+            # --- Normalize live_snapshot schema (accept old/new formats) ---
+            df.columns = [c.strip().lower() for c in df.columns]
+            
+            rename_map = {
+                "wave": "Wave",
+                "wave_id": "wave_id",
+                "return_1d": "Return_1D",
+                "return_30d": "Return_30D",
+                "return_60d": "Return_60D",
+                "return_365d": "Return_365D",
+                "alpha_1d": "Alpha_1D",
+                "alpha_30d": "Alpha_30D",
+                "alpha_60d": "Alpha_60D",
+                "alpha_365d": "Alpha_365D",
+            }
+            
+            df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+            
+            for col in ["Return_1D","Return_30D","Return_60D","Return_365D",
+                        "Alpha_1D","Alpha_30D","Alpha_60D","Alpha_365D"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            
+            return df
         except Exception as e:
             print(f"Warning: Could not load snapshot from {path}: {str(e)}")
             if not fallback:
