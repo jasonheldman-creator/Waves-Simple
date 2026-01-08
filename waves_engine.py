@@ -1756,9 +1756,15 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                     tracker.record_failure(report)
         
         # Phase 1B.3: Add synthetic stablecoin prices
-        if stablecoins_to_synthesize and not data.empty:
-            stablecoin_prices = _generate_stablecoin_prices(data.index)
-            data = pd.concat([data, stablecoin_prices], axis=1)
+        # Generate stablecoin prices even if other tickers failed
+        if stablecoins_to_synthesize:
+            if not data.empty:
+                stablecoin_prices = _generate_stablecoin_prices(data.index, stablecoins_to_synthesize)
+                data = pd.concat([data, stablecoin_prices], axis=1)
+            else:
+                # No other data - create date range from lookback period
+                date_range = pd.date_range(start=start, end=end, freq='D')
+                data = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
         
         return data, failures
         
@@ -1777,9 +1783,15 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
         data, failures = _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
         
         # Phase 1B.3: Add synthetic stablecoin prices
-        if stablecoins_to_synthesize and not data.empty:
-            stablecoin_prices = _generate_stablecoin_prices(data.index)
-            data = pd.concat([data, stablecoin_prices], axis=1)
+        # Generate stablecoin prices even if other tickers failed
+        if stablecoins_to_synthesize:
+            if not data.empty:
+                stablecoin_prices = _generate_stablecoin_prices(data.index, stablecoins_to_synthesize)
+                data = pd.concat([data, stablecoin_prices], axis=1)
+            else:
+                # No other data - create date range from lookback period
+                date_range = pd.date_range(start=start, end=end, freq='D')
+                data = _generate_stablecoin_prices(date_range, stablecoins_to_synthesize)
         
         return data, failures
 
@@ -2845,7 +2857,7 @@ def _is_macro_index(ticker: str) -> bool:
     return ticker in MACRO_INDICES
 
 
-def _generate_stablecoin_prices(date_index: pd.DatetimeIndex) -> pd.DataFrame:
+def _generate_stablecoin_prices(date_index: pd.DatetimeIndex, stablecoins: Optional[List[str]] = None) -> pd.DataFrame:
     """
     Generate synthetic price series for stablecoins.
     
@@ -2854,12 +2866,15 @@ def _generate_stablecoin_prices(date_index: pd.DatetimeIndex) -> pd.DataFrame:
     
     Args:
         date_index: DatetimeIndex for the price series
+        stablecoins: Optional list of specific stablecoins to generate.
+                    If None, generates all stablecoins in STABLECOINS constant.
         
     Returns:
         DataFrame with one column per stablecoin, all values = 1.0
     """
     stablecoin_prices = pd.DataFrame(index=date_index)
-    for ticker in STABLECOINS:
+    coins_to_generate = stablecoins if stablecoins is not None else STABLECOINS
+    for ticker in coins_to_generate:
         stablecoin_prices[ticker] = 1.0
     return stablecoin_prices
 

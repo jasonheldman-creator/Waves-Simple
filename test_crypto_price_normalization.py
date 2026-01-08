@@ -93,7 +93,7 @@ def test_stablecoin_price_generation():
     # Create a date range
     date_range = pd.date_range(start='2024-01-01', end='2024-12-31', freq='D')
     
-    # Generate stablecoin prices
+    # Generate stablecoin prices (all stablecoins)
     stablecoin_prices = we._generate_stablecoin_prices(date_range)
     
     # Verify structure
@@ -111,6 +111,15 @@ def test_stablecoin_price_generation():
         prices = stablecoin_prices[ticker]
         assert (prices == 1.0).all(), f"All {ticker} prices should be 1.0"
         print(f"  ✓ {ticker}: all prices = 1.0")
+    
+    # Test generating specific stablecoins only
+    specific_coins = ["USDT-USD", "USDC-USD"]
+    specific_prices = we._generate_stablecoin_prices(date_range, specific_coins)
+    assert len(specific_prices.columns) == len(specific_coins), \
+        f"Should have {len(specific_coins)} columns when specific coins requested"
+    for ticker in specific_coins:
+        assert ticker in specific_prices.columns, f"{ticker} should be in specific columns"
+    print(f"  ✓ Specific stablecoin generation works (tested {len(specific_coins)} coins)")
     
     print("✓ Stablecoin price generation working correctly")
 
