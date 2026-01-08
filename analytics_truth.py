@@ -521,14 +521,12 @@ def generate_live_snapshot_csv(
     
     for wave_name in waves:
         # Get wave_id (slugified) - normalize by stripping whitespace
-        wave_id_raw = _convert_wave_name_to_id(wave_name)
+        # _convert_wave_name_to_id() now guarantees a non-None result
+        wave_id = _convert_wave_name_to_id(wave_name)
         
-        # Normalize wave_id: strip whitespace and handle None/invalid entries
-        if wave_id_raw is None or (isinstance(wave_id_raw, str) and not wave_id_raw.strip()):
-            # Fallback to deterministic slug from display_name
-            wave_id = _convert_wave_name_to_id(wave_name) if wave_name else 'unknown_wave'
-        else:
-            wave_id = wave_id_raw.strip() if isinstance(wave_id_raw, str) else str(wave_id_raw)
+        # Strip whitespace if it's a string
+        if isinstance(wave_id, str):
+            wave_id = wave_id.strip()
         
         # Get returns data
         returns_data = wave_returns.get(wave_name, {})
@@ -568,7 +566,10 @@ def generate_live_snapshot_csv(
     isna_sum = df['wave_id'].isna().sum()
     
     # Count blank wave_ids (empty after strip)
-    blank_sum = sum(1 for x in df['wave_id'] if isinstance(x, str) and not x.strip()) if not df['wave_id'].isna().all() else 0
+    if df['wave_id'].isna().all():
+        blank_sum = 0
+    else:
+        blank_sum = sum(1 for x in df['wave_id'] if isinstance(x, str) and not x.strip())
     
     # Get duplicates
     wave_id_counts = df['wave_id'].value_counts()

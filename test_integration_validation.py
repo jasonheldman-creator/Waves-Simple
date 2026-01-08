@@ -36,13 +36,12 @@ def test_validation_logic_simulation():
     # Simulate creating DataFrame with wave_ids
     rows = []
     for wave_name in waves:
-        wave_id_raw = _convert_wave_name_to_id(wave_name)
+        # Get wave_id (slugified) - _convert_wave_name_to_id() now guarantees non-None result
+        wave_id = _convert_wave_name_to_id(wave_name)
         
-        # Normalize wave_id (as in updated code)
-        if wave_id_raw is None or (isinstance(wave_id_raw, str) and not wave_id_raw.strip()):
-            wave_id = _convert_wave_name_to_id(wave_name) if wave_name else 'unknown_wave'
-        else:
-            wave_id = wave_id_raw.strip() if isinstance(wave_id_raw, str) else str(wave_id_raw)
+        # Strip whitespace if it's a string
+        if isinstance(wave_id, str):
+            wave_id = wave_id.strip()
         
         rows.append({
             'wave_id': wave_id,
