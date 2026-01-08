@@ -566,10 +566,10 @@ def generate_live_snapshot_csv(
     isna_sum = df['wave_id'].isna().sum()
     
     # Count blank wave_ids (empty after strip)
-    if df['wave_id'].isna().all():
-        blank_sum = 0
-    else:
-        blank_sum = sum(1 for x in df['wave_id'] if isinstance(x, str) and not x.strip())
+    def is_blank_wave_id(x):
+        return isinstance(x, str) and not x.strip()
+    
+    blank_sum = sum(1 for x in df['wave_id'] if is_blank_wave_id(x))
     
     # Get duplicates
     wave_id_counts = df['wave_id'].value_counts()
@@ -643,7 +643,7 @@ def generate_live_snapshot_csv(
                 diagnostics.append(f"  - Wave: '{row['Wave']}', wave_id: {row['wave_id']}")
         
         if blank_sum > 0:
-            blank_rows = df[df['wave_id'].apply(lambda x: isinstance(x, str) and not x.strip())]
+            blank_rows = df[df['wave_id'].apply(is_blank_wave_id)]
             diagnostics.append("")
             diagnostics.append("Rows with blank wave_ids:")
             for idx, row in blank_rows.iterrows():
