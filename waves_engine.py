@@ -2772,6 +2772,42 @@ def _calculate_price_return(price_series: pd.Series, dt: pd.Timestamp, periods: 
     return float(ret_val) if not np.isnan(ret_val) else np.nan
 
 
+def _get_crypto_overlay_status(
+    wave_name: str,
+    is_crypto: bool,
+    tickers_available: int,
+    tickers_expected: int
+) -> str:
+    """
+    Determine crypto overlay status for UI display.
+    
+    Phase 1B.3: Status indicates data health and overlay readiness.
+    
+    Args:
+        wave_name: Name of the wave
+        is_crypto: Whether this is a crypto wave
+        tickers_available: Number of tickers successfully loaded
+        tickers_expected: Number of tickers expected for the wave
+        
+    Returns:
+        Status string: "OK", "NO_DATA", or "DEGRADED"
+    """
+    if not is_crypto:
+        return "N/A"  # Not applicable for non-crypto waves
+    
+    if tickers_expected == 0:
+        return "NO_DATA"
+    
+    coverage_pct = (tickers_available / tickers_expected) * 100
+    
+    if coverage_pct >= 90:
+        return "OK"
+    elif coverage_pct >= 50:
+        return "DEGRADED"
+    else:
+        return "NO_DATA"
+
+
 # ------------------------------------------------------------
 # Crypto Phase 1B.3: Stablecoin and Ticker Normalization Helpers
 # ------------------------------------------------------------
@@ -3385,6 +3421,14 @@ def _compute_core(
     # Diagnostics series (optional)
     diag_rows = []
     attribution_rows = []  # New: per-day strategy attribution
+    
+    # Phase 1B.3: Calculate crypto overlay status once for the entire run
+    crypto_overlay_status = _get_crypto_overlay_status(
+        wave_name=wave_name,
+        is_crypto=_is_crypto_wave(wave_name),
+        tickers_available=len(wave_tickers_available),
+        tickers_expected=len(wave_tickers_expected)
+    )
 
     for dt in ret_df.index:
         rets = ret_df.loc[dt]
@@ -3915,11 +3959,13 @@ def _compute_core(
                     "vix_gate": diag_vix_gate,
                     "regime_gate": diag_regime_gate,
                     "aggregated_risk_state": agg_risk_state,
-                    # Add crypto-specific diagnostics
+                    # Add crypto-specific diagnostics (Phase 1B.3)
                     "is_crypto": is_crypto,
+                    "crypto_exposure": float(exposure) if is_crypto else np.nan,
                     "crypto_trend_regime": crypto_trend_contrib.metadata.get("crypto_regime", "n/a") if is_crypto_growth else "n/a",
                     "crypto_vol_state": crypto_vol_contrib.metadata.get("vol_state", "n/a") if is_crypto_growth else "n/a",
                     "crypto_liq_state": crypto_liquidity_contrib.metadata.get("liquidity_state", "n/a") if is_crypto else "n/a",
+                    "crypto_overlay_status": crypto_overlay_status,  # Phase 1B.3
                     # Add income-specific diagnostics
                     "is_income": is_income,
                     "income_rates_regime": income_rates_contrib.metadata.get("rates_regime", "n/a") if is_income else "n/a",
