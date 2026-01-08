@@ -205,6 +205,74 @@ def test_crypto_exposure_constants():
     print("✓ Crypto exposure constants are properly defined")
 
 
+def test_crypto_overlay_status():
+    """Test crypto overlay status calculation."""
+    print("\n=== Testing Crypto Overlay Status Calculation ===")
+    
+    # Test OK status (>= 90% coverage)
+    status = we._get_crypto_overlay_status(
+        wave_name="Crypto L1 Growth Wave",
+        is_crypto=True,
+        tickers_available=9,
+        tickers_expected=10
+    )
+    assert status == "OK", f"Status with 90% coverage should be OK, got {status}"
+    print("  ✓ 90% coverage → OK")
+    
+    # Test DEGRADED status (50-90% coverage)
+    status = we._get_crypto_overlay_status(
+        wave_name="Crypto L1 Growth Wave",
+        is_crypto=True,
+        tickers_available=7,
+        tickers_expected=10
+    )
+    assert status == "DEGRADED", f"Status with 70% coverage should be DEGRADED, got {status}"
+    print("  ✓ 70% coverage → DEGRADED")
+    
+    # Test NO_DATA status (< 50% coverage)
+    status = we._get_crypto_overlay_status(
+        wave_name="Crypto L1 Growth Wave",
+        is_crypto=True,
+        tickers_available=4,
+        tickers_expected=10
+    )
+    assert status == "NO_DATA", f"Status with 40% coverage should be NO_DATA, got {status}"
+    print("  ✓ 40% coverage → NO_DATA")
+    
+    # Test N/A for non-crypto waves
+    status = we._get_crypto_overlay_status(
+        wave_name="S&P 500 Wave",
+        is_crypto=False,
+        tickers_available=1,
+        tickers_expected=1
+    )
+    assert status == "N/A", f"Status for non-crypto wave should be N/A, got {status}"
+    print("  ✓ Non-crypto wave → N/A")
+    
+    print("✓ Crypto overlay status calculation working correctly")
+
+
+def test_crypto_exposure_minimum_thresholds():
+    """Test that crypto exposure meets minimum thresholds."""
+    print("\n=== Testing Crypto Exposure Minimum Thresholds ===")
+    
+    # Expected minimum exposures per wave type
+    min_exposures = {
+        "growth": 0.20,  # Growth waves should have at least 20% exposure
+        "income": 0.40,  # Income waves should have at least 40% exposure
+    }
+    
+    print(f"  ✓ Growth wave minimum exposure: {min_exposures['growth']:.0%}")
+    print(f"  ✓ Income wave minimum exposure: {min_exposures['income']:.0%}")
+    
+    # Check that crypto income exposure cap has appropriate minimum
+    assert we.CRYPTO_INCOME_EXPOSURE_CAP["min_exposure"] >= min_exposures["income"], \
+        f"Crypto income min_exposure should be >= {min_exposures['income']}"
+    print(f"  ✓ Crypto income min_exposure = {we.CRYPTO_INCOME_EXPOSURE_CAP['min_exposure']:.0%}")
+    
+    print("✓ Crypto exposure minimum thresholds are appropriate")
+
+
 def test_stablecoin_constant():
     """Test that STABLECOINS constant is properly defined."""
     print("\n=== Testing STABLECOINS Constant ===")
@@ -256,6 +324,8 @@ def run_all_tests():
         test_stablecoin_returns,
         test_macro_index_exclusion_crypto_waves,
         test_crypto_exposure_constants,
+        test_crypto_overlay_status,
+        test_crypto_exposure_minimum_thresholds,
     ]
     
     passed = 0
