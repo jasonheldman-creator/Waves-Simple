@@ -9601,6 +9601,32 @@ def render_executive_brief_tab():
             st.warning(f"⚠️ TruthFrame error: {str(e)}")
         
         # ========================================================================
+        # WAVE STATUS FILTERING - Add UI toggle for staging waves
+        # ========================================================================
+        include_staging = st.checkbox(
+            "Include Staging Waves",
+            value=False,
+            key="include_staging_waves_executive",
+            help="Enable to include waves with STAGING status in aggregations and summaries"
+        )
+        
+        # Filter snapshot_df based on wave_status if the column exists
+        if snapshot_df is not None and not snapshot_df.empty and 'wave_status' in snapshot_df.columns:
+            # Store original count
+            total_waves_all = len(snapshot_df)
+            
+            # Filter by wave_status
+            if not include_staging:
+                snapshot_df = snapshot_df[snapshot_df['wave_status'] == 'ACTIVE'].copy()
+                staging_count = total_waves_all - len(snapshot_df)
+                if staging_count > 0:
+                    st.caption(f"ℹ️ Filtered out {staging_count} STAGING wave(s). Showing {len(snapshot_df)} ACTIVE waves.")
+            else:
+                active_count = (snapshot_df['wave_status'] == 'ACTIVE').sum()
+                staging_count = (snapshot_df['wave_status'] == 'STAGING').sum()
+                st.caption(f"ℹ️ Showing all waves: {active_count} ACTIVE, {staging_count} STAGING")
+        
+        # ========================================================================
         # SNAPSHOT CONTROLS - Last Snapshot Timestamp + Force Refresh Button
         # ========================================================================
         col1, col2, col3 = st.columns([3, 1, 1])
@@ -13253,6 +13279,40 @@ def render_overview_tab():
             # Convert to snapshot_df format for backward compatibility
             snapshot_df = convert_truthframe_to_snapshot_format(truth_df)
             
+            # Add UI toggle for including staging waves
+            st.markdown("---")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("### 🎛️ Wave Filtering")
+            with col2:
+                include_staging = st.checkbox(
+                    "Include Staging Waves",
+                    value=False,
+                    key="include_staging_waves_overview",
+                    help="Enable to include waves with STAGING status in aggregations and summaries"
+                )
+            
+            # Filter snapshot_df based on wave_status if the column exists
+            if snapshot_df is not None and not snapshot_df.empty:
+                # Check if wave_status column exists in snapshot
+                if 'wave_status' in snapshot_df.columns:
+                    # Store original count
+                    total_waves = len(snapshot_df)
+                    
+                    # Filter by wave_status
+                    if not include_staging:
+                        snapshot_df = snapshot_df[snapshot_df['wave_status'] == 'ACTIVE'].copy()
+                        staging_count = total_waves - len(snapshot_df)
+                        if staging_count > 0:
+                            st.info(f"ℹ️ Filtered out {staging_count} STAGING wave(s). Total ACTIVE waves: {len(snapshot_df)}")
+                    else:
+                        active_count = (snapshot_df['wave_status'] == 'ACTIVE').sum()
+                        staging_count = (snapshot_df['wave_status'] == 'STAGING').sum()
+                        st.info(f"ℹ️ Showing all waves: {active_count} ACTIVE, {staging_count} STAGING")
+                else:
+                    # wave_status column doesn't exist yet - inform user
+                    st.caption("Note: Wave status filtering not available (regenerate snapshot to enable)")
+            
             if snapshot_df is not None and not snapshot_df.empty:
                 # Display snapshot table
                 with st.expander("📋 Full Snapshot Table (28/28 Waves)", expanded=True):
@@ -13317,7 +13377,7 @@ def render_overview_tab():
                     
                     # Select key columns to display (avoid overwhelming the table)
                     key_columns = [
-                        "Wave_ID", "Wave", "Category", "Readiness", "Alert",
+                        "Wave_ID", "Wave", "Category", "wave_status", "Readiness", "Alert",
                         "Return_1D", "Return_30D", "Return_60D", "Return_365D",
                         "Alpha_1D", "Alpha_30D", "Alpha_60D", "Alpha_365D",
                         "Exposure", "CashPercent", "Coverage %", "NA_Reason"
