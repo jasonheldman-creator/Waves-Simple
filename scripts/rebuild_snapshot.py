@@ -41,7 +41,7 @@ def main():
         df = generate_live_snapshot_csv()
         
         # Validate the result
-        if df is not None and len(df) > 0:
+        if df is not None and not df.empty:
             print(f"\n✓ Successfully rebuilt snapshot with {len(df)} rows")
             print("\nNote: Generated snapshot and cache artifacts in data/cache/")
             print("      are ignored by .gitignore and will not be committed.")
