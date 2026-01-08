@@ -615,7 +615,7 @@ def generate_live_snapshot_csv(
             f"All wave_id values must be non-blank.\n"
             f"Row count: {len(df)}\n"
             f"Blank indices: {blank_rows.index.tolist()}\n"
-            f"Wave names with blank wave_ids: {blank_rows['Wave'].tolist()}"
+            f"Wave names with blank wave_ids: {blank_rows['wave'].tolist()}"
         )
     
     # Validation 4: Check unique count matches expected (using dynamic source)
