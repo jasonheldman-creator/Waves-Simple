@@ -1072,7 +1072,7 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
             if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and compute_portfolio_snapshot and get_price_book:
                 try:
                     # Load PRICE_BOOK
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     
                     # Compute portfolio snapshot with all periods
                     snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
@@ -2340,6 +2340,29 @@ def trigger_rerun(trigger_name: str):
     
     # Trigger the rerun
     st.rerun()
+
+
+@st.cache_resource(show_spinner=False)
+def get_cached_price_book():
+    """
+    Get cached PRICE_BOOK - loads once per session.
+    
+    This function wraps helpers.price_book.get_price_book() with Streamlit's
+    @st.cache_resource decorator to ensure it loads only once per session,
+    preventing repeated "PRICE_BOOK: Loading canonical price data" log spam.
+    
+    Returns:
+        DataFrame: Cached price book (index=dates, columns=tickers)
+    """
+    # Import here to avoid circular dependencies
+    if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book is not None:
+        # Log only on cache miss (first load)
+        logger.info("PRICE_BOOK loaded (cached) - this message appears only on cache miss")
+        return get_price_book(active_tickers=None)
+    else:
+        # Fallback if price_book module not available
+        logger.warning("PRICE_BOOK unavailable - price_book module not loaded")
+        return pd.DataFrame()
 
 
 def calculate_wavescore(wave_data):
@@ -5184,8 +5207,7 @@ def get_mission_control_data():
                 
                 # Compute waves_live_count from PRICE_BOOK validation
                 try:
-                    from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5199,8 +5221,8 @@ def get_mission_control_data():
         # Get latest date from PRICE_BOOK (canonical price source)
         # This ensures Data Age reflects actual live price data, not history file timestamps
         try:
-            from helpers.price_book import get_price_book, get_price_book_meta
-            price_book = get_price_book(active_tickers=None)
+            from helpers.price_book import get_price_book_meta
+            price_book = get_cached_price_book()
             price_meta = get_price_book_meta(price_book)
             
             if price_meta['date_max'] is not None:
@@ -5260,7 +5282,7 @@ def get_mission_control_data():
                 # This counts active waves that have valid price data in PRICE_BOOK
                 try:
                     from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5273,7 +5295,7 @@ def get_mission_control_data():
                 # Compute waves_live_count from PRICE_BOOK
                 try:
                     from helpers.price_book import get_price_book
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     mc_data['waves_live_count'] = count_waves_with_valid_price_book_data(
                         canonical_waves, enabled_flags, price_book
                     )
@@ -5295,7 +5317,7 @@ def get_mission_control_data():
                     from helpers.price_book import get_price_book
                     from helpers.wave_performance import compute_all_waves_performance
                     
-                    price_book = get_price_book(active_tickers=None)
+                    price_book = get_cached_price_book()
                     if not price_book.empty:
                         # Count validated waves by computing performance
                         perf_df = compute_all_waves_performance(
@@ -5321,7 +5343,7 @@ def get_mission_control_data():
                 DEGRADED_DAYS_THRESHOLD
             )
             
-            price_book = get_price_book(active_tickers=None)
+            price_book = get_cached_price_book()
             health = compute_system_health(price_book)
             meta = get_price_book_meta(price_book)
             
@@ -6215,7 +6237,7 @@ def compute_alpha_source_breakdown(df):
         from helpers.price_book import get_price_book
         
         # Get PRICE_BOOK
-        price_book = get_price_book()
+        price_book = get_cached_price_book()
         
         if price_book is None or price_book.empty:
             return result
@@ -6592,7 +6614,7 @@ def render_reality_panel():
         
         # Load the PRICE_BOOK (this is the actual object used by execution)
         active_tickers = get_active_required_tickers()
-        price_book = get_price_book(active_tickers=None)  # Load all cached tickers
+        price_book = get_cached_price_book()  # Load all cached tickers
         
         # Get metadata from the actual PRICE_BOOK
         meta = get_price_book_meta(price_book)
@@ -7806,7 +7828,7 @@ def render_sidebar_info():
     # Price Cache Max Date
     try:
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             if price_book is not None and not price_book.empty:
                 max_date = price_book.index.max()
                 max_date_str = max_date.strftime('%Y-%m-%d') if hasattr(max_date, 'strftime') else str(max_date)
@@ -9776,7 +9798,7 @@ def render_executive_brief_tab():
                     from helpers.wave_performance import validate_portfolio_diagnostics
                     from helpers.price_book import get_price_book
                     
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     diagnostics = validate_portfolio_diagnostics(price_book, mode='Standard')
                     
                     # Display key diagnostics
@@ -10040,7 +10062,7 @@ def render_executive_brief_tab():
             from waves_engine import get_all_waves_universe
             
             # Load PRICE_BOOK
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             
             # Use canonical ledger from session state if available (single source of truth)
             # Only compute if not already in session state
@@ -12897,7 +12919,7 @@ def render_overview_tab():
             # Load price_book
             if PRICE_BOOK_CONSTANTS_AVAILABLE and get_price_book:
                 try:
-                    price_book = get_price_book()
+                    price_book = get_cached_price_book()
                     
                     if price_book is not None and not price_book.empty:
                         # Get shape
@@ -13203,7 +13225,7 @@ def render_overview_tab():
                             # Get SPY and QQQ 1D returns from PRICE_BOOK (canonical cache)
                             try:
                                 from helpers.price_book import get_price_book
-                                price_book = get_price_book(active_tickers=None)
+                                price_book = get_cached_price_book()
                                 
                                 if not price_book.empty:
                                     # Get SPY 1D return from PRICE_BOOK
@@ -19038,7 +19060,7 @@ def render_operator_panel_tab():
     try:
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
             # Load price book
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             
             if price_book is not None and not price_book.empty:
                 # Cache path (imported at top of file)
@@ -19193,7 +19215,7 @@ def render_operator_panel_tab():
         
         # Get price book for volatility regime computation
         if get_price_book is not None and PRICE_BOOK_CONSTANTS_AVAILABLE:
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             
             if price_book is not None and not price_book.empty:
                 # Compute volatility regime and exposure
@@ -20987,7 +21009,7 @@ def render_overview_clean_tab():
             from helpers.price_book import get_price_book, get_price_book_meta
             from helpers.wave_performance import compute_all_waves_performance
             
-            price_book = get_price_book()
+            price_book = get_cached_price_book()
             price_meta = get_price_book_meta(price_book)
             performance_df = compute_all_waves_performance(price_book, periods=[1, 30, 60, 365], only_validated=True)
             
@@ -21804,6 +21826,38 @@ def main():
         st.warning("The application detected more than 3 consecutive runs without user interaction. This indicates a potential infinite loop.")
         st.info("Please refresh the page manually or click a button to continue.")
         st.stop()
+    
+    # ========================================================================
+    # STEP 1.5: Rerun Throttle Safety Fuse (Prevent Rapid Reruns)
+    # ========================================================================
+    
+    # Initialize rerun throttle state
+    if "last_rerun_time" not in st.session_state:
+        st.session_state.last_rerun_time = time.time()
+        st.session_state.rapid_rerun_count = 0
+    else:
+        current_time = time.time()
+        time_since_last_rerun = current_time - st.session_state.last_rerun_time
+        
+        # Check if rerun is happening too quickly (< 0.5 seconds)
+        if time_since_last_rerun < 0.5:
+            st.session_state.rapid_rerun_count += 1
+            
+            # If we've had 3 rapid reruns in a row, halt execution
+            if st.session_state.rapid_rerun_count >= 3:
+                st.error("⚠️ **RAPID RERUN DETECTED: Application halted for safety**")
+                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within 0.5 seconds. This indicates a rerun loop.")
+                st.info("**What to do:**")
+                st.info("1. Refresh the page manually (F5 or Ctrl+R)")
+                st.info("2. If the problem persists, check for auto-refresh settings or report this issue")
+                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago")
+                st.stop()
+        else:
+            # Reset rapid rerun counter if enough time has passed
+            st.session_state.rapid_rerun_count = 0
+        
+        # Update last rerun time
+        st.session_state.last_rerun_time = current_time
     
     # ========================================================================
     # STEP 2: Run ID Counter & Trigger Diagnostics (Infinite Loop Prevention)
