@@ -246,7 +246,7 @@ def validate_trading_day_freshness(
         if sessions_behind == 0:
             logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
         else:
-            logger.info(f"✓ PASS: Cache is within tolerance ({sessions_behind} trading session behind)")
+            logger.warning(f"✓ PASS: Cache is within tolerance ({sessions_behind} trading session behind)")
         logger.info("=" * 70)
         return result
     
