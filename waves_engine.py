@@ -2029,6 +2029,107 @@ def get_auto_benchmark_holdings(wave_name: str) -> List[Holding]:
     return holdings
 
 
+# ------------------------------------------------------------
+# Dynamic Benchmark System (Phase 1B)
+# ------------------------------------------------------------
+
+def load_dynamic_benchmark_specs(path: str = None) -> Dict[str, Any]:
+    """
+    Load dynamic benchmark specifications from JSON config file.
+    
+    Args:
+        path: Path to benchmark JSON file. If None, uses default location.
+        
+    Returns:
+        Dictionary containing benchmark specifications, or empty dict on error.
+    """
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "data", "benchmarks", "equity_benchmarks.json")
+    
+    if not os.path.exists(path):
+        return {}
+    
+    try:
+        with open(path, 'r') as f:
+            specs = json.load(f)
+        return specs
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error loading dynamic benchmark specs from {path}: {e}")
+        return {}
+
+
+def build_benchmark_series_from_components(
+    price_df: pd.DataFrame, 
+    components: List[Dict[str, Any]]
+) -> pd.Series:
+    """
+    Build a benchmark return series as a weighted blend of component tickers.
+    
+    Args:
+        price_df: DataFrame with date index and ticker columns (prices)
+        components: List of dicts with 'ticker' and 'weight' keys
+        
+    Returns:
+        Series of benchmark returns aligned with price_df index.
+        Returns empty series if components cannot be built.
+    """
+    if price_df.empty or not components:
+        return pd.Series(dtype=float)
+    
+    # Extract tickers and weights
+    tickers = [c["ticker"] for c in components]
+    weights = [c["weight"] for c in components]
+    
+    # Validate weights sum to 1.0 (within tolerance)
+    weight_sum = sum(weights)
+    if abs(weight_sum - 1.0) > 0.01:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Benchmark component weights sum to {weight_sum}, expected 1.0")
+        # Normalize weights
+        weights = [w / weight_sum for w in weights]
+    
+    # Check which tickers are available in price_df
+    available_tickers = [t for t in tickers if t in price_df.columns]
+    if not available_tickers:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"No benchmark component tickers available in price data")
+        return pd.Series(dtype=float)
+    
+    # If some tickers are missing, reweight proportionally
+    if len(available_tickers) < len(tickers):
+        missing = set(tickers) - set(available_tickers)
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Missing benchmark tickers: {missing}")
+        # Reweight only available tickers
+        available_weights = {}
+        for ticker, weight in zip(tickers, weights):
+            if ticker in available_tickers:
+                available_weights[ticker] = weight
+        total_available = sum(available_weights.values())
+        if total_available > 0:
+            available_weights = {t: w / total_available for t, w in available_weights.items()}
+        tickers = list(available_weights.keys())
+        weights = list(available_weights.values())
+    
+    # Compute returns for each component
+    component_returns = {}
+    for ticker in tickers:
+        if ticker in price_df.columns:
+            component_returns[ticker] = price_df[ticker].pct_change().fillna(0.0)
+    
+    if not component_returns:
+        return pd.Series(dtype=float)
+    
+    # Build weighted benchmark return series
+    benchmark_ret = pd.Series(0.0, index=price_df.index)
+    for ticker, weight in zip(tickers, weights):
+        if ticker in component_returns:
+            benchmark_ret += weight * component_returns[ticker]
+    
+    return benchmark_ret
+
+
 def _regime_from_return(ret_60d: float) -> str:
     if np.isnan(ret_60d):
         return "neutral"
@@ -2809,17 +2910,48 @@ def _compute_core(
     # Holdings
     wave_holdings = WAVE_WEIGHTS[wave_name]
 
-    # Benchmark selection
+    # Benchmark selection with dynamic benchmark support (Phase 1B)
+    # S&P 500 Wave always uses static SPY benchmark (excluded from dynamic benchmarks)
     freeze_benchmark = bool(ov.get("freeze_benchmark", False))
-    if freeze_benchmark:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+    use_dynamic_benchmark = False
+    dynamic_benchmark_components = None
+    dynamic_benchmark_info = {}
+    
+    # Get wave_id for dynamic benchmark lookup
+    wave_id = get_wave_id_from_display_name(wave_name)
+    
+    # Load dynamic benchmark specs if not frozen and not S&P 500 Wave
+    if not freeze_benchmark and wave_id != "sp500_wave":
+        dynamic_specs = load_dynamic_benchmark_specs()
+        if dynamic_specs and "benchmarks" in dynamic_specs:
+            if wave_id in dynamic_specs["benchmarks"]:
+                benchmark_spec = dynamic_specs["benchmarks"][wave_id]
+                dynamic_benchmark_components = benchmark_spec.get("components", [])
+                if dynamic_benchmark_components:
+                    use_dynamic_benchmark = True
+                    dynamic_benchmark_info = {
+                        "benchmark_name": benchmark_spec.get("benchmark_name", "Unknown"),
+                        "version": dynamic_specs.get("version", "v1.0"),
+                        "components": dynamic_benchmark_components,
+                    }
+    
+    # Traditional benchmark selection (fallback)
+    if freeze_benchmark or not use_dynamic_benchmark:
+        if freeze_benchmark:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        else:
+            bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
+            if not bm_holdings:
+                bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        bm_weights = _normalize_weights(bm_holdings)
     else:
-        bm_holdings = BENCHMARK_WEIGHTS_STATIC.get(wave_name)
-        if not bm_holdings:
-            bm_holdings = get_auto_benchmark_holdings(wave_name) or BENCHMARK_WEIGHTS_STATIC.get(wave_name, [])
+        # Use dynamic benchmark components to build weights
+        bm_holdings = []
+        for comp in dynamic_benchmark_components:
+            bm_holdings.append(Holding(comp["ticker"], comp["weight"], comp.get("name", "")))
+        bm_weights = _normalize_weights(bm_holdings)
 
     wave_weights = _normalize_weights(wave_holdings)
-    bm_weights = _normalize_weights(bm_holdings)
 
     tickers_wave = list(wave_weights.index)
     tickers_bm = list(bm_weights.index)
@@ -2899,14 +3031,27 @@ def _compute_core(
         # Normalize to sum to 1.0 using only available tickers
         bm_weights_aligned = bm_weights_aligned / bm_weights_sum
 
-    # Compute benchmark returns (graceful degradation)
-    if bm_weights_sum > 0:
-        bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+    # Compute benchmark returns (with dynamic benchmark support)
+    if use_dynamic_benchmark:
+        # Build benchmark series from components using dynamic benchmark logic
+        bm_ret_series = build_benchmark_series_from_components(price_df, dynamic_benchmark_components)
+        if bm_ret_series.empty:
+            # Fallback to traditional weighted benchmark if dynamic build fails
+            if bm_weights_sum > 0:
+                bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+            else:
+                bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Dynamic benchmark build failed for {wave_name}, all components unavailable")
     else:
-        # All benchmark components failed - set to None/NaN
-        bm_ret_series = pd.Series(np.nan, index=ret_df.index)
-        logger = logging.getLogger(__name__)
-        logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
+        # Traditional benchmark computation (graceful degradation)
+        if bm_weights_sum > 0:
+            bm_ret_series = (ret_df * bm_weights_aligned).sum(axis=1)
+        else:
+            # All benchmark components failed - set to None/NaN
+            bm_ret_series = pd.Series(np.nan, index=ret_df.index)
+            logger = logging.getLogger(__name__)
+            logger.warning(f"All benchmark components failed for {wave_name}, benchmark returns set to NaN")
 
     # Base index for regime detection
     if base_index_ticker in price_df.columns:
@@ -3540,6 +3685,27 @@ def _compute_core(
         "bm_tickers_available": len(bm_tickers_available),
         "failed_tickers": failed_tickers,
     }
+    
+    # Add dynamic benchmark diagnostics if applicable
+    if use_dynamic_benchmark and dynamic_benchmark_info:
+        out.attrs["coverage"]["dynamic_benchmark"] = {
+            "enabled": True,
+            "benchmark_name": dynamic_benchmark_info.get("benchmark_name", "Unknown"),
+            "version": dynamic_benchmark_info.get("version", "v1.0"),
+            "components": [
+                {
+                    "ticker": c["ticker"],
+                    "weight": c["weight"],
+                    "available": c["ticker"] in price_df.columns
+                }
+                for c in dynamic_benchmark_info.get("components", [])
+            ],
+        }
+    else:
+        out.attrs["coverage"]["dynamic_benchmark"] = {
+            "enabled": False,
+            "reason": "S&P 500 Wave excluded" if wave_id == "sp500_wave" else "no_dynamic_spec_found"
+        }
 
     if shadow and diag_rows:
         diag_df = pd.DataFrame(diag_rows).set_index("Date")
