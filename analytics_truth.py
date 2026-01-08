@@ -589,6 +589,7 @@ def generate_live_snapshot_csv(
     print("isna sum:", df['wave_id'].isna().sum())
     
     print("\n--- Row-by-Row Wave ID Details ---")
+    # Note: iterrows() is acceptable here as we only iterate over exactly 28 rows for debugging
     for idx, row in df.iterrows():
         display_name = row.get('Wave', 'N/A')
         wave_id = row.get('wave_id')
