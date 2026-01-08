@@ -197,7 +197,7 @@ def fetch_prices_equity_yf(ticker: str, days: int = 400) -> pd.Series:
     Fetch daily close prices for an equity ticker using yfinance.
     
     Args:
-        ticker: Stock ticker symbol (e.g., "AAPL", "SPY")
+        ticker: Stock ticker symbol (e.g., "AAPL", "SPY", "BRK-B")
         days: Number of days of history to fetch (default: 400)
         
     Returns:
@@ -211,8 +211,12 @@ def fetch_prices_equity_yf(ticker: str, days: int = 400) -> pd.Series:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days + 30)  # Add buffer for weekends/holidays
         
+        # Handle BRK-B ticker: yfinance expects "BRK-B" (not "BRK.B")
+        # No transformation needed - the ticker should already be in the correct format
+        yf_ticker = ticker
+        
         # Fetch data using yfinance
-        ticker_obj = yf.Ticker(ticker)
+        ticker_obj = yf.Ticker(yf_ticker)
         hist = ticker_obj.history(start=start_date, end=end_date)
         
         if hist.empty:
@@ -447,6 +451,78 @@ def compute_wave_returns(weights_df: pd.DataFrame, prices_cache: Dict[str, pd.Se
     return results
 
 
+def validate_required_tickers(prices_cache: Dict[str, pd.Series], all_tickers: List[str]) -> None:
+    """
+    Validate that required tickers are present in the prices cache.
+    
+    Required tickers (only if they exist in wave_weights.csv):
+    - SPY, QQQ, IWM (if present in universe)
+    - At least one VIX proxy: ^VIX, VIXY, or VXX (if any are present in universe)
+    
+    Args:
+        prices_cache: Dictionary of successfully fetched tickers
+        all_tickers: List of all tickers from wave_weights.csv
+        
+    Raises:
+        AssertionError: If validation fails with details on missing required tickers
+    """
+    required_base = ['SPY', 'QQQ', 'IWM']
+    vix_proxies = ['^VIX', 'VIXY', 'VXX']
+    
+    missing_required = []
+    
+    # Check base required tickers - only if they exist in the universe
+    for ticker in required_base:
+        if ticker in all_tickers and ticker not in prices_cache:
+            missing_required.append(ticker)
+    
+    # Check VIX proxies - at least one must be present if any are in the universe
+    vix_in_universe = [v for v in vix_proxies if v in all_tickers]
+    vix_present = any(v in prices_cache for v in vix_proxies)
+    
+    # Build error message if validation fails
+    errors = []
+    
+    if missing_required:
+        errors.append(f"Missing required tickers: {', '.join(missing_required)}")
+    
+    # Only validate VIX if at least one VIX proxy is in the universe
+    if vix_in_universe and not vix_present:
+        errors.append(f"Missing all VIX proxies. Expected at least one of: {', '.join(vix_in_universe)}")
+    
+    if errors:
+        error_msg = "Required ticker validation FAILED:\n"
+        for err in errors:
+            error_msg += f"  ✗ {err}\n"
+        error_msg += f"\nTotal tickers fetched: {len(prices_cache)}/{len(all_tickers)}\n"
+        error_msg += f"Successfully fetched tickers: {sorted(list(prices_cache.keys()))[:20]}..."
+        raise AssertionError(error_msg)
+    
+    # Validation passed
+    print("\n" + "=" * 80)
+    print("REQUIRED TICKER VALIDATION")
+    print("=" * 80)
+    
+    # Check which required tickers are in the universe and present
+    required_in_universe = [t for t in required_base if t in all_tickers]
+    if required_in_universe:
+        present = [t for t in required_in_universe if t in prices_cache]
+        print(f"✓ Required base tickers present: {', '.join(present) if present else 'None (not in universe)'}")
+    else:
+        print(f"ℹ️  No base required tickers (SPY, QQQ, IWM) found in universe")
+    
+    if vix_in_universe:
+        available_vix = [v for v in vix_in_universe if v in prices_cache]
+        if available_vix:
+            print(f"✓ VIX proxies present: {', '.join(available_vix)}")
+        else:
+            print(f"⚠️  No VIX proxies present (expected from: {', '.join(vix_in_universe)})")
+    else:
+        print(f"ℹ️  No VIX proxies in universe (none of: {', '.join(vix_proxies)})")
+    
+    print("=" * 80 + "\n")
+
+
 def generate_live_snapshot_csv(
     out_path: str = "data/live_snapshot.csv",
     weights_path: str = "wave_weights.csv"
@@ -510,6 +586,10 @@ def generate_live_snapshot_csv(
     
     print(f"\n✓ Successfully fetched {len(prices_cache)}/{len(all_tickers)} tickers")
     
+    # Step 3.5: Validate required tickers
+    print("\n[3.5/5] Validating required tickers...")
+    validate_required_tickers(prices_cache, all_tickers.tolist())
+    
     # Step 4: Compute wave returns
     print("\n[4/5] Computing wave returns...")
     wave_returns = compute_wave_returns(weights_df, prices_cache)
@@ -550,11 +630,59 @@ def generate_live_snapshot_csv(
     # Create DataFrame
     df = pd.DataFrame(rows)
     
+    # ============================================================================
+    # DIAGNOSTICS OUTPUT
+    # ============================================================================
+    print("\n" + "=" * 80)
+    print("SNAPSHOT DIAGNOSTICS")
+    print("=" * 80)
     print(f"✓ Created DataFrame with {len(df)} rows")
-    print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
-    print(f"✓ Waves with NO DATA status: {(df['status'] == 'NO DATA').sum()}")
     
-    # Write    # Write to CSV
+    ok_count = (df['status'] == 'OK').sum()
+    no_data_count = (df['status'] == 'NO DATA').sum()
+    
+    print(f"\n📊 Status Summary:")
+    print(f"  ✓ OK:      {ok_count} waves")
+    print(f"  ✗ NO DATA: {no_data_count} waves")
+    
+    # List waves with NO DATA status
+    if no_data_count > 0:
+        print(f"\n⚠️  Waves with NO DATA:")
+        no_data_waves = df[df['status'] == 'NO DATA']
+        for idx, row in no_data_waves.iterrows():
+            wave_name = row.get('wave', row.get('Wave', 'Unknown'))
+            missing = row.get('missing_tickers', '')
+            print(f"  - {wave_name}")
+            if missing:
+                # Truncate if too long
+                missing_str = str(missing)
+                if len(missing_str) > 80:
+                    missing_str = missing_str[:77] + "..."
+                print(f"    Missing: {missing_str}")
+    
+    # List any missing required symbols
+    print(f"\n🔍 Required Symbols Check:")
+    required_symbols = ['SPY', 'QQQ', 'IWM', '^VIX', 'VIXY', 'VXX']
+    missing_required = []
+    for symbol in required_symbols:
+        if symbol not in prices_cache:
+            missing_required.append(symbol)
+    
+    if missing_required:
+        print(f"  ⚠️  Missing required symbols: {', '.join(missing_required)}")
+        # Note: VIX proxies are optional if at least one is present
+        vix_proxies = [s for s in missing_required if s in ['^VIX', 'VIXY', 'VXX']]
+        base_required = [s for s in missing_required if s in ['SPY', 'QQQ', 'IWM']]
+        if base_required:
+            print(f"  ✗ CRITICAL: Missing base required tickers: {', '.join(base_required)}")
+        if vix_proxies and len(vix_proxies) == 3:
+            print(f"  ✗ CRITICAL: No VIX proxy available")
+    else:
+        print(f"  ✓ All required symbols present")
+    
+    print("=" * 80 + "\n")
+    
+    # Write to CSV
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     # --- Normalize snapshot schema for app loader ---
