@@ -231,6 +231,61 @@ class TestTradingDayFreshness:
         
         return True
     
+    def test_validate_trading_day_freshness_one_session_behind_logs_warning(self):
+        """Test that cache 1 session behind logs WARNING, not ERROR."""
+        print("\n--- Test: Validate Trading-Day Freshness (1 Session Behind Logs WARNING) ---")
+        
+        import logging
+        from io import StringIO
+        
+        # Fetch current trading days
+        last_trading_day, trading_days = fetch_spy_trading_days(calendar_days=10)
+        
+        if last_trading_day is None or len(trading_days) < 2:
+            print("⚠️  SKIP: Could not fetch SPY data or insufficient trading days")
+            return True
+        
+        # Get the second-to-last trading day (1 session behind)
+        sorted_trading_days = sorted(trading_days, reverse=True)
+        one_session_behind = sorted_trading_days[1]
+        
+        # Create cache with data from 1 session behind
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "test_cache.parquet")
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=one_session_behind, num_days=10)
+            
+            # Capture log output
+            log_stream = StringIO()
+            handler = logging.StreamHandler(log_stream)
+            handler.setLevel(logging.WARNING)
+            logger = logging.getLogger('helpers.cache_validation')
+            logger.addHandler(handler)
+            logger.setLevel(logging.WARNING)
+            
+            # Validate
+            result = validate_trading_day_freshness(cache_path, max_market_feed_gap_days=5)
+            
+            # Get log output
+            log_output = log_stream.getvalue()
+            
+            # Remove handler
+            logger.removeHandler(handler)
+            
+            print(f"Valid: {result['valid']}")
+            print(f"Log output: {log_output}")
+            
+            # Check that validation passed
+            assert result['valid'] is True, "Should pass validation for cache 1 session behind"
+            assert result['error'] is None, "Should have no error"
+            
+            # Check that WARNING was logged (not ERROR)
+            assert "within tolerance" in log_output, "Should log message about tolerance"
+            assert "WARNING" in log_output or "Cache is within tolerance" in log_output, "Should log at WARNING level"
+            
+            print("✅ PASS: Cache 1 session behind logs WARNING correctly")
+        
+        return True
+    
     def test_validate_trading_day_freshness_stale(self):
         """Test validation fails when cache is more than 1 session stale."""
         print("\n--- Test: Validate Trading-Day Freshness (Stale Cache) ---")
