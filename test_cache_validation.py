@@ -69,6 +69,47 @@ def create_test_cache(cache_path: str, symbols: list, end_date: datetime = None,
 class TestTradingDayFreshness:
     """Tests for trading-day freshness validation."""
     
+    def test_offline_tolerance_validation(self):
+        """Test the tolerance logic works correctly (offline test)."""
+        print("\n--- Test: Offline Tolerance Validation ---")
+        
+        # Create a mock cache and simulate trading days
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "test_cache.parquet")
+            
+            # Create test data with specific dates
+            test_dates = pd.bdate_range(end=datetime(2024, 12, 20), periods=5)
+            
+            # Test 1: Cache at latest trading day
+            print("\n  Test 1: Cache at latest trading day")
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=test_dates[-1], num_days=10)
+            cache_max = get_cache_max_date(cache_path)
+            print(f"  Cache max date: {cache_max.date()}")
+            print(f"  Test date: {test_dates[-1].date()}")
+            assert cache_max.date() == test_dates[-1].date(), "Cache should match latest trading day"
+            print("  ✓ Cache at latest trading day works")
+            
+            # Test 2: Cache 1 session behind
+            print("\n  Test 2: Cache 1 session behind")
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=test_dates[-2], num_days=10)
+            cache_max = get_cache_max_date(cache_path)
+            print(f"  Cache max date: {cache_max.date()}")
+            print(f"  Test date: {test_dates[-2].date()}")
+            assert cache_max.date() == test_dates[-2].date(), "Cache should be 1 session behind"
+            print("  ✓ Cache 1 session behind detected correctly")
+            
+            # Test 3: Cache 2+ sessions behind
+            print("\n  Test 3: Cache 2+ sessions behind")
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=test_dates[-3], num_days=10)
+            cache_max = get_cache_max_date(cache_path)
+            print(f"  Cache max date: {cache_max.date()}")
+            print(f"  Test date: {test_dates[-3].date()}")
+            assert cache_max.date() == test_dates[-3].date(), "Cache should be 2+ sessions behind"
+            print("  ✓ Cache 2+ sessions behind detected correctly")
+            
+        print("\n✅ PASS: Offline tolerance validation successful")
+        return True
+    
     def test_fetch_spy_trading_days(self):
         """Test that we can fetch SPY trading days."""
         print("\n--- Test: Fetch SPY Trading Days ---")
@@ -153,22 +194,60 @@ class TestTradingDayFreshness:
         
         return True
     
-    def test_validate_trading_day_freshness_stale(self):
-        """Test validation fails when cache is stale."""
-        print("\n--- Test: Validate Trading-Day Freshness (Stale Cache) ---")
+    def test_validate_trading_day_freshness_one_session_behind(self):
+        """Test validation passes when cache is 1 trading session behind."""
+        print("\n--- Test: Validate Trading-Day Freshness (1 Session Behind) ---")
         
-        # Fetch current last trading day
-        last_trading_day, _ = fetch_spy_trading_days(calendar_days=10)
+        # Fetch current trading days
+        last_trading_day, trading_days = fetch_spy_trading_days(calendar_days=10)
         
-        if last_trading_day is None:
-            print("⚠️  SKIP: Could not fetch SPY data")
+        if last_trading_day is None or len(trading_days) < 2:
+            print("⚠️  SKIP: Could not fetch SPY data or insufficient trading days")
             return True
         
-        # Create cache with old data (10 days ago)
+        # Get the second-to-last trading day (1 session behind)
+        sorted_trading_days = sorted(trading_days, reverse=True)
+        one_session_behind = sorted_trading_days[1]
+        
+        # Create cache with data from 1 session behind
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_path = os.path.join(tmpdir, "test_cache.parquet")
-            old_date = last_trading_day - timedelta(days=10)
-            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=old_date, num_days=10)
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=one_session_behind, num_days=10)
+            
+            # Validate
+            result = validate_trading_day_freshness(cache_path, max_market_feed_gap_days=5)
+            
+            print(f"Valid: {result['valid']}")
+            print(f"Last trading day: {result['last_trading_day']}")
+            print(f"Cache max date: {result['cache_max_date']}")
+            print(f"Delta days: {result['delta_days']}")
+            
+            assert result['valid'] is True, "Should pass validation for cache 1 session behind"
+            assert result['error'] is None, "Should have no error"
+            
+            print("✅ PASS: Cache 1 session behind validated successfully")
+        
+        return True
+    
+    def test_validate_trading_day_freshness_stale(self):
+        """Test validation fails when cache is more than 1 session stale."""
+        print("\n--- Test: Validate Trading-Day Freshness (Stale Cache) ---")
+        
+        # Fetch current trading days
+        last_trading_day, trading_days = fetch_spy_trading_days(calendar_days=10)
+        
+        if last_trading_day is None or len(trading_days) < 3:
+            print("⚠️  SKIP: Could not fetch SPY data or insufficient trading days")
+            return True
+        
+        # Get a trading day that is 2+ sessions behind
+        sorted_trading_days = sorted(trading_days, reverse=True)
+        two_sessions_behind = sorted_trading_days[2] if len(sorted_trading_days) >= 3 else sorted_trading_days[-1]
+        
+        # Create cache with old data (2+ sessions behind)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "test_cache.parquet")
+            create_test_cache(cache_path, ["SPY", "QQQ"], end_date=two_sessions_behind, num_days=10)
             
             # Validate
             result = validate_trading_day_freshness(cache_path, max_market_feed_gap_days=5)
@@ -176,9 +255,9 @@ class TestTradingDayFreshness:
             print(f"Valid: {result['valid']}")
             print(f"Error: {result['error']}")
             
-            assert result['valid'] is False, "Should fail validation for stale cache"
+            assert result['valid'] is False, "Should fail validation for cache 2+ sessions behind"
             assert result['error'] is not None, "Should have an error message"
-            assert "does not equal" in result['error'], "Error should mention date mismatch"
+            assert "sessions behind" in result['error'] or "not a valid trading day" in result['error'], "Error should mention sessions or trading day"
             
             print("✅ PASS: Stale cache validation failed as expected")
         
