@@ -225,6 +225,7 @@ def validate_trading_day_freshness(
         return result
     
     # Get the index of last_trading_day and cache_max_date in the trading days
+    # Note: trading_dates is in ascending chronological order (earlier dates have lower indices)
     try:
         cache_index = trading_dates.index(cache_date_only)
         last_trading_index = trading_dates.index(trading_date_only)
@@ -233,11 +234,11 @@ def validate_trading_day_freshness(
         logger.error(f"✗ FAIL: {result['error']}")
         return result
     
-    # Calculate sessions behind (higher index = earlier date in descending order)
+    # Calculate sessions behind (lower index = earlier date in ascending order)
     sessions_behind = last_trading_index - cache_index
     
     # Allow cache to be up to 1 trading session behind
-    if sessions_behind <= 1:
+    if sessions_behind <= 1 and sessions_behind >= 0:
         result['valid'] = True
         if sessions_behind == 0:
             logger.info("✓ PASS: Cache is fresh and up-to-date with latest trading day")
@@ -246,8 +247,11 @@ def validate_trading_day_freshness(
         logger.info("=" * 70)
         return result
     
-    # Cache is more than 1 session behind
-    result['error'] = f"Cache max date ({cache_date_only}) is {sessions_behind} trading sessions behind last trading day ({trading_date_only})"
+    # Cache is more than 1 session behind or ahead (which shouldn't happen)
+    if sessions_behind < 0:
+        result['error'] = f"Cache max date ({cache_date_only}) is ahead of last trading day ({trading_date_only})"
+    else:
+        result['error'] = f"Cache max date ({cache_date_only}) is {sessions_behind} trading sessions behind last trading day ({trading_date_only})"
     logger.error(f"✗ FAIL: {result['error']}")
     return result
 
