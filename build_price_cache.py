@@ -161,6 +161,60 @@ def validate_required_symbols(cache_df):
     return is_valid, missing_symbols
 
 
+def validate_no_excessive_placeholders(cache_df):
+    """
+    Validate that we're not writing excessive NY-market placeholders (NaN values).
+    
+    This safeguard ensures the cache has actual price data and not just empty
+    placeholders that would cause Portfolio Snapshot issues.
+    
+    Args:
+        cache_df: DataFrame with tickers as columns and dates as index
+        
+    Returns:
+        Tuple of (is_valid: bool, warnings: list)
+    """
+    if cache_df is None or cache_df.empty:
+        return False, ["Cache is empty"]
+    
+    warnings = []
+    is_valid = True
+    
+    # Calculate NaN percentage for each ticker
+    total_rows = len(cache_df)
+    threshold_pct = 0.80  # Warn if more than 80% NaN values
+    
+    tickers_with_excessive_nans = []
+    
+    for ticker in cache_df.columns:
+        nan_count = cache_df[ticker].isna().sum()
+        nan_pct = nan_count / total_rows if total_rows > 0 else 1.0
+        
+        if nan_pct > threshold_pct:
+            tickers_with_excessive_nans.append((ticker, nan_pct))
+    
+    if tickers_with_excessive_nans:
+        is_valid = False
+        warnings.append(f"Found {len(tickers_with_excessive_nans)} tickers with >{threshold_pct*100:.0f}% NaN values:")
+        for ticker, pct in sorted(tickers_with_excessive_nans, key=lambda x: x[1], reverse=True)[:10]:
+            warnings.append(f"  {ticker}: {pct*100:.1f}% NaN")
+        if len(tickers_with_excessive_nans) > 10:
+            warnings.append(f"  ... and {len(tickers_with_excessive_nans) - 10} more")
+    
+    # Check overall cache health - should have reasonable data coverage
+    total_values = cache_df.size
+    total_nans = cache_df.isna().sum().sum()
+    overall_nan_pct = total_nans / total_values if total_values > 0 else 1.0
+    
+    if overall_nan_pct > 0.50:
+        is_valid = False
+        warnings.append(f"Overall cache has {overall_nan_pct*100:.1f}% NaN values (threshold: 50%)")
+    else:
+        logger.info(f"Overall cache health: {(1-overall_nan_pct)*100:.1f}% data coverage")
+    
+    return is_valid, warnings
+
+
 def is_cache_fresh(max_price_date):
     """
     Determine if cache is fresh based on trading-day aware logic.
@@ -441,8 +495,15 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     if missing_tickers:
         logger.info("Attempting to fetch missing tickers from yfinance...")
         
-        # Calculate date range
-        end_date = datetime.now()
+        # Calculate date range - use SPY's last trading date as anchor
+        spy_last_trading = get_last_trading_day()
+        if spy_last_trading is not None:
+            end_date = spy_last_trading
+            logger.info(f"Using SPY last trading date as end_date: {end_date.strftime('%Y-%m-%d')}")
+        else:
+            end_date = datetime.now()
+            logger.warning(f"Could not determine SPY last trading date, using current date: {end_date.strftime('%Y-%m-%d')}")
+        
         start_date = end_date - timedelta(days=365 * years)
         
         logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -513,6 +574,19 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
     else:
         logger.info("✓ All required symbols present")
     
+    # Step 6.5.5: Validate no excessive placeholders
+    logger.info("=" * 70)
+    logger.info("VALIDATING CACHE DATA QUALITY")
+    logger.info("=" * 70)
+    placeholders_valid, placeholder_warnings = validate_no_excessive_placeholders(cache_df)
+    
+    if not placeholders_valid:
+        logger.error("Cache data quality validation FAILED:")
+        for warning in placeholder_warnings:
+            logger.error(f"  {warning}")
+    else:
+        logger.info("✓ Cache data quality acceptable")
+    
     # Step 6.6: Check cache freshness
     logger.info("=" * 70)
     logger.info("CHECKING CACHE FRESHNESS")
@@ -554,12 +628,13 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info(f"  Latest price date: {max_price_date.strftime('%Y-%m-%d') if max_price_date else 'N/A'}")
         logger.info(f"  Cache freshness: {'FRESH' if is_fresh else 'STALE'}")
         logger.info(f"  Required symbols: {'VALID' if symbols_valid else 'INVALID'}")
+        logger.info(f"  Data quality: {'VALID' if placeholders_valid else 'INVALID'}")
         logger.info("=" * 70)
         
         # Determine overall success based on multiple criteria
         meets_threshold = success_rate >= MIN_SUCCESS_RATE
         
-        if meets_threshold and symbols_valid:
+        if meets_threshold and symbols_valid and placeholders_valid:
             logger.info(f"✓ SUCCESS: Success rate {success_rate * 100:.2f}% meets threshold {MIN_SUCCESS_RATE * 100:.2f}%")
             if not is_fresh:
                 logger.warning(f"⚠ WARNING: Cache is stale but meets success threshold")
@@ -568,9 +643,11 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                 logger.error(f"✗ FAILURE: Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
             if not symbols_valid:
                 logger.error(f"✗ FAILURE: Required symbols missing")
+            if not placeholders_valid:
+                logger.error(f"✗ FAILURE: Excessive NaN placeholders detected")
         
-        # Overall success requires both threshold and required symbols
-        overall_success = meets_threshold and symbols_valid
+        # Overall success requires threshold, required symbols, AND data quality
+        overall_success = meets_threshold and symbols_valid and placeholders_valid
         return overall_success, success_rate
     else:
         logger.error("No data available to build cache")
