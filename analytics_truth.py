@@ -553,6 +553,17 @@ def generate_live_snapshot_csv(
     if len(df) != 28:
         raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
     
+    # Debug logging before wave_id uniqueness assertion
+    expected_wave_ids = [_convert_wave_name_to_id(wave_name) for wave_name in waves]
+    actual_wave_ids = df['wave_id'].tolist()
+    
+    print("\n--- DEBUG: Wave ID Uniqueness Check ---")
+    print(f"Expected wave_ids count: {len(expected_wave_ids)}")
+    print(f"Expected wave_ids: {expected_wave_ids}")
+    print(f"Actual wave_ids count: {len(actual_wave_ids)}")
+    print(f"Actual wave_ids: {actual_wave_ids}")
+    print("---------------------------------------\n")
+    
     # Validate unique wave_ids
     if df['wave_id'].nunique() != 28:
         raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
