@@ -582,9 +582,10 @@ def generate_live_snapshot_csv(
         )
     
     # Validation 3: Check for blank or whitespace-only values
-    blank_count = df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '').sum()
+    is_blank_mask = df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '')
+    blank_count = is_blank_mask.sum()
     if blank_count > 0:
-        blank_rows = df[df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '')]
+        blank_rows = df[is_blank_mask]
         raise AssertionError(
             f"wave_id column contains {blank_count} blank/whitespace-only value(s). "
             f"All wave_id values must be non-blank.\n"
@@ -672,7 +673,7 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
                 from waves_engine import get_wave_id_from_display_name
                 result = get_wave_id_from_display_name(wave_name)
                 # Only use result if it's a valid non-empty string
-                if result and isinstance(result, str) and result.strip():
+                if result is not None and isinstance(result, str) and result.strip() != '':
                     return result
             except:
                 pass
