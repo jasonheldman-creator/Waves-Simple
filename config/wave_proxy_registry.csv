@@ -12,7 +12,7 @@ ev_infrastructure_wave,EV & Infrastructure Wave,Equity,TSLA,PAVE,PAVE,true
 future_energy_ev_wave,Future Energy & EV Wave,Equity,XLE,TSLA,XLE,true
 future_power_energy_wave,Future Power & Energy Wave,Equity,ICLN,TAN,ICLN,true
 gold_wave,Gold Wave,Commodity,GLD,IAU,GLD,true
-income_wave,Income Wave,Fixed Income,VYM,SCHD,VYM,true
+income_wave,Income Wave,Fixed Income,AGG,SCHD,AGG,true
 infinity_multi_asset_growth_wave,Infinity Multi-Asset Growth Wave,Equity,SPY,QQQ,SPY,true
 next_gen_compute_semis_wave,Next-Gen Compute & Semis Wave,Equity,NVDA,AMD,QQQ,true
 quantum_computing_wave,Quantum Computing Wave,Equity,QTUM,IONQ,QQQ,true
