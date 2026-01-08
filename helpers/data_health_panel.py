@@ -2,9 +2,11 @@
 Data Health Panel
 Provides visibility into system health, cache performance, and data availability.
 Enhanced with failed ticker diagnostics and reporting.
+
+NOTE: This module requires Streamlit to be installed. Import streamlit is lazy-loaded
+      to allow other helpers modules to be imported without Streamlit.
 """
 
-import streamlit as st
 from datetime import datetime
 from typing import Dict, Any
 import os
@@ -15,6 +17,15 @@ def render_data_health_panel():
     Render the Data Health panel showing system status and metrics.
     Enhanced with fail-safe error handling and ticker diagnostics.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     st.subheader("📊 Data Health Panel")
     st.caption("System health metrics and data availability status")
     
@@ -241,6 +252,15 @@ def render_compact_health_indicator():
     """
     Render a compact health indicator suitable for sidebar or header.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     try:
         from helpers.ticker_sources import get_ticker_health_status
         
@@ -270,6 +290,15 @@ def render_data_readiness_panel():
     """
     Render data readiness metrics panel showing wave operational status.
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     st.subheader("🌊 Data Readiness")
     st.caption("Historical price data coverage and wave operational status")
     

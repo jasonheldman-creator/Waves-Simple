@@ -2,6 +2,8 @@
 V3 ADD-ON: Bottom Ticker (Institutional Rail) - Data Sources
 Handles all data fetching for the bottom ticker with exception handling and fallbacks.
 Enhanced with circuit breaker and persistent cache for resilience.
+
+NOTE: This module can work without Streamlit, but will use Streamlit caching if available.
 """
 
 import os
@@ -10,10 +12,16 @@ import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set, Any
-import streamlit as st
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Conditionally import Streamlit for caching
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
 
 # Import circuit breaker and persistent cache
 try:
@@ -25,11 +33,25 @@ except ImportError:
     RESILIENCE_AVAILABLE = False
 
 
+# Create a conditional caching decorator
+def conditional_cache(ttl=300):
+    """
+    Decorator that uses Streamlit caching if available, otherwise no-op.
+    """
+    def decorator(func):
+        if STREAMLIT_AVAILABLE:
+            return st.cache_data(ttl=ttl)(func)
+        else:
+            # No caching when Streamlit is not available
+            return func
+    return decorator
+
+
 # ============================================================================
 # SECTION 1: Holdings Data Extraction
 # ============================================================================
 
-@st.cache_data(ttl=300)
+@conditional_cache(ttl=300)
 def get_wave_holdings_tickers(max_tickers: int = 60, top_n_per_wave: int = 5, active_waves_only: bool = True) -> List[str]:
     """
     Extract holdings from canonical universal universe file.
@@ -243,7 +265,7 @@ def _fetch_ticker_price_data_internal(ticker: str) -> Dict[str, Optional[float]]
     }
 
 
-@st.cache_data(ttl=600)  # Increased TTL to 10 minutes to reduce API stress
+@conditional_cache(ttl=600)  # Increased TTL to 10 minutes to reduce API stress
 def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
     """
     Get current price and daily % change for a ticker using yfinance.
@@ -310,7 +332,7 @@ def get_ticker_price_data(ticker: str) -> Dict[str, Optional[float]]:
 # SECTION 3: Earnings Data
 # ============================================================================
 
-@st.cache_data(ttl=3600)
+@conditional_cache(ttl=3600)
 def get_earnings_date(ticker: str) -> Optional[str]:
     """
     Get next earnings date for a ticker using yfinance.
@@ -347,7 +369,7 @@ def get_earnings_date(ticker: str) -> Optional[str]:
 # SECTION 4: Fed/Macro Indicators
 # ============================================================================
 
-@st.cache_data(ttl=86400)
+@conditional_cache(ttl=86400)
 def get_fed_indicators() -> Dict[str, Optional[str]]:
     """
     Get Federal Reserve and macroeconomic indicators.
