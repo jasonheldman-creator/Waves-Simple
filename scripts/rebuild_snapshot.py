@@ -14,24 +14,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analytics_truth import generate_live_snapshot_csv
 
+# Formatting constant
+SEPARATOR = "=" * 80
+
 
 def main() -> int:
     try:
-        print("\n" + "=" * 80)
+        print("\n" + SEPARATOR)
         print("REBUILD SNAPSHOT WORKFLOW")
-        print("=" * 80)
+        print(SEPARATOR)
 
         # Call canonical snapshot generator
-        # This function writes to data/live_snapshot.csv and prints diagnostics
+        # This function writes to data/live_snapshot.csv and prints comprehensive
+        # diagnostics including ticker fetching status, wave return computation,
+        # and validation results
         df = generate_live_snapshot_csv()
 
         # Print essential diagnostics from returned DataFrame
-        print("\n" + "=" * 80)
+        print("\n" + SEPARATOR)
         print("FINAL SUMMARY")
-        print("=" * 80)
+        print(SEPARATOR)
         print(f"✓ Row count: {len(df)}")
         print(f"✓ Column count: {len(df.columns)}")
-        print("=" * 80 + "\n")
+        print(SEPARATOR + "\n")
 
         return 0
 
