@@ -877,6 +877,7 @@ WAVE_WEIGHTS: Dict[str, List[Holding]] = {
 WAVE_ID_REGISTRY: Dict[str, str] = {
     # wave_id -> display_name mapping
     "sp500_wave": "S&P 500 Wave",
+    "russell_3000_wave": "Russell 3000 Wave",
     "us_megacap_core_wave": "US MegaCap Core Wave",
     "ai_cloud_megacap_wave": "AI & Cloud MegaCap Wave",
     "next_gen_compute_semis_wave": "Next-Gen Compute & Semis Wave",
