@@ -1243,7 +1243,10 @@ def compute_portfolio_snapshot(
                 continue
             
             # Compute daily returns for each ticker
-            # fill_method=None prevents forward-filling of NaN values
+            # fill_method=None prevents forward-filling of NaN values, ensuring
+            # that missing price data propagates as NaN returns rather than 0% returns
+                # fill_method=None prevents forward-filling of NaN values, ensuring
+                # that missing price data propagates as NaN returns rather than 0% returns
             ticker_returns = ticker_prices.pct_change(fill_method=None)
             
             # Compute weighted portfolio returns for this wave
@@ -1603,6 +1606,8 @@ def compute_portfolio_alpha_attribution(
                 if len(ticker_prices) < 2:
                     continue
                 
+                # fill_method=None prevents forward-filling of NaN values, ensuring
+                # that missing price data propagates as NaN returns rather than 0% returns
                 ticker_returns = ticker_prices.pct_change(fill_method=None)
                 
                 # Weighted returns
@@ -2457,6 +2462,8 @@ def compute_portfolio_alpha_ledger(
                 if len(ticker_prices) < 2:
                     continue
                 
+                # fill_method=None prevents forward-filling of NaN values, ensuring
+                # that missing price data propagates as NaN returns rather than 0% returns
                 ticker_returns = ticker_prices.pct_change(fill_method=None)
                 
                 # Weighted returns

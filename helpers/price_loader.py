@@ -106,6 +106,8 @@ if PRICE_CACHE_DEGRADED_DAYS <= PRICE_CACHE_OK_DAYS:
 # ============================================================================
 
 # Known stablecoins (pegged to USD)
+# Last updated: 2026-01-08
+# Maintenance: Add new major stablecoins (>$1B market cap) as they emerge
 STABLECOIN_TICKERS = {
     'USDT-USD', 'USDC-USD', 'DAI-USD', 'USDP-USD', 'BUSD-USD', 'TUSD-USD',
     'USDD-USD', 'FRAX-USD', 'GUSD-USD', 'USDJ-USD'
