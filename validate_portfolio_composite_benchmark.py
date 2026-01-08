@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MIN_REQUIRED_DAYS = 60
+DEFAULT_HISTORY_DAYS = 365  # Default lookback period for wave history computation
 
 
 def load_price_cache():
@@ -93,7 +94,7 @@ def validate_portfolio_composite_benchmark():
             wave_df = compute_history_nav(
                 wave_name=wave_name,
                 mode='Standard',
-                days=365,
+                days=DEFAULT_HISTORY_DAYS,
                 include_diagnostics=False,
                 price_df=price_df
             )

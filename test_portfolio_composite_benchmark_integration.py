@@ -26,11 +26,10 @@ from waves_engine import (
 
 from helpers.wave_performance import compute_portfolio_snapshot
 
-# Tolerance for alpha validation (0.5%)
-ALPHA_TOLERANCE = 0.005
-
-# S&P 500 Wave should use SPY as benchmark
-SP500_WAVE = "S&P 500 Wave"
+# Constants
+ALPHA_TOLERANCE = 0.005  # Tolerance for alpha validation (0.5%)
+DEFAULT_HISTORY_DAYS = 365  # Default lookback period for wave history computation
+SP500_WAVE = "S&P 500 Wave"  # S&P 500 Wave should use SPY as benchmark
 SP500_BENCHMARK_TICKER = "SPY"
 
 
@@ -70,7 +69,7 @@ def wave_results(price_df, all_waves):
             wave_df = compute_history_nav(
                 wave_name=wave_name,
                 mode='Standard',
-                days=365,
+                days=DEFAULT_HISTORY_DAYS,
                 include_diagnostics=False,
                 price_df=price_df
             )
@@ -222,7 +221,7 @@ def test_sp500_wave_uses_spy_benchmark(price_df):
     sp500_df = compute_history_nav(
         wave_name=SP500_WAVE,
         mode='Standard',
-        days=365,
+        days=DEFAULT_HISTORY_DAYS,
         include_diagnostics=False,
         price_df=price_df
     )

@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
+DEFAULT_HISTORY_DAYS = 365  # Default lookback period for wave history computation
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
 RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution validation
 
@@ -1267,7 +1268,7 @@ def compute_portfolio_snapshot(
                     wave_history = compute_history_nav(
                         wave_name=wave_name,
                         mode=mode,
-                        days=365,  # Get full history available
+                        days=DEFAULT_HISTORY_DAYS,  # Get full history available
                         include_diagnostics=False,
                         price_df=price_book
                     )
@@ -1622,7 +1623,7 @@ def compute_portfolio_alpha_attribution(
                         wave_history = compute_history_nav(
                             wave_name=wave_name,
                             mode=mode,
-                            days=365,  # Get full history available
+                            days=DEFAULT_HISTORY_DAYS,  # Get full history available
                             include_diagnostics=False,
                             price_df=price_book
                         )

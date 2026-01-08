@@ -2242,9 +2242,11 @@ def build_portfolio_composite_benchmark_returns(
     
     for wave_name, weight in weights_dict.items():
         if wave_name in benchmark_matrix.columns:
-            # Add weighted contribution, using fillna(0.0) to handle individual NaNs
-            # This allows the composite to continue even if some waves are missing data
-            composite_returns += benchmark_matrix[wave_name].fillna(0.0) * weight
+            # Add weighted contribution
+            # For dates where this wave's benchmark is NaN, it contributes nothing to the weighted sum
+            # This automatically adjusts the effective weights on that date
+            wave_contribution = benchmark_matrix[wave_name] * weight
+            composite_returns = composite_returns.add(wave_contribution, fill_value=0.0)
     
     # Remove dates where all waves are NaN (composite would be meaningless)
     valid_dates = ~benchmark_matrix.isna().all(axis=1)
