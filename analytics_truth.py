@@ -582,6 +582,22 @@ def generate_live_snapshot_csv(
     
     print("---------------------------------------\n")
     
+    # Additional debug logging before wave_id uniqueness assertion
+    print("\n--- ENHANCED DEBUG: Wave ID Analysis ---")
+    print("nunique(dropna=True):", df['wave_id'].nunique(dropna=True))
+    print("nunique(dropna=False):", df['wave_id'].nunique(dropna=False))
+    print("isna sum:", df['wave_id'].isna().sum())
+    
+    print("\n--- Row-by-Row Wave ID Details ---")
+    for idx, row in df.iterrows():
+        display_name = row.get('Wave', 'N/A')
+        wave_id = row.get('wave_id')
+        print(f"Row {idx}: display_name='{display_name}', wave_id={repr(wave_id)}, type={type(wave_id)}")
+    
+    print("\n--- Wave ID Frequency Table (as strings) ---")
+    print(df['wave_id'].astype(str).value_counts().head(50))
+    print("---------------------------------------\n")
+    
     # Validate unique wave_ids
     if df['wave_id'].nunique() != 28:
         raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
