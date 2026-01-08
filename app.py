@@ -2349,14 +2349,38 @@ def trigger_rerun(trigger_name: str):
     st.rerun()
 
 
-@st.cache_resource(show_spinner=False)
-def get_cached_price_book():
+def get_cache_file_timestamp(file_path):
     """
-    Get cached PRICE_BOOK - loads once per session.
+    Get the modification timestamp of a file for cache-busting.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        float: File modification timestamp, or 0.0 if file doesn't exist
+    """
+    try:
+        if os.path.exists(file_path):
+            return os.path.getmtime(file_path)
+        return 0.0
+    except Exception:
+        return 0.0
+
+
+@st.cache_resource(show_spinner=False)
+def get_cached_price_book_internal(_cache_buster=None):
+    """
+    Internal function to get cached PRICE_BOOK.
     
     This function wraps helpers.price_book.get_price_book() with Streamlit's
     @st.cache_resource decorator to ensure it loads only once per session,
     preventing repeated "PRICE_BOOK: Loading canonical price data" log spam.
+    
+    Uses cache-busting via file modification timestamp to detect when the
+    underlying cache file has been updated.
+    
+    Args:
+        _cache_buster: File modification timestamp (prefixed with _ to exclude from hash)
     
     Returns:
         DataFrame: Cached price book (index=dates, columns=tickers)
@@ -2370,6 +2394,21 @@ def get_cached_price_book():
         # Fallback if price_book module not available
         logger.warning("PRICE_BOOK unavailable - price_book module not loaded")
         return pd.DataFrame()
+
+
+def get_cached_price_book():
+    """
+    Get cached PRICE_BOOK with automatic cache-busting.
+    
+    This function automatically detects changes to the underlying price cache file
+    and invalidates the Streamlit cache when the file is updated.
+    
+    Returns:
+        DataFrame: Cached price book (index=dates, columns=tickers)
+    """
+    # Get cache file timestamp for cache-busting
+    cache_timestamp = get_cache_file_timestamp(CANONICAL_CACHE_PATH)
+    return get_cached_price_book_internal(_cache_buster=cache_timestamp)
 
 
 def calculate_wavescore(wave_data):
@@ -7662,6 +7701,9 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success("✅ Cache cleared")
+            
+            # Trigger rerun to refresh the app with cleared caches
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Cache clear failed: {str(e)}")
     
@@ -7684,6 +7726,10 @@ def render_sidebar_info():
                     del st.session_state[key]
                     cleared_count += 1
             
+            # Also clear Streamlit caches
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
             action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             st.session_state.last_operator_action = "Force Recompute"
             st.session_state.last_operator_time = action_time
@@ -7695,6 +7741,9 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success(f"✅ Cleared {cleared_count} keys")
+            
+            # Trigger rerun to refresh the app with recomputed data
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Recompute failed: {str(e)}")
     
@@ -7722,8 +7771,9 @@ def render_sidebar_info():
             if 'price_book_cache' in st.session_state:
                 del st.session_state['price_book_cache']
             
-            # Clear Streamlit cache for price book
+            # Clear Streamlit caches for price book
             st.cache_data.clear()
+            st.cache_resource.clear()
             
             action_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             st.session_state.last_operator_action = "Reload Price Book"
@@ -7736,6 +7786,9 @@ def render_sidebar_info():
                 pass  # Logging errors should not block button execution
             
             st.sidebar.success("✅ Price book reloaded")
+            
+            # Trigger rerun to refresh the app with reloaded data
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"❌ Price book reload failed: {str(e)}")
     

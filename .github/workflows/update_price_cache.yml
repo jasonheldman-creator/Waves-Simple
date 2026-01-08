@@ -10,10 +10,13 @@ permissions:
 
 env:
   MIN_SUCCESS_RATE: "0.90"
+  TZ: UTC
 
 jobs:
   update_cache:
     runs-on: ubuntu-latest
+    env:
+      TZ: UTC
 
     steps:
       - name: Check out repository
@@ -161,6 +164,104 @@ jobs:
           except Exception as e:
               print(f"  Error inspecting cache: {e}")
           EOF
+          
+          echo "========================================================================"
+
+      - name: Compute and print diagnostics
+        run: |
+          echo "========================================================================"
+          echo "CACHE DIAGNOSTICS - SPY TRADING DAY ANALYSIS"
+          echo "========================================================================"
+          
+          python3 << 'EOF'
+import pandas as pd
+import json
+import os
+from datetime import datetime
+
+try:
+    # Import yfinance for SPY trading day calculation
+    import yfinance as yf
+    
+    # 1. Get SPY last trading day
+    print("\n[1] Fetching SPY last trading day...")
+    spy = yf.Ticker("SPY")
+    spy_hist = spy.history(period="10d")
+    
+    if not spy_hist.empty:
+        spy_last_trading_day = spy_hist.index[-1].strftime('%Y-%m-%d')
+        print(f"  SPY_last_trading_day: {spy_last_trading_day}")
+    else:
+        spy_last_trading_day = "N/A (SPY data unavailable)"
+        print(f"  SPY_last_trading_day: {spy_last_trading_day}")
+    
+    # 2. Get cache max date
+    print("\n[2] Reading cache max date...")
+    if os.path.exists('data/cache/prices_cache.parquet'):
+        cache_df = pd.read_parquet('data/cache/prices_cache.parquet')
+        if not cache_df.empty:
+            cache_max_date = cache_df.index.max().strftime('%Y-%m-%d')
+            symbol_count = len(cache_df.columns)
+            print(f"  cache_max_date: {cache_max_date}")
+            print(f"  symbol_count: {symbol_count}")
+        else:
+            cache_max_date = "N/A (cache empty)"
+            symbol_count = 0
+            print(f"  cache_max_date: {cache_max_date}")
+            print(f"  symbol_count: {symbol_count}")
+    else:
+        cache_max_date = "N/A (cache file missing)"
+        symbol_count = 0
+        print(f"  cache_max_date: {cache_max_date}")
+        print(f"  symbol_count: {symbol_count}")
+    
+    # 3. Calculate sessions_behind
+    print("\n[3] Calculating sessions behind...")
+    if spy_last_trading_day != "N/A (SPY data unavailable)" and cache_max_date not in ["N/A (cache empty)", "N/A (cache file missing)"]:
+        # Get all SPY trading days in the period
+        spy_dates = [d.strftime('%Y-%m-%d') for d in spy_hist.index]
+        
+        try:
+            spy_idx = spy_dates.index(spy_last_trading_day)
+            cache_idx = spy_dates.index(cache_max_date)
+            sessions_behind = spy_idx - cache_idx
+            print(f"  sessions_behind: {sessions_behind}")
+        except ValueError:
+            # cache_max_date not in SPY trading days (older than 10 days)
+            print(f"  sessions_behind: N/A (cache_max_date not in recent SPY trading days)")
+            sessions_behind = "N/A"
+    else:
+        sessions_behind = "N/A"
+        print(f"  sessions_behind: {sessions_behind}")
+    
+    # 4. Get file size
+    print("\n[4] Getting cache file size...")
+    if os.path.exists('data/cache/prices_cache.parquet'):
+        file_size_bytes = os.path.getsize('data/cache/prices_cache.parquet')
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        print(f"  file_size: {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
+    else:
+        print(f"  file_size: N/A (cache file missing)")
+    
+    # Summary
+    print("\n" + "=" * 70)
+    print("DIAGNOSTICS SUMMARY")
+    print("=" * 70)
+    print(f"SPY_last_trading_day: {spy_last_trading_day}")
+    print(f"cache_max_date:       {cache_max_date}")
+    print(f"sessions_behind:      {sessions_behind}")
+    print(f"symbol_count:         {symbol_count}")
+    if os.path.exists('data/cache/prices_cache.parquet'):
+        print(f"file_size:            {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
+    else:
+        print(f"file_size:            N/A")
+    print("=" * 70)
+    
+except Exception as e:
+    print(f"\n✗ Error computing diagnostics: {e}")
+    import traceback
+    traceback.print_exc()
+EOF
           
           echo "========================================================================"
 
