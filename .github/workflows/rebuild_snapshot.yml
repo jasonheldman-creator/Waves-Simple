@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -30,10 +30,22 @@ jobs:
       - name: Rebuild snapshot
         run: python scripts/rebuild_snapshot.py
 
-      - name: Verify no data/cache artifacts staged
+      - name: Check for changes
+        id: check_changes
         run: |
-          echo "Checking git status..."
-          git status
-          echo ""
-          echo "Note: Snapshot rebuilt successfully."
-          echo "Cache artifacts in data/cache/ are ignored by .gitignore and not committed."
+          git diff --exit-code data/live_snapshot.csv || echo "changed=true" >> $GITHUB_OUTPUT
+          
+      - name: Commit and push if changed
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data/live_snapshot.csv
+          git commit -m "Auto-update live_snapshot.csv [skip ci]"
+          git push
+          
+      - name: No changes
+        if: steps.check_changes.outputs.changed != 'true'
+        run: |
+          echo "✓ No changes to data/live_snapshot.csv"
+          echo "Snapshot is up to date."
