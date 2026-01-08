@@ -209,7 +209,7 @@ def check_wave_data_readiness(wave_id: str) -> bool:
             return False
         
         # Check 2: Wave history data exists
-        wave_history_path = os.path.join('wave_history.csv')
+        wave_history_path = os.path.join('data', 'wave_history.csv')
         if not os.path.exists(wave_history_path):
             logger.debug(f"Wave history file not found")
             return False
@@ -288,7 +288,7 @@ def update_wave_status_based_on_readiness() -> int:
         # Save updated registry if any changes
         if updated_count > 0:
             registry.to_csv(WAVE_REGISTRY_PATH, index=False)
-            logger.info(f"Updated {updated_count} waves to STAGING status")
+            logger.info(f"Updated {updated_count} wave(s) status based on data readiness")
         
         return updated_count
         
