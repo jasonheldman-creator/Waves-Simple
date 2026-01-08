@@ -2130,6 +2130,145 @@ def build_benchmark_series_from_components(
     return benchmark_ret
 
 
+def build_portfolio_composite_benchmark_returns(
+    wave_results: dict,
+    wave_weights: dict | None = None
+) -> pd.Series:
+    """
+    Build portfolio composite benchmark returns from wave benchmark returns.
+    
+    This function computes a portfolio-level benchmark as a weighted combination
+    of individual wave benchmarks, ensuring consistency across the system.
+    
+    Args:
+        wave_results: Dictionary mapping wave names to compute_history_nav results.
+                     Each result should be a DataFrame with 'bm_ret' column.
+        wave_weights: Optional dictionary mapping wave names to weights.
+                     If None, uses equal weights across all waves.
+                     Weights will be normalized if they don't sum to 1.0.
+    
+    Returns:
+        pd.Series: Daily return series for the portfolio composite benchmark.
+                  Index is aligned DatetimeIndex.
+                  Empty series if insufficient data or errors.
+    
+    Rules:
+        - Defaults to equal weights if wave_weights is None
+        - Normalizes weights if provided
+        - Aligns the composite index across all wave benchmarks
+        - Removes all-NaN dates
+        - Ensures minimum 60 trading days of history
+        - Returns daily return series (not cumulative)
+    
+    Example:
+        >>> wave_results = {
+        ...     'S&P 500 Wave': df_with_bm_ret,
+        ...     'Growth Wave': df_with_bm_ret
+        ... }
+        >>> composite = build_portfolio_composite_benchmark_returns(wave_results)
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Validate inputs
+    if not wave_results:
+        logger.warning("build_portfolio_composite_benchmark_returns: wave_results is empty")
+        return pd.Series(dtype=float)
+    
+    # Extract benchmark return series from wave_results
+    benchmark_series_dict = {}
+    
+    for wave_name, wave_df in wave_results.items():
+        if wave_df is None or not isinstance(wave_df, pd.DataFrame):
+            logger.debug(f"Skipping {wave_name}: result is not a DataFrame")
+            continue
+        
+        if wave_df.empty:
+            logger.debug(f"Skipping {wave_name}: result DataFrame is empty")
+            continue
+        
+        if 'bm_ret' not in wave_df.columns:
+            logger.debug(f"Skipping {wave_name}: no 'bm_ret' column found")
+            continue
+        
+        bm_ret_series = wave_df['bm_ret'].copy()
+        
+        # Skip if all NaN
+        if bm_ret_series.isna().all():
+            logger.debug(f"Skipping {wave_name}: benchmark returns are all NaN")
+            continue
+        
+        benchmark_series_dict[wave_name] = bm_ret_series
+    
+    if not benchmark_series_dict:
+        logger.warning("build_portfolio_composite_benchmark_returns: no valid benchmark series found")
+        return pd.Series(dtype=float)
+    
+    # Determine weights
+    wave_names = list(benchmark_series_dict.keys())
+    
+    if wave_weights is None:
+        # Equal weights
+        weights_dict = {name: 1.0 / len(wave_names) for name in wave_names}
+        logger.debug(f"Using equal weights for {len(wave_names)} waves")
+    else:
+        # Use provided weights, but only for waves we have data for
+        weights_dict = {}
+        for name in wave_names:
+            if name in wave_weights:
+                weights_dict[name] = wave_weights[name]
+            else:
+                logger.debug(f"Wave {name} not in wave_weights, using 0.0")
+                weights_dict[name] = 0.0
+        
+        # Normalize weights
+        total_weight = sum(weights_dict.values())
+        if total_weight <= 0:
+            logger.warning("build_portfolio_composite_benchmark_returns: total weight is 0, using equal weights")
+            weights_dict = {name: 1.0 / len(wave_names) for name in wave_names}
+        else:
+            weights_dict = {name: w / total_weight for name, w in weights_dict.items()}
+            logger.debug(f"Normalized provided weights for {len(wave_names)} waves")
+    
+    # Build benchmark matrix (rows=dates, cols=waves)
+    benchmark_matrix = pd.DataFrame(benchmark_series_dict)
+    
+    # Align index (union of all dates)
+    # This ensures we have all dates where at least one benchmark has data
+    benchmark_matrix = benchmark_matrix.sort_index()
+    
+    # Compute weighted composite return for each date
+    # Use skipna=False in the sum to preserve NaN when all benchmarks are NaN
+    composite_returns = pd.Series(0.0, index=benchmark_matrix.index)
+    
+    for wave_name, weight in weights_dict.items():
+        if wave_name in benchmark_matrix.columns:
+            # Add weighted contribution
+            # For dates where this wave's benchmark is NaN, it contributes nothing to the weighted sum
+            # This automatically adjusts the effective weights on that date
+            wave_contribution = benchmark_matrix[wave_name] * weight
+            composite_returns = composite_returns.add(wave_contribution, fill_value=0.0)
+    
+    # Remove dates where all waves are NaN (composite would be meaningless)
+    valid_dates = ~benchmark_matrix.isna().all(axis=1)
+    composite_returns = composite_returns[valid_dates]
+    
+    # Ensure minimum 60 trading days
+    MIN_TRADING_DAYS = 60
+    if len(composite_returns) < MIN_TRADING_DAYS:
+        logger.warning(
+            f"build_portfolio_composite_benchmark_returns: insufficient history "
+            f"({len(composite_returns)} days < {MIN_TRADING_DAYS} required)"
+        )
+        return pd.Series(dtype=float)
+    
+    logger.debug(
+        f"Built portfolio composite benchmark: {len(composite_returns)} days, "
+        f"{len(wave_names)} waves, date range {composite_returns.index[0]} to {composite_returns.index[-1]}"
+    )
+    
+    return composite_returns
+
+
 def _regime_from_return(ret_60d: float) -> str:
     if np.isnan(ret_60d):
         return "neutral"

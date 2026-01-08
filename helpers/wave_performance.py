@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration constants
 DEFAULT_BENCHMARK_TICKER = 'SPY'  # Default benchmark for portfolio calculations
+DEFAULT_HISTORY_DAYS = 365  # Default lookback period for wave history computation
 MIN_DATES_FOR_PORTFOLIO = 2  # Minimum number of dates required for portfolio aggregation
 RESIDUAL_TOLERANCE = 0.0010  # 0.10% tolerance for residual attribution validation
 
@@ -49,7 +50,12 @@ EXPOSURE_HIGH_VOLATILITY = 0.25  # Low exposure when VIX >= 25
 
 # Import wave definitions
 try:
-    from waves_engine import WAVE_WEIGHTS, get_all_waves_universe
+    from waves_engine import (
+        WAVE_WEIGHTS, 
+        get_all_waves_universe,
+        compute_history_nav,
+        build_portfolio_composite_benchmark_returns
+    )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
     WAVES_ENGINE_AVAILABLE = False
@@ -1254,15 +1260,34 @@ def compute_portfolio_snapshot(
             if len(wave_returns) > 0 and wave_returns.notna().any():
                 wave_return_series_dict[wave_name] = wave_returns
                 
-                # Compute benchmark returns (use default benchmark ticker)
-                benchmark_ticker = DEFAULT_BENCHMARK_TICKER
-                if benchmark_ticker in price_book.columns:
-                    benchmark_prices = price_book[benchmark_ticker].copy()
-                    benchmark_returns = benchmark_prices.pct_change().iloc[1:]
-                    wave_benchmark_return_dict[wave_name] = benchmark_returns
-                else:
-                    # Use wave itself as benchmark if default not available
-                    wave_benchmark_return_dict[wave_name] = wave_returns
+                # PHASE 1B.1: Compute wave-level benchmark returns using compute_history_nav
+                # This ensures consistency with wave-level dynamic benchmarks
+                try:
+                    # Compute wave history to get benchmark returns
+                    # Use same price_book and sufficient days to get history
+                    wave_history = compute_history_nav(
+                        wave_name=wave_name,
+                        mode=mode,
+                        days=DEFAULT_HISTORY_DAYS,  # Get full history available
+                        include_diagnostics=False,
+                        price_df=price_book
+                    )
+                    
+                    if not wave_history.empty and 'bm_ret' in wave_history.columns:
+                        # Extract benchmark returns from wave history
+                        bm_ret_series = wave_history['bm_ret'].copy()
+                        
+                        # Store benchmark returns for this wave
+                        if bm_ret_series.notna().any():
+                            wave_benchmark_return_dict[wave_name] = bm_ret_series
+                        else:
+                            logger.debug(f"Wave {wave_name}: benchmark returns are all NaN")
+                    else:
+                        logger.debug(f"Wave {wave_name}: compute_history_nav returned empty or missing bm_ret")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to compute benchmark for wave {wave_name}: {e}")
+                    # Don't add to wave_benchmark_return_dict if benchmark computation fails
             
         except Exception as e:
             logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
@@ -1284,11 +1309,32 @@ def compute_portfolio_snapshot(
     
     result['wave_count'] = len(wave_return_series_dict)
     
+    # ========================================================================
+    # PHASE 1B.1: Build Portfolio Composite Benchmark
+    # ========================================================================
+    # Build wave_results dict for composite benchmark computation
+    # Each entry needs to be a DataFrame with 'bm_ret' column
+    wave_results_for_composite = {}
+    for wave_name in wave_return_series_dict.keys():
+        if wave_name in wave_benchmark_return_dict:
+            # Create a simple DataFrame with bm_ret column
+            bm_ret_series = wave_benchmark_return_dict[wave_name]
+            wave_results_for_composite[wave_name] = pd.DataFrame({'bm_ret': bm_ret_series})
+    
+    # Compute portfolio composite benchmark using equal weights
+    portfolio_benchmark_returns = build_portfolio_composite_benchmark_returns(
+        wave_results=wave_results_for_composite,
+        wave_weights=None  # Use equal weights as specified
+    )
+    
+    # Update debug info
+    debug['composite_benchmark_waves'] = len(wave_results_for_composite)
+    debug['composite_benchmark_days'] = len(portfolio_benchmark_returns) if not portfolio_benchmark_returns.empty else 0
+    
     # Build return matrix R (rows=dates, cols=waves)
     try:
         # Concatenate all wave return series into a DataFrame
         return_matrix = pd.DataFrame(wave_return_series_dict)
-        benchmark_matrix = pd.DataFrame(wave_benchmark_return_dict)
         
         # Record portfolio rows count for debugging
         debug['portfolio_rows_count'] = len(return_matrix)
@@ -1296,9 +1342,28 @@ def compute_portfolio_snapshot(
         
         # Compute equal-weight portfolio return: mean across waves (skipna=True)
         portfolio_returns = return_matrix.mean(axis=1, skipna=True)
-        benchmark_returns = benchmark_matrix.mean(axis=1, skipna=True)
         
-        # Drop dates where all waves are NaN
+        # Use composite benchmark returns (already computed above)
+        benchmark_returns = portfolio_benchmark_returns
+        
+        # If composite benchmark is empty, fall back to error
+        if benchmark_returns.empty:
+            result['failure_reason'] = 'Failed to build portfolio composite benchmark'
+            debug['reason_if_failure'] = 'composite benchmark empty or insufficient history'
+            return result
+        
+        # Align portfolio returns and benchmark returns on common dates
+        # This handles the case where they may have different date ranges
+        common_dates = portfolio_returns.index.intersection(benchmark_returns.index)
+        if len(common_dates) < MIN_DATES_FOR_PORTFOLIO:
+            result['failure_reason'] = f'Insufficient common dates between portfolio and benchmark: {len(common_dates)}'
+            debug['reason_if_failure'] = f'only {len(common_dates)} common dates after alignment'
+            return result
+        
+        portfolio_returns = portfolio_returns.loc[common_dates]
+        benchmark_returns = benchmark_returns.loc[common_dates]
+        
+        # Drop dates where portfolio return is NaN
         valid_dates = ~portfolio_returns.isna()
         portfolio_returns = portfolio_returns[valid_dates]
         benchmark_returns = benchmark_returns[valid_dates]
@@ -1551,14 +1616,33 @@ def compute_portfolio_alpha_attribution(
                 if len(wave_returns) > 0 and wave_returns.notna().any():
                     wave_return_dict_unoverlay[wave_name] = wave_returns
                     
-                    # Compute benchmark
-                    benchmark_ticker = DEFAULT_BENCHMARK_TICKER
-                    if benchmark_ticker in price_book.columns:
-                        benchmark_prices = price_book[benchmark_ticker].copy()
-                        benchmark_returns = benchmark_prices.pct_change().iloc[1:]
-                        wave_benchmark_dict[wave_name] = benchmark_returns
-                    else:
-                        wave_benchmark_dict[wave_name] = wave_returns
+                    # PHASE 1B.1: Compute wave-level benchmark returns using compute_history_nav
+                    # This ensures consistency with wave-level dynamic benchmarks
+                    try:
+                        # Compute wave history to get benchmark returns
+                        wave_history = compute_history_nav(
+                            wave_name=wave_name,
+                            mode=mode,
+                            days=DEFAULT_HISTORY_DAYS,  # Get full history available
+                            include_diagnostics=False,
+                            price_df=price_book
+                        )
+                        
+                        if not wave_history.empty and 'bm_ret' in wave_history.columns:
+                            # Extract benchmark returns from wave history
+                            bm_ret_series = wave_history['bm_ret'].copy()
+                            
+                            # Store benchmark returns for this wave
+                            if bm_ret_series.notna().any():
+                                wave_benchmark_dict[wave_name] = bm_ret_series
+                            else:
+                                logger.debug(f"Wave {wave_name}: benchmark returns are all NaN")
+                        else:
+                            logger.debug(f"Wave {wave_name}: compute_history_nav returned empty or missing bm_ret")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to compute benchmark for wave {wave_name}: {e}")
+                        # Don't add to wave_benchmark_dict if benchmark computation fails
             
             except Exception as e:
                 logger.warning(f"Failed to compute returns for wave {wave_name}: {e}")
@@ -1568,14 +1652,41 @@ def compute_portfolio_alpha_attribution(
             result['failure_reason'] = 'No valid wave return series computed'
             return result
         
+        # PHASE 1B.1: Build Portfolio Composite Benchmark
+        # Build wave_results dict for composite benchmark computation
+        wave_results_for_composite = {}
+        for wave_name in wave_return_dict_unoverlay.keys():
+            if wave_name in wave_benchmark_dict:
+                # Create a simple DataFrame with bm_ret column
+                bm_ret_series = wave_benchmark_dict[wave_name]
+                wave_results_for_composite[wave_name] = pd.DataFrame({'bm_ret': bm_ret_series})
+        
+        # Compute portfolio composite benchmark using equal weights
+        daily_benchmark_return = build_portfolio_composite_benchmark_returns(
+            wave_results=wave_results_for_composite,
+            wave_weights=None  # Use equal weights
+        )
+        
+        # If composite benchmark is empty, fall back to error
+        if daily_benchmark_return.empty:
+            result['failure_reason'] = 'Failed to build portfolio composite benchmark'
+            return result
+        
         # Aggregate to portfolio level (equal weight)
         return_matrix_unoverlay = pd.DataFrame(wave_return_dict_unoverlay)
-        benchmark_matrix = pd.DataFrame(wave_benchmark_dict)
         
         daily_unoverlay_return = return_matrix_unoverlay.mean(axis=1, skipna=True)
-        daily_benchmark_return = benchmark_matrix.mean(axis=1, skipna=True)
         
-        # Drop dates where all are NaN
+        # Align portfolio and benchmark on common dates
+        common_dates = daily_unoverlay_return.index.intersection(daily_benchmark_return.index)
+        if len(common_dates) < 2:
+            result['failure_reason'] = 'Insufficient common dates between portfolio and benchmark'
+            return result
+        
+        daily_unoverlay_return = daily_unoverlay_return.loc[common_dates]
+        daily_benchmark_return = daily_benchmark_return.loc[common_dates]
+        
+        # Drop dates where portfolio is NaN
         valid_dates = ~daily_unoverlay_return.isna()
         daily_unoverlay_return = daily_unoverlay_return[valid_dates].sort_index()
         daily_benchmark_return = daily_benchmark_return[valid_dates].sort_index()

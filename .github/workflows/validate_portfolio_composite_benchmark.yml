@@ -1,0 +1,72 @@
+name: Validate Portfolio Composite Benchmark
+
+on:
+  push:
+    paths:
+      - 'waves_engine.py'
+      - 'helpers/wave_performance.py'
+      - 'validate_portfolio_composite_benchmark.py'
+      - 'test_portfolio_composite_benchmark_integration.py'
+      - '.github/workflows/validate_portfolio_composite_benchmark.yml'
+  pull_request:
+    paths:
+      - 'waves_engine.py'
+      - 'helpers/wave_performance.py'
+      - 'validate_portfolio_composite_benchmark.py'
+      - 'test_portfolio_composite_benchmark_integration.py'
+      - '.github/workflows/validate_portfolio_composite_benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate Phase 1B.1 Portfolio Composite Benchmark
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow pytest numpy
+      
+      - name: Run portfolio composite benchmark validation
+        id: validation
+        run: |
+          python validate_portfolio_composite_benchmark.py
+      
+      - name: Run integration tests
+        id: tests
+        run: |
+          pytest -q test_portfolio_composite_benchmark_integration.py
+      
+      - name: Validation summary
+        if: always()
+        run: |
+          echo "## Portfolio Composite Benchmark Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration Validation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.validation.outcome }}" == "success" ]; then
+            echo "✅ Portfolio composite benchmark builds successfully" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark is not empty/all-NaN" >> $GITHUB_STEP_SUMMARY
+            echo "✅ At least 60 rows of data present" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All wave benchmarks computed correctly" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Configuration validation failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration Tests" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "✅ All integration tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Portfolio snapshot uses composite benchmark" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Alpha validation within 0.5% tolerance" >> $GITHUB_STEP_SUMMARY
+            echo "✅ S&P 500 Wave benchmark verified" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark alignment confirmed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Integration tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
