@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "mode": "Standard",
+  "portfolio_returns": {
+    "1D": 0.0,
+    "30D": -0.15874537766689198,
+    "60D": -0.14062321240434236,
+    "365D": null
+  },
+  "benchmark_returns": {
+    "1D": 0.0,
+    "30D": -0.1621404236466819,
+    "60D": -0.14645080881645328,
+    "365D": null
+  },
+  "alphas": {
+    "1D": 0.0,
+    "30D": 0.003395045979789929,
+    "60D": 0.005827596412110919,
+    "365D": null
+  },
+  "wave_count": 27,
+  "date_range": [
+    "2024-12-31",
+    "2026-01-05"
+  ],
+  "latest_date": "2026-01-05",
+  "data_age_days": 3,
+  "has_portfolio_returns_series": true,
+  "has_portfolio_benchmark_series": true,
+  "has_overlay_alpha_series": false,
+  "timestamp": "2026-01-08T14:12:17.857513+00:00"
+}

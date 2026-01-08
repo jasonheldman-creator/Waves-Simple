@@ -358,18 +358,21 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
     2. Exports data/prices.csv in format date,ticker,close from price_book
     3. Rebuilds wave_history.csv strictly from cached price_book
     4. Builds canonical ledger artifact and persists to data/cache/canonical_return_ledger.parquet
+    4b. Computes and persists Portfolio Snapshot aggregation to data/cache/portfolio_snapshot.json
     5. Computes ledger_max_date and persists metadata to data/cache/data_health_metadata.json
     6. Returns diagnostic info about the recompute
     
     Returns:
         Tuple of (success: bool, message: str, details: dict)
-        details contains: price_book_max_date, wave_history_max_date, ledger_max_date, etc.
+        details contains: price_book_max_date, wave_history_max_date, ledger_max_date, 
+                         portfolio_snapshot_success, portfolio_snapshot_latest_date, etc.
         
     Notes:
         - This function ALWAYS returns exactly 3 values (success, message, details)
         - Comprehensive error handling captures full stack traces using traceback.format_exc()
         - Stack traces are logged and stored in details dict for debugging runtime unpacking errors
         - All error messages are complete (no truncation) for full diagnostic visibility
+        - Portfolio Snapshot computation failure does not fail the entire recompute (logged as warning)
     """
     details = {}
     
@@ -514,12 +517,82 @@ def force_ledger_recompute() -> Tuple[bool, str, Dict[str, Any]]:
             logger.error(f"Error building ledger: {e}", exc_info=True)
             return False, error_msg, details
         
+        # Step 4b: Compute and persist Portfolio Snapshot aggregation
+        try:
+            from helpers.wave_performance import compute_portfolio_snapshot
+            
+            # Compute portfolio snapshot for standard mode with standard periods
+            snapshot_result = compute_portfolio_snapshot(
+                price_book=price_data,
+                mode='Standard',
+                periods=[1, 30, 60, 365]
+            )
+            
+            if not snapshot_result['success']:
+                # Log warning but don't fail the entire recompute
+                warning_msg = f"Portfolio snapshot computation failed: {snapshot_result.get('failure_reason', 'unknown')}"
+                logger.warning(warning_msg)
+                results.append(f"⚠️ Portfolio snapshot failed: {snapshot_result.get('failure_reason', 'unknown')}")
+                details['portfolio_snapshot_success'] = False
+                details['portfolio_snapshot_failure_reason'] = snapshot_result.get('failure_reason')
+            else:
+                # Persist snapshot results to cache
+                snapshot_cache_path = os.path.join(os.getcwd(), 'data', 'cache', 'portfolio_snapshot.json')
+                os.makedirs(os.path.dirname(snapshot_cache_path), exist_ok=True)
+                
+                # Create a serializable version of the snapshot result
+                snapshot_data = {
+                    'success': snapshot_result['success'],
+                    'mode': snapshot_result['mode'],
+                    'portfolio_returns': snapshot_result['portfolio_returns'],
+                    'benchmark_returns': snapshot_result['benchmark_returns'],
+                    'alphas': snapshot_result['alphas'],
+                    'wave_count': snapshot_result['wave_count'],
+                    'date_range': snapshot_result['date_range'],
+                    'latest_date': snapshot_result['latest_date'],
+                    'data_age_days': snapshot_result['data_age_days'],
+                    'has_portfolio_returns_series': snapshot_result['has_portfolio_returns_series'],
+                    'has_portfolio_benchmark_series': snapshot_result['has_portfolio_benchmark_series'],
+                    'has_overlay_alpha_series': snapshot_result['has_overlay_alpha_series'],
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+                
+                with open(snapshot_cache_path, 'w') as f:
+                    json.dump(snapshot_data, f, indent=2)
+                
+                details['portfolio_snapshot_success'] = True
+                details['portfolio_snapshot_wave_count'] = snapshot_result['wave_count']
+                details['portfolio_snapshot_latest_date'] = snapshot_result['latest_date']
+                
+                results.append(f"✅ Portfolio snapshot computed and persisted: {snapshot_cache_path}")
+                results.append(f"   Wave count: {snapshot_result['wave_count']}")
+                results.append(f"   Latest date: {snapshot_result['latest_date']}")
+                logger.info(f"Persisted portfolio snapshot to {snapshot_cache_path}, wave count: {snapshot_result['wave_count']}")
+            
+        except ImportError as e:
+            # Log warning but don't fail the entire recompute
+            warning_msg = f"Failed to import compute_portfolio_snapshot: {str(e)}"
+            logger.warning(warning_msg)
+            results.append(f"⚠️ Portfolio snapshot skipped: module not available")
+            details['portfolio_snapshot_success'] = False
+            details['portfolio_snapshot_failure_reason'] = 'module_not_available'
+        except Exception as e:
+            # Log error but don't fail the entire recompute
+            error_msg = f"Failed to compute/persist portfolio snapshot: {str(e)}"
+            logger.error(f"Error computing portfolio snapshot: {e}", exc_info=True)
+            results.append(f"⚠️ Portfolio snapshot failed: {str(e)}")
+            details['portfolio_snapshot_success'] = False
+            details['portfolio_snapshot_failure_reason'] = str(e)
+        
         # Step 5: Persist metadata to data/cache/data_health_metadata.json
         try:
             metadata = {
                 'price_book_max_date': details.get('price_book_max_date'),
                 'wave_history_max_date': details.get('wave_history_max_date'),
                 'ledger_max_date': details.get('ledger_max_date'),
+                'portfolio_snapshot_success': details.get('portfolio_snapshot_success', False),
+                'portfolio_snapshot_latest_date': details.get('portfolio_snapshot_latest_date'),
+                'portfolio_snapshot_wave_count': details.get('portfolio_snapshot_wave_count'),
                 'last_operator_action': 'force_ledger_recompute',
                 'build_marker': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
                 'timestamp': datetime.now(timezone.utc).isoformat()
