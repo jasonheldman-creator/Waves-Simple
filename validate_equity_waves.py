@@ -20,14 +20,14 @@ from typing import Dict, List, Tuple
 # The 9 equity waves to validate
 EQUITY_WAVES = [
     "clean_transit_infrastructure_wave",
-    "demas_fund_wave", 
+    "demas_fund_wave",
     "ev_infrastructure_wave",
     "future_power_energy_wave",
     "infinity_multi_asset_growth_wave",
     "next_gen_compute_semis_wave",
     "quantum_computing_wave",
     "small_to_mid_cap_growth_wave",
-    "us_megacap_core_wave",
+    "us_megacap_core_wave"
 ]
 
 # Expected display names

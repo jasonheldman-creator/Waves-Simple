@@ -14,7 +14,8 @@ import sys
 import pytest
 import pandas as pd
 
-# Add parent directory to path
+# NOTE: Direct sys.path manipulation is required here to avoid importing helpers/__init__.py
+# which has a dependency on streamlit. This allows tests to run in environments without streamlit.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from waves_engine import (
@@ -25,7 +26,10 @@ from waves_engine import (
 )
 from analytics_pipeline import resolve_wave_tickers, resolve_wave_benchmarks
 
-# Import wave_registry directly to avoid streamlit dependency in helpers/__init__.py
+# NOTE: Direct importlib import is required to avoid helpers/__init__.py which imports streamlit.
+# This is a known limitation of the current module structure where helpers/__init__.py
+# has heavy dependencies that are not needed for wave registry operations.
+# This pattern is also used in build_wave_history_from_prices.py for the same reason.
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     "wave_registry",

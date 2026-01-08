@@ -34,6 +34,7 @@ jobs:
           pip install pandas
       
       - name: Run equity waves validation
+        id: validation
         run: |
           python validate_equity_waves.py
       
@@ -42,7 +43,7 @@ jobs:
         run: |
           echo "## Equity Waves Validation Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ $? -eq 0 ]; then
+          if [ "${{ steps.validation.outcome }}" == "success" ]; then
             echo "✅ All 9 equity waves are properly configured" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Validation failed - see logs above" >> $GITHUB_STEP_SUMMARY
