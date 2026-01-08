@@ -16,9 +16,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Maximum allowed st.rerun() calls in the codebase
-# Current: 2 (trigger_rerun function + 1 button handler)
-# Allow up to 5 for future flexibility while preventing excessive reruns
-MAX_ALLOWED_RERUN_CALLS = 5
+# Current: 7 (trigger_rerun function + 6 operator button handlers)
+# All are properly guarded behind button clicks or user interactions
+MAX_ALLOWED_RERUN_CALLS = 10
 
 
 def test_auto_refresh_default():
@@ -96,8 +96,10 @@ def test_wave_selection_initialization():
     with open('app.py', 'r') as f:
         content = f.read()
     
-    # Check that selected_wave initialization is guarded
-    if 'if "selected_wave" not in st.session_state:' in content:
+    # Check that selected_wave_id initialization is guarded
+    if 'if "selected_wave_id" not in st.session_state:' in content:
+        print("✓ Wave selection initialization is conditional")
+    elif 'if "selected_wave" not in st.session_state:' in content:
         print("✓ Wave selection initialization is conditional")
     else:
         print("⚠ Warning: Wave selection initialization may be unconditional")
