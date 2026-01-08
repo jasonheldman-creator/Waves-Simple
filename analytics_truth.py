@@ -179,16 +179,9 @@ def expected_waves(weights_df: pd.DataFrame) -> List[str]:
         weights_df: DataFrame from load_weights()
         
     Returns:
-        Sorted list of exactly 28 unique wave names
-        
-    Raises:
-        ValueError: If wave count is not 28
+        Sorted list of unique wave names (dynamically determined)
     """
     wave_names = sorted(weights_df['wave'].unique().tolist())
-    
-    if len(wave_names) != 28:
-        raise ValueError(f"Expected exactly 28 waves, found {len(wave_names)}")
-    
     return wave_names
 
 
@@ -452,25 +445,26 @@ def generate_live_snapshot_csv(
     weights_path: str = "wave_weights.csv"
 ) -> pd.DataFrame:
     """
-    Generate live snapshot CSV with exactly 28 rows (one per expected wave).
+    Generate live snapshot CSV with one row per expected wave from wave_weights.csv.
     
     This function:
     1. Loads wave_weights.csv
-    2. Determines expected 28 waves
+    2. Dynamically determines expected waves
     3. Fetches live market data for all tickers (equity via yfinance, crypto via CoinGecko)
     4. Computes wave returns with proper handling of failed tickers
-    5. Generates DataFrame with exactly 28 rows
-    6. Writes to out_path
+    5. Normalizes and validates wave_id column
+    6. Generates DataFrame with validated wave_ids
+    7. Writes to out_path
     
     Args:
         out_path: Output path for snapshot CSV
         weights_path: Path to wave_weights.csv
         
     Returns:
-        DataFrame with exactly 28 rows containing wave data
+        DataFrame containing wave data with validated wave_ids
         
     Raises:
-        AssertionError: If final DataFrame doesn't have exactly 28 rows
+        AssertionError: If wave_id validation fails
     """
     print("\n" + "=" * 80)
     print("GENERATING LIVE SNAPSHOT CSV")
@@ -481,10 +475,13 @@ def generate_live_snapshot_csv(
     weights_df = load_weights(weights_path)
     print(f"✓ Loaded {len(weights_df)} weight entries")
     
-    # Step 2: Get expected waves
+    # Step 2: Get expected waves and derive expected wave_ids dynamically
     print("\n[2/5] Determining expected waves...")
     waves = expected_waves(weights_df)
-    print(f"✓ Found exactly {len(waves)} expected waves")
+    expected_wave_ids = sorted(set([_convert_wave_name_to_id(wave_name) for wave_name in waves]))
+    expected_count = len(expected_wave_ids)
+    print(f"✓ Found {len(waves)} expected waves")
+    print(f"✓ Derived {expected_count} expected wave_ids dynamically")
     
     # Step 3: Fetch prices for all tickers
     print("\n[3/5] Fetching market data for all tickers...")
@@ -523,8 +520,15 @@ def generate_live_snapshot_csv(
     current_utc = current_time.isoformat()
     
     for wave_name in waves:
-        # Get wave_id (slugified)
-        wave_id = _convert_wave_name_to_id(wave_name)
+        # Get wave_id (slugified) - normalize by stripping whitespace
+        wave_id_raw = _convert_wave_name_to_id(wave_name)
+        
+        # Normalize wave_id: strip whitespace and handle None/invalid entries
+        if wave_id_raw is None or (isinstance(wave_id_raw, str) and not wave_id_raw.strip()):
+            # Fallback to deterministic slug from display_name
+            wave_id = _convert_wave_name_to_id(wave_name) if wave_name else 'unknown_wave'
+        else:
+            wave_id = wave_id_raw.strip() if isinstance(wave_id_raw, str) else str(wave_id_raw)
         
         # Get returns data
         returns_data = wave_returns.get(wave_name, {})
@@ -550,41 +554,121 @@ def generate_live_snapshot_csv(
     # Create DataFrame
     df = pd.DataFrame(rows)
     
-    # Validate exactly 28 rows
-    if len(df) != 28:
-        raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
+    # Normalize wave_id column: strip whitespace
+    df['wave_id'] = df['wave_id'].apply(lambda x: x.strip() if isinstance(x, str) else x)
     
-    # Debug logging before wave_id uniqueness assertion
-    expected_wave_ids = [_convert_wave_name_to_id(wave_name) for wave_name in waves]
-    actual_wave_ids = df['wave_id'].tolist()
+    # === SINGLE VALIDATION POINT ===
+    print("\n" + "=" * 80)
+    print("WAVE_ID VALIDATION")
+    print("=" * 80)
     
-    print("\n--- DEBUG: Wave ID Uniqueness Check ---")
-    print(f"Expected wave_ids count: {len(expected_wave_ids)}")
-    print(f"Expected wave_ids: {expected_wave_ids}")
-    print(f"Actual wave_ids count: {len(actual_wave_ids)}")
-    print(f"Actual wave_ids: {actual_wave_ids}")
+    # Count metrics for validation
+    nunique_with_na = df['wave_id'].nunique(dropna=False)
+    nunique_without_na = df['wave_id'].nunique(dropna=True)
+    isna_sum = df['wave_id'].isna().sum()
     
-    # Count occurrences of each wave_id to detect duplicates
-    wave_id_counts = Counter(df['wave_id'])
-    duplicates = {wave_id: count for wave_id, count in wave_id_counts.items() if count > 1}
+    # Count blank wave_ids (empty after strip)
+    blank_sum = sum(1 for x in df['wave_id'] if isinstance(x, str) and not x.strip()) if not df['wave_id'].isna().all() else 0
     
-    if duplicates:
-        print("\n⚠️  DUPLICATE WAVE_IDs DETECTED:")
+    # Get duplicates
+    wave_id_counts = df['wave_id'].value_counts()
+    duplicates = wave_id_counts[wave_id_counts > 1]
+    
+    # Check for validation failures
+    validation_passed = True
+    error_messages = []
+    
+    # Check 1: nunique(dropna=False) should equal expected_count
+    if nunique_with_na != expected_count:
+        validation_passed = False
+        error_messages.append(
+            f"FAILED: nunique(dropna=False) = {nunique_with_na}, expected {expected_count}"
+        )
+    
+    # Check 2: No null wave_ids
+    if isna_sum > 0:
+        validation_passed = False
+        error_messages.append(
+            f"FAILED: Found {isna_sum} null wave_id(s)"
+        )
+    
+    # Check 3: No blank wave_ids
+    if blank_sum > 0:
+        validation_passed = False
+        error_messages.append(
+            f"FAILED: Found {blank_sum} blank wave_id(s) (empty after strip)"
+        )
+    
+    # Check 4: No duplicates
+    if len(duplicates) > 0:
+        validation_passed = False
+        duplicate_details = []
         for wave_id, count in duplicates.items():
-            print(f"  - wave_id '{wave_id}' appears {count} times")
-            # Get all rows with this duplicate wave_id
             duplicate_rows = df[df['wave_id'] == wave_id]
-            print(f"    Corresponding display names (Wave column):")
-            for idx, row in duplicate_rows.iterrows():
-                print(f"      * '{row['Wave']}' (wave_id: '{row['wave_id']}')")
-    else:
-        print("✓ No duplicate wave_ids found")
+            wave_names = duplicate_rows['Wave'].tolist()
+            duplicate_details.append(
+                f"  - wave_id '{wave_id}' appears {count} times in waves: {wave_names}"
+            )
+        error_messages.append(
+            f"FAILED: Found {len(duplicates)} duplicate wave_id(s):\n" + "\n".join(duplicate_details)
+        )
     
-    print("---------------------------------------\n")
+    # If validation failed, raise detailed error
+    if not validation_passed:
+        diagnostics = [
+            "=" * 80,
+            "WAVE_ID VALIDATION FAILED",
+            "=" * 80,
+            f"Expected count (from wave_weights.csv): {expected_count}",
+            "",
+            "Diagnostics:",
+            f"  - Total unique wave_ids (dropna=True):  {nunique_without_na}",
+            f"  - Total unique wave_ids (dropna=False): {nunique_with_na}",
+            f"  - Null wave_ids (isna().sum()):         {isna_sum}",
+            f"  - Blank wave_ids (empty after strip):   {blank_sum}",
+            "",
+            "Validation Errors:",
+        ]
+        
+        for error_msg in error_messages:
+            diagnostics.append(f"  {error_msg}")
+        
+        # Add sample data for debugging
+        if isna_sum > 0:
+            null_rows = df[df['wave_id'].isna()][['Wave', 'wave_id']]
+            diagnostics.append("")
+            diagnostics.append("Rows with null wave_ids:")
+            for idx, row in null_rows.iterrows():
+                diagnostics.append(f"  - Wave: '{row['Wave']}', wave_id: {row['wave_id']}")
+        
+        if blank_sum > 0:
+            blank_rows = df[df['wave_id'].apply(lambda x: isinstance(x, str) and not x.strip())]
+            diagnostics.append("")
+            diagnostics.append("Rows with blank wave_ids:")
+            for idx, row in blank_rows.iterrows():
+                diagnostics.append(f"  - Wave: '{row['Wave']}', wave_id: '{row['wave_id']}'")
+        
+        if len(duplicates) > 0:
+            diagnostics.append("")
+            diagnostics.append("Example duplicate rows:")
+            for wave_id in duplicates.index[:3]:  # Show first 3 duplicates
+                dup_rows = df[df['wave_id'] == wave_id][['Wave', 'wave_id']]
+                diagnostics.append(f"  wave_id '{wave_id}':")
+                for idx, row in dup_rows.iterrows():
+                    diagnostics.append(f"    - Wave: '{row['Wave']}'")
+        
+        diagnostics.append("=" * 80)
+        
+        raise AssertionError("\n".join(diagnostics))
     
-    # Validate unique wave_ids
-    if df['wave_id'].nunique() != 28:
-        raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
+    # Validation passed
+    print(f"✓ wave_id validation PASSED")
+    print(f"  - Expected count: {expected_count}")
+    print(f"  - Unique wave_ids (dropna=False): {nunique_with_na}")
+    print(f"  - Null wave_ids: {isna_sum}")
+    print(f"  - Blank wave_ids: {blank_sum}")
+    print(f"  - Duplicate wave_ids: {len(duplicates)}")
+    print("=" * 80 + "\n")
     
     print(f"✓ Created DataFrame with {len(df)} rows")
     print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
@@ -633,14 +717,19 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
         wave_name: Display name from wave_weights.csv
         
     Returns:
-        wave_id in snake_case format
+        wave_id in snake_case format (never None)
     """
+    if not wave_name:
+        return 'unknown_wave'
+    
     try:
         # Try to use waves_engine function if available
         if WAVES_ENGINE_AVAILABLE:
             try:
                 from waves_engine import get_wave_id_from_display_name
-                return get_wave_id_from_display_name(wave_name)
+                result = get_wave_id_from_display_name(wave_name)
+                if result:  # Only use if not None
+                    return result
             except:
                 pass
         
