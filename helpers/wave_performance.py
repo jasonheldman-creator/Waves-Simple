@@ -1010,7 +1010,7 @@ def compute_wave_beta(
             wave_portfolio += wave_normalized[ticker].ffill() * weight
         
         # Compute wave returns
-        wave_returns = wave_portfolio.pct_change().dropna()
+        wave_returns = wave_portfolio.pct_change(fill_method=None).dropna()
         
         # Compute portfolio values for benchmark
         benchmark_holdings = WAVE_WEIGHTS[benchmark_name]
@@ -1044,7 +1044,7 @@ def compute_wave_beta(
             benchmark_portfolio += benchmark_normalized[ticker].ffill() * weight
         
         # Compute benchmark returns
-        benchmark_returns = benchmark_portfolio.pct_change().dropna()
+        benchmark_returns = benchmark_portfolio.pct_change(fill_method=None).dropna()
         
         # Now compute beta using the aligned returns
         beta_result = compute_beta(wave_returns, benchmark_returns, min_n=min_n)
@@ -1243,7 +1243,8 @@ def compute_portfolio_snapshot(
                 continue
             
             # Compute daily returns for each ticker
-            ticker_returns = ticker_prices.pct_change()
+            # fill_method=None prevents forward-filling of NaN values
+            ticker_returns = ticker_prices.pct_change(fill_method=None)
             
             # Compute weighted portfolio returns for this wave
             wave_returns = pd.Series(0.0, index=ticker_returns.index)
@@ -1602,7 +1603,7 @@ def compute_portfolio_alpha_attribution(
                 if len(ticker_prices) < 2:
                     continue
                 
-                ticker_returns = ticker_prices.pct_change()
+                ticker_returns = ticker_prices.pct_change(fill_method=None)
                 
                 # Weighted returns
                 wave_returns = pd.Series(0.0, index=ticker_returns.index)
@@ -1725,7 +1726,7 @@ def compute_portfolio_alpha_attribution(
         # Compute safe returns if available
         if safe_ticker is not None:
             safe_prices = price_book[safe_ticker].copy()
-            safe_returns = safe_prices.pct_change().iloc[1:]
+            safe_returns = safe_prices.pct_change(fill_method=None).iloc[1:]
             # Align with portfolio dates
             safe_returns = safe_returns.reindex(daily_unoverlay_return.index, fill_value=0.0)
         else:
@@ -2456,7 +2457,7 @@ def compute_portfolio_alpha_ledger(
                 if len(ticker_prices) < 2:
                     continue
                 
-                ticker_returns = ticker_prices.pct_change()
+                ticker_returns = ticker_prices.pct_change(fill_method=None)
                 
                 # Weighted returns
                 wave_returns = pd.Series(0.0, index=ticker_returns.index)
@@ -2511,7 +2512,7 @@ def compute_portfolio_alpha_ledger(
         
         if safe_ticker is not None:
             safe_prices = price_book[safe_ticker].copy()
-            daily_safe_return = safe_prices.pct_change().iloc[1:]
+            daily_safe_return = safe_prices.pct_change(fill_method=None).iloc[1:]
             # Align with risk return dates
             daily_safe_return = daily_safe_return.reindex(daily_risk_return.index, fill_value=0.0)
         else:
@@ -2585,7 +2586,7 @@ def compute_portfolio_alpha_ledger(
     try:
         if benchmark_ticker in price_book.columns:
             benchmark_prices = price_book[benchmark_ticker].copy()
-            daily_benchmark_return = benchmark_prices.pct_change().iloc[1:]
+            daily_benchmark_return = benchmark_prices.pct_change(fill_method=None).iloc[1:]
             # Align with portfolio dates
             daily_benchmark_return = daily_benchmark_return.reindex(daily_risk_return.index, fill_value=0.0)
         else:
