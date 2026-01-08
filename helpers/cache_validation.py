@@ -260,7 +260,6 @@ def validate_trading_day_freshness(
         result['error'] = f"Cache max date ({cache_date_only}) is ahead of last trading day ({trading_date_only})"
     else:
         result['error'] = f"Cache max date ({cache_date_only}) is {sessions_behind} trading sessions behind last trading day ({trading_date_only})"
-    # sessions_behind already set at line 244
     logger.error(f"✗ FAIL: {result['error']}")
     return result
 
