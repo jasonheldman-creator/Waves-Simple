@@ -58,6 +58,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
+from collections import Counter
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -562,6 +563,23 @@ def generate_live_snapshot_csv(
     print(f"Expected wave_ids: {expected_wave_ids}")
     print(f"Actual wave_ids count: {len(actual_wave_ids)}")
     print(f"Actual wave_ids: {actual_wave_ids}")
+    
+    # Count occurrences of each wave_id to detect duplicates
+    wave_id_counts = Counter(df['wave_id'])
+    duplicates = {wave_id: count for wave_id, count in wave_id_counts.items() if count > 1}
+    
+    if duplicates:
+        print("\n⚠️  DUPLICATE WAVE_IDs DETECTED:")
+        for wave_id, count in duplicates.items():
+            print(f"  - wave_id '{wave_id}' appears {count} times")
+            # Get all rows with this duplicate wave_id
+            duplicate_rows = df[df['wave_id'] == wave_id]
+            print(f"    Corresponding display names (Wave column):")
+            for idx, row in duplicate_rows.iterrows():
+                print(f"      * '{row['Wave']}' (wave_id: '{row['wave_id']}')")
+    else:
+        print("✓ No duplicate wave_ids found")
+    
     print("---------------------------------------\n")
     
     # Validate unique wave_ids
