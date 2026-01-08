@@ -582,7 +582,8 @@ def generate_live_snapshot_csv(
         )
     
     # Validation 3: Check for blank or whitespace-only values
-    is_blank_mask = df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '')
+    # Convert to string to handle all data types, then check for blank after stripping
+    is_blank_mask = df['wave_id'].astype(str).str.strip().eq('')
     blank_count = is_blank_mask.sum()
     if blank_count > 0:
         blank_rows = df[is_blank_mask]
