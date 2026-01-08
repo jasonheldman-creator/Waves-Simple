@@ -412,14 +412,21 @@ def load_cache() -> Optional[pd.DataFrame]:
     Returns:
         DataFrame with dates as index and tickers as columns, or None if cache doesn't exist
     """
+    # Log cache file existence check
+    logger.info(f"PRICE_BOOK Cache Check: File exists={os.path.exists(CACHE_PATH)}, Path={CACHE_PATH}")
+    
     if not os.path.exists(CACHE_PATH):
-        logger.info(f"Cache file not found: {CACHE_PATH}")
+        logger.warning(f"Cache file not found: {CACHE_PATH}")
         return None
     
     try:
         # Get file mtime for cache key uniqueness
         cache_mtime = os.path.getmtime(CACHE_PATH)
         cache_size = os.path.getsize(CACHE_PATH)
+        cache_size_mb = cache_size / (1024 * 1024)
+        
+        # Log file size
+        logger.info(f"PRICE_BOOK Cache File: Size={cache_size_mb:.2f} MB ({cache_size:,} bytes)")
         
         # If using Streamlit, use cache with unique key based on mtime and size
         if STREAMLIT_AVAILABLE and st is not None:
@@ -464,9 +471,10 @@ def load_cache() -> Optional[pd.DataFrame]:
             # Sort by date
             cache_df = cache_df.sort_index()
         
+        # Log detailed PRICE_BOOK shape and date range
         logger.info(
-            f"Loaded cache: {len(cache_df)} days, {len(cache_df.columns)} tickers, "
-            f"range: {cache_df.index[0].date()} to {cache_df.index[-1].date()}"
+            f"PRICE_BOOK Loaded: shape=({len(cache_df)} rows, {len(cache_df.columns)} cols), "
+            f"date_range={cache_df.index[0].date()} to {cache_df.index[-1].date()}"
         )
         
         return cache_df
@@ -1217,6 +1225,79 @@ def clear_cache() -> bool:
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
         return False
+
+
+def get_price_book_debug_summary(price_book: pd.DataFrame) -> dict:
+    """
+    Get debug summary of price_book DataFrame for diagnostics.
+    
+    This function provides a comprehensive diagnostic view of the price_book,
+    including shape, date range, ticker counts, and sample tickers.
+    
+    Args:
+        price_book: DataFrame with dates as index and tickers as columns
+        
+    Returns:
+        Dictionary with:
+        - rows: int - Number of rows (trading days)
+        - cols: int - Number of columns (tickers)
+        - start_date: str - Earliest date (YYYY-MM-DD) or None if empty
+        - end_date: str - Latest date (YYYY-MM-DD) or None if empty
+        - num_tickers: int - Count of columns (same as cols)
+        - non_null_cells: int - Count of non-null cells
+        - sample_tickers: List[str] - First 10 column names
+        - is_empty: bool - True if DataFrame is empty or None
+    """
+    result = {
+        'rows': 0,
+        'cols': 0,
+        'start_date': None,
+        'end_date': None,
+        'num_tickers': 0,
+        'non_null_cells': 0,
+        'sample_tickers': [],
+        'is_empty': True
+    }
+    
+    # Check if price_book is None or empty
+    if price_book is None or price_book.empty:
+        return result
+    
+    # Get shape
+    result['rows'], result['cols'] = price_book.shape
+    result['num_tickers'] = result['cols']
+    result['is_empty'] = False
+    
+    # Get date range (safely handle DatetimeIndex)
+    try:
+        if isinstance(price_book.index, pd.DatetimeIndex) and len(price_book.index) > 0:
+            result['start_date'] = price_book.index[0].strftime('%Y-%m-%d')
+            result['end_date'] = price_book.index[-1].strftime('%Y-%m-%d')
+        else:
+            # Try to convert if not DatetimeIndex
+            try:
+                dt_index = pd.to_datetime(price_book.index)
+                if len(dt_index) > 0:
+                    result['start_date'] = dt_index[0].strftime('%Y-%m-%d')
+                    result['end_date'] = dt_index[-1].strftime('%Y-%m-%d')
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Error extracting date range from price_book: {e}")
+    
+    # Count non-null cells (efficient method using count())
+    try:
+        result['non_null_cells'] = int(price_book.count().sum())
+    except Exception as e:
+        logger.warning(f"Error counting non-null cells: {e}")
+    
+    # Get sample tickers (first 10 columns)
+    try:
+        result['sample_tickers'] = list(price_book.columns[:10])
+    except Exception as e:
+        logger.warning(f"Error getting sample tickers: {e}")
+    
+    return result
 
 
 def get_trading_days_ago(target_date: datetime, trading_days_back: int = 1) -> datetime:
