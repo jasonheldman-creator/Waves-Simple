@@ -32,6 +32,9 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# Trading days per year constant for volatility annualization
+TRADING_DAYS_PER_YEAR = 252
+
 # Volatility regime thresholds (annualized volatility)
 # Based on crypto-native volatility characteristics
 VOL_THRESHOLDS = {
@@ -85,9 +88,9 @@ def _compute_realized_volatility(prices: pd.Series, window: int = 30) -> float:
     if len(returns) == 0:
         return np.nan
     
-    # Annualize volatility (assuming ~252 trading days per year)
+    # Annualize volatility using trading days per year constant
     daily_vol = returns.std()
-    annualized_vol = daily_vol * np.sqrt(252)
+    annualized_vol = daily_vol * np.sqrt(TRADING_DAYS_PER_YEAR)
     
     return float(annualized_vol)
 

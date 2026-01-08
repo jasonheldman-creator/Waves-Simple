@@ -17,8 +17,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 try:
+    # Import public function for integration testing
+    from helpers.crypto_volatility_overlay import compute_crypto_overlay
+    
+    # Import private functions for unit testing internal logic
+    # Note: Testing private functions is intentional here to validate
+    # individual components of the overlay computation
     from helpers.crypto_volatility_overlay import (
-        compute_crypto_overlay,
         _compute_realized_volatility,
         _compute_max_drawdown,
         _classify_volatility_regime,
@@ -64,10 +69,10 @@ def create_synthetic_price_series(
     daily_vol = volatility / np.sqrt(252)
     daily_trend = trend / 252
     
-    returns = np.random.normal(daily_trend, daily_vol, days)
+    price_returns = np.random.normal(daily_trend, daily_vol, days)
     
     # Convert to prices
-    prices = start_price * np.exp(np.cumsum(returns))
+    prices = start_price * np.exp(np.cumsum(price_returns))
     
     return pd.Series(prices, index=dates)
 
