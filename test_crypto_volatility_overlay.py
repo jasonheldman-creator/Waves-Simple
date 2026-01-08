@@ -24,6 +24,7 @@ try:
     from helpers.price_book import get_price_book
     from helpers.wave_performance import compute_wave_returns
     IMPORTS_AVAILABLE = True
+    IMPORT_ERROR = None
 except ImportError as e:
     IMPORTS_AVAILABLE = False
     IMPORT_ERROR = str(e)
@@ -32,7 +33,7 @@ except ImportError as e:
 # Skip all tests if imports not available
 pytestmark = pytest.mark.skipif(
     not IMPORTS_AVAILABLE,
-    reason=f"Required imports not available: {IMPORT_ERROR if not IMPORTS_AVAILABLE else ''}"
+    reason=f"Required imports not available: {IMPORT_ERROR if IMPORT_ERROR else 'unknown'}"
 )
 
 
@@ -290,8 +291,9 @@ class TestPriceCacheIntegration:
             # If failed, should have clear reason
             assert result['failure_reason'] is not None, "Failure should have reason"
             # Check if it's due to missing crypto tickers (expected)
-            assert any(keyword in result['failure_reason'].lower() for keyword in ['ticker', 'price_book', 'missing']), \
-                f"Failure reason should be clear: {result['failure_reason']}"
+            expected_keywords = ['ticker', 'price_book', 'missing']
+            assert any(keyword in result['failure_reason'].lower() for keyword in expected_keywords), \
+                f"Failure reason should mention one of {expected_keywords}, got: {result['failure_reason']}"
     
     def test_crypto_overlay_fields_persist(self):
         """Test that overlay fields are persisted in wave output."""

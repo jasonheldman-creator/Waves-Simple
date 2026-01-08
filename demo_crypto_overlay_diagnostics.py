@@ -151,7 +151,7 @@ def demo_ui_integration():
     print("UI INTEGRATION EXAMPLE")
     print("="*80)
     
-    print("""
+    print(r"""
 In your Streamlit app.py, add crypto overlay diagnostics to wave panels:
 
 ```python

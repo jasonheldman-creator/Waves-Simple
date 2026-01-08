@@ -164,8 +164,9 @@ def format_crypto_exposure(diagnostics: Optional[Dict[str, Any]]) -> str:
     if exposure is None:
         return "N/A"
     
-    # Format as percentage
-    return f"{exposure * 100:.0f}%"
+    # Format as percentage with appropriate precision
+    # Use 1 decimal place for better granularity
+    return f"{exposure * 100:.1f}%"
 
 
 def format_crypto_volatility(diagnostics: Optional[Dict[str, Any]]) -> str:
