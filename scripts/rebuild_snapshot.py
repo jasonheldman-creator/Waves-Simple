@@ -2,8 +2,8 @@
 """
 Rebuild snapshot script for GitHub Actions workflow.
 
-This script rebuilds the live snapshot by calling generate_live_snapshot_csv()
-from analytics_truth, then WRITES the artifact to data/live_snapshot.csv.
+This script rebuilds the live snapshot by calling generate_snapshot()
+from snapshot_ledger, then WRITES the artifact to data/live_snapshot.csv.
 
 The workflow should only be considered successful if the CSV file is written.
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analytics_truth import generate_live_snapshot_csv
+from snapshot_ledger import generate_snapshot
 
 
 def main() -> int:
@@ -24,9 +24,9 @@ def main() -> int:
         print("REBUILD SNAPSHOT WORKFLOW")
         print("=" * 80)
 
-        # Generate snapshot dataframe
+        # Generate snapshot dataframe using the correct snapshot generator
         print("\nRebuilding live snapshot (generating DataFrame)...")
-        df = generate_live_snapshot_csv()
+        df = generate_snapshot(force_refresh=True, generation_reason='github_actions')
 
         # Write artifact to the exact file the app/workflow expects
         out_path = Path("data") / "live_snapshot.csv"
