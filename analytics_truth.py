@@ -597,6 +597,21 @@ def generate_live_snapshot_csv(
     
     # Step 5: Build snapshot DataFrame
     print("\n[5/5] Building snapshot DataFrame...")
+    
+    # Load wave registry to get status for each wave
+    wave_status_map = {}
+    try:
+        from helpers.wave_registry import get_wave_registry
+        registry = get_wave_registry()
+        if not registry.empty:
+            for _, row in registry.iterrows():
+                wave_name = row.get('wave_name', '')
+                wave_status = row.get('status', 'ACTIVE')
+                wave_status_map[wave_name] = wave_status
+            print(f"✓ Loaded wave status from registry: {len(wave_status_map)} waves")
+    except Exception as e:
+        print(f"⚠️ Could not load wave registry status: {e}")
+    
     rows = []
     current_time = datetime.now()
     current_date = current_time.strftime("%Y-%m-%d")
@@ -606,18 +621,22 @@ def generate_live_snapshot_csv(
         # Get wave_id (slugified)
         wave_id = _convert_wave_name_to_id(wave_name)
         
+        # Get wave status from registry, default to ACTIVE
+        wave_status = wave_status_map.get(wave_name, 'ACTIVE')
+        
         # Get returns data
         returns_data = wave_returns.get(wave_name, {})
         
         # Build row
         row = {
             'wave_id': wave_id,
-            'Wave': wave_name,
-            'Return_1D': returns_data.get('return_1d', np.nan),
-            'Return_30D': returns_data.get('return_30d', np.nan),
-            'Return_60D': returns_data.get('return_60d', np.nan),
-            'Return_365D': returns_data.get('return_365d', np.nan),
+            'wave': wave_name,
+            'return_1d': returns_data.get('return_1d', np.nan),
+            'return_30d': returns_data.get('return_30d', np.nan),
+            'return_60d': returns_data.get('return_60d', np.nan),
+            'return_365d': returns_data.get('return_365d', np.nan),
             'status': returns_data.get('status', 'NO DATA'),
+            'wave_status': wave_status,
             'coverage_pct': returns_data.get('coverage_pct', 0.0),
             'missing_tickers': ', '.join(returns_data.get('missing_tickers', [])),
             'tickers_ok': len(returns_data.get('tickers_ok', [])),
@@ -901,7 +920,8 @@ def _compute_wave_metrics_from_tickers(
     wave_id: str,
     successful_tickers: List[str],
     ticker_data: Dict[str, pd.Series],
-    failed_tickers: List[str]
+    failed_tickers: List[str],
+    wave_status: str = 'ACTIVE'
 ) -> Dict[str, Any]:
     """
     Compute wave metrics from successfully fetched ticker data.
@@ -912,6 +932,7 @@ def _compute_wave_metrics_from_tickers(
         successful_tickers: List of tickers that were successfully fetched
         ticker_data: Dictionary mapping ticker to price series
         failed_tickers: List of tickers that failed to fetch
+        wave_status: Wave status from registry (ACTIVE/STAGING), default ACTIVE
         
     Returns:
         Dictionary with computed metrics
@@ -1018,6 +1039,7 @@ def _compute_wave_metrics_from_tickers(
             'Data_Regime_Tag': 'Operational',
             'Coverage_Score': coverage_score,
             'status': 'OK',
+            'wave_status': wave_status,
             'missing_tickers': ', '.join(sorted(failed_tickers)) if failed_tickers else '',
             'missing_ticker_count': len(failed_tickers)
         }
@@ -1047,6 +1069,20 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
     print("GENERATING SNAPSHOT WITH FULL COVERAGE")
     print("=" * 80)
     
+    # Step 0: Load wave registry to get status for each wave
+    wave_status_map = {}
+    try:
+        from helpers.wave_registry import get_wave_registry
+        registry = get_wave_registry()
+        if not registry.empty:
+            for _, row in registry.iterrows():
+                wave_name = row.get('wave_name', '')
+                wave_status = row.get('status', 'ACTIVE')
+                wave_status_map[wave_name] = wave_status
+            print(f"✓ Loaded wave status from registry: {len(wave_status_map)} waves")
+    except Exception as e:
+        print(f"⚠️ Could not load wave registry status: {e}")
+    
     # Step 1: Derive expected waves from wave_weights.csv
     expected_waves = _derive_expected_waves_from_weights()
     
@@ -1063,6 +1099,9 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
         
         # Convert wave name to wave_id
         wave_id = _convert_wave_name_to_id(wave_name)
+        
+        # Get wave status from registry, default to ACTIVE
+        wave_status = wave_status_map.get(wave_name, 'ACTIVE')
         
         # Get tickers for this wave
         tickers = _get_wave_tickers_from_weights(wave_name)
@@ -1103,6 +1142,7 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
                 'Data_Regime_Tag': 'Unavailable',
                 'Coverage_Score': 0.0,
                 'status': 'NO DATA',
+                'wave_status': wave_status,
                 'missing_tickers': 'No tickers defined',
                 'missing_ticker_count': 0
             })
@@ -1129,7 +1169,7 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
         if len(successful_tickers) > 0:
             # At least one ticker succeeded - compute metrics
             metrics = _compute_wave_metrics_from_tickers(
-                wave_name, wave_id, successful_tickers, ticker_data, failed_tickers
+                wave_name, wave_id, successful_tickers, ticker_data, failed_tickers, wave_status
             )
             
             if metrics is not None:
@@ -1170,6 +1210,7 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
                     'Data_Regime_Tag': 'Unavailable',
                     'Coverage_Score': 0.0,
                     'status': 'NO DATA',
+                    'wave_status': wave_status,
                     'missing_tickers': ', '.join(sorted(failed_tickers)),
                     'missing_ticker_count': len(failed_tickers)
                 })
@@ -1208,6 +1249,7 @@ def generate_snapshot_with_full_coverage() -> pd.DataFrame:
                 'Data_Regime_Tag': 'Unavailable',
                 'Coverage_Score': 0.0,
                 'status': 'NO DATA',
+                'wave_status': wave_status,
                 'missing_tickers': ', '.join(sorted(failed_tickers)),
                 'missing_ticker_count': len(failed_tickers)
             })
