@@ -10,6 +10,7 @@ permissions:
 
 env:
   MIN_SUCCESS_RATE: "0.90"
+  MAX_SESSIONS_BEHIND_TOLERANCE: "1"  # Must match value in build_price_cache.py
 
 jobs:
   update_cache:
@@ -160,6 +161,75 @@ jobs:
                   
           except Exception as e:
               print(f"  Error inspecting cache: {e}")
+          EOF
+          
+          echo "========================================================================"
+
+      - name: Print operator diagnostics
+        run: |
+          echo ""
+          echo "========================================================================"
+          echo "OPERATOR DIAGNOSTICS"
+          echo "========================================================================"
+          
+          python3 << 'EOF'
+          import json
+          import pandas as pd
+          import sys
+          import os
+          
+          # Get tolerance from environment
+          max_sessions_tolerance = int(os.environ.get('MAX_SESSIONS_BEHIND_TOLERANCE', '1'))
+          
+          # Load metadata
+          try:
+              with open('data/cache/prices_cache_meta.json', 'r') as f:
+                  meta = json.load(f)
+              
+              # Extract key metrics
+              spy_last_trading_day = meta.get('last_trading_day', 'N/A')
+              cache_max_date = meta.get('max_price_date', 'N/A')
+              sessions_behind = meta.get('sessions_behind', 'N/A')
+              symbol_count = meta.get('tickers_successful', 0)
+              success_rate = meta.get('success_rate', 0.0)
+              min_success_rate = meta.get('min_success_rate', 0.9)
+              
+              # Determine verdict
+              has_missing_required = 'missing_required_symbols' in meta and meta['missing_required_symbols']
+              meets_threshold = success_rate >= min_success_rate
+              is_fresh = sessions_behind == 'N/A' or (isinstance(sessions_behind, int) and sessions_behind <= max_sessions_tolerance)
+              
+              verdict = "PASS" if (meets_threshold and not has_missing_required and is_fresh) else "FAIL"
+              
+              # Print diagnostics
+              print(f"SPY_last_trading_day={spy_last_trading_day}")
+              print(f"cache_max_date={cache_max_date}")
+              print(f"sessions_behind={sessions_behind}")
+              print(f"symbol_count={symbol_count}")
+              print(f"success_rate={success_rate:.4f}")
+              print(f"min_success_rate={min_success_rate:.4f}")
+              print(f"max_sessions_behind_tolerance={max_sessions_tolerance}")
+              print(f"CACHE_BUILD_VERDICT={verdict}")
+              
+              # Exit with failure if verdict is FAIL
+              if verdict == "FAIL":
+                  print("")
+                  print("Build verdict: FAIL")
+                  if not meets_threshold:
+                      print(f"  - Success rate {success_rate:.2%} below threshold {min_success_rate:.2%}")
+                  if has_missing_required:
+                      print(f"  - Missing required symbols")
+                  if not is_fresh:
+                      print(f"  - Cache is {sessions_behind} sessions behind (tolerance: {max_sessions_tolerance})")
+                  sys.exit(1)
+              else:
+                  print("")
+                  print("Build verdict: PASS")
+                  
+          except Exception as e:
+              print(f"Error reading metadata: {e}")
+              print("CACHE_BUILD_VERDICT=FAIL")
+              sys.exit(1)
           EOF
           
           echo "========================================================================"
