@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Maximum allowed st.rerun() calls in the codebase
 # Current: 7 (trigger_rerun function + 6 operator button handlers)
 # All are properly guarded behind button clicks or user interactions
-MAX_ALLOWED_RERUN_CALLS = 10
+# Allow small buffer of 8 to catch accidental additions while preventing excessive reruns
+MAX_ALLOWED_RERUN_CALLS = 8
 
 
 def test_auto_refresh_default():

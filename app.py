@@ -249,6 +249,13 @@ RENDER_RICH_HTML = os.environ.get("RENDER_RICH_HTML", "True").lower() == "true"
 SAFE_MODE = os.environ.get("SAFE_MODE", "False").lower() == "true"
 
 # ============================================================================
+# RERUN THROTTLE CONFIGURATION
+# ============================================================================
+# Rerun throttle settings to prevent rapid consecutive reruns
+RERUN_THROTTLE_THRESHOLD = 0.5  # Minimum seconds between reruns (below this triggers counter)
+MAX_RAPID_RERUNS = 3  # Number of rapid reruns before halting execution
+
+# ============================================================================
 # ROLLBACK SAFETY: Original app.py backed up as app.py.decision-engine-backup
 # To restore: cp app.py.decision-engine-backup app.py
 # ============================================================================
@@ -21839,18 +21846,18 @@ def main():
         current_time = time.time()
         time_since_last_rerun = current_time - st.session_state.last_rerun_time
         
-        # Check if rerun is happening too quickly (< 0.5 seconds)
-        if time_since_last_rerun < 0.5:
+        # Check if rerun is happening too quickly (configurable threshold)
+        if time_since_last_rerun < RERUN_THROTTLE_THRESHOLD:
             st.session_state.rapid_rerun_count += 1
             
-            # If we've had 3 rapid reruns in a row, halt execution
-            if st.session_state.rapid_rerun_count >= 3:
+            # If we've exceeded max rapid reruns, halt execution
+            if st.session_state.rapid_rerun_count >= MAX_RAPID_RERUNS:
                 st.error("⚠️ **RAPID RERUN DETECTED: Application halted for safety**")
-                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within 0.5 seconds. This indicates a rerun loop.")
+                st.warning(f"The application detected {st.session_state.rapid_rerun_count} consecutive reruns within {RERUN_THROTTLE_THRESHOLD} seconds. This indicates a rerun loop.")
                 st.info("**What to do:**")
                 st.info("1. Refresh the page manually (F5 or Ctrl+R)")
                 st.info("2. If the problem persists, check for auto-refresh settings or report this issue")
-                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago")
+                st.caption(f"Debug info: Last rerun was {time_since_last_rerun:.3f}s ago (threshold: {RERUN_THROTTLE_THRESHOLD}s)")
                 st.stop()
         else:
             # Reset rapid rerun counter if enough time has passed
