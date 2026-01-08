@@ -71,7 +71,7 @@ try:
         WAVE_ID_REGISTRY,
     )
     WAVES_ENGINE_AVAILABLE = True
-except ImportError:
+except (ImportError, AttributeError):
     WAVES_ENGINE_AVAILABLE = False
     get_all_wave_ids = None
     get_display_name_from_wave_id = None
@@ -461,6 +461,21 @@ def _is_crypto_wave(wave_name: str) -> bool:
     return wave_name.startswith("Crypto")
 
 
+def _find_duplicates(items: List[str]) -> set:
+    """
+    Find duplicate items in a list efficiently.
+    
+    Args:
+        items: List of items to check for duplicates
+        
+    Returns:
+        Set of items that appear more than once
+    """
+    from collections import Counter
+    counts = Counter(items)
+    return {item for item, count in counts.items() if count > 1}
+
+
 def generate_live_snapshot_csv(
     out_path: str = "data/live_snapshot.csv",
     weights_path: str = "wave_weights.csv"
@@ -569,18 +584,17 @@ def generate_live_snapshot_csv(
     if len(df) != 28:
         raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
     
-    # Separate crypto and equity waves for validation
-    crypto_mask = df['Wave'].apply(_is_crypto_wave)
+    # Separate crypto and equity waves for validation (using vectorized operation)
+    crypto_mask = df['Wave'].str.startswith('Crypto')
     equity_df = df[~crypto_mask]
     crypto_df = df[crypto_mask]
     
     # Validate unique wave_ids for equity waves (strict requirement)
     equity_wave_ids = equity_df['wave_id'].tolist()
-    if len(equity_wave_ids) != len(set(equity_wave_ids)):
-        # Find duplicates
-        duplicates = [wid for wid in equity_wave_ids if equity_wave_ids.count(wid) > 1]
+    equity_duplicates = _find_duplicates(equity_wave_ids)
+    if equity_duplicates:
         raise AssertionError(
-            f"Equity waves must have unique wave_ids. Found duplicates: {set(duplicates)}"
+            f"Equity waves must have unique wave_ids. Found duplicates: {equity_duplicates}"
         )
     
     # Check for missing wave_ids in equity waves
@@ -599,10 +613,10 @@ def generate_live_snapshot_csv(
         print(f"⚠️ Warning: Missing wave_ids for crypto waves: {missing_crypto['Wave'].tolist()}")
     
     # Check for duplicate crypto wave_ids
-    if len(crypto_wave_ids) != len(set(crypto_wave_ids)):
-        duplicates = [wid for wid in crypto_wave_ids if crypto_wave_ids.count(wid) > 1]
-        duplicate_waves = crypto_df[crypto_df['wave_id'].isin(duplicates)]['Wave'].tolist()
-        print(f"⚠️ Warning: Duplicate wave_ids found in crypto waves: {set(duplicates)}")
+    crypto_duplicates = _find_duplicates(crypto_wave_ids)
+    if crypto_duplicates:
+        duplicate_waves = crypto_df[crypto_df['wave_id'].isin(crypto_duplicates)]['Wave'].tolist()
+        print(f"⚠️ Warning: Duplicate wave_ids found in crypto waves: {crypto_duplicates}")
         print(f"   Affected waves: {duplicate_waves}")
     
     print(f"✓ Created DataFrame with {len(df)} rows")
