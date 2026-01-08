@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 # Column name mapping for snapshot normalization
 SNAPSHOT_COLUMN_RENAME_MAP = {
     "wave": "Wave",
-    "wave_id": "wave_id",
     "return_1d": "Return_1D",
     "return_30d": "Return_30D",
     "return_60d": "Return_60D",
@@ -3274,8 +3273,11 @@ def load_live_snapshot(path: str = "live_snapshot.csv", fallback: bool = True) -
             # Normalize column names to lowercase
             df.columns = [c.strip().lower() for c in df.columns]
             
+            # Create filtered rename map (only include columns that exist)
+            rename_cols = {k: v for k, v in SNAPSHOT_COLUMN_RENAME_MAP.items() if k in df.columns}
+            
             # Rename columns to canonical names
-            df = df.rename(columns={k: v for k, v in SNAPSHOT_COLUMN_RENAME_MAP.items() if k in df.columns})
+            df = df.rename(columns=rename_cols)
             
             # Convert numeric columns with error handling
             for col in SNAPSHOT_NUMERIC_COLUMNS:
