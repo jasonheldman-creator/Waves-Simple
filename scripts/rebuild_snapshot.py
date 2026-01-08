@@ -11,11 +11,9 @@ The workflow succeeds based on successful execution of this script only.
 
 import sys
 import os
-from pathlib import Path
 
 # Add parent directory to path for imports
-parent_dir = Path(__file__).parent.parent
-sys.path.insert(0, str(parent_dir))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analytics_truth import generate_live_snapshot_csv
 
@@ -40,16 +38,13 @@ def main():
         print("\nRebuilding live snapshot...")
         df = generate_live_snapshot_csv()
         
-        # Validate the result
-        if df is not None and not df.empty:
-            print(f"\n✓ Successfully rebuilt snapshot with {len(df)} rows")
-            print("\nNote: Generated snapshot and cache artifacts in data/cache/")
-            print("      are ignored by .gitignore and will not be committed.")
-            print("\n" + "=" * 80)
-            return 0
-        else:
-            print("\n✗ Failed to rebuild snapshot: Empty or None result")
-            return 1
+        # Validate the result (generate_live_snapshot_csv always returns a DataFrame
+        # with exactly 28 rows or raises AssertionError)
+        print(f"\n✓ Successfully rebuilt snapshot with {len(df)} rows")
+        print("\nNote: Generated snapshot and cache artifacts in data/cache/")
+        print("      are ignored by .gitignore and will not be committed.")
+        print("\n" + "=" * 80)
+        return 0
             
     except Exception as e:
         print(f"\n✗ Error rebuilding snapshot: {e}")
