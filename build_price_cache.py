@@ -72,6 +72,8 @@ REQUIRED_CASH_PROXIES = ['BIL', 'SHY']  # All required (used by pricing engine)
 
 # Freshness configuration - trading day aware
 MAX_STALE_CALENDAR_DAYS = 5  # Accept cache if max_date within last 5 calendar days
+MAX_SESSIONS_BEHIND_TOLERANCE = 1  # Maximum acceptable sessions behind SPY
+SESSIONS_BEHIND_UNKNOWN = -1  # Indicator for unknown sessions_behind value
 
 
 def get_last_trading_day_from_spy(lookback_days=60):
@@ -387,9 +389,10 @@ def calculate_sessions_behind(cache_max_date, spy_trading_sessions):
         
     Returns:
         int: Number of sessions behind (0 if up-to-date or ahead)
+             Returns SESSIONS_BEHIND_UNKNOWN if unable to calculate
     """
     if not spy_trading_sessions or cache_max_date is None:
-        return -1  # Unknown
+        return SESSIONS_BEHIND_UNKNOWN
     
     try:
         # Normalize cache_max_date to date only
@@ -410,7 +413,7 @@ def calculate_sessions_behind(cache_max_date, spy_trading_sessions):
         
     except Exception as e:
         logger.warning(f"Error calculating sessions_behind: {e}")
-        return -1
+        return SESSIONS_BEHIND_UNKNOWN
 
 
 def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, 
@@ -745,20 +748,20 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         
         # Determine overall success based on multiple criteria
         meets_threshold = success_rate >= MIN_SUCCESS_RATE
-        meets_freshness = sessions_behind is None or sessions_behind <= 1  # Allow 1 session tolerance
+        meets_freshness = sessions_behind is None or sessions_behind <= MAX_SESSIONS_BEHIND_TOLERANCE
         
         if meets_threshold and symbols_valid and meets_freshness:
             logger.info(f"✓ SUCCESS: All criteria met")
             logger.info(f"  - Success rate: {success_rate * 100:.2f}% >= {MIN_SUCCESS_RATE * 100:.2f}%")
             logger.info(f"  - Required symbols: VALID")
-            logger.info(f"  - Sessions behind: {sessions_behind if sessions_behind >= 0 else 'N/A'} <= 1")
+            logger.info(f"  - Sessions behind: {sessions_behind if sessions_behind >= 0 else 'N/A'} <= {MAX_SESSIONS_BEHIND_TOLERANCE}")
         else:
             if not meets_threshold:
                 logger.error(f"✗ FAILURE: Success rate {success_rate * 100:.2f}% below threshold {MIN_SUCCESS_RATE * 100:.2f}%")
             if not symbols_valid:
                 logger.error(f"✗ FAILURE: Required symbols missing")
             if not meets_freshness:
-                logger.error(f"✗ FAILURE: Cache is {sessions_behind} sessions behind (tolerance: 1)")
+                logger.error(f"✗ FAILURE: Cache is {sessions_behind} sessions behind (tolerance: {MAX_SESSIONS_BEHIND_TOLERANCE})")
         
         # Overall success requires threshold, required symbols, AND freshness
         overall_success = meets_threshold and symbols_valid and meets_freshness

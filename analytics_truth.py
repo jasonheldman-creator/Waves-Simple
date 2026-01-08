@@ -635,7 +635,10 @@ def generate_live_snapshot_csv(
             'return_30d': returns_data.get('return_30d', np.nan),
             'return_60d': returns_data.get('return_60d', np.nan),
             'return_365d': returns_data.get('return_365d', np.nan),
-            'alpha_1d': np.nan,  # Alpha computation requires benchmark data
+            # Alpha computation requires benchmark data
+            # TODO: Implement alpha calculation when benchmark returns are available
+            # Alpha = Wave Return - Benchmark Return for each time period
+            'alpha_1d': np.nan,
             'alpha_30d': np.nan,
             'alpha_60d': np.nan,
             'alpha_365d': np.nan,
