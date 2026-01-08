@@ -670,7 +670,10 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
         if WAVES_ENGINE_AVAILABLE:
             try:
                 from waves_engine import get_wave_id_from_display_name
-                return get_wave_id_from_display_name(wave_name)
+                result = get_wave_id_from_display_name(wave_name)
+                # Only use result if it's a valid non-empty string
+                if result and isinstance(result, str) and result.strip():
+                    return result
             except:
                 pass
         
