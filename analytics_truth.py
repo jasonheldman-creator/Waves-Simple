@@ -67,6 +67,7 @@ try:
     from waves_engine import (
         get_all_wave_ids,
         get_display_name_from_wave_id,
+        get_wave_id_from_display_name,
         WAVE_ID_REGISTRY,
     )
     WAVES_ENGINE_AVAILABLE = True
@@ -74,6 +75,7 @@ except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     get_all_wave_ids = None
     get_display_name_from_wave_id = None
+    get_wave_id_from_display_name = None
     WAVE_ID_REGISTRY = {}
 
 # Import snapshot_ledger for Safe Mode ON
@@ -655,9 +657,8 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
     """
     try:
         # Try to use waves_engine function if available
-        if WAVES_ENGINE_AVAILABLE:
+        if WAVES_ENGINE_AVAILABLE and get_wave_id_from_display_name is not None:
             try:
-                from waves_engine import get_wave_id_from_display_name
                 wave_id = get_wave_id_from_display_name(wave_name)
                 # Only use if it returns a valid result
                 if wave_id is not None and wave_id != '':
