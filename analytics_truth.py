@@ -486,29 +486,40 @@ def generate_live_snapshot_csv(
     waves = expected_waves(weights_df)
     print(f"✓ Found exactly {len(waves)} expected waves")
     
-    # Step 3: Fetch prices for all tickers
-    print("\n[3/5] Fetching market data for all tickers...")
+    # Step 3: Load prices from cache (NO live API calls in GitHub Actions)
+    print("\n[3/5] Loading market data from price cache...")
     all_tickers = weights_df['ticker'].unique()
     prices_cache = {}
     
-    for i, ticker in enumerate(all_tickers, 1):
-        try:
-            # Determine if crypto or equity
-            if ticker.endswith('-USD'):
-                # Crypto ticker - use CoinGecko
-                prices = fetch_prices_crypto_coingecko(ticker, days=400)
-                prices_cache[ticker] = prices
-                print(f"  [{i}/{len(all_tickers)}] ✓ Fetched crypto {ticker} ({len(prices)} days)")
-            else:
-                # Equity ticker - use yfinance
-                prices = fetch_prices_equity_yf(ticker, days=400)
-                prices_cache[ticker] = prices
-                print(f"  [{i}/{len(all_tickers)}] ✓ Fetched equity {ticker} ({len(prices)} days)")
-        except Exception as e:
-            print(f"  [{i}/{len(all_tickers)}] ✗ Failed {ticker}: {str(e)[:80]}")
-            # Don't add to cache - will be tracked as failed
+    # Load price cache parquet file
+    cache_path = "data/cache/prices_cache.parquet"
     
-    print(f"\n✓ Successfully fetched {len(prices_cache)}/{len(all_tickers)} tickers")
+    if not os.path.exists(cache_path):
+        raise FileNotFoundError(
+            f"Price cache not found at {cache_path}. "
+            "Cache must be validated before calling this function."
+        )
+    
+    try:
+        cache_df = pd.read_parquet(cache_path)
+        print(f"  Loaded cache: {len(cache_df.columns)} tickers, {len(cache_df)} days")
+        print(f"  Date range: {cache_df.index.min()} to {cache_df.index.max()}")
+    except Exception as e:
+        raise Exception(f"Failed to load price cache: {e}")
+    
+    # Extract price series for each ticker
+    for i, ticker in enumerate(all_tickers, 1):
+        if ticker in cache_df.columns:
+            prices = cache_df[ticker].dropna()
+            if len(prices) > 0:
+                prices_cache[ticker] = prices
+                print(f"  [{i}/{len(all_tickers)}] ✓ Loaded {ticker} ({len(prices)} days)")
+            else:
+                print(f"  [{i}/{len(all_tickers)}] ✗ {ticker} has no data in cache")
+        else:
+            print(f"  [{i}/{len(all_tickers)}] ✗ {ticker} not found in cache")
+    
+    print(f"\n✓ Successfully loaded {len(prices_cache)}/{len(all_tickers)} tickers from cache")
     
     # Step 4: Compute wave returns
     print("\n[4/5] Computing wave returns...")
