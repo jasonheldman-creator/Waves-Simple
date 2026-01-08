@@ -10089,8 +10089,10 @@ def render_executive_brief_tab():
             
             # Add diagnostic information
             if ledger['success']:
-                # Count waves from daily_risk_return computation
-                n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+                # Count waves from daily_risk_return computation (efficient set intersection)
+                all_waves = set(get_all_waves_universe().get('waves', []))
+                wave_weights_keys = set(WAVE_WEIGHTS.keys())
+                n_waves_used = len(all_waves & wave_weights_keys)
                 
                 # Get date range from period results
                 period_1d = ledger['period_results'].get('1D', {})
@@ -10339,8 +10341,10 @@ def render_executive_brief_tab():
                         'Value': str(ledger.get('failure_reason', 'N/A'))
                     })
                     
-                    # Add wave count
-                    n_waves_used = len([w for w in get_all_waves_universe().get('waves', []) if w in WAVE_WEIGHTS])
+                    # Add wave count (efficient set intersection)
+                    all_waves = set(get_all_waves_universe().get('waves', []))
+                    wave_weights_keys = set(WAVE_WEIGHTS.keys())
+                    n_waves_used = len(all_waves & wave_weights_keys)
                     debug_data.append({
                         'Category': 'Portfolio Ledger',
                         'Metric': 'Waves Processed',

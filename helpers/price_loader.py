@@ -413,10 +413,9 @@ def load_cache() -> Optional[pd.DataFrame]:
         DataFrame with dates as index and tickers as columns, or None if cache doesn't exist
     """
     # Log cache file existence check
-    parquet_exists = os.path.exists(CACHE_PATH)
-    logger.info(f"PRICE_BOOK Cache Check: File exists={parquet_exists}, Path={CACHE_PATH}")
+    logger.info(f"PRICE_BOOK Cache Check: File exists={os.path.exists(CACHE_PATH)}, Path={CACHE_PATH}")
     
-    if not parquet_exists:
+    if not os.path.exists(CACHE_PATH):
         logger.warning(f"Cache file not found: {CACHE_PATH}")
         return None
     

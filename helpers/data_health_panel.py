@@ -161,8 +161,11 @@ def render_data_health_panel():
             # Check if end_date is stale (>7 days old)
             if debug_summary['end_date']:
                 try:
+                    from datetime import datetime, timezone
                     end_date_obj = datetime.strptime(debug_summary['end_date'], '%Y-%m-%d')
-                    days_old = (datetime.now() - end_date_obj).days
+                    # Use UTC for consistency
+                    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+                    days_old = (now_utc - end_date_obj).days
                     if days_old > 7:
                         is_stale = True
                 except Exception:
@@ -170,7 +173,7 @@ def render_data_health_panel():
             
             # Display error/warning banner if needed
             if not file_exists or is_empty:
-                st.error("⚠️ PRICE_BOOK EMPTY – portfolio + alphas will be N/A. Check prices_cache.parquet in repo and load path.")
+                st.error(f"⚠️ PRICE_BOOK EMPTY – portfolio + alphas will be N/A. Check cache file: {CACHE_PATH}")
             elif is_stale:
                 st.warning(f"⚠️ PRICE_BOOK DATA STALE – Last updated: {debug_summary['end_date']} ({days_old} days old)")
             else:
