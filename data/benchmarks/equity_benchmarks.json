@@ -1,0 +1,183 @@
+{
+  "version": "v1.0",
+  "description": "Phase 1B: Dynamic Benchmark Definitions for Equity Waves",
+  "rebalance_rule": "static_config",
+  "last_updated": "2026-01-08",
+  "benchmarks": {
+    "clean_transit_infrastructure_wave": {
+      "wave_id": "clean_transit_infrastructure_wave",
+      "benchmark_name": "Clean Transit & Infrastructure Composite",
+      "components": [
+        {
+          "ticker": "PAVE",
+          "weight": 0.6,
+          "name": "Global X U.S. Infrastructure Development ETF"
+        },
+        {
+          "ticker": "XLI",
+          "weight": 0.4,
+          "name": "Industrial Select Sector SPDR"
+        }
+      ],
+      "notes": "Infrastructure and industrial sector blend"
+    },
+    "demas_fund_wave": {
+      "wave_id": "demas_fund_wave",
+      "benchmark_name": "Value-Oriented Composite",
+      "components": [
+        {
+          "ticker": "SPY",
+          "weight": 0.6,
+          "name": "SPDR S&P 500 ETF"
+        },
+        {
+          "ticker": "VTV",
+          "weight": 0.4,
+          "name": "Vanguard Value ETF"
+        }
+      ],
+      "notes": "Broad market with value tilt"
+    },
+    "ev_infrastructure_wave": {
+      "wave_id": "ev_infrastructure_wave",
+      "benchmark_name": "EV & Infrastructure Composite",
+      "components": [
+        {
+          "ticker": "PAVE",
+          "weight": 0.6,
+          "name": "Global X U.S. Infrastructure Development ETF"
+        },
+        {
+          "ticker": "XLI",
+          "weight": 0.4,
+          "name": "Industrial Select Sector SPDR"
+        }
+      ],
+      "notes": "Infrastructure focus for EV buildout"
+    },
+    "future_power_energy_wave": {
+      "wave_id": "future_power_energy_wave",
+      "benchmark_name": "Clean Energy & Power Composite",
+      "components": [
+        {
+          "ticker": "ICLN",
+          "weight": 0.5,
+          "name": "iShares Global Clean Energy ETF"
+        },
+        {
+          "ticker": "XLE",
+          "weight": 0.5,
+          "name": "Energy Select Sector SPDR"
+        }
+      ],
+      "notes": "Clean energy and traditional energy blend"
+    },
+    "infinity_multi_asset_growth_wave": {
+      "wave_id": "infinity_multi_asset_growth_wave",
+      "benchmark_name": "Multi-Asset Growth Composite",
+      "components": [
+        {
+          "ticker": "SPY",
+          "weight": 0.4,
+          "name": "SPDR S&P 500 ETF"
+        },
+        {
+          "ticker": "QQQ",
+          "weight": 0.4,
+          "name": "Invesco QQQ Trust"
+        },
+        {
+          "ticker": "BTC-USD",
+          "weight": 0.2,
+          "name": "Bitcoin"
+        }
+      ],
+      "notes": "Diversified growth across equities and crypto"
+    },
+    "next_gen_compute_semis_wave": {
+      "wave_id": "next_gen_compute_semis_wave",
+      "benchmark_name": "Tech & Semiconductors Composite",
+      "components": [
+        {
+          "ticker": "QQQ",
+          "weight": 0.5,
+          "name": "Invesco QQQ Trust"
+        },
+        {
+          "ticker": "SMH",
+          "weight": 0.5,
+          "name": "VanEck Semiconductor ETF"
+        }
+      ],
+      "notes": "Tech and semiconductor sector blend"
+    },
+    "quantum_computing_wave": {
+      "wave_id": "quantum_computing_wave",
+      "benchmark_name": "Quantum Computing Composite",
+      "components": [
+        {
+          "ticker": "QQQ",
+          "weight": 0.6,
+          "name": "Invesco QQQ Trust"
+        },
+        {
+          "ticker": "VGT",
+          "weight": 0.4,
+          "name": "Vanguard Information Technology ETF"
+        }
+      ],
+      "notes": "Technology sector with growth emphasis"
+    },
+    "small_to_mid_cap_growth_wave": {
+      "wave_id": "small_to_mid_cap_growth_wave",
+      "benchmark_name": "Small-Mid Cap Growth Composite",
+      "components": [
+        {
+          "ticker": "IWP",
+          "weight": 0.5,
+          "name": "iShares Russell Mid-Cap Growth ETF"
+        },
+        {
+          "ticker": "IWO",
+          "weight": 0.5,
+          "name": "iShares Russell 2000 Growth ETF"
+        }
+      ],
+      "notes": "Mid and small cap growth blend"
+    },
+    "us_megacap_core_wave": {
+      "wave_id": "us_megacap_core_wave",
+      "benchmark_name": "US MegaCap Composite",
+      "components": [
+        {
+          "ticker": "SPY",
+          "weight": 1.0,
+          "name": "SPDR S&P 500 ETF"
+        }
+      ],
+      "notes": "Broad market large cap benchmark"
+    },
+    "ai_cloud_megacap_wave": {
+      "wave_id": "ai_cloud_megacap_wave",
+      "benchmark_name": "AI & Cloud MegaCap Composite",
+      "components": [
+        {
+          "ticker": "QQQ",
+          "weight": 0.6,
+          "name": "Invesco QQQ Trust"
+        },
+        {
+          "ticker": "SMH",
+          "weight": 0.25,
+          "name": "VanEck Semiconductor ETF"
+        },
+        {
+          "ticker": "IGV",
+          "weight": 0.15,
+          "name": "iShares Expanded Tech-Software Sector ETF"
+        }
+      ],
+      "notes": "Tech-heavy benchmark for AI and cloud exposure"
+    }
+  }
+}

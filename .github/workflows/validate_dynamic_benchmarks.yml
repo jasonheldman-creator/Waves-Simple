@@ -1,0 +1,71 @@
+name: Validate Dynamic Benchmarks
+
+on:
+  push:
+    paths:
+      - 'data/benchmarks/**'
+      - 'waves_engine.py'
+      - 'validate_dynamic_benchmarks.py'
+      - 'test_dynamic_benchmarks_integration.py'
+      - '.github/workflows/validate_dynamic_benchmarks.yml'
+  pull_request:
+    paths:
+      - 'data/benchmarks/**'
+      - 'waves_engine.py'
+      - 'validate_dynamic_benchmarks.py'
+      - 'test_dynamic_benchmarks_integration.py'
+      - '.github/workflows/validate_dynamic_benchmarks.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate Phase 1B Dynamic Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas pyarrow pytest numpy
+      
+      - name: Run dynamic benchmarks validation
+        id: validation
+        run: |
+          python validate_dynamic_benchmarks.py
+      
+      - name: Run integration tests
+        id: tests
+        run: |
+          pytest test_dynamic_benchmarks_integration.py -v
+      
+      - name: Validation summary
+        if: always()
+        run: |
+          echo "## Dynamic Benchmarks Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration Validation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.validation.outcome }}" == "success" ]; then
+            echo "✅ All 10 equity waves have valid dynamic benchmarks" >> $GITHUB_STEP_SUMMARY
+            echo "✅ S&P 500 Wave correctly excluded" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All benchmark weights sum to 1.0" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tickers available in cache" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Configuration validation failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration Tests" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "✅ All integration tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark series compute correctly" >> $GITHUB_STEP_SUMMARY
+            echo "✅ No all-NaN benchmarks" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Benchmark alignment verified" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Integration tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
