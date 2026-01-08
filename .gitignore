@@ -4,3 +4,8 @@
 /data/cache/*.csv
 /data/cache/*ledger*
 /data/cache/*metadata*
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo

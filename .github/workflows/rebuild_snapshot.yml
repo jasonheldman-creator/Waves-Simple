@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -30,7 +30,10 @@ jobs:
       - name: Rebuild snapshot
         run: python scripts/rebuild_snapshot.py
 
-      - name: Commit snapshot
-        run: git commit -am "Updated snapshot"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify no data/cache artifacts staged
+        run: |
+          echo "Checking git status..."
+          git status
+          echo ""
+          echo "Note: Snapshot rebuilt successfully."
+          echo "Cache artifacts in data/cache/ are ignored by .gitignore and not committed."
