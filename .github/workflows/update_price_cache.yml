@@ -10,6 +10,7 @@ permissions:
 
 env:
   MIN_SUCCESS_RATE: "0.90"
+  TZ: "UTC"
 
 jobs:
   update_cache:
@@ -222,6 +223,80 @@ jobs:
           fi
           
           echo "========================================================================"
+
+      - name: Cache Build Diagnostics
+        run: |
+          echo "========================================================================"
+          echo "CACHE BUILD DIAGNOSTICS"
+          echo "========================================================================"
+          
+          python3 << 'EOF'
+          import pandas as pd
+          import json
+          import sys
+          
+          try:
+              # Load cache
+              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              
+              # Get SPY last trading date
+              if 'SPY' in df.columns:
+                  spy_data = df['SPY'].dropna()
+                  if not spy_data.empty:
+                      spy_last_date = spy_data.index[-1]
+                      print(f"Last Trading Date (from SPY): {spy_last_date.strftime('%Y-%m-%d')}")
+                  else:
+                      print("⚠ WARNING: SPY column exists but contains no data")
+              else:
+                  print("⚠ WARNING: SPY not found in cache")
+              
+              # Cache dimensions
+              print(f"Cache Dimensions:")
+              print(f"  Sessions (rows): {len(df)}")
+              print(f"  Symbols (columns): {len(df.columns)}")
+              print(f"  Date range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}")
+              
+              # Load metadata for verdict
+              with open('data/cache/prices_cache_meta.json', 'r') as f:
+                  meta = json.load(f)
+              
+              # Determine verdict based on success rate and required symbols
+              success_rate = meta.get('success_rate', 0.0)
+              min_success_rate = meta.get('min_success_rate', 0.9)
+              missing_required = meta.get('missing_required_symbols', {})
+              # Note: data_quality_valid defaults to True for backward compatibility with older cache builds
+              # This ensures existing caches without this field don't fail unnecessarily
+              data_quality_valid = meta.get('data_quality_valid', True)
+              
+              # PASS if success rate meets threshold AND no missing required symbols AND data quality valid
+              if success_rate >= min_success_rate and not missing_required and data_quality_valid:
+                  verdict = "PASS"
+                  print("")
+                  print("=" * 70)
+                  print("CACHE_BUILD_VERDICT=PASS")
+                  print("=" * 70)
+                  sys.exit(0)
+              else:
+                  verdict = "FAIL"
+                  print("")
+                  if success_rate < min_success_rate:
+                      print(f"✗ Success rate {success_rate:.2%} below threshold {min_success_rate:.2%}")
+                  if missing_required:
+                      print(f"✗ Missing required symbols: {missing_required}")
+                  if not data_quality_valid:
+                      print(f"✗ Data quality validation failed (excessive NaN values)")
+                  print("=" * 70)
+                  print("CACHE_BUILD_VERDICT=FAIL")
+                  print("=" * 70)
+                  sys.exit(1)
+                  
+          except Exception as e:
+              print(f"✗ Error in diagnostics: {e}")
+              print("=" * 70)
+              print("CACHE_BUILD_VERDICT=FAIL")
+              print("=" * 70)
+              sys.exit(1)
+          EOF
 
       - name: Commit and push updated cache
         if: steps.check_changes.outputs.status == 'has_changes' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
