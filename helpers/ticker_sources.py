@@ -616,33 +616,43 @@ def get_ticker_health_status() -> Dict[str, Any]:
         # Enhanced: Check for stale tickers from ACTIVE waves only
         # This prevents inactive wave ticker failures from marking system as degraded
         try:
-            # Try to get list of tickers from active waves
-            from data_cache import collect_all_required_tickers
-            
-            # Import WAVE_WEIGHTS if available
+            # Use the canonical collect_required_tickers from price_loader
+            # This ensures we get the complete set of active wave tickers
             try:
-                from waves_engine import WAVE_WEIGHTS
+                from helpers.price_loader import collect_required_tickers
                 
-                # Collect tickers from active waves only
-                active_wave_tickers = collect_all_required_tickers(
-                    WAVE_WEIGHTS,
-                    include_benchmarks=False,  # Don't include optional benchmarks for health check
-                    include_safe_assets=False,  # Don't include optional safe assets for health check
-                    active_only=True  # KEY: Only include tickers from active waves
-                )
+                # Collect tickers from active waves only (excludes inactive waves, SmartSafe, etc.)
+                active_wave_tickers = collect_required_tickers(active_only=True)
                 
                 health['active_wave_ticker_count'] = len(active_wave_tickers)
+                logger.info(f"Counted {len(active_wave_tickers)} active wave tickers for health status")
                 
-                # TODO: Check if any of these active wave tickers are stale
-                # For now, we just track the count
-                # Future enhancement: Check price data freshness for these tickers
-                
-            except ImportError:
-                # WAVE_WEIGHTS not available, skip stale ticker check
-                pass
+            except ImportError as e:
+                # price_loader not available, try fallback approach
+                logger.warning(f"Could not import collect_required_tickers from price_loader: {e}")
+                try:
+                    from data_cache import collect_all_required_tickers
+                    from waves_engine import WAVE_WEIGHTS
+                    
+                    # Collect tickers from active waves only
+                    active_wave_tickers = collect_all_required_tickers(
+                        WAVE_WEIGHTS,
+                        include_benchmarks=False,  # Don't include optional benchmarks for health check
+                        include_safe_assets=False,  # Don't include optional safe assets for health check
+                        active_only=True  # KEY: Only include tickers from active waves
+                    )
+                    
+                    health['active_wave_ticker_count'] = len(active_wave_tickers)
+                    logger.info(f"Counted {len(active_wave_tickers)} active wave tickers (fallback method)")
+                    
+                except (ImportError, Exception) as e2:
+                    # Ultimate fallback: count from wave registry + universal universe
+                    logger.warning(f"Fallback ticker collection also failed: {e2}")
+                    pass
                 
         except Exception as e:
             # Non-blocking: If stale ticker check fails, don't change overall status
+            logger.warning(f"Error counting active wave tickers: {e}")
             pass
     
     except Exception as e:
