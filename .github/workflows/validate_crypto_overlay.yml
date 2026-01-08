@@ -1,0 +1,59 @@
+name: Validate Crypto Volatility Overlay
+
+on:
+  push:
+    paths:
+      - 'test_crypto_volatility_overlay.py'
+      - 'waves_engine.py'
+      - 'helpers/wave_performance.py'
+      - 'data/wave_registry.csv'
+  pull_request:
+    paths:
+      - 'test_crypto_volatility_overlay.py'
+      - 'waves_engine.py'
+      - 'helpers/wave_performance.py'
+      - 'data/wave_registry.csv'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test Crypto Volatility Overlay
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          # Pin versions for reproducible builds
+          pip install -q pandas==2.0.3 numpy==1.24.3 pytest==7.4.0 yfinance==0.2.36
+      
+      - name: Run crypto overlay tests
+        id: test
+        run: |
+          python3 -m pytest test_crypto_volatility_overlay.py -v --tb=short
+        continue-on-error: false
+      
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Crypto Volatility Overlay Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.test.outcome }}" == "success" ]; then
+            echo "✅ All crypto overlay tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Validated:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Crypto wave identification" >> $GITHUB_STEP_SUMMARY
+            echo "- Overlay field computation" >> $GITHUB_STEP_SUMMARY
+            echo "- Exposure scaling with minimum floors" >> $GITHUB_STEP_SUMMARY
+            echo "- Graceful degradation" >> $GITHUB_STEP_SUMMARY
+            echo "- Portfolio integration" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Crypto overlay tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
+          fi
