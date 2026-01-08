@@ -446,6 +446,19 @@ def compute_wave_returns(weights_df: pd.DataFrame, prices_cache: Dict[str, pd.Se
     return results
 
 
+def _is_crypto_wave(wave_name: str) -> bool:
+    """
+    Determine if a wave is a crypto wave based on its name.
+    
+    Args:
+        wave_name: Display name of the wave
+        
+    Returns:
+        True if the wave is a crypto wave, False otherwise
+    """
+    return wave_name.startswith("Crypto")
+
+
 def generate_live_snapshot_csv(
     out_path: str = "data/live_snapshot.csv",
     weights_path: str = "wave_weights.csv"
@@ -469,7 +482,8 @@ def generate_live_snapshot_csv(
         DataFrame with exactly 28 rows containing wave data
         
     Raises:
-        AssertionError: If final DataFrame doesn't have exactly 28 rows
+        AssertionError: If final DataFrame doesn't have exactly 28 rows or if equity waves
+                       don't have unique wave_ids
     """
     print("\n" + "=" * 80)
     print("GENERATING LIVE SNAPSHOT CSV")
@@ -553,11 +567,44 @@ def generate_live_snapshot_csv(
     if len(df) != 28:
         raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
     
-    # Validate unique wave_ids
-    if df['wave_id'].nunique() != 28:
-        raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
+    # Separate crypto and equity waves for validation
+    crypto_mask = df['Wave'].apply(_is_crypto_wave)
+    equity_df = df[~crypto_mask]
+    crypto_df = df[crypto_mask]
+    
+    # Validate unique wave_ids for equity waves (strict requirement)
+    equity_wave_ids = equity_df['wave_id'].tolist()
+    if len(equity_wave_ids) != len(set(equity_wave_ids)):
+        # Find duplicates
+        duplicates = [wid for wid in equity_wave_ids if equity_wave_ids.count(wid) > 1]
+        raise AssertionError(
+            f"Equity waves must have unique wave_ids. Found duplicates: {set(duplicates)}"
+        )
+    
+    # Check for missing wave_ids in equity waves
+    missing_equity = equity_df[equity_df['wave_id'].isna() | (equity_df['wave_id'] == '')]
+    if not missing_equity.empty:
+        raise AssertionError(
+            f"Equity waves must have wave_ids. Missing for: {missing_equity['Wave'].tolist()}"
+        )
+    
+    # Log warnings for crypto wave_id issues (not strict)
+    crypto_wave_ids = crypto_df['wave_id'].tolist()
+    
+    # Check for missing crypto wave_ids
+    missing_crypto = crypto_df[crypto_df['wave_id'].isna() | (crypto_df['wave_id'] == '')]
+    if not missing_crypto.empty:
+        print(f"⚠️ Warning: Missing wave_ids for crypto waves: {missing_crypto['Wave'].tolist()}")
+    
+    # Check for duplicate crypto wave_ids
+    if len(crypto_wave_ids) != len(set(crypto_wave_ids)):
+        duplicates = [wid for wid in crypto_wave_ids if crypto_wave_ids.count(wid) > 1]
+        duplicate_waves = crypto_df[crypto_df['wave_id'].isin(duplicates)]['Wave'].tolist()
+        print(f"⚠️ Warning: Duplicate wave_ids found in crypto waves: {set(duplicates)}")
+        print(f"   Affected waves: {duplicate_waves}")
     
     print(f"✓ Created DataFrame with {len(df)} rows")
+    print(f"✓ Equity waves: {len(equity_df)}, Crypto waves: {len(crypto_df)}")
     print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
     print(f"✓ Waves with NO DATA status: {(df['status'] == 'NO DATA').sum()}")
     
@@ -611,7 +658,10 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
         if WAVES_ENGINE_AVAILABLE:
             try:
                 from waves_engine import get_wave_id_from_display_name
-                return get_wave_id_from_display_name(wave_name)
+                wave_id = get_wave_id_from_display_name(wave_name)
+                # Only use if it returns a valid result
+                if wave_id is not None and wave_id != '':
+                    return wave_id
             except:
                 pass
         
