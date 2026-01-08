@@ -1,10 +1,12 @@
 """
 V3 ADD-ON: Bottom Ticker (Institutional Rail) - Rendering Logic
 Main logic for ticker aggregation and HTML rendering.
+
+NOTE: This module requires Streamlit to be installed. Import streamlit is lazy-loaded
+      to allow other helpers modules to be imported without Streamlit.
 """
 
 from typing import List, Dict, Any
-import streamlit as st
 from .ticker_sources import (
     get_wave_holdings_tickers,
     get_ticker_price_data,
@@ -342,6 +344,15 @@ def render_bottom_ticker_v3(
         top_n_per_wave: Top holdings per wave
         sample_size: Number of tickers to display in rotation
     """
+    # Lazy import of streamlit - only imported when this function is called
+    try:
+        import streamlit as st
+    except ImportError:
+        raise RuntimeError(
+            "Streamlit is required for this function. "
+            "Please install it to use Streamlit-related functionality: pip install streamlit"
+        )
+    
     from datetime import datetime, timedelta
     
     # Throttle ticker updates to once per 5 minutes minimum
