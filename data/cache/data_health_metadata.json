@@ -2,7 +2,10 @@
   "price_book_max_date": "2026-01-05",
   "wave_history_max_date": "2026-01-05",
   "ledger_max_date": "2026-01-05",
+  "portfolio_snapshot_success": true,
+  "portfolio_snapshot_latest_date": "2026-01-05",
+  "portfolio_snapshot_wave_count": 27,
   "last_operator_action": "force_ledger_recompute",
-  "build_marker": "2026-01-08 03:08:00 UTC",
-  "timestamp": "2026-01-08T03:08:00.015812+00:00"
+  "build_marker": "2026-01-08 14:12:17 UTC",
+  "timestamp": "2026-01-08T14:12:17.857802+00:00"
 }
