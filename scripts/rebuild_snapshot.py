@@ -25,15 +25,19 @@ def main() -> None:
         print("REBUILD SNAPSHOT WORKFLOW")
         print("=" * 80)
 
+        # Define paths
+        SNAPSHOT_PATH = "data/live_snapshot.csv"
+        WEIGHTS_PATH = "wave_weights.csv"
+
         # Generate snapshot dataframe with explicit paths
         print("\nRebuilding live snapshot (generating DataFrame)...")
         df = generate_live_snapshot_csv(
-            out_path="data/live_snapshot.csv",
-            weights_path="wave_weights.csv"
+            out_path=SNAPSHOT_PATH,
+            weights_path=WEIGHTS_PATH
         )
 
         # Validate file exists
-        out_path = Path("data/live_snapshot.csv")
+        out_path = Path(SNAPSHOT_PATH)
         if not out_path.exists():
             raise AssertionError(f"Snapshot file does not exist: {out_path}")
 
