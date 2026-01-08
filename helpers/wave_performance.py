@@ -54,13 +54,27 @@ try:
         WAVE_WEIGHTS, 
         get_all_waves_universe,
         compute_history_nav,
-        build_portfolio_composite_benchmark_returns
+        build_portfolio_composite_benchmark_returns,
+        _is_crypto_wave,
+        _is_crypto_growth_wave,
+        _is_crypto_income_wave
     )
     WAVES_ENGINE_AVAILABLE = True
 except ImportError:
     WAVES_ENGINE_AVAILABLE = False
     WAVE_WEIGHTS = {}
     logger.warning("waves_engine not available - wave performance computation will be limited")
+
+# Import crypto volatility overlay
+try:
+    from helpers.crypto_volatility_overlay import (
+        compute_crypto_volatility_regime,
+        get_crypto_wave_exposure
+    )
+    CRYPTO_OVERLAY_AVAILABLE = True
+except ImportError:
+    CRYPTO_OVERLAY_AVAILABLE = False
+    logger.warning("crypto_volatility_overlay not available - crypto overlays will be disabled")
 
 
 def compute_wave_returns(
@@ -413,6 +427,71 @@ def compute_all_waves_performance(
     # Only select columns that actually exist in the dataframe
     display_columns = [col for col in display_columns if col in df.columns]
     df = df[display_columns]
+    
+    return df
+
+
+def compute_all_waves_performance_with_crypto_diagnostics(
+    price_book: pd.DataFrame,
+    periods: List[int] = [1, 30, 60, 365],
+    only_validated: bool = True,
+    min_coverage_pct: float = 100.0,
+    min_history_days: int = 30,
+    include_crypto_diagnostics: bool = True
+) -> pd.DataFrame:
+    """
+    Compute performance metrics for all waves with optional crypto diagnostics.
+    
+    This extends compute_all_waves_performance to include crypto-specific diagnostics
+    (regime, exposure, overlay status) for crypto waves.
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        periods: List of lookback periods in days [1, 30, 60, 365]
+        only_validated: If True (default), only return waves that pass validation
+        min_coverage_pct: Minimum ticker coverage percentage for validation (default: 100.0)
+        min_history_days: Minimum number of trading days for validation (default: 30)
+        include_crypto_diagnostics: If True, include crypto diagnostics columns
+        
+    Returns:
+        DataFrame with standard performance columns plus:
+        - Crypto_Regime: str - Regime for crypto waves ('calm', 'normal', 'elevated', 'stress', or 'N/A')
+        - Crypto_Exposure: str - Exposure recommendation (e.g., "85%" or "N/A")
+        - Crypto_Overlay_Status: str - Overlay status message
+    """
+    # Get base performance data
+    df = compute_all_waves_performance(
+        price_book=price_book,
+        periods=periods,
+        only_validated=only_validated,
+        min_coverage_pct=min_coverage_pct,
+        min_history_days=min_history_days
+    )
+    
+    # Add crypto diagnostics if requested
+    if include_crypto_diagnostics and not df.empty:
+        crypto_regimes = []
+        crypto_exposures = []
+        crypto_statuses = []
+        
+        for wave_name in df['Wave']:
+            diagnostics = compute_crypto_regime_diagnostics(price_book, wave_name)
+            
+            # Format for display
+            if diagnostics['applicable']:
+                crypto_regimes.append(diagnostics['regime'])
+                exposure_pct = f"{diagnostics['exposure'] * 100:.0f}%"
+                crypto_exposures.append(exposure_pct)
+                crypto_statuses.append(diagnostics['overlay_status'])
+            else:
+                crypto_regimes.append('N/A')
+                crypto_exposures.append('N/A')
+                crypto_statuses.append('N/A')
+        
+        # Insert crypto columns after the Wave column
+        df.insert(1, 'Crypto_Regime', crypto_regimes)
+        df.insert(2, 'Crypto_Exposure', crypto_exposures)
+        df.insert(3, 'Crypto_Overlay_Status', crypto_statuses)
     
     return df
 
@@ -2268,6 +2347,93 @@ def compute_volatility_regime_and_exposure(
     logger.debug(f"compute_volatility_regime_and_exposure: Computed {len(data_frame)} days, "
                 f"VIX ticker={vix_ticker_found}, current regime={current_regime}, "
                 f"current exposure={current_exposure:.3f}")
+    
+    return result
+
+
+def compute_crypto_regime_diagnostics(
+    price_book: pd.DataFrame,
+    wave_name: str
+) -> Dict[str, Any]:
+    """
+    Compute crypto-specific regime diagnostics for a crypto wave.
+    
+    This function provides detailed crypto volatility regime information for 
+    diagnostics display in the performance pipeline. It is only applicable to
+    crypto waves and returns N/A for equity waves.
+    
+    Args:
+        price_book: PRICE_BOOK DataFrame (index=dates, columns=tickers, values=prices)
+        wave_name: Name of the wave to analyze
+        
+    Returns:
+        Dictionary with:
+        - applicable: bool - Whether this wave uses crypto overlay
+        - regime: str - Current regime ('calm', 'normal', 'elevated', 'stress')
+        - exposure: float - Current exposure recommendation [0.0, 1.0]
+        - overlay_status: str - Status message
+        - data_quality: str - Quality assessment
+        - btc_vol_ratio: Optional[float] - BTC volatility ratio
+        - eth_vol_ratio: Optional[float] - ETH volatility ratio
+        - combined_vol_ratio: Optional[float] - Combined volatility ratio
+    """
+    result = {
+        'applicable': False,
+        'regime': 'N/A',
+        'exposure': 1.00,
+        'overlay_status': 'Not Applicable',
+        'data_quality': 'N/A',
+        'btc_vol_ratio': None,
+        'eth_vol_ratio': None,
+        'combined_vol_ratio': None
+    }
+    
+    # Check if crypto overlay is available
+    if not CRYPTO_OVERLAY_AVAILABLE:
+        logger.debug("Crypto overlay not available")
+        return result
+    
+    # Check if waves_engine is available to detect crypto waves
+    if not WAVES_ENGINE_AVAILABLE:
+        logger.debug("Waves engine not available")
+        return result
+    
+    # Check if this is a crypto wave
+    try:
+        is_crypto = _is_crypto_wave(wave_name)
+    except Exception as e:
+        logger.warning(f"Error detecting crypto wave: {e}")
+        return result
+    
+    if not is_crypto:
+        # Not a crypto wave, return N/A
+        return result
+    
+    # This is a crypto wave - compute diagnostics
+    result['applicable'] = True
+    
+    # Get crypto wave exposure
+    try:
+        exposure_result = get_crypto_wave_exposure(wave_name, price_book)
+        
+        result['regime'] = exposure_result['regime']
+        result['exposure'] = exposure_result['exposure']
+        result['overlay_status'] = exposure_result['overlay_status']
+        result['data_quality'] = exposure_result['data_quality']
+        
+        # Get detailed regime data
+        regime_result = compute_crypto_volatility_regime(price_book)
+        result['btc_vol_ratio'] = regime_result.get('btc_vol_ratio')
+        result['eth_vol_ratio'] = regime_result.get('eth_vol_ratio')
+        result['combined_vol_ratio'] = regime_result.get('combined_vol_ratio')
+        
+        logger.info(f"Crypto regime diagnostics for {wave_name}: "
+                   f"regime={result['regime']}, exposure={result['exposure']:.2f}, "
+                   f"status={result['overlay_status']}")
+        
+    except Exception as e:
+        logger.error(f"Error computing crypto regime diagnostics for {wave_name}: {e}")
+        result['overlay_status'] = f"Error: {str(e)}"
     
     return result
 
