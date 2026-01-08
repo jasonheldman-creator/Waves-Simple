@@ -635,6 +635,10 @@ def generate_live_snapshot_csv(
             'return_30d': returns_data.get('return_30d', np.nan),
             'return_60d': returns_data.get('return_60d', np.nan),
             'return_365d': returns_data.get('return_365d', np.nan),
+            'alpha_1d': np.nan,  # Alpha computation requires benchmark data
+            'alpha_30d': np.nan,
+            'alpha_60d': np.nan,
+            'alpha_365d': np.nan,
             'status': returns_data.get('status', 'NO DATA'),
             'wave_status': wave_status,
             'coverage_pct': returns_data.get('coverage_pct', 0.0),
@@ -711,6 +715,10 @@ def generate_live_snapshot_csv(
         "Return_30D": "return_30d",
         "Return_60D": "return_60d",
         "Return_365D": "return_365d",
+        "Alpha_1D": "alpha_1d",
+        "Alpha_30D": "alpha_30d",
+        "Alpha_60D": "alpha_60d",
+        "Alpha_365D": "alpha_365d",
     }
 
     df = df.rename(columns=COLUMN_RENAMES)
@@ -722,6 +730,25 @@ def generate_live_snapshot_csv(
     # Optional: give the loader a canonical date field if it expects it
     if "date" not in df.columns:
         df["date"] = current_date
+    
+    # Ensure consistent column ordering - canonical schema for Portfolio Snapshot
+    # Primary columns first, then metadata columns
+    canonical_columns = [
+        'wave_id', 'wave', 
+        'return_1d', 'return_30d', 'return_60d', 'return_365d',
+        'alpha_1d', 'alpha_30d', 'alpha_60d', 'alpha_365d',
+        'status', 'wave_status', 'coverage_pct', 
+        'mode', 'date', 'asof_utc',
+        'missing_tickers', 'tickers_ok', 'tickers_total'
+    ]
+    
+    # Select columns in canonical order (only include if they exist)
+    available_cols = [col for col in canonical_columns if col in df.columns]
+    # Add any extra columns not in canonical list
+    extra_cols = [col for col in df.columns if col not in canonical_columns]
+    final_columns = available_cols + extra_cols
+    
+    df = df[final_columns]
     # --- end normalization ---
 
     df.to_csv(out_path, index=False)
