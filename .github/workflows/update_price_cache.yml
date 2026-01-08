@@ -264,7 +264,9 @@ jobs:
               success_rate = meta.get('success_rate', 0.0)
               min_success_rate = meta.get('min_success_rate', 0.9)
               missing_required = meta.get('missing_required_symbols', {})
-              data_quality_valid = meta.get('data_quality_valid', True)  # Default to True for backward compatibility
+              # Note: data_quality_valid defaults to True for backward compatibility with older cache builds
+              # This ensures existing caches without this field don't fail unnecessarily
+              data_quality_valid = meta.get('data_quality_valid', True)
               
               # PASS if success rate meets threshold AND no missing required symbols AND data quality valid
               if success_rate >= min_success_rate and not missing_required and data_quality_valid:
