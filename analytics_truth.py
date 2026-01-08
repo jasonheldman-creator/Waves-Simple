@@ -56,6 +56,7 @@ from __future__ import annotations
 import os
 import json
 import requests
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import pandas as pd
@@ -471,7 +472,6 @@ def _find_duplicates(items: List[str]) -> set:
     Returns:
         Set of items that appear more than once
     """
-    from collections import Counter
     counts = Counter(items)
     return {item for item, count in counts.items() if count > 1}
 

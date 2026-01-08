@@ -10,6 +10,7 @@ This test validates that:
 
 import sys
 import os
+import traceback
 
 # Add current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -233,7 +234,6 @@ def run_all_tests():
             passed += 1
         except Exception as e:
             print(f"\n✗ Test '{test_name}' FAILED: {e}")
-            import traceback
             traceback.print_exc()
             failed += 1
     
