@@ -33,19 +33,23 @@ jobs:
       - name: Check for changes
         id: check_changes
         run: |
-          git diff --exit-code data/live_snapshot.csv || echo "changed=true" >> $GITHUB_OUTPUT
+          git add data/live_snapshot.csv
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✓ No changes to data/live_snapshot.csv"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
           
       - name: Commit and push if changed
         if: steps.check_changes.outputs.changed == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add data/live_snapshot.csv
           git commit -m "Auto-update live_snapshot.csv [skip ci]"
           git push
           
       - name: No changes
         if: steps.check_changes.outputs.changed != 'true'
         run: |
-          echo "✓ No changes to data/live_snapshot.csv"
           echo "Snapshot is up to date."
