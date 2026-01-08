@@ -163,7 +163,7 @@ def validate_required_symbols(cache_df):
 
 def validate_no_excessive_placeholders(cache_df):
     """
-    Validate that we're not writing excessive NY-market placeholders (NaN values).
+    Validate that we're not writing excessive NaN placeholders (missing data).
     
     This safeguard ensures the cache has actual price data and not just empty
     placeholders that would cause Portfolio Snapshot issues.
@@ -385,7 +385,7 @@ def load_existing_price_files():
     return merged
 
 
-def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, missing_required=None):
+def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rate, max_price_date, missing_required=None, data_quality_valid=None):
     """
     Save metadata file next to the cache file.
     
@@ -396,6 +396,7 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         success_rate: Success rate (0.0 to 1.0)
         max_price_date: Latest date in the cache (datetime or string)
         missing_required: Dict of missing required symbols (optional)
+        data_quality_valid: Boolean indicating if data quality validation passed (optional)
     """
     try:
         # Ensure cache directory exists
@@ -423,6 +424,10 @@ def save_metadata(total_tickers, successful_tickers, failed_tickers, success_rat
         # Add missing required symbols if provided
         if missing_required:
             metadata["missing_required_symbols"] = missing_required
+        
+        # Add data quality validation result if provided
+        if data_quality_valid is not None:
+            metadata["data_quality_valid"] = data_quality_valid
         
         with open(METADATA_PATH, 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -599,14 +604,15 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
         logger.info("Saving cache...")
         save_cache(cache_df)
         
-        # Save metadata file with missing symbols
+        # Save metadata file with missing symbols and data quality status
         save_metadata(
             total_tickers=total_requested,
             successful_tickers=successful_downloads,
             failed_tickers=len(all_failures),
             success_rate=success_rate,
             max_price_date=max_price_date,
-            missing_required=missing_symbols if not symbols_valid else None
+            missing_required=missing_symbols if not symbols_valid else None,
+            data_quality_valid=placeholders_valid
         )
         
         # Print summary
@@ -663,7 +669,8 @@ def build_initial_cache(force_rebuild=False, years=DEFAULT_CACHE_YEARS):
                 'volatility': REQUIRED_VOLATILITY_REGIME,
                 'benchmarks': REQUIRED_BENCHMARKS,
                 'cash_proxies': REQUIRED_CASH_PROXIES
-            }
+            },
+            data_quality_valid=False
         )
         return False, 0.0
 
