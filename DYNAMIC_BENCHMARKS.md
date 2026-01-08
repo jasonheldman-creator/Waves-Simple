@@ -6,7 +6,7 @@ Phase 1B introduces **dynamic benchmarks** for 10 equity waves in a focused, add
 
 ## Key Principles
 
-1. **Equity-Only Focus**: Dynamic benchmarks apply only to equity waves in this phase. Crypto and income waves retain their existing benchmark logic.
+1. **Equity Wave Focus**: Dynamic benchmarks apply to equity-categorized waves in this phase. The Infinity Multi-Asset Growth Wave is a special case that includes crypto (BTC-USD) as it is designed as a multi-asset strategy. Pure crypto and income waves retain their existing benchmark logic.
 
 2. **Additive & Reversible**: All changes are additive to the existing codebase. Pre-existing benchmark logic remains intact as a fallback.
 
@@ -34,6 +34,7 @@ The following 10 equity waves have dynamic benchmarks:
    
 5. **Infinity (Multi-Asset Growth)** (infinity_multi_asset_growth_wave)
    - Benchmark: 40% SPY + 40% QQQ + 20% BTC-USD
+   - Note: Multi-asset wave includes crypto component in benchmark to match strategy allocation
    
 6. **Next-Gen Compute & Semiconductors** (next_gen_compute_semis_wave)
    - Benchmark: 50% QQQ + 50% SMH
@@ -287,8 +288,13 @@ For questions or issues with dynamic benchmarks:
 3. Review test output: `pytest test_dynamic_benchmarks_integration.py -v`
 4. Check engine diagnostics: `result.attrs["coverage"]["dynamic_benchmark"]`
 
+## Notes
+
+- The **Infinity Multi-Asset Growth Wave** includes BTC-USD (20%) in its benchmark to match its multi-asset strategy allocation. This is the only equity-categorized wave with a crypto component in Phase 1B.
+- Pure crypto waves (e.g., Crypto L1 Growth Wave, Crypto DeFi Growth Wave) are excluded from Phase 1B and retain their existing benchmark logic.
+
 ---
 
 **Last Updated**: 2026-01-08  
 **Version**: 1.0  
-**Phase**: 1B - Equity Waves Only
+**Phase**: 1B - Equity Waves with Dynamic Benchmarks

@@ -2054,7 +2054,8 @@ def load_dynamic_benchmark_specs(path: str = None) -> Dict[str, Any]:
             specs = json.load(f)
         return specs
     except Exception as e:
-        print(f"Error loading dynamic benchmark specs from {path}: {e}")
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error loading dynamic benchmark specs from {path}: {e}")
         return {}
 
 
@@ -2083,20 +2084,23 @@ def build_benchmark_series_from_components(
     # Validate weights sum to 1.0 (within tolerance)
     weight_sum = sum(weights)
     if abs(weight_sum - 1.0) > 0.01:
-        print(f"Warning: Benchmark component weights sum to {weight_sum}, expected 1.0")
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Benchmark component weights sum to {weight_sum}, expected 1.0")
         # Normalize weights
         weights = [w / weight_sum for w in weights]
     
     # Check which tickers are available in price_df
     available_tickers = [t for t in tickers if t in price_df.columns]
     if not available_tickers:
-        print(f"Warning: No benchmark component tickers available in price data")
+        logger = logging.getLogger(__name__)
+        logger.warning(f"No benchmark component tickers available in price data")
         return pd.Series(dtype=float)
     
     # If some tickers are missing, reweight proportionally
     if len(available_tickers) < len(tickers):
         missing = set(tickers) - set(available_tickers)
-        print(f"Warning: Missing benchmark tickers: {missing}")
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Missing benchmark tickers: {missing}")
         # Reweight only available tickers
         available_weights = {}
         for ticker, weight in zip(tickers, weights):
