@@ -19,15 +19,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from analytics_truth import generate_live_snapshot_csv
 
 
+# Path constants
+SNAPSHOT_PATH = "data/live_snapshot.csv"
+WEIGHTS_PATH = "wave_weights.csv"
+
+
 def main() -> None:
     try:
         print("\n" + "=" * 80)
         print("REBUILD SNAPSHOT WORKFLOW")
         print("=" * 80)
-
-        # Define paths
-        SNAPSHOT_PATH = "data/live_snapshot.csv"
-        WEIGHTS_PATH = "wave_weights.csv"
 
         # Generate snapshot dataframe with explicit paths
         print("\nRebuilding live snapshot (generating DataFrame)...")
