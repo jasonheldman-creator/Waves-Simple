@@ -550,42 +550,6 @@ def generate_live_snapshot_csv(
     # Create DataFrame
     df = pd.DataFrame(rows)
     
-    # Validate exactly 28 rows
-    if len(df) != 28:
-        raise AssertionError(f"Expected exactly 28 rows, got {len(df)}")
-    
-    # Debug logging before wave_id uniqueness assertion
-    expected_wave_ids = [_convert_wave_name_to_id(wave_name) for wave_name in waves]
-    actual_wave_ids = df['wave_id'].tolist()
-    
-    print("\n--- DEBUG: Wave ID Uniqueness Check ---")
-    print(f"Expected wave_ids count: {len(expected_wave_ids)}")
-    print(f"Expected wave_ids: {expected_wave_ids}")
-    print(f"Actual wave_ids count: {len(actual_wave_ids)}")
-    print(f"Actual wave_ids: {actual_wave_ids}")
-    
-    # Count occurrences of each wave_id to detect duplicates
-    wave_id_counts = Counter(df['wave_id'])
-    duplicates = {wave_id: count for wave_id, count in wave_id_counts.items() if count > 1}
-    
-    if duplicates:
-        print("\n⚠️  DUPLICATE WAVE_IDs DETECTED:")
-        for wave_id, count in duplicates.items():
-            print(f"  - wave_id '{wave_id}' appears {count} times")
-            # Get all rows with this duplicate wave_id
-            duplicate_rows = df[df['wave_id'] == wave_id]
-            print(f"    Corresponding display names (Wave column):")
-            for idx, row in duplicate_rows.iterrows():
-                print(f"      * '{row['Wave']}' (wave_id: '{row['wave_id']}')")
-    else:
-        print("✓ No duplicate wave_ids found")
-    
-    print("---------------------------------------\n")
-    
-    # Validate unique wave_ids
-    if df['wave_id'].nunique() != 28:
-        raise AssertionError(f"Expected 28 unique wave_ids, got {df['wave_id'].nunique()}")
-    
     print(f"✓ Created DataFrame with {len(df)} rows")
     print(f"✓ Waves with OK status: {(df['status'] == 'OK').sum()}")
     print(f"✓ Waves with NO DATA status: {(df['status'] == 'NO DATA').sum()}")
@@ -595,6 +559,72 @@ def generate_live_snapshot_csv(
     df.to_csv(out_path, index=False)
     print(f"\n✓ Snapshot written to {out_path}")
     
+    print("=" * 80 + "\n")
+    
+    # === FINAL VALIDATION BLOCK (immediately before return) ===
+    # This ensures df is fully computed before any validation
+    
+    # Get expected count from dynamic source of truth (wave_weights.csv)
+    expected_wave_count = len(waves)
+    
+    # Validation 1: Check that wave_id column exists
+    if 'wave_id' not in df.columns:
+        raise AssertionError("DataFrame must have a column named 'wave_id'")
+    
+    # Validation 2: Check for null values in wave_id
+    null_count = df['wave_id'].isna().sum()
+    if null_count > 0:
+        raise AssertionError(
+            f"wave_id column contains {null_count} null value(s). "
+            f"All wave_id values must be non-null.\n"
+            f"Row count: {len(df)}\n"
+            f"Null indices: {df[df['wave_id'].isna()].index.tolist()}"
+        )
+    
+    # Validation 3: Check for blank or whitespace-only values
+    blank_count = df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '').sum()
+    if blank_count > 0:
+        blank_rows = df[df['wave_id'].apply(lambda x: isinstance(x, str) and x.strip() == '')]
+        raise AssertionError(
+            f"wave_id column contains {blank_count} blank/whitespace-only value(s). "
+            f"All wave_id values must be non-blank.\n"
+            f"Row count: {len(df)}\n"
+            f"Blank indices: {blank_rows.index.tolist()}\n"
+            f"Wave names with blank wave_ids: {blank_rows['Wave'].tolist()}"
+        )
+    
+    # Validation 4: Check unique count matches expected (using dynamic source)
+    unique_count = df['wave_id'].nunique(dropna=False)
+    if unique_count != expected_wave_count:
+        # Count occurrences to identify duplicates
+        wave_id_counts = Counter(df['wave_id'])
+        duplicates = {wave_id: count for wave_id, count in wave_id_counts.items() if count > 1}
+        
+        # Get first 10 duplicates for diagnostics
+        duplicate_list = []
+        for wave_id, count in sorted(duplicates.items(), key=lambda x: x[1], reverse=True)[:10]:
+            duplicate_rows = df[df['wave_id'] == wave_id]
+            duplicate_list.append({
+                'wave_id': wave_id,
+                'count': count,
+                'display_names': duplicate_rows['Wave'].tolist()
+            })
+        
+        raise AssertionError(
+            f"Expected {expected_wave_count} unique wave_ids (from {weights_path}), "
+            f"but got {unique_count}.\n"
+            f"Row count: {len(df)}\n"
+            f"Unique wave_id count: {unique_count}\n"
+            f"Null count: {null_count}\n"
+            f"Blank/whitespace count: {blank_count}\n"
+            f"First 10 duplicates identified:\n{duplicate_list}"
+        )
+    
+    print("\n=== VALIDATION PASSED ===")
+    print(f"✓ wave_id column exists")
+    print(f"✓ No null values in wave_id")
+    print(f"✓ No blank/whitespace values in wave_id")
+    print(f"✓ Unique wave_id count matches expected: {unique_count} == {expected_wave_count}")
     print("=" * 80 + "\n")
     
     return df
