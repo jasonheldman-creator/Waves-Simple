@@ -90,6 +90,7 @@ except ImportError:
 # Constants
 SNAPSHOT_FILE = "data/live_snapshot.csv"
 WAVE_WEIGHTS_FILE = "wave_weights.csv"
+UNKNOWN_WAVE_ID = "unknown_wave"  # Fallback wave_id when conversion fails
 
 # CoinGecko ID mapping for crypto tickers
 CRYPTO_COINGECKO_MAP = {
@@ -563,10 +564,8 @@ def generate_live_snapshot_csv(
     # ============================================================================
     
     # Step 1: Normalize the wave_id column before validation
-    # Handle nulls first, then normalize
-    df['wave_id'] = df['wave_id'].fillna('')  # Convert None/NaN to empty string
-    df['wave_id'] = df['wave_id'].astype(str)  # Ensure all are strings
-    df['wave_id'] = df['wave_id'].str.strip()  # Remove whitespace
+    # Handle nulls, convert to strings, and strip whitespace in a single operation
+    df['wave_id'] = df['wave_id'].fillna('').astype(str).str.strip()
     
     # Step 2: Compute validation metrics
     # Count null/None/NaN values (after normalization, these are empty strings)
@@ -767,14 +766,14 @@ def _convert_wave_name_to_id(wave_name: str) -> str:
         
         # Ensure we have a valid wave_id
         if not wave_id:
-            wave_id = 'unknown_wave'
+            wave_id = UNKNOWN_WAVE_ID
         
         return wave_id
     except Exception as e:
         # Ultimate fallback - should never happen but ensures never None
         print(f"⚠️ Warning: Failed to convert {wave_name} to wave_id: {e}")
         fallback = wave_name.lower().replace(' ', '_').strip('_')
-        return fallback if fallback else 'unknown_wave'
+        return fallback if fallback else UNKNOWN_WAVE_ID
 
 
 def _get_wave_tickers_from_weights(wave_name: str) -> List[str]:
