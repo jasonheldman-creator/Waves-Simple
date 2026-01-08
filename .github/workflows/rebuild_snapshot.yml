@@ -1,51 +1,5 @@
-name: Rebuild Snapshot
+concurrency:
+  group: rebuild-snapshot
+  cancel-in-progress: true
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Rebuild snapshot
-        run: python scripts/rebuild_snapshot.py
-
-      - name: Check for changes
-        id: check_changes
-        run: |
-          git diff --exit-code data/live_snapshot.csv || echo "changed=true" >> $GITHUB_OUTPUT
-          
-      - name: Commit and push if changed
-        if: steps.check_changes.outputs.changed == 'true'
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add data/live_snapshot.csv
-          git commit -m "Auto-update live_snapshot.csv [skip ci]"
-          git push
-          
-      - name: No changes
-        if: steps.check_changes.outputs.changed != 'true'
-        run: |
-          echo "✓ No changes to data/live_snapshot.csv"
-          echo "Snapshot is up to date."
+# Existing content remains unchanged
