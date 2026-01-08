@@ -151,6 +151,7 @@ def validate_trading_day_freshness(
         - today: datetime - Current date
         - last_trading_day: datetime or None - Most recent SPY trading day
         - cache_max_date: datetime or None - Most recent date in cache
+        - sessions_behind: int or None - Number of trading sessions cache is behind
         - delta_days: int or None - Difference between cache_max_date and last_trading_day
         - market_feed_gap_days: int or None - Days between today and last_trading_day
         - error: str or None - Error message if validation failed
@@ -259,7 +260,7 @@ def validate_trading_day_freshness(
         result['error'] = f"Cache max date ({cache_date_only}) is ahead of last trading day ({trading_date_only})"
     else:
         result['error'] = f"Cache max date ({cache_date_only}) is {sessions_behind} trading sessions behind last trading day ({trading_date_only})"
-    result['sessions_behind'] = sessions_behind
+    # sessions_behind already set at line 244
     logger.error(f"✗ FAIL: {result['error']}")
     return result
 

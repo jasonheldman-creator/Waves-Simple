@@ -172,6 +172,9 @@ jobs:
           echo "========================================================================"
           echo "CACHE DIAGNOSTICS - SPY TRADING DAY ANALYSIS"
           echo "========================================================================"
+          echo "NOTE: This is a simplified diagnostic display. For authoritative"
+          echo "pass/fail decisions, see build_price_cache.py validation output."
+          echo "========================================================================"
           
           python3 << 'EOF'
 import pandas as pd
