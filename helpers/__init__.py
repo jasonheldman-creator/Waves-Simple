@@ -21,6 +21,12 @@ from .ticker_sources import (
 )
 
 try:
+    from .crypto_volatility_overlay import compute_crypto_overlay
+    CRYPTO_VOLATILITY_OVERLAY_AVAILABLE = True
+except ImportError:
+    CRYPTO_VOLATILITY_OVERLAY_AVAILABLE = False
+
+try:
     from .circuit_breaker import get_circuit_breaker, get_all_circuit_states
     from .persistent_cache import get_persistent_cache
     RESILIENCE_FEATURES_AVAILABLE = True
@@ -44,6 +50,9 @@ if RESILIENCE_FEATURES_AVAILABLE:
         'get_all_circuit_states',
         'get_persistent_cache',
     ])
+
+if CRYPTO_VOLATILITY_OVERLAY_AVAILABLE:
+    __all__.append('compute_crypto_overlay')
 
 # NOTE: Streamlit UI components (ticker_rail, data_health_panel) must be imported explicitly:
 #   from helpers.ticker_rail import render_bottom_ticker_v3
