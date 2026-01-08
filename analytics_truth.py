@@ -632,7 +632,7 @@ def generate_live_snapshot_csv(
             duplicate_list.append({
                 'wave_id': wave_id,
                 'count': count,
-                'display_names': duplicate_rows['Wave'].tolist()
+                'display_names': duplicate_rows['wave'].tolist()
             })
         
         raise AssertionError(
