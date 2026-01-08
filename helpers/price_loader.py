@@ -1285,9 +1285,9 @@ def get_price_book_debug_summary(price_book: pd.DataFrame) -> dict:
     except Exception as e:
         logger.warning(f"Error extracting date range from price_book: {e}")
     
-    # Count non-null cells
+    # Count non-null cells (efficient method using count())
     try:
-        result['non_null_cells'] = int(price_book.notna().sum().sum())
+        result['non_null_cells'] = int(price_book.count().sum())
     except Exception as e:
         logger.warning(f"Error counting non-null cells: {e}")
     

@@ -10404,7 +10404,7 @@ def render_executive_brief_tab():
                     st.download_button(
                         label="📥 Download Debug Report (CSV)",
                         data=csv_data,
-                        file_name=f"portfolio_snapshot_debug_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
                         key="download_debug_report"
                     )
