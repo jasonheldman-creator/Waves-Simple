@@ -122,6 +122,29 @@ CRYPTO_YIELD_OVERLAY_APY: Dict[str, float] = {
 
 CRYPTO_WAVE_KEYWORD = "Crypto"
 
+# ------------------------------------------------------------
+# Crypto Phase 1B.3: Stablecoin and Macro Index Handling
+# ------------------------------------------------------------
+
+# Stablecoins - treated as cash-like with constant price = 1.0
+STABLECOINS: Set[str] = {
+    "USDT-USD",  # Tether
+    "USDC-USD",  # USD Coin
+    "USDP-USD",  # Pax Dollar
+    "DAI-USD",   # DAI
+    "TUSD-USD",  # TrueUSD
+}
+
+# Macro indices to exclude from crypto waves
+MACRO_INDICES: Set[str] = {
+    "^VIX",   # VIX Index
+    "^TNX",   # 10-Year Treasury Note
+    "^IRX",   # 13-Week Treasury Bill
+    "^DJI",   # Dow Jones Industrial Average
+    "^GSPC",  # S&P 500 Index
+    "^IXIC",  # NASDAQ Composite
+}
+
 # Ticker normalization and aliases
 # Maps known ticker variants to their canonical form for yfinance
 TICKER_ALIASES: Dict[str, str] = {
@@ -1574,7 +1597,10 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     """
     Download historical price data with per-ticker isolation and graceful error handling.
     
-    Enhanced Features:
+    Enhanced Features (Phase 1B.3):
+    - Stablecoin synthetic price generation (constant 1.0)
+    - Macro index filtering for crypto waves
+    - Proxy fallback strategy (BTC-USD → ETH-USD) for missing crypto tickers
     - Retry logic with exponential backoff for transient failures
     - Ticker normalization (e.g., BRK.B → BRK-B) to handle common issues
     - Diagnostics tracking with categorized failure types
@@ -1599,15 +1625,37 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
     """
     failures = {}
     
+    # Phase 1B.3: Separate stablecoins and macro indices
+    stablecoins_to_synthesize = []
+    macro_indices_to_exclude = []
+    tickers_to_fetch = []
+    
+    for ticker in tickers:
+        if _is_stablecoin(ticker):
+            stablecoins_to_synthesize.append(ticker)
+        elif _should_exclude_from_crypto_wave(ticker, wave_name or ""):
+            # Exclude macro indices from crypto waves (no error logging)
+            macro_indices_to_exclude.append(ticker)
+        else:
+            tickers_to_fetch.append(ticker)
+    
+    # Log diagnostics for Phase 1B.3 filtering (once per run)
+    if stablecoins_to_synthesize or macro_indices_to_exclude:
+        logger.info(f"Phase 1B.3 filtering for {wave_name or 'unknown wave'}:")
+        if stablecoins_to_synthesize:
+            logger.info(f"  Stablecoins (synthetic): {len(stablecoins_to_synthesize)} - {stablecoins_to_synthesize}")
+        if macro_indices_to_exclude:
+            logger.info(f"  Macro indices (excluded): {len(macro_indices_to_exclude)} - {macro_indices_to_exclude}")
+    
     if yf is None:
         print("Error: yfinance is not available in this environment.")
-        failures = {ticker: "yfinance not available" for ticker in tickers}
+        failures = {ticker: "yfinance not available" for ticker in tickers_to_fetch}
         # Log diagnostics
         _log_diagnostics_to_json(failures, wave_id, wave_name)
         # Track in diagnostics if available
         if DIAGNOSTICS_AVAILABLE:
             tracker = get_diagnostics_tracker()
-            for ticker in tickers:
+            for ticker in tickers_to_fetch:
                 failure_type, suggested_fix = categorize_error(failures[ticker], ticker)
                 report = FailedTickerReport(
                     ticker_original=ticker,
@@ -1623,9 +1671,9 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                 tracker.record_failure(report)
         return pd.DataFrame(), failures
     
-    # Normalize tickers before fetching
+    # Normalize tickers_to_fetch before fetching (already filtered)
     normalized_tickers = []
-    for ticker in tickers:
+    for ticker in tickers_to_fetch:
         normalized = _normalize_ticker(ticker)
         normalized_tickers.append(normalized)
     
@@ -1707,6 +1755,11 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
                     )
                     tracker.record_failure(report)
         
+        # Phase 1B.3: Add synthetic stablecoin prices
+        if stablecoins_to_synthesize and not data.empty:
+            stablecoin_prices = _generate_stablecoin_prices(data.index)
+            data = pd.concat([data, stablecoin_prices], axis=1)
+        
         return data, failures
         
     except Exception as e:
@@ -1720,7 +1773,15 @@ def _download_history(tickers: list[str], days: int, wave_id: Optional[str] = No
             # Add a delay before trying individual downloads
             time.sleep(5.0)
         
-        return _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        # Download individually and then add stablecoins
+        data, failures = _download_history_individually(unique_normalized, start, end, wave_id, wave_name)
+        
+        # Phase 1B.3: Add synthetic stablecoin prices
+        if stablecoins_to_synthesize and not data.empty:
+            stablecoin_prices = _generate_stablecoin_prices(data.index)
+            data = pd.concat([data, stablecoin_prices], axis=1)
+        
+        return data, failures
 
 
 def _download_history_individually(tickers: list[str], start, end, wave_id: Optional[str] = None, wave_name: Optional[str] = None) -> Tuple[pd.DataFrame, Dict[str, str]]:
@@ -2709,6 +2770,82 @@ def _calculate_price_return(price_series: pd.Series, dt: pd.Timestamp, periods: 
     
     ret_val = ret_series.loc[dt]
     return float(ret_val) if not np.isnan(ret_val) else np.nan
+
+
+# ------------------------------------------------------------
+# Crypto Phase 1B.3: Stablecoin and Ticker Normalization Helpers
+# ------------------------------------------------------------
+
+def _is_stablecoin(ticker: str) -> bool:
+    """
+    Check if a ticker is a stablecoin.
+    
+    Stablecoins are treated as cash-like assets with constant price = 1.0
+    and daily return = 0.0. They are excluded from volatility/trend calculations
+    but allowed as holdings for cash/stability allocations.
+    
+    Args:
+        ticker: Ticker symbol to check
+        
+    Returns:
+        True if ticker is a stablecoin
+    """
+    return ticker in STABLECOINS
+
+
+def _is_macro_index(ticker: str) -> bool:
+    """
+    Check if a ticker is a macro index.
+    
+    Macro indices (e.g., ^VIX, ^TNX, ^IRX) are excluded from crypto waves
+    and their absence is ignored (no error logging).
+    
+    Args:
+        ticker: Ticker symbol to check
+        
+    Returns:
+        True if ticker is a macro index
+    """
+    return ticker in MACRO_INDICES
+
+
+def _generate_stablecoin_prices(date_index: pd.DatetimeIndex) -> pd.DataFrame:
+    """
+    Generate synthetic price series for stablecoins.
+    
+    Stablecoins are modeled as constant price = 1.0 for all dates,
+    which produces daily return = 0.0.
+    
+    Args:
+        date_index: DatetimeIndex for the price series
+        
+    Returns:
+        DataFrame with one column per stablecoin, all values = 1.0
+    """
+    stablecoin_prices = pd.DataFrame(index=date_index)
+    for ticker in STABLECOINS:
+        stablecoin_prices[ticker] = 1.0
+    return stablecoin_prices
+
+
+def _should_exclude_from_crypto_wave(ticker: str, wave_name: str) -> bool:
+    """
+    Check if a ticker should be excluded from a crypto wave.
+    
+    Macro indices are excluded from crypto waves but allowed for equity waves.
+    
+    Args:
+        ticker: Ticker symbol to check
+        wave_name: Name of the wave
+        
+    Returns:
+        True if ticker should be excluded from this wave
+    """
+    is_crypto = _is_crypto_wave(wave_name)
+    is_macro = _is_macro_index(ticker)
+    
+    # Exclude macro indices from crypto waves only
+    return is_crypto and is_macro
 
 
 # ------------------------------------------------------------
