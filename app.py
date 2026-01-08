@@ -19798,7 +19798,7 @@ def render_diagnostics_tab():
     st.subheader("📸 Live Snapshot Diagnostics")
     
     try:
-        from analytics_pipeline import load_live_snapshot
+        from analytics_pipeline import load_live_snapshot, SNAPSHOT_NUMERIC_COLUMNS
         
         # Load the live snapshot with normalization
         snapshot_df = load_live_snapshot(path="data/live_snapshot.csv", fallback=False)
@@ -19816,11 +19816,9 @@ def render_diagnostics_tab():
                 st.metric("Numeric Columns", len(numeric_cols))
             
             with col3:
-                # Check for expected columns
-                expected_cols = ['Return_1D', 'Return_30D', 'Return_60D', 'Return_365D',
-                                 'Alpha_1D', 'Alpha_30D', 'Alpha_60D', 'Alpha_365D']
-                found_cols = [col for col in expected_cols if col in snapshot_df.columns]
-                st.metric("Expected Columns Found", f"{len(found_cols)}/{len(expected_cols)}")
+                # Check for expected columns (use imported constant)
+                found_cols = [col for col in SNAPSHOT_NUMERIC_COLUMNS if col in snapshot_df.columns]
+                st.metric("Expected Columns Found", f"{len(found_cols)}/{len(SNAPSHOT_NUMERIC_COLUMNS)}")
             
             # Display normalized column list in expander
             with st.expander("📋 Snapshot Columns After Normalization", expanded=False):
