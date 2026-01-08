@@ -62,6 +62,9 @@ def fetch_spy_trading_days(calendar_days: int = 10) -> Tuple[Optional[datetime],
         # Extract trading days from index
         trading_days = [pd.Timestamp(dt).to_pydatetime() for dt in spy_data.index]
         
+        # Ensure trading days are in ascending chronological order
+        trading_days = sorted(trading_days)
+        
         if not trading_days:
             logger.error("No trading days found in SPY data")
             return None, []

@@ -77,8 +77,10 @@ class TestTradingDayFreshness:
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_path = os.path.join(tmpdir, "test_cache.parquet")
             
-            # Create test data with specific dates
-            test_dates = pd.bdate_range(end=datetime(2024, 12, 20), periods=5)
+            # Create test data with specific dates (use a date that won't expire)
+            # Use a base date from a year ago to ensure test doesn't expire
+            base_date = datetime.now() - timedelta(days=365)
+            test_dates = pd.bdate_range(end=base_date, periods=5)
             
             # Test 1: Cache at latest trading day
             print("\n  Test 1: Cache at latest trading day")
@@ -240,9 +242,14 @@ class TestTradingDayFreshness:
             print("⚠️  SKIP: Could not fetch SPY data or insufficient trading days")
             return True
         
-        # Get a trading day that is 2+ sessions behind
+        # Get a trading day that is definitely 2+ sessions behind
+        # Use the third-from-last if we have at least 3 days, otherwise skip
         sorted_trading_days = sorted(trading_days, reverse=True)
-        two_sessions_behind = sorted_trading_days[2] if len(sorted_trading_days) >= 3 else sorted_trading_days[-1]
+        if len(sorted_trading_days) < 3:
+            print("⚠️  SKIP: Insufficient trading days to test stale cache")
+            return True
+        
+        two_sessions_behind = sorted_trading_days[2]
         
         # Create cache with old data (2+ sessions behind)
         with tempfile.TemporaryDirectory() as tmpdir:
