@@ -1,5 +1,4 @@
-concurrency:
-  group: rebuild-snapshot
-  cancel-in-progress: true
-
-# Existing content remains unchanged
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
