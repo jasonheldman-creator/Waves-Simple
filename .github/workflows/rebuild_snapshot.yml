@@ -1,10 +1,59 @@
 name: Rebuild Snapshot
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: rebuild-snapshot
   cancel-in-progress: true
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # IMPORTANT:
+      # Adjust ONE of the next two "Run snapshot" lines to match your repo.
+      # Try Option A first. If it fails saying file not found, switch to Option B.
+
+      - name: Run snapshot (Option A)
+        run: python scripts/rebuild_snapshot.py
+
+      # - name: Run snapshot (Option B)
+      #   run: python rebuild_snapshot.py
+
+      - name: Commit snapshot if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Common snapshot outputs (commit if present/changed)
+          git add -A data || true
+          git add -A output || true
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Rebuild live snapshot"
+          git push
