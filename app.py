@@ -6316,7 +6316,7 @@ def compute_alpha_source_breakdown(df):
             }
             return result
         
-        # Store ledger in session state for consistency
+        # Store ledger in session state for consistency (only reached if successful due to early return above)
         st.session_state['portfolio_alpha_ledger'] = ledger
         st.session_state['portfolio_exposure_series'] = ledger.get('daily_exposure')
         
@@ -10172,8 +10172,9 @@ def render_executive_brief_tab():
                         mode='Standard',
                         vix_exposure_enabled=True
                     )
-                    # Store in session state for reuse
-                    st.session_state['portfolio_alpha_ledger'] = ledger
+                    # Only cache successful ledger computations to allow retry on failure
+                    if ledger['success']:
+                        st.session_state['portfolio_alpha_ledger'] = ledger
             
                 # Add diagnostic information
                 if ledger['success']:
