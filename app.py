@@ -10172,8 +10172,9 @@ def render_executive_brief_tab():
                         mode='Standard',
                         vix_exposure_enabled=True
                     )
-                    # Store in session state for reuse
-                    st.session_state['portfolio_alpha_ledger'] = ledger
+                    # Only cache successful ledger computations to allow retry on failure
+                    if ledger['success']:
+                        st.session_state['portfolio_alpha_ledger'] = ledger
             
                 # Add diagnostic information
                 if ledger['success']:
