@@ -28,6 +28,7 @@ Usage:
 """
 
 import logging
+import traceback
 from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
@@ -1459,7 +1460,7 @@ def compute_portfolio_snapshot(
         result['failure_reason'] = None
         
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing portfolio metrics: {str(e)}'
         debug['reason_if_failure'] = f'exception: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2456,7 +2457,7 @@ def compute_portfolio_alpha_ledger(
         all_waves = universe.get('waves', [])
         debug['active_waves_count'] = len(all_waves)
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error getting wave universe: {str(e)}'
         debug['reason_if_failure'] = f'Error getting wave universe: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2551,7 +2552,7 @@ def compute_portfolio_alpha_ledger(
         result['daily_unoverlay_return'] = daily_risk_return.copy()  # Same as risk return (exposure=1.0)
         
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing risk returns: {str(e)}'
         debug['reason_if_failure'] = f'Error computing risk returns: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2583,7 +2584,7 @@ def compute_portfolio_alpha_ledger(
         result['daily_safe_return'] = daily_safe_return
         
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing safe returns: {str(e)}'
         debug['reason_if_failure'] = f'Error computing safe returns: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2641,7 +2642,7 @@ def compute_portfolio_alpha_ledger(
         result['daily_realized_return'] = daily_realized_return
     
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing realized returns: {str(e)}'
         debug['reason_if_failure'] = f'Error computing realized returns: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2665,7 +2666,7 @@ def compute_portfolio_alpha_ledger(
         result['daily_benchmark_return'] = daily_benchmark_return
         
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing benchmark returns: {str(e)}'
         debug['reason_if_failure'] = f'Error computing benchmark returns: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2850,7 +2851,7 @@ def compute_portfolio_alpha_ledger(
         result['failure_reason'] = None
         
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error computing period results: {str(e)}'
         debug['reason_if_failure'] = f'Error computing period results: {str(e)}'
         debug['exception_message'] = str(e)
@@ -2927,7 +2928,7 @@ def compute_portfolio_alpha_ledger(
                         f"max_diff_2={reconciliation_2.max():.8f}")
     
     except Exception as e:
-        import traceback
+
         result['failure_reason'] = f'Error building daily ledger: {str(e)}'
         debug['reason_if_failure'] = f'Error building daily ledger: {str(e)}'
         debug['exception_message'] = str(e)

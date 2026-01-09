@@ -171,8 +171,8 @@ def test_portfolio_snapshot_with_synthetic_data():
         # Generate 100 days of price data
         dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
         
-        # Create realistic price movements (random walk) with local random state
-        rng = np.random.RandomState(42)
+        # Create realistic price movements (random walk) with modern random generator
+        rng = np.random.default_rng(42)
         spy_prices = 100 * np.exp(np.cumsum(rng.normal(0.001, 0.02, 100)))
         aapl_prices = 150 * np.exp(np.cumsum(rng.normal(0.0015, 0.025, 100)))
         msft_prices = 200 * np.exp(np.cumsum(rng.normal(0.0012, 0.022, 100)))
