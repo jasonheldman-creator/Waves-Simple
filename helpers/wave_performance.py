@@ -28,6 +28,7 @@ Usage:
 """
 
 import logging
+import traceback
 from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
@@ -1114,7 +1115,9 @@ def compute_portfolio_snapshot(
         'tickers_intersection_count': 0,
         'tickers_missing_sample': [],
         'filtered_price_book_shape': None,
-        'reason_if_failure': None
+        'reason_if_failure': None,
+        'exception_message': None,
+        'exception_traceback': None
     }
     
     result = {
@@ -1457,8 +1460,11 @@ def compute_portfolio_snapshot(
         result['failure_reason'] = None
         
     except Exception as e:
+
         result['failure_reason'] = f'Error computing portfolio metrics: {str(e)}'
         debug['reason_if_failure'] = f'exception: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # Log debug info for troubleshooting (using debug level to avoid performance impact)
@@ -2381,6 +2387,24 @@ def compute_portfolio_alpha_ledger(
         >>>         if period_data['available']:
         >>>             print(f"{period_key}: Total Alpha = {period_data['total_alpha']:.2%}")
     """
+    # Initialize debug dict to track computation details
+    debug = {
+        'price_book_source': 'get_price_book()',
+        'price_book_shape': None,
+        'price_book_index_min': None,
+        'price_book_index_max': None,
+        'spy_present': False,
+        'requested_periods': periods,
+        'active_waves_count': 0,
+        'risk_return_rows_count': None,
+        'tickers_requested_count': 0,
+        'tickers_intersection_count': 0,
+        'tickers_missing_sample': [],
+        'reason_if_failure': None,
+        'exception_message': None,
+        'exception_traceback': None
+    }
+    
     result = {
         'success': False,
         'failure_reason': None,
@@ -2398,16 +2422,30 @@ def compute_portfolio_alpha_ledger(
         'vix_ticker_used': None,
         'safe_ticker_used': None,
         'overlay_available': False,
-        'warnings': []
+        'warnings': [],
+        'debug': debug
     }
     
     # Validate inputs
     if price_book is None or price_book.empty:
         result['failure_reason'] = 'PRICE_BOOK is empty'
+        debug['reason_if_failure'] = 'PRICE_BOOK is empty or None'
         return result
+    
+    # Record price_book debug info
+    debug['price_book_shape'] = f"{len(price_book)} x {len(price_book.columns)}"
+    try:
+        debug['price_book_index_min'] = price_book.index[0].strftime('%Y-%m-%d')
+        debug['price_book_index_max'] = price_book.index[-1].strftime('%Y-%m-%d')
+    except (IndexError, AttributeError) as e:
+        logger.warning(f"Failed to get price_book index range: {e}")
+    
+    # Check if SPY is present  
+    debug['spy_present'] = benchmark_ticker in price_book.columns
     
     if not WAVES_ENGINE_AVAILABLE:
         result['failure_reason'] = 'waves_engine not available'
+        debug['reason_if_failure'] = 'waves_engine not available'
         return result
     
     # Use WAVE_WEIGHTS as registry if not provided
@@ -2417,12 +2455,18 @@ def compute_portfolio_alpha_ledger(
     try:
         universe = get_all_waves_universe()
         all_waves = universe.get('waves', [])
+        debug['active_waves_count'] = len(all_waves)
     except Exception as e:
+
         result['failure_reason'] = f'Error getting wave universe: {str(e)}'
+        debug['reason_if_failure'] = f'Error getting wave universe: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     if not all_waves:
         result['failure_reason'] = 'No waves found in universe'
+        debug['reason_if_failure'] = 'No waves found in universe'
         return result
     
     # ========================================================================
@@ -2508,7 +2552,11 @@ def compute_portfolio_alpha_ledger(
         result['daily_unoverlay_return'] = daily_risk_return.copy()  # Same as risk return (exposure=1.0)
         
     except Exception as e:
+
         result['failure_reason'] = f'Error computing risk returns: {str(e)}'
+        debug['reason_if_failure'] = f'Error computing risk returns: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # ========================================================================
@@ -2536,7 +2584,11 @@ def compute_portfolio_alpha_ledger(
         result['daily_safe_return'] = daily_safe_return
         
     except Exception as e:
+
         result['failure_reason'] = f'Error computing safe returns: {str(e)}'
+        debug['reason_if_failure'] = f'Error computing safe returns: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # ========================================================================
@@ -2590,7 +2642,11 @@ def compute_portfolio_alpha_ledger(
         result['daily_realized_return'] = daily_realized_return
     
     except Exception as e:
+
         result['failure_reason'] = f'Error computing realized returns: {str(e)}'
+        debug['reason_if_failure'] = f'Error computing realized returns: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # ========================================================================
@@ -2610,7 +2666,11 @@ def compute_portfolio_alpha_ledger(
         result['daily_benchmark_return'] = daily_benchmark_return
         
     except Exception as e:
+
         result['failure_reason'] = f'Error computing benchmark returns: {str(e)}'
+        debug['reason_if_failure'] = f'Error computing benchmark returns: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # ========================================================================
@@ -2791,7 +2851,11 @@ def compute_portfolio_alpha_ledger(
         result['failure_reason'] = None
         
     except Exception as e:
+
         result['failure_reason'] = f'Error computing period results: {str(e)}'
+        debug['reason_if_failure'] = f'Error computing period results: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         return result
     
     # ========================================================================
@@ -2864,7 +2928,11 @@ def compute_portfolio_alpha_ledger(
                         f"max_diff_2={reconciliation_2.max():.8f}")
     
     except Exception as e:
+
         result['failure_reason'] = f'Error building daily ledger: {str(e)}'
+        debug['reason_if_failure'] = f'Error building daily ledger: {str(e)}'
+        debug['exception_message'] = str(e)
+        debug['exception_traceback'] = traceback.format_exc()
         result['reconciliation_passed'] = False
         return result
     
