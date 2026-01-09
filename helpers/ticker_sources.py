@@ -15,7 +15,38 @@ from typing import List, Dict, Optional, Set, Any
 
 # Configure logging
 logger = logging.getLogger(__name__)
+# ------------------------------------------------------------------
+# QUICK FIX: Normalize + block bad tickers (prevents yfinance errors)
+# ------------------------------------------------------------------
 
+BLOCKLIST_TICKERS: Set[str] = {
+    "COMP-USD",
+    "ALT-USD",
+    "IMX-USD",
+    "MNT-USD",
+    "TAO-USD",
+}
+
+def normalize_ticker(ticker: str) -> Optional[str]:
+    """
+    Normalize ticker symbols before yfinance calls.
+    - Strips leading '$'
+    - Uppercases
+    - Blocks known-bad tickers
+    """
+    if not ticker:
+        return None
+
+    t = ticker.strip().upper()
+
+    if t.startswith("$"):
+        t = t[1:]
+
+    if t in BLOCKLIST_TICKERS:
+        logger.warning(f"[TICKER BLOCKED] {ticker}")
+        return None
+
+    return t
 # ----------------------------------------------------------------------------
 # QUICK FIX: Normalize + block bad tickers (prevents yfinance spam / slowdowns)
 # ----------------------------------------------------------------------------
