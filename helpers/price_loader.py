@@ -57,10 +57,15 @@ except ImportError:
 
 # Constants
 CACHE_DIR = "data/cache"
+
+# Canonical price cache path - single source of truth
+CANONICAL_PRICE_CACHE_PATH = "data/cache/prices_cache.parquet"
+
+# Legacy paths for backward compatibility
 CACHE_FILE = "prices_cache_v2.parquet"
 CACHE_FILE_LEGACY = "prices_cache.parquet"
-CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
-CACHE_PATH_LEGACY = os.path.join(CACHE_DIR, CACHE_FILE_LEGACY)
+CACHE_PATH = CANONICAL_PRICE_CACHE_PATH  # Use canonical path
+CACHE_PATH_LEGACY = os.path.join(CACHE_DIR, CACHE_FILE)  # Legacy v2 path
 FAILED_TICKERS_FILE = "failed_tickers.csv"
 FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 
@@ -411,22 +416,25 @@ def load_cache() -> Optional[pd.DataFrame]:
     """
     Load the price cache from disk.
     
+    Prefers canonical path (data/cache/prices_cache.parquet) first,
+    then falls back to legacy v2 path for temporary compatibility.
+    
     Returns:
         DataFrame with dates as index and tickers as columns, or None if cache doesn't exist
     """
-    # Determine which cache file to use (v2 with fallback to legacy)
+    # Determine which cache file to use (canonical with fallback to v2)
     cache_file_to_use = CACHE_PATH
     
     # Log cache file existence check
     logger.info(f"PRICE_BOOK Cache Check: File exists={os.path.exists(CACHE_PATH)}, Path={CACHE_PATH}")
     
     if not os.path.exists(CACHE_PATH):
-        # Try fallback to legacy cache
+        # Try fallback to legacy v2 cache for temporary compatibility
         if os.path.exists(CACHE_PATH_LEGACY):
-            logger.warning(f"Cache file v2 not found: {CACHE_PATH}, falling back to legacy: {CACHE_PATH_LEGACY}")
+            logger.warning(f"Canonical cache not found: {CACHE_PATH}, falling back to v2: {CACHE_PATH_LEGACY}")
             cache_file_to_use = CACHE_PATH_LEGACY
         else:
-            logger.warning(f"Cache file not found: {CACHE_PATH} (legacy {CACHE_PATH_LEGACY} also not found)")
+            logger.warning(f"Cache file not found: {CACHE_PATH} (v2 {CACHE_PATH_LEGACY} also not found)")
             return None
     
     try:

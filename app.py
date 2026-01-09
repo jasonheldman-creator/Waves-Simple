@@ -180,7 +180,7 @@ except ImportError:
     PRICE_CACHE_DEGRADED_DAYS = 30
     STALE_DAYS_THRESHOLD = 30
     DEGRADED_DAYS_THRESHOLD = 14
-    CANONICAL_CACHE_PATH = "data/cache/prices_cache_v2.parquet"
+    CANONICAL_CACHE_PATH = "data/cache/prices_cache.parquet"  # Canonical path
     compute_system_health = None
     get_price_book = None
 
@@ -9214,7 +9214,7 @@ def render_sidebar_info():
             
             # Check price cache status
             try:
-                price_cache_path = "data/cache/prices_cache_v2.parquet"
+                price_cache_path = CANONICAL_CACHE_PATH  # Use canonical path
                 cache_exists = os.path.exists(price_cache_path)
                 st.text(f"Price Cache Path: {price_cache_path}")
                 st.text(f"Price Cache Exists: {cache_exists}")
@@ -20475,9 +20475,11 @@ def render_diagnostics_tab():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
+                # Extract filename from canonical path
+                cache_filename = os.path.basename(CANONICAL_CACHE_PATH)
                 st.metric(
                     "📁 Price Source File",
-                    "prices_cache_v2.parquet",
+                    cache_filename,
                     help="Exact price source file used for this run"
                 )
             
@@ -21981,7 +21983,8 @@ The platform is monitoring **{total_waves} institutional-grade investment strate
                 diag_col1, diag_col2, diag_col3 = st.columns(3)
                 
                 with diag_col1:
-                    st.metric("Cache File", "prices_cache_v2.parquet")
+                    cache_filename = os.path.basename(CANONICAL_CACHE_PATH)
+                    st.metric("Cache File", cache_filename)
                     st.caption(f"Path: {pb_diag.get('path', 'N/A')}")
                 
                 with diag_col2:
@@ -22665,7 +22668,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # NOTE: Global price cache initialization has been disabled to prevent
     # implicit background downloads. All price data now comes from the
-    # canonical cache at data/cache/prices_cache_v2.parquet.
+    # canonical cache at data/cache/prices_cache.parquet.
     # 
     # Users should explicitly refresh the cache using:
     # 1. "Refresh Prices Cache" button in sidebar

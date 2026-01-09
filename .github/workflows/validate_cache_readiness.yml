@@ -40,6 +40,57 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       
+      - name: Display canonical cache file details
+        run: |
+          echo "========================================================================"
+          echo "CANONICAL CACHE FILE DETAILS"
+          echo "========================================================================"
+          
+          if [ -f data/cache/prices_cache.parquet ]; then
+            echo "✅ Canonical cache exists"
+            echo ""
+            echo "📁 File Information:"
+            ls -lh data/cache/prices_cache.parquet
+            echo ""
+            
+            python << 'INSPECT_SCRIPT'
+          import pandas as pd
+          from datetime import datetime
+          
+          try:
+              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              
+              print("📊 Cache Statistics:")
+              print(f"  Path:          data/cache/prices_cache.parquet")
+              print(f"  Rows (days):   {len(df)}")
+              print(f"  Cols (tickers): {len(df.columns)}")
+              
+              if not df.empty:
+                  min_date = df.index.min().strftime('%Y-%m-%d')
+                  max_date = df.index.max().strftime('%Y-%m-%d')
+                  print(f"  Date range:    {min_date} to {max_date}")
+                  
+                  # Calculate staleness
+                  max_dt = df.index.max().to_pydatetime()
+                  now = datetime.utcnow()
+                  days_old = (now - max_dt).days
+                  print(f"  Days old:      {days_old}")
+                  
+                  # Sample tickers
+                  sample_tickers = df.columns[:10].tolist()
+                  print(f"  Sample tickers: {', '.join(sample_tickers)}")
+              else:
+                  print("  ⚠️  Cache is empty")
+                  
+          except Exception as e:
+              print(f"❌ Error inspecting cache: {e}")
+          INSPECT_SCRIPT
+          else
+            echo "❌ Canonical cache does not exist"
+          fi
+          
+          echo "========================================================================"
+      
       - name: Check cache file exists
         run: |
           if [ ! -f data/cache/prices_cache.parquet ]; then
@@ -47,6 +98,18 @@ jobs:
             exit 1
           fi
           echo "✅ Cache file exists"
+          
+          # Safety check: Fail if v2 exists while canonical exists
+          if [ -f data/cache/prices_cache_v2.parquet ]; then
+            echo "⚠️  WARNING: Both canonical and v2 cache files exist"
+            echo "    Canonical: data/cache/prices_cache.parquet"
+            echo "    V2 (legacy): data/cache/prices_cache_v2.parquet"
+            echo ""
+            echo "📋 File sizes:"
+            ls -lh data/cache/prices_cache.parquet data/cache/prices_cache_v2.parquet
+            echo ""
+            echo "⚠️  Please remove prices_cache_v2.parquet to use canonical path only"
+          fi
       
       - name: Validate cache readiness
         run: |
