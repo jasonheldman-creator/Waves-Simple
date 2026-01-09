@@ -9583,6 +9583,13 @@ def render_executive_brief_tab():
     NO DIAGNOSTICS CONTENT - All diagnostics moved to Diagnostics tab.
     """
     # ========================================================================
+    # RESOLVE APP CONTEXT - Get selected wave for conditional rendering
+    # ========================================================================
+    ctx = resolve_app_context()
+    selected_wave = ctx["selected_wave_name"]
+    is_portfolio_view = is_portfolio_context(selected_wave)
+    
+    # ========================================================================
     # MISSION CONTROL HEADER
     # ========================================================================
     st.markdown("""
@@ -10138,389 +10145,391 @@ def render_executive_brief_tab():
         
         # ========================================================================
         # SECTION 1.5: PORTFOLIO SNAPSHOT (BLUE BOX)
+        # Only show for Portfolio View (all waves), not individual wave view
         # ========================================================================
-        st.markdown("### 💼 Portfolio Snapshot")
-        st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
+        if is_portfolio_view:
+            st.markdown("### 💼 Portfolio Snapshot")
+            st.caption("Equal-weight portfolio across all active waves - Multi-window returns and alpha")
         
-        try:
-            from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
-            from helpers.price_book import get_price_book
-            from waves_engine import get_all_waves_universe
+            try:
+                from helpers.wave_performance import compute_portfolio_alpha_ledger, WAVE_WEIGHTS
+                from helpers.price_book import get_price_book
+                from waves_engine import get_all_waves_universe
             
-            # Load PRICE_BOOK
-            price_book = get_cached_price_book()
+                # Load PRICE_BOOK
+                price_book = get_cached_price_book()
             
-            # Use canonical ledger from session state if available (single source of truth)
-            # Only compute if not already in session state
-            if 'portfolio_alpha_ledger' in st.session_state:
-                ledger = st.session_state['portfolio_alpha_ledger']
-            else:
-                # Compute portfolio alpha ledger (canonical implementation)
-                ledger = compute_portfolio_alpha_ledger(
-                    price_book, 
-                    periods=[1, 30, 60, 365],
-                    benchmark_ticker='SPY',
-                    mode='Standard',
-                    vix_exposure_enabled=True
-                )
-                # Store in session state for reuse
-                st.session_state['portfolio_alpha_ledger'] = ledger
-            
-            # Add diagnostic information
-            if ledger['success']:
-                # Count waves from daily_risk_return computation (efficient set intersection)
-                all_waves = set(get_all_waves_universe().get('waves', []))
-                wave_weights_keys = set(WAVE_WEIGHTS.keys())
-                n_waves_used = len(all_waves & wave_weights_keys)
-                
-                # Get date range from period results
-                period_1d = ledger['period_results'].get('1D', {})
-                if period_1d.get('available'):
-                    end_date = period_1d.get('end_date', 'N/A')
-                    n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
-                    start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                # Use canonical ledger from session state if available (single source of truth)
+                # Only compute if not already in session state
+                if 'portfolio_alpha_ledger' in st.session_state:
+                    ledger = st.session_state['portfolio_alpha_ledger']
                 else:
-                    end_date = 'N/A'
-                    start_date = 'N/A'
-                    n_dates = 0
-                
-                # Display VIX overlay status
-                vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
-                safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
-                
-                st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
-                st.caption(f"📅 Period: {start_date} to {end_date}")
-            else:
-                # Check for empty result condition
-                n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
-                st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
-                
-                # Display warning with failure reason
-                failure_reason = ledger.get('failure_reason', 'Unknown error')
-                st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
-                
-                # Check for specific error conditions
-                if n_dates < 2:
-                    st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
+                    # Compute portfolio alpha ledger (canonical implementation)
+                    ledger = compute_portfolio_alpha_ledger(
+                        price_book, 
+                        periods=[1, 30, 60, 365],
+                        benchmark_ticker='SPY',
+                        mode='Standard',
+                        vix_exposure_enabled=True
+                    )
+                    # Store in session state for reuse
+                    st.session_state['portfolio_alpha_ledger'] = ledger
             
-            if ledger['success']:
-                # RENDERER PROOF LINE - Enhanced with data source info
-                build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
-                
-                # Get price_book info for proof label
-                price_max_date = "N/A"
-                price_rows = 0
-                price_cols = 0
-                if price_book is not None and not price_book.empty:
-                    price_max_date = price_book.index.max().strftime('%Y-%m-%d')
-                    price_rows, price_cols = price_book.shape
-                
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
-                        <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # VIX/Exposure Status Line
-                vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
-                if not vix_proxy_used:
-                    vix_proxy_used = 'none found'
-                
-                # Determine exposure mode
-                exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
-                
-                # Calculate exposure min/max over last 60 rows if available
-                exposure_min_max = ""
-                if ledger.get('daily_exposure') is not None:
-                    try:
-                        exposure_series = ledger['daily_exposure']
-                        if len(exposure_series) > 0:
-                            # Get last 60 rows
-                            last_60 = exposure_series.tail(60)
-                            exp_min = last_60.min()
-                            exp_max = last_60.max()
-                            exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
-                    except Exception:
-                        pass
-                
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
-                        <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # Display in blue box with metrics from ledger
-                st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-                    border: 2px solid #00d9ff;
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 20px;
-                ">
-                """, unsafe_allow_html=True)
-                
-                # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
-                st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
-                st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
-                    with col:
-                        period_data = ledger['period_results'].get(period_key, {})
-                        
-                        if period_data.get('available'):
-                            # Extract values
-                            cum_realized = period_data['cum_realized']
-                            cum_benchmark = period_data['cum_benchmark']
-                            total_alpha = period_data['total_alpha']
-                            start = period_data['start_date']
-                            end = period_data['end_date']
-                            
-                            # Display stacked format with header
-                            st.markdown(f"**{period_key}**")
-                            st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
-                            st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
-                            
-                            # Color-code alpha (green for positive, red for negative)
-                            alpha_color = "green" if total_alpha >= 0 else "red"
-                            st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
-                            
-                            st.caption(f"{start} to {end}")
-                        else:
-                            # Unavailable period - show N/A for all three lines with reason
-                            reason = period_data.get('reason', 'unknown')
-                            MAX_REASON_LENGTH = 60  # Configurable truncation length
-                            st.markdown(f"**{period_key}**")
-                            st.markdown(f"📈 **Portfolio:** N/A")
-                            st.markdown(f"📊 **Benchmark:** N/A")
-                            st.markdown(f"🎯 **Alpha:** N/A")
-                            # Truncate long reasons with ellipsis
-                            truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
-                            st.caption(f"⚠️ {truncated_reason}")
-                
-                st.divider()
-                
-                # Alpha Attribution Row (30D window for detailed attribution)
-                st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
-                
-                period_30d = ledger['period_results'].get('30D', {})
-                if period_30d.get('available'):
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        total_alpha = period_30d['total_alpha']
-                        st.metric(
-                            "Total Alpha", 
-                            f"{total_alpha:+.2%}",
-                            help="Realized return - Benchmark return"
-                        )
-                    
-                    with col2:
-                        selection_alpha = period_30d['selection_alpha']
-                        st.metric(
-                            "Selection Alpha", 
-                            f"{selection_alpha:+.2%}",
-                            help="Alpha from wave selection (unoverlay - benchmark)"
-                        )
-                    
-                    with col3:
-                        overlay_alpha = period_30d['overlay_alpha']
-                        overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
-                        st.metric(
-                            overlay_label, 
-                            f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
-                            help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
-                        )
-                    
-                    with col4:
-                        residual = period_30d['residual']
-                        # Color code residual based on tolerance
-                        residual_pct = abs(residual) * 100
-                        residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
-                        st.metric(
-                            f"{residual_color} Residual", 
-                            f"{residual:+.3%}",
-                            help="Attribution residual (should be near 0%)"
-                        )
-                    
-                    # Alpha Captured (if overlay available)
-                    if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
-                        st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
-                else:
-                    st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
-                
-                # Warnings display
-                if ledger.get('warnings'):
-                    st.caption("⚠️ " + " | ".join(ledger['warnings']))
-                
-                # Download Debug Report button
-                st.markdown("---")
-                st.markdown("**📥 Download Debug Report**")
-                
-                # Create debug report DataFrame
-                try:
-                    import pandas as pd
-                    from helpers.price_loader import get_price_book_debug_summary
-                    
-                    # Get price_book debug summary
-                    price_book_summary = get_price_book_debug_summary(price_book)
-                    
-                    # Collect debug data
-                    debug_data = []
-                    
-                    # Add price_book summary
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'Rows (Trading Days)',
-                        'Value': str(price_book_summary['rows'])
-                    })
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'Cols (Tickers)',
-                        'Value': str(price_book_summary['cols'])
-                    })
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'Start Date',
-                        'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
-                    })
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'End Date',
-                        'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
-                    })
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'Non-null Cells',
-                        'Value': str(price_book_summary['non_null_cells'])
-                    })
-                    debug_data.append({
-                        'Category': 'PRICE_BOOK',
-                        'Metric': 'Is Empty',
-                        'Value': str(price_book_summary['is_empty'])
-                    })
-                    
-                    # Add ledger info
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Success',
-                        'Value': str(ledger.get('success', False))
-                    })
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Failure Reason',
-                        'Value': str(ledger.get('failure_reason', 'N/A'))
-                    })
-                    
-                    # Add wave count (efficient set intersection)
+                # Add diagnostic information
+                if ledger['success']:
+                    # Count waves from daily_risk_return computation (efficient set intersection)
                     all_waves = set(get_all_waves_universe().get('waves', []))
                     wave_weights_keys = set(WAVE_WEIGHTS.keys())
                     n_waves_used = len(all_waves & wave_weights_keys)
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Waves Processed',
-                        'Value': str(n_waves_used)
-                    })
+                
+                    # Get date range from period results
+                    period_1d = ledger['period_results'].get('1D', {})
+                    if period_1d.get('available'):
+                        end_date = period_1d.get('end_date', 'N/A')
+                        n_dates = len(ledger['daily_realized_return']) if ledger['daily_realized_return'] is not None else 0
+                        start_date = ledger['daily_realized_return'].index[0].strftime('%Y-%m-%d') if n_dates > 0 else 'N/A'
+                    else:
+                        end_date = 'N/A'
+                        start_date = 'N/A'
+                        n_dates = 0
+                
+                    # Display VIX overlay status
+                    vix_status = f"VIX: {ledger['vix_ticker_used']}" if ledger['vix_ticker_used'] else "VIX: N/A (exposure=1.0)"
+                    safe_status = f"Safe: {ledger['safe_ticker_used']}" if ledger['safe_ticker_used'] else "Safe: N/A"
+                
+                    st.caption(f"📊 Portfolio: waves={n_waves_used}, dates={n_dates}, {vix_status}, {safe_status}")
+                    st.caption(f"📅 Period: {start_date} to {end_date}")
+                else:
+                    # Check for empty result condition
+                    n_dates = len(price_book) if price_book is not None and not price_book.empty else 0
+                    st.caption(f"📊 Portfolio agg: dates={n_dates}, start=N/A, end=N/A")
+                
+                    # Display warning with failure reason
+                    failure_reason = ledger.get('failure_reason', 'Unknown error')
+                    st.warning(f"⚠️ Portfolio Snapshot empty because: {failure_reason}")
+                
+                    # Check for specific error conditions
+                    if n_dates < 2:
+                        st.error(f"❌ Portfolio ledger unavailable: {failure_reason}")
+            
+                if ledger['success']:
+                    # RENDERER PROOF LINE - Enhanced with data source info
+                    build_id = os.environ.get('GIT_SHA', 'DIAG_2026_01_05_A')
+                
+                    # Get price_book info for proof label
+                    price_max_date = "N/A"
+                    price_rows = 0
+                    price_cols = 0
+                    if price_book is not None and not price_book.empty:
+                        price_max_date = price_book.index.max().strftime('%Y-%m-%d')
+                        price_rows, price_cols = price_book.shape
+                
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #1a1a1a; padding: 8px 12px; border-left: 3px solid #00d9ff; margin-bottom: 8px; font-family: monospace; font-size: 11px; color: #a0a0a0;">
+                            <strong>Renderer:</strong> Ledger | <strong>Source:</strong> compute_portfolio_alpha_ledger | <strong>Price max date:</strong> {price_max_date} | <strong>Rows:</strong> {price_rows} | <strong>Cols:</strong> {price_cols}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                    # VIX/Exposure Status Line
+                    vix_proxy_used = ledger.get('vix_ticker_used', 'none found')
+                    if not vix_proxy_used:
+                        vix_proxy_used = 'none found'
+                
+                    # Determine exposure mode
+                    exposure_mode = "computed" if ledger.get('overlay_available', False) else "fallback 1.0"
+                
+                    # Calculate exposure min/max over last 60 rows if available
+                    exposure_min_max = ""
+                    if ledger.get('daily_exposure') is not None:
+                        try:
+                            exposure_series = ledger['daily_exposure']
+                            if len(exposure_series) > 0:
+                                # Get last 60 rows
+                                last_60 = exposure_series.tail(60)
+                                exp_min = last_60.min()
+                                exp_max = last_60.max()
+                                exposure_min_max = f" | Exposure min/max (60D): {exp_min:.2f} - {exp_max:.2f}"
+                        except Exception:
+                            pass
+                
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #1a1a1a; padding: 6px 12px; border-left: 3px solid #ffa500; margin-bottom: 8px; font-family: monospace; font-size: 10px; color: #b0b0b0;">
+                            <strong>VIX Proxy:</strong> {vix_proxy_used} | <strong>Exposure Mode:</strong> {exposure_mode}{exposure_min_max}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                    # Display in blue box with metrics from ledger
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+                        border: 2px solid #00d9ff;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                    ">
+                    """, unsafe_allow_html=True)
+                
+                    # NEW FORMAT: Portfolio / Benchmark / Alpha stacked for each period
+                    st.markdown("**📊 Portfolio vs Benchmark Performance (All Periods)**")
+                    st.caption("Each period shows: Portfolio Return | Benchmark Return | Alpha (Portfolio − Benchmark)")
+                
+                    col1, col2, col3, col4 = st.columns(4)
+                
+                    for col, period_key in zip([col1, col2, col3, col4], ['1D', '30D', '60D', '365D']):
+                        with col:
+                            period_data = ledger['period_results'].get(period_key, {})
+                        
+                            if period_data.get('available'):
+                                # Extract values
+                                cum_realized = period_data['cum_realized']
+                                cum_benchmark = period_data['cum_benchmark']
+                                total_alpha = period_data['total_alpha']
+                                start = period_data['start_date']
+                                end = period_data['end_date']
+                            
+                                # Display stacked format with header
+                                st.markdown(f"**{period_key}**")
+                                st.markdown(f"📈 **Portfolio:** {cum_realized:+.2%}")
+                                st.markdown(f"📊 **Benchmark:** {cum_benchmark:+.2%}")
+                            
+                                # Color-code alpha (green for positive, red for negative)
+                                alpha_color = "green" if total_alpha >= 0 else "red"
+                                st.markdown(f"🎯 **Alpha:** <span style='color:{alpha_color};font-weight:bold'>{total_alpha:+.2%}</span>", unsafe_allow_html=True)
+                            
+                                st.caption(f"{start} to {end}")
+                            else:
+                                # Unavailable period - show N/A for all three lines with reason
+                                reason = period_data.get('reason', 'unknown')
+                                MAX_REASON_LENGTH = 60  # Configurable truncation length
+                                st.markdown(f"**{period_key}**")
+                                st.markdown(f"📈 **Portfolio:** N/A")
+                                st.markdown(f"📊 **Benchmark:** N/A")
+                                st.markdown(f"🎯 **Alpha:** N/A")
+                                # Truncate long reasons with ellipsis
+                                truncated_reason = reason[:MAX_REASON_LENGTH] + "..." if len(reason) > MAX_REASON_LENGTH else reason
+                                st.caption(f"⚠️ {truncated_reason}")
+                
+                    st.divider()
+                
+                    # Alpha Attribution Row (30D window for detailed attribution)
+                    st.markdown("**🔬 Alpha Attribution (30D breakdown):**")
+                
+                    period_30d = ledger['period_results'].get('30D', {})
+                    if period_30d.get('available'):
+                        col1, col2, col3, col4 = st.columns(4)
                     
-                    # Add ticker count (from price_book)
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Tickers Available',
-                        'Value': str(price_book_summary['num_tickers'])
-                    })
+                        with col1:
+                            total_alpha = period_30d['total_alpha']
+                            st.metric(
+                                "Total Alpha", 
+                                f"{total_alpha:+.2%}",
+                                help="Realized return - Benchmark return"
+                            )
                     
-                    # Add VIX and safe asset info
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'VIX Ticker Used',
-                        'Value': str(ledger.get('vix_ticker_used', 'N/A'))
-                    })
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Safe Ticker Used',
-                        'Value': str(ledger.get('safe_ticker_used', 'N/A'))
-                    })
-                    debug_data.append({
-                        'Category': 'Portfolio Ledger',
-                        'Metric': 'Overlay Available',
-                        'Value': str(ledger.get('overlay_available', False))
-                    })
+                        with col2:
+                            selection_alpha = period_30d['selection_alpha']
+                            st.metric(
+                                "Selection Alpha", 
+                                f"{selection_alpha:+.2%}",
+                                help="Alpha from wave selection (unoverlay - benchmark)"
+                            )
                     
-                    # Add period results
-                    for period_key, period_data in ledger.get('period_results', {}).items():
+                        with col3:
+                            overlay_alpha = period_30d['overlay_alpha']
+                            overlay_label = "Overlay Alpha" if ledger['overlay_available'] else "Overlay (N/A)"
+                            st.metric(
+                                overlay_label, 
+                                f"{overlay_alpha:+.2%}" if ledger['overlay_available'] else "—",
+                                help="Alpha from VIX overlay (realized - unoverlay)" if ledger['overlay_available'] else "VIX overlay not available"
+                            )
+                    
+                        with col4:
+                            residual = period_30d['residual']
+                            # Color code residual based on tolerance
+                            residual_pct = abs(residual) * 100
+                            residual_color = "🟢" if residual_pct < 0.10 else "🟡" if residual_pct < 0.5 else "🔴"
+                            st.metric(
+                                f"{residual_color} Residual", 
+                                f"{residual:+.3%}",
+                                help="Attribution residual (should be near 0%)"
+                            )
+                    
+                        # Alpha Captured (if overlay available)
+                        if ledger['overlay_available'] and period_30d.get('alpha_captured') is not None:
+                            st.caption(f"💎 Alpha Captured (30D): {period_30d['alpha_captured']:+.2%} (exposure-weighted)")
+                    else:
+                        st.warning(f"⚠️ 30D attribution unavailable: {period_30d.get('reason', 'unknown')}")
+                
+                    # Warnings display
+                    if ledger.get('warnings'):
+                        st.caption("⚠️ " + " | ".join(ledger['warnings']))
+                
+                    # Download Debug Report button
+                    st.markdown("---")
+                    st.markdown("**📥 Download Debug Report**")
+                
+                    # Create debug report DataFrame
+                    try:
+                        import pandas as pd
+                        from helpers.price_loader import get_price_book_debug_summary
+                    
+                        # Get price_book debug summary
+                        price_book_summary = get_price_book_debug_summary(price_book)
+                    
+                        # Collect debug data
+                        debug_data = []
+                    
+                        # Add price_book summary
                         debug_data.append({
-                            'Category': f'Period {period_key}',
-                            'Metric': 'Available',
-                            'Value': str(period_data.get('available', False))
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Rows (Trading Days)',
+                            'Value': str(price_book_summary['rows'])
                         })
                         debug_data.append({
-                            'Category': f'Period {period_key}',
-                            'Metric': 'Reason',
-                            'Value': str(period_data.get('reason', 'N/A'))
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Cols (Tickers)',
+                            'Value': str(price_book_summary['cols'])
                         })
-                        if period_data.get('available'):
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Start Date',
+                            'Value': str(price_book_summary['start_date']) if price_book_summary['start_date'] else 'N/A'
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'End Date',
+                            'Value': str(price_book_summary['end_date']) if price_book_summary['end_date'] else 'N/A'
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Non-null Cells',
+                            'Value': str(price_book_summary['non_null_cells'])
+                        })
+                        debug_data.append({
+                            'Category': 'PRICE_BOOK',
+                            'Metric': 'Is Empty',
+                            'Value': str(price_book_summary['is_empty'])
+                        })
+                    
+                        # Add ledger info
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Success',
+                            'Value': str(ledger.get('success', False))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Failure Reason',
+                            'Value': str(ledger.get('failure_reason', 'N/A'))
+                        })
+                    
+                        # Add wave count (efficient set intersection)
+                        all_waves = set(get_all_waves_universe().get('waves', []))
+                        wave_weights_keys = set(WAVE_WEIGHTS.keys())
+                        n_waves_used = len(all_waves & wave_weights_keys)
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Waves Processed',
+                            'Value': str(n_waves_used)
+                        })
+                    
+                        # Add ticker count (from price_book)
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Tickers Available',
+                            'Value': str(price_book_summary['num_tickers'])
+                        })
+                    
+                        # Add VIX and safe asset info
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'VIX Ticker Used',
+                            'Value': str(ledger.get('vix_ticker_used', 'N/A'))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Safe Ticker Used',
+                            'Value': str(ledger.get('safe_ticker_used', 'N/A'))
+                        })
+                        debug_data.append({
+                            'Category': 'Portfolio Ledger',
+                            'Metric': 'Overlay Available',
+                            'Value': str(ledger.get('overlay_available', False))
+                        })
+                    
+                        # Add period results
+                        for period_key, period_data in ledger.get('period_results', {}).items():
                             debug_data.append({
                                 'Category': f'Period {period_key}',
-                                'Metric': 'Total Alpha',
-                                'Value': f"{period_data.get('total_alpha', 0):.4%}"
+                                'Metric': 'Available',
+                                'Value': str(period_data.get('available', False))
                             })
+                            debug_data.append({
+                                'Category': f'Period {period_key}',
+                                'Metric': 'Reason',
+                                'Value': str(period_data.get('reason', 'N/A'))
+                            })
+                            if period_data.get('available'):
+                                debug_data.append({
+                                    'Category': f'Period {period_key}',
+                                    'Metric': 'Total Alpha',
+                                    'Value': f"{period_data.get('total_alpha', 0):.4%}"
+                                })
                     
-                    # Create DataFrame
-                    debug_df = pd.DataFrame(debug_data)
+                        # Create DataFrame
+                        debug_df = pd.DataFrame(debug_data)
                     
-                    # Convert to CSV
-                    csv_data = debug_df.to_csv(index=False)
+                        # Convert to CSV
+                        csv_data = debug_df.to_csv(index=False)
                     
-                    # Add download button
-                    st.download_button(
-                        label="📥 Download Debug Report (CSV)",
-                        data=csv_data,
-                        file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        key="download_debug_report"
-                    )
+                        # Add download button
+                        st.download_button(
+                            label="📥 Download Debug Report (CSV)",
+                            data=csv_data,
+                            file_name=f"portfolio_snapshot_debug_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            key="download_debug_report"
+                        )
                     
-                except Exception as download_err:
-                    st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
+                    except Exception as download_err:
+                        st.warning(f"⚠️ Could not generate debug report: {str(download_err)}")
                 
-                st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
                 
-            else:
-                # Display error message
-                st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
+                else:
+                    # Display error message
+                    st.error(f"⚠️ Portfolio ledger computation failed: {ledger['failure_reason']}")
                 
-                # Show explicit error (no placeholder data)
-                st.markdown("""
-                <div style="
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    border: 2px solid #ff6b6b;
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 20px;
-                ">
-                """, unsafe_allow_html=True)
+                    # Show explicit error (no placeholder data)
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                        border: 2px solid #ff6b6b;
+                        border-radius: 12px;
+                        padding: 20px;
+                        margin-bottom: 20px;
+                    ">
+                    """, unsafe_allow_html=True)
                 
-                st.markdown(f"**❌ Portfolio metrics unavailable**")
-                st.markdown(f"Reason: {ledger['failure_reason']}")
-                st.caption("No placeholder data will be displayed. Please check data availability.")
+                    st.markdown(f"**❌ Portfolio metrics unavailable**")
+                    st.markdown(f"Reason: {ledger['failure_reason']}")
+                    st.caption("No placeholder data will be displayed. Please check data availability.")
                 
-                st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
         
-        except Exception as e:
-            st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
-            if st.session_state.get("debug_mode", False):
-                import traceback
-                st.code(traceback.format_exc())
+            except Exception as e:
+                st.error(f"⚠️ Portfolio ledger module error: {str(e)}")
+                if st.session_state.get("debug_mode", False):
+                    import traceback
+                    st.code(traceback.format_exc())
         
-        st.divider()
+            st.divider()
         
         # ========================================================================
         # SECTION 2: COMPREHENSIVE PERFORMANCE TABLE - ALL WAVES (FROM SNAPSHOT)
