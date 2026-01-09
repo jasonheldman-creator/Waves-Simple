@@ -1,4 +1,10 @@
+name: Rebuild Snapshot
+
 on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+concurrency:
+  group: rebuild-snapshot
+  cancel-in-progress: true
