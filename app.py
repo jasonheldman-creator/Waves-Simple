@@ -22590,7 +22590,7 @@ No live snapshot found. Click a rebuild button in the sidebar to generate data.
     # ========================================================================
     # NOTE: Global price cache initialization has been disabled to prevent
     # implicit background downloads. All price data now comes from the
-    # canonical cache at data/cache/prices_cache.parquet.
+    # canonical cache at data/cache/prices_cache_v2.parquet.
     # 
     # Users should explicitly refresh the cache using:
     # 1. "Refresh Prices Cache" button in sidebar
