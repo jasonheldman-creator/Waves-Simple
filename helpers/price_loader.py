@@ -57,8 +57,10 @@ except ImportError:
 
 # Constants
 CACHE_DIR = "data/cache"
-CACHE_FILE = "prices_cache.parquet"
+CACHE_FILE = "prices_cache_v2.parquet"
+CACHE_FILE_LEGACY = "prices_cache.parquet"
 CACHE_PATH = os.path.join(CACHE_DIR, CACHE_FILE)
+CACHE_PATH_LEGACY = os.path.join(CACHE_DIR, CACHE_FILE_LEGACY)
 FAILED_TICKERS_FILE = "failed_tickers.csv"
 FAILED_TICKERS_PATH = os.path.join(CACHE_DIR, FAILED_TICKERS_FILE)
 
@@ -412,17 +414,25 @@ def load_cache() -> Optional[pd.DataFrame]:
     Returns:
         DataFrame with dates as index and tickers as columns, or None if cache doesn't exist
     """
+    # Determine which cache file to use (v2 with fallback to legacy)
+    cache_file_to_use = CACHE_PATH
+    
     # Log cache file existence check
     logger.info(f"PRICE_BOOK Cache Check: File exists={os.path.exists(CACHE_PATH)}, Path={CACHE_PATH}")
     
     if not os.path.exists(CACHE_PATH):
-        logger.warning(f"Cache file not found: {CACHE_PATH}")
-        return None
+        # Try fallback to legacy cache
+        if os.path.exists(CACHE_PATH_LEGACY):
+            logger.warning(f"Cache file v2 not found: {CACHE_PATH}, falling back to legacy: {CACHE_PATH_LEGACY}")
+            cache_file_to_use = CACHE_PATH_LEGACY
+        else:
+            logger.warning(f"Cache file not found: {CACHE_PATH} (legacy {CACHE_PATH_LEGACY} also not found)")
+            return None
     
     try:
         # Get file mtime for cache key uniqueness
-        cache_mtime = os.path.getmtime(CACHE_PATH)
-        cache_size = os.path.getsize(CACHE_PATH)
+        cache_mtime = os.path.getmtime(cache_file_to_use)
+        cache_size = os.path.getsize(cache_file_to_use)
         cache_size_mb = cache_size / (1024 * 1024)
         
         # Log file size
@@ -459,10 +469,10 @@ def load_cache() -> Optional[pd.DataFrame]:
                 
                 return df
             
-            cache_df = _load_cached_parquet(CACHE_PATH, cache_key)
+            cache_df = _load_cached_parquet(cache_file_to_use, cache_key)
         else:
             # Load without Streamlit caching
-            cache_df = pd.read_parquet(CACHE_PATH)
+            cache_df = pd.read_parquet(cache_file_to_use)
             
             # Ensure index is datetime
             if not isinstance(cache_df.index, pd.DatetimeIndex):
