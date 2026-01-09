@@ -40,9 +40,9 @@ jobs:
           echo "========================================================================"
           
           # Check if cache exists
-          if [ -f data/cache/prices_cache.parquet ]; then
+          if [ -f data/cache/prices_cache_v2.parquet ]; then
             echo "✓ Cache file exists"
-            CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+            CACHE_SIZE=$(stat -c%s data/cache/prices_cache_v2.parquet 2>/dev/null || echo "0")
             echo "  Size: ${CACHE_SIZE} bytes"
             
             # Display existing metadata
@@ -58,7 +58,7 @@ jobs:
           import pandas as pd
           import os
           try:
-              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              df = pd.read_parquet('data/cache/prices_cache_v2.parquet')
               print(f"  Symbol count: {len(df.columns)}")
               print(f"  Date range: {df.index.min()} to {df.index.max()}")
               print(f"  Latest date: {df.index.max()}")
@@ -84,20 +84,20 @@ jobs:
           echo "========================================================================"
           
           # Check cache file existence
-          if [ ! -f data/cache/prices_cache.parquet ]; then
+          if [ ! -f data/cache/prices_cache_v2.parquet ]; then
             echo "✗ ERROR: Cache file does not exist"
             exit 1
           fi
           
           # Check cache file size
-          CACHE_SIZE=$(stat -c%s data/cache/prices_cache.parquet 2>/dev/null || echo "0")
+          CACHE_SIZE=$(stat -c%s data/cache/prices_cache_v2.parquet 2>/dev/null || echo "0")
           if [ "$CACHE_SIZE" -eq 0 ]; then
             echo "✗ ERROR: Cache file is empty"
             exit 1
           fi
           
           echo "✓ Cache file exists and is non-empty"
-          echo "  Path: data/cache/prices_cache.parquet"
+          echo "  Path: data/cache/prices_cache_v2.parquet"
           echo "  Size: ${CACHE_SIZE} bytes"
           
           # Display metadata
@@ -130,7 +130,7 @@ jobs:
           import json
           
           try:
-              df = pd.read_parquet('data/cache/prices_cache.parquet')
+              df = pd.read_parquet('data/cache/prices_cache_v2.parquet')
               
               print(f"  Total symbols: {len(df.columns)}")
               print(f"  Total days: {len(df)}")
@@ -200,8 +200,8 @@ try:
     
     # 2. Get cache max date
     print("\n[2] Reading cache max date...")
-    if os.path.exists('data/cache/prices_cache.parquet'):
-        cache_df = pd.read_parquet('data/cache/prices_cache.parquet')
+    if os.path.exists('data/cache/prices_cache_v2.parquet'):
+        cache_df = pd.read_parquet('data/cache/prices_cache_v2.parquet')
         if not cache_df.empty:
             cache_max_date = cache_df.index.max().strftime('%Y-%m-%d')
             symbol_count = len(cache_df.columns)
@@ -239,8 +239,8 @@ try:
     
     # 4. Get file size
     print("\n[4] Getting cache file size...")
-    if os.path.exists('data/cache/prices_cache.parquet'):
-        file_size_bytes = os.path.getsize('data/cache/prices_cache.parquet')
+    if os.path.exists('data/cache/prices_cache_v2.parquet'):
+        file_size_bytes = os.path.getsize('data/cache/prices_cache_v2.parquet')
         file_size_mb = file_size_bytes / (1024 * 1024)
         print(f"  file_size: {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
     else:
@@ -254,7 +254,7 @@ try:
     print(f"cache_max_date:       {cache_max_date}")
     print(f"sessions_behind:      {sessions_behind}")
     print(f"symbol_count:         {symbol_count}")
-    if os.path.exists('data/cache/prices_cache.parquet'):
+    if os.path.exists('data/cache/prices_cache_v2.parquet'):
         print(f"file_size:            {file_size_bytes} bytes ({file_size_mb:.2f} MB)")
     else:
         print(f"file_size:            N/A")
@@ -276,7 +276,7 @@ EOF
           echo "========================================================================"
           
           # Check if there are changes to commit
-          git add data/cache/prices_cache.parquet data/cache/prices_cache_meta.json
+          git add data/cache/prices_cache_v2.parquet data/cache/prices_cache_meta.json
           
           if git diff --staged --quiet; then
             echo "status=no_changes" >> $GITHUB_OUTPUT
