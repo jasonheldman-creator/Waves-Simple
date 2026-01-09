@@ -1083,43 +1083,49 @@ def render_selected_wave_banner_enhanced(selected_wave: str, mode: str):
         # ========================================================================
         if is_portfolio_view:
             # Use module-level imports if available
-            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE and compute_portfolio_snapshot and get_price_book:
+            if WAVE_PERFORMANCE_AVAILABLE and PRICE_BOOK_CONSTANTS_AVAILABLE:
                 try:
                     # Load PRICE_BOOK
                     price_book = get_cached_price_book()
                     
-                    # Compute portfolio snapshot with all periods
-                    snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
-                    
-                    # Store debug info in session state for diagnostics panel
-                    # Always update to ensure fresh debug data (even on failure)
-                    if 'debug' in snapshot:
-                        st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
-                    
-                    if snapshot['success']:
-                        # Extract portfolio returns
-                        ret_1d = snapshot['portfolio_returns'].get('1D')
-                        ret_30d = snapshot['portfolio_returns'].get('30D')
-                        ret_60d = snapshot['portfolio_returns'].get('60D')
-                        ret_365d = snapshot['portfolio_returns'].get('365D')
-                        
-                        # Extract alphas
-                        alpha_1d = snapshot['alphas'].get('1D')
-                        alpha_30d = snapshot['alphas'].get('30D')
-                        alpha_60d = snapshot['alphas'].get('60D')
-                        alpha_365d = snapshot['alphas'].get('365D')
-                        
-                        # Format return strings
-                        ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
-                        ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
-                        ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
-                        ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
-                        
-                        # Format alpha strings
-                        alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
-                        alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
-                        alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
-                        alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                    # Use ENGINE_RUNNING as a reentrancy lock
+                    if not st.session_state.get("ENGINE_RUNNING", False):
+                        st.session_state.ENGINE_RUNNING = True
+                        try:
+                            # Compute portfolio snapshot with all periods
+                            snapshot = compute_portfolio_snapshot(price_book, mode=mode, periods=[1, 30, 60, 365])
+                            
+                            # Store debug info in session state for diagnostics panel
+                            # Always update to ensure fresh debug data (even on failure)
+                            if 'debug' in snapshot:
+                                st.session_state['portfolio_snapshot_debug'] = snapshot['debug']
+                            
+                            if snapshot['success']:
+                                # Extract portfolio returns
+                                ret_1d = snapshot['portfolio_returns'].get('1D')
+                                ret_30d = snapshot['portfolio_returns'].get('30D')
+                                ret_60d = snapshot['portfolio_returns'].get('60D')
+                                ret_365d = snapshot['portfolio_returns'].get('365D')
+                                
+                                # Extract alphas
+                                alpha_1d = snapshot['alphas'].get('1D')
+                                alpha_30d = snapshot['alphas'].get('30D')
+                                alpha_60d = snapshot['alphas'].get('60D')
+                                alpha_365d = snapshot['alphas'].get('365D')
+                                
+                                # Format return strings
+                                ret_1d_str = f"{ret_1d*100:+.2f}%" if ret_1d is not None else "—"
+                                ret_30d_str = f"{ret_30d*100:+.2f}%" if ret_30d is not None else "—"
+                                ret_60d_str = f"{ret_60d*100:+.2f}%" if ret_60d is not None else "—"
+                                ret_365d_str = f"{ret_365d*100:+.2f}%" if ret_365d is not None else "—"
+                                
+                                # Format alpha strings
+                                alpha_1d_str = f"{alpha_1d*100:+.2f}%" if alpha_1d is not None else "—"
+                                alpha_30d_str = f"{alpha_30d*100:+.2f}%" if alpha_30d is not None else "—"
+                                alpha_60d_str = f"{alpha_60d*100:+.2f}%" if alpha_60d is not None else "—"
+                                alpha_365d_str = f"{alpha_365d*100:+.2f}%" if alpha_365d is not None else "—"
+                        finally:
+                            st.session_state.ENGINE_RUNNING = False
                 except Exception as e:
                     # Log error but keep N/A values (graceful degradation)
                     logging.warning(f"Failed to compute portfolio snapshot for banner: {e}")
