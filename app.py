@@ -8250,7 +8250,7 @@ def render_sidebar_info():
                         
                         # Temporarily allow the build by creating a temporary session state
                         temp_session_state = dict(st.session_state)
-                        temp_session_state["safe_mode_no_fetch"] = False  # Temporarily disable for manual build
+                        temp_session_state["safe_mode_no_fetch"] = True
                         
                         snapshot_df = generate_live_snapshot(
                             output_path="data/live_snapshot.csv",
