@@ -2,7 +2,9 @@ name: Rebuild Snapshot
 
 on:
   workflow_dispatch:
-  
+  pull_request:
+    branches: [ main ]
+
 permissions:
   contents: write
 
@@ -13,11 +15,13 @@ concurrency:
 jobs:
   rebuild:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,24 +33,17 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # IMPORTANT:
-      # Adjust ONE of the next two "Run snapshot" lines to match your repo.
-      # Try Option A first. If it fails saying file not found, switch to Option B.
-
       - name: Run snapshot (Option A)
-        run: python scripts/rebuild_snapshot.py
-
-      # - name: Run snapshot (Option B)
-      #   run: python rebuild_snapshot.py
+        run: |
+          python scripts/rebuild_snapshot.py
 
       - name: Commit snapshot if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Common snapshot outputs (commit if present/changed)
           git add -A data || true
-          git add -A output || true
+          git add -A output 2>/dev/null || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
@@ -54,4 +51,6 @@ jobs:
           fi
 
           git commit -m "Rebuild live snapshot"
-          git push
+
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git push origin "HEAD:$BRANCH"
